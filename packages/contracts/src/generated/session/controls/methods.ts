@@ -255,6 +255,10 @@ export interface SessionMcpResource {
    */
   name: string;
   /**
+   * Its title, where the server gives one.
+   */
+  title?: string;
+  /**
    * Its description, where the server gives one.
    */
   description?: string;
@@ -300,6 +304,10 @@ export interface SessionServerPrompt {
    * The prompt's name.
    */
   name: string;
+  /**
+   * Its title, where the server gives one.
+   */
+  title?: string;
   /**
    * Its description, where the server gives one.
    */

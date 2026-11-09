@@ -549,6 +549,10 @@ export interface PreviewPage {
    */
   host: string;
   /**
+   * The page's own title; may be empty.
+   */
+  title: string;
+  /**
    * Its icon; `null` where it has none.
    */
   favicon: PreviewFavicon | null;

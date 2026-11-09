@@ -3072,6 +3072,10 @@ export interface McpRegistryServer {
    */
   name: string;
   /**
+   * The name a person reads.
+   */
+  title?: string;
+  /**
    * What it does.
    */
   description: string;

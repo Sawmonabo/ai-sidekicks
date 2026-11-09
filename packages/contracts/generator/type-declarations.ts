@@ -59,6 +59,48 @@ function withoutRuleArms(schema: Record<string, unknown>): Record<string, unknow
   };
 }
 
+/** Keywords whose value maps a name the wire chose (a member, a definition) to its schema. */
+const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set([
+  "$defs",
+  "properties",
+  "patternProperties",
+]);
+/** Keywords whose value lists the arms of a union. */
+const UNION_KEYWORDS: ReadonlySet<string> = new Set(["anyOf", "oneOf"]);
+
+/** Each schema of `map` ready for the type generator, under its name as written. */
+function prepareSchemaMap(map: Record<string, unknown>, imports: ModuleImports): unknown {
+  return Object.fromEntries(
+    Object.entries(map).map(([name, schema]) => [name, prepareForTypes(schema, imports)]),
+  );
+}
+
+/** Whether `arm` is typed `never`, which adds nothing to a union. */
+function isNeverArm(arm: unknown): boolean {
+  return (arm as Record<string, unknown>)["tsType"] === "never";
+}
+
+/**
+ * The arms of a union ready for the type generator, less those typed `never`: written as they
+ * are, `never | null` would read `never` beside a member that is only ever `null`.
+ */
+function prepareUnionArms(arms: unknown[], imports: ModuleImports): unknown[] {
+  const prepared = arms.map((arm) => prepareForTypes(arm, imports));
+  const kept = prepared.filter((arm) => !isNeverArm(arm));
+  return kept.length === 0 ? prepared : kept;
+}
+
+/** A schema keyword's value ready for the type generator. */
+function prepareKeyword(keyword: string, value: unknown, imports: ModuleImports): unknown {
+  if (SCHEMA_MAP_KEYWORDS.has(keyword)) {
+    return prepareSchemaMap(value as Record<string, unknown>, imports);
+  }
+  if (UNION_KEYWORDS.has(keyword) && Array.isArray(value)) {
+    return prepareUnionArms(value, imports);
+  }
+  return prepareForTypes(value, imports);
+}
+
 /** A copy of `node` ready for the type generator: titles gone, `tsType` and references typed. */
 function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
   if (Array.isArray(node)) {
@@ -95,7 +137,7 @@ function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
       .filter(([, value]) => value !== undefined)
       // A title would make the generator name the type after it instead of its definition.
       .filter(([key]) => key !== "title")
-      .map(([key, value]) => [key, prepareForTypes(value, imports)]),
+      .map(([key, value]) => [key, prepareKeyword(key, value, imports)]),
   );
 }
 
@@ -104,7 +146,10 @@ function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
  * the generator names one differently, since its check is named from that key.
  */
 export async function generateTypes(schema: SchemaObject, imports: ModuleImports): Promise<string> {
-  const definitions = prepareForTypes(schema["$defs"], imports) as Record<string, JSONSchema>;
+  const definitions = prepareSchemaMap(
+    schema["$defs"] as Record<string, unknown>,
+    imports,
+  ) as Record<string, JSONSchema>;
   const names = Object.keys(definitions);
   if (names.length === 0) {
     return "";

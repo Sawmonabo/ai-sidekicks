@@ -44,6 +44,10 @@ export type ProviderCommandEntry =
        * Only a prompt names a server.
        */
       server?: never;
+      /**
+       * Only a prompt carries a title.
+       */
+      title?: never;
     }
   | {
       kind: "skill";
@@ -75,6 +79,10 @@ export type ProviderCommandEntry =
        * Only a prompt names a server.
        */
       server?: never;
+      /**
+       * Only a prompt carries a title.
+       */
+      title?: never;
     }
   | {
       kind: "prompt";
@@ -106,6 +114,10 @@ export type ProviderCommandEntry =
        * The tool server that publishes the prompt.
        */
       server: string;
+      /**
+       * The prompt's title for people, where the server gives one.
+       */
+      title?: string;
     };
 
 /**

@@ -707,6 +707,10 @@ export interface ChangeRequestFormValues {
    */
   base: string;
   /**
+   * The title.
+   */
+  title: string;
+  /**
    * The description.
    */
   description: string;
@@ -831,6 +835,10 @@ export interface GitCommitMessageGenerateResponse {
  * The `git.changeRequest.text.generate` result.
  */
 export interface GitChangeRequestTextGenerateResponse {
+  /**
+   * The title.
+   */
+  title: string;
   /**
    * The description.
    */

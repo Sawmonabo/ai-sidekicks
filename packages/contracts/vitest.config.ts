@@ -4,7 +4,7 @@ import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared.j
 
 export default defineConfig({
   test: {
-    include: ["src/**/__tests__/**/*.test.ts"],
+    include: ["src/**/__tests__/**/*.test.ts", "generator/__tests__/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],

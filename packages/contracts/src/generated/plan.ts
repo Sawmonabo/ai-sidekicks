@@ -127,6 +127,10 @@ export interface PlanProposedPayload {
    */
   runId: RunId;
   /**
+   * Its title.
+   */
+  title: string;
+  /**
    * Its text.
    */
   text: string;

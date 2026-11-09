@@ -509,6 +509,10 @@ export interface SessionOverviewSession {
    */
   id: SessionId;
   /**
+   * Its title.
+   */
+  title?: string;
+  /**
    * Its lead's provider.
    */
   provider: ProviderId;

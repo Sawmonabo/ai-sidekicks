@@ -37,6 +37,10 @@ export type ArtifactListEntry =
        */
       planId: PlanId;
       /**
+       * The plan's first heading.
+       */
+      title: string;
+      /**
        * The state word its plan record holds.
        */
       state: PlanState;

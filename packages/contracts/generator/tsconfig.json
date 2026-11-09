@@ -15,5 +15,5 @@
     // Node strips the types and refuses syntax that emits code.
     "erasableSyntaxOnly": true
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "__tests__/*.ts"]
 }

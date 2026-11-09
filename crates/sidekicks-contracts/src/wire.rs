@@ -64,7 +64,14 @@ impl<T: JsonSchema> JsonSchema for NullableSchema<T> {
     }
 
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        <Option<T> as JsonSchema>::json_schema(generator)
+        let value = generator.subschema_for::<T>();
+        let nullable = <Option<T> as JsonSchema>::json_schema(generator);
+        if nullable != value {
+            return nullable;
+        }
+        // schemars widens a schema to take `null` through its `type`, `const`, `enum` or a
+        // subschema keyword, and returns one with none of them (`Never`'s `not: {}`) unchanged.
+        json_schema!({ "anyOf": [value, { "type": "null" }] })
     }
 }
 
@@ -354,3 +361,26 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 /// The wire's TypeScript modules.
 pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[&TYPESCRIPT_MODULE];
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{Never, NullableSchema};
+    use crate::schema::closed_schema_for;
+
+    // A member typed `null` on its own arm (a released terminal's holder) takes `null` and no
+    // value. Killed by returning `Option<T>`'s schema unchanged, which stays `not: {}`.
+    #[rstest]
+    #[case::null(Value::Null, true)]
+    #[case::a_value(json!("device"), false)]
+    fn a_nullable_of_the_impossible_type_takes_only_null(
+        #[case] value: Value,
+        #[case] is_taken: bool,
+    ) {
+        let schema = closed_schema_for::<NullableSchema<Never>>().expect("the schema writes");
+        let check = jsonschema::validator_for(&schema).expect("the schema builds a check");
+        assert_eq!(check.is_valid(&value), is_taken, "{value}");
+    }
+}
