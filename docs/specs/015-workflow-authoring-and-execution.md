@@ -302,7 +302,7 @@ Every run has one address inside the window, `#/workflows/runs/<runId>` under `#
 - An `agent.multiAgent` step runs a lead and its helpers in the run's session through the orchestration path (§Agent steps (SA-6, SA-8, SA-9)). When its run ends failed or canceled, the lead and its helpers are canceled with every other running branch (§Execution semantics).
 - Workflow definitions default to immutable-by-version: editing a workflow creates a new version rather than mutating a running definition in place.
 - Workflow definition reads default to the canonical persisted definition record for the requested version rather than to an artifact manifest.
-- A `human.form` step's fields default to primitive-type JSON schema fields (`text` / `longText` / `number` / `integer` / `boolean` / `enum` / `path`). A form has no artifact field and no in-form upload: a location is a `path` field, which the person fills through the platform's own file chooser (SA-10).
+- A `human.form` step's fields default to primitive-type JSON schema fields (`text` / `longText` / `number` / `integer` / `boolean` / `enum` / `path`). A form has no artifact field and no in-form upload: a location is a `path` field, which the person fills through the platform's own file chooser (SA-10). In the schema a `path` field is a string field with `format: "path"`: the editor writes it when the author picks `Path` as the field's kind, the card shows the chooser for that format, and a validator that does not know the format ignores it, so the schema stays plain JSON Schema.
 
 ## Fallback Behavior
 
@@ -463,7 +463,7 @@ A human step is authored with the `HumanStepConfig` type, the params of the kind
 ```typescript
 type HumanStepConfig = {
   prompt: string;
-  inputSchema: JSONSchema7; // primitive-type fields; a location is a `path` field
+  inputSchema: JSONSchema7; // primitive-type fields; a location is a `path` field, a string with `format: "path"`
   timeout?: Duration; // empty by default: the step waits until it is answered
 };
 ```
