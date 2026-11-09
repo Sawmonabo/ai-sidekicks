@@ -12,7 +12,7 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import { useMemo } from "react";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -36,7 +36,7 @@ const PROGRESS_CLASS = "meridian-provider-import__progress";
 export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.Element | null {
   const { model } = props;
   const { progress } = model;
-  const providerLabel = PROVIDER_LABELS[model.provider];
+  const providerLabel = useProviderName(model.provider);
   // The row speaks through the app's announcer; a refused row's refusal speaks for itself. A
   // running import is said once, without the count it redraws on every frame, which would
   // otherwise be read out frame by frame. What the stream replayed as it opened is not news; a
@@ -190,9 +190,9 @@ function SettledLine(props: {
               <WireFigure value={failure.source} /> {formatWireString(failure.reason)}
             </li>
           ))}
-          {settlement.unreadableFiles.map((path) => (
-            <li key={path}>
-              <WireFigure value={path} />
+          {settlement.unreadableFiles.map((unreadable) => (
+            <li key={unreadable.path}>
+              <WireFigure value={unreadable.path} />
             </li>
           ))}
         </ul>

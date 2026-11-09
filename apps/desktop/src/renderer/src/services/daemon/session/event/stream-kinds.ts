@@ -9,7 +9,7 @@
 
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { RUN_STATE_EVENT_TYPES } from "@ai-sidekicks/contracts/transcript/run-facts";
+import { RUN_STATE_EVENT_TYPES } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
@@ -19,16 +19,16 @@ import {
 
 /**
  * The event kinds `run.subscribeState` projects: every run state a run can transition into, plus
- * `run.rolled_back`.
+ * `agent.run.rolledBack`.
  *
- * `run.rolled_back` is the stream's second arm and records no state change. `run.queued` and the
- * other forward run rows (provider initialization, turn start, worker shutdown) are absent because
- * neither arm can represent them; the run-and-queue scenario check subtracts this type from the
- * `run.` census to hold each of those to its own payload.
+ * `agent.run.rolledBack` is the stream's second arm and records no state change. `run.queued`
+ * and the other forward run rows (provider initialization, turn start, worker shutdown) are absent
+ * because neither arm can represent them; the run-and-queue scenario check subtracts this type
+ * from the `run.` census to hold each of those to its own payload.
  */
 export type RunStateStreamKind =
   | RunStateTransitionKind
-  | Extract<SessionEventType, "run.rolled_back">;
+  | Extract<SessionEventType, "agent.run.rolledBack">;
 
 /**
  * Which of the stream's two wire arms a kind is projected into. Whatever builds an arm reads this
@@ -36,13 +36,13 @@ export type RunStateStreamKind =
  */
 export type RunStateStreamArm = "state-change" | "rollback";
 
-/** The arm table: state changes ride `state-change`, and `run.rolled_back` rides `rollback`. */
+/** The arm table: state changes ride `state-change`, and `agent.run.rolledBack` rides `rollback`. */
 const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<string, RunStateStreamArm>> = Object.freeze(
   Object.fromEntries<RunStateStreamArm>([
     ...RUN_STATE_EVENT_TYPES.filter((kind) => runStateForTransitionKind(kind) !== undefined).map(
       (kind): [string, RunStateStreamArm] => [kind, "state-change"],
     ),
-    ["run.rolled_back", "rollback"] satisfies [RunStateStreamKind, RunStateStreamArm],
+    ["agent.run.rolledBack", "rollback"] satisfies [RunStateStreamKind, RunStateStreamArm],
   ]),
 );
 

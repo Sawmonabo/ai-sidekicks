@@ -11,6 +11,7 @@ import type {
   AgentProviderBinding,
 } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
@@ -18,6 +19,7 @@ import { ManualClock, type Clock } from "#renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { settle as settleReactWork } from "#test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 import { AgentLibrary } from "./AgentLibrary.js";
 import type { AgentRegistryCalls } from "./view.js";
 
@@ -110,7 +112,7 @@ export function definition(overrides: DefinitionOverrides = {}): AgentDefinition
     accentHue: null,
     bindings: {
       default: {
-        driverName: "claude",
+        providerName: "claude" as ProviderId,
         modelId: "claude-opus-4-6",
         providerAccountId: "account-work" as ProviderAccountId,
         effort: "high",
@@ -140,9 +142,11 @@ export function renderAgentLibrary(stub: RegistryStub): { readonly container: HT
 export function AgentLibraryOverStub(props: { readonly stub: RegistryStub }): React.JSX.Element {
   return (
     <PlatformBridgeProvider bridge={props.stub.bridge} clock={props.stub.clock}>
-      <LiveAnnouncerProvider clock={new ManualClock()}>
-        <AgentLibrary bridge={props.stub.bridge} calls={props.stub.calls} />
-      </LiveAnnouncerProvider>
+      <ServedProviderSections>
+        <LiveAnnouncerProvider clock={new ManualClock()}>
+          <AgentLibrary bridge={props.stub.bridge} calls={props.stub.calls} />
+        </LiveAnnouncerProvider>
+      </ServedProviderSections>
     </PlatformBridgeProvider>
   );
 }

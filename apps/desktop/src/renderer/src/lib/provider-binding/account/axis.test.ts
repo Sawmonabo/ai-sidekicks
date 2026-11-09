@@ -3,6 +3,7 @@
 // Cases build plain objects, since the model is a pure function over a reading.
 
 import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,20 +12,25 @@ import {
   chosenAccountIn,
   registryCarriesAccount,
 } from "./axis.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 import { account, registryAccountId, resolvedTo, served } from "./reading.test-support.js";
+
+/** The providers the service lists. */
+const PROVIDER_SECTIONS = providerSectionsFixture();
 
 describe("the account axis — which accounts it may offer", () => {
   it("offers only the accounts belonging to the chosen driver's provider", () => {
     const reading = accountAxisReadingFor(
       served([
-        account({ accountId: registryAccountId("acct-claude"), provider: "claude" }),
+        account({ accountId: registryAccountId("acct-claude"), provider: "claude" as ProviderId }),
         account({
           accountId: registryAccountId("acct-codex"),
-          provider: "codex",
+          provider: "codex" as ProviderId,
           isDefault: false,
         }),
       ]),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(reading.kind).toBe("served");
@@ -37,9 +43,9 @@ describe("the account axis — which accounts it may offer", () => {
     "refuses a driver it cannot match to a provider rather than " +
       "offering another provider's accounts",
     () => {
-      // The form's `driverName` is a free string and provider is a closed set; falling through to a
-      // list would pin a run to an account of a provider nobody chose.
-      const reading = accountAxisReadingFor(served([account()]), "gemini");
+      // The form's `driverName` is a free string matched against the listed providers; falling
+      // through to a list would pin a run to an account of a provider nobody chose.
+      const reading = accountAxisReadingFor(served([account()]), "gemini", PROVIDER_SECTIONS);
 
       expect(reading).toEqual({ kind: "unknown-provider", driverName: "gemini" });
     },
@@ -50,18 +56,20 @@ describe("the account axis — which account a readiness entry is about", () => 
   it("carries the entry belonging to this provider and no other provider's", () => {
     // The projection is per provider, so an entry matched by resolved id alone could land
     // another provider's verdict on this row.
-    const crossProvider: ProviderReadiness = {
-      provider: "codex",
-      state: "reauth_required",
+    // A cast: the generated arm types its remedy's account id against a schema reference.
+    const crossProvider = {
+      provider: "codex" as ProviderId,
+      state: "reauthRequired",
       resolvedAccountId: registryAccountId("acct-team"),
       remedy: {
-        kind: "sign_in",
+        kind: "signIn",
         accountId: registryAccountId("acct-team"),
       },
-    };
+    } as ProviderReadiness;
     const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })], [crossProvider]),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(reading.kind === "served" ? reading.providerReadiness : "unexpected").toBeUndefined();
@@ -80,12 +88,13 @@ describe("the account axis — the account an unpinned run resolves to", () => {
           account({
             accountId: registryAccountId("acct-personal"),
             isDefault: false,
-            healthState: "reauth_required",
+            healthState: "reauthRequired",
           }),
         ],
         [resolvedTo("acct-personal")],
       ),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(advisoryChoiceIn(reading, undefined)?.accountId).toBe("acct-personal");
@@ -102,6 +111,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
         [resolvedTo("acct-personal")],
       ),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(advisoryChoiceIn(reading, "acct-team")?.accountId).toBe("acct-team");
@@ -113,6 +123,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
     const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
@@ -124,6 +135,7 @@ describe("the account axis — a value the registry does not carry", () => {
     const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })]),
       "claude",
+      PROVIDER_SECTIONS,
     );
 
     expect(registryCarriesAccount(reading, "acct-gone")).toBe(false);
@@ -136,8 +148,13 @@ describe("the account axis — a value the registry does not carry", () => {
       const unread = accountAxisReadingFor(
         { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
         "claude",
+        PROVIDER_SECTIONS,
       );
-      const unknownProvider = accountAxisReadingFor(served([account()]), "gemini");
+      const unknownProvider = accountAxisReadingFor(
+        served([account()]),
+        "gemini",
+        PROVIDER_SECTIONS,
+      );
 
       expect(registryCarriesAccount(unread, "acct-team")).toBe(true);
       expect(registryCarriesAccount(unknownProvider, "acct-team")).toBe(true);

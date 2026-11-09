@@ -16,6 +16,7 @@ import {
 } from "#renderer/services/platform/bridge.fixture.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
 import type { WindowBanner } from "#renderer/store/window/store.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type NavigationRailProps,
@@ -78,7 +79,8 @@ export function frameProps(
  * Both arms are real: `createStubBridge()` is `PreloadApi` with every round-trip member throwing
  * `NotImplementedError`, a bridge none of whose calls reaches main, and `createFixtureBridge`
  * builds the real engine over a scenario, whose frozen clock a case hands in beside it. Without a
- * clock the window runs on real time.
+ * clock the window runs on real time. The provider list is served, as the app holds it above every
+ * window.
  */
 export function bridgeWrapper(
   bridge: PlatformBridge,
@@ -87,7 +89,7 @@ export function bridgeWrapper(
   return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
     return (
       <PlatformBridgeProvider bridge={bridge} {...(clock === undefined ? {} : { clock })}>
-        {props.children}
+        <ServedProviderSections>{props.children}</ServedProviderSections>
       </PlatformBridgeProvider>
     );
   };
@@ -110,7 +112,8 @@ export function withAnnouncer(
 }
 
 /**
- * The provider over a fixture bridge, on its engine's frozen clock.
+ * The provider over a fixture bridge, on its engine's frozen clock, with the provider list served
+ * as the app holds it above every window.
  *
  * A component rather than a wrapper factory, so a case that re-renders a tree naming a
  * different fixture keeps one provider and exercises its in-place replacement.
@@ -124,7 +127,7 @@ export function FixtureBridgeProvider(props: {
       bridge={props.fixture.bridge}
       clock={props.fixture.scenarioEngine.clock}
     >
-      {props.children}
+      <ServedProviderSections>{props.children}</ServedProviderSections>
     </PlatformBridgeProvider>
   );
 }

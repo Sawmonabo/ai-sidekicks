@@ -10,8 +10,11 @@ import {
   PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
   type ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+import { withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { account } from "#renderer/lib/provider-binding/account/reading.test-support.js";
@@ -28,11 +31,14 @@ function registerRefusedWith(code: string): () => Promise<ProviderAccountRegiste
   return () => Promise.reject(new RefusalError(refuse("daemon", code, "The service's own words.")));
 }
 
+/** The provider every form here registers an account at. */
+const CODEX = "codex" as ProviderId;
+
 /** Open the form, fill both fields and submit, then let the refusal land. */
 async function submitRefusedWith(code: string): Promise<HTMLInputElement> {
   const { getByRole, getByLabelText } = render(
-    <TokenRegistrationForm register={registerRefusedWith(code)} provider="codex" accounts={[]} />,
-    { wrapper: LiveAnnouncerProvider },
+    <TokenRegistrationForm register={registerRefusedWith(code)} provider={CODEX} accounts={[]} />,
+    { wrapper: withAnnouncer(ServedProviderSections) },
   );
   fireEvent.click(getByRole("button", { name: "Paste a token instead" }));
   const nameField = getByLabelText("Name");
@@ -80,13 +86,15 @@ describe("TokenRegistrationForm — a refusal pressed into twice", () => {
     // between the presses; only the press can tell the announcer it is a new refusal.
     const clock = new ManualClock(0);
     const { getByRole, getByLabelText, container } = render(
-      <LiveAnnouncerProvider clock={clock}>
-        <TokenRegistrationForm
-          register={registerRefusedWith(PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE)}
-          provider="codex"
-          accounts={[account({ provider: "codex", displayLabel: "Metered" })]}
-        />
-      </LiveAnnouncerProvider>,
+      <ServedProviderSections>
+        <LiveAnnouncerProvider clock={clock}>
+          <TokenRegistrationForm
+            register={registerRefusedWith(PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE)}
+            provider={CODEX}
+            accounts={[account({ provider: CODEX, displayLabel: "Metered" })]}
+          />
+        </LiveAnnouncerProvider>
+      </ServedProviderSections>,
     );
     fireEvent.click(getByRole("button", { name: "Paste a token instead" }));
     const nameField = getByLabelText("Name");

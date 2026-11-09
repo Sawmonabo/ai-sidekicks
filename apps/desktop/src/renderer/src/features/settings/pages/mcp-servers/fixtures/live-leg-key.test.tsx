@@ -11,6 +11,8 @@ import type {
   McpLiveApplicationResult,
   McpServerLegStatus,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
@@ -19,6 +21,7 @@ import type { McpMutationOutcome } from "./mutation.js";
 import { MutationOutcomeLine } from "./components/MutationOutcomeLine.js";
 import { ServerLegs } from "./components/ServerLegs.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 import { liveBridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 
 afterEach(() => {
@@ -28,7 +31,7 @@ afterEach(() => {
 const FIRST_SESSION = "019b7892-1a00-7c31-8110-cca0117a0500" as SessionId;
 const SECOND_SESSION = "019b7892-1a00-7c31-8110-cca0117a0501" as SessionId;
 /** One handle reported by both sessions, which the pair key has to survive. */
-const SHARED_BINDING_ID = "leg-filesystem";
+const SHARED_BINDING_ID = "leg-filesystem" as RuntimeBindingId;
 
 const LEGS_SHARING_A_HANDLE: readonly McpServerLegStatus[] = [
   { sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID, status: "connected" },
@@ -43,8 +46,8 @@ const LIVE_RESULTS_SHARING_A_HANDLE: readonly McpLiveApplicationResult[] = [
 
 const SETTLED_OUTCOME: McpMutationOutcome = {
   kind: "settled",
-  binding: { provider: "claude", scope: "user", serverName: "filesystem" },
-  settlement: { grades: ["user_config_write"], liveResults: LIVE_RESULTS_SHARING_A_HANDLE },
+  binding: { provider: "claude" as ProviderId, scope: "user", serverName: "filesystem" },
+  settlement: { grades: ["userConfigWrite"], liveResults: LIVE_RESULTS_SHARING_A_HANDLE },
 };
 
 describe("mcpLiveLegKeyOf", () => {
@@ -76,11 +79,13 @@ describe("the two lists that render a live leg", () => {
   it("gives each per-leg mutation outcome its own React identity", async () => {
     const { reported } = await reportsWhileReactRan(() =>
       render(
-        <MutationOutcomeLine
-          outcome={SETTLED_OUTCOME}
-          sessionDirectory={{ status: "reading" }}
-          clock={new ManualClock(0)}
-        />,
+        <ServedProviderSections>
+          <MutationOutcomeLine
+            outcome={SETTLED_OUTCOME}
+            sessionDirectory={{ status: "reading" }}
+            clock={new ManualClock(0)}
+          />
+        </ServedProviderSections>,
         { wrapper: LiveAnnouncerProvider },
       ),
     );

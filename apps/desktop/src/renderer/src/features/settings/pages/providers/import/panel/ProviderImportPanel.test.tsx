@@ -14,7 +14,7 @@ import type {
   ProviderImportOutcome,
   ProviderImportProgress,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportCalls } from "../hooks/useProviderImport.js";
@@ -22,6 +22,11 @@ import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
 import { spiedAnnouncer, type SpiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+
+/** The two providers the sections fixture lists. */
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
 
 /** The id the stubbed start answers the first press with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;
@@ -87,7 +92,7 @@ function recordingCalls(options: { readonly isStartRefused: boolean }): {
 }
 
 function ImportHarness(props: {
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   readonly calls: ProviderImportCalls;
 }): React.JSX.Element {
   return <ProviderImportPanel model={useProviderImport(props.provider, props.calls)} />;
@@ -95,7 +100,7 @@ function ImportHarness(props: {
 
 /** Mount one provider's panel and let its stream open; `opened` holds every stream opened. */
 async function renderPanel(
-  provider: ProviderName,
+  provider: ProviderId,
   options: { readonly isStartRefused: boolean } = { isStartRefused: false },
 ): Promise<{
   readonly stream: DrivenProgressStream;
@@ -106,9 +111,11 @@ async function renderPanel(
   const { calls, sent, opened } = recordingCalls(options);
   const said = spiedAnnouncer();
   render(
-    <LiveAnnouncerProvider announcer={said.announcer}>
-      <ImportHarness provider={provider} calls={calls} />
-    </LiveAnnouncerProvider>,
+    <ServedProviderSections>
+      <LiveAnnouncerProvider announcer={said.announcer}>
+        <ImportHarness provider={provider} calls={calls} />
+      </LiveAnnouncerProvider>
+    </ServedProviderSections>,
   );
   await settle();
   const [stream] = opened;
@@ -124,7 +131,7 @@ async function emit(stream: DrivenProgressStream, message: ProviderImportProgres
 }
 
 function settledMessage(
-  provider: ProviderName,
+  provider: ProviderId,
   settlement: ProviderImportOutcome,
   importId: ProviderImportId = IMPORT_ID,
 ): ProviderImportProgress {
@@ -146,13 +153,13 @@ function rowText(): string {
 
 describe("one provider's import", () => {
   it("opens the provider's stream before anything is pressed, and draws its last outcome unsaid", async () => {
-    const { stream, sent, said } = await renderPanel("codex");
-    expect(sent.subscribe).toStrictEqual([{ provider: "codex" }]);
+    const { stream, sent, said } = await renderPanel(CODEX);
+    expect(sent.subscribe).toStrictEqual([{ provider: CODEX }]);
     expect(sent.begin).toStrictEqual([]);
 
     await emit(
       stream,
-      settledMessage("codex", { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] }),
+      settledMessage(CODEX, { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] }),
     );
     expect(rowText()).toBe("Nothing new to import from Codex · 4 already here.");
     // The outcome was already true when the person arrived: it is browsed, not said.
@@ -162,7 +169,7 @@ describe("one provider's import", () => {
   });
 
   it("starts on the press, counts what it reads, and stops on Stop with the running import", async () => {
-    const { stream, sent, said } = await renderPanel("claude");
+    const { stream, sent, said } = await renderPanel(CLAUDE);
     // Negative control: nothing is running, so there is nothing to stop.
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
 
@@ -170,11 +177,11 @@ describe("one provider's import", () => {
       importAction("Import sessions from Claude Code").click();
     });
     await settle();
-    expect(sent.begin).toStrictEqual([{ provider: "claude" }]);
+    expect(sent.begin).toStrictEqual([{ provider: CLAUDE }]);
     expect(importAction("Import sessions from Claude Code").disabled).toBe(true);
 
-    await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 128 });
-    await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 256 });
+    await emit(stream, { kind: "progress", provider: CLAUDE, importId: IMPORT_ID, read: 128 });
+    await emit(stream, { kind: "progress", provider: CLAUDE, importId: IMPORT_ID, read: 256 });
     expect(rowText()).toContain("Importing from Claude Code… 256 read.");
     // The bar measures nothing: the stream sent no total to measure against.
     expect(screen.getByRole("progressbar").hasAttribute("value")).toBe(false);
@@ -185,7 +192,7 @@ describe("one provider's import", () => {
     await settle();
     expect(sent.stop).toStrictEqual([{ importId: IMPORT_ID }]);
 
-    await emit(stream, settledMessage("claude", { outcome: "stopped" }));
+    await emit(stream, settledMessage(CLAUDE, { outcome: "stopped" }));
     expect(rowText()).toBe("Import stopped. The sessions already read are in the sessions list.");
     expect(screen.queryByRole("progressbar")).toBeNull();
     // The running import is said once, never its counts, and the outcome it reached once.
@@ -198,16 +205,16 @@ describe("one provider's import", () => {
   });
 
   it("settles with every count the service sent, and unfolds the failures on a press", async () => {
-    const { stream } = await renderPanel("claude");
+    const { stream } = await renderPanel(CLAUDE);
     await emit(
       stream,
-      settledMessage("claude", {
+      settledMessage(CLAUDE, {
         outcome: "finished",
         imported: 125,
         total: 128,
         alreadyHere: 34,
         failures: [{ source: "one.jsonl", reason: "truncated" }],
-        unreadableFiles: ["two.jsonl", "three.jsonl"],
+        unreadableFiles: [{ path: "two.jsonl" }, { path: "three.jsonl" }],
         attachedProjects: [],
       }),
     );
@@ -222,10 +229,10 @@ describe("one provider's import", () => {
   });
 
   it("draws a count only where there is one", async () => {
-    const { stream } = await renderPanel("claude");
+    const { stream } = await renderPanel(CLAUDE);
     await emit(
       stream,
-      settledMessage("claude", {
+      settledMessage(CLAUDE, {
         outcome: "finished",
         imported: 12,
         total: 12,
@@ -241,10 +248,10 @@ describe("one provider's import", () => {
   });
 
   it("names the projects the import attached on the same line", async () => {
-    const { stream } = await renderPanel("claude");
+    const { stream } = await renderPanel(CLAUDE);
     await emit(
       stream,
-      settledMessage("claude", {
+      settledMessage(CLAUDE, {
         outcome: "finished",
         imported: 125,
         total: 128,
@@ -258,12 +265,12 @@ describe("one provider's import", () => {
   });
 
   it("draws a refused import in the service's own words, and Try again starts it again", async () => {
-    const { stream, sent, said } = await renderPanel("codex");
+    const { stream, sent, said } = await renderPanel(CODEX);
     const refusal: ProviderImportOutcome = {
       outcome: "refused",
       reason: "The Codex folder is missing.",
     };
-    await emit(stream, settledMessage("codex", refusal, EARLIER_IMPORT_ID));
+    await emit(stream, settledMessage(CODEX, refusal, EARLIER_IMPORT_ID));
     expect(rowText()).toContain("The Codex folder is missing.");
     // Replayed as the stream opened, so it stands; the same refusal answering a press is news.
     expect(said.spokenOn("assertive")).toStrictEqual([]);
@@ -271,22 +278,22 @@ describe("one provider's import", () => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
     await settle();
-    expect(sent.begin).toStrictEqual([{ provider: "codex" }]);
+    expect(sent.begin).toStrictEqual([{ provider: CODEX }]);
     // Until the started import settles, the row reports it running, never the old refusal.
     expect(said.spokenOn("assertive")).toStrictEqual([]);
-    await emit(stream, settledMessage("codex", refusal));
+    await emit(stream, settledMessage(CODEX, refusal));
     expect(said.spokenOn("assertive")).toStrictEqual(["The Codex folder is missing."]);
   });
 
   it("says the import again when Try again retries one a press started, in the same words", async () => {
-    const { stream, sent, said } = await renderPanel("codex");
+    const { stream, sent, said } = await renderPanel(CODEX);
     act(() => {
       importAction("Import sessions from Codex").click();
     });
     await settle();
     await emit(
       stream,
-      settledMessage("codex", { outcome: "refused", reason: "The Codex folder is missing." }),
+      settledMessage(CODEX, { outcome: "refused", reason: "The Codex folder is missing." }),
     );
     expect(said.spokenOn("polite")).toStrictEqual(["Importing from Codex…"]);
     // The stream's first message, but the outcome of this press: news, not a replay.
@@ -296,7 +303,7 @@ describe("one provider's import", () => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
     await settle();
-    expect(sent.begin).toStrictEqual([{ provider: "codex" }, { provider: "codex" }]);
+    expect(sent.begin).toStrictEqual([{ provider: CODEX }, { provider: CODEX }]);
     expect(rowText()).toContain("Importing from Codex…");
     // The retry is the person's own new press: said once, though its words match the first's.
     expect(said.spokenOn("polite")).toStrictEqual([
@@ -306,8 +313,8 @@ describe("one provider's import", () => {
   });
 
   it("leaves the replayed outcome unsaid when a press is refused before any import starts", async () => {
-    const { stream, said } = await renderPanel("codex", { isStartRefused: true });
-    await emit(stream, settledMessage("codex", NOTHING_NEW, EARLIER_IMPORT_ID));
+    const { stream, said } = await renderPanel(CODEX, { isStartRefused: true });
+    await emit(stream, settledMessage(CODEX, NOTHING_NEW, EARLIER_IMPORT_ID));
     act(() => {
       importAction("Import sessions from Codex").click();
     });
@@ -319,12 +326,12 @@ describe("one provider's import", () => {
   });
 
   it("keeps a settled import ended, and unsaid, while its failed stream opens again", async () => {
-    const { stream, opened, said } = await renderPanel("codex");
+    const { stream, opened, said } = await renderPanel(CODEX);
     act(() => {
       importAction("Import sessions from Codex").click();
     });
     await settle();
-    await emit(stream, settledMessage("codex", NOTHING_NEW));
+    await emit(stream, settledMessage(CODEX, NOTHING_NEW));
     stream.fail(new Error("The import stream was dropped."));
     await settle();
     act(() => {
@@ -339,7 +346,7 @@ describe("one provider's import", () => {
     if (reopened === undefined) {
       throw new Error("Try again opened no second stream");
     }
-    await emit(reopened, settledMessage("codex", NOTHING_NEW));
+    await emit(reopened, settledMessage(CODEX, NOTHING_NEW));
     // The opening re-read what was already said.
     expect(said.spokenOn("polite")).toStrictEqual(["Importing from Codex…", NOTHING_NEW_SENTENCE]);
   });

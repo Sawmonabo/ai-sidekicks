@@ -1,20 +1,22 @@
 // The refusal is never suppressed, and the handoff never becomes an act.
 
 import {
-  PROVIDER_ACCOUNT_NO_DEFAULT_CODE,
+  PROVIDER_ACCOUNT_CURRENT_NOT_SET_CODE,
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   PROVIDER_ACCOUNT_NOT_REGISTERED_CODE,
 } from "@ai-sidekicks/contracts/provider/account/methods";
 import type {
   ProviderAccountId,
-  ProviderLoginExpiredRemedy,
+  ProviderSignInExpiredRemedy,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/provider-accounts/sentences.js";
-import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+import { withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { liveRegionText } from "#test/helpers/live-region.js";
 import { AccountPlaneRefusal } from "./AccountPlaneRefusal.js";
 
@@ -26,7 +28,7 @@ afterEach(() => {
 
 function renderRefusal(
   code: string,
-  carriedRemedy?: ProviderLoginExpiredRemedy,
+  carriedRemedy?: ProviderSignInExpiredRemedy,
 ): {
   /** The refusal as drawn, apart from the announcer's regions. */
   readonly shown: HTMLElement;
@@ -39,12 +41,12 @@ function renderRefusal(
     <div className="account-plane-refusal-under-test">
       <AccountPlaneRefusal
         refusal={refuse("provider-account", code, DAEMON_SENTENCE)}
-        provider="claude"
+        provider={"claude" as ProviderId}
         carriedRemedy={carriedRemedy}
         openPage={openPage}
       />
     </div>,
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: withAnnouncer(ServedProviderSections) },
   );
   const shown = container.querySelector<HTMLElement>(".account-plane-refusal-under-test");
   if (shown === null) {
@@ -67,7 +69,7 @@ describe("an account-plane refusal on a console screen", () => {
   });
 
   it("offers one navigation, and moving is all pressing it does", () => {
-    const { shown, openPage } = renderRefusal(PROVIDER_ACCOUNT_NO_DEFAULT_CODE);
+    const { shown, openPage } = renderRefusal(PROVIDER_ACCOUNT_CURRENT_NOT_SET_CODE);
     const actions = shown.querySelectorAll<HTMLButtonElement>(".meridian-account-handoff__action");
     expect(actions).toHaveLength(1);
     actions[0]?.click();
@@ -76,12 +78,12 @@ describe("an account-plane refusal on a console screen", () => {
 
   it("offers a refused account move the remedy that account carries, and none without it", () => {
     const tokenAccount = renderRefusal(PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE, {
-      kind: "paste_token",
+      kind: "pasteToken",
       accountId: "pa-0001" as ProviderAccountId,
     });
     const tokenText = tokenAccount.shown.textContent;
-    expect(tokenText).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.paste_token("claude"));
-    expect(tokenText).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
+    expect(tokenText).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.pasteToken("Claude Code"));
+    expect(tokenText).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.signIn("Claude Code"));
     cleanup();
     const uncarried = renderRefusal(PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE);
     expect(uncarried.shown.querySelector(".meridian-account-handoff")).toBeNull();

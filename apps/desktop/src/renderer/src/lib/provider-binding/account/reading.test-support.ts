@@ -7,8 +7,12 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
+
 import type { AccountRegistryReading } from "./axis.js";
 import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 
 /** The instant every stored observation in these suites was taken at. */
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
@@ -21,11 +25,14 @@ export function registryAccountId(value: string): ProviderAccountId {
   return value as ProviderAccountId;
 }
 
-/** One registry row, in the registered shape and nothing narrower. */
+/**
+ * One registry row, in the registered shape and nothing narrower. A cast, because overrides may
+ * move it to the other health arm, which a spread over the union cannot narrow to.
+ */
 export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccount {
   return {
     accountId: registryAccountId("acct-team"),
-    provider: "claude",
+    provider: "claude" as ProviderId,
     observedAccountEmail: "sam@example.com",
     observedAccountPlan: "team",
     credentialGeneration: 1,
@@ -33,16 +40,16 @@ export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccou
     isDefault: true,
     healthState: "authenticated",
     healthObservedAt: OBSERVED_AT,
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: null,
-    expectedReloginAtEstimate: null,
+    observedAuthMode: "oauthSubscription",
+    signedInAt: null,
+    signInNeededAtEstimate: null,
     probeEnabled: true,
     lastRefreshObservedAt: null,
     windowStartEnabled: true,
     wakeForWindowStartEnabled: false,
     memoryImport: null,
     ...overrides,
-  };
+  } as ProviderAccount;
 }
 
 /** A served registry reading over the accounts a case cares about, as the registry lists them. */
@@ -53,24 +60,35 @@ export function served(
   return {
     phase: "read",
     readRefusal: undefined,
-    accounts: accounts.flatMap((account) => listedAccount(account) ?? []),
+    accounts: accounts.flatMap((account) => listedAccount(account, sectionOf(account)) ?? []),
     readiness,
   };
 }
 
 /**
- * The `claude` entry that resolved to one account and awaits a sign-in. The `sign_in`
+ * The `claude` entry that resolved to one account and awaits a sign-in. The `signIn`
  * arm's `accountId` equals `resolvedAccountId` because the contract's parser refuses any
  * other pairing.
  */
 export function resolvedTo(accountId: string): ProviderReadiness {
   return {
-    provider: "claude",
-    state: "reauth_required",
+    provider: "claude" as ProviderId,
+    state: "reauthRequired",
     resolvedAccountId: registryAccountId(accountId),
     remedy: {
-      kind: "sign_in",
+      kind: "signIn",
       accountId: registryAccountId(accountId),
     },
-  };
+  } as ProviderReadiness;
+}
+
+/** The fixture section of the account's provider, which its label is worded from. */
+function sectionOf(listed: ProviderAccount): ProviderSection {
+  const section = providerSectionsFixture().find(
+    (candidate) => candidate.provider === listed.provider,
+  );
+  if (section === undefined) {
+    throw new Error(`the fixture lists no provider "${listed.provider}"`);
+  }
+  return section;
 }

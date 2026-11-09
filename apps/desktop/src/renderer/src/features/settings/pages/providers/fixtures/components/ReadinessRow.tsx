@@ -10,7 +10,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { PROVIDER_READINESS_STATE_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { RemedyLine } from "./RemedyLine.js";
 
@@ -40,13 +40,13 @@ export function ReadinessRow(props: {
 }): ReactNode {
   const { readiness, onStartSignIn, startBlockedReason, startRefusal } = props;
   const clockLocale = useClockLocale();
-  const { remedy } = readiness;
+  const providerName = useProviderName(readiness.provider);
   return (
     <li className="meridian-accounts__readiness">
       <span className="meridian-accounts__readiness-head">
-        <Chip label={PROVIDER_LABELS[readiness.provider]} />
+        <Chip label={providerName} />
         <Chip
-          label={PROVIDER_READINESS_STATE_WORDS[readiness.state](readiness.provider)}
+          label={PROVIDER_READINESS_STATE_WORDS[readiness.state](providerName)}
           tone={readiness.state === "authenticated" ? "neutral" : "attention"}
         />
         {readiness.observedAt === undefined ? (
@@ -63,9 +63,9 @@ export function ReadinessRow(props: {
           </>
         )}
       </span>
-      {remedy === undefined ? null : (
+      {readiness.state === "authenticated" ? null : (
         <RemedyLine
-          remedy={remedy}
+          remedy={readiness.remedy}
           state={readiness.state}
           provider={readiness.provider}
           onStartSignIn={onStartSignIn}

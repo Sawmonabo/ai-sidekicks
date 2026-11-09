@@ -28,18 +28,18 @@ import {
 import { useImportProgress } from "./useImportProgress.js";
 import type {
   ProviderImportId,
-  ProviderImportProviderRequest,
-  ProviderImportStartResponse,
-  ProviderImportStopRequest,
+  SessionImportRequest,
+  SessionImportStartResponse,
+  SessionImportStopRequest,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** The call that starts one provider's import. */
 export type ProviderImportBeginCall = (
-  request: ProviderImportProviderRequest,
-) => Promise<ProviderImportStartResponse>;
+  request: SessionImportRequest,
+) => Promise<SessionImportStartResponse>;
 
 /** The three calls one provider's import is driven through; held stable by the caller. */
 export interface ProviderImportCalls {
@@ -50,7 +50,7 @@ export interface ProviderImportCalls {
 
 /** Everything a view needs to render one provider's import, and the acts that drive it. */
 export interface ProviderImportModel {
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   /** Where the provider's import stream got to, in the service's own words. */
   readonly progress: ImportProgressReading;
   /** The refusal the last start was answered with, or `undefined` where none was. */
@@ -95,7 +95,7 @@ const STOP_FAILED_CODE = "import-stop-failed";
  * conditional.
  */
 export function useProviderImport(
-  provider: ProviderName,
+  provider: ProviderId,
   calls: ProviderImportCalls,
 ): ProviderImportModel {
   // Keyed on the calls and the provider, the whole subject: an act in a mount-lifetime cell
@@ -108,7 +108,7 @@ export function useProviderImport(
   const stopCall = useSubjectScopedState(
     calls,
     provider,
-    () => new ProviderImportCall<ProviderImportStopRequest, void>(calls.stop, STOP_FAILED_CODE),
+    () => new ProviderImportCall<SessionImportStopRequest, void>(calls.stop, STOP_FAILED_CODE),
   ).value;
   const started = useProviderImportCall(startCall);
   const stopped = useProviderImportCall(stopCall);
@@ -146,7 +146,7 @@ export function useProviderImport(
  */
 function isShowingReplayOf(
   progress: ImportProgressReading,
-  started: ProviderImportCallSettlement<ProviderImportStartResponse>,
+  started: ProviderImportCallSettlement<SessionImportStartResponse>,
   runningImportId: ProviderImportId | undefined,
 ): boolean {
   if (

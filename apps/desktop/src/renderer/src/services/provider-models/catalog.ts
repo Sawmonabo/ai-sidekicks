@@ -1,6 +1,6 @@
-// Both driver catalogs, read together for the provider, model and effort pickers. The capability
-// report comes through the bridge's one capability reading, so a catalog read and a view gating on
-// the flags share one `driver.listCapabilities` call.
+// The driver catalog, read for the provider, model and effort pickers. What each driver declares
+// beside its models (its built-in tools, its one speed list) is its section in the service's
+// provider list, which the provider store keeps current; this read holds only the models.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -9,15 +9,11 @@ import type { DriverCatalogReading } from "#renderer/lib/provider-binding/driver
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 import { callDaemon, unwrapDaemonReply } from "../daemon/reply.js";
 import { type PlatformBridge } from "../platform/bridge.js";
-import { driverCapabilityReads } from "./read-cache.js";
 
 /** The driver catalog read. */
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 
-/**
- * Both driver catalogs, read together. The model catalog is per session; the capability report
- * belongs to the drivers and takes no session.
- */
+/** The driver catalog of one session, whose own provider the service lists first. */
 export function createDriverCatalogRead(
   bridge: PlatformBridge,
   clock: Clock,
@@ -27,11 +23,13 @@ export function createDriverCatalogRead(
     clock,
     origin: DRIVER_CATALOG_ORIGIN,
     read: async (signal: AbortSignal) => {
-      const [modelsReply, capabilities] = await Promise.all([
-        callDaemon(bridge, "driver.listModels", { sessionId }, { signal }),
-        driverCapabilityReads.reading(bridge, clock).readNextReply(signal),
-      ]);
-      return { models: unwrapDaemonReply(modelsReply), capabilities };
+      const modelsReply = await callDaemon(
+        bridge,
+        "provider.model.list",
+        { sessionId },
+        { signal },
+      );
+      return { models: unwrapDaemonReply(modelsReply) };
     },
     // Nothing on the wire announces that a provider's catalog moved, so the read runs once
     // and never re-arms.

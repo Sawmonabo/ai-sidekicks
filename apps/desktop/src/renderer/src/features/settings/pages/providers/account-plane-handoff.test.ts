@@ -14,11 +14,11 @@ describe("the account-plane router", () => {
   it("answers nothing for another namespace's code, or a code no app act closes", () => {
     // Negative control: the router takes a bare wire string, so a neighboring namespace must not
     // fall through into a Providers handoff.
-    expect(isAccountPlaneRefusalCode("driver.capability_unsupported")).toBe(false);
-    expect(accountPlaneHandoffFor("driver.capability_unsupported")).toBeUndefined();
+    expect(isAccountPlaneRefusalCode("provider.capability.unsupported")).toBe(false);
+    expect(accountPlaneHandoffFor("provider.capability.unsupported")).toBeUndefined();
     expect(accountPlaneHandoffFor("")).toBeUndefined();
     // A session asking for an account verb is not routed to a page that would change nothing.
-    expect(accountPlaneHandoffFor("provideraccount.permission_denied")).toBeUndefined();
+    expect(accountPlaneHandoffFor("provider.account.permissionDenied")).toBeUndefined();
     // Control: a code the contracts export is known, and a routed code reaches its page.
     expect(isAccountPlaneRefusalCode(PROVIDER_ACCOUNT_IN_USE_CODE)).toBe(true);
     // A taken name is known and answered under the field, never on a page.

@@ -150,6 +150,12 @@ type WindowMethodTables = ArtifactMethodDescriptors &
   WorkflowStepMethodDescriptors &
   WorkflowSubscriptionMethodDescriptors;
 
+/** What is read of any one method's generated descriptor without knowing which method it is. */
+export interface WindowMethodDescriptor {
+  readonly procedureType: "query" | "mutation" | "subscription";
+  readonly requestCheck: SchemaCheck<unknown>;
+}
+
 /** One daemon query or mutation a window calls, by its wire name. */
 export type RegisteredDaemonMethod = {
   [MethodName in keyof WindowMethodTables]: WindowMethodTables[MethodName] extends {
@@ -199,37 +205,45 @@ export type DaemonStreamEmission<StreamMethod extends DaemonStreamMethod> = Chec
   (WindowMethodTables[StreamMethod] & { readonly emissionCheck: unknown })["emissionCheck"]
 >;
 
+/**
+ * Every generated method a window calls or opens, merged and frozen: the one list main's helper
+ * checks a window's requests against and the calls below are bound from.
+ */
+export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDescriptor>> =
+  Object.freeze({
+    ...ARTIFACT_METHOD_DESCRIPTORS,
+    ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
+    ...DAEMON_STATUS_METHOD_DESCRIPTORS,
+    ...GIT_METHOD_DESCRIPTORS,
+    ...HIGHLIGHT_METHOD_DESCRIPTORS,
+    ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
+    ...MCP_EVENT_METHOD_DESCRIPTORS,
+    ...MCP_METHOD_DESCRIPTORS,
+    ...PRESENCE_METHOD_DESCRIPTORS,
+    ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
+    ...PROVIDER_DRIVER_METHOD_DESCRIPTORS,
+    ...PROVIDER_METHOD_DESCRIPTORS,
+    ...QUESTION_METHOD_DESCRIPTORS,
+    ...REPO_METHOD_DESCRIPTORS,
+    ...RUN_CONTROL_METHOD_DESCRIPTORS,
+    ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
+    ...SESSION_DRAFT_METHOD_DESCRIPTORS,
+    ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
+    ...SESSION_METHOD_DESCRIPTORS,
+    ...TERMINAL_CONTROL_METHOD_DESCRIPTORS,
+    ...TERMINAL_METHOD_DESCRIPTORS,
+    ...TRANSCRIPT_METHOD_DESCRIPTORS,
+    ...WORKFLOW_DEFINITION_METHOD_DESCRIPTORS,
+    ...WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS,
+    ...WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS,
+    ...WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS,
+    ...WORKFLOW_STEP_METHOD_DESCRIPTORS,
+    ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
+  });
+
 /** The method-to-descriptor table of every query and mutation a window calls, frozen. */
-export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = bindCallableMethods({
-  ...ARTIFACT_METHOD_DESCRIPTORS,
-  ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
-  ...DAEMON_STATUS_METHOD_DESCRIPTORS,
-  ...GIT_METHOD_DESCRIPTORS,
-  ...HIGHLIGHT_METHOD_DESCRIPTORS,
-  ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
-  ...MCP_EVENT_METHOD_DESCRIPTORS,
-  ...MCP_METHOD_DESCRIPTORS,
-  ...PRESENCE_METHOD_DESCRIPTORS,
-  ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
-  ...PROVIDER_DRIVER_METHOD_DESCRIPTORS,
-  ...PROVIDER_METHOD_DESCRIPTORS,
-  ...QUESTION_METHOD_DESCRIPTORS,
-  ...REPO_METHOD_DESCRIPTORS,
-  ...RUN_CONTROL_METHOD_DESCRIPTORS,
-  ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
-  ...SESSION_DRAFT_METHOD_DESCRIPTORS,
-  ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
-  ...SESSION_METHOD_DESCRIPTORS,
-  ...TERMINAL_CONTROL_METHOD_DESCRIPTORS,
-  ...TERMINAL_METHOD_DESCRIPTORS,
-  ...TRANSCRIPT_METHOD_DESCRIPTORS,
-  ...WORKFLOW_DEFINITION_METHOD_DESCRIPTORS,
-  ...WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS,
-  ...WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS,
-  ...WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS,
-  ...WORKFLOW_STEP_METHOD_DESCRIPTORS,
-  ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
-});
+export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings =
+  bindCallableMethods(WINDOW_METHOD_DESCRIPTORS);
 
 /** Every daemon query and mutation a window calls, by its wire name. */
 export const REGISTERED_DAEMON_METHODS: readonly RegisteredDaemonMethod[] = Object.freeze(
@@ -249,15 +263,10 @@ export function daemonMethodBindingFor(
     : undefined;
 }
 
-/** What the bind reads of each descriptor in the merged tables. */
-interface MethodKind {
-  readonly procedureType: "query" | "mutation" | "subscription";
-}
-
 // The merged tables arrive as an argument, so the subscriptions dropped from them are not kept in a
 // second table beside the generated ones.
 function bindCallableMethods(
-  windowMethodTables: Readonly<Record<string, MethodKind>>,
+  windowMethodTables: Readonly<Record<string, WindowMethodDescriptor>>,
 ): DaemonMethodBindings {
   // The one cast narrows `Object.fromEntries`' string-keyed record to the mapped type; each entry
   // is the descriptor its own method's table holds.

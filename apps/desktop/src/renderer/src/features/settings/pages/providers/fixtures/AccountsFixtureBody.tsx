@@ -12,7 +12,6 @@
 import "./AccountsFixtureBody.css";
 
 import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
-import { PROVIDER_LABELS, PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 import {
   Fragment,
   useEffect,
@@ -22,6 +21,7 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
@@ -125,6 +125,7 @@ export function AccountsFixtureBody(props: {
     requestRegistryRead,
   );
 
+  const providerSections = useProviderSections();
   if (registry.phase === "reading") {
     return (
       <LoadingNotice clock={clock} placement="block" title={ACCOUNT_LIST_READ_WORDS.reading} />
@@ -244,12 +245,12 @@ export function AccountsFixtureBody(props: {
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__section-head">Register an account</h3>
-        {PROVIDER_NAMES.map((provider) => (
-          <Fragment key={provider}>
-            <h4 className="meridian-settings-page__section-head">{PROVIDER_LABELS[provider]}</h4>
+        {providerSections.map((section) => (
+          <Fragment key={section.provider}>
+            <h4 className="meridian-settings-page__section-head">{section.name}</h4>
             <TokenRegistrationForm
               register={operations.register}
-              provider={provider}
+              provider={section.provider}
               accounts={registry.accounts}
             />
           </Fragment>
@@ -264,8 +265,11 @@ function findRemedyAccount(
   accounts: readonly ListedProviderAccount[],
   readiness: ProviderReadiness,
 ): ListedProviderAccount | undefined {
+  if (readiness.state === "authenticated") {
+    return undefined;
+  }
   const { remedy } = readiness;
-  if (remedy === undefined || !("accountId" in remedy)) {
+  if (!("accountId" in remedy)) {
     return undefined;
   }
   return accounts.find((account) => account.accountId === remedy.accountId);

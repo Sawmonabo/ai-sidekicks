@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import {
   PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
   type ProviderAccountRegisterResponse,
@@ -27,7 +28,7 @@ const ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const REGISTERED: ProviderAccountRegisterResponse = {
   account: {
     accountId: "pa-0003" as ProviderAccountId,
-    provider: "codex",
+    provider: "codex" as ProviderId,
     displayLabel: "Metered",
     credentialGeneration: 1,
     billingMode: "metered",
@@ -35,8 +36,8 @@ const REGISTERED: ProviderAccountRegisterResponse = {
     healthState: "indeterminate",
     healthObservedAt: null,
     observedAuthMode: null,
-    loggedInAt: null,
-    expectedReloginAtEstimate: null,
+    signedInAt: null,
+    signInNeededAtEstimate: null,
     probeEnabled: true,
     lastRefreshObservedAt: null,
     windowStartEnabled: true,
@@ -63,7 +64,7 @@ describe("startProviderSignIn", () => {
 
 describe("submitTokenRegistration", () => {
   const REQUEST = {
-    provider: "codex",
+    provider: "codex" as ProviderId,
     displayLabel: "Metered",
     billingMode: "metered",
     nonInteractiveToken: "a-vendor-minted-token",
@@ -84,7 +85,7 @@ describe("submitTokenRegistration", () => {
 describe("readRegistrationFields", () => {
   /** The ordinary fields, as the form hands them over. */
   function typed(displayLabel: string): Parameters<typeof readRegistrationFields>[0] {
-    return { displayLabel, provider: "codex" };
+    return { displayLabel, provider: "codex" as ProviderId, providerName: "Codex" };
   }
 
   /** The refusal one reading carries, or `undefined` where it admitted the fields. */
@@ -93,12 +94,12 @@ describe("readRegistrationFields", () => {
   }
 
   it("admits a trimmed name that only another provider's account carries", () => {
-    const claudeAccount = { ...REGISTERED.account, provider: "claude" } as const;
+    const claudeAccount = { ...REGISTERED.account, provider: "claude" as ProviderId };
     expect(
       readRegistrationFields(typed("  Metered  "), [claudeAccount]),
     ).toStrictEqual<RegistrationFieldReading>({
       kind: "admitted",
-      fields: { provider: "codex", displayLabel: "Metered", billingMode: "unknown" },
+      fields: { provider: "codex" as ProviderId, displayLabel: "Metered", billingMode: "unknown" },
     });
   });
 

@@ -7,6 +7,8 @@ import "./AxisField.css";
 
 import { useId } from "react";
 
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
+
 import {
   accountAdvisoriesFor,
   unresolvedDefaultAdvisoryIn,
@@ -30,6 +32,8 @@ export interface AccountAxisFieldProps {
   readonly onReopenRegistry: () => void;
   /** The driver the form resolved to, entered or inherited. Decides the provider. */
   readonly driverName: string | undefined;
+  /** The providers the service lists, which the driver is matched against. */
+  readonly providerSections: readonly ProviderSection[];
   /** The account the form currently carries, entered or inherited. */
   readonly value: string | undefined;
   /** `undefined` drops the caller's own entry; what that RESOLVES to is the form's. */
@@ -51,7 +55,7 @@ export interface AccountAxisFieldProps {
 /** The provider-account axis: a picker over the registry, or why there is none. */
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
   const { registry, value } = props;
-  const reading = accountAxisReadingFor(registry, props.driverName);
+  const reading = accountAxisReadingFor(registry, props.driverName, props.providerSections);
   const provenance = accountAxisProvenanceOf(props);
   const isPinned = provenance !== "unpinned";
   // The pin as the provenance read it, not the raw member: the form clears an axis with the

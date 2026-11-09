@@ -13,19 +13,21 @@ import type {
   ProviderImportId,
   ProviderImportProgress,
 } from "@ai-sidekicks/contracts/provider/import";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
 import { ProviderImportPanel } from "../panel/ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportCalls } from "./useProviderImport.js";
 import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
-import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+import { withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */
 const IMPORT_ID = "provider-import-19" as ProviderImportId;
 
-const WHILE_READING: ProviderImportProgress = {
+const WHILE_READING: Extract<ProviderImportProgress, { kind: "progress" }> = {
   kind: "progress",
-  provider: "claude",
+  provider: "claude" as ProviderId,
   importId: IMPORT_ID,
   read: 12,
 };
@@ -59,7 +61,7 @@ function ImportHarness(props: {
   readonly calls: ProviderImportCalls;
   readonly isPanelMounted: boolean;
 }): React.JSX.Element {
-  const providerImport = useProviderImport("claude", props.calls);
+  const providerImport = useProviderImport("claude" as ProviderId, props.calls);
   return <div>{props.isPanelMounted ? <ProviderImportPanel model={providerImport} /> : null}</div>;
 }
 
@@ -83,7 +85,7 @@ describe("an import whose panel goes away", () => {
     const stream = new DrivenProgressStream();
     const calls = callsReading(stream);
     const view = render(<ImportHarness calls={calls} isPanelMounted />, {
-      wrapper: LiveAnnouncerProvider,
+      wrapper: withAnnouncer(ServedProviderSections),
     });
 
     await startAnImport(view.container);

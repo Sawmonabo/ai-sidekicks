@@ -1,5 +1,5 @@
 import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
@@ -13,6 +13,7 @@ import {
   type TokenRegistrationOutcome,
 } from "../../sign-in/flow.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 
 /**
  * `Paste a token instead`: a name and one masked field for a credential the person minted at
@@ -27,11 +28,12 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
 export function TokenRegistrationForm(props: {
   readonly register: ProviderAccountRegisterCall;
   /** The provider the pasted token was minted at; the form sits under its name. */
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   /** The accounts already registered, whose names a new one must differ from per provider. */
   readonly accounts: readonly ProviderAccount[];
 }): ReactNode {
   const { register, provider, accounts } = props;
+  const providerName = useProviderName(provider);
   const nameFieldId = useId();
   const nameRefusalId = useId();
   const tokenFieldId = useId();
@@ -60,7 +62,7 @@ export function TokenRegistrationForm(props: {
     // cannot be sent leaves the credential where the person put it; `required` accepts a name
     // of spaces.
     const reading = readRegistrationFields(
-      { displayLabel: displayLabelInput.current?.value ?? "", provider },
+      { displayLabel: displayLabelInput.current?.value ?? "", provider, providerName },
       accounts,
     );
     if (reading.kind === "refused") {
@@ -78,7 +80,7 @@ export function TokenRegistrationForm(props: {
 
   // A refused name is answered under the `Name` field, every other refusal in the slot below.
   const nameRefusal =
-    outcome.kind === "refused" ? nameRefusalLine(outcome.refusal, provider) : undefined;
+    outcome.kind === "refused" ? nameRefusalLine(outcome.refusal, providerName) : undefined;
 
   return (
     <form className="meridian-accounts__register" onSubmit={onSubmit}>

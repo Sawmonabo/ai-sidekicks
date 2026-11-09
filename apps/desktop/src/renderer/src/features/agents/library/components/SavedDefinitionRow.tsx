@@ -1,11 +1,15 @@
 import "./SavedDefinitionRow.css";
 
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
+import { providerNameOf } from "#renderer/store/providers/name.js";
 import { type AgentLibraryView } from "../view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
 
@@ -29,6 +33,7 @@ export function SavedDefinitionRow(props: {
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
   const clockLocale = useClockLocale();
+  const providerSections = useProviderSections();
   return (
     <article
       className={
@@ -55,6 +60,10 @@ export function SavedDefinitionRow(props: {
                 <WireFigure
                   value={formatRelativeTime(axis.reading, props.nowMilliseconds)}
                   hoverLabel={formatZonedDateTime(axis.reading, clockLocale)}
+                />
+              ) : axis.source === "provider" ? (
+                <DerivedFigure
+                  text={providerNameOf(providerSections, axis.reading as ProviderId)}
                 />
               ) : (
                 <DerivedFigure text={axis.reading} />

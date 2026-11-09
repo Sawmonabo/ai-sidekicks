@@ -2,21 +2,26 @@ import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import type {
+  McpOverrideOrigin,
   McpServerInventoryEntry,
-  McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/server";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 
-// Where a binding a person writes applies, in the words the add form offers for each scope.
-const WHERE_IT_APPLIES: Readonly<Record<McpWritableBindingRef["scope"], string>> = {
+// Where a server applies: the words the add form offers for each scope a person writes, and the
+// provider's own word, as the wire sends it, for a connector's and an administrator's.
+const WHERE_IT_APPLIES: Readonly<
+  Record<Exclude<McpServerInventoryEntry["scope"], "plugin">, string>
+> = {
   user: "All projects",
   project: "This project · in the repo",
   local: "This project · not in the repo",
+  connector: "connector",
+  managed: "managed",
 };
 
 /**
@@ -35,6 +40,7 @@ export function ServerListEntry(props: {
 }): ReactNode {
   const { entry, isSelected, onSelect, nowMilliseconds } = props;
   const clockLocale = useClockLocale();
+  const providerName = useProviderName(entry.provider);
   return (
     <li>
       <button
@@ -45,7 +51,7 @@ export function ServerListEntry(props: {
       >
         <span className="meridian-mcp__entry-identity">
           <WireFigure value={entry.serverName} />
-          <Chip label={PROVIDER_LABELS[entry.provider]} />
+          <Chip label={providerName} />
           <Chip
             label={MCP_SERVER_STATUS_WORDS[entry.status]}
             tone={toneForServerStatus(entry.status)}
@@ -69,16 +75,25 @@ export function ServerListEntry(props: {
             WHERE_IT_APPLIES[entry.scope]
           )}
         </span>
-        {entry.supersededIn?.map((projectRoot) => (
+        {entry.supersededIn?.map((origin) => (
           <span
-            key={projectRoot}
+            key={overrideOriginWords(origin)}
             className="meridian-mcp__entry-note meridian-settings-page__aside"
           >
-            Not used in <WireFigure value={projectRoot} />: its own{" "}
+            Not used in <WireFigure value={overrideOriginWords(origin)} />: its own{" "}
             <WireFigure value={entry.serverName} /> takes its place.
           </span>
         ))}
       </button>
     </li>
   );
+}
+
+// The layer whose own entry takes a server's place: its file's path, with the distribution it is
+// in where it is in one, or the administrator's layer as the wire names it.
+function overrideOriginWords(origin: McpOverrideOrigin): string {
+  if ("managedLayer" in origin) {
+    return origin.managedLayer;
+  }
+  return origin.place === undefined ? origin.path : `${origin.path} · ${origin.place.distro}`;
 }

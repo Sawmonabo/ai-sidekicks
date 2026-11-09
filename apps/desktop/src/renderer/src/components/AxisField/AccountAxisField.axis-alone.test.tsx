@@ -4,6 +4,7 @@
 // Providers page words them. Driven through the real component over a typed registry reading.
 
 import { fireEvent, render } from "@testing-library/react";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
@@ -14,6 +15,7 @@ import {
   resolvedTo,
   served,
 } from "#renderer/lib/provider-binding/account/reading.test-support.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
@@ -27,11 +29,11 @@ const REGISTRY_ACCOUNTS = [
     accountId: registryAccountId("acct-personal"),
     observedAccountEmail: "sam@example.org",
     isDefault: false,
-    healthState: "reauth_required",
+    healthState: "reauthRequired",
   }),
   account({
     accountId: registryAccountId("acct-codex"),
-    provider: "codex",
+    provider: "codex" as ProviderId,
     observedAccountEmail: "sam@example.net",
     isDefault: true,
   }),
@@ -54,6 +56,7 @@ function renderedAxis(axis: AxisCase): HTMLElement {
       registry={axis.registry ?? served(REGISTRY_ACCOUNTS, [resolvedTo("acct-personal")])}
       onReopenRegistry={axis.onReopenRegistry ?? ((): void => {})}
       driverName="claude"
+      providerSections={providerSectionsFixture()}
       value={axis.value}
       inheritedValue={axis.inheritedValue}
       isOverridden={axis.isOverridden}

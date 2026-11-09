@@ -2,18 +2,20 @@
 // with for each grade the background service answered. The grade itself never reaches the screen.
 
 import type { McpApplicationGrade } from "@ai-sidekicks/contracts/mcp/server";
-import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-/** The line a change settles with for one grade, naming the provider whose settings it reached. */
-export function settleLineFor(grade: McpApplicationGrade, provider: ProviderName): string {
+/**
+ * The line a change settles with for one grade, naming by `providerName` the provider whose
+ * settings it reached.
+ */
+export function settleLineFor(grade: McpApplicationGrade, providerName: string): string {
   switch (grade) {
-    case "live_reconcile":
+    case "liveReconcile":
       return "Applied to running sessions.";
-    case "user_config_write":
-      return `Saved to ${PROVIDER_LABELS[provider]}'s settings. New sessions use it.`;
-    case "next_run":
+    case "userConfigWrite":
+      return `Saved to ${providerName}'s settings. New sessions use it.`;
+    case "nextRun":
       return "Saved. The next session uses it.";
-    case "daemon_enforced":
+    case "daemonEnforced":
       return "In force now.";
   }
 }

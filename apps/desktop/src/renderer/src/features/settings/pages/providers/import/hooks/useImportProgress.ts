@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 
 import type { ProviderImportProgress } from "@ai-sidekicks/contracts/provider/import";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type {
   ImportProgressReading,
   ImportProgressStream,
@@ -39,7 +39,7 @@ const IMPORT_PROGRESS_ORIGIN = "provider-import-progress";
 /** Drain one provider's import stream for as long as its holder is mounted. */
 export function useImportProgress(
   subscribe: ImportProgressSubscribeCall,
-  provider: ProviderName,
+  provider: ProviderId,
 ): ImportProgress {
   const [reading, setReading] = useState<ImportProgressReading>(NOTHING_SAID);
   const [openingOrdinal, setOpeningOrdinal] = useState(0);

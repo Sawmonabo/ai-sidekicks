@@ -3,12 +3,13 @@ import { useId } from "react";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/attention";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
@@ -84,9 +85,10 @@ function AttentionLine(props: {
   readonly clockLocale: string;
 }): React.JSX.Element {
   const { entry, clockLocale } = props;
+  const providerSections = useProviderSections();
   if (entry.kind === "account") {
     const verb = entry.affectedRunCount === 1 ? "waits" : "wait";
-    const account = spentAccountWords(entry.account);
+    const account = spentAccountWords(entry.account, providerSections);
     // The reset is named only where the daemon armed the instant the runs resume.
     return (
       <span>

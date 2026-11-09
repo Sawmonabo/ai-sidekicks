@@ -1,4 +1,3 @@
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -10,6 +9,7 @@ import {
   PROVIDER_READINESS_STATE_WORDS,
 } from "#renderer/lib/provider-accounts/sentences.js";
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { observationAgeInDays } from "../../quota-rows.js";
 
 /**
@@ -38,6 +38,7 @@ export function AccountRow(props: {
 }): ReactNode {
   const { account, selected, nowMilliseconds, onSelect } = props;
   const clockLocale = useClockLocale();
+  const providerName = useProviderName(account.provider);
   const ageInDays =
     account.healthObservedAt === null
       ? undefined
@@ -55,14 +56,14 @@ export function AccountRow(props: {
       >
         <span className="meridian-accounts__identity">{account.label}</span>
         <span className="meridian-accounts__row-chips">
-          <Chip label={PROVIDER_LABELS[account.provider]} />
+          <Chip label={providerName} />
           {/* The billing-mode label beside every money figure, so plan-included usage is never
               presented as billed currency; it rides the row because quota figures are read from
               here down. */}
           <Chip label={BILLING_MODE_WORDS[account.billingMode]} />
           {account.isDefault ? <Chip label="Default" tone="accent" glyph="check" /> : null}
           <Chip
-            label={PROVIDER_READINESS_STATE_WORDS[account.healthState](account.provider)}
+            label={PROVIDER_READINESS_STATE_WORDS[account.healthState](providerName)}
             tone={account.healthState === "authenticated" && !isStale ? "neutral" : "attention"}
           />
         </span>

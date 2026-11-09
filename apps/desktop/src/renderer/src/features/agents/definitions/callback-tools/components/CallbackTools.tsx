@@ -1,31 +1,16 @@
-// Which daemon-hosted tools an agent can reach. Three states never merge: capability undeclared
-// (section absent), registry withheld (the daemon's approval service is not running, or its tool
-// route does not serve the tools to the provider, so a stray invocation is denied), and exposed.
-// The flag and the registry come from separate reads, so each has its own arm, and the registry
-// is never synthesized from observed tool rows.
+// Which daemon-hosted tools an agent can reach. Two states never merge: registry withheld (the
+// daemon's approval service is not running, or its tool route does not serve the tools to the
+// provider, so a stray invocation is denied), and exposed. The registry is never synthesized from
+// observed tool rows.
 
 import "./CallbackTools.css";
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readout.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../registry.js";
 
-/**
- * The flag this section gates on. The annotation makes a contracts-side rename a compile
- * error rather than a section gated on a flag no driver declares.
- */
-export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
-
-/** What the daemon-hosted tools section renders from: the capability and the registry. */
+/** What the daemon-hosted tools section renders from: the registry. */
 export interface CallbackToolsProps {
-  /**
-   * What this build knows about the capability. `unknown` rather than `undefined`, so an unread
-   * capability is a state of its own and never reads as one the driver declared absent.
-   */
-  readonly capability: DriverCapabilityReading;
   /**
    * What the registry read settled on, or `undefined` while in flight. A discriminated reading
    * rather than a list beside a flag, which would admit combinations that mean neither.
@@ -33,25 +18,8 @@ export interface CallbackToolsProps {
   readonly registry: CallbackToolRegistryReading | undefined;
 }
 
-/** The daemon-hosted tools section: absent, withheld, or exposed, never merged. */
-export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | null {
-  if (props.capability === "undeclared") {
-    // Absent rather than empty.
-    return null;
-  }
-  if (props.capability === "unknown") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="block"
-        title="The provider's support for tools the background service hosts has not been read."
-        detail={
-          "Nothing is listed until it has been read, because an empty list would read as if " +
-          "the background service hosted none."
-        }
-      />
-    );
-  }
+/** The daemon-hosted tools section: reading, withheld, or exposed, never merged. */
+export function CallbackTools(props: CallbackToolsProps): React.JSX.Element {
   if (props.registry === undefined) {
     return (
       <Nothing

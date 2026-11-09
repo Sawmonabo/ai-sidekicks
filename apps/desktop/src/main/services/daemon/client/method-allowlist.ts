@@ -2,103 +2,37 @@
 // takes before the addon sees it: a method off its channel's list, or called as the other kind, is
 // refused as `request.methodNotAllowed`, and params that fail the method's generated check as
 // `request.paramsInvalid`, each in the wire's error shape a daemon refusal takes. A window's list
-// holds no method that ends or restarts the daemon: those go through main's supervisor, which
-// flushes first. The addon checks the params against the method's whole contract again as the
-// last line.
+// is the bindings' tables and holds none of the daemon's lifecycle: stopping, restarting and
+// flushing go through main's supervisor. The addon checks the params against the method's
+// whole contract again as the last line.
 
-import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";
-import { DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
-import { GIT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/git/methods";
-import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
-import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
-import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/event";
-import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/governance";
-import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
-import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
-import { PROVIDER_DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
-import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
-import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
-import { RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/run/control";
-import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
-import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
-import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
-import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
-import {
-  TERMINAL_CONTROL_METHOD_DESCRIPTORS,
-  TERMINAL_METHOD_DESCRIPTORS,
-} from "@ai-sidekicks/contracts/terminal";
-import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
-import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/definition/methods";
-import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/control";
-import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
-import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
-import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
 
 import { issuePathOf } from "#shared/daemon/fault-path.js";
-
-/** What the allowlist reads of a method's generated descriptor. */
-interface AllowedMethod {
-  readonly procedureType: "query" | "mutation" | "subscription";
-  readonly requestCheck: SchemaCheck<unknown>;
-}
+import {
+  WINDOW_METHOD_DESCRIPTORS,
+  type WindowMethodDescriptor,
+} from "#shared/daemon/method-bindings.js";
 
 /** Who sends a request: main over the parentPort, or a window over the port main handed it. */
 export type ClientHelperChannelKind = "main" | "window";
 
-/** Every method main calls or opens, by name, from the generated tables the desktop binds. */
-const MAIN_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze({
-  ...ARTIFACT_METHOD_DESCRIPTORS,
-  ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
+/** Every method a window calls or opens: the generated tables the window's bindings name. */
+const WINDOW_METHODS: Readonly<Record<string, WindowMethodDescriptor>> = WINDOW_METHOD_DESCRIPTORS;
+
+/** Every method main calls or opens: a window's, and the daemon's lifecycle, which only main sends. */
+const MAIN_METHODS: Readonly<Record<string, WindowMethodDescriptor>> = Object.freeze({
+  ...WINDOW_METHODS,
   ...DAEMON_LIFECYCLE_METHOD_DESCRIPTORS,
-  ...DAEMON_STATUS_METHOD_DESCRIPTORS,
-  ...GIT_METHOD_DESCRIPTORS,
-  ...HIGHLIGHT_METHOD_DESCRIPTORS,
-  ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
-  ...MCP_EVENT_METHOD_DESCRIPTORS,
-  ...MCP_METHOD_DESCRIPTORS,
-  ...PRESENCE_METHOD_DESCRIPTORS,
-  ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
-  ...PROVIDER_DRIVER_METHOD_DESCRIPTORS,
-  ...QUESTION_METHOD_DESCRIPTORS,
-  ...REPO_METHOD_DESCRIPTORS,
-  ...RUN_CONTROL_METHOD_DESCRIPTORS,
-  ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
-  ...SESSION_DRAFT_METHOD_DESCRIPTORS,
-  ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
-  ...SESSION_METHOD_DESCRIPTORS,
-  ...TERMINAL_CONTROL_METHOD_DESCRIPTORS,
-  ...TERMINAL_METHOD_DESCRIPTORS,
-  ...TRANSCRIPT_METHOD_DESCRIPTORS,
-  ...WORKFLOW_DEFINITION_METHOD_DESCRIPTORS,
-  ...WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS,
-  ...WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS,
-  ...WORKFLOW_STEP_METHOD_DESCRIPTORS,
-  ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
 });
-
-/** The methods that end or restart the daemon, which only main's supervisor sends. */
-const DAEMON_ENDING_METHODS: readonly string[] = [
-  DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.stop"].method,
-  DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.restart"].method,
-];
-
-/** Every method a window calls or opens: main's list without the ones that end the daemon. */
-const WINDOW_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze(
-  Object.fromEntries(
-    Object.entries(MAIN_METHODS).filter(([method]) => !DAEMON_ENDING_METHODS.includes(method)),
-  ),
-);
 
 /** Each channel's list. */
 const ALLOWED_METHODS_BY_CHANNEL: Readonly<
-  Record<ClientHelperChannelKind, Readonly<Record<string, AllowedMethod>>>
+  Record<ClientHelperChannelKind, Readonly<Record<string, WindowMethodDescriptor>>>
 > = Object.freeze({ main: MAIN_METHODS, window: WINDOW_METHODS });
 
 /**

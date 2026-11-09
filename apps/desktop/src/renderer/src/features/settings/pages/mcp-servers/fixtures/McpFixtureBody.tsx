@@ -19,16 +19,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
+  McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
-import type { McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/tool-settings";
-import {
-  PROVIDER_LABELS,
-  PROVIDER_NAMES,
-  type ProviderName,
-} from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -204,6 +201,7 @@ export function McpFixtureBody(props: {
   };
 
   const state = usePushDrivenRead(inventoryRead);
+  const providerSections = useProviderSections();
   const servers = state.kind === "loaded" ? state.value.servers : NO_SERVERS;
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
@@ -223,12 +221,17 @@ export function McpFixtureBody(props: {
   }
   // A provider with no tool servers set up says so in words, never as an empty list: in place of
   // the list when neither has any, and in quiet text at the list's foot otherwise.
-  const providersWithNone = PROVIDER_NAMES.filter(
-    (provider) => !servers.some((entry) => entry.provider === provider),
+  const providersWithNone = providerSections.filter(
+    (section) => !servers.some((entry) => entry.provider === section.provider),
   );
   if (servers.length === 0) {
-    return providersWithNone.map((provider) => (
-      <Nothing key={provider} kind="empty" placement="block" title={noServersLineFor(provider)} />
+    return providersWithNone.map((section) => (
+      <Nothing
+        key={section.provider}
+        kind="empty"
+        placement="block"
+        title={noServersLineFor(section)}
+      />
     ));
   }
   const firstServer = servers[0];
@@ -256,9 +259,9 @@ export function McpFixtureBody(props: {
             );
           })}
         </ul>
-        {providersWithNone.map((provider) => (
-          <p key={provider} className="meridian-settings-page__aside">
-            {noServersLineFor(provider)}
+        {providersWithNone.map((section) => (
+          <p key={section.provider} className="meridian-settings-page__aside">
+            {noServersLineFor(section)}
           </p>
         ))}
       </div>
@@ -306,6 +309,6 @@ function toolOutcomeKeyOf(
   return structuralKey([mcpBindingKeyOf(binding), toolName, facet]);
 }
 
-function noServersLineFor(provider: ProviderName): string {
-  return `No tool servers are set up for ${PROVIDER_LABELS[provider]}.`;
+function noServersLineFor(section: ProviderSection): string {
+  return `No tool servers are set up for ${section.name}.`;
 }

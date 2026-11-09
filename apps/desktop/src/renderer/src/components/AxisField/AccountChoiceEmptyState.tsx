@@ -58,5 +58,7 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
       />
     );
   }
-  return <Nothing kind="empty" title={ACCOUNT_PLANE_REMEDY_SENTENCES.register(reading.provider)} />;
+  return (
+    <Nothing kind="empty" title={ACCOUNT_PLANE_REMEDY_SENTENCES.register(reading.providerName)} />
+  );
 }

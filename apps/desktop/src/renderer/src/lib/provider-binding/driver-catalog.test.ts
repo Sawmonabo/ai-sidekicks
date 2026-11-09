@@ -8,6 +8,7 @@ import {
   DRIVER_CATALOG_FIXTURE,
   SPEED_TIER_CATALOG_FIXTURE,
 } from "./driver-catalog.test-support.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 
 describe("driver catalog — effort is per model", () => {
   it("answers undefined for a model that publishes no effort levels", () => {
@@ -34,7 +35,10 @@ describe("driver catalog — effort is per model", () => {
 
 describe("driver catalog — speed is per model where the provider publishes it so", () => {
   const levelsOf = (modelId: string): readonly string[] | undefined =>
-    outputSpeedLevelsFor(SPEED_TIER_CATALOG_FIXTURE, "codex", { modelId, largerWindow: false });
+    outputSpeedLevelsFor(SPEED_TIER_CATALOG_FIXTURE, providerSectionsFixture(), "codex", {
+      modelId,
+      largerWindow: false,
+    });
 
   it("answers undefined for a model that publishes no tiers", () => {
     // Its siblings publish tiers, so only reading this model's own absence answers none here.

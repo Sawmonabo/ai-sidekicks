@@ -11,17 +11,17 @@ import type {
   ProviderAccount,
   ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type {
+  ProviderAccountCurrentUpdateResponse,
   ProviderAccountProbeResponse,
-  ProviderAccountSetCurrentResponse,
 } from "@ai-sidekicks/contracts/provider/account/methods";
 import {
   PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
-  type ProviderAccountLoginCancelResponse,
-  type ProviderAccountLoginResponse,
   type ProviderAccountRegisterRequest,
   type ProviderAccountRegisterResponse,
+  type ProviderAccountSignInAttemptCancelResponse,
+  type ProviderAccountSignInResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -40,12 +40,12 @@ export type ProviderSignInFlowState =
   | {
       readonly kind: "live";
       readonly accountId: ProviderAccountId;
-      readonly attempt: ProviderAccountLoginResponse;
+      readonly attempt: ProviderAccountSignInResponse;
     }
   | {
       readonly kind: "canceling";
       readonly accountId: ProviderAccountId;
-      readonly attempt: ProviderAccountLoginResponse;
+      readonly attempt: ProviderAccountSignInResponse;
     }
   | { readonly kind: "unfinished"; readonly failureReason: string | undefined };
 
@@ -74,7 +74,7 @@ const PROVIDER_SIGN_IN_RUNNING_BY_KIND: Readonly<Record<ProviderSignInFlowState[
 export interface ProviderSignInStartOutcome {
   readonly kind: "live";
   readonly accountId: ProviderAccountId;
-  readonly attempt: ProviderAccountLoginResponse;
+  readonly attempt: ProviderAccountSignInResponse;
 }
 
 /** What a token registration did, as far as this fixture body may claim. */
@@ -89,14 +89,14 @@ export type TokenRegistrationOutcome =
  */
 export type ProviderAccountLoginCall = (request: {
   readonly accountId: ProviderAccountId;
-}) => Promise<ProviderAccountLoginResponse>;
+}) => Promise<ProviderAccountSignInResponse>;
 
 /**
  * Cancels a sign-in that is still in flight.
  */
 export type ProviderAccountLoginCancelCall = (request: {
   readonly attemptId: string;
-}) => Promise<ProviderAccountLoginCancelResponse>;
+}) => Promise<ProviderAccountSignInAttemptCancelResponse>;
 
 /**
  * Registers an account, optionally carrying the one write-only token member.
@@ -119,7 +119,7 @@ export type ProviderAccountProbeCall = (request: {
  */
 export type ProviderAccountSetCurrentCall = (request: {
   readonly accountId: ProviderAccountId;
-}) => Promise<ProviderAccountSetCurrentResponse>;
+}) => Promise<ProviderAccountCurrentUpdateResponse>;
 
 /** Whether this flow is running. The one reading of the table above. */
 export function isProviderSignInRunning(flow: ProviderSignInFlowState): boolean {
@@ -184,7 +184,7 @@ const REGISTRATION_LABEL_BLANK_CODE = "registration-label-blank";
 
 /** The three fields a registration needs beside the write-only token. */
 export interface AdmittedRegistrationFields {
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   readonly displayLabel: string;
   readonly billingMode: BillingMode;
 }
@@ -202,9 +202,14 @@ export type RegistrationFieldReading =
  * names compared by `foldName`, as the service compares them; a name of only spaces passes the
  * browser's `required` check and is refused here. The refusal never echoes the name, which is user
  * content. The form asks nothing about billing, so an admitted account's billing is `unknown`.
+ * `providerName` is the provider's name as the service's list gives it, which a refusal names.
  */
 export function readRegistrationFields(
-  typed: { readonly displayLabel: string; readonly provider: ProviderName },
+  typed: {
+    readonly displayLabel: string;
+    readonly provider: ProviderId;
+    readonly providerName: string;
+  },
   accounts: readonly ProviderAccount[],
 ): RegistrationFieldReading {
   const displayLabel = typed.displayLabel.trim();
@@ -231,7 +236,7 @@ export function readRegistrationFields(
       refusal: refuse(
         TOKEN_REGISTRATION_REFUSAL_ORIGIN,
         PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
-        takenNameLine(typed.provider),
+        takenNameLine(typed.providerName),
       ),
     };
   }
@@ -243,15 +248,15 @@ export function readRegistrationFields(
 
 /**
  * The line under the `Name` field for a refusal of the name, or `undefined` for any other
- * refusal. The service refusing a name another account of `provider` has reads as the form's own
- * check does, never in the service's words.
+ * refusal. The service refusing a name another account of the provider named `providerName` has
+ * reads as the form's own check does, never in the service's words.
  */
-export function nameRefusalLine(refusal: Refusal, provider: ProviderName): string | undefined {
+export function nameRefusalLine(refusal: Refusal, providerName: string): string | undefined {
   if (refusal.code === REGISTRATION_LABEL_BLANK_CODE) {
     return refusal.detail;
   }
   if (refusal.code === PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE) {
-    return takenNameLine(provider);
+    return takenNameLine(providerName);
   }
   return undefined;
 }
@@ -277,6 +282,6 @@ export async function submitTokenRegistration(
   }
 }
 
-function takenNameLine(provider: ProviderName): string {
-  return `Another ${PROVIDER_LABELS[provider]} account already has this name.`;
+function takenNameLine(providerName: string): string {
+  return `Another ${providerName} account already has this name.`;
 }

@@ -1,4 +1,4 @@
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionPointerControl,
   SessionPointerOutcome,
@@ -11,6 +11,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { RunStatusChip } from "#renderer/features/workflows/components/RunStatusChip.js";
@@ -71,15 +72,24 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const clockLocale = useClockLocale();
   const workflowRunId = run.workflowRunId;
   const { review, startedBy, fixSessionId } = run;
-  // The daemon starts the new run from this run's own version, input and mode.
+  // The daemon starts the new run from this run's own version, input and mode; each press is a
+  // new re-run, so each carries a key of its own.
   const rerun = useWorkflowCall(
-    () => callDaemon(bridge, "workflow.runRerun", { workflowRunId }),
+    () =>
+      callDaemon(bridge, "workflow.run.rerun", {
+        workflowRunId,
+        clientIdempotencyKey: crypto.randomUUID(),
+      }),
     (started) => {
       props.onOpenRun(started.workflowRunId);
     },
   );
-  const cancel = useWorkflowCall(() => callDaemon(bridge, "workflow.runCancel", { workflowRunId }));
-  const resume = useWorkflowCall(() => callDaemon(bridge, "workflow.runResume", { workflowRunId }));
+  const cancel = useWorkflowCall(() =>
+    callDaemon(bridge, "workflow.run.cancel", { workflowRunId }),
+  );
+  const resume = useWorkflowCall(() =>
+    callDaemon(bridge, "workflow.run.resume", { workflowRunId }),
+  );
   const isChained = run.chainRoot.runId !== workflowRunId;
   const isTicking = isGoing(run.status);
   // The day words move at midnight and a going run's time so far every second.
@@ -89,9 +99,11 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     namesDays: true,
     isPartOfDayShown: false,
   });
+  const providerSections = useProviderSections();
   const lines = runHeaderLines(run, {
     nodeKind: props.nodeKind,
     nodeName: props.nodeName,
+    providerSections,
     workflowName: props.workflowName,
   });
   const liveLine = runLiveLine(run);

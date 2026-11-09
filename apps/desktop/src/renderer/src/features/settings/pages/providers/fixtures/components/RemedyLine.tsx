@@ -1,13 +1,15 @@
 import type {
   ProviderAccount,
   ProviderReadiness,
+  ProviderRemedy,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ReactNode } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { accountPlaneRemedySentence } from "#renderer/lib/provider-accounts/sentences.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { AccountCheckNow } from "./Account/AccountCheckNow.js";
 import { TokenResupplyForm } from "./Token/TokenResupplyForm.js";
@@ -22,11 +24,11 @@ import { TokenResupplyForm } from "./Token/TokenResupplyForm.js";
  * token account's remedy carries the field its fresh token is pasted into.
  */
 export function RemedyLine(props: {
-  readonly remedy: NonNullable<ProviderReadiness["remedy"]>;
+  readonly remedy: ProviderRemedy;
   /** The state the remedy answers; a sign-in is worded apart for a folder with no credential. */
   readonly state: ProviderReadiness["state"];
   /** The provider the remedy is about, which some remedies name. */
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   readonly onStartSignIn: (accountId: NonNullable<ProviderReadiness["resolvedAccountId"]>) => void;
   /** Why the start may not be pressed right now, where it may not be. */
   readonly startBlockedReason: string | undefined;
@@ -40,13 +42,14 @@ export function RemedyLine(props: {
   readonly probe: ProviderAccountProbeCall;
 }): ReactNode {
   const { remedy, state, provider, onStartSignIn, startBlockedReason, startRefusal } = props;
-  if (remedy.kind === "choose_default" || remedy.kind === "register") {
+  const providerName = useProviderName(provider);
+  if (remedy.kind === "chooseCurrent" || remedy.kind === "register") {
     // The row's state chip already reads these remedies' whole sentence, and their acts live on
     // the account rows and the sign-in and paste forms, so the line would only repeat it.
     return null;
   }
-  const sentence = <p>{accountPlaneRemedySentence(remedy.kind, state, provider)}</p>;
-  if (remedy.kind === "paste_token") {
+  const sentence = <p>{accountPlaneRemedySentence(remedy.kind, state, providerName)}</p>;
+  if (remedy.kind === "pasteToken") {
     return (
       <div className="meridian-settings-page__state">
         {sentence}
@@ -61,7 +64,7 @@ export function RemedyLine(props: {
       </div>
     );
   }
-  if (remedy.kind === "look_again") {
+  if (remedy.kind === "lookAgain") {
     // The sentence names `Check now`, so the control it names sits beside it.
     return (
       <div className="meridian-settings-page__state">
@@ -75,7 +78,7 @@ export function RemedyLine(props: {
       </div>
     );
   }
-  if (remedy.kind !== "sign_in") {
+  if (remedy.kind !== "signIn") {
     return <div className="meridian-settings-page__state">{sentence}</div>;
   }
   return (

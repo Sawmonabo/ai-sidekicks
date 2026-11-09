@@ -8,9 +8,9 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
-  WorkflowRunAttentionListResponseSchema,
+  validateWorkflowRunAttentionListResponse,
   type WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/attention";
 
 import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -18,6 +18,8 @@ import { refuse } from "#renderer/lib/refusal/contract.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+import { withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { OUTSIDE_LIVE_REGIONS } from "#test/helpers/live-region.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
@@ -34,41 +36,44 @@ const CLOCK_LOCALE = "en-US";
  * Two accounts, then two runs whose waits are out of time order, as a daemon may send them:
  * a screen that sorted or regrouped the entries would draw them in another order.
  */
-const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
-  WorkflowRunAttentionListResponseSchema.parse({
-    entries: [
-      {
-        kind: "account",
-        account: { providerAccountId: "pa-0002", provider: "claude", label: "Personal" },
-        affectedRunCount: 1,
-        waitingSince: OLDER_WAIT,
-      },
-      {
-        kind: "account",
-        account: { providerAccountId: "pa-0001", provider: "codex", label: "Work" },
-        affectedRunCount: 3,
-        waitingSince: NEWER_WAIT,
-        resumeAt: RESUME_AT,
-      },
-      {
-        kind: "run",
-        workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4002",
-        workflowName: "Release",
-        waitCause: "approval",
-        waitingStepName: "Approve the release",
-        waitingSince: NEWER_WAIT,
-      },
-      {
-        kind: "run",
-        workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4003",
-        workflowName: "Weekly notes",
-        waitCause: "form",
-        waitingStepName: "Write the notes",
-        waitingSince: OLDER_WAIT,
-      },
-    ],
-    waitingOnPersonCount: 2,
-  });
+const DAEMON_GROUPING_SENT: unknown = {
+  entries: [
+    {
+      kind: "account",
+      account: { providerAccountId: "pa-0002", provider: "claude", label: "Personal" },
+      affectedRunCount: 1,
+      waitingSince: OLDER_WAIT,
+    },
+    {
+      kind: "account",
+      account: { providerAccountId: "pa-0001", provider: "codex", label: "Work" },
+      affectedRunCount: 3,
+      waitingSince: NEWER_WAIT,
+      resumeAt: RESUME_AT,
+    },
+    {
+      kind: "run",
+      workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4002",
+      workflowName: "Release",
+      waitCause: "approval",
+      waitingStepName: "Approve the release",
+      waitingSince: NEWER_WAIT,
+    },
+    {
+      kind: "run",
+      workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4003",
+      workflowName: "Weekly notes",
+      waitCause: "form",
+      waitingStepName: "Write the notes",
+      waitingSince: OLDER_WAIT,
+    },
+  ],
+  waitingOnPersonCount: 2,
+};
+if (!validateWorkflowRunAttentionListResponse(DAEMON_GROUPING_SENT)) {
+  throw new Error("the attention list fixture is off the contract");
+}
+const DAEMON_GROUPING: WorkflowRunAttentionListResponse = DAEMON_GROUPING_SENT;
 
 describe("the attention list", () => {
   it("draws the daemon's account and run lines in the order the daemon gave them", () => {
@@ -82,7 +87,7 @@ describe("the attention list", () => {
         readAgain={() => undefined}
         answeredCount={0}
       />,
-      { wrapper: LiveAnnouncerProvider },
+      { wrapper: withAnnouncer(ServedProviderSections) },
     );
 
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);

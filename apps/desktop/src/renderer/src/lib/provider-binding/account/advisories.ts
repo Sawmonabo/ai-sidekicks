@@ -32,12 +32,12 @@ const OBSERVED_HEALTH_ADVISORIES: Readonly<
     " found a credential in this account's home and nothing local reporting it dead. Whether " +
       "the provider still accepts it is decided when a run starts.",
   ],
-  reauth_required: (observedAt) => [
+  reauthRequired: (observedAt) => [
     "The observation at ",
     observedAt,
     " found this account's login expired.",
   ],
-  home_missing: (observedAt) => [
+  homeMissing: (observedAt) => [
     "The observation at ",
     observedAt,
     " found no credential home where this account expects one.",
@@ -70,8 +70,8 @@ export function accountAdvisoriesFor(
   if (readiness === undefined) {
     return advisories;
   }
-  advisories.push([PROVIDER_READINESS_STATE_WORDS[readiness.state](readiness.provider)]);
-  const remedyAdvisory = remedyAdvisoryFor(readiness);
+  advisories.push([PROVIDER_READINESS_STATE_WORDS[readiness.state](choice.providerName)]);
+  const remedyAdvisory = remedyAdvisoryFor(readiness, choice.providerName);
   if (remedyAdvisory !== undefined) {
     advisories.push([remedyAdvisory]);
   }
@@ -89,8 +89,10 @@ export function unresolvedDefaultAdvisoryIn(
   if (accountId !== undefined || advisoryChoiceIn(reading, undefined) !== undefined) {
     return undefined;
   }
-  const readiness = reading.kind === "served" ? reading.providerReadiness : undefined;
-  return readiness === undefined ? undefined : remedyAdvisoryFor(readiness);
+  if (reading.kind !== "served" || reading.providerReadiness === undefined) {
+    return undefined;
+  }
+  return remedyAdvisoryFor(reading.providerReadiness, reading.providerName);
 }
 
 /** The stored reading as one sentence: what was found, and when it was found. */
@@ -114,9 +116,8 @@ function storedHealthAdvisoryFor(
  * The one remedy a readiness entry names, in the Providers page's own sentence, never a command.
  * Both readers use it, so a person meets the same sentence whether or not an account resolved.
  */
-function remedyAdvisoryFor(readiness: ProviderReadiness): string | undefined {
-  const { remedy } = readiness;
-  return remedy === undefined
+function remedyAdvisoryFor(readiness: ProviderReadiness, providerName: string): string | undefined {
+  return readiness.state === "authenticated"
     ? undefined
-    : accountPlaneRemedySentence(remedy.kind, readiness.state, readiness.provider);
+    : accountPlaneRemedySentence(readiness.remedy.kind, readiness.state, providerName);
 }

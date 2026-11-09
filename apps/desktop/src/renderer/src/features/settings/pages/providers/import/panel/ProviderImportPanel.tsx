@@ -10,7 +10,7 @@ import "./ProviderImportPanel.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 
@@ -22,7 +22,7 @@ export interface ProviderImportPanelProps {
 /** The action that imports one provider's conversations, and the row that reports it. */
 export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.Element {
   const { model } = props;
-  const providerLabel = PROVIDER_LABELS[model.provider];
+  const providerLabel = useProviderName(model.provider);
   const actionLabel = `Import sessions from ${providerLabel}`;
   return (
     <section className="meridian-provider-import" aria-label={actionLabel}>

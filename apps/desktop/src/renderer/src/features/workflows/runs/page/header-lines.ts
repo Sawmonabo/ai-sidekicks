@@ -3,6 +3,7 @@
 // run's status and its blocking or failing step, so every kind of stop is written the same way
 // and none is kept by hand. A waiting run's cause is read in the first line and nowhere else.
 
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
@@ -37,6 +38,8 @@ export interface RunHeaderNames {
   readonly nodeKind: (nodeId: string) => string | undefined;
   /** A step's node name in the pinned version. */
   readonly nodeName: (nodeId: string) => string;
+  /** Every provider's section, which names the provider of a spent account. */
+  readonly providerSections: readonly ProviderSection[];
   /** The workflow's name, once it has been read. */
   readonly workflowName: string | undefined;
 }
@@ -103,7 +106,7 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
     );
   }
   const waiting = latestStepWith(run.steps, "waiting");
-  const holding = latestStepWith(run.steps, "waiting-memory");
+  const holding = latestStepWith(run.steps, "waitingMemory");
   if (waiting?.waitCause !== undefined) {
     parts.push(...waitingParts(run, waiting, waiting.waitCause));
   } else if (holding !== undefined) {
@@ -139,7 +142,7 @@ function waitingLines(
       // The window's reset is named only where the wait armed the instant it resumes.
       const until = step.resumeAt === undefined ? "" : " until the window resets";
       return {
-        happened: [`The ${spentAccountWords(account)} is spent${until}.`],
+        happened: [`The ${spentAccountWords(account, names.providerSections)} is spent${until}.`],
         needs: "Nothing until the account can run again.",
       };
     }

@@ -1,24 +1,17 @@
-// The driver catalog's shape, the answers of `driver.listModels` and `driver.listCapabilities`
-// held together, and the selectors every axis control asks of it. The two answers are held
-// together, all or nothing, because a partial catalog would read as "this provider has no
-// models". A row is found by its model id and whether it is the larger window, since a model's
-// two rows share the id. Effort levels are per model, and an absent list (`undefined`) is a
-// different answer from an empty one. Speed levels are per model where the provider publishes
-// them so, else the driver's one list.
+// The driver catalog's shape, the answer of `provider.model.list`, and the selectors every axis
+// control asks of it. A row is found by its model id and whether it is the larger window, since a
+// model's two rows share the id. Effort levels are per model, and an absent list (`undefined`) is
+// a different answer from an empty one. Speed levels are per model where the provider publishes
+// them so, else the one list its section in the service's provider list carries.
 
-import type {
-  ListCapabilitiesResult,
-  ListModelsResult,
-} from "@ai-sidekicks/contracts/provider/driver/methods";
-import {
-  findProviderModelRow,
-  type ProviderModel,
-} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderModelListResponse } from "@ai-sidekicks/contracts/provider/driver/methods";
+import { findProviderModelRow } from "@ai-sidekicks/contracts/provider/driver/model-row";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-/** Both catalog reads, held together because no axis control can use one alone. */
+/** The catalog read's answer: each installed provider's models, or why they could not be read. */
 export interface DriverCatalogReading {
-  readonly models: ListModelsResult;
-  readonly capabilities: ListCapabilitiesResult;
+  readonly models: ProviderModelListResponse;
 }
 
 /** The row a choice names: its model id, and whether it is that model's larger window. */
@@ -29,10 +22,10 @@ export interface ModelRowChoice {
 
 /** The driver names the catalog answered for, in the daemon's own order. */
 export function driverNamesOf(catalog: DriverCatalogReading): readonly string[] {
-  return catalog.models.drivers.map((report) => report.driverName);
+  return catalog.models.providers.map((report) => report.providerName);
 }
 
-/** One driver's models. Empty where the catalog named no such driver. */
+/** One driver's models. Empty where the catalog named no such driver or could not read it. */
 export function modelsFor(
   catalog: DriverCatalogReading,
   driverName: string | undefined,
@@ -40,7 +33,9 @@ export function modelsFor(
   if (driverName === undefined) {
     return [];
   }
-  return catalog.models.drivers.find((report) => report.driverName === driverName)?.models ?? [];
+  return (
+    catalog.models.providers.find((report) => report.providerName === driverName)?.models ?? []
+  );
 }
 
 /**
@@ -86,23 +81,24 @@ export function catalogCarriesEffortLevel(
 
 /**
  * One model's output-speed vocabulary, on the row the choice names: the model's own list where
- * its provider publishes one, else the driver's list on the capability report. `undefined` where
- * the driver declares no speed axis or the row is not listed, so a form shows no speed control.
+ * its provider publishes one, else the list its section in `providerSections` carries.
+ * `undefined` where neither publishes one or the row is not listed, so a form shows no speed
+ * control.
  */
 export function outputSpeedLevelsFor(
   catalog: DriverCatalogReading,
+  providerSections: readonly ProviderSection[],
   driverName: string | undefined,
   choice: ModelRowChoice | undefined,
 ): readonly string[] | undefined {
-  const report = catalog.capabilities.drivers.find((entry) => entry.driverName === driverName);
-  if (report?.capabilities.flags.output_speed !== true) {
-    return undefined;
-  }
   const model = findModelRow(catalog, driverName, choice);
   if (model === undefined) {
     return undefined;
   }
-  return model.outputSpeedLevels ?? report.outputSpeedLevels;
+  return (
+    model.outputSpeedLevels ??
+    providerSections.find((section) => section.provider === driverName)?.outputSpeedLevels
+  );
 }
 
 // The driver's row a choice names, or `undefined` with no choice or no such row.

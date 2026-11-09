@@ -8,8 +8,8 @@
 
 import "./AccountPlaneRefusal.css";
 
-import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderSignInExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ReactNode } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -18,17 +18,18 @@ import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/provider-accounts/sentences.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 
 /** A refusal line plus, where a console act answers it, a handoff to the settings section. */
 export function AccountPlaneRefusal(props: {
   readonly refusal: Refusal;
   /** The provider the refused request was about, which the remedy sentence names. */
-  readonly provider: ProviderName;
+  readonly provider: ProviderId;
   /**
    * The remedy the refusal's own data named, read from it at the wire boundary. A refused account
    * move carries the account's own; a code routed by it offers no handoff without one.
    */
-  readonly carriedRemedy?: ProviderLoginExpiredRemedy | undefined;
+  readonly carriedRemedy?: ProviderSignInExpiredRemedy | undefined;
   /**
    * Opens the settings section the handoff names. Absent where the refusal renders on that very
    * section, which `currentSection` then names.
@@ -42,11 +43,12 @@ export function AccountPlaneRefusal(props: {
 }): ReactNode {
   const handoff = accountPlaneHandoffFor(props.refusal.code, props.carriedRemedy);
   const { openPage } = props;
+  const providerName = useProviderName(props.provider);
   const isAlreadyThere = handoff !== undefined && handoff.section === props.currentSection;
   const remedySentence =
     handoff === undefined
       ? undefined
-      : ACCOUNT_PLANE_REMEDY_SENTENCES[handoff.remedyKind](props.provider);
+      : ACCOUNT_PLANE_REMEDY_SENTENCES[handoff.remedyKind](providerName);
   return (
     <>
       {/* The remedy is read out after the reason, as it is drawn; its button is not. */}

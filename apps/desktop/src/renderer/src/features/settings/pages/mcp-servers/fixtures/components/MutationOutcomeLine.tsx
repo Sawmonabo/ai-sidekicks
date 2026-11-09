@@ -9,6 +9,8 @@ import {
   listedSessionOf,
   type SessionDirectoryState,
 } from "#renderer/store/session/directory/state.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
+import { providerNameOf } from "#renderer/store/providers/name.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mutation.js";
@@ -35,6 +37,7 @@ export function MutationOutcomeLine(props: {
   readonly clock: Clock;
 }): ReactNode {
   const { outcome, sessionDirectory, clock } = props;
+  const providerSections = useProviderSections();
   if (outcome.kind === "idle") {
     return null;
   }
@@ -56,7 +59,7 @@ export function MutationOutcomeLine(props: {
           key={grade}
           element="p"
           className="meridian-settings-page__state"
-          words={settleLineFor(grade, binding.provider)}
+          words={settleLineFor(grade, providerNameOf(providerSections, binding.provider))}
           politeness="polite"
         />
       ))}

@@ -4,7 +4,6 @@
 // record's instants are drawn as relative times, with the zoned time as their hover.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position.js";
@@ -12,9 +11,10 @@ import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
  * mono; `instant` is a registry timestamp, shown as a relative time with its zoned time on hover;
+ * `provider` is a provider's id, shown as the name the service's provider list gives it;
  * `composed` is a word, sentence or count this module composed, which mono would misattribute.
  */
-export const AGENT_AXIS_SOURCES = ["wire", "instant", "composed"] as const;
+export const AGENT_AXIS_SOURCES = ["wire", "instant", "provider", "composed"] as const;
 
 /** One axis's provenance. */
 export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
@@ -120,7 +120,7 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
     description: definition.description,
     // Declared-shape order, so the projection can be checked against the shape by reading down.
     axes: [
-      composedAxis("driver", "Driver", PROVIDER_LABELS[binding.driverName]),
+      { key: "driver", label: "Driver", reading: binding.providerName, source: "provider" },
       wireAxis("model", "Model", binding.modelId),
       pinnedAxis("account", "Account", binding.providerAccountId, "The provider's default"),
       pinnedAxis("effort", "Effort", binding.effort, "The driver's default"),

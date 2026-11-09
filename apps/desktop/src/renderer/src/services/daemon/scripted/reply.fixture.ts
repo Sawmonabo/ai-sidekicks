@@ -11,7 +11,8 @@ import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/event"
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import { PROVIDER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/settings";
+import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 import { daemonMethodBindingFor } from "#shared/daemon/method-bindings.js";
 import { parseInstant } from "#renderer/lib/instant.js";
@@ -26,30 +27,34 @@ import type { MachineNoticeStreamName } from "../session/event/streams.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
+  PROVIDER_NOTICE_STREAM,
   SESSION_LIST_STREAM,
   WORKFLOW_NOTICE_STREAM,
 } from "#shared/daemon/streams.js";
 
-/** The shape each machine stream registers for what it pushes, from its contract descriptor. */
-const MACHINE_NOTICE_EMISSION_SCHEMAS: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>> =
-  Object.freeze({
-    [MCP_NOTICE_STREAM]: MCP_EVENT_METHOD_DESCRIPTORS[MCP_NOTICE_STREAM].emissionSchema,
-    [PROVIDER_ACCOUNT_NOTICE_STREAM]:
-      PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionSchema,
-    [WORKFLOW_NOTICE_STREAM]:
-      WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionSchema,
-    [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].emissionSchema,
-  });
+/** The check each machine stream registers for what it pushes, from its contract descriptor. */
+const MACHINE_NOTICE_EMISSION_CHECKS: Readonly<
+  Record<MachineNoticeStreamName, SchemaCheck<unknown>>
+> = Object.freeze({
+  [MCP_NOTICE_STREAM]: MCP_EVENT_METHOD_DESCRIPTORS[MCP_NOTICE_STREAM].emissionCheck,
+  [PROVIDER_ACCOUNT_NOTICE_STREAM]:
+    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionCheck,
+  [PROVIDER_NOTICE_STREAM]: PROVIDER_METHOD_DESCRIPTORS[PROVIDER_NOTICE_STREAM].emissionCheck,
+  [WORKFLOW_NOTICE_STREAM]:
+    WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionCheck,
+  [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].emissionCheck,
+});
 
 /**
- * The shape each machine stream's opening frame registers: its first emission, except
+ * The check each machine stream's opening frame registers: its first emission, except
  * `session.list`, whose list as it stands is its acknowledgment.
  */
-const MACHINE_NOTICE_OPENING_SCHEMAS: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>> =
-  Object.freeze({
-    ...MACHINE_NOTICE_EMISSION_SCHEMAS,
-    [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].responseSchema,
-  });
+const MACHINE_NOTICE_OPENING_CHECKS: Readonly<
+  Record<MachineNoticeStreamName, SchemaCheck<unknown>>
+> = Object.freeze({
+  ...MACHINE_NOTICE_EMISSION_CHECKS,
+  [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].responseCheck,
+});
 
 /**
  * What happened when the fixture went looking for one call's canned reply: a value, nothing
@@ -178,8 +183,8 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
   if (binding === undefined) {
     return value;
   }
-  const parsed = binding.responseSchema.safeParse(value);
-  if (!parsed.success) {
+  const { responseCheck } = binding;
+  if (!responseCheck(value)) {
     throw new FixtureBridgeError(
       method,
       "reply-off-contract",
@@ -198,7 +203,7 @@ export function assertOpeningOnContract(
   stream: MachineNoticeStreamName,
   payload: unknown,
 ): unknown {
-  return assertOnContract(MACHINE_NOTICE_OPENING_SCHEMAS, stream, stream, payload);
+  return assertOnContract(MACHINE_NOTICE_OPENING_CHECKS, stream, stream, payload);
 }
 
 /**
@@ -229,16 +234,17 @@ function assertNoticeOnContract(
   stream: MachineNoticeStreamName,
   payload: unknown,
 ): unknown {
-  return assertOnContract(MACHINE_NOTICE_EMISSION_SCHEMAS, source, stream, payload);
+  return assertOnContract(MACHINE_NOTICE_EMISSION_CHECKS, source, stream, payload);
 }
 
 function assertOnContract(
-  schemas: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>>,
+  checks: Readonly<Record<MachineNoticeStreamName, SchemaCheck<unknown>>>,
   source: string,
   stream: MachineNoticeStreamName,
   payload: unknown,
 ): unknown {
-  if (!schemas[stream].safeParse(payload).success) {
+  const check = checks[stream];
+  if (!check(payload)) {
     throw new FixtureBridgeError(
       source,
       "reply-off-contract",

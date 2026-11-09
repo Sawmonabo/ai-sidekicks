@@ -1,13 +1,15 @@
 // Which provider accounts the account field may pin, which one its advisories speak for,
 // and what the registry stored about each. Provider-scoped: an unchosen driver answers no
-// choices, and a driver name is matched against the provider set, never assumed to be one.
+// choices, and a driver name is matched against the providers the service lists, never assumed
+// to be one.
 // Readiness is per account, never per provider. Nothing here gates: the spawn probe decides.
 
 import type {
   ProviderAccount,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { findReadRefusal, type WireReadState } from "#renderer/lib/reads/wire-state.js";
@@ -27,6 +29,8 @@ export interface AccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AccountChoice {
   readonly accountId: string;
+  /** The name of the provider the account belongs to, as the service's list gives it. */
+  readonly providerName: string;
   /** What the account is named by. */
   readonly label: string;
   readonly isProviderDefault: boolean;
@@ -52,7 +56,9 @@ export type AccountAxisReading =
   | { readonly kind: "unknown-provider"; readonly driverName: string }
   | {
       readonly kind: "served";
-      readonly provider: ProviderName;
+      readonly provider: ProviderId;
+      /** The provider's name as the service's list gives it. */
+      readonly providerName: string;
       /**
        * This provider's own readiness entry, derived once in {@link accountAxisReadingFor} so
        * no component re-finds it. Absent where the read carried none for this provider.
@@ -63,19 +69,20 @@ export type AccountAxisReading =
 
 /**
  * The accounts this driver's provider carries, in the registry's own order (the default is
- * marked on its row, not hoisted).
+ * marked on its row, not hoisted). `providerSections` are the providers the service lists.
  */
 export function accountAxisReadingFor(
   registry: AccountRegistryReading,
   driverName: string | undefined,
+  providerSections: readonly ProviderSection[],
 ): AccountAxisReading {
   if (driverName === undefined || driverName === "") {
     return { kind: "driver-unchosen" };
   }
   // Decidable without the registry: a refused read must not be named as the reason a picker
   // is missing when the driver was the obstacle.
-  const provider = providerForDriver(driverName);
-  if (provider === undefined) {
+  const section = providerSections.find((listed) => listed.provider === driverName);
+  if (section === undefined) {
     return { kind: "unknown-provider", driverName };
   }
   // Through the phase-aware accessor: a reading whose newest read served carries no
@@ -87,11 +94,12 @@ export function accountAxisReadingFor(
   if (registry.phase === "reading") {
     return { kind: "reading" };
   }
+  const { provider, name: providerName } = section;
   const providerReadiness = registry.readiness.find((entry) => entry.provider === provider);
   const choices = registry.accounts
     .filter((account) => account.provider === provider)
-    .map((account) => accountChoiceFor(account, providerReadiness));
-  return { kind: "served", provider, providerReadiness, choices };
+    .map((account) => accountChoiceFor(account, providerName, providerReadiness));
+  return { kind: "served", provider, providerName, providerReadiness, choices };
 }
 
 /** The choice this axis is currently on, or `undefined` where the value names none. */
@@ -135,25 +143,17 @@ export function registryCarriesAccount(reading: AccountAxisReading, accountId: s
 }
 
 /**
- * The provider a driver name speaks for, or `undefined`. The one place the form's driver
- * string is narrowed to the contract's closed provider set.
- */
-function providerForDriver(driverName: string | undefined): ProviderName | undefined {
-  return driverName === undefined
-    ? undefined
-    : PROVIDER_NAMES.find((provider) => provider === driverName);
-}
-
-/**
  * One registry row, carrying this provider's readiness entry only where it resolved to that
  * row, so a provider's verdict is never attached to a row it was not computed for.
  */
 function accountChoiceFor(
   account: ListedProviderAccount,
+  providerName: string,
   providerReadiness: ProviderReadiness | undefined,
 ): AccountChoice {
   return {
     accountId: account.accountId,
+    providerName,
     label: account.label,
     isProviderDefault: account.isDefault,
     healthState: account.healthState,

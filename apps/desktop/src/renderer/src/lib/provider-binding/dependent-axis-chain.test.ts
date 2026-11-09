@@ -13,7 +13,7 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   it("vouches for a chain every vocabulary carries", () => {
     expect(
       findAxesOutsideCatalog(
-        { driverName: "claude", modelId: "shared-model", effort: "high" },
+        { providerName: "claude", modelId: "shared-model", effort: "high" },
         CATALOG,
       ),
     ).toEqual([]);
@@ -22,7 +22,7 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   it("refuses a model the named driver does not carry", () => {
     expect(
       findAxesOutsideCatalog(
-        { driverName: "codex", modelId: "claude-only", effort: "low" },
+        { providerName: "codex", modelId: "claude-only", effort: "low" },
         CATALOG,
       ),
     ).toEqual(["modelId", "effort"]);
@@ -33,27 +33,27 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
     // inherited effort goes wrong when the driver above it moves.
     expect(
       findAxesOutsideCatalog(
-        { driverName: "codex", modelId: "shared-model", effort: "high" },
+        { providerName: "codex", modelId: "shared-model", effort: "high" },
         CATALOG,
       ),
     ).toEqual(["effort"]);
   });
 
   it("refuses a driver the catalog never named", () => {
-    expect(findAxesOutsideCatalog({ driverName: "gemini" }, CATALOG)).toEqual(["driverName"]);
+    expect(findAxesOutsideCatalog({ providerName: "gemini" }, CATALOG)).toEqual(["providerName"]);
   });
 
   it("negative control: an unsettled axis is not a refused one", () => {
     // Otherwise the cases above would pass for a rule that refuses whatever it cannot find, so
     // an empty form would report three refusals.
     expect(findAxesOutsideCatalog({}, CATALOG)).toEqual([]);
-    expect(findAxesOutsideCatalog({ driverName: "claude" }, CATALOG)).toEqual([]);
+    expect(findAxesOutsideCatalog({ providerName: "claude" }, CATALOG)).toEqual([]);
   });
 
   it("refuses a settled axis whose parent is unsettled rather than excusing it", () => {
     // An effort chosen against a since-dropped model has no vocabulary that could carry it; a
     // second absence must not excuse it.
-    expect(findAxesOutsideCatalog({ driverName: "claude", effort: "low" }, CATALOG)).toEqual([
+    expect(findAxesOutsideCatalog({ providerName: "claude", effort: "low" }, CATALOG)).toEqual([
       "effort",
     ]);
   });
@@ -61,10 +61,10 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   it("fails closed on an unread catalog rather than vouching for the chain", () => {
     expect(
       findAxesOutsideCatalog(
-        { driverName: "claude", modelId: "shared-model", effort: "low" },
+        { providerName: "claude", modelId: "shared-model", effort: "low" },
         undefined,
       ),
-    ).toEqual(["driverName", "modelId", "effort"]);
+    ).toEqual(["providerName", "modelId", "effort"]);
   });
 
   it("negative control: an unread catalog still refuses nothing that was never settled", () => {

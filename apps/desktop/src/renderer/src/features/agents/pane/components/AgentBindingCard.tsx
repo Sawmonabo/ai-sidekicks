@@ -8,8 +8,8 @@ import "./AgentBindingCard.css";
 
 import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
+import type { AgentSubscribeEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";
@@ -17,7 +17,7 @@ import { agentToolAllowlistPosition } from "../tool-allowlist/position.js";
 
 /** What one agent card shows. */
 export interface AgentBindingCardProps {
-  readonly agent: AgentListEntry;
+  readonly agent: AgentSubscribeEntry;
   /** The instant the card's day words are counted from, moved at local midnight. */
   readonly nowMilliseconds: number;
 }
@@ -28,6 +28,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
   const { agent } = props;
   const { binding } = agent;
   const toolAllowlist = agentToolAllowlistPosition(agent);
+  const providerName = useProviderName(binding.providerName);
 
   return (
     <article className="meridian-agent-card" aria-label={`Agent ${agent.name}`}>
@@ -41,7 +42,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
 
       <p className="meridian-agent-card__effective">
         <span className="meridian-form__label">Running under</span>{" "}
-        <BindingAxis label="provider" words={PROVIDER_LABELS[binding.driverName]} />
+        <BindingAxis label="provider" words={providerName} />
         <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis
           label="account"

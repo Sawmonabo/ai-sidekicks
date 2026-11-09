@@ -17,10 +17,13 @@ import {
 import { startDiagramWorker } from "#renderer/components/Markdown/diagram/worker/connection.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { pictureCacheByteCap } from "#renderer/lib/picture-cache-cap.js";
+import { providerSectionsFeedFor } from "#renderer/services/daemon/provider-sections.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/drafts.js";
+import { ProviderSectionsContext } from "#renderer/store/providers/hooks/useProviderSections.js";
+import { useProviderSectionsState } from "#renderer/store/providers/hooks/useProviderSectionsState.js";
 import { type SessionBaseStateReader } from "#renderer/store/session/open/entry.js";
 import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/registry.js";
 import { paneRegistry } from "#renderer/registries/panes/registry.js";
@@ -112,6 +115,13 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   // Each window's frame store, kept here so the app's commands act on the window used last.
   const { windowStores, windows, hasServiceAnswered } = useWindowStores(openWindows, bridge);
+  // The provider list is read once the service answers, and the windows stay under their boot
+  // cover until it settles, so no screen draws a provider's name before the list holds it. A list
+  // that could not be read lifts the cover too: each screen naming a provider then says it failed.
+  const providerSections = useProviderSectionsState(
+    hasServiceAnswered ? providerSectionsFeedFor(bridge) : undefined,
+  );
+  const hasAppAnswered = hasServiceAnswered && providerSections.status !== "reading";
   const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
   useMarkdownWorkerWake(sessionStoreRegistry, windows);
   // A View-menu scheme main could not save is told on the window used last.
@@ -142,25 +152,27 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   });
 
   return (
-    <DiagramPicturesContext.Provider value={diagramPictures}>
-      <BlockCopyRendererContext.Provider value={renderBlockCopy}>
-        {windows.map(({ openWindow, store }) => (
-          <AppWindow
-            key={openWindow.windowId}
-            openWindow={openWindow}
-            frameStore={store}
-            bridge={bridge}
-            appStores={appStores}
-            appearance={appearance}
-            commandRevision={commandRevision}
-            appTitle={consoleDocument.title}
-            hasServiceAnswered={hasServiceAnswered}
-            notice={
-              isRestoreOffered ? <SafeStartNotice onRestoreWindows={restoreWindows} /> : undefined
-            }
-          />
-        ))}
-      </BlockCopyRendererContext.Provider>
-    </DiagramPicturesContext.Provider>
+    <ProviderSectionsContext.Provider value={providerSections}>
+      <DiagramPicturesContext.Provider value={diagramPictures}>
+        <BlockCopyRendererContext.Provider value={renderBlockCopy}>
+          {windows.map(({ openWindow, store }) => (
+            <AppWindow
+              key={openWindow.windowId}
+              openWindow={openWindow}
+              frameStore={store}
+              bridge={bridge}
+              appStores={appStores}
+              appearance={appearance}
+              commandRevision={commandRevision}
+              appTitle={consoleDocument.title}
+              hasServiceAnswered={hasAppAnswered}
+              notice={
+                isRestoreOffered ? <SafeStartNotice onRestoreWindows={restoreWindows} /> : undefined
+              }
+            />
+          ))}
+        </BlockCopyRendererContext.Provider>
+      </DiagramPicturesContext.Provider>
+    </ProviderSectionsContext.Provider>
   );
 }

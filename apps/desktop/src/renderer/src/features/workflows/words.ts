@@ -4,7 +4,7 @@
 // contract adds fails to compile here until it has words; a node's kind is an open set, named
 // by the catalog's names and read as its key's words when the catalog has no name for it.
 
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_NODE_KIND_NAMES } from "@ai-sidekicks/contracts/workflow/kind";
 import type {
@@ -21,6 +21,7 @@ import type {
 import { codeWords } from "#renderer/lib/code-words.js";
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { providerNameOf } from "#renderer/store/providers/name.js";
 import {
   figurePart,
   type FigureOrigin,
@@ -87,10 +88,14 @@ const STARTED_BY_WORDS: Readonly<Record<WorkflowStartedBy["kind"], string>> = {
 
 /**
  * A spent account by its provider's name and its label, as the run header and the attention
- * section name it after `the`: `Claude Code account sam@example.com · Max`.
+ * section name it after `the`: `Claude Code account sam@example.com · Max`. The provider's name is
+ * the one `providerSections` give it.
  */
-export function spentAccountWords(account: WorkflowSpentAccount): string {
-  return `${PROVIDER_LABELS[account.provider]} account ${account.label}`;
+export function spentAccountWords(
+  account: WorkflowSpentAccount,
+  providerSections: readonly ProviderSection[],
+): string {
+  return `${providerNameOf(providerSections, account.provider)} account ${account.label}`;
 }
 
 /**

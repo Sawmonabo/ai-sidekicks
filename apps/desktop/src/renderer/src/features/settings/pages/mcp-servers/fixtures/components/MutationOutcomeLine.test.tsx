@@ -9,6 +9,8 @@ import type {
   McpApplicationGrade,
   McpLiveApplicationResult,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
@@ -16,6 +18,8 @@ import { sessionListEntry } from "#renderer/store/session/directory/state.test-s
 import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
+import { withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 afterEach(() => {
@@ -45,7 +49,7 @@ function settledOn(
 ): McpMutationOutcome {
   return {
     kind: "settled",
-    binding: { provider: "codex", scope: "user", serverName: "issue-tracker" },
+    binding: { provider: "codex" as ProviderId, scope: "user", serverName: "issue-tracker" },
     settlement: { grades, liveResults },
   };
 }
@@ -59,10 +63,10 @@ function linesOf(container: HTMLElement): readonly (string | null)[] {
 describe("MutationOutcomeLine", () => {
   it("says when each grade takes effect, naming the provider whose settings it reached", () => {
     const drawn: readonly [McpApplicationGrade, string][] = [
-      ["live_reconcile", "Applied to running sessions."],
-      ["user_config_write", "Saved to Codex's settings. New sessions use it."],
-      ["next_run", "Saved. The next session uses it."],
-      ["daemon_enforced", "In force now."],
+      ["liveReconcile", "Applied to running sessions."],
+      ["userConfigWrite", "Saved to Codex's settings. New sessions use it."],
+      ["nextRun", "Saved. The next session uses it."],
+      ["daemonEnforced", "In force now."],
     ];
     for (const [grade, line] of drawn) {
       const { container, unmount } = render(
@@ -71,7 +75,7 @@ describe("MutationOutcomeLine", () => {
           sessionDirectory={DIRECTORY}
           clock={new ManualClock(0)}
         />,
-        { wrapper: LiveAnnouncerProvider },
+        { wrapper: withAnnouncer(ServedProviderSections) },
       );
       expect(linesOf(container)).toStrictEqual([line]);
       expect(container.textContent).not.toContain(grade);
@@ -82,7 +86,7 @@ describe("MutationOutcomeLine", () => {
   it("names each running session the change failed on as the session list names it", () => {
     const failedOn = (sessionId: SessionId): McpLiveApplicationResult => ({
       sessionId,
-      bindingId: `leg-${sessionId}`,
+      bindingId: `leg-${sessionId}` as RuntimeBindingId,
       outcome: "failed",
       errorCode: "mcp.config_write_conflict",
     });
@@ -90,9 +94,13 @@ describe("MutationOutcomeLine", () => {
     const { container } = render(
       <MutationOutcomeLine
         outcome={settledOn(
-          ["user_config_write"],
+          ["userConfigWrite"],
           [
-            { sessionId: APPLIED_SESSION, bindingId: "leg-applied", outcome: "applied" },
+            {
+              sessionId: APPLIED_SESSION,
+              bindingId: "leg-applied" as RuntimeBindingId,
+              outcome: "applied",
+            },
             failedOn(TITLED_SESSION),
             failedOn(UNTITLED_CHAT),
             failedOn(UNTITLED_PROJECT),
@@ -104,7 +112,9 @@ describe("MutationOutcomeLine", () => {
       />,
       {
         wrapper: ({ children }) => (
-          <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+          <ServedProviderSections>
+            <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+          </ServedProviderSections>
         ),
       },
     );
@@ -132,11 +142,11 @@ describe("MutationOutcomeLine", () => {
 
   it("draws and says a failed session's line only once the session list names it", () => {
     const outcome = settledOn(
-      ["user_config_write"],
+      ["userConfigWrite"],
       [
         {
           sessionId: UNLISTED_SESSION,
-          bindingId: "leg-unlisted",
+          bindingId: "leg-unlisted" as RuntimeBindingId,
           outcome: "failed",
           errorCode: "mcp.config_write_conflict",
         },
@@ -152,7 +162,9 @@ describe("MutationOutcomeLine", () => {
     const { announcer, spoken } = spiedAnnouncer();
     const { container, rerender } = render(drawOver({ status: "reading" }), {
       wrapper: ({ children }) => (
-        <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+        <ServedProviderSections>
+          <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+        </ServedProviderSections>
       ),
     });
     expect(linesOf(container)).toStrictEqual(["Saved to Codex's settings. New sessions use it."]);
@@ -184,11 +196,11 @@ describe("MutationOutcomeLine", () => {
 
   it("says a failed session's line once, and nothing more when a lost list is restated", () => {
     const outcome = settledOn(
-      ["user_config_write"],
+      ["userConfigWrite"],
       [
         {
           sessionId: TITLED_SESSION,
-          bindingId: "leg-titled",
+          bindingId: "leg-titled" as RuntimeBindingId,
           outcome: "failed",
           errorCode: "mcp.config_write_conflict",
         },
@@ -204,7 +216,9 @@ describe("MutationOutcomeLine", () => {
     const { announcer, spoken } = spiedAnnouncer();
     const { container, rerender } = render(drawOver(DIRECTORY), {
       wrapper: ({ children }) => (
-        <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+        <ServedProviderSections>
+          <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+        </ServedProviderSections>
       ),
     });
     const sessionLine = "Refresh-token expiry is still running with the old setting.";
