@@ -148,6 +148,37 @@
   margin: var(--meridian-space-2) 0;
 }
 
+/* The update path: numbered steps on one wrapping line, those behind the current one ticked in
+   the text ink, the current one in the accent, the ones ahead faint. */
+.meridian-settings-page__update-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1) var(--meridian-space-4);
+  margin: 0;
+  padding: 0;
+  list-style-position: inside;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-settings-page__update-step {
+  display: list-item;
+}
+
+.meridian-settings-page__update-step .meridian-glyph {
+  margin-right: var(--meridian-space-1);
+  vertical-align: middle;
+}
+
+.meridian-settings-page__update-step[data-progress="done"] {
+  color: var(--meridian-text);
+}
+
+.meridian-settings-page__update-step[data-progress="now"] {
+  color: var(--meridian-accent);
+  font-weight: 500;
+}
+
 /* A wire vocabulary: the closed set a page's rows will speak. Two columns rather than the
    `__facts` stack, because a wire string is the term here and reads at the text's own size and
    ink. The term column sizes to its content so the definitions share one left edge. */

@@ -7,6 +7,7 @@ import type { AppRoute } from "#renderer/routing/routes.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import type { UpdateReadingBinding } from "#renderer/store/update/hooks/useUpdateReading.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
 import type { PaneRegistry } from "../panes/registry.js";
 
@@ -45,4 +46,6 @@ export interface ScreenContext {
    * and says so on the window's banner when main refuses.
    */
   readonly chooseScheme: (preference: SchemePreference) => void;
+  /** This window's one reading of the updater, which the rail's Settings dot and Settings read. */
+  readonly updateReading: UpdateReadingBinding;
 }

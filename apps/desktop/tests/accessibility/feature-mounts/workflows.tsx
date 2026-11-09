@@ -46,6 +46,7 @@ import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { LastSettingsPage } from "#renderer/store/last-settings-page.js";
+import { UPDATE_NOT_READ } from "#test/helpers/update-reading.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./queries.js";
@@ -140,6 +141,7 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     lastSettingsPage: new LastSettingsPage(uiStateStore),
     chooseScheme: () => undefined,
+    updateReading: UPDATE_NOT_READ,
   };
 }
 

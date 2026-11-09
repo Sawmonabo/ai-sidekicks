@@ -22,6 +22,7 @@ import { type SettingsPageRegistry } from "./pages/registry.js";
 import { ScreenRegistry, type ScreenDescriptor } from "#renderer/registries/screens/registry.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
 import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
+import { UPDATE_NOT_READ } from "#test/helpers/update-reading.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar.
@@ -117,6 +118,7 @@ export function windowAt(
       draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
       lastSettingsPage: new LastSettingsPage(uiStateStore),
       chooseScheme: () => undefined,
+      updateReading: UPDATE_NOT_READ,
     },
   };
 }

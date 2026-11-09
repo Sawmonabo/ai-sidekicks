@@ -1,9 +1,10 @@
 // Where the update stands, and who decides when it lands.
 //
 // The read-out renders exactly the members of the `UpdateState` union on the preload contract.
-// Nothing downloads or restarts without a press: the download control exists only on the
-// `available` arm and the restart control only on `ready`, the updater's word that the
-// download completed. The console never derives readiness from a percent, and only
+// Nothing downloads or restarts without a press: the check control exists only before an update
+// is found, the download control only on the `available` arm and the restart control only on
+// `ready`, the updater's word that the download completed; the restart asks nothing, since the
+// service keeps every session, run and shell going through it. The console never derives readiness from a percent, and only
 // `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
 // for that control under the controls, which stay drawn. Under the read-out sits the switch for
 // the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it
@@ -22,13 +23,15 @@ import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "#renderer/lib/diagnostic-capture/capture.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/reading.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
-import { UPDATE_STATE_WORDS } from "./state-words.js";
+import { RESTART_TO_FINISH, updateStateLine } from "./state-words.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 
 /** The subsystem a refused updater control names as its author. */
@@ -41,6 +44,8 @@ const UPDATER_CONTROL_FAILED = "updater-control-failed";
 export interface UpdatesBlockProps {
   /** The window's one reading of the updater, which the read-out draws. */
   readonly reading: UpdateReading;
+  /** The version this install runs, which the idle line names as the newest seen. */
+  readonly runningVersion: string;
   /** Reads the updater's state again after a failed read. */
   readonly onReadAgain: () => void;
   /** The updater's controls the block's presses call. */
@@ -56,8 +61,13 @@ export interface UpdatesBlockProps {
 export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { reading, updater, preferences } = props;
   const clock = useClock();
+  const clockLocale = useClockLocale();
   // The state the first read lands on stands; a later change of state is said.
-  useAnnounceWhenChanged(updateSettlementSentence(reading), "polite", { isReadSettlement: true });
+  useAnnounceWhenChanged(
+    updateSettlementSentence(reading, props.runningVersion, clockLocale),
+    "polite",
+    { isReadSettlement: true },
+  );
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const failureMessage =
     reading.kind === "state" && reading.state.status === "error"
@@ -98,6 +108,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 
       <UpdateReadOut
         reading={reading}
+        runningVersion={props.runningVersion}
         clock={clock}
         onReadAgain={props.onReadAgain}
         onTryAgain={() => {
@@ -106,15 +117,17 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       />
 
       <div className="meridian-settings-page__actions">
-        <button
-          type="button"
-          className="meridian-settings-page__action meridian-action-button"
-          onClick={() => {
-            press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
-          }}
-        >
-          Check now
-        </button>
+        {status === "idle" || status === "checking" ? (
+          <button
+            type="button"
+            className="meridian-settings-page__action meridian-action-button"
+            onClick={() => {
+              press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
+            }}
+          >
+            Check for updates
+          </button>
+        ) : null}
         {status === "available" ? (
           <button
             type="button"
@@ -130,12 +143,11 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           <button
             type="button"
             className="meridian-settings-page__action meridian-action-button"
-            aria-label="Restart to apply the downloaded update"
             onClick={() => {
               press(() => updater.requestRestart(), UPDATER_UNREACHABLE_DETAIL.restart);
             }}
           >
-            Restart to apply
+            {RESTART_TO_FINISH}
           </button>
         ) : null}
       </div>
@@ -200,18 +212,20 @@ function renderAutomaticCheck(
 }
 
 /**
- * The one sentence this block announces, the settled state's drawn words, or `undefined` while no
+ * The one sentence this block announces, the settled state's drawn line, or `undefined` while no
  * state has settled; a refused read and the updater's failure are drawn as lines that speak for
- * themselves, so the sentence settles on `null` there. It carries no figure: `downloading`
- * re-settles on every push, and a sentence with the percent would be announced once per
- * percentage point.
+ * themselves, so the sentence settles on `null` there.
  */
-function updateSettlementSentence(reading: UpdateReading): string | null | undefined {
+function updateSettlementSentence(
+  reading: UpdateReading,
+  runningVersion: string,
+  clockLocale: string,
+): string | null | undefined {
   if (reading.kind === "not-read") {
     return undefined;
   }
   if (reading.kind === "failed" || reading.state.status === "error") {
     return null;
   }
-  return UPDATE_STATE_WORDS[reading.state.status];
+  return joinFigureSentence(updateStateLine(reading.state, runningVersion, clockLocale));
 }

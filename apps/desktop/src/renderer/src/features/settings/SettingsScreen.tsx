@@ -128,6 +128,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
     retainedSessionStore,
     mainProcessState,
     chooseScheme: context.chooseScheme,
+    updateReading: context.updateReading,
   };
 
   // Warm the deferred pages at idle: a person reads the list before choosing a page.

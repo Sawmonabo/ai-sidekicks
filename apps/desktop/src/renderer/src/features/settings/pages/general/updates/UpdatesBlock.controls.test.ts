@@ -14,13 +14,13 @@ import { liveRegionText } from "#test/helpers/live-region.js";
 import {
   machineSettingsRefusing,
   machineSettingsUnreadable,
+  noHandlerFor,
   preferencesAtDefaults,
   pressControl,
   renderOnMachineSettings,
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
-import type { UpdaterCalls } from "#renderer/store/update/reading.js";
 import { UPDATE_FAILED_DETAIL } from "./state-words.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
@@ -49,7 +49,7 @@ describe("the updates block — nothing restarts without a press", () => {
     const labels = [...downloading.querySelectorAll("button")].map(
       (button) => button.textContent ?? "",
     );
-    expect(labels).not.toContain("Restart to apply");
+    expect(labels).not.toContain("Restart to finish");
   });
 
   it("restarts on a press, with no confirmation in between", async () => {
@@ -58,17 +58,10 @@ describe("the updates block — nothing restarts without a press", () => {
       updaterReporting({ status: "ready" }, { requestRestart }),
     );
     expect(requestRestart).not.toHaveBeenCalled();
-    await pressControl(container, "Restart to apply");
+    await pressControl(container, "Restart to finish");
     expect(requestRestart).toHaveBeenCalledTimes(1);
   });
 });
-
-/** What Electron rejects a call with when main has no handler on its channel. */
-function noHandlerFor(channel: string): Error {
-  return new Error(
-    `Error invoking remote method '${channel}': Error: No handler registered for '${channel}'`,
-  );
-}
 
 describe("the updates block — a call main does not answer is drawn in the block's words", () => {
   it("draws a refused check under the controls, never the message that crossed IPC", async () => {
@@ -76,7 +69,7 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     const { block } = await renderSettled(updaterReporting({ status: "idle" }, { requestCheck }));
     expect(block.querySelector("[data-refusal-code]")).toBeNull();
 
-    await pressControl(block, "Check now");
+    await pressControl(block, "Check for updates");
 
     expect(requestCheck).toHaveBeenCalledTimes(1);
     const refusal = block.querySelector("[data-refusal-code]");
@@ -84,24 +77,7 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     expect(refusal?.textContent).toBe("Could not check for updates.");
     expect(block.textContent).not.toContain("update.requestCheck");
     const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
-    expect(labels).toContain("Check now");
-  });
-
-  it("draws a refused read in place of the state, and reads again on Try again", async () => {
-    const getState = vi
-      .fn<UpdaterCalls["getState"]>()
-      .mockRejectedValueOnce(noHandlerFor("update.getState"))
-      .mockResolvedValue({ status: "idle" });
-    const { block } = await renderSettled({ ...updaterReporting({ status: "idle" }), getState });
-
-    expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
-      "Couldn't load the update status",
-    );
-    expect(block.textContent).not.toContain("update.getState");
-
-    await pressControl(block, "Try again");
-    expect(getState).toHaveBeenCalledTimes(2);
-    expect(block.querySelector("[data-refusal-code]")).toBeNull();
+    expect(labels).toContain("Check for updates");
   });
 });
 

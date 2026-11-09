@@ -6,6 +6,8 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";
+import type { UpdateReadingBinding } from "#renderer/store/update/hooks/useUpdateReading.js";
+import { UPDATE_NOT_READ } from "./update-reading.js";
 
 /**
  * What a case says about the window its page is mounted in, where it says anything.
@@ -18,6 +20,7 @@ export interface SettingsPageContextOverrides {
   readonly retainedSessionStore?: SessionStore | undefined;
   readonly mainProcessState?: MainProcessState | undefined;
   readonly selection?: string | undefined;
+  readonly updateReading?: UpdateReadingBinding | undefined;
 }
 
 /**
@@ -27,7 +30,8 @@ export interface SettingsPageContextOverrides {
  * opened no session and a default would answer those cases with a session id. `mainProcessState`
  * defaults to the seeded unreported value, not a healthy one; a case rendering a degraded arm
  * names its own. `selection` defaults to absent, as when a page is reached from the settings
- * rail; a deep-link case names its own.
+ * rail; a deep-link case names its own. `updateReading` defaults to a read that has not landed;
+ * a case drawing the update block binds its own over an updater.
  */
 export function settingsPageContextWith(
   bridge: PlatformBridge,
@@ -42,5 +46,6 @@ export function settingsPageContextWith(
     retainedSessionStore: overrides.retainedSessionStore,
     mainProcessState: overrides.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE,
     chooseScheme: () => undefined,
+    updateReading: overrides.updateReading ?? UPDATE_NOT_READ,
   } satisfies SettingsPageContext;
 }

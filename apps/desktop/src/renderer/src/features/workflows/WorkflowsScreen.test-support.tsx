@@ -35,6 +35,7 @@ import { WindowStore } from "#renderer/store/window/store.js";
 import { createWorkflowCommandTargets, type WorkflowCommandTargets } from "./command-target.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
+import { UPDATE_NOT_READ } from "#test/helpers/update-reading.js";
 
 /**
  * A mounted workflows screen: the window store it routes by, what it asked the daemon, the bridge
@@ -98,6 +99,7 @@ export async function mountWorkflowsScreen(
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     lastSettingsPage: new LastSettingsPage(uiStateStore),
     chooseScheme: () => undefined,
+    updateReading: UPDATE_NOT_READ,
   };
   const Host = bridgeWrapper(bridge, engine.clock);
   let unmount: () => void = () => undefined;

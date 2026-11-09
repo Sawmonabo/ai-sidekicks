@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
+import type { UpdateReadingBinding } from "#renderer/store/update/hooks/useUpdateReading.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
 
@@ -74,6 +75,11 @@ export interface SettingsPageContext {
   readonly mainProcessState: MainProcessState;
   /** This window's act for choosing a color scheme, which asks main to keep it. */
   readonly chooseScheme: (preference: SchemePreference) => void;
+  /**
+   * This window's one reading of the updater, bound by the window so the rail's Settings dot and
+   * the General page's update block share one subscription.
+   */
+  readonly updateReading: UpdateReadingBinding;
 }
 
 /** How the page table draws a page from its context, as a screen's and a pane's render do. */

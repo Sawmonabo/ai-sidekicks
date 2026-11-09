@@ -37,6 +37,13 @@ export function updaterReporting(
   };
 }
 
+/** What Electron rejects a call with when main has no handler on its channel. */
+export function noHandlerFor(channel: string): Error {
+  return new Error(
+    `Error invoking remote method '${channel}': Error: No handler registered for '${channel}'`,
+  );
+}
+
 /** Machine settings read as the defaults with nothing chosen; a press reaches `choose`. */
 export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
@@ -179,6 +186,7 @@ function UpdatesBlockOnReading(props: {
     <UpdatesBlock
       reading={reading}
       onReadAgain={readAgain}
+      runningVersion="1.3.0"
       updater={props.updater}
       preferences={props.preferences}
     />

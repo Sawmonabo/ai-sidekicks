@@ -1,21 +1,30 @@
 import { useId } from "react";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { WirePercentFigure } from "#renderer/components/WireFigure/WirePercentFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatDate, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
-import { LastCheckedLine } from "./LastCheckedLine.js";
-import { UPDATE_FAILED_DETAIL, UPDATE_STATE_WORDS } from "./state-words.js";
+import {
+  UPDATE_FAILED_DETAIL,
+  UPDATE_PATH_STEP_BY_STATUS,
+  UPDATE_PATH_STEPS,
+  updateStateLine,
+} from "./state-words.js";
 
 /** The code the updater's reported failure rides on, for diagnostics. */
 const UPDATE_FAILED_CODE = "update-failed";
 
-/** Renders each arm of the updater's state, plus the read not having landed or being refused. */
+/**
+ * Renders each arm of the updater's state, with the update path under an arm that found one,
+ * plus the read not having landed or being refused.
+ */
 export function UpdateReadOut(props: {
   readonly reading: UpdateReading;
+  /** The version this install runs, which the idle line names as the newest seen. */
+  readonly runningVersion: string;
   /** The window's clock, which the reading line's delay runs on. */
   readonly clock: Clock;
   /** Starts the path again from a check, offered on the failure line. */
@@ -41,61 +50,70 @@ export function UpdateReadOut(props: {
     );
   }
   const { state } = reading;
-  switch (state.status) {
-    case "idle":
-      return (
-        <p className="meridian-settings-page__state">
-          {UPDATE_STATE_WORDS.idle} <LastCheckedLine lastCheckedAt={state.lastCheckedAt} />
-        </p>
-      );
-    case "checking":
-      return (
-        <p className="meridian-settings-page__state" aria-busy="true">
-          {UPDATE_STATE_WORDS.checking}
-        </p>
-      );
-    case "available":
-      return (
-        <p className="meridian-settings-page__state">
-          Update available — <WireFigure value={state.version} />, released{" "}
-          <WireFigure
-            value={formatDate(state.releasedAt, clockLocale)}
-            hoverLabel={formatZonedDateTime(state.releasedAt, clockLocale)}
-          />
-          .
-        </p>
-      );
-    case "downloading":
-      return (
-        <div className="meridian-settings-page__state">
-          <label className="meridian-settings-page__progress-label" htmlFor={progressId}>
-            {UPDATE_STATE_WORDS.downloading}
-          </label>
-          <progress
-            className="meridian-settings-page__progress"
-            id={progressId}
-            max={100}
-            value={state.percent}
-          />
-          <WirePercentFigure percent={state.percent} />
-        </div>
-      );
-    case "verifying":
-      return (
-        <p className="meridian-settings-page__state" aria-busy="true">
-          {UPDATE_STATE_WORDS.verifying}
-        </p>
-      );
-    case "ready":
-      return <p className="meridian-settings-page__state">{UPDATE_STATE_WORDS.ready}</p>;
-    case "error":
-      // The fixed sentence and `Try again`; the updater's own message goes to the diagnostic log.
-      return (
+  const pathStep = UPDATE_PATH_STEP_BY_STATUS[state.status];
+  const path = pathStep === undefined ? null : <UpdatePath currentStep={pathStep} />;
+  if (state.status === "error") {
+    // The fixed sentence and `Try again`; the updater's own message goes to the diagnostic log.
+    return (
+      <>
         <InlineRefusal
           code={UPDATE_FAILED_CODE}
           detail={UPDATE_FAILED_DETAIL}
           onTryAgain={props.onTryAgain}
         />
-      );
+        {path}
+      </>
+    );
   }
+  const line = <FigureSentence parts={updateStateLine(state, props.runningVersion, clockLocale)} />;
+  if (state.status === "downloading") {
+    return (
+      <div className="meridian-settings-page__state">
+        <label className="meridian-settings-page__progress-label" htmlFor={progressId}>
+          {line} <WirePercentFigure percent={state.percent} />
+        </label>
+        <progress
+          className="meridian-settings-page__progress"
+          id={progressId}
+          max={100}
+          value={state.percent}
+        />
+        {path}
+      </div>
+    );
+  }
+  const isBusy = state.status === "checking" || state.status === "verifying";
+  return (
+    <>
+      <p className="meridian-settings-page__state" aria-busy={isBusy ? true : undefined}>
+        {line}
+      </p>
+      {path}
+    </>
+  );
+}
+
+/** The update path as numbered steps: those behind the current one ticked, the current marked. */
+function UpdatePath(props: {
+  readonly currentStep: (typeof UPDATE_PATH_STEPS)[number];
+}): React.JSX.Element {
+  const currentIndex = UPDATE_PATH_STEPS.indexOf(props.currentStep);
+  return (
+    <ol className="meridian-settings-page__update-path">
+      {UPDATE_PATH_STEPS.map((step, index) => {
+        const progress = index < currentIndex ? "done" : index === currentIndex ? "now" : "todo";
+        return (
+          <li
+            key={step}
+            className="meridian-settings-page__update-step"
+            data-progress={progress}
+            aria-current={progress === "now" ? "step" : undefined}
+          >
+            {progress === "done" ? <Glyph name="check" /> : null}
+            {step}
+          </li>
+        );
+      })}
+    </ol>
+  );
 }

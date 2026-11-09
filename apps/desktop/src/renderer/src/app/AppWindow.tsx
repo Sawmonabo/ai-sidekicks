@@ -24,7 +24,8 @@ import { type DraftStore } from "#renderer/store/drafts.js";
 import { type LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { type SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { useIsUpdateStaged } from "#renderer/store/update/hooks/useIsUpdateStaged.js";
+import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
+import { isUpdateStaged } from "#renderer/store/update/reading.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
@@ -148,8 +149,9 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     chooseNextColorScheme(appearance, frameStore);
   }, [appearance, frameStore]);
 
-  // The window's one reading of the updater, which the rail's Settings dot reads.
-  const isUpdateStaged = useIsUpdateStaged(bridge.update);
+  // The window's one reading of the updater, which the rail's Settings dot and Settings › General
+  // read.
+  const updateReading = useUpdateReading(bridge.update);
 
   // No session opens before the service has answered, since opening one reads it.
   const sessionStore = useActiveSessionStore(
@@ -169,6 +171,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     draftStore: appStores.draftStore,
     lastSettingsPage: appStores.lastSettingsPage,
     chooseScheme,
+    updateReading,
   };
 
   return (
@@ -179,7 +182,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       palette={palette}
       readBoundChord={readBoundChord}
       onCycleColorScheme={cycleColorScheme}
-      isUpdateStaged={isUpdateStaged}
+      isUpdateStaged={isUpdateStaged(updateReading.reading)}
       isUnderBootCover={!hasServiceAnswered}
       notice={props.notice}
       onWindowFloorChange={(floor) => {
