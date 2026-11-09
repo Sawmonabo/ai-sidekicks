@@ -54,6 +54,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::run_setup_gates::execution_root::context::run_workspace_deletion_statements;
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::record::{
@@ -159,19 +160,22 @@ static STILL_REMOVABLE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
 const KEEP_SQL: &str = "UPDATE workflow_runs SET kept = @kept WHERE id = @workflow_run_id";
 
 // The deletes of the rows that hang off a run, children first so the foreign keys hold at every
-// statement, then of the run, each over a JSON list of run ids.
-static RUN_ROW_DELETE_SQL: LazyLock<[String; 5]> = LazyLock::new(|| {
+// statement, each over a JSON list of run ids; the workspace a run owns goes after its execution
+// context, which names that workspace's branch context, and the run's own row last.
+static RUN_CHILD_ROW_DELETE_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
     [
         ("workflow_steps", "workflow_run_id"),
         ("human_phase_form_state", "workflow_run_id"),
         ("workflow_gate_resolutions", "workflow_run_id"),
         ("run_execution_contexts", "run_id"),
-        ("workflow_runs", "id"),
     ]
     .map(|(table, run_column)| {
         format!("DELETE FROM {table} WHERE {run_column} IN (SELECT value FROM json_each(?1))")
     })
 });
+
+const RUN_ROW_DELETE_SQL: &str =
+    "DELETE FROM workflow_runs WHERE id IN (SELECT value FROM json_each(?1))";
 
 /// A run a delete removed, with the git common folder its execution context named, or `None` where
 /// it had none; the snapshot cleanup prunes the run's refs there after the rows are gone.
@@ -347,18 +351,22 @@ impl From<WorkflowRunDeletionError> for HandlerError {
     }
 }
 
-/// The statements that remove the runs `workflow_run_ids` with every row that hangs off them,
-/// children first so the foreign keys hold at every statement: what a delete writes with each run's
-/// `workflow.run.deleted`, and what a rebuild of the runs applies on reading that event.
+/// The statements that remove the runs `workflow_run_ids` with every row that hangs off them, the
+/// workspace each owns among them, children first so the foreign keys hold at every statement:
+/// what a delete writes with each run's `workflow.run.deleted`, and what a rebuild of the runs
+/// applies on reading that event.
 pub fn workflow_run_deletion_statements(workflow_run_ids: &[WorkflowRunId]) -> Vec<WriteStatement> {
     let ids_json = serde_json::to_string(workflow_run_ids).expect("run ids write as JSON");
-    RUN_ROW_DELETE_SQL
+    let by_runs = |sql: &'static str| WriteStatement {
+        sql: Cow::Borrowed(sql),
+        bindings: StatementBindings::Positional(vec![Value::Text(ids_json.clone())]),
+        expected_row_count: None,
+    };
+    RUN_CHILD_ROW_DELETE_SQL
         .iter()
-        .map(|sql| WriteStatement {
-            sql: Cow::Borrowed(sql.as_str()),
-            bindings: StatementBindings::Positional(vec![Value::Text(ids_json.clone())]),
-            expected_row_count: None,
-        })
+        .map(|sql| by_runs(sql.as_str()))
+        .chain(run_workspace_deletion_statements(&ids_json))
+        .chain([by_runs(RUN_ROW_DELETE_SQL)])
         .collect()
 }
 

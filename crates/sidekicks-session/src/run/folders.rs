@@ -28,8 +28,8 @@ use sidekicks_workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
 
 // A run whose execution context is unreleased, at its checkout, and a run still queued or starting,
-// at the checkout its session's workspace works in now, each of a session other than the caller's
-// and each with whether it is an agent's run.
+// at the checkout its session's own workspace works in now, each of a session other than the
+// caller's and each with whether it is an agent's run.
 static OTHER_SESSIONS_LIVE_RUN_FOLDERS_SQL: LazyLock<String> = LazyLock::new(|| {
     let queued = <&'static str>::from(RunState::Queued);
     let starting = <&'static str>::from(RunState::Starting);
@@ -49,6 +49,7 @@ static OTHER_SESSIONS_LIVE_RUN_FOLDERS_SQL: LazyLock<String> = LazyLock::new(|| 
       JOIN workspaces AS standing ON standing.session_id = runs.session_id
      WHERE runs.state IN ('{queued}', '{starting}')
        AND standing.state <> '{archived}'
+       AND standing.workflow_run_id IS NULL
        AND standing.fs_root IS NOT NULL
   )
   WHERE session_id <> @session_id"

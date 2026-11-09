@@ -77,7 +77,7 @@ use self::function_legs::SessionFunctionLegsFor;
 /// session's run ids and their bindings for its leg.
 pub const SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY: usize = 10;
 
-// The place the session works in and the folder its runs work in: its newest live workspace's
+// The place the session works in and the folder its runs work in: its newest live own workspace's
 // prepared root, else, before its first run prepares one, the folder that workspace was bound to,
 // or the checkout that holds it.
 static RUN_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -89,6 +89,7 @@ static RUN_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
                         json_extract(workspace.metadata, '{CHECKOUT_ROOT_METADATA_PATH}'))
           FROM workspaces AS workspace
          WHERE workspace.session_id = sessions.id AND workspace.state <> '{archived}'
+           AND workspace.workflow_run_id IS NULL
          ORDER BY workspace.created_at DESC, workspace.id DESC
          LIMIT 1)
   FROM sessions

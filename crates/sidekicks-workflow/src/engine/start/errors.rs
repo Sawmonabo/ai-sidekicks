@@ -23,7 +23,7 @@ use crate::engine::ports::PortError;
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
     /// The start was refused: `workflow.run.startDenied`, `workflow.run.projectOnProjectSession`,
-    /// `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
+    /// `project.notFound`, `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
     /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable` or
     /// `workflow.run.handleUndeclared`.
     #[error(transparent)]
@@ -48,7 +48,8 @@ pub(crate) enum WorkflowRunStartError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
-    /// The workflow's level, pins or provider, or the session's project, did not read.
+    /// The workflow's level, pins or provider, the session's project or the named project's folder
+    /// did not read.
     #[error("the run's scope did not read")]
     Scope(#[from] rusqlite::Error),
     /// The environment rows of the session's project did not read, or its project has no row.
@@ -57,10 +58,11 @@ pub(crate) enum WorkflowRunStartError {
     /// The values the workflow keeps did not read.
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
-    /// A project session's run could not be bound to the session's working folder: refused
+    /// A run could not be bound: a project session's to the session's working folder, refused
     /// `workspace.executionRoot.unresolved` wrapping why, a session holding no live workspace and
-    /// the write of its context included, or a failure in the daemon, such as a session that never
-    /// held a workspace.
+    /// the write of its context included; a named project's in a workspace of its own, refused as
+    /// a workspace bind refuses before that workspace is made and so after; or a failure in the
+    /// daemon, such as a session that never held a workspace.
     #[error(transparent)]
     #[cfg_attr(
         not(test),
@@ -140,6 +142,22 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: PortError,
     },
+    /// The start failed and the workspace a named project's binding made for its run could not
+    /// be deleted; `ended` is how it failed.
+    #[error("the workspace made for run {workflow_run_id} was left behind")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    WorkspaceLeft {
+        /// The run the workspace was made for, which was not started.
+        workflow_run_id: WorkflowRunId,
+        /// How the start failed.
+        ended: Box<WorkflowRunStartError>,
+        /// Why the deletion failed.
+        #[source]
+        removal: RunSetupGateError,
+    },
 }
 
 impl From<WorkflowRunStartError> for HandlerError {
@@ -169,7 +187,8 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::Append(_)
             | WorkflowRunStartError::ChainRootMissing { .. }
             | WorkflowRunStartError::FolderLeft { .. }
-            | WorkflowRunStartError::PayloadLeft { .. }) => Self::Internal(Box::new(fault)),
+            | WorkflowRunStartError::PayloadLeft { .. }
+            | WorkflowRunStartError::WorkspaceLeft { .. }) => Self::Internal(Box::new(fault)),
         }
     }
 }

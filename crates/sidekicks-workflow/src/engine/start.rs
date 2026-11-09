@@ -1,10 +1,11 @@
 //! Starting a run: the checks a start passes before anything is written (a trigger's fire under
 //! the workflow start rule, the pinned version, the session, a project named beside a project
-//! session, the trigger's declared inputs, a project's repository for the steps that need one and
-//! the workflow's provider for the steps that run in its sandbox), the folder the run works in, a
-//! project session's run bound to that session's workspace, the scope its steps share and the
-//! input its trigger step starts on, and the one write of the run's row with its execution context
-//! and its `workflow.run.started`, which holds a run joining a chain at its limit.
+//! session, a named project's folder, the trigger's declared inputs, a project's repository for
+//! the steps that need one and the workflow's provider for the steps that run in its sandbox), the
+//! folder the run works in, a project session's run bound to that session's workspace and a named
+//! project's run bound in a workspace of its own, the scope its steps share and the input its
+//! trigger step starts on, and the one write of the run's row with its execution context and its
+//! `workflow.run.started`, which holds a run joining a chain at its limit.
 mod check;
 mod errors;
 #[cfg(test)]
@@ -51,7 +52,7 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::registry::MachineRegistry;
-use sidekicks_workspace::project::records::session_project_sql;
+use sidekicks_workspace::project::records::{AttachedProjectRoot, session_project_sql};
 use sidekicks_workspace::run_setup_gates::execution_root::context::{
     RunContextBinding, SessionRunBinder, context_statement, context_write_refusal,
 };
@@ -78,13 +79,13 @@ use crate::secrets::redaction::RunRedaction;
 pub(crate) use self::errors::WorkflowRunStartError;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
-/// session's working folder, the workflow's pins and provider, its project's environment rows and
-/// the session's project.
+/// session's working folder, the workflow's pins and provider, a named project's folder, its
+/// project's environment rows and the session's project.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
-pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 5;
+pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 6;
 
 // The project the session works in, NULL for a chat.
 #[cfg_attr(
@@ -189,7 +190,7 @@ pub(crate) enum WorkflowStartOutcome {
 }
 
 /// What a start's checks read: the workflow with its stored pins and provider, its version's body
-/// as the run needs it, and the session's working folder.
+/// as the run needs it, the session's working folder and the named project's folder.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -203,6 +204,9 @@ struct CheckedStart {
     graph: Arc<RunGraph>,
     start_items: Vec<WorkflowItem>,
     session: SessionWorkingFolder,
+    /// The folder of the project the start names, which its run works in; `None` where it names
+    /// none.
+    project_root: Option<AttachedProjectRoot>,
     pin_data_json: Option<String>,
     provider: Option<ProviderId>,
 }
@@ -245,7 +249,8 @@ impl RunFolder {
 }
 
 /// What a start prepared once its checks passed: the run's id, its start, its folder and, for a
-/// project session's run, its binding in that session's workspace.
+/// project session's run, its binding in that session's workspace, or for a named project's run,
+/// in its own.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -279,8 +284,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
     /// The kinds a start reads its steps' needs from.
     pub(crate) kinds: Arc<NodeKindTable>,
-    /// Binds a project session's run to that session's workspace, and is told once the run's
-    /// write holding its context commits.
+    /// Binds a project session's run to that session's workspace and a named project's run in a
+    /// workspace of its own, and is told once the run's write holding its context commits.
     pub(crate) binder: Arc<dyn SessionRunBinder>,
     /// The data folder a run's own folder is made in.
     pub(crate) data_folder: PathBuf,
@@ -344,23 +349,23 @@ impl WorkflowRunStarter {
     }
 
     /// Starts `start`'s run: checks it, prepares its folder, a project session's run bound to that
-    /// session's workspace, reads the scope its steps share, builds its trigger input, then writes
-    /// its row, its execution context and its `workflow.run.started` together, the event's instant
-    /// the row's start, the context's and the scope's. A run joining a chain at its limit is held,
-    /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
-    /// (`workflow.run.startDenied`, `workflow.run.projectOnProjectSession`,
-    /// `workflow.run.inputRequired`,
-    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`,
-    /// `workflow.run.nodeKindUnavailable`, `workflow.run.handleUndeclared`),
-    /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
-    /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, with
-    /// [`WorkflowRunStartError::Binding`] (`workspace.executionRoot.unresolved`) when a project
-    /// session's run cannot be bound or its context's write is refused, and with the other
-    /// variants when a read, the folder, the payload store or the write fails; the run's
-    /// own folder, with its workflow's runs folder once that is empty, and its stored trigger
-    /// input go with every outcome but a start. A held start whose folder or stored
-    /// input cannot be removed is still answered held, the removal's failure going to the engine's
-    /// record.
+    /// session's workspace and a named project's run in a workspace of its own, reads the scope
+    /// its steps share, builds its trigger input, then writes its row, its execution context and
+    /// its `workflow.run.started` together, the event's instant the row's start, the context's and
+    /// the scope's. A run joining a chain at its limit is held, with nothing written. Fails with
+    /// [`WorkflowRunStartError::Refused`] (`workflow.run.startDenied`,
+    /// `workflow.run.projectOnProjectSession`, `project.notFound` for a named project with no
+    /// attached folder, `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
+    /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable`,
+    /// `workflow.run.handleUndeclared`), [`WorkflowRunStartError::Version`]
+    /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
+    /// before anything is made, with [`WorkflowRunStartError::Binding`] when a run cannot be
+    /// bound or its context's write is refused, and with the other variants when a read, the
+    /// folder, the payload store or the write fails; the run's own folder, with its workflow's
+    /// runs folder once that is empty, its stored trigger input and the workspace a named
+    /// project's binding made go with every outcome but a start. A held start whose folder, stored
+    /// input or workspace cannot be removed is still answered held, the removal's failure going to
+    /// the engine's record.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -370,7 +375,21 @@ impl WorkflowRunStarter {
         start: WorkflowRunStart,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let checked = self.check(&start).await?;
-        let prepared = self.prepare(start.session_id, &checked).await?;
+        let workflow_run_id =
+            WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let is_run_owned = checked.project_root.is_some();
+        let prepared = match self
+            .prepare(start.session_id, workflow_run_id, &checked)
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(error) if is_run_owned => {
+                return self
+                    .discard_run_workspace(workflow_run_id, Err(error))
+                    .await;
+            }
+            Err(error) => return Err(error),
+        };
         let mut stored_input = None;
         let mut ended = self
             .write(start, checked, &prepared, &mut stored_input)
@@ -409,7 +428,38 @@ impl WorkflowRunStarter {
                 }),
             };
         }
+        if is_run_owned {
+            return self.discard_run_workspace(run_id, ended).await;
+        }
         ended
+    }
+
+    // Deletes the workspace a named project's binding made for run `workflow_run_id`, which no
+    // start made; a held start whose workspace cannot be deleted is still answered held, the
+    // failure going to the engine's record.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    async fn discard_run_workspace(
+        &self,
+        workflow_run_id: WorkflowRunId,
+        ended: Result<WorkflowStartOutcome, WorkflowRunStartError>,
+    ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
+        let Err(removal) = self.binder.discard_project_run(workflow_run_id).await else {
+            return ended;
+        };
+        match ended {
+            Ok(held) => {
+                self.record_left_behind(workflow_run_id, &removal).await;
+                Ok(held)
+            }
+            Err(error) => Err(WorkflowRunStartError::WorkspaceLeft {
+                workflow_run_id,
+                ended: Box::new(error),
+                removal,
+            }),
+        }
     }
 
     // Records what a held start could not remove, under the run id it minted, then ends that run's
@@ -430,8 +480,9 @@ impl WorkflowRunStarter {
         self.recorder.end_run(run_id);
     }
 
-    // Mints the run's id and its start, binds a project session's run to that session's workspace,
-    // whose root the run works in, and makes the run's own folder where the session has none.
+    // Takes the run's start, binds a project session's run to that session's workspace and a named
+    // project's run in a workspace of its own, whose root the run works in, and makes the run's
+    // own folder where neither binds and the session has none.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -439,14 +490,19 @@ impl WorkflowRunStarter {
     async fn prepare(
         &self,
         session_id: SessionId,
+        workflow_run_id: WorkflowRunId,
         checked: &CheckedStart,
     ) -> Result<PreparedStart, WorkflowRunStartError> {
-        let workflow_run_id =
-            WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let started_at = WireInstant::now();
-        let binding = match checked.session.shape {
+        let binding = match (&checked.project_root, checked.session.shape) {
+            (Some(root), _) => Some(
+                self.binder
+                    .bind_project_run(session_id, workflow_run_id, root)
+                    .await
+                    .map_err(WorkflowRunStartError::Binding)?,
+            ),
             // The workflow's name stands for a chat's first message in a new tree's name.
-            SessionShape::Project => Some(
+            (None, SessionShape::Project) => Some(
                 self.binder
                     .bind_session_run(
                         session_id,
@@ -456,7 +512,7 @@ impl WorkflowRunStarter {
                     .await
                     .map_err(WorkflowRunStartError::Binding)?,
             ),
-            SessionShape::Chat => None,
+            (None, SessionShape::Chat) => None,
         };
         let folder = if let Some(binding) = &binding {
             RunFolder::Session(binding.execution_root().to_path_buf())
@@ -554,6 +610,7 @@ impl WorkflowRunStarter {
         let WorkflowRunStart {
             workflow_version_id,
             session_id,
+            project_id,
             mode,
             started_by,
             chain,
@@ -656,7 +713,8 @@ impl WorkflowRunStarter {
                     time_zone: TimeZone::system(),
                     environment_rows: Arc::from(scope_reads.environment_rows),
                     kept_values: Arc::from(scope_reads.kept_values),
-                    project: scope_reads.project,
+                    // A named project is the run's; else the session's own, if any.
+                    project: project_id.or(scope_reads.project),
                     working_folder: prepared.folder.path().to_path_buf(),
                     provider: checked.provider,
                     redaction: Arc::new(RunRedaction::new(&[])),

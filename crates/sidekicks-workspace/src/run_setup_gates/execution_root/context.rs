@@ -1,6 +1,6 @@
 //! A run's execution context row: the facts a binding resolved for it, the guarded statement that
-//! writes it and the one that releases it, and the binding a run started outside the run engine
-//! asks the gate for.
+//! writes it and the one that releases it, the binding a run started outside the run engine asks
+//! the gate for, and the statements that archive and delete a workflow run's own workspace.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -8,19 +8,26 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
+use notify::Watcher;
+use rusqlite::types::Value;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::{BranchContextId, WorktreeId, WorktreeState};
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 
-use super::{root_unavailable, unresolved};
+use super::{
+    ExecutionRootSetupGate, RunToBind, RunWorkspaceAbsence, cause_of_root, failed,
+    root_unavailable, unresolved,
+};
+use crate::project::records::AttachedProjectRoot;
 use crate::run_setup_gates::RunSetupGateError;
 
 // Writes only while the workspace is `ready` on the attached mount the binding read and its
@@ -61,6 +68,16 @@ static UPSERT_RUN_CONTEXT_SQL: LazyLock<String> = LazyLock::new(|| {
 const RELEASE_RUN_CONTEXT_SQL: &str = "UPDATE run_execution_contexts SET released_at = @now
   WHERE run_id = @run_id AND released_at IS NULL";
 
+const ARCHIVE_RUN_WORKSPACE_SQL: &str = "UPDATE workspaces SET state = @archived, updated_at = @now
+  WHERE workflow_run_id = @run_id AND state <> @archived";
+
+// Over a JSON list of run ids: their workspaces' branch contexts first, so the foreign keys hold.
+const RUN_WORKSPACE_DELETE_SQL: [&str; 2] = [
+    "DELETE FROM branch_contexts WHERE workspace_id IN
+  (SELECT id FROM workspaces WHERE workflow_run_id IN (SELECT value FROM json_each(?1)))",
+    "DELETE FROM workspaces WHERE workflow_run_id IN (SELECT value FROM json_each(?1))",
+];
+
 /// Binds a run a session starts outside the run engine, a workflow run, in the session's own live
 /// workspace, and holds the checkout its context row is written in, which the gate implements.
 pub trait SessionRunBinder: Send + Sync {
@@ -76,6 +93,26 @@ pub trait SessionRunBinder: Send + Sync {
         run_id: &'a str,
         opening_words: &'a str,
     ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>>;
+
+    /// Binds workflow run `workflow_run_id` of `session_id`, started on the project whose folder
+    /// `root` is, in a workspace of its own: a bound folder at the project's root on its attached
+    /// mount, which the session's reads leave out, prepared and answered as
+    /// [`SessionRunBinder::bind_session_run`] answers. Refuses as a workspace bind does before the
+    /// workspace is made, and `workspace.executionRoot.unresolved` wrapping why it could not be
+    /// bound after.
+    fn bind_project_run<'a>(
+        &'a self,
+        session_id: SessionId,
+        workflow_run_id: WorkflowRunId,
+        root: &'a AttachedProjectRoot,
+    ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>>;
+
+    /// Deletes the workspace workflow run `workflow_run_id` owns, with its branch contexts, for a
+    /// start that made no run; does nothing where it owns none. Fails as the write fails.
+    fn discard_project_run(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>>;
 
     /// Waits for and takes the lock of `binding`'s checkout, which the caller holds across the one
     /// write of the binding's [`context_statement`].
@@ -183,5 +220,122 @@ pub fn release_run_context_statement(run_id: &str, now: &WireInstant) -> WriteSt
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: None,
+    }
+}
+
+/// The statement that archives the workspace workflow run `run_id` owns at `now`, as the run ends;
+/// it changes no row for a run that owns none.
+pub fn archive_run_workspace_statement(run_id: &str, now: &WireInstant) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(ARCHIVE_RUN_WORKSPACE_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@archived", <&'static str>::from(WorkspaceState::Archived)),
+            text_binding("@run_id", run_id),
+            text_binding("@now", now.as_str()),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The statements that delete the workspaces the workflow runs of `run_ids_json`, a JSON list of
+/// their ids, own, their branch contexts first; a write runs them once those runs' context rows,
+/// which name the branch contexts, are gone. They change no row for a run that owns none.
+pub fn run_workspace_deletion_statements(run_ids_json: &str) -> [WriteStatement; 2] {
+    RUN_WORKSPACE_DELETE_SQL.map(|sql| WriteStatement {
+        sql: Cow::Borrowed(sql),
+        bindings: StatementBindings::Positional(vec![Value::Text(run_ids_json.to_owned())]),
+        expected_row_count: None,
+    })
+}
+
+impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetupGate<W> {
+    fn bind_session_run<'a>(
+        &'a self,
+        session_id: SessionId,
+        run_id: &'a str,
+        opening_words: &'a str,
+    ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>> {
+        Box::pin(async move {
+            let run = RunToBind {
+                session_id,
+                run_id,
+                agent_run_id: None,
+                opening_words: Some(opening_words),
+                workspace_id: None,
+                workflow_run_id: None,
+            };
+            let Some(before) = self.read_workspace(&run).await? else {
+                return Err(self.refuse_no_live_workspace(session_id).await);
+            };
+            self.bind_run(&run, &before)
+                .await
+                .and_then(|(binding, _hold)| {
+                    binding.ok_or_else(|| failed(RunWorkspaceAbsence::Managed(session_id)))
+                })
+                .map_err(|cause| unresolved(before.id, cause))
+        })
+    }
+
+    fn bind_project_run<'a>(
+        &'a self,
+        session_id: SessionId,
+        workflow_run_id: WorkflowRunId,
+        root: &'a AttachedProjectRoot,
+    ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>> {
+        Box::pin(async move {
+            let workspace_id = self
+                .workspaces
+                .bind_run_workspace(
+                    session_id,
+                    root.repo_mount_id,
+                    &root.canonical_root,
+                    workflow_run_id,
+                )
+                .await
+                .map_err(|error| cause_of_root(error.into()))?;
+            let run_id = workflow_run_id.text();
+            let run = RunToBind {
+                session_id,
+                run_id: run_id.as_str(),
+                agent_run_id: None,
+                opening_words: None,
+                workspace_id: Some(workspace_id),
+                workflow_run_id: Some(workflow_run_id),
+            };
+            // The workspace is the run's alone, so no sweep and no move of the session's touch it.
+            let hold = self.execution_roots.hold_preparation(workspace_id).await;
+            self.bind_held(&run, &hold)
+                .await
+                .and_then(|binding| {
+                    binding.ok_or_else(|| failed(RunWorkspaceAbsence::Managed(session_id)))
+                })
+                .map_err(|cause| unresolved(workspace_id, cause))
+        })
+    }
+
+    fn discard_project_run(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        Box::pin(async move {
+            let run_ids_json =
+                serde_json::to_string(&[workflow_run_id]).expect("a run id writes as JSON");
+            self.writer
+                .write(Vec::from(run_workspace_deletion_statements(&run_ids_json)))
+                .await
+                .map(drop)
+                .map_err(failed)
+        })
+    }
+
+    fn hold_checkout<'a>(
+        &'a self,
+        binding: &'a RunContextBinding,
+    ) -> BoxFuture<'a, KeyHold<'a, PathBuf>> {
+        Box::pin(self.lock_checkout(binding))
+    }
+
+    fn note_context_changed(&self, session_id: SessionId) {
+        self.list_feed.refresh_sessions(&[session_id]);
     }
 }

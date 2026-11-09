@@ -1,4 +1,5 @@
 mod binding;
+mod run_owned_workspace;
 mod unstarted;
 
 use std::path::{Path, PathBuf};

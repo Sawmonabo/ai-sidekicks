@@ -74,7 +74,7 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 )]
 pub(crate) struct WorkflowRunCancellationWrite {
     /// The statements that apply the cancel.
-    pub(crate) statements: [WriteStatement; 3],
+    pub(crate) statements: [WriteStatement; 4],
     /// The run's results event, with its summary line, appended after its canceled event in the
     /// same write, for a run whose mode posts its results.
     pub(crate) results_posted: Option<SessionEvent>,
@@ -86,14 +86,14 @@ const RUN_RESULTS_POST_SQL: &str =
 
 /// The write of `cancellation`, the run's session, mode and summary read on `connection`; `None`
 /// when no row has the run. Its statements end the run's row `canceled` through
-/// [`end_run_statements`], its open wait on people closed and its execution context released,
-/// every step still running, waiting or held by the memory gate reads `canceled` with the same
-/// end, and no step of the run keeps a wait cause, wait start, resume instant, deadline, wait id
-/// or spent account; the write is refused, changing nothing, unless the run is still going or
-/// parked on a failed step. Its writer tells the session's binder once the write commits, as the
-/// tick's ending does. A run whose mode posts its results posts them as its ending in the tick
-/// would; a retry's retried mode is not on its row, so a retry posts none here. Fails as the read
-/// does.
+/// [`end_run_statements`], its open wait on people closed, its execution context released and the
+/// workspace it owns archived, every step still running, waiting or held by the memory gate reads
+/// `canceled` with the same end, and no step of the run keeps a wait cause, wait start, resume
+/// instant, deadline, wait id or spent account; the write is refused, changing nothing, unless
+/// the run is still going or parked on a failed step. Its writer tells the session's binder once
+/// the write commits, as the tick's ending does. A run whose mode posts its results posts them as
+/// its ending in the tick would; a retry's retried mode is not on its row, so a retry posts none
+/// here. Fails as the read does.
 #[cfg_attr(
     not(test),
     expect(
@@ -128,8 +128,8 @@ pub(crate) fn workflow_run_cancellation_statements(
 }
 
 /// The statements that apply `cancellation`, as [`workflow_run_cancellation_statements`] says.
-fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStatement; 3] {
-    let [end_row, release_context] = end_run_statements(
+fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStatement; 4] {
+    let [end_row, release_context, archive_workspace] = end_run_statements(
         cancellation.workflow_run_id,
         WorkflowRunStatus::Canceled,
         &cancellation.finished_at,
@@ -138,6 +138,7 @@ fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStat
     [
         end_row,
         release_context,
+        archive_workspace,
         WriteStatement {
             sql: Cow::Borrowed(CANCEL_STEPS_SQL.as_str()),
             bindings: StatementBindings::Named(vec![

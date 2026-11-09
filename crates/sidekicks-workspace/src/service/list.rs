@@ -16,14 +16,14 @@ use crate::errors::{
 use crate::projector::{WorkspaceHealthRow, compute_workspace_health, is_probe_bearing};
 use crate::row_guards::{probe_filesystem_path, read_last_error};
 
-// A session's workspaces with their mounts' places, narrowed to one mount when one is named;
+// A session's own workspaces with their mounts' places, narrowed to one mount when one is named;
 // `created_at, id`, since two binds can share an instant.
 const LIST_WORKSPACES_SQL: &str = "SELECT workspace.id, workspace.session_id,
         workspace.repo_mount_id, workspace.execution_mode, workspace.fs_root, workspace.state,
         workspace.metadata, mount.place
    FROM workspaces AS workspace
    JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
-  WHERE workspace.session_id = @session_id
+  WHERE workspace.session_id = @session_id AND workspace.workflow_run_id IS NULL
     AND (@repo_mount_id IS NULL OR workspace.repo_mount_id = @repo_mount_id)
   ORDER BY workspace.created_at, workspace.id";
 

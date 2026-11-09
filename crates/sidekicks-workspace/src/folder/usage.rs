@@ -92,12 +92,12 @@ static STANDING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Every session with a live workspace on the mount, the earliest bound first.
+// Every session with a live workspace of its own on the mount, the earliest bound first.
 static BOUND_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT session_id
   FROM workspaces
- WHERE repo_mount_id = @repo_mount_id AND state <> '{}'
+ WHERE repo_mount_id = @repo_mount_id AND state <> '{}' AND workflow_run_id IS NULL
  GROUP BY session_id
  ORDER BY MIN(created_at) ASC, session_id ASC",
         <&'static str>::from(WorkspaceState::Archived)

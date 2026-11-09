@@ -11,10 +11,12 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_workspace::project::records::AttachedProjectRoot;
 use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 use sidekicks_workspace::run_setup_gates::execution_root::context::{
     RunContextBinding, SessionRunBinder,
@@ -85,6 +87,23 @@ impl SessionRunBinder for TestBinder {
             }
             Ok(binding)
         })
+    }
+
+    fn bind_project_run<'a>(
+        &'a self,
+        session_id: SessionId,
+        workflow_run_id: WorkflowRunId,
+        root: &'a AttachedProjectRoot,
+    ) -> BoxFuture<'a, Result<RunContextBinding, RunSetupGateError>> {
+        self.gate
+            .bind_project_run(session_id, workflow_run_id, root)
+    }
+
+    fn discard_project_run(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> BoxFuture<'_, Result<(), RunSetupGateError>> {
+        self.gate.discard_project_run(workflow_run_id)
     }
 
     fn hold_checkout<'a>(

@@ -27,8 +27,8 @@ const PROJECT_ENVIRONMENT_ROWS_SQL: &str = "SELECT project.environment_rows
     JOIN projects AS project ON project.id = mount.project_id
    WHERE mount.id = ?";
 
-// The session's shape, the root of its newest workspace whose state carries a live root, the
-// session's place, and that workspace's mount while it is attached.
+// The session's shape, the root of its newest workspace of its own whose state carries a live root,
+// the session's place, and that workspace's mount while it is attached.
 static WORKING_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
     let probe_bearing_states = sql_list_of(
         WorkspaceState::VARIANTS
@@ -46,6 +46,7 @@ static WORKING_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
       ON workspace.id = (SELECT id FROM workspaces
                           WHERE session_id = sessions.id AND fs_root IS NOT NULL
                             AND state IN ({probe_bearing_states})
+                            AND workflow_run_id IS NULL
                           ORDER BY created_at DESC, id DESC
                           LIMIT 1)
     LEFT JOIN repo_mounts AS mount

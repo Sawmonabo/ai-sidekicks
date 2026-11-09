@@ -31,6 +31,8 @@ use sidekicks_policy::authorizer::PolicyDecision;
 use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column};
+use sidekicks_workspace::project::records::read_project_root_on;
+use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::working_folder::read_working_folder;
 
 use super::{
@@ -51,9 +53,10 @@ const DEFINITION_SCOPE_SQL: &str =
 
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
-    // rule, the version, the session, a project named beside a project session, the trigger's
-    // declared inputs, a project's repository for the steps that need one, the workflow's
-    // provider for the steps that run in its sandbox, then the run's graph.
+    // rule, the version, the session, a project named beside a project session, a named project
+    // with no attached folder, the trigger's declared inputs, a project's repository for the steps
+    // that need one, the workflow's provider for the steps that run in its sandbox, then the run's
+    // graph.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -69,8 +72,9 @@ impl WorkflowRunStarter {
         };
         let workflow_version_id = start.workflow_version_id;
         let session_id = start.session_id;
+        let project_id = start.project_id;
         // The workflow's row is read once its version names it.
-        let (version, session) = self
+        let (version, session, project_root) = self
             .pool
             .read(ReadLength::Short, move |connection| {
                 let version = WorkflowVersions::new(connection)
@@ -79,9 +83,13 @@ impl WorkflowRunStarter {
                         let definition = read_definition_scope(connection, version.definition_id);
                         (version, definition)
                     });
+                let project_root = project_id
+                    .map(|project_id| read_project_root_on(connection, &project_id))
+                    .transpose();
                 Ok::<_, WorkflowRunStartError>((
                     version,
                     read_working_folder(connection, &session_id),
+                    project_root,
                 ))
             })
             .await?;
@@ -110,6 +118,13 @@ impl WorkflowRunStarter {
             )
             .into());
         }
+        // A named project's run works in that project's folder, which it needs attached.
+        let project_root = match (project_id, project_root?.flatten()) {
+            (Some(project_id), None) => {
+                return Err(DomainError::from(RepoRefusal::ProjectNotFound { project_id }).into());
+            }
+            (_, project_root) => project_root,
+        };
         let body = parse_stored_workflow_body(&version.definition_body)?;
         let declared = body
             .trigger
@@ -139,8 +154,9 @@ impl WorkflowRunStarter {
         };
         let trigger_node = WorkflowNode::from(&body.trigger);
         // A step that needs a repository runs only in a project's: a project session's, whose
-        // workspace the start binds even while it is still preparing; a chat's own folder is none.
-        if session.shape != SessionShape::Project {
+        // workspace the start binds even while it is still preparing, or a named project's; a
+        // chat's own folder is none.
+        if session.shape != SessionShape::Project && project_root.is_none() {
             let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
                 self.kinds
                     .kind_of(node)
@@ -212,6 +228,7 @@ impl WorkflowRunStarter {
             graph: Arc::new(graph),
             start_items,
             session,
+            project_root,
             pin_data_json,
             provider,
         })

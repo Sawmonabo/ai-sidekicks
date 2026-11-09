@@ -1,6 +1,7 @@
 //! The reads of the project records. A session's project is the project of the attached mount its
-//! latest workspace binds, or, before its workspace is bound (its project still cloning), the
-//! project its create named; a chat's managed mount is no project, and a forgotten project is none.
+//! latest workspace of its own binds, or, before its workspace is bound (its project still
+//! cloning), the project its create named; a chat's managed mount is no project, a forgotten
+//! project is none, and a workflow run's own workspace makes no session its project's.
 //!
 //! - Every read is on the read pool, so a project writer reads what it committed.
 //! - A list read takes its sessions' activity from the session directory through
@@ -57,6 +58,7 @@ pub fn session_project_sql(session_id_sql: &str) -> String {
          FROM workspaces AS workspace
          JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
         WHERE workspace.session_id = {session_id_sql} AND mount.origin = '{attached}'
+          AND workspace.workflow_run_id IS NULL
         ORDER BY workspace.created_at DESC, workspace.id DESC
         LIMIT 1),
       (SELECT request.project_id
@@ -614,7 +616,11 @@ impl ProjectRecords {
         &self,
         project_id: ProjectId,
     ) -> Result<Option<AttachedProjectRoot>, ProjectReadError> {
-        Ok(self.read_roots(Some(project_id)).await?.into_iter().next())
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(read_project_root_on(connection, &project_id)?)
+            })
+            .await
     }
 
     /// The clones the last stop cut short, which no git runs for at the clone service's start.
@@ -674,6 +680,17 @@ impl ProjectRecords {
             })
             .await
     }
+}
+
+/// The folder of the project `project_id` read on `connection`, or `None` while it has no attached
+/// mount: unknown, forgotten or still cloning. Fails as SQLite does.
+pub fn read_project_root_on(
+    connection: &Connection,
+    project_id: &ProjectId,
+) -> rusqlite::Result<Option<AttachedProjectRoot>> {
+    Ok(read_roots_on(connection, Some(project_id))?
+        .into_iter()
+        .next())
 }
 
 // The attached folders of `project_id`, or of every project when `None`, the most recently

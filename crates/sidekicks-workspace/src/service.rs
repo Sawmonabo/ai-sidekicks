@@ -14,8 +14,12 @@
 //!   preparation).
 //! - No workspace is held for a run: two sessions' runs may work in one folder at once.
 //!
+//! - A workflow run started on a named project works in a workspace of its own on that project's
+//!   mount, which the session's reads leave out.
+//!
 //! The writes that share another row's write are not here: a detach's archive and a managed
-//! mount's deletion, a re-attach's move to the new mount, and a session purge's delete.
+//! mount's deletion, a re-attach's move to the new mount, a session purge's delete, and a
+//! run-owned workspace's archive at its run's end and its delete with its run.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -30,9 +34,10 @@ use sidekicks_contracts::repo::mount::{
 };
 use sidekicks_contracts::repo::workspace::{WorkspaceBindRequest, WorkspaceBindResponse};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::id::{UuidText, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
@@ -42,7 +47,9 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
@@ -70,11 +77,12 @@ mod tests;
 /// read included.
 pub const WORKSPACE_SERVICE_STATEMENT_CAPACITY: usize = 8;
 
-// A session's live workspace on one mount; `idx_workspaces_live_session_mount` holds it to one row,
-// and an archived workspace is history that does not count.
+// A session's own live workspace on one mount; `idx_workspaces_live_session_mount` holds it to one
+// row, and an archived workspace is history and a run-owned one its run's, so neither counts.
 static LIVE_WORKSPACE_OF_SESSION_ON_MOUNT: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "session_id = @session_id AND repo_mount_id = @repo_mount_id AND state <> '{}'",
+        "session_id = @session_id AND repo_mount_id = @repo_mount_id AND state <> '{}'
+     AND workflow_run_id IS NULL",
         <&'static str>::from(WorkspaceState::Archived)
     )
 });
@@ -87,22 +95,23 @@ static SELECT_LIVE_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // `SELECT … FROM repo_mounts` rather than `VALUES` re-tests inside the write that the mount is
-// still attached, that the session still exists and that no other bind gave it a live workspace on
-// the mount since the reads: zero rows refuses the write and takes `workspace.preparing` with it.
+// still attached, that the session still exists and that no other bind gave it a live workspace of
+// its own on the mount since the reads: zero rows refuses the write and takes `workspace.preparing`
+// with it. A run-owned workspace stands beside the session's own.
 static BIND_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO workspaces (
-    id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, created_at,
-    updated_at
+    id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata, workflow_run_id,
+    created_at, updated_at
   )
   SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, '{preparing}',
          json_set('{{}}', '{BOUND_ROOT_METADATA_PATH}', @bound_root,
                           '{CHECKOUT_ROOT_METADATA_PATH}', @checkout_root),
-         @now, @now
+         @workflow_run_id, @now, @now
     FROM repo_mounts
    WHERE id = @repo_mount_id AND state = '{attached}'
      AND EXISTS (SELECT 1 FROM sessions WHERE id = @session_id)
-     AND NOT EXISTS (SELECT 1 FROM workspaces WHERE {live})",
+     AND (@workflow_run_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM workspaces WHERE {live}))",
         preparing = <&'static str>::from(WorkspaceState::Preparing),
         attached = <&'static str>::from(RepoMountState::Attached),
         live = *LIVE_WORKSPACE_OF_SESSION_ON_MOUNT,
@@ -221,6 +230,16 @@ pub struct WorkspaceService {
     pub(crate) root_lost_pause: PausePoint,
 }
 
+/// What a bind lands: the session, the mount, the mode, the folder it names, `None` rooting at
+/// the attached working tree, and the workflow run a run-owned workspace serves.
+struct WorkspaceBindTarget<'a> {
+    session_id: SessionId,
+    repo_mount_id: RepoMountId,
+    execution_mode: ExecutionMode,
+    named_folder: Option<&'a Path>,
+    workflow_run_id: Option<WorkflowRunId>,
+}
+
 /// A workspace row with the place of its mount.
 #[derive(Clone, Debug)]
 pub(crate) struct WorkspaceRow {
@@ -283,12 +302,62 @@ impl WorkspaceService {
         &self,
         request: &WorkspaceBindRequest,
     ) -> Result<WorkspaceBindResponse, WorkspaceServiceError> {
-        let session_id = request.session_id;
-        let repo_mount_id = request.repo_mount_id;
+        let named_folder = request
+            .directory
+            .as_ref()
+            .map(|directory| Path::new(directory.as_str()))
+            .filter(|directory| !directory.as_os_str().is_empty());
+        self.bind_workspace(WorkspaceBindTarget {
+            session_id: request.session_id,
+            repo_mount_id: request.repo_mount_id,
+            execution_mode: request.execution_mode,
+            named_folder,
+            workflow_run_id: None,
+        })
+        .await
+    }
+
+    /// Binds a workspace workflow run `workflow_run_id` of `session_id` owns, a `boundRoot`
+    /// checkout at `folder` on the attached mount `repo_mount_id`, beside any workspace of the
+    /// session's own, and answers its id; it lands `preparing` as a bind does. Refuses as
+    /// [`WorkspaceService::bind`] does.
+    pub async fn bind_run_workspace(
+        &self,
+        session_id: SessionId,
+        repo_mount_id: RepoMountId,
+        folder: &Path,
+        workflow_run_id: WorkflowRunId,
+    ) -> Result<WorkspaceId, WorkspaceServiceError> {
+        Ok(self
+            .bind_workspace(WorkspaceBindTarget {
+                session_id,
+                repo_mount_id,
+                execution_mode: ExecutionMode::BoundRoot,
+                named_folder: Some(folder),
+                workflow_run_id: Some(workflow_run_id),
+            })
+            .await?
+            .workspace_id)
+    }
+
+    // The bind of `target`, as `bind` says; a run-owned workspace is always new, since its run is.
+    async fn bind_workspace(
+        &self,
+        target: WorkspaceBindTarget<'_>,
+    ) -> Result<WorkspaceBindResponse, WorkspaceServiceError> {
+        let WorkspaceBindTarget {
+            session_id,
+            repo_mount_id,
+            execution_mode,
+            named_folder,
+            workflow_run_id,
+        } = target;
         if !self.session_exists(session_id).await? {
             return Err(session_not_found(&session_id).into());
         }
-        if let Some(bound) = self.read_live_workspace(session_id, repo_mount_id).await? {
+        if workflow_run_id.is_none()
+            && let Some(bound) = self.read_live_workspace(session_id, repo_mount_id).await?
+        {
             return Ok(bound);
         }
         let mount = self.require_attached_mount(repo_mount_id).await?;
@@ -299,15 +368,10 @@ impl WorkspaceService {
         {
             return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
         }
-        assert_mode_offered(request.execution_mode, mount.managed_session_id.is_some())?;
+        assert_mode_offered(execution_mode, mount.managed_session_id.is_some())?;
 
         // A bind that names no folder roots at the working tree the person attached, never at the
         // repository's main checkout.
-        let named_folder = request
-            .directory
-            .as_ref()
-            .map(|directory| Path::new(directory.as_str()))
-            .filter(|directory| !directory.as_os_str().is_empty());
         let admitted = self
             .admit_on_healthy_mount(&mount, named_folder.unwrap_or(&mount.local_path), None)
             .await?;
@@ -318,18 +382,20 @@ impl WorkspaceService {
         };
 
         let workspace_id = new_workspace_id();
+        let workflow_run_text = workflow_run_id.map(|workflow_run_id| workflow_run_id.text());
         let insert = WriteStatement {
             sql: Cow::Borrowed(BIND_WORKSPACE_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
                 text_binding("@id", workspace_id.text().as_str()),
                 text_binding("@session_id", session_id.text().as_str()),
                 text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
-                text_binding(
-                    "@execution_mode",
-                    <&'static str>::from(request.execution_mode),
-                ),
+                text_binding("@execution_mode", <&'static str>::from(execution_mode)),
                 text_binding("@bound_root", &bound_root.to_string_lossy()),
                 text_binding("@checkout_root", &admitted.checkout_root.to_string_lossy()),
+                nullable_text_binding(
+                    "@workflow_run_id",
+                    workflow_run_text.as_ref().map(UuidText::as_str),
+                ),
                 text_binding("@now", WireInstant::now().as_str()),
             ]),
             expected_row_count: Some(1),
@@ -356,7 +422,9 @@ impl WorkspaceService {
             // A bind of this session to this mount that committed since the reads is the answer;
             // a session purged since is refused; else the mount left `attached` and the move
             // refusal below stands.
-            if let Some(bound) = self.read_live_workspace(session_id, repo_mount_id).await? {
+            if workflow_run_id.is_none()
+                && let Some(bound) = self.read_live_workspace(session_id, repo_mount_id).await?
+            {
                 return Ok(bound);
             }
             if !self.session_exists(session_id).await? {
@@ -366,7 +434,7 @@ impl WorkspaceService {
         expect_single_row_changed(appended, workspace_id, "bind", "its repo mount")?;
         Ok(WorkspaceBindResponse {
             workspace_id,
-            execution_mode: request.execution_mode,
+            execution_mode,
             state: WorkspaceState::Preparing,
         })
     }

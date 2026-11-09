@@ -88,7 +88,7 @@ const SELECT_EVERY_PENDING_SQL: &str =
 
 const SELECT_MOUNT_ROOT_SQL: &str = "SELECT canonical_root FROM repo_mounts WHERE id = @id";
 
-// The session's live workspace by where it works now: its execution root, else the checkout it
+// The session's own live workspace by where it works now: its execution root, else the checkout it
 // last had. Only one on a project's mount moves; a chat's managed workspace never does.
 static SELECT_SESSION_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -99,6 +99,7 @@ static SELECT_SESSION_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
    FROM workspaces AS workspace
    JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
   WHERE workspace.session_id = @session_id AND workspace.state <> '{archived}'
+    AND workspace.workflow_run_id IS NULL
   ORDER BY workspace.created_at DESC, workspace.id DESC
   LIMIT 1",
         attached = <&'static str>::from(MountOrigin::Attached),
@@ -106,14 +107,15 @@ static SELECT_SESSION_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Each live workspace on the mount by the checkout it works in, so one bound to a folder inside a
-// tree stands in that tree; a workspace without a recorded checkout stands at its root.
+// Each session's own live workspace on the mount by the checkout it works in, so one bound to a
+// folder inside a tree stands in that tree; a workspace without a recorded checkout stands at its
+// root.
 static SELECT_MOUNT_WORKSPACES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id,
         coalesce(json_extract(metadata, '{CHECKOUT_ROOT_METADATA_PATH}'), fs_root)
    FROM workspaces
-  WHERE repo_mount_id = @repo_mount_id AND state <> '{archived}'
+  WHERE repo_mount_id = @repo_mount_id AND state <> '{archived}' AND workflow_run_id IS NULL
   ORDER BY created_at, id",
         archived = <&'static str>::from(WorkspaceState::Archived),
     )
@@ -138,7 +140,7 @@ const SELECT_BOUND_RUN_SQL: &str = "SELECT EXISTS (SELECT 1 FROM run_execution_c
   WHERE session_id = @session_id AND released_at IS NULL
     AND run_id IN (SELECT run_id FROM runs WHERE session_id = @session_id))";
 
-// The removed tree the session's live workspace still works in, if any.
+// The removed tree the session's own live workspace still works in, if any.
 static SELECT_REMOVED_TREE_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT tree.id, tree.repo_mount_id, tree.fs_root
@@ -149,6 +151,7 @@ static SELECT_REMOVED_TREE_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     AND tree.fs_root = coalesce(json_extract(workspace.metadata, '{CHECKOUT_ROOT_METADATA_PATH}'),
                                 workspace.fs_root)
   WHERE workspace.session_id = @session_id AND workspace.state <> '{archived}'
+    AND workspace.workflow_run_id IS NULL
   ORDER BY tree.updated_at DESC, tree.id DESC
   LIMIT 1",
         retired = <&'static str>::from(WorktreeState::Retired),
