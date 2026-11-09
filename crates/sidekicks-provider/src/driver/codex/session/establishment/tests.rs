@@ -6,6 +6,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
+use crate::callback_tools::host::test_host::completing_callback_tool_host;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
@@ -21,6 +22,9 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::ProviderAxis;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::port::tool_server_route::{
+    OpenedToolServerRoute, ToolServerRoute, ToolServerRouteEntry, ToolServerSpawn,
+};
 use crate::process_identity::ProviderProcessIds as _;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
@@ -67,6 +71,105 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
         created.await.expect("the create's task ends"),
         Err(CodexError::Transport { .. })
     ));
+    assert_eq!(
+        session.scripted.service.threads_of(&session_id),
+        Vec::<String>::new()
+    );
+}
+
+/// A route that opens every entry it is asked for at a fixed address under a fixed secret.
+struct EveryEntryRoute;
+
+impl EveryEntryRoute {
+    fn entries(server_names: &[&str]) -> OpenedToolServerRoute {
+        let entries = server_names
+            .iter()
+            .map(|server_name| ToolServerRouteEntry {
+                server_name: (*server_name).to_owned(),
+                url: format!("http://127.0.0.1:1/tools/{server_name}"),
+                http_headers: vec![("Authorization".to_owned(), "Bearer spawn-secret".to_owned())],
+                tool_input_schema_max_bytes: 4_096,
+            })
+            .collect();
+        OpenedToolServerRoute::new(entries, Box::new(()))
+    }
+}
+
+impl ToolServerRoute for EveryEntryRoute {
+    fn open(&self, _spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
+        Self::entries(server_names)
+    }
+
+    fn adopt(&self, _spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute {
+        Self::entries(server_names)
+    }
+}
+
+// A start that sends the daemon's hook rows reads them back on the new conversation, and one
+// whose `hooks/list` lacks a row fails and lets the conversation go before its first turn.
+// Killed by dropping the start's check, and by dropping the let-go after it fails.
+#[tokio::test(start_paused = true)]
+async fn a_start_whose_hook_rows_codex_does_not_list_lets_its_conversation_go() {
+    let mut session = TestCodexSession::start().await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let route: Arc<dyn ToolServerRoute> = Arc::new(EveryEntryRoute);
+    assert!(
+        establishment
+            .dependencies
+            .tool_server_route
+            .register(route)
+            .is_ok()
+    );
+    assert!(
+        establishment
+            .dependencies
+            .callback_tool_host
+            .register(completing_callback_tool_host())
+            .is_ok()
+    );
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let params = create_session_params(session_id);
+
+    let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
+    let script = &mut session.scripted.script;
+    let mut methods = Vec::new();
+    loop {
+        let sent = script.next_sent().await;
+        let method = sent["method"].as_str().unwrap_or_default().to_owned();
+        match method.as_str() {
+            "config/read" => script.answer(&sent, &json!({"config": {}, "origins": {}})),
+            "thread/start" => script.answer(
+                &sent,
+                &json!({
+                    "thread": {"id": "thread-started", "sessionId": "codex-session"},
+                    "activePermissionProfile": {
+                        "id": sent["params"]["config"]["default_permissions"],
+                    },
+                }),
+            ),
+            "hooks/list" => script.answer(&sent, &json!({"data": []})),
+            "thread/unsubscribe" => {
+                assert_eq!(sent["params"]["threadId"], "thread-started");
+                script.answer(&sent, &json!({"status": "unsubscribed"}));
+                methods.push(method);
+                break;
+            }
+            other => panic!("the start sends no {other}"),
+        }
+        methods.push(method);
+    }
+
+    assert_eq!(
+        methods,
+        [
+            "config/read",
+            "thread/start",
+            "hooks/list",
+            "thread/unsubscribe"
+        ]
+    );
+    assert!(created.await.expect("the create's task ends").is_err());
     assert_eq!(
         session.scripted.service.threads_of(&session_id),
         Vec::<String>::new()

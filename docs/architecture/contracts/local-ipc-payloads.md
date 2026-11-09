@@ -318,10 +318,12 @@ interface DaemonPackageCacheClearRequest {
 // for a service that is on.
 interface TerminalProviderSession {
   provider: ProviderId;
-  name: string;
+  name: string; // its own name, else the start of its first message, else its thread id
+  isNamed: boolean; // whether `name` is its own name, which a model may name it by
   threadId: string;
   state: "working" | "idle" | "unreachable";
   folder?: string; // the folder it runs in; absent where the provider names none
+  model?: string; // the model it runs on; absent where the provider names none
 }
 interface TerminalSessionProvider {
   provider: ProviderId;

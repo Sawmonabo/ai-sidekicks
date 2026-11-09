@@ -255,6 +255,7 @@ mod tests {
                         "Authorization".to_owned(),
                         "Bearer spawn-secret".to_owned(),
                     )],
+                    tool_input_schema_max_bytes: 4_096,
                 })
                 .collect(),
             Box::new(()),
@@ -344,7 +345,7 @@ mod tests {
             "enabled": true,
             "default_tools_approval_mode": "approve",
             "tool_timeout_sec": 300,
-            "tool_input_schema_max_bytes": 65_536,
+            "tool_input_schema_max_bytes": 4_096,
             "omit_tools_from": ["deferred"],
         })
     }
@@ -357,7 +358,7 @@ mod tests {
             "required": true,
             "default_tools_approval_mode": "approve",
             "tool_timeout_sec": 1_000_000_000_000_u64,
-            "tool_input_schema_max_bytes": 65_536,
+            "tool_input_schema_max_bytes": 4_096,
             "omit_tools_from": ["direct", "deferred", "code_mode"],
         })
     }

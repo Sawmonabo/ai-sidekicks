@@ -16,6 +16,7 @@ use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSessionState;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::driver::contract::params_and_results::StandaloneTerminalActivity;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::directory::run_activity::{WORKING_RUN_STATES, session_activity_sql};
 use sidekicks_session::plan_holds::PlanHolds;
@@ -228,6 +229,7 @@ fn line_of(
             .name
             .clone()
             .or(preview)
+            .or_else(|| entry.preview.clone())
             .unwrap_or_else(|| entry.id.clone()),
         id: entry.id.clone(),
         provider: provider.to_owned(),
@@ -240,23 +242,27 @@ fn line_of(
     }
 }
 
-// What a session typed in a terminal is doing, as the provider's shared service reports it; one
-// the service does not hold reads idle, and one it has been away from past its reconnect window
-// reads not reachable.
+// What a session typed in a terminal is doing, as the provider's shared service reports it or, for
+// one that runs on its own, its provider's record says; one the service has been away from past
+// its reconnect window reads not reachable.
 fn terminal_state_of(origin: SessionOrigin) -> SessionListState {
+    let in_its_terminal = || SessionListState::Working {
+        doing: "a turn in its terminal".to_owned(),
+    };
     match origin {
-        SessionOrigin::TypedInTerminal {
-            shared_service_state: Some(TerminalProviderSessionState::Working),
-        } => SessionListState::Working {
-            doing: "a turn in its terminal".to_owned(),
-        },
-        SessionOrigin::TypedInTerminal {
-            shared_service_state: Some(TerminalProviderSessionState::Unreachable),
-        } => SessionListState::NotReachable,
+        SessionOrigin::SharedService(TerminalProviderSessionState::Working)
+        | SessionOrigin::OnItsOwn(StandaloneTerminalActivity::Working) => in_its_terminal(),
+        SessionOrigin::SharedService(TerminalProviderSessionState::Unreachable) => {
+            SessionListState::NotReachable
+        }
+        SessionOrigin::OnItsOwn(StandaloneTerminalActivity::WaitingOnPerson) => {
+            SessionListState::WaitingOnPerson {
+                what: "an answer in its terminal".to_owned(),
+            }
+        }
         SessionOrigin::Hosted
-        | SessionOrigin::TypedInTerminal {
-            shared_service_state: None | Some(TerminalProviderSessionState::Idle),
-        } => SessionListState::Idle,
+        | SessionOrigin::SharedService(TerminalProviderSessionState::Idle)
+        | SessionOrigin::OnItsOwn(StandaloneTerminalActivity::Idle) => SessionListState::Idle,
     }
 }
 

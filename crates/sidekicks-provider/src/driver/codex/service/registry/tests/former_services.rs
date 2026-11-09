@@ -25,8 +25,10 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
-// The start bound of the daemon whose join of a stopped former service must run out.
-const JOIN_START_BOUND: Duration = Duration::from_secs(3);
+// The start bound of the daemon whose join of a stopped former service must run out: shorter than
+// the product's, and long enough that the launch after it, which the same bound holds, answers
+// within it on a loaded machine.
+const JOIN_START_BOUND: Duration = Duration::from_secs(10);
 
 // The bound of the daemon's stop of a service that ignores its stop.
 const STOP_BOUND: Duration = Duration::from_millis(300);
@@ -186,7 +188,8 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
     let joined = service.ensure_started(startup_timeout * 3).await;
     let is_first_retired =
         wait_for_end_and_record_removal(first_process, &services, CRASH_WAIT).await;
-    let launched = service.ensure_started(startup_timeout).await;
+    // The wait spans the failed start's teardown and the launch, each bounded by the start bound.
+    let launched = service.ensure_started(startup_timeout * 3).await;
     let launched_process = service.process_id();
     daemon
         .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())

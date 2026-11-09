@@ -160,18 +160,6 @@ impl CodexServiceKind {
         }
     }
 
-    /// Whether a session on this kind of service runs the daemon's hooks: on a terminal service
-    /// only while the daemon's program dispatches its hook mode, as `dispatches_hook_mode` says; on
-    /// an account service always, its conversations running them as hook rows calling their hooks
-    /// entry; on a joined one never, the service not being the daemon's.
-    pub(crate) const fn runs_daemon_hooks(self, dispatches_hook_mode: bool) -> bool {
-        match self {
-            Self::Terminal => dispatches_hook_mode,
-            Self::Account => true,
-            Self::Joined => false,
-        }
-    }
-
     /// Whether a service of this kind starts with Codex's own browser tool off: the daemon's own
     /// service, whose sessions browse through the daemon's browser tools; never the terminal
     /// service on the person's own Codex folder, whose terminals keep what the person chose, nor

@@ -279,6 +279,8 @@ mod tests {
     use std::hint::black_box;
     use std::time::Duration;
 
+    use sidekicks_platforms::thread_cpu_time;
+
     use super::{BudgetTerm, JobBudget, JobWorkload, ProcessorMeter};
 
     const MIB: u64 = 1024 * 1024;
@@ -318,7 +320,9 @@ mod tests {
     }
 
     // Blocking work is charged to the run from its own thread's clock: busy work counts, and a
-    // sleep of the same span counts almost nothing. Killed by a wall-clock reading.
+    // sleep counts almost nothing. The busy work spins until its own thread's clock has moved, so
+    // a loaded machine that gives it less of the processor only makes it run longer. Killed by a
+    // wall-clock reading.
     #[tokio::test]
     async fn blocking_work_is_charged_from_its_own_threads_clock() {
         let meter = ProcessorMeter::default();
@@ -330,14 +334,19 @@ mod tests {
         assert!(slept < Duration::from_millis(50), "{slept:?}");
         meter
             .run_blocking(|| {
-                let started = std::time::Instant::now();
+                let started = thread_cpu_time().expect("the clock reads");
                 let mut sum = 0_u64;
-                while started.elapsed() < Duration::from_millis(100) {
+                while thread_cpu_time()
+                    .expect("the clock reads")
+                    .saturating_sub(started)
+                    < Duration::from_millis(100)
+                {
                     sum = black_box(sum.wrapping_add(1));
                 }
             })
             .await
             .expect("the busy work ends");
-        assert!(meter.take_spent().expect("the clock reads").time >= Duration::from_millis(50));
+        let busy = meter.take_spent().expect("the clock reads").time;
+        assert!(busy >= Duration::from_millis(100), "{busy:?}");
     }
 }

@@ -39,6 +39,7 @@ use crate::driver::codex::run::turn_interrupt::interrupt_codex_running_turn;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
 use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
+use crate::driver::codex::service::trust::confirm_codex_daemon_hook_rows;
 use crate::driver::codex::session::context_reading::{
     CodexFixedStart, read_codex_kept_fixed_start,
 };
@@ -53,6 +54,7 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::driver::codex::thread::settings::hook_rows::sends_codex_daemon_hook_rows;
 use crate::driver::codex::thread::settings::memories::compose_codex_bare_thread_resume_with_memory_switch;
 use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::view::CodexThreadStatus;
@@ -178,7 +180,7 @@ impl CodexSessionEstablishment {
             service.register_thread(registering.clone(), session_id);
         }
         let reply = match self
-            .request_adoption(&record, &service, &connection, is_loaded)
+            .request_adoption(&mut record, &service, &connection, is_loaded)
             .await
         {
             Ok(reply) => reply,
@@ -277,13 +279,16 @@ impl CodexSessionEstablishment {
     }
 
     // `thread/resume` of the record's conversation: with no setting where the service holds it
-    // loaded, else with every setting the record holds. One Codex refuses while it closes the
-    // conversation is sent again, loading it anew, once the close is confirmed within the unload's
-    // bound. Answers the reply.
+    // loaded, its hook rows then checked as a cold resume's are, else with every setting the record
+    // holds. One Codex refuses while it closes the conversation is sent again, loading it anew,
+    // once the close is confirmed within the unload's bound; a loaded one whose hook rows would not
+    // run is let go and, once Codex unloads it within that bound, loaded anew with the settings,
+    // else fails with the check's error. A conversation loaded anew takes fresh entries in place of
+    // the adopted ones. Answers the reply.
     async fn request_adoption(
         &self,
-        record: &CodexSessionRecord,
-        service: &CodexService,
+        record: &mut CodexSessionRecord,
+        service: &Arc<CodexService>,
         connection: &CodexAppServerConnection,
         mut is_loaded: bool,
     ) -> Result<Box<RawValue>, CodexError> {
@@ -293,25 +298,68 @@ impl CodexSessionEstablishment {
                 // Codex applies no setting to a loaded conversation, so none is sent.
                 request_bare_thread_resume(connection, &record.thread_id, None).await
             } else {
+                // The adoption holds no conversation of the session's before its resume.
                 self.request_resume_with_settings(
                     record,
                     service,
                     connection,
                     record.daemon_tool_servers.as_ref(),
+                    false,
                 )
                 .await
             };
-            match reply {
-                Err(error)
-                    if error.is_closing_refusal()
-                        && Instant::now() < deadline
-                        && service.await_unloaded(&record.thread_id, deadline).await =>
+            let (error, is_let_go) = match reply {
+                Ok(reply)
+                    if is_loaded
+                        && sends_codex_daemon_hook_rows(
+                            record
+                                .daemon_tool_servers
+                                .as_ref()
+                                .map(CodexDaemonToolServers::route),
+                        ) =>
                 {
-                    is_loaded = false;
+                    let Err(error) =
+                        confirm_codex_daemon_hook_rows(connection, &record.thread_id).await
+                    else {
+                        return Ok(reply);
+                    };
+                    let_go_codex_thread(service, &record.thread_id).await;
+                    (error, true)
                 }
+                Err(error) if error.is_closing_refusal() => (error, false),
                 reply => return reply,
+            };
+            if Instant::now() >= deadline
+                || !service.await_unloaded(&record.thread_id, deadline).await
+            {
+                return Err(error);
             }
+            if is_let_go {
+                // The let-go dropped the registration the adoption made before its resume.
+                service.register_thread(record.thread_id.clone(), record.session_id);
+            }
+            if is_loaded {
+                self.reopen_tool_servers(record, service)?;
+            }
+            is_loaded = false;
         }
+    }
+
+    // Replaces the record's adopted entries with ones opened for its conversation loaded anew, so
+    // the addresses an earlier start of the daemon gave the session are answered no longer.
+    fn reopen_tool_servers(
+        &self,
+        record: &mut CodexSessionRecord,
+        service: &Arc<CodexService>,
+    ) -> Result<(), CodexError> {
+        let Some(adopted) = record.daemon_tool_servers.take() else {
+            return Ok(());
+        };
+        let callback_tools = adopted.callback_tools().to_vec();
+        adopted.rollback();
+        record.daemon_tool_servers =
+            self.open_tool_servers(service, record.session_id, callback_tools)?;
+        Ok(())
     }
 
     // Binds each lead run not in `continued` by its answer in `result`, which binds nothing where

@@ -76,12 +76,12 @@ pub(crate) enum CodexTerminalTurnEnd {
     },
 }
 
-// The notice of a turn the terminal service's stop cut off, which Codex lists as interrupted with
-// no end time once the service is back.
-const CODEX_TURN_CUT_OFF_NOTICE: &str = "its turn was cut off when Codex's service stopped.";
+// The cause of a turn the terminal service's stop cut off, which Codex lists as interrupted with
+// no end time once the service is back; a wait reads `<name> failed · <cause>`.
+const CODEX_TURN_CUT_OFF_NOTICE: &str = "Codex's service stopped before it answered";
 
-// The notice of a turn Codex lists as failed with no message of its own.
-const CODEX_TURN_FAILED_UNNAMED_NOTICE: &str = "its turn failed and Codex gave no reason.";
+// The cause of a turn Codex lists as failed with no message of its own.
+const CODEX_TURN_FAILED_UNNAMED_NOTICE: &str = "Codex gave no reason";
 
 impl CodexTerminalTurnEnd {
     // The end of the turn `turn`, as a `turn/completed` frame or `thread/turns/list` writes it,
@@ -234,8 +234,9 @@ fn compose_message_input(message: &CodexTerminalMessage, moment: CodexArrivalMom
 /// How the turn `turn_id` of `thread_id` on `service`, which is up, ended, read again once a
 /// seat's connection ended before it did: from the conversation's own turn list where the turn
 /// ended, its reply read from its items only where it answered, else on a new seat until it
-/// ends. `None` where that seat's connection ended first too. Fails with `GivenUp` when no
-/// terminal holds the conversation, and as the reads fail.
+/// ends. A turn the list does not hold, which the service's stop lost from its record, failed as
+/// one that stop cut off. `None` where that seat's connection ended first too. Fails with
+/// `GivenUp` when no terminal holds the conversation, and as the reads fail.
 pub(super) async fn reread_turn_end(
     service: &CodexService,
     thread_id: &str,
@@ -243,9 +244,12 @@ pub(super) async fn reread_turn_end(
 ) -> Result<Option<CodexTerminalTurnEnd>, CodexTerminalExchangeError> {
     require_terminal_session(service, thread_id).await?;
     let connection = service.connection()?;
-    if let Some(listed) = read_codex_turn(&connection, thread_id, turn_id).await?
-        && !is_codex_turn_in_progress(&listed.turn)
-    {
+    let Some(listed) = read_codex_turn(&connection, thread_id, turn_id).await? else {
+        return Ok(Some(CodexTerminalTurnEnd::Failed {
+            notice: CODEX_TURN_CUT_OFF_NOTICE.to_owned(),
+        }));
+    };
+    if !is_codex_turn_in_progress(&listed.turn) {
         return Ok(Some(
             match CodexTerminalTurnEnd::of(Some(&*listed.turn), None) {
                 CodexTerminalTurnEnd::Answered { .. } => CodexTerminalTurnEnd::Answered {

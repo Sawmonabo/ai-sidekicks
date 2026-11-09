@@ -23,7 +23,8 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
     body: "{\"sessions\": [\"builder\", \"tax-fix\"]}\n{}\n\nUse it for sessions you did not just \
            message or start: one you started earlier, or several at once. After session_send or \
            session_start, pass wait: true instead. Wait only when your next step needs the \
-           result; meanwhile do work that does not depend on it.",
+           result; meanwhile do work that does not depend on it. When a session failed, its \
+           outcome is unknown: check what it did before redoing its work.",
 };
 
 /// The words a model reads about the sessions to wait on.

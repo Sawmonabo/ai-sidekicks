@@ -181,12 +181,12 @@ impl CodexSessionEstablishment {
     ) -> Result<CodexResumedThread, CodexError> {
         let connection = service.connection()?;
         let _claim = service.begin_thread_claim();
-        let reply = self
-            .request_resume_with_settings(record, service, &connection, tool_servers)
-            .await?;
         let was_held = service
             .threads_of(&record.session_id)
             .contains(&record.thread_id);
+        let reply = self
+            .request_resume_with_settings(record, service, &connection, tool_servers, was_held)
+            .await?;
         // Registered before the history read, so the thread's frames reach the session from now.
         service.register_thread(record.thread_id.clone(), record.session_id);
         match read_resumed_thread(record, &connection, &reply, was_held).await {

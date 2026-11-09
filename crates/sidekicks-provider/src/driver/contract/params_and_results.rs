@@ -307,4 +307,17 @@ pub struct StandaloneTerminalSession {
     pub name: Option<String>,
     /// The folder it runs in, where the record gives one.
     pub folder: Option<PathBuf>,
+    /// What it is doing, as the record says.
+    pub activity: StandaloneTerminalActivity,
+}
+
+/// What a session that runs on its own is doing, as its provider's record of it says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StandaloneTerminalActivity {
+    /// A turn is running.
+    Working,
+    /// It waits on the person's answer.
+    WaitingOnPerson,
+    /// No turn is running, or the record does not say.
+    Idle,
 }

@@ -12,6 +12,7 @@ use sidekicks_std::mutex_lock::lock;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, prompt_hook_completed};
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
 use crate::driver::contract::ProviderDriver;
+use crate::driver::run_control::PauseRunParams;
 use crate::driver::session_messages::{
     SessionMessageDelivery, SessionMessageKind, SessionMessageSent, SessionMessageTarget,
 };
@@ -223,6 +224,88 @@ async fn a_paused_busy_session_gives_back_the_messages_it_held() {
             message_id: message_id.to_string(),
         }]
     );
+}
+
+// Real time under a timeout, as above. A message steered into a busy turn that a pause then stops
+// before Codex echoes it goes back by id on the readings port, as the daemon's own message. Killed
+// by dropping the dropped steers' give-back at the turn's end, and by telling it to the run queue,
+// which holds no such message.
+#[tokio::test]
+async fn a_steered_message_a_pause_stops_unechoed_is_given_back() {
+    let mut session = LiveCodexSession::start(&[]).await;
+    let message_id = new_message_id();
+    let sent = tokio::time::timeout(
+        PATIENCE,
+        ProviderDriver::deliver_session_message(&session.driver, delivery(&session, message_id)),
+    )
+    .await
+    .expect("the delivery settles")
+    .expect("the delivery is taken");
+    assert_eq!(sent, SessionMessageSent::Sent);
+    let script = &mut session.scripted.script;
+    script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "item": {"type": "commandExecution", "id": "call-1", "command": "true",
+                "exitCode": 0},
+        },
+    }));
+    loop {
+        let sent = tokio::time::timeout(PATIENCE, script.next_sent())
+            .await
+            .expect("the held message is steered");
+        if sent["method"] == "turn/steer" {
+            script.answer(&sent, &json!({"turnId": TEST_TURN}));
+            break;
+        }
+        answer_stopping_request(script, &sent);
+    }
+
+    let parts = session
+        .driver
+        .parts()
+        .expect("the driver's session parts are composed");
+    parts
+        .run_control
+        .pause_run(PauseRunParams {
+            session_id: session.session_id,
+            run_id: session.run_id,
+        })
+        .await
+        .expect("the pause is marked on the live turn");
+    let script = &mut session.scripted.script;
+    script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "item": {"type": "reasoning", "id": "item-1", "summary": [], "content": []},
+        },
+    }));
+    let interrupt = loop {
+        let sent = tokio::time::timeout(PATIENCE, script.next_sent())
+            .await
+            .expect("the step's end interrupts the turn");
+        if sent["method"] == "turn/interrupt" {
+            break sent;
+        }
+        answer_stopping_request(script, &sent);
+    };
+    script.send(&turn_completed(TEST_THREAD, TEST_TURN, "interrupted"));
+    script.send(&json!({"jsonrpc": "2.0", "id": interrupt["id"], "result": {}}));
+    let readings = wait_for_readings(&session, 1).await;
+
+    assert_eq!(
+        readings,
+        [SessionMessageReading::GivenBack {
+            message_id: message_id.to_string(),
+        }]
+    );
+    assert_eq!(*lock(&session.queue.given_back), Vec::<String>::new());
 }
 
 // A message from another session to the live one, under `message_id`.

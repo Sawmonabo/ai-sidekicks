@@ -49,8 +49,8 @@ const QUIET: Duration = Duration::from_millis(200);
 
 // Fails when the list names a conversation a session holds, a helper's, a one-off run's or one
 // another app-server client started, when one failed read fails the whole list, when a name falls
-// back past the preview to the id, when a running turn does not read as working, or when a
-// conversation's folder is dropped.
+// back past the preview to the id, when a running turn does not read as working, when a
+// conversation's folder or model is dropped, or when a preview reads as the session's own name.
 #[tokio::test]
 async fn the_list_names_the_typed_conversations_no_session_holds() {
     let mut scripted = start_scripted_terminal_service();
@@ -85,7 +85,7 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
                 &scripted.script,
                 &read,
                 json!({"name": "Release notes", "preview": "", "source": "cli",
-                    "ephemeral": false, "status": {"type": "idle"}}),
+                    "ephemeral": false, "status": {"type": "idle"}, "model": "gpt-5.5"}),
             ),
             HELPER => answer_thread(
                 &scripted.script,
@@ -121,18 +121,24 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
             terminal_session(
                 TYPED,
                 "fix the flaky test",
+                false,
                 TerminalProviderSessionState::Working,
                 Some("/work/flaky"),
             ),
-            terminal_session(
-                NAMED,
-                "Release notes",
-                TerminalProviderSessionState::Idle,
-                None
-            ),
+            TerminalProviderSession {
+                model: Some(ComposedText::new("gpt-5.5".to_owned()).expect("a model")),
+                ..terminal_session(
+                    NAMED,
+                    "Release notes",
+                    true,
+                    TerminalProviderSessionState::Idle,
+                    None,
+                )
+            },
             terminal_session(
                 SILENT,
                 SILENT,
+                false,
                 TerminalProviderSessionState::Unreachable,
                 None
             ),
@@ -174,6 +180,7 @@ async fn a_terminal_session_leaves_the_list_at_its_close() {
         vec![terminal_session(
             NAMED,
             "Release notes",
+            true,
             TerminalProviderSessionState::Idle,
             Some(RELEASE_FOLDER)
         )]
@@ -199,6 +206,7 @@ async fn a_terminal_session_its_service_left_lists_from_memory_as_last_seen() {
     let named = terminal_session(
         NAMED,
         "Release notes",
+        true,
         TerminalProviderSessionState::Idle,
         Some(RELEASE_FOLDER),
     );
@@ -223,6 +231,7 @@ async fn a_terminal_session_its_service_left_lists_from_memory_as_last_seen() {
         vec![terminal_session(
             NAMED,
             "Release notes",
+            true,
             TerminalProviderSessionState::Unreachable,
             Some(RELEASE_FOLDER)
         )]
@@ -268,18 +277,22 @@ fn answer_thread(script: &ScriptedService, read: &Value, mut members: Value) {
     script.answer(read, &json!({"thread": members}));
 }
 
+// The listed session `thread_id` shown as `name`, its own name where `is_named`, with no model.
 fn terminal_session(
     thread_id: &str,
     name: &str,
+    is_named: bool,
     state: TerminalProviderSessionState,
     folder: Option<&str>,
 ) -> TerminalProviderSession {
     TerminalProviderSession {
         provider: DESCRIPTOR.provider_id(),
         name: ComposedText::new(name.to_owned()).expect("the name is not empty"),
+        is_named,
         thread_id: ComposedText::new(thread_id.to_owned()).expect("the id is not empty"),
         state,
         folder: folder
             .map(|folder| FilesystemPath::new(folder.to_owned()).expect("the folder is a path")),
+        model: None,
     }
 }

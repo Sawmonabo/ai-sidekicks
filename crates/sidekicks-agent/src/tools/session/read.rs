@@ -279,6 +279,11 @@ pub fn position_unknown(position: &str, session: &str) -> String {
     format!("\"{position}\" names no hit or next_cursor in {session}. Read it again without it.")
 }
 
+/// The line that ends a row cut at a page's size, naming the id the rest reads under by lines.
+pub fn rest_of_row(output: &str) -> String {
+    format!("Cut here; read the rest with output \"{output}\" and lines.")
+}
+
 /// The result of reading a session whose record holds nothing yet.
 pub fn nothing_yet(session: &str) -> String {
     format!("{session} has no messages yet.")

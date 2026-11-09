@@ -4,12 +4,13 @@
 //! `more_trailer`, whose cursor the next call hands back.
 
 use std::collections::HashSet;
+use std::ops::ControlFlow;
 
 use rusqlite::params;
 use serde_json::{Map, Value};
 use sidekicks_agent::tools::session::read::{
     Include, LineRange, SessionReadArguments, no_lines_in_range, no_matching_lines, nothing_yet,
-    output_not_found, position_unknown, typed_in_terminal,
+    output_not_found, position_unknown, rest_of_row, typed_in_terminal,
 };
 use sidekicks_agent::tools::session::{PageCursor, more_trailer};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -27,12 +28,16 @@ use sidekicks_store::events::session::read::session_read_bound;
 
 use crate::agent_tools::AgentToolError;
 use crate::orchestration::session_directory::{
-    CallerReference, SessionDirectory, SessionOrigin, resolve_session_reference,
+    CallerReference, SessionDirectory, resolve_session_reference,
 };
 
 /// The most text one result carries, in UTF-8 bytes, so a read stays a small part of the calling
 /// model's context; the rest follows a page at a time.
 const READ_PAGE_MAX_BYTES: usize = 64 * 1024;
+
+/// The most of one body line a read holds: just past a page, so `cut_to_page` still marks a line
+/// too long for one without the whole line in memory.
+const LINE_KEPT_MAX_BYTES: usize = READ_PAGE_MAX_BYTES + 4;
 
 /// `session_read` for a call `caller` makes. Refuses, in the text the model reads, a name the
 /// directory does not resolve to one session, a session typed in a terminal, an output, hit or
@@ -55,7 +60,7 @@ pub(crate) async fn read_session(
     )
     .map_err(AgentToolError::Refused)?;
     let name = target.name.clone().unwrap_or_else(|| target.id.clone());
-    if matches!(target.origin, SessionOrigin::TypedInTerminal { .. }) {
+    if target.origin.is_typed_in_terminal() {
         return Err(AgentToolError::Refused(typed_in_terminal(&name)));
     }
     let session_id = SessionId::new(&target.id).map_err(AgentToolError::failed)?;
@@ -320,7 +325,12 @@ impl SessionReading<'_> {
                     return Ok(pieces.join("\n"));
                 }
                 length += piece.len();
+                let is_over_page = piece.len() > READ_PAGE_MAX_BYTES;
                 pieces.push(cut_to_page(piece));
+                if is_over_page {
+                    // A row no page holds goes on by its lines, read under its own id.
+                    pieces.push(rest_of_row(parts.id));
+                }
             }
             taken = Some(row_cursor(row));
         }
@@ -408,19 +418,36 @@ impl SessionReading<'_> {
         Ok((!lines.is_empty()).then(|| lines.join("\n")))
     }
 
-    // A row's whole body: the one its row carries, or a large one read part by part.
+    // A row's body as far as a page shows it: the one its row carries, or a large one read part
+    // by part until it runs past a page.
     async fn body_of(&self, parts: &RowParts<'_>) -> Result<Option<String>, AgentToolError> {
         match parts.content {
             TranscriptRowContent::Available { body, .. } => Ok(Some(body.as_str().to_owned())),
             TranscriptRowContent::Unavailable { .. } => Ok(None),
-            TranscriptRowContent::Large { .. } => self.read_whole_body(parts.id).await,
+            TranscriptRowContent::Large { .. } => {
+                let mut body = String::new();
+                let read = self
+                    .read_body_parts(parts.id, |part| {
+                        body.push_str(part);
+                        if body.len() > READ_PAGE_MAX_BYTES {
+                            ControlFlow::Break(())
+                        } else {
+                            ControlFlow::Continue(())
+                        }
+                    })
+                    .await?;
+                Ok(read.map(|_| body))
+            }
         }
     }
 
-    // A row's whole body, joined from its parts; `None` for a row the session does not hold or
-    // one with no body.
-    async fn read_whole_body(&self, row_id: &str) -> Result<Option<String>, AgentToolError> {
-        let mut body = String::new();
+    // Hands a row's body to `each` part by part until `each` breaks, answering how the read
+    // ended; `None` for a row the session does not hold or one with no body.
+    async fn read_body_parts(
+        &self,
+        row_id: &str,
+        mut each: impl FnMut(&str) -> ControlFlow<()>,
+    ) -> Result<Option<ControlFlow<()>>, AgentToolError> {
         let mut offset = 0;
         loop {
             let part = self
@@ -435,14 +462,24 @@ impl SessionReading<'_> {
                     next_offset,
                     ..
                 }) => {
-                    body.push_str(part.as_str());
-                    match next_offset {
-                        Some(next) => offset = next.get(),
-                        None => return Ok(Some(body)),
+                    let flow = each(part.as_str());
+                    match (flow, next_offset) {
+                        (ControlFlow::Continue(()), Some(next)) => offset = next.get(),
+                        (flow, _) => return Ok(Some(flow)),
                     }
                 }
             }
         }
+    }
+
+    // How many lines a row's body holds, read part by part; `None` for a row the session does not
+    // hold or one with no body.
+    async fn count_body_lines(&self, row_id: &str) -> Result<Option<u64>, AgentToolError> {
+        let mut lines = BodyLines::default();
+        let read = self
+            .read_body_parts(row_id, |part| lines.take(part, &mut |_: u64, _: &str| true))
+            .await?;
+        Ok(read.map(|_| lines.count()))
     }
 
     // One output's numbered lines: the range or matches asked for, from the cursor's line on.
@@ -459,35 +496,43 @@ impl SessionReading<'_> {
                 AgentToolError::Refused(position_unknown(cursor.as_str(), &self.name))
             })?,
         };
-        let Some(body) = self.read_whole_body(output).await? else {
-            return Err(AgentToolError::Refused(output_not_found(
-                output, &self.name,
-            )));
-        };
-        let line_count = u64::try_from(body.lines().count()).unwrap_or(u64::MAX);
+        let not_found = || AgentToolError::Refused(output_not_found(output, &self.name));
         let (first, last) = match lines {
-            None => (1, line_count),
-            Some(LineRange::Span { first, last }) => (first.get(), last.get().min(line_count)),
+            None => (1, u64::MAX),
+            Some(LineRange::Span { first, last }) => (first.get(), last.get()),
             Some(LineRange::Last(count)) => {
+                // The range counts back from the end, so the lines are counted in a read before.
+                let line_count = self.count_body_lines(output).await?.ok_or_else(not_found)?;
                 (line_count.saturating_sub(count.get()) + 1, line_count)
             }
         };
         let mut pieces: Vec<String> = Vec::new();
         let mut length = 0;
-        for (number, line) in (1_u64..).zip(body.lines()) {
-            if number < first.max(from_line) || number > last {
-                continue;
+        // Takes one numbered line, answering whether the read goes on.
+        let mut each = |number: u64, line: &str| {
+            if number > last {
+                return false;
             }
-            if search.is_some_and(|search| !line.contains(search)) {
-                continue;
+            if number < first.max(from_line) || search.is_some_and(|search| !line.contains(search))
+            {
+                return true;
             }
             let piece = format!("{number}: {line}");
             if !pieces.is_empty() && length + piece.len() > READ_PAGE_MAX_BYTES {
                 pieces.push(more_trailer(&number.to_string()));
-                break;
+                return false;
             }
             length += piece.len();
             pieces.push(cut_to_page(piece));
+            true
+        };
+        let mut body_lines = BodyLines::default();
+        let read = self
+            .read_body_parts(output, |part| body_lines.take(part, &mut each))
+            .await?;
+        match read.ok_or_else(not_found)? {
+            ControlFlow::Continue(()) => body_lines.finish(&mut each),
+            ControlFlow::Break(()) => {}
         }
         if pieces.is_empty() {
             return Ok(match search {
@@ -496,6 +541,63 @@ impl SessionReading<'_> {
             });
         }
         Ok(pieces.join("\n"))
+    }
+}
+
+// A body's numbered lines as it is read part by part, split where `str::lines` splits it, each
+// held only up to `LINE_KEPT_MAX_BYTES`.
+#[derive(Default)]
+struct BodyLines {
+    ended: u64,
+    line: String,
+}
+
+impl BodyLines {
+    // Takes the body's next part, handing each line it ends to `each` with its number until
+    // `each` answers that the read stops.
+    fn take(&mut self, part: &str, each: &mut impl FnMut(u64, &str) -> bool) -> ControlFlow<()> {
+        let mut segments = part.split('\n').peekable();
+        while let Some(segment) = segments.next() {
+            self.keep(segment);
+            if segments.peek().is_none() {
+                break;
+            }
+            self.ended += 1;
+            let is_reading_on = each(
+                self.ended,
+                self.line.strip_suffix('\r').unwrap_or(&self.line),
+            );
+            self.line.clear();
+            if !is_reading_on {
+                return ControlFlow::Break(());
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    // Hands `each` the body's last line where no newline ends it.
+    fn finish(&mut self, each: &mut impl FnMut(u64, &str) -> bool) {
+        if !self.line.is_empty() {
+            self.ended += 1;
+            // The body's last line, so whether `each` would read on changes nothing.
+            each(self.ended, &self.line);
+        }
+    }
+
+    // How many lines the parts taken so far hold.
+    fn count(&self) -> u64 {
+        self.ended + u64::from(!self.line.is_empty())
+    }
+
+    // Adds `segment` to the line being read, up to the most a line keeps.
+    fn keep(&mut self, segment: &str) {
+        let mut end = LINE_KEPT_MAX_BYTES
+            .saturating_sub(self.line.len())
+            .min(segment.len());
+        while !segment.is_char_boundary(end) {
+            end -= 1;
+        }
+        self.line.push_str(&segment[..end]);
     }
 }
 
@@ -534,9 +636,10 @@ mod tests {
     use std::sync::Arc;
 
     use futures::FutureExt as _;
+    use serde_json::json;
     use sidekicks_agent::tools::session::SessionReference;
     use sidekicks_agent::tools::session::errors::{SharedNameHolder, shared_name};
-    use sidekicks_agent::tools::session::read::SessionReadArguments;
+    use sidekicks_agent::tools::session::read::{SessionReadArguments, rest_of_row};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -548,18 +651,17 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{
-        TestDatabase, insert_lead, test_session_id,
+        TestDatabase, insert_lead, insert_test_event, test_run_id, test_session_id,
     };
+    use sidekicks_store::events::test_log::AT;
 
-    use super::read_session;
+    use super::{READ_PAGE_MAX_BYTES, read_session};
     use crate::agent_tools::AgentToolError;
     use crate::daemon::schema::schema_parts;
     use crate::orchestration::session_directory::SessionDirectory;
 
-    // A name two sessions share is refused with both holders before any transcript is read.
-    // Killed by reading the first session the name matches.
-    #[tokio::test]
-    async fn session_read_on_an_ambiguous_name_answers_the_choices_and_reads_nothing() {
+    // A database holding this machine's row.
+    fn database_of_this_machine() -> (TestDatabase, rusqlite::Connection) {
         let database = TestDatabase::new(schema_parts());
         let reader = database.opener()().expect("the test creates its database");
         reader
@@ -573,13 +675,12 @@ mod tests {
                 ],
             )
             .expect("the test records this machine");
-        let caller: SessionId = test_session_id();
-        let builders: [SessionId; 2] = [test_session_id(), test_session_id()];
-        for builder in builders {
-            insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
-            insert_lead(&database, builder, PROVIDERS[0].id);
-        }
+        (database, reader)
+    }
 
+    // The directory and the session store over `database`, its one provider holding no session
+    // typed in a terminal.
+    fn directory_and_sessions(database: &TestDatabase) -> (SessionDirectory, SessionService) {
         let mut driver = MockProviderDriver::new();
         driver
             .expect_list_terminal_sessions()
@@ -603,6 +704,21 @@ mod tests {
             Arc::new(|_: &SessionId| None),
             Arc::new(|_: &ProviderId| None),
         );
+        (directory, sessions)
+    }
+
+    // A name two sessions share is refused with both holders before any transcript is read.
+    // Killed by reading the first session the name matches.
+    #[tokio::test]
+    async fn session_read_on_an_ambiguous_name_answers_the_choices_and_reads_nothing() {
+        let (database, reader) = database_of_this_machine();
+        let caller: SessionId = test_session_id();
+        let builders: [SessionId; 2] = [test_session_id(), test_session_id()];
+        for builder in builders {
+            insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
+            insert_lead(&database, builder, PROVIDERS[0].id);
+        }
+        let (directory, sessions) = directory_and_sessions(&database);
         let arguments = SessionReadArguments {
             session: SessionReference::new("builder".to_owned()).expect("a valid reference"),
             turns: None,
@@ -637,5 +753,83 @@ mod tests {
                 ],
             )
         );
+    }
+
+    // An answer longer than a page is cut there with a line naming the id its rest reads under,
+    // and that read walks the whole body by lines, page by page, as it was written. Killed by an
+    // over-page row with no such line, and by a line split wrongly where the body's parts meet.
+    #[tokio::test]
+    async fn an_answer_past_a_page_reads_on_by_its_lines() {
+        let (database, reader) = database_of_this_machine();
+        let caller: SessionId = test_session_id();
+        let builder: SessionId = test_session_id();
+        insert_session_row(&reader, builder.text().as_str(), Some("builder"), None);
+        insert_lead(&database, builder, PROVIDERS[0].id);
+        let lines: Vec<String> = (1..=20_000).map(|line| format!("line {line:05}")).collect();
+        let body = lines.join("\n");
+        insert_test_event(
+            &reader,
+            builder,
+            json!({
+                "type": "agent.message.sent",
+                "payload": {
+                    "sessionId": builder,
+                    "runId": test_run_id(),
+                    "providerMessageId": "m1",
+                },
+            }),
+            Some(&body),
+            AT,
+        );
+        let (directory, sessions) = directory_and_sessions(&database);
+        let read = |arguments: serde_json::Value| {
+            let arguments: SessionReadArguments =
+                serde_json::from_value(arguments).expect("the test's arguments parse");
+            read_session(&directory, &sessions, &caller, arguments)
+        };
+
+        let answer = read(json!({"session": "builder"}))
+            .await
+            .expect("the answer reads");
+        let (shown, rest) = answer
+            .rsplit_once('\n')
+            .expect("a cut answer ends with a line");
+        assert!(shown.starts_with("answer: line 00001\nline 00002\n"));
+        assert!(shown.len() <= READ_PAGE_MAX_BYTES + '…'.len_utf8());
+        let output = rest
+            .split('"')
+            .nth(1)
+            .expect("the line names the answer's id");
+        assert_eq!(rest, rest_of_row(output));
+
+        let mut read_lines: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut arguments = json!({"session": "builder", "output": output, "lines": "1-20000"});
+            if let Some(cursor) = &cursor {
+                arguments["cursor"] = json!(cursor);
+            }
+            let page = read(arguments).await.expect("a page of lines reads");
+            cursor = None;
+            for line in page.lines() {
+                match line.strip_prefix("More: next_cursor \"") {
+                    Some(next) => cursor = Some(next.trim_end_matches('"').to_owned()),
+                    None => read_lines.push(line.to_owned()),
+                }
+            }
+            if cursor.is_none() {
+                break;
+            }
+        }
+        let numbered: Vec<String> = (1_u64..)
+            .zip(&lines)
+            .map(|(number, line)| format!("{number}: {line}"))
+            .collect();
+        assert_eq!(read_lines, numbered);
+
+        let last = read(json!({"session": "builder", "output": output, "lines": "-2"}))
+            .await
+            .expect("the last lines read");
+        assert_eq!(last, "19999: line 19999\n20000: line 20000");
     }
 }

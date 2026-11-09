@@ -419,11 +419,16 @@ export const SessionTerminalProviderSessionListRequestSchema: z.ZodType<
 /** One provider session a person typed in a terminal, inside that provider's shared service. */
 export interface TerminalProviderSession {
   provider: ProviderName;
+  /** Its own name, else the start of its first message, else its thread id. */
   name: string;
+  /** Whether `name` is the session's own name. */
+  isNamed: boolean;
   threadId: string;
   state: "working" | "idle" | "unreachable";
   /** The folder it runs in; absent where the provider names none. */
-  folder?: string;
+  folder?: string | undefined;
+  /** The model it runs on; absent where the provider names none. */
+  model?: string | undefined;
 }
 
 /** The longest name or resume command a provider's descriptor carries. */
@@ -454,9 +459,11 @@ export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<Session
           .object({
             provider: ProviderNameSchema,
             name: composedTextSchema,
+            isNamed: z.boolean(),
             threadId: composedTextSchema,
             state: z.enum(["working", "idle", "unreachable"]),
             folder: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
+            model: composedTextSchema.optional(),
           })
           .strict(),
       ),

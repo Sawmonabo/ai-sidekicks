@@ -24,10 +24,11 @@ impl CodexServiceRegistry {
     /// The sessions a person typed in a terminal that the terminal service holds and no session of
     /// the app does, in the service's own order; empty while terminal reach is off. A session
     /// whose read fails or names no thread is listed as unreachable, named by its thread id and
-    /// with no folder, and one a seat keeps for a running command as working. While the service
-    /// is away the sessions its last listing named are answered as last seen, each unreachable
-    /// once the service has been away past the terminal's reconnect window, and none before any
-    /// listing. Fails as the read of the service's loaded conversations fails.
+    /// with no folder or model; an unnamed one carries the start of its first message as its name,
+    /// marked as no name of its own; and one a seat keeps for a running command as working. While
+    /// the service is away the sessions its last listing named are answered as last seen, each
+    /// unreachable once the service has been away past the terminal's reconnect window, and none
+    /// before any listing. Fails as the read of the service's loaded conversations fails.
     pub(crate) async fn list_terminal_sessions(
         &self,
     ) -> Result<Vec<TerminalProviderSession>, CodexError> {
@@ -74,36 +75,38 @@ fn compose_terminal_session(
     reading: Result<Option<CodexThreadReading>, CodexError>,
 ) -> Option<TerminalProviderSession> {
     let thread_id = ComposedText::new(thread_id)?;
-    let (name, state, folder) = match reading {
-        Ok(Some(reading)) => {
-            if !reading.is_typed_in_terminal {
-                return None;
-            }
-            let state = match reading.status {
-                Some(status) => read_terminal_session_state(status)?,
-                None => TerminalProviderSessionState::Idle,
-            };
-            let name = reading
-                .name
-                .or(reading.preview)
-                .and_then(ComposedText::new)
-                .unwrap_or_else(|| thread_id.clone());
-            let folder = reading
-                .folder
-                .and_then(|folder| FilesystemPath::new(folder).ok());
-            (name, state, folder)
-        }
-        Ok(None) | Err(_) => (
-            thread_id.clone(),
-            TerminalProviderSessionState::Unreachable,
-            None,
-        ),
-    };
-    Some(TerminalProviderSession {
+    let unreachable = TerminalProviderSession {
         provider: DESCRIPTOR.provider_id(),
+        name: thread_id.clone(),
+        is_named: false,
+        thread_id: thread_id.clone(),
+        state: TerminalProviderSessionState::Unreachable,
+        folder: None,
+        model: None,
+    };
+    let Ok(Some(reading)) = reading else {
+        return Some(unreachable);
+    };
+    if !reading.is_typed_in_terminal {
+        return None;
+    }
+    let state = match reading.status {
+        Some(status) => read_terminal_session_state(status)?,
+        None => TerminalProviderSessionState::Idle,
+    };
+    let own_name = reading.name.and_then(ComposedText::new);
+    let is_named = own_name.is_some();
+    let name = own_name
+        .or_else(|| reading.preview.and_then(ComposedText::new))
+        .unwrap_or_else(|| thread_id.clone());
+    Some(TerminalProviderSession {
         name,
-        thread_id,
+        is_named,
         state,
-        folder,
+        folder: reading
+            .folder
+            .and_then(|folder| FilesystemPath::new(folder).ok()),
+        model: reading.model.and_then(ComposedText::new),
+        ..unreachable
     })
 }

@@ -346,6 +346,7 @@ impl ClaudeSessionTask {
                 .boxed();
                 let answer = answer_peer_send(ClaudePeerSendCheck {
                     session_id,
+                    caller_process_id: live.process_identity.process_id,
                     to: &to,
                     senders: self.stream.turn_senders(),
                     daemon_inbox: daemon_inbox.as_str(),

@@ -508,13 +508,15 @@ impl CodexSessionEstablishment {
     // read, the daemon's on the entries `tool_servers` opened for the resume, and the reply. Fails
     // as the reads or the request do, when the reply names another conversation or runs it under
     // another profile, and when the conversation does not list the daemon's hook rows trusted,
-    // which lets go of a conversation the session did not hold before.
+    // which lets go of the conversation unless the session `was_held` it before this resume, read
+    // by the caller before it registered anything.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
         service: &CodexService,
         connection: &CodexAppServerConnection,
         tool_servers: Option<&CodexDaemonToolServers>,
+        was_held: bool,
     ) -> Result<Box<RawValue>, CodexError> {
         let settings = &record.thread_settings;
         // The level rebuilt from the record; one the model no longer lists resumes at standard.
@@ -553,10 +555,7 @@ impl CodexSessionEstablishment {
         {
             // A conversation whose hook rows would not run is let go, as a start's is, unless the
             // session held it before this resume.
-            if !service
-                .threads_of(&record.session_id)
-                .contains(&record.thread_id)
-            {
+            if !was_held {
                 let_go_codex_thread(service, thread_id).await;
             }
             return Err(error);

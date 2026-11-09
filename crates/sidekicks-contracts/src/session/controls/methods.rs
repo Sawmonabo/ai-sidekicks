@@ -492,8 +492,11 @@ pub enum TerminalProviderSessionState {
 pub struct TerminalProviderSession {
     /// The provider.
     pub provider: ProviderId,
-    /// The session's name.
+    /// The session's name, else the start of its first message, else its thread id.
     pub name: ComposedText,
+    /// Whether `name` is the session's own name, which a model may name it by, rather than the
+    /// start of its first message or its thread id.
+    pub is_named: bool,
     /// The provider's thread id.
     pub thread_id: ComposedText,
     /// Where it stands.
@@ -507,6 +510,14 @@ pub struct TerminalProviderSession {
     )]
     #[schemars(with = "FilesystemPath")]
     pub folder: Option<FilesystemPath>,
+    /// The model it runs on; absent where the provider names none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ComposedText")]
+    pub model: Option<ComposedText>,
 }
 
 /// The words a person reads for one provider that has sessions typed in a terminal.

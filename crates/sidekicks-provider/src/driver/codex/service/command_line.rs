@@ -136,7 +136,7 @@ pub(crate) fn read_terminal_service_hooks(
     dispatches_hook_mode: bool,
     shell_kind: CodexShellKind,
 ) -> Result<TerminalServiceHooks, HookCommandError> {
-    if !CodexServiceKind::Terminal.runs_daemon_hooks(dispatches_hook_mode) {
+    if !dispatches_hook_mode {
         return Ok(TerminalServiceHooks::NoHooks);
     }
     match read_running_program_path().map_err(HookCommandError::ProgramUnread)? {

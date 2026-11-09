@@ -11,13 +11,17 @@ use tokio_util::sync::CancellationToken;
 
 use super::restart::{SeededCodexRun, stand_in_test, stored_run_state};
 use super::{STOP_WAIT, TestHome};
-use crate::daemon::process::DAEMON_STOP_DRAIN_BOUND;
 use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::daemon::process::start_error::DaemonStartError;
 use crate::daemon::process::stop::{
     DaemonStopFailure, DaemonStopReason, close_data_folder, stop_work,
 };
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
+
+// The drain bound each stop here takes: far past what any step needs on a loaded machine, so the
+// cases prove which stop drains rather than how fast the machine runs; the bound's own value is
+// proven by the stop with none.
+const DRAIN_BOUND: Duration = Duration::from_secs(60);
 
 // How the started daemon stops.
 #[derive(Clone, Copy, Debug)]
@@ -125,12 +129,7 @@ async fn only_a_persons_stop_writes_the_intent_and_drains(#[case] case: Case) {
             if matches!(case, Case::FailedWrite) {
                 std::fs::create_dir(stop_intent.path()).expect("a folder takes the file's place");
             }
-            let failures = stop_work(
-                &mut process,
-                DaemonStopReason::Stop,
-                DAEMON_STOP_DRAIN_BOUND,
-            )
-            .await;
+            let failures = stop_work(&mut process, DaemonStopReason::Stop, DRAIN_BOUND).await;
             (failures, Some(process))
         }
         Case::StopWithNoBound => {
@@ -138,12 +137,7 @@ async fn only_a_persons_stop_writes_the_intent_and_drains(#[case] case: Case) {
             (failures, Some(process))
         }
         Case::Restart => {
-            let failures = stop_work(
-                &mut process,
-                DaemonStopReason::Restart,
-                DAEMON_STOP_DRAIN_BOUND,
-            )
-            .await;
+            let failures = stop_work(&mut process, DaemonStopReason::Restart, DRAIN_BOUND).await;
             (failures, Some(process))
         }
         Case::SystemStop => {
@@ -151,16 +145,11 @@ async fn only_a_persons_stop_writes_the_intent_and_drains(#[case] case: Case) {
             let reason = tokio::time::timeout(STOP_WAIT, process.wait_for_stop())
                 .await
                 .expect("the system's stop reaches the process");
-            let failures = stop_work(&mut process, reason, DAEMON_STOP_DRAIN_BOUND).await;
+            let failures = stop_work(&mut process, reason, DRAIN_BOUND).await;
             (failures, Some(process))
         }
         Case::EraseStep => {
-            let failures = stop_work(
-                &mut process,
-                DaemonStopReason::Erase,
-                DAEMON_STOP_DRAIN_BOUND,
-            )
-            .await;
+            let failures = stop_work(&mut process, DaemonStopReason::Erase, DRAIN_BOUND).await;
             (failures, Some(process))
         }
         Case::FailedStart => {
@@ -179,30 +168,13 @@ async fn only_a_persons_stop_writes_the_intent_and_drains(#[case] case: Case) {
         }
         Case::StopAfterRestart => {
             (process.accept_stop())(DaemonStopReason::Stop);
-            let failures = stop_work(
-                &mut process,
-                DaemonStopReason::Restart,
-                DAEMON_STOP_DRAIN_BOUND,
-            )
-            .await;
+            let failures = stop_work(&mut process, DaemonStopReason::Restart, DRAIN_BOUND).await;
             (failures, Some(process))
         }
         Case::StopAfterErase => {
-            let mut failures = stop_work(
-                &mut process,
-                DaemonStopReason::Erase,
-                DAEMON_STOP_DRAIN_BOUND,
-            )
-            .await;
+            let mut failures = stop_work(&mut process, DaemonStopReason::Erase, DRAIN_BOUND).await;
             let between = Instant::now();
-            failures.extend(
-                stop_work(
-                    &mut process,
-                    DaemonStopReason::Stop,
-                    DAEMON_STOP_DRAIN_BOUND,
-                )
-                .await,
-            );
+            failures.extend(stop_work(&mut process, DaemonStopReason::Stop, DRAIN_BOUND).await);
             assert!(
                 process.stop_started.expect("the stop began") >= between,
                 "the Stop counts its bound from the erase's step"

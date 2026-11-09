@@ -104,7 +104,7 @@ async fn a_turn_the_services_stop_cut_off_reads_failed() {
     assert_eq!(
         end,
         CodexTerminalTurnEnd::Failed {
-            notice: "its turn was cut off when Codex's service stopped.".to_owned()
+            notice: "Codex's service stopped before it answered".to_owned()
         }
     );
 }
@@ -120,7 +120,23 @@ async fn a_turn_that_failed_with_no_message_reads_failed() {
     assert_eq!(
         end,
         CodexTerminalTurnEnd::Failed {
-            notice: "its turn failed and Codex gave no reason.".to_owned()
+            notice: "Codex gave no reason".to_owned()
+        }
+    );
+}
+
+// Kills: a re-read that opens a seat to wait for a turn the list does not hold, whose end never
+// comes, and an answer other than the cut-off line.
+#[tokio::test]
+async fn a_turn_the_list_does_not_hold_reads_failed_as_cut_off() {
+    let other = json!({"id": "turn-0", "status": "completed", "completedAt": 1_767_000_000});
+
+    let end = reread_listed_turn(other, None).await;
+
+    assert_eq!(
+        end,
+        CodexTerminalTurnEnd::Failed {
+            notice: "Codex's service stopped before it answered".to_owned()
         }
     );
 }

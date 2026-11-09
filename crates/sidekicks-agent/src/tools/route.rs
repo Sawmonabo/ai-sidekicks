@@ -12,6 +12,7 @@ use sidekicks_provider::port::tool_server_route::{
 use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
 use crate::tools::secret_key::ToolServerSecretKey;
 use crate::tools::server::ToolServerPath;
+use crate::tools::session;
 
 /// The header a spawn's secret travels in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
@@ -25,13 +26,30 @@ pub struct AgentToolServerRoute {
     port: u16,
     /// The key every entry's secret is derived from.
     key: Arc<ToolServerSecretKey>,
+    /// The bytes of the largest input schema the session tools list.
+    largest_schema_bytes: usize,
 }
 
 impl AgentToolServerRoute {
     /// The route on the listener at `port`, admitting against `entries`, its secrets derived from
     /// `key`.
     pub fn new(entries: Arc<ToolServerEntries>, port: u16, key: Arc<ToolServerSecretKey>) -> Self {
-        Self { entries, port, key }
+        let largest_schema_bytes = session::TOOLS
+            .iter()
+            .map(|tool| {
+                (tool.listed_schema)()
+                    .expect("each session tool's listed schema writes, as its tests prove")
+                    .to_string()
+                    .len()
+            })
+            .max()
+            .unwrap_or_default();
+        Self {
+            entries,
+            port,
+            key,
+            largest_schema_bytes,
+        }
     }
 
     // Adds `spawn`'s entry on each of `server_names`. Answers the entries, their paths and the
@@ -62,6 +80,7 @@ impl AgentToolServerRoute {
                     AUTHORIZATION_HEADER.to_owned(),
                     (*token.header_value()).clone(),
                 )],
+                tool_input_schema_max_bytes: self.largest_schema_bytes,
             });
             guards.push(self.entries.insert(
                 path.clone(),
@@ -207,8 +226,9 @@ mod tests {
     // While a spawn adopts its session's earlier conversations, a request at another conversation's
     // address of the session is admitted only with the secret this daemon's key derives for that
     // address: a secret no key derived, or one another key derived for the same address, is 401
-    // with no `WWW-Authenticate`. Killed by an adoption that admits any secret, an unkeyed hash,
-    // and a refusal that names a challenge.
+    // with no `WWW-Authenticate`, and another session's address is 401 even under the secret
+    // derived for it. Killed by an adoption that admits any secret, an unkeyed hash, a refusal
+    // that names a challenge, and an adoption that answers for every session.
     #[tokio::test]
     async fn a_secret_this_daemon_never_issued_is_refused_beside_an_adoption() {
         let key = ToolServerSecretKey::of_bytes(1);
@@ -245,6 +265,24 @@ mod tests {
             assert_eq!(refused.status(), StatusCode::UNAUTHORIZED, "{row}");
             assert!(!refused.headers().contains_key(WWW_AUTHENTICATE), "{row}");
         }
+
+        let other_session = ToolServerPath {
+            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcf")
+                .expect("the text is a UUID"),
+            conversation: ToolServerConversation::mint(),
+            server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
+        };
+        let its_own = ToolServerSecretKey::of_bytes(1).secret_of(&other_session);
+        let refused = initialize(&served, &other_session.to_string(), REVISION)
+            .bearer_auth(its_own.text())
+            .send()
+            .await
+            .expect("an answer");
+        assert_eq!(
+            refused.status(),
+            StatusCode::UNAUTHORIZED,
+            "another session's address, under the secret derived for it"
+        );
     }
 
     // A spawn's entry carries its secret only as an `Authorization` header: the address holds no

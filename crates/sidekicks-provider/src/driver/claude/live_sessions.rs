@@ -3,7 +3,6 @@
 //! Claude Code's, written while the daemon reads it and shaped by its version, so it is read at
 //! each call, never cached or watched, every field is optional, and a file that cannot be read
 //! still says a session is running there.
-#![cfg_attr(not(test), expect(dead_code, reason = "the send states read a status"))]
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -19,7 +18,9 @@ use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::inbox::address::is_inbox_socket_name;
 use crate::driver::claude::spawn::environment::claude_config_folder;
-use crate::driver::contract::params_and_results::StandaloneTerminalSession;
+use crate::driver::contract::params_and_results::{
+    StandaloneTerminalActivity, StandaloneTerminalSession,
+};
 use crate::inbound_json::decode_inbound_json;
 use crate::lenient_json::read_lenient;
 
@@ -129,9 +130,20 @@ pub(crate) async fn read_standalone_sessions(
                 id: session.session_id?,
                 name: session.name,
                 folder: session.working_folder,
+                activity: read_activity(session.status.as_deref()),
             })
         })
         .collect()
+}
+
+// What a session whose registry file reads `status` is doing: Claude Code writes `busy` while a
+// turn runs and `waiting` while it waits on the person; anything else reads idle.
+fn read_activity(status: Option<&str>) -> StandaloneTerminalActivity {
+    match status {
+        Some("busy") => StandaloneTerminalActivity::Working,
+        Some("waiting") => StandaloneTerminalActivity::WaitingOnPerson,
+        _ => StandaloneTerminalActivity::Idle,
+    }
 }
 
 // Whether `session` listens on a socket the daemon named, which only a process it started does.
@@ -277,7 +289,9 @@ mod tests {
     use sidekicks_platforms::{make_folder_link, real_path};
 
     use super::{by_name, by_socket, read_live_sessions, read_standalone_sessions};
-    use crate::driver::contract::params_and_results::StandaloneTerminalSession;
+    use crate::driver::contract::params_and_results::{
+        StandaloneTerminalActivity, StandaloneTerminalSession,
+    };
 
     // Writes `contents` as the registry file of `process_id` under `config_folder`.
     fn write_registry_file(config_folder: &Path, process_id: u32, contents: &str) {
@@ -371,7 +385,7 @@ mod tests {
     }
 
     // Killed by the daemon's own sessions kept (the session on a daemon-named socket is answered
-    // too) and by a file with no id kept.
+    // too), by a file with no id kept, and by a registry status read as idle whatever it says.
     #[tokio::test]
     async fn a_standalone_read_leaves_out_the_daemon_s_sessions_and_any_without_an_id() {
         let scratch = tempfile::tempdir().expect("a scratch folder is made");
@@ -385,20 +399,34 @@ mod tests {
         write_registry_file(
             &config_folder,
             4302,
-            r#"{"sessionId":"s-typed","name":"tax-fix","cwd":"/work/tax",
+            r#"{"sessionId":"s-typed","name":"tax-fix","cwd":"/work/tax","status":"busy",
                 "messagingSocketPath":"/tmp/cc-socks/4302.sock"}"#,
         );
         write_registry_file(&config_folder, 4303, r#"{"name":"no-id"}"#);
+        write_registry_file(
+            &config_folder,
+            4304,
+            r#"{"sessionId":"s-asking","status":"waiting"}"#,
+        );
 
         let sessions = read_standalone_sessions(&[config_folder]).await;
 
         assert_eq!(
             sessions,
-            vec![StandaloneTerminalSession {
-                id: "s-typed".to_owned(),
-                name: Some("tax-fix".to_owned()),
-                folder: Some(Path::new("/work/tax").to_path_buf()),
-            }]
+            vec![
+                StandaloneTerminalSession {
+                    id: "s-typed".to_owned(),
+                    name: Some("tax-fix".to_owned()),
+                    folder: Some(Path::new("/work/tax").to_path_buf()),
+                    activity: StandaloneTerminalActivity::Working,
+                },
+                StandaloneTerminalSession {
+                    id: "s-asking".to_owned(),
+                    name: None,
+                    folder: None,
+                    activity: StandaloneTerminalActivity::WaitingOnPerson,
+                },
+            ]
         );
     }
 

@@ -19,7 +19,7 @@ use crate::driver::claude::live_sessions::{
 use crate::driver::hook_pauses::target_unread_reason;
 use crate::driver::session_messages::no_session_named;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
-use crate::port::session_directory_lookup::{SessionDirectoryEntry, SessionDirectoryLookup};
+use crate::port::session_directory_lookup::{DirectoryMatch, SessionDirectoryLookup};
 use crate::port::session_message_reading_publisher::SessionMessageArrival;
 
 /// The recipient Claude Code reads as the session's lead.
@@ -111,6 +111,8 @@ impl ClaudeTurnSenders {
 pub(crate) struct ClaudePeerSendCheck<'a> {
     /// The calling session.
     pub(crate) session_id: SessionId,
+    /// The calling session's own process, whose registry file names it among the running ones.
+    pub(crate) caller_process_id: u32,
     /// The call's recipient, never empty.
     pub(crate) to: &'a str,
     /// Who sent the open turn's messages.
@@ -175,7 +177,8 @@ async fn judge(
     if let Some(reason) = directory_refusal(&listed) {
         return Ok(Some(reason));
     }
-    let running = read_live_sessions(&check.registry_folders.await?).await;
+    let mut running = read_live_sessions(&check.registry_folders.await?).await;
+    running.retain(|session| session.process_id != check.caller_process_id);
     if !is_address(to) {
         return Ok(by_name(&running, to)
             .next()
@@ -230,7 +233,7 @@ fn is_socket_address(to: &str) -> bool {
 
 // The words for the session the directory lists for a call, by its id where several share its
 // name; `None` where it lists none.
-fn directory_refusal(listed: &[SessionDirectoryEntry]) -> Option<String> {
+fn directory_refusal(listed: &[DirectoryMatch]) -> Option<String> {
     let first = listed.first()?;
     let target = if listed.len() > 1 {
         &first.id

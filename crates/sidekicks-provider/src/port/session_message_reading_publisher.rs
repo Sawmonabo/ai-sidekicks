@@ -66,7 +66,8 @@ pub enum SessionMessageReading {
     Failed {
         /// The message's id.
         message_id: String,
-        /// The provider's own notice of the failure.
+        /// The provider's own notice of the failure, which a wait reads as `<name> failed ·
+        /// <notice>`.
         notice: String,
     },
     /// The terminal session the message started a turn in went out of reach before the turn's

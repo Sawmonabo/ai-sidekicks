@@ -53,10 +53,6 @@ pub(crate) const CODEX_OPENED_TOOL_SERVER_NAMES: &[&str] =
 /// 120 s a session ask is held and the route's own bound, so the route answers first.
 const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 
-/// Bytes of one tool's input schema past which Codex compacts it, its field descriptions first:
-/// well above every session tool's schema, so the model reads each whole.
-const CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES: usize = 64 * 1024;
-
 /// The surface the up-front entry's tools are kept off, so they load at once and never wait
 /// behind Codex's tool search.
 const DEFERRED_SURFACE: &str = "deferred";
@@ -207,7 +203,9 @@ pub(crate) fn insert_codex_daemon_tool_servers(
             // The daemon judges each of its own calls itself, so Codex asks nothing first.
             DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
             TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
-            TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES,
+            // Codex compacts a schema past this, its field descriptions first, so the route's
+            // largest keeps every one whole for the model.
+            TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: entry.tool_input_schema_max_bytes,
         });
         if entry.server_name == DAEMON_TOOL_SERVER_NAME {
             members[OMIT_TOOLS_FROM_MEMBER] = json!([DEFERRED_SURFACE]);

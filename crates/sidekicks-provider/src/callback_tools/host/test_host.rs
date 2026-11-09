@@ -73,6 +73,16 @@ impl TestCallbackToolHost {
     }
 }
 
+/// A host with no approval seam whose executor completes every call, for a test that only needs
+/// one registered.
+pub fn completing_callback_tool_host() -> Arc<CallbackToolHost> {
+    Arc::new(CallbackToolHost::new(
+        Arc::new(CountingExecutor::default()),
+        Arc::new(IgnoredActivity),
+        None,
+    ))
+}
+
 #[derive(Default)]
 struct CountingExecutor {
     count: AtomicUsize,
