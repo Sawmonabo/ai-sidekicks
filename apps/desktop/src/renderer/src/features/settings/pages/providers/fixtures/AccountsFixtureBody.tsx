@@ -34,8 +34,8 @@ import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
 import {
   startProviderSignIn,
-  type ProviderAccountLoginCall,
-  type ProviderAccountLoginCancelCall,
+  type ProviderAccountSignInCall,
+  type ProviderAccountSignInCancelCall,
   type ProviderAccountProbeCall,
   type ProviderAccountSetCurrentCall,
   type ProviderAccountRegisterCall,
@@ -53,8 +53,8 @@ import { TokenRegistrationForm } from "./components/Token/TokenRegistrationForm.
 
 /** The daemon verbs the fixture body drives. Held stable by the caller. */
 export interface AccountOperations {
-  readonly login: ProviderAccountLoginCall;
-  readonly cancelLogin: ProviderAccountLoginCancelCall;
+  readonly signIn: ProviderAccountSignInCall;
+  readonly cancelSignIn: ProviderAccountSignInCancelCall;
   readonly register: ProviderAccountRegisterCall;
   readonly probe: ProviderAccountProbeCall;
   readonly setCurrent: ProviderAccountSetCurrentCall;
@@ -66,7 +66,7 @@ export interface AccountOperations {
  */
 export interface AccountListReading extends Pick<
   ProviderAccountReadout,
-  "accounts" | "readiness" | "usageWindows" | "newestLoginCompletion"
+  "accounts" | "readiness" | "usageWindows" | "newestSignInCompletion"
 > {
   readonly phase: "reading" | "read";
 }
@@ -92,9 +92,9 @@ export function AccountsFixtureBody(props: {
     () =>
       new ProviderSignInFlowTracker({
         startProviderSignIn: async (accountId) =>
-          await startProviderSignIn(operations.login, accountId),
+          await startProviderSignIn(operations.signIn, accountId),
         cancelProviderSignIn: async (attempt) => {
-          await operations.cancelLogin({ attemptId: attempt.attemptId });
+          await operations.cancelSignIn({ attemptId: attempt.attemptId });
         },
         // A flow ending says nothing about the account, so the registry is read again.
         onFlowSettled: requestRegistryRead,
@@ -114,10 +114,10 @@ export function AccountsFixtureBody(props: {
   );
   // The registry's completion report ends a flow the service finished on its own. A repeat of a
   // report already noted finds no flow holding that attempt and changes nothing.
-  const completion = registry.newestLoginCompletion;
+  const completion = registry.newestSignInCompletion;
   useEffect(() => {
     if (completion !== undefined) {
-      providerSignInFlowTracker.noteLoginCompleted(completion);
+      providerSignInFlowTracker.noteSignInCompleted(completion);
     }
   }, [completion, providerSignInFlowTracker]);
   const { move: defaultMove, setAsDefault } = useAccountDefaultMove(

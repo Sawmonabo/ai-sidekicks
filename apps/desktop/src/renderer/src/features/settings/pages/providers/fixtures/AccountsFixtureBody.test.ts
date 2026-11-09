@@ -2,7 +2,10 @@
 // Every state asserted is one the wire can carry, and the sign-in cases drive the real tracker
 // through plain stub calls.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type {
+  ProviderAccountId,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts/provider/account/record";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -42,7 +45,7 @@ describe("AccountsFixtureBody", () => {
   it("stops offering a start while a sign-in is running, and says what is holding it", async () => {
     const { container } = mountAccountsPage({
       registry: ACCOUNT_REGISTRY,
-      operations: accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }),
+      operations: accountPlaneCalls({ signIn: PROVIDER_SIGN_IN_ATTEMPT }),
     });
     await act(async () => {
       pressFirstStartControl(container);
@@ -73,7 +76,7 @@ describe("AccountsFixtureBody", () => {
   // starting the same account's sign-in again, in that order, since the daemon holds one flow.
   it("says an expired code expired and signs the same account in again on Sign in again", async () => {
     const operations = accountPlaneCalls({
-      login: { ...PROVIDER_SIGN_IN_ATTEMPT, expiresAt: "2000-01-01T00:00:00.000Z" },
+      signIn: { ...PROVIDER_SIGN_IN_ATTEMPT, expiresAt: "2000-01-01T00:00:00.000Z" },
       cancel: { status: "canceled" },
     });
     const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY, operations });
@@ -88,26 +91,30 @@ describe("AccountsFixtureBody", () => {
       await crossMacrotaskBoundary();
     });
 
-    expect(operations.cancelLogin).toHaveBeenCalledWith({
+    expect(operations.cancelSignIn).toHaveBeenCalledWith({
       attemptId: PROVIDER_SIGN_IN_ATTEMPT.attemptId,
     });
     // The first `Sign in` is the Claude default's; both starts are for that one account.
-    const [firstStart, secondStart] = operations.login.mock.calls.map(([request]) => request);
-    expect(operations.login).toHaveBeenCalledTimes(2);
+    const [firstStart, secondStart] = operations.signIn.mock.calls.map(([request]) => request);
+    expect(operations.signIn).toHaveBeenCalledTimes(2);
     expect(secondStart).toStrictEqual(firstStart);
   });
 });
 
-/** The registry with its Claude default read as a token account whose login expired. */
+/**
+ * The registry with its Claude default read as a token account whose login expired. Cast: the
+ * generated readiness type carries its remedy's schema reference, which no literal satisfies.
+ */
 const EXPIRED_TOKEN_REGISTRY: AccountListReading = {
   ...ACCOUNT_REGISTRY,
   readiness: ACCOUNT_REGISTRY.readiness.map((entry) =>
     entry.provider === "claude"
-      ? {
-          ...entry,
-          state: "reauth_required",
-          remedy: { kind: "paste_token", accountId: "pa-0001" as ProviderAccountId },
-        }
+      ? ({
+          provider: entry.provider,
+          state: "reauthRequired",
+          resolvedAccountId: "pa-0001" as ProviderAccountId,
+          remedy: { kind: "pasteToken", accountId: "pa-0001" as ProviderAccountId },
+        } as ProviderReadiness)
       : entry,
   ),
 };

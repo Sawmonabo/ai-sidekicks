@@ -3,7 +3,7 @@
 // A refusal can arrive anywhere (a run refused at admission, a registry read refused on a
 // settings page, a quota reading that never landed). This router decides where and which
 // action, and composes no remedy: the remedy's content is the daemon's, travels on
-// `providerAccount.list`'s readiness entry or, for a refused account move, on the refusal itself,
+// `provider.account.list`'s readiness entry or, for a refused account move, on the refusal itself,
 // and is display-only here. The action is a navigation to the settings section where the act
 // lives; nothing runs a sign-in or re-derives admission.
 //

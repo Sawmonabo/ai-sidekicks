@@ -1,6 +1,6 @@
 // The progress half of a provider import, as a reading.
 //
-// `session.import` is a write that settles once with an import id; `session.importSubscribe`
+// `session.import.start` is a write that settles once with an import id; `session.import.subscribe`
 // is a stream, which can be open and silent, open and speaking, or closed. The two are held
 // apart. What the stream carries, and why it is keyed by provider, is in the contract's
 // `provider/import.ts`. Nothing is computed from the messages: the counts and the outcome
@@ -9,8 +9,8 @@
 import type {
   ProviderImportId,
   ProviderImportProgress,
-  ProviderImportProviderRequest,
-  ProviderImportStopRequest,
+  SessionImportRequest,
+  SessionImportStopRequest,
 } from "@ai-sidekicks/contracts/provider/import";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -22,11 +22,11 @@ export interface ImportProgressStream {
 
 /** The call that subscribes to one provider's import stream. */
 export type ImportProgressSubscribeCall = (
-  request: ProviderImportProviderRequest,
+  request: SessionImportRequest,
 ) => Promise<ImportProgressStream>;
 
 /** The call that stops one running import; its stopped outcome arrives on the stream. */
-export type ImportStopCall = (request: ProviderImportStopRequest) => Promise<void>;
+export type ImportStopCall = (request: SessionImportStopRequest) => Promise<void>;
 
 /**
  * Where one provider's import stream has got to. `newest` is the last message any opening of the

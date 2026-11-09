@@ -25,7 +25,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
+import type { ProviderSignInCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
@@ -87,14 +87,14 @@ export type TokenRegistrationOutcome =
 /**
  * Starts a brokered sign-in for one account.
  */
-export type ProviderAccountLoginCall = (request: {
+export type ProviderAccountSignInCall = (request: {
   readonly accountId: ProviderAccountId;
 }) => Promise<ProviderAccountSignInResponse>;
 
 /**
  * Cancels a sign-in that is still in flight.
  */
-export type ProviderAccountLoginCancelCall = (request: {
+export type ProviderAccountSignInCancelCall = (request: {
   readonly attemptId: string;
 }) => Promise<ProviderAccountSignInAttemptCancelResponse>;
 
@@ -139,10 +139,10 @@ export function readProviderSignInAccountId(
 
 /** Start a brokered sign-in for one account. */
 export async function startProviderSignIn(
-  login: ProviderAccountLoginCall,
+  signIn: ProviderAccountSignInCall,
   accountId: ProviderAccountId,
 ): Promise<ProviderSignInStartOutcome> {
-  return { kind: "live", accountId, attempt: await login({ accountId }) };
+  return { kind: "live", accountId, attempt: await signIn({ accountId }) };
 }
 
 /**
@@ -150,8 +150,8 @@ export async function startProviderSignIn(
  * finish and keeps the provider's own reason; a finished or canceled one leaves nothing to draw,
  * since what became of the account is the registry's to say.
  */
-export function flowAfterLoginCompleted(
-  completion: Pick<ProviderLoginCompletion, "outcome" | "failureReason">,
+export function flowAfterSignInCompleted(
+  completion: Pick<ProviderSignInCompletion, "outcome" | "failureReason">,
 ): ProviderSignInFlowState {
   return completion.outcome === "failed"
     ? { kind: "unfinished", failureReason: completion.failureReason }

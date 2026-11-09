@@ -9,22 +9,26 @@
 //
 // Exactly two things end a flow: a cancel the daemon answered, `canceled` or `notFound` alike,
 // and the registry's own tail reporting that attempt completed
-// ({@link ProviderSignInFlowTracker.noteLoginCompleted}), where a failed attempt stays on screen
-// as not finished. A start or a cancel the service refuses is drawn on that account's row in the
-// service's own words: a refused start frees the flow, and a refused cancel leaves it running.
+// ({@link ProviderSignInFlowTracker.noteSignInCompleted}), where a failed attempt stays on screen
+// as not finished. A start the provider refused, its sign-in refused or the provider unreachable,
+// also reads as not finished, with the refusal's words under it. Any other refused start, and a
+// refused cancel, is drawn on that account's row in the service's own words: a refused start frees
+// the flow, and a refused cancel leaves it running.
 
+import { PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE } from "@ai-sidekicks/contracts/provider/account/methods";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
+import type { ProviderAccountSignInResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
-import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
+import type { ProviderSignInCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
-  flowAfterLoginCompleted,
+  flowAfterSignInCompleted,
   isProviderSignInRunning,
   readProviderSignInAccountId,
   type ProviderSignInFlowState,
@@ -39,6 +43,15 @@ const START_ALREADY_RUNNING_CODE = "sign-in-already-running";
 
 /** The code a rejected start or cancel that carried none of its own is reported under. */
 const SIGN_IN_CALL_FAILED_CODE = "sign-in-call-failed";
+
+/** The provider could not be reached, or refused the start itself. */
+const PROVIDER_UNAVAILABLE_CODE: RefusalCode = "provider.unavailable";
+
+/** The refused starts that read as a sign-in that did not finish, not as a row's refusal. */
+const UNFINISHED_START_CODES: ReadonlySet<string> = new Set([
+  PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+  PROVIDER_UNAVAILABLE_CODE,
+]);
 
 /**
  * The one key the sign-in flow is claimed under.
@@ -74,7 +87,7 @@ export interface ProviderSignInFlowTrackerOptions {
    * Cancel the flow this tracker holds. Likewise supplied by the caller. Either answer the daemon
    * gives means it holds no flow of this window's, so a settled cancel leaves nothing to draw.
    */
-  readonly cancelProviderSignIn: (attempt: ProviderAccountLoginResponse) => Promise<void>;
+  readonly cancelProviderSignIn: (attempt: ProviderAccountSignInResponse) => Promise<void>;
   /**
    * Called once a canceled flow has settled, either way.
    *
@@ -94,7 +107,7 @@ export class ProviderSignInFlowTracker {
   readonly #startProviderSignIn: (
     accountId: ProviderAccountId,
   ) => Promise<ProviderSignInStartOutcome>;
-  readonly #cancelProviderSignIn: (attempt: ProviderAccountLoginResponse) => Promise<void>;
+  readonly #cancelProviderSignIn: (attempt: ProviderAccountSignInResponse) => Promise<void>;
   readonly #onFlowSettled: () => void;
   readonly #changes = new Emitter<void>("sign-in flow change");
   /**
@@ -111,7 +124,7 @@ export class ProviderSignInFlowTracker {
    * this the tracker would record a finished attempt as running. One is enough because
    * the daemon runs one brokered flow at a time.
    */
-  #newestCompletion: ProviderLoginCompletion | undefined = undefined;
+  #newestCompletion: ProviderSignInCompletion | undefined = undefined;
   #snapshot: ProviderSignInFlowTrackerSnapshot = NOTHING_STARTED;
   #isDisposed = false;
 
@@ -164,7 +177,7 @@ export class ProviderSignInFlowTracker {
             // The registry reported this attempt finished before its start reply arrived;
             // recording it would put a card on screen for a flow that is over.
             claim.release();
-            this.#settleEndedFlow(flowAfterLoginCompleted(completion));
+            this.#settleEndedFlow(flowAfterSignInCompleted(completion));
             return;
           }
           this.#publish({ flow: outcome });
@@ -173,10 +186,15 @@ export class ProviderSignInFlowTracker {
       (error: unknown) => {
         claim.settle(() => {
           claim.release();
-          this.#publish({
-            flow: IDLE_PROVIDER_SIGN_IN_FLOW,
-            refusalByAccountId: this.#refusalsWith(accountId, refusalOfCall(error)),
-          });
+          const refusal = refusalOfCall(error);
+          this.#publish(
+            UNFINISHED_START_CODES.has(refusal.code)
+              ? { flow: { kind: "unfinished", failureReason: refusal.detail } }
+              : {
+                  flow: IDLE_PROVIDER_SIGN_IN_FLOW,
+                  refusalByAccountId: this.#refusalsWith(accountId, refusal),
+                },
+          );
         });
       },
     );
@@ -214,7 +232,7 @@ export class ProviderSignInFlowTracker {
    * on the same machine-wide tail and must not clear this card's verification code. Every
    * completion is remembered, matched or not, for {@link start} to read.
    */
-  public noteLoginCompleted(completion: ProviderLoginCompletion): void {
+  public noteSignInCompleted(completion: ProviderSignInCompletion): void {
     if (this.#isDisposed) {
       return;
     }
@@ -224,7 +242,7 @@ export class ProviderSignInFlowTracker {
       return;
     }
     this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
-    this.#settleEndedFlow(flowAfterLoginCompleted(completion));
+    this.#settleEndedFlow(flowAfterSignInCompleted(completion));
   }
 
   /** Terminal. A settlement landing after this installs nothing. */

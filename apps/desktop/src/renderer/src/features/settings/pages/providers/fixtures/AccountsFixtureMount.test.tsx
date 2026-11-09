@@ -48,7 +48,7 @@ async function mountProvidersPage(): Promise<{
   return { container, fixture };
 }
 
-/** The fixture, with its first `providerAccount.list` call rejected as a closed connection. */
+/** The fixture, with its first `provider.account.list` call rejected as a closed connection. */
 function fixtureRefusingFirstRegistryRead(): FixtureBridge {
   const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const { daemon } = fixture.bridge;
@@ -60,7 +60,7 @@ function fixtureRefusingFirstRegistryRead(): FixtureBridge {
       daemon: {
         ...daemon,
         call: (method, params) => {
-          if (method === "providerAccount.list" && !hasRefused) {
+          if (method === "provider.account.list" && !hasRefused) {
             hasRefused = true;
             return Promise.reject(new Error("the connection closed"));
           }
@@ -147,7 +147,7 @@ describe("AccountsFixtureMount", () => {
   it("reports no completion for a sign-in canceled before it finishes", async () => {
     const { container, fixture } = await mountProvidersPage();
     const registryFrames: unknown[] = [];
-    fixture.bridge.daemon.subscribe("providerAccount.subscribe", {}, (frame) => {
+    fixture.bridge.daemon.subscribe("provider.account.subscribe", {}, (frame) => {
       registryFrames.push(frame);
     });
     pressFirstStartControl(container);

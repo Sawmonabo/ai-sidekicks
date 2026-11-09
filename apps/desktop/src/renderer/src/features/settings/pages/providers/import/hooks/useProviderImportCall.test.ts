@@ -7,39 +7,38 @@ import { describe, expect, it } from "vitest";
 
 import type {
   ProviderImportId,
-  ProviderImportProviderRequest,
-  ProviderImportStartResponse,
+  SessionImportRequest,
+  SessionImportStartResponse,
 } from "@ai-sidekicks/contracts/provider/import";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { ProviderImportCall } from "./useProviderImportCall.js";
 
-const REQUEST: ProviderImportProviderRequest = { provider: "claude" };
+const REQUEST: SessionImportRequest = { provider: "claude" as ProviderId };
 
 /** The code a rejected start with none of its own is reported under. */
 const FAILED_CODE = "import-start-failed";
 
 /** The answer a start settles with. */
-function startedFor(importId: string): ProviderImportStartResponse {
+function startedFor(importId: string): SessionImportStartResponse {
   return { importId: importId as ProviderImportId };
 }
 
 /** A start call over `attempt`. */
 function startCallOver(
-  attempt: (request: ProviderImportProviderRequest) => Promise<ProviderImportStartResponse>,
-): ProviderImportCall<ProviderImportProviderRequest, ProviderImportStartResponse> {
+  attempt: (request: SessionImportRequest) => Promise<SessionImportStartResponse>,
+): ProviderImportCall<SessionImportRequest, SessionImportStartResponse> {
   return new ProviderImportCall(attempt, FAILED_CODE);
 }
 
 /** An attempt whose settlement the case releases when it chooses. */
 function heldAttempt(): {
-  readonly attempt: (
-    request: ProviderImportProviderRequest,
-  ) => Promise<ProviderImportStartResponse>;
-  readonly release: (value: ProviderImportStartResponse) => void;
+  readonly attempt: (request: SessionImportRequest) => Promise<SessionImportStartResponse>;
+  readonly release: (value: SessionImportStartResponse) => void;
 } {
-  let release: ((value: ProviderImportStartResponse) => void) | undefined;
+  let release: ((value: SessionImportStartResponse) => void) | undefined;
   return {
     attempt: async () =>
-      await new Promise<ProviderImportStartResponse>((resolve) => {
+      await new Promise<SessionImportStartResponse>((resolve) => {
         release = resolve;
       }),
     release: (value) => {

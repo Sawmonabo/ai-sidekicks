@@ -11,6 +11,7 @@ import type {
   ProviderAccountListResponse,
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
 import type { ProviderAccountReadout } from "../account-readout.js";
 import { instantMilliseconds } from "./frozen-instant.test-support.js";
@@ -23,11 +24,13 @@ import {
 
 const ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const OTHER_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
 
 function accountAtGeneration(credentialGeneration: number): ProviderAccount {
   return {
     accountId: ACCOUNT_ID,
-    provider: "claude",
+    provider: CLAUDE,
     observedAccountEmail: "sam@example.com",
     observedAccountPlan: "max",
     credentialGeneration,
@@ -35,9 +38,9 @@ function accountAtGeneration(credentialGeneration: number): ProviderAccount {
     isDefault: true,
     healthState: "authenticated",
     healthObservedAt: "2026-01-01T07:00:00.000Z",
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: "2025-12-02T09:00:00.000Z",
-    expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
+    observedAuthMode: "oauthSubscription",
+    signedInAt: "2025-12-02T09:00:00.000Z",
+    signInNeededAtEstimate: "2026-01-01T09:00:00.000Z",
     probeEnabled: true,
     lastRefreshObservedAt: null,
     windowStartEnabled: true,
@@ -72,7 +75,7 @@ function registryHolding(
     accounts: [],
     accountLabels: new Map(),
     readiness: [],
-    newestLoginCompletion: undefined,
+    newestSignInCompletion: undefined,
     phase: "read",
     readRefusal: undefined,
     unreadableDeliveryCount: 0,
@@ -98,8 +101,8 @@ describe("accountQuotaRowsFrom", () => {
   });
 
   // The foil for a second supersession rule: two readings for one limit is an input the
-  // readout's contract does not produce (the fold keeps one row per `(accountId, limitId)`), so
-  // a module resolving the pair would be answering a question it may not answer.
+  // readout's contract does not produce (the fold keeps one row per account, limit and length),
+  // so a module resolving the pair would be answering a question it may not answer.
   it("decides nothing about which of two readings for one limit is current", () => {
     const rows = accountQuotaRowsFrom(
       registryHolding([
@@ -195,17 +198,17 @@ describe("readinessForProvider", () => {
     accounts: [],
     usageWindows: [],
     readiness: [
-      { provider: "claude", state: "authenticated" },
+      { provider: CLAUDE, state: "authenticated" },
       {
-        provider: "codex",
-        state: "indeterminate",
-        remedy: { kind: "register", provider: "codex" },
+        provider: CODEX,
+        state: "noAccount",
+        remedy: { kind: "register", provider: CODEX },
       },
     ],
   };
 
   it("finds the entry for the provider asked about, and fabricates none", () => {
-    expect(readinessForProvider(reply.readiness, "codex")?.state).toBe("indeterminate");
-    expect(readinessForProvider([], "claude")).toBeUndefined();
+    expect(readinessForProvider(reply.readiness, CODEX)?.state).toBe("noAccount");
+    expect(readinessForProvider([], CLAUDE)).toBeUndefined();
   });
 });

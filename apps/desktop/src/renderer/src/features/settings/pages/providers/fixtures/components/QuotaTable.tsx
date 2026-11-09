@@ -13,6 +13,7 @@ import {
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
+import { structuralKey } from "#renderer/lib/structural-key.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
 
 /**
@@ -25,15 +26,15 @@ import type { AccountQuotaRow } from "../quota-rows.js";
 const UTILIZATION_BAR_FULL_SCALE = 1;
 
 /**
- * One account's per-limit quota table, one row per limit the provider publishes.
+ * One account's per-window quota table, one row per window of each limit the provider publishes.
  *
- * Keyed by limit, never by window length: three of a pinned provider's limits share one
- * 10080-minute window. The limit identifier is a wire spelling and is never drawn; a row is
- * named by the provider's label, or by its window length where none was published. The
- * percentage is clamped for display and the wire figure is not, so over-consumption against a
- * soft limit is still reported. A reading taken under an older credential generation says so:
- * a credential-home rebuild does not clear stored readings, so such a row is true about the
- * provider and behind this account.
+ * Keyed by limit and window length together: one provider's limits share one 10080-minute window,
+ * and another's one limit carries two windows of different lengths. The limit identifier is a
+ * wire spelling and is never drawn; a row is named by the provider's label, or by its window
+ * length where none was published. The percentage is clamped for display and the wire figure is
+ * not, so over-consumption against a soft limit is still reported. A reading taken under an
+ * older credential generation says so: a credential-home rebuild does not clear stored readings,
+ * so such a row is true about the provider and behind this account.
  */
 export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] }): ReactNode {
   const clockLocale = useClockLocale();
@@ -63,7 +64,7 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
       </thead>
       <tbody>
         {props.rows.map(({ window, behindAccountGeneration }) => (
-          <tr key={window.limitId}>
+          <tr key={structuralKey([window.limitId, String(window.windowMins)])}>
             <th scope="row">{window.label ?? <WindowLength window={window} />}</th>
             <td>
               <WindowLength window={window} />

@@ -5,15 +5,18 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
+import { providerSectionOf } from "#renderer/store/providers/name.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 import { ProviderAccountDeliveries } from "./deliveries.js";
 
 describe("a provider-account delivery", () => {
   it("counts and publishes one its check refuses, and applies one it admits", () => {
     const onChanged = vi.fn();
-    const deliveries = new ProviderAccountDeliveries(new ProviderAccountFold(), {
-      onChanged,
-      onSupersededRead: vi.fn(),
-    });
+    const deliveries = new ProviderAccountDeliveries(
+      new ProviderAccountFold(),
+      (provider) => providerSectionOf(providerSectionsFixture(), provider),
+      { onChanged, onSupersededRead: vi.fn() },
+    );
 
     deliveries.deliver({ kind: "accountRemoved", accountId: 7 });
 

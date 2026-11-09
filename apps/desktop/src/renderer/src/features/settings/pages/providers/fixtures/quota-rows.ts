@@ -17,7 +17,7 @@ import type { ProviderAccountReadout } from "../account-readout.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "#renderer/lib/instant.js";
 
 /**
- * The current reading for one `(accountId, limitId)` pair, plus whether it is behind.
+ * The current reading for one `(accountId, limitId, windowMins)` key, plus whether it is behind.
  *
  * `behindAccountGeneration` is carried because a percentage cannot say it: a credential-home
  * rebuild does not clear stored readings, so a figure from an older generation is true about
@@ -33,8 +33,9 @@ export interface AccountQuotaRow {
  *
  * A selection, never a fold: which reading is current is settled before a row reaches here,
  * and every current row for this account is carried through unchanged. Rows are ordered by the
- * provider's label where published and by `limitId` otherwise, so the table does not reshuffle
- * between reads; the fold's own order is by account first, the wrong key for one account's table.
+ * provider's label where published and by `limitId` otherwise, then by window length, so the
+ * table does not reshuffle between reads; the fold's own order is by account first, the wrong key
+ * for one account's table.
  */
 export function accountQuotaRowsFrom(
   registry: Pick<ProviderAccountReadout, "usageWindows">,
@@ -42,7 +43,7 @@ export function accountQuotaRowsFrom(
 ): readonly AccountQuotaRow[] {
   return registry.usageWindows
     .filter((window) => window.accountId === account.accountId)
-    .sort((left, right) => quotaSortKey(left).localeCompare(quotaSortKey(right)))
+    .sort(compareQuotaRows)
     .map((window) => ({
       window,
       behindAccountGeneration: window.observedCredentialGeneration < account.credentialGeneration,
@@ -51,18 +52,18 @@ export function accountQuotaRowsFrom(
 
 /**
  * How many whole days a re-login estimate sits after the sign-in it is anchored to, or
- * `undefined` where either stamp is unreadable (zero means "the same day", an unparseable stamp
+ * `undefined` where either stamp is unreadable (zero means "the same day", an unparsable stamp
  * is no answer).
  *
- * Measured from the anchor, not from now: the registry publishes an estimate from `loggedInAt`,
+ * Measured from the anchor, not from now: the registry publishes an estimate from `signedInAt`,
  * and a countdown from the clock would read as a deadline and tick.
  */
 export function estimatedReloginDaysAfterSignIn(
-  loggedInAtIso: string,
-  expectedReloginAtIso: string,
+  signedInAtIso: string,
+  signInNeededAtIso: string,
 ): number | undefined {
-  const signedIn = parseInstant(loggedInAtIso);
-  const expected = parseInstant(expectedReloginAtIso);
+  const signedIn = parseInstant(signedInAtIso);
+  const expected = parseInstant(signInNeededAtIso);
   if (signedIn.kind === "malformed" || expected.kind === "malformed") {
     return undefined;
   }
@@ -104,7 +105,11 @@ export function readinessForProvider(
   return readiness.find((entry) => entry.provider === provider);
 }
 
-/** What a quota row sorts on: the provider's own label, else its limit identifier. */
-function quotaSortKey(window: ProviderAccountUsageWindow): string {
-  return window.label ?? window.limitId;
+/** Quota rows by the provider's own label, else the limit identifier, then by window length. */
+function compareQuotaRows(
+  left: ProviderAccountUsageWindow,
+  right: ProviderAccountUsageWindow,
+): number {
+  const byName = (left.label ?? left.limitId).localeCompare(right.label ?? right.limitId);
+  return byName === 0 ? left.windowMins - right.windowMins : byName;
 }

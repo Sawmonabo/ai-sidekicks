@@ -49,7 +49,7 @@ const REGISTERED: ProviderAccountRegisterResponse = {
 describe("startProviderSignIn", () => {
   it("answers a live flow carrying the attempt and the account it is for", async () => {
     const state = await startProviderSignIn(
-      accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }).login,
+      accountPlaneCalls({ signIn: PROVIDER_SIGN_IN_ATTEMPT }).signIn,
       ACCOUNT_ID,
     );
     // The account rides the outcome so the one-at-a-time rule can say which account is

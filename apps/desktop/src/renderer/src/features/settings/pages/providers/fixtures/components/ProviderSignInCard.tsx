@@ -1,4 +1,4 @@
-import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { ProviderAccountSignInResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 import type { ReactNode } from "react";
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
@@ -19,7 +19,8 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
  * that line with the provider's own reason, the row's `Sign in` still there to start again.
  *
  * It is no verdict about the account: whether the account ended up signed in is the registry's to
- * say. The address is drawn always, so a browser that did not open is not a dead end.
+ * say. The address opens in the system browser where the provider opened none itself, and is
+ * drawn always, so a browser that did not open is not a dead end.
  */
 export function ProviderSignInCard(props: {
   readonly flow: ProviderSignInFlowState;
@@ -63,14 +64,14 @@ export function ProviderSignInCard(props: {
 
 /** The live card. Its own component so the countdown and the browser hand-off run as hooks. */
 function SignInInProgress(props: {
-  readonly attempt: ProviderAccountLoginResponse;
+  readonly attempt: ProviderAccountSignInResponse;
   readonly isCanceling: boolean;
   readonly onCancel: () => void;
   readonly onSignInAgain: () => void;
 }): ReactNode {
   const { attempt, isCanceling, onCancel, onSignInAgain } = props;
   const timeLeftMilliseconds = useSignInTimeLeft(attempt.expiresAt);
-  const { refusal, openSignInPage } = useOpenSignInPage();
+  const { refusal, openSignInPage } = useOpenSignInPage(attempt);
   return (
     <div className="meridian-accounts__signin">
       {attempt.userCode === undefined ? null : (
@@ -85,9 +86,7 @@ function SignInInProgress(props: {
         <button
           type="button"
           className="meridian-settings-page__action meridian-action-button"
-          onClick={() => {
-            openSignInPage(attempt.verificationUri);
-          }}
+          onClick={openSignInPage}
         >
           Open the sign-in page
         </button>{" "}

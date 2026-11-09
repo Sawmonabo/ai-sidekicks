@@ -1,8 +1,9 @@
-// The account quota fold: which reading is current for each `(accountId, limitId)`, and
-// how the pair is read out. It is pure and opens no wire, so tests drive it without a bridge.
+// The account quota fold: which reading is current for each `(accountId, limitId, windowMins)`,
+// and how it is read out. It is pure and opens no wire, so tests drive it without a bridge.
 //
-// The key is `(accountId, limitId)` and not the window's duration, because a pinned provider
-// publishes three distinct windows of the same length and a duration key would collapse them.
+// The key holds all three because neither the limit id nor the length alone tells windows apart:
+// one provider publishes several limits of one length, and another files two windows of
+// different lengths under one limit id.
 //
 // Supersession is two rules in one order. A same-window reading never moves backward, and that
 // guard runs first: consumption inside one window rises monotonically, so a lower
@@ -18,6 +19,7 @@ import type {
   ProviderAccount,
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
@@ -31,6 +33,8 @@ import {
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
+  /** The window's length in minutes, which tells apart two windows of one limit. */
+  readonly windowMins: number;
   /** What the account is named by. */
   readonly accountLabel: string;
   /**
@@ -96,7 +100,7 @@ export function decideUsageWindowMerge(
 /**
  * Whether two readings describe the same limit window.
  *
- * The account half of the key is not compared, since the fold's key already pairs them. An
+ * Only readings under one key are compared, so the account and the length already match. An
  * absent `resetsAt` on both sides compares equal: a provider with no reset horizon publishes
  * one continuing window, and treating those readings as different would disable the guard.
  */
@@ -126,11 +130,12 @@ export class ProviderAccountFold {
   #nextArrivalOrdinal = 0;
 
   /**
-   * Record an account whole. The registry sends state, not deltas. An account its provider has
-   * not named, still signing in or put again without its name, is not held, since it has no row.
+   * Record an account whole, labeled in the words of `section`, its provider's section. The
+   * registry sends state, not deltas. An account its provider has not named, still signing in or
+   * put again without its name, is not held, since it has no row.
    */
-  public putAccount(account: ProviderAccount): void {
-    const listed = listedAccount(account);
+  public putAccount(account: ProviderAccount, section: ProviderSection): void {
+    const listed = listedAccount(account, section);
     if (listed === undefined) {
       this.#accountsById.delete(account.accountId);
     } else {
@@ -151,9 +156,9 @@ export class ProviderAccountFold {
     }
   }
 
-  /** Merge one reading under its `(accountId, limitId)` key, and say what that did. */
+  /** Merge one reading under its `(accountId, limitId, windowMins)` key, and say what that did. */
   public mergeUsageWindow(usageWindow: ProviderAccountUsageWindow): UsageWindowMergeDisposition {
-    const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
+    const key = quotaKey(usageWindow);
     const held = this.#windowsByKey.get(key);
     const arrivalOrdinal = this.#nextArrivalOrdinal;
     this.#nextArrivalOrdinal += 1;
@@ -172,7 +177,7 @@ export class ProviderAccountFold {
     return disposition;
   }
 
-  /** One reading per key, ordered by account then limit label. */
+  /** One reading per key, ordered by account, then limit label, then window length. */
   public readings(): readonly ProviderQuotaReading[] {
     const readings: ProviderQuotaReading[] = [];
     for (const held of this.#windowsByKey.values()) {
@@ -200,9 +205,9 @@ export class ProviderAccountFold {
   }
 
   /**
-   * Every quota reading currently held, one per `(accountId, limitId)`: the superseded set, not
-   * everything ever seen. A view that renders a window's own members reads the wire row rather
-   * than a projection of it.
+   * Every quota reading currently held, one per `(accountId, limitId, windowMins)`: the
+   * superseded set, not everything ever seen. A view that renders a window's own members reads
+   * the wire row rather than a projection of it.
    */
   public usageWindows(): readonly ProviderAccountUsageWindow[] {
     return [...this.#windowsByKey.values()].map((held) => held.usageWindow);
@@ -212,7 +217,7 @@ export class ProviderAccountFold {
    * Every account the registry carries, by the id the daemon minted for it.
    *
    * Off the same held accounts as the readings, so a view naming a paying account joins
-   * `accountId` to its label here instead of taking its own `providerAccount.list`, which
+   * `accountId` to its label here instead of taking its own `provider.account.list`, which
    * would be a second reading of one registry. Separate from {@link readings} because an
    * account with no observed window still has a label to render.
    */
@@ -233,6 +238,7 @@ function readingFor(
   return {
     accountId: usageWindow.accountId,
     limitId: usageWindow.limitId,
+    windowMins: usageWindow.windowMins,
     accountLabel: account.label,
     limitLabel: usageWindow.label ?? usageWindow.limitId,
     usedPercent: usageWindow.usedPercent,
@@ -243,12 +249,16 @@ function readingFor(
 }
 
 /**
- * The `(accountId, limitId)` pair, spelled once through the console's tuple encoder. `limitId`
- * is free-form on the wire, so a plain separator join could fold two limits of one account
- * onto one reading.
+ * The `(accountId, limitId, windowMins)` key, spelled once through the console's tuple encoder.
+ * `limitId` is free-form on the wire, so a plain separator join could fold two limits of one
+ * account onto one reading.
  */
-function quotaKey(accountId: string, limitId: string): string {
-  return structuralKey([accountId, limitId]);
+function quotaKey(usageWindow: ProviderAccountUsageWindow): string {
+  return structuralKey([
+    usageWindow.accountId,
+    usageWindow.limitId,
+    String(usageWindow.windowMins),
+  ]);
 }
 
 /**
@@ -257,5 +267,9 @@ function quotaKey(accountId: string, limitId: string): string {
  */
 function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
   const byAccount = left.accountLabel.localeCompare(right.accountLabel);
-  return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
+  if (byAccount !== 0) {
+    return byAccount;
+  }
+  const byLimit = left.limitLabel.localeCompare(right.limitLabel);
+  return byLimit === 0 ? left.windowMins - right.windowMins : byLimit;
 }

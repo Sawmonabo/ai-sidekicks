@@ -51,25 +51,25 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       ),
     },
   ];
-  if (account.loggedInAt !== null) {
+  if (account.signedInAt !== null) {
     entries.push({
-      key: "loggedInAt",
+      key: "signedInAt",
       term: <span>Signed in</span>,
       definition: (
         <WireFigure
-          value={formatDateTime(account.loggedInAt, clockLocale)}
-          hoverLabel={formatZonedDateTime(account.loggedInAt, clockLocale)}
+          value={formatDateTime(account.signedInAt, clockLocale)}
+          hoverLabel={formatZonedDateTime(account.signedInAt, clockLocale)}
         />
       ),
     });
   }
   const horizonInDays =
-    account.loggedInAt === null || account.expectedReloginAtEstimate === null
+    account.signedInAt === null || account.signInNeededAtEstimate === null
       ? undefined
-      : estimatedReloginDaysAfterSignIn(account.loggedInAt, account.expectedReloginAtEstimate);
+      : estimatedReloginDaysAfterSignIn(account.signedInAt, account.signInNeededAtEstimate);
   if (horizonInDays !== undefined) {
     entries.push({
-      key: "expectedReloginAtEstimate",
+      key: "signInNeededAtEstimate",
       term: <span>Re-login estimate</span>,
       definition: (
         <span>

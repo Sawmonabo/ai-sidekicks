@@ -9,6 +9,7 @@ import type {
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
@@ -19,7 +20,7 @@ import {
   type AccountListReading,
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
-import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
+import { listedFixtureAccounts } from "#renderer/lib/provider-binding/account/reading.test-support.js";
 
 /** Provider-published limit identifiers, which the page must never draw. */
 export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
@@ -27,11 +28,13 @@ export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as co
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
 
 /** An account the daemon observed and found signed in. */
 const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
-  provider: "claude",
+  provider: CLAUDE,
   credentialGeneration: 3,
   observedAccountEmail: "sam@example.com",
   observedAccountPlan: "max",
@@ -39,9 +42,9 @@ const WORK_ACCOUNT: ProviderAccount = {
   isDefault: true,
   healthState: "authenticated",
   healthObservedAt: "2026-01-01T07:00:00.000Z",
-  observedAuthMode: "oauth_subscription",
-  loggedInAt: "2025-12-02T09:00:00.000Z",
-  expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
+  observedAuthMode: "oauthSubscription",
+  signedInAt: "2025-12-02T09:00:00.000Z",
+  signInNeededAtEstimate: "2026-01-01T09:00:00.000Z",
   probeEnabled: true,
   lastRefreshObservedAt: null,
   windowStartEnabled: true,
@@ -52,17 +55,17 @@ const WORK_ACCOUNT: ProviderAccount = {
 /** An account whose credential home was absent when last observed. */
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
-  provider: "codex",
+  provider: CODEX,
   credentialGeneration: 1,
   observedAccountEmail: "sam@example.org",
   observedAccountPlan: "plus",
   billingMode: "metered",
   isDefault: true,
-  healthState: "home_missing",
+  healthState: "homeMissing",
   healthObservedAt: "2026-01-01T07:00:00.000Z",
   observedAuthMode: null,
-  loggedInAt: null,
-  expectedReloginAtEstimate: null,
+  signedInAt: null,
+  signInNeededAtEstimate: null,
   probeEnabled: true,
   lastRefreshObservedAt: null,
   windowStartEnabled: true,
@@ -96,31 +99,31 @@ function usageWindow(
   };
 }
 
+// The second entry is cast: the generated readiness type carries its remedy's schema reference,
+// which no literal satisfies.
 const READINESS: readonly ProviderReadiness[] = [
   {
-    provider: "claude",
+    provider: CLAUDE,
     state: "authenticated",
     resolvedAccountId: WORK_ACCOUNT_ID,
     observedAt: "2026-01-01T07:00:00.000Z",
   },
   {
-    provider: "codex",
-    state: "home_missing",
+    provider: CODEX,
+    state: "homeMissing",
     resolvedAccountId: PERSONAL_ACCOUNT_ID,
     observedAt: "2026-01-01T07:00:00.000Z",
     remedy: {
-      kind: "sign_in",
+      kind: "signIn",
       accountId: PERSONAL_ACCOUNT_ID,
     },
-  },
+  } as ProviderReadiness,
 ];
 
 /** A registry that has answered: three accounts, two providers, four stored readings. */
 export const ACCOUNT_REGISTRY: AccountListReading = {
   phase: "read",
-  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT].flatMap(
-    (account) => listedAccount(account) ?? [],
-  ),
+  accounts: listedFixtureAccounts([WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT]),
   readiness: READINESS,
   usageWindows: [
     usageWindow({ limitId: "weekly_all", label: "Weekly, all models", usedPercent: 88 }),
@@ -133,7 +136,7 @@ export const ACCOUNT_REGISTRY: AccountListReading = {
       observedCredentialGeneration: 3,
     }),
   ],
-  newestLoginCompletion: undefined,
+  newestSignInCompletion: undefined,
 };
 
 /**
@@ -147,8 +150,8 @@ export function mountAccountsPage(options: {
 }): { readonly container: HTMLElement } {
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("accounts-fixture-body") });
   const operations: AccountOperations = {
-    login: () => NEVER_SETTLES,
-    cancelLogin: () => NEVER_SETTLES,
+    signIn: () => NEVER_SETTLES,
+    cancelSignIn: () => NEVER_SETTLES,
     register: () => NEVER_SETTLES,
     probe: () => NEVER_SETTLES,
     setCurrent: () => NEVER_SETTLES,

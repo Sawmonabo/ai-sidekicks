@@ -12,7 +12,7 @@ import type {
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import type { UnreadableDeliveryReading } from "#renderer/lib/reads/unreadable-deliveries.js";
 import type { WireReadState } from "#renderer/lib/reads/wire-state.js";
-import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
+import type { ProviderSignInCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 
 /**
@@ -37,7 +37,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    * Every account the registry lists, whole, in the order the daemon sent them, with its label;
    * an account its provider has not named yet has no row.
    *
-   * This window has one reader of the registry. `providerAccount.list` answers with the
+   * This window has one reader of the registry. `provider.account.list` answers with the
    * accounts, the readiness projection and the quota rows in one snapshot, so a page taking
    * its own read would be a second reading of one registry with a second arrival order.
    * Empty until the read has served, so an absent row means "not read".
@@ -52,7 +52,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    */
   readonly readiness: readonly ProviderReadiness[];
   /**
-   * The quota rows the fold currently holds, one per `(accountId, limitId)`.
+   * The quota rows the fold currently holds, one per `(accountId, limitId, windowMins)`.
    *
    * The wire rows, already superseded: a consumer renders them as they came and folds them
    * no further, because a second supersession rule downstream would drift from the first
@@ -66,7 +66,7 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    * view that started an attempt needs it to release its single-flight claim, since a
    * refused cancellation establishes nothing.
    */
-  readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
+  readonly newestSignInCompletion: ProviderSignInCompletion | undefined;
 }
 
 /** What the tail contributes to a readout, beside the fold it has been applied to. */
@@ -74,7 +74,7 @@ export interface ProviderAccountDeliveryReading {
   /** What the tail could not read. */
   readonly unreadable: UnreadableDeliveryReading;
   /** The newest brokered sign-in the tail reported finished. */
-  readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
+  readonly newestSignInCompletion: ProviderSignInCompletion | undefined;
 }
 
 /** The things a readout is composed from, named so no caller passes a reading. */
@@ -113,6 +113,6 @@ export function composeProviderAccountReadout(
     accounts: fold.accounts(),
     readiness,
     usageWindows: fold.usageWindows(),
-    newestLoginCompletion: deliveries.newestLoginCompletion,
+    newestSignInCompletion: deliveries.newestSignInCompletion,
   };
 }

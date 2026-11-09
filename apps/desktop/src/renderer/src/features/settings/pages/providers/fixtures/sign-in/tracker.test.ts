@@ -10,13 +10,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   accountPlaneCalls,
   PROVIDER_SIGN_IN_ATTEMPT,
   type AccountPlaneCalls,
 } from "../account-plane-bridge.test-support.js";
-import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
+import type { ProviderSignInCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import { startProviderSignIn } from "./flow.js";
 import { ProviderSignInFlowTracker, findRunningProviderSignInAccountId } from "./tracker.js";
 
@@ -32,9 +34,9 @@ function trackerOver(
   onFlowSettled: () => void = (): void => undefined,
 ): ProviderSignInFlowTracker {
   return new ProviderSignInFlowTracker({
-    startProviderSignIn: async (accountId) => await startProviderSignIn(calls.login, accountId),
+    startProviderSignIn: async (accountId) => await startProviderSignIn(calls.signIn, accountId),
     cancelProviderSignIn: async (attempt) => {
-      await calls.cancelLogin({ attemptId: attempt.attemptId });
+      await calls.cancelSignIn({ attemptId: attempt.attemptId });
     },
     onFlowSettled,
   });
@@ -43,11 +45,11 @@ function trackerOver(
 /** The registry's report that one attempt is over, with how it ended. */
 function completionOf(
   attemptId: string,
-  outcome: ProviderLoginCompletion["outcome"],
+  outcome: ProviderSignInCompletion["outcome"],
   failureReason?: string,
-): ProviderLoginCompletion {
+): ProviderSignInCompletion {
   return {
-    kind: "login_completed",
+    kind: "signInCompleted",
     attemptId,
     accountId: RUNNING_ACCOUNT_ID,
     outcome,
@@ -63,7 +65,7 @@ function trackerOverServedCalls(): {
 } {
   const onFlowSettled = vi.fn();
   const calls = accountPlaneCalls({
-    login: PROVIDER_SIGN_IN_ATTEMPT,
+    signIn: PROVIDER_SIGN_IN_ATTEMPT,
     cancel: { status: "canceled" },
   });
   return { tracker: trackerOver(calls, onFlowSettled), calls, onFlowSettled };
@@ -97,8 +99,8 @@ describe("ProviderSignInFlowTracker", () => {
     expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBe(RUNNING_ACCOUNT_ID);
     // The refusal is the console's own and the daemon was never asked, so it arrives in the
     // same tick as the press.
-    expect(calls.login).toHaveBeenCalledTimes(1);
-    expect(calls.login).toHaveBeenCalledWith({ accountId: RUNNING_ACCOUNT_ID });
+    expect(calls.signIn).toHaveBeenCalledTimes(1);
+    expect(calls.signIn).toHaveBeenCalledWith({ accountId: RUNNING_ACCOUNT_ID });
   });
 
   it("never installs a refused start as the tracked flow", async () => {
@@ -133,14 +135,14 @@ describe("ProviderSignInFlowTracker", () => {
   });
 
   it("clears the flow when the registry reports the attempt finished", async () => {
-    // The second thing that ends a flow: `providerAccount.subscribe` carries `login_completed`
+    // The second thing that ends a flow: `provider.account.subscribe` carries `signInCompleted`
     // correlated on the attempt id, which is evidence the process stopped, so a tracker still
     // holding an attempt is released by the registry.
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
     tracker.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    tracker.noteLoginCompleted(completionOf(PROVIDER_SIGN_IN_ATTEMPT.attemptId, "succeeded"));
+    tracker.noteSignInCompleted(completionOf(PROVIDER_SIGN_IN_ATTEMPT.attemptId, "succeeded"));
 
     expect(tracker.snapshot().flow.kind).toBe("idle");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
@@ -155,21 +157,21 @@ describe("ProviderSignInFlowTracker", () => {
 
     tracker.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    tracker.noteLoginCompleted(completionOf("some-other-attempt", "failed", "Code expired"));
+    tracker.noteSignInCompleted(completionOf("some-other-attempt", "failed", "Code expired"));
 
     expect(tracker.snapshot().flow.kind).toBe("live");
     expect(onFlowSettled).not.toHaveBeenCalled();
   });
 
   it("ends a failed flow whose completion arrived before the start reply recorded it", async () => {
-    // The tail opens before `providerAccount.login` is called, so a flow that finishes fast
+    // The tail opens before `provider.account.signIn` is called, so a flow that finishes fast
     // reports its completion while the start reply is still traveling; the tracker would
     // otherwise record an attempt that is already over and hold the key until cancel. A failed
     // attempt stays on screen as not finished, with the provider's own reason.
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
     tracker.start(RUNNING_ACCOUNT_ID);
-    tracker.noteLoginCompleted(
+    tracker.noteSignInCompleted(
       completionOf(PROVIDER_SIGN_IN_ATTEMPT.attemptId, "failed", "Code expired"),
     );
     await crossMacrotaskBoundary();
@@ -177,6 +179,34 @@ describe("ProviderSignInFlowTracker", () => {
     expect(tracker.snapshot().flow).toEqual({ kind: "unfinished", failureReason: "Code expired" });
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
     expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBeUndefined();
+  });
+
+  it("reads a start the provider refused as unfinished, any other on its row", async () => {
+    const calls = accountPlaneCalls({});
+    const tracker = trackerOver(calls);
+    const refusedWith = (code: string): void => {
+      calls.signIn.mockRejectedValueOnce(
+        new RefusalError(refuse("daemon", code, "The provider refused the device code.")),
+      );
+    };
+
+    refusedWith("provider.unavailable");
+    tracker.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    expect(tracker.snapshot().flow).toEqual({
+      kind: "unfinished",
+      failureReason: "The provider refused the device code.",
+    });
+    expect(tracker.snapshot().refusalByAccountId.size).toBe(0);
+
+    // Negative control: a refusal of the start itself stays on the account's row.
+    refusedWith("provider.account.signInUnsupported");
+    tracker.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    expect(tracker.snapshot().flow.kind).toBe("idle");
+    expect(tracker.snapshot().refusalByAccountId.get(RUNNING_ACCOUNT_ID)?.code).toBe(
+      "provider.account.signInUnsupported",
+    );
   });
 
   it("installs nothing once disposed", async () => {

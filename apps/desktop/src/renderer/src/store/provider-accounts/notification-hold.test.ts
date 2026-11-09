@@ -4,15 +4,19 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  ProviderAccountNotificationSchema,
+  validateProviderAccountNotification,
   type ProviderAccountNotification,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import { ProviderAccountNotificationHold } from "./notification-hold.js";
 
-/** Parsed through the registered union rather than cast, so the frame is a real one. */
+/** Admitted by the generated notification check rather than cast, so the frame is a real one. */
 function removalOf(accountId: string): ProviderAccountNotification {
-  return ProviderAccountNotificationSchema.parse({ kind: "account_removed", accountId });
+  const removal: unknown = { kind: "accountRemoved", accountId };
+  if (!validateProviderAccountNotification(removal)) {
+    throw new Error(`the removal of "${accountId}" is no provider-account notification`);
+  }
+  return removal;
 }
 
 describe("ProviderAccountNotificationHold", () => {

@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import type { Clock } from "#renderer/lib/clock.js";
@@ -23,6 +25,9 @@ import { openReopeningSubscription } from "#renderer/services/transport/reopenin
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 import { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
+import { providerSectionOf } from "#renderer/store/providers/name.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,
@@ -38,7 +43,7 @@ const UNREAD_REGISTRY: AccountListReading = {
   accounts: [],
   readiness: [],
   usageWindows: [],
-  newestLoginCompletion: undefined,
+  newestSignInCompletion: undefined,
 };
 
 /** The accounts fixture body, its reads and verbs answered by the daemon this window reaches. */
@@ -49,10 +54,16 @@ export function AccountsFixtureMount(): ReactNode {
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   // The fold moves in place, so a frame that moved it is published by drawing again.
   const [, publishFoldChange] = useReducer((changeCount: number) => changeCount + 1, 0);
+  // The sections the service's list holds now, read by the fold as each account arrives. A ref,
+  // so a provider's changed section reaches the next account without reopening the registry.
+  const providerSections = useLatestRef(useProviderSections());
   // The bridge is a dependency because the clock forwards to the current bridge, and the ordinal
   // because a person asking again after a refused read opens a fresh one.
   const { registryRead, fold, deliveries } = useMemo(
-    () => createAccountRegistry(bridge, clock, publishFoldChange),
+    () =>
+      createAccountRegistry(bridge, clock, publishFoldChange, (provider) =>
+        providerSectionOf(providerSections.current, provider),
+      ),
     [bridge, clock, openingOrdinal],
   );
   useEffect(() => {
@@ -86,7 +97,7 @@ export function AccountsFixtureMount(): ReactNode {
           accounts: fold.accounts(),
           readiness: state.value.readiness,
           usageWindows: fold.usageWindows(),
-          newestLoginCompletion: deliveries.newestLoginCompletion,
+          newestSignInCompletion: deliveries.newestSignInCompletion,
         };
   return (
     <AccountsFixtureBody
@@ -114,12 +125,13 @@ function createAccountRegistry(
   bridge: PlatformBridge,
   clock: Clock,
   publishFoldChange: () => void,
+  sectionOfProvider: (provider: ProviderId) => ProviderSection,
 ): AccountRegistry {
   const fold = new ProviderAccountFold();
   // A frame that moved the fold is drawn at once and asks for a fresh read, since the readiness
   // projection is read-time; a hold that overflowed asks for a read that supersedes the one in
   // flight.
-  const deliveries = new ProviderAccountDeliveries(fold, {
+  const deliveries = new ProviderAccountDeliveries(fold, sectionOfProvider, {
     onChanged: () => {
       publishFoldChange();
       registryRead.refresh("terminal-event");
@@ -136,7 +148,7 @@ function createAccountRegistry(
       let registry: ProviderAccountListResponse;
       try {
         registry = unwrapDaemonReply(
-          await callDaemon(bridge, "providerAccount.list", {}, { signal }),
+          await callDaemon(bridge, "provider.account.list", {}, { signal }),
         );
       } catch (error) {
         if (!signal.aborted) {
@@ -145,7 +157,7 @@ function createAccountRegistry(
         throw error;
       }
       if (!signal.aborted) {
-        loadRegistrySnapshot(fold, deliveries, registry);
+        loadRegistrySnapshot(fold, deliveries, registry, sectionOfProvider);
         deliveries.releaseHold();
       }
       return registry;
@@ -175,6 +187,7 @@ function loadRegistrySnapshot(
   fold: ProviderAccountFold,
   deliveries: ProviderAccountDeliveries,
   registry: ProviderAccountListResponse,
+  sectionOfProvider: (provider: ProviderId) => ProviderSection,
 ): void {
   const carried = new Set(registry.accounts.map((account) => account.accountId));
   for (const account of fold.accounts()) {
@@ -183,7 +196,7 @@ function loadRegistrySnapshot(
     }
   }
   for (const account of registry.accounts) {
-    fold.putAccount(account);
+    fold.putAccount(account, sectionOfProvider(account.provider));
   }
   for (const usageWindow of registry.usageWindows) {
     deliveries.mergeUsageWindow(usageWindow);
@@ -193,15 +206,15 @@ function loadRegistrySnapshot(
 /** The five verbs the body drives, over one bridge; a refused reply rejects with the refusal. */
 function accountOperationsOver(bridge: PlatformBridge): AccountOperations {
   return {
-    login: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.login", request)),
-    cancelLogin: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.loginCancel", request)),
+    signIn: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.signIn", request)),
+    cancelSignIn: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.signInAttempt.cancel", request)),
     register: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.register", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.register", request)),
     probe: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.probe", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.probe", request)),
     setCurrent: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.setCurrent", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.current.update", request)),
   };
 }

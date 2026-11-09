@@ -4,18 +4,26 @@
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
-/**
- * The name `providerId`'s section carries. Throws for an id the sections lack: every id the app
- * holds came from the same service that lists the providers, so a missing one is a defect, never
- * a provider to draw without a name.
- */
+/** The name `providerId`'s section carries; throws as {@link providerSectionOf} does. */
 export function providerNameOf(
   sections: readonly ProviderSection[],
   providerId: ProviderId,
 ): string {
+  return providerSectionOf(sections, providerId).name;
+}
+
+/**
+ * `providerId`'s section. Throws for an id the sections lack: every id the app holds came from the
+ * same service that lists the providers, so a missing one is a defect, never a provider to draw
+ * without its section.
+ */
+export function providerSectionOf(
+  sections: readonly ProviderSection[],
+  providerId: ProviderId,
+): ProviderSection {
   const section = sections.find((held) => held.provider === providerId);
   if (section === undefined) {
     throw new Error(`The provider list holds no provider "${providerId}".`);
   }
-  return section.name;
+  return section;
 }

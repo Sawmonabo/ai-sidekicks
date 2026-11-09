@@ -18,6 +18,8 @@ import {
   type ProviderAccountNotification,
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
 import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { RealClock } from "#renderer/lib/clock.js";
@@ -37,7 +39,7 @@ import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold
  * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
  * registered notification union so its members are the wire's own.
  */
-export type ProviderLoginCompletion = Extract<
+export type ProviderSignInCompletion = Extract<
   ProviderAccountNotification,
   { kind: "signInCompleted" }
 >;
@@ -58,18 +60,25 @@ export interface ProviderAccountDeliverySink {
  * One provider-account tail: the frames it carries and the order they reach the fold in. The hold,
  * the unreadable count and the once-only high-water diagnostic move only on a delivery, so a
  * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
- * also loads the registry snapshot into it and draws its accounts and readings from it.
+ * also loads the registry snapshot into it and draws its accounts and readings from it;
+ * `sectionOf` answers an account's provider section, whose name and plan words its label takes.
  */
 export class ProviderAccountDeliveries {
   readonly #fold: ProviderAccountFold;
+  readonly #sectionOf: (provider: ProviderId) => ProviderSection;
   readonly #sink: ProviderAccountDeliverySink;
   readonly #hold = new ProviderAccountNotificationHold();
   readonly #unreadable = new UnreadableDeliveryCounter(PROVIDER_QUOTA_DELIVERY_STREAM);
   #hasReportedHighWaterDrop = false;
-  #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
+  #newestSignInCompletion: ProviderSignInCompletion | undefined = undefined;
 
-  public constructor(fold: ProviderAccountFold, sink: ProviderAccountDeliverySink) {
+  public constructor(
+    fold: ProviderAccountFold,
+    sectionOf: (provider: ProviderId) => ProviderSection,
+    sink: ProviderAccountDeliverySink,
+  ) {
     this.#fold = fold;
+    this.#sectionOf = sectionOf;
     this.#sink = sink;
   }
 
@@ -83,8 +92,8 @@ export class ProviderAccountDeliveries {
    * daemon runs one brokered flow at a time and a set would grow for the tail's life with nothing
    * entitled to prune it.
    */
-  public get newestLoginCompletion(): ProviderLoginCompletion | undefined {
-    return this.#newestLoginCompletion;
+  public get newestSignInCompletion(): ProviderSignInCompletion | undefined {
+    return this.#newestSignInCompletion;
   }
 
   /** Begin holding, for a registry read that is about to go out. */
@@ -165,7 +174,7 @@ export class ProviderAccountDeliveries {
   #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
       case "accountChanged":
-        this.#fold.putAccount(notification.account);
+        this.#fold.putAccount(notification.account, this.#sectionOf(notification.account.provider));
         return true;
       case "accountRemoved":
         this.#fold.forgetAccount(notification.accountId);
@@ -177,10 +186,10 @@ export class ProviderAccountDeliveries {
         // A code asked of the person is no reading of an account, and the sign-in is not over.
         return false;
       case "signInCompleted":
-        // The fold is untouched: a finished login flow is not a reading of the account, and the
-        // daemon publishes `account_changed` next for that. It records that the attempt is over and
+        // The fold is untouched: a finished sign-in is not a reading of the account, and the
+        // daemon publishes `accountChanged` next for that. It records that the attempt is over and
         // publishes, so a card does not stay up over a flow the service reported finished.
-        this.#newestLoginCompletion = notification;
+        this.#newestSignInCompletion = notification;
         return true;
     }
   }

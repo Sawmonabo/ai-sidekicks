@@ -8,10 +8,13 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 
 import type { AccountRegistryReading } from "./axis.js";
-import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
+import {
+  listedAccount,
+  type ListedProviderAccount,
+} from "#renderer/lib/provider-accounts/listing.js";
+import { providerSectionOf } from "#renderer/store/providers/name.js";
 import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 
 /** The instant every stored observation in these suites was taken at. */
@@ -60,9 +63,22 @@ export function served(
   return {
     phase: "read",
     readRefusal: undefined,
-    accounts: accounts.flatMap((account) => listedAccount(account, sectionOf(account)) ?? []),
+    accounts: listedFixtureAccounts(accounts),
     readiness,
   };
+}
+
+/**
+ * `accounts` as a view lists them, each labeled from its provider's fixture section; an account
+ * its provider has not named is left out.
+ */
+export function listedFixtureAccounts(
+  accounts: readonly ProviderAccount[],
+): readonly ListedProviderAccount[] {
+  return accounts.flatMap(
+    (account) =>
+      listedAccount(account, providerSectionOf(providerSectionsFixture(), account.provider)) ?? [],
+  );
 }
 
 /**
@@ -80,15 +96,4 @@ export function resolvedTo(accountId: string): ProviderReadiness {
       accountId: registryAccountId(accountId),
     },
   } as ProviderReadiness;
-}
-
-/** The fixture section of the account's provider, which its label is worded from. */
-function sectionOf(listed: ProviderAccount): ProviderSection {
-  const section = providerSectionsFixture().find(
-    (candidate) => candidate.provider === listed.provider,
-  );
-  if (section === undefined) {
-    throw new Error(`the fixture lists no provider "${listed.provider}"`);
-  }
-  return section;
 }
