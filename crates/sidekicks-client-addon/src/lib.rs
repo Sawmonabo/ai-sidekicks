@@ -1,11 +1,15 @@
 //! The desktop's Node-API addon, loaded in its client helper: one connection to the daemon, one
 //! generic call and one generic subscribe that check a request against its method's contract
-//! before it is sent, a pane's typing into a shell, and the link's state as it changes; and, for
-//! main, the client's one ending of the daemon's process and the bounds a start waits within.
+//! before it is sent, a pane's typing into a shell, the link's state as it changes, and the wait for
+//! a daemon that is starting; and, for main, the client's one ending of the daemon's process, the
+//! bounds a start waits within, a started process's identity and where the service's status file
+//! is.
 //! Every failure reaches JavaScript in the wire's own error shape, so the page branches on
 //! `data.type` whether the daemon or this addon refused.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::future::pending;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -18,7 +22,7 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use serde_json::Value;
 use sidekicks_client::DAEMON_FLUSH_WAIT;
-use sidekicks_client::daemon_connection::handshake_wait::{FIRST_PAUSE, LONGEST_PAUSE};
+use sidekicks_client::daemon_connection::handshake_wait::{HandshakeWaitEnd, wait_for_handshake};
 use sidekicks_client::daemon_connection::{
     ConnectionState, DaemonConnection, DaemonEndpoint, HANDSHAKE_DEADLINE,
 };
@@ -30,27 +34,19 @@ use sidekicks_client::terminal_write::{ShellInput, ShellTarget};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest};
 use sidekicks_client::transport::subscription::Subscription;
 use sidekicks_client::untyped_call;
+use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::jsonrpc::message::JsonRpcError;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
-use sidekicks_platforms::{ChildEnd, pin_identified_process};
+use sidekicks_platforms::{ChildEnd, daemon_run_folder, pin_identified_process, process_identity};
 use tokio_util::sync::CancellationToken;
 
 /// How long a connect waits for the daemon's answer to its handshake, in milliseconds; a start
 /// waits this long for a daemon it started.
 #[napi]
 pub const HANDSHAKE_DEADLINE_MS: u32 = millis(HANDSHAKE_DEADLINE);
-
-/// The first pause, in milliseconds, between handshakes tried with a daemon that is starting;
-/// each pause after it doubles, up to [`HANDSHAKE_RETRY_LONGEST_PAUSE_MS`].
-#[napi]
-pub const HANDSHAKE_RETRY_FIRST_PAUSE_MS: u32 = millis(FIRST_PAUSE);
-
-/// The longest pause, in milliseconds, between handshakes tried with a daemon that is starting.
-#[napi]
-pub const HANDSHAKE_RETRY_LONGEST_PAUSE_MS: u32 = millis(LONGEST_PAUSE);
 
 /// How long a quit, a stop or a restart waits for the daemon's answer to `daemon.flush`, in
 /// milliseconds, before it goes ahead without it.
@@ -75,11 +71,15 @@ pub struct CallOutcome {
     pub error: Option<Value>,
 }
 
-/// A connect's outcome: the connection, or its error in the wire's shape.
+/// A connect's outcome: the connection and the daemon's answer to its handshake, or its error in
+/// the wire's shape.
 #[napi(object, object_from_js = false)]
 pub struct ConnectOutcome {
     /// The connection, when the handshake completed.
     pub client: Option<DaemonClient>,
+    /// The daemon's `ConnectionInitializeResponse`, when the handshake completed; a connection
+    /// whose answer is not `compatible` serves reads alone.
+    pub initialize_response: Option<Value>,
     /// The error, when it failed.
     pub error: Option<Value>,
 }
@@ -165,18 +165,57 @@ pub async fn connect(
     presents_token: bool,
     on_state: ThreadsafeFunction<String, (), String, napi::Status, false>,
 ) -> ConnectOutcome {
-    let refused = |error| ConnectOutcome {
-        client: None,
-        error: Some(error),
-    };
     let endpoint = match this_machine(presents_token) {
         Ok(endpoint) => endpoint,
-        Err(error) => return refused(error),
+        Err(error) => return connect_refused(error),
     };
-    let connection = match DaemonConnection::connect(endpoint).await {
-        Ok(connection) => connection,
-        Err(error) => return refused(wire_error(&error)),
+    match DaemonConnection::connect(endpoint).await {
+        Ok(connection) => connected(connection, on_state),
+        Err(error) => connect_refused(wire_error(&error)),
+    }
+}
+
+/// Connects to a daemon that is starting: the handshake is tried again, at pauses that double from
+/// 50 ms to 1 s, while no socket answers or no token is written yet, until it is answered or the
+/// handshake deadline passes. Each answer that the daemon is repairing its database file goes to
+/// `on_repairing` as its `DaemonRepairingDetails` and moves the deadline on. Otherwise as
+/// [`connect`]; the error at the deadline is the last attempt's.
+#[napi]
+pub async fn wait_for_daemon(
+    presents_token: bool,
+    on_state: ThreadsafeFunction<String, (), String, napi::Status, false>,
+    on_repairing: ThreadsafeFunction<Value, (), Value, napi::Status, false>,
+) -> ConnectOutcome {
+    let endpoint = match this_machine(presents_token) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return connect_refused(error),
     };
+    let repairing = move |details: DaemonRepairingDetails| {
+        let details = serde_json::to_value(details).expect("a repair's count writes as JSON");
+        let status = on_repairing.call(details, ThreadsafeFunctionCallMode::NonBlocking);
+        if status != napi::Status::Ok {
+            tracing::warn!(?status, "The page did not take the daemon's repair count");
+        }
+    };
+    match wait_for_handshake(
+        endpoint,
+        HANDSHAKE_DEADLINE,
+        repairing,
+        pending::<Infallible>(),
+    )
+    .await
+    {
+        Ok(HandshakeWaitEnd::Connected(connection)) => connected(connection, on_state),
+        Ok(HandshakeWaitEnd::Ended(never)) => match never {},
+        Err(error) => connect_refused(wire_error(&error)),
+    }
+}
+
+/// A connect's outcome for `connection`, whose state changes go to `on_state` from now on.
+fn connected(
+    connection: DaemonConnection,
+    on_state: ThreadsafeFunction<String, (), String, napi::Status, false>,
+) -> ConnectOutcome {
     let mut states = connection.state_changes();
     tokio::spawn(async move {
         while states.changed().await.is_ok() {
@@ -192,6 +231,8 @@ pub async fn connect(
             }
         }
     });
+    let initialize_response = serde_json::to_value(connection.initialize_response())
+        .expect("a handshake's answer writes as JSON");
     ConnectOutcome {
         client: Some(DaemonClient {
             client: connection.client().clone(),
@@ -200,7 +241,17 @@ pub async fn connect(
             streams: Arc::new(Mutex::new(HashMap::new())),
             next_stream_id: AtomicU32::new(0),
         }),
+        initialize_response: Some(initialize_response),
         error: None,
+    }
+}
+
+/// A connect's outcome for `error`, in the wire's shape.
+fn connect_refused(error: Value) -> ConnectOutcome {
+    ConnectOutcome {
+        client: None,
+        initialize_response: None,
+        error: Some(error),
     }
 }
 
@@ -429,6 +480,30 @@ pub async fn end_daemon_process(process_identity_json: String) -> DaemonEndingOu
             .map_err(|error| ending_error(&error))
     };
     ending_outcome(ended.await)
+}
+
+/// The identity of the process `process_id` names, as JSON `end_daemon_process` takes, or `None`
+/// when no process holds the id; for a daemon main started, whose status it has not read. Fails
+/// with the system's error.
+#[napi(catch_unwind)]
+pub fn read_process_identity(process_id: u32) -> napi::Result<Option<String>> {
+    let identity = process_identity(process_id)
+        .map_err(|error| napi::Error::from_reason(format!("process {process_id}: {error}")))?;
+    Ok(identity.map(|identity| {
+        serde_json::to_string(&identity).expect("a process identity writes as JSON")
+    }))
+}
+
+/// The path of the service's status file in this machine's run folder, which the daemon writes
+/// for its clients to read while it is not answering. Fails when this system has no run folder.
+#[napi(catch_unwind)]
+pub fn daemon_status_file_path() -> napi::Result<String> {
+    let run_folder = daemon_run_folder().map_err(|error| {
+        napi::Error::from_reason(format!(
+            "This system has no run folder for the service: {error}"
+        ))
+    })?;
+    Ok(run_folder.status_path.to_string_lossy().into_owned())
 }
 
 /// The endpoint of the daemon on this machine, presenting the token when `presents_token` holds,

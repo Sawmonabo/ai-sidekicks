@@ -6,7 +6,9 @@
 // helper exits.
 
 import { DAEMON_FLUSH_WAIT_MS } from "@ai-sidekicks/client-sdk";
+import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 import type { FilePathRefOwner } from "#main/bridge/file-path/refs.js";
@@ -84,18 +86,27 @@ export type FilePathAnswer = Extract<
   { readonly kind: "filePaths.swapped" | "filePaths.swapRefused" | "filePaths.minted" }
 >;
 
-/** What the supervisor hears from the helper: the link's state, and the helper's exit. */
+/**
+ * What the supervisor hears from the helper: the link's state, a starting daemon's answers that it
+ * is repairing its database file, and the helper's exit.
+ */
 export interface ClientHelperListener {
   linkStateChanged(state: ClientHelperLinkState): void;
+  repairing(details: DaemonRepairingDetails): void;
   exited(): void;
 }
+
+/** A connect's outcome: the daemon's answer to the handshake once the link is up, or the error. */
+export type ClientHelperConnectOutcome =
+  | { readonly initializeResponse: ConnectionInitializeResponse }
+  | { readonly error: JsonRpcError };
 
 /** What the helper's side in main is built over. */
 export interface ClientHelperProcessOptions {
   /** Forks the helper. */
   readonly start: () => ClientHelperUtilityProcess;
-  /** The connect message, which says whether the helper presents the token. */
-  readonly connect: Extract<MainToClientHelperMessage, { readonly kind: "link.connect" }>;
+  /** Whether the helper's handshake presents the token file's token. */
+  readonly presentsToken: boolean;
   /** Answers a file-path ask for `window`; throws for one main cannot answer. */
   readonly answerFilePathAsk: (window: FilePathRefOwner, ask: FilePathAsk) => FilePathAnswer;
   /** Records a window port the helper dropped and a file-path ask main could not answer. */
@@ -118,7 +129,7 @@ export class ClientHelperProcess implements MainDaemonClient {
   readonly #options: ClientHelperProcessOptions;
   #helper: ClientHelperUtilityProcess | undefined;
   #listener: ClientHelperListener | undefined;
-  #pendingConnect: PromiseWithResolvers<JsonRpcError | undefined> | undefined;
+  #pendingConnect: PromiseWithResolvers<ClientHelperConnectOutcome> | undefined;
   readonly #calls = new Map<number, PendingCall>();
   readonly #streams = new Map<number, OpenStream>();
   /** Every window that handed main a port, by id, for the file-path asks its calls make. */
@@ -143,18 +154,28 @@ export class ClientHelperProcess implements MainDaemonClient {
   }
 
   /**
-   * Connect the helper, forking it first when none runs. Resolves with `undefined` once the link is
-   * up, or with the wire's error the connect failed with; rejects when the helper exits first.
+   * Connect the helper, forking it first when none runs; `waitsForStart` waits for a daemon that is
+   * starting, within the client's handshake deadline, rather than trying once. Resolves with the
+   * daemon's handshake answer once the link is up, or with the wire's error the connect failed
+   * with; rejects when the helper exits first.
    */
-  public connect(): Promise<JsonRpcError | undefined> {
+  public connect(waitsForStart: boolean): Promise<ClientHelperConnectOutcome> {
     const helper = this.#runningHelper();
-    this.#pendingConnect ??= Promise.withResolvers<JsonRpcError | undefined>();
-    helper.postMessage(this.#options.connect);
+    this.#pendingConnect ??= Promise.withResolvers<ClientHelperConnectOutcome>();
+    helper.postMessage({
+      kind: "link.connect",
+      presentsToken: this.#options.presentsToken,
+      waitsForStart,
+    });
     return this.#pendingConnect.promise;
   }
 
-  /** Close the link the helper holds: its calls and streams end, and the helper keeps running. */
+  /**
+   * Close the link the helper holds: its calls and streams end, a connect under way is dropped
+   * unsettled, and the helper keeps running.
+   */
   public closeLink(): void {
+    this.#pendingConnect = undefined;
     this.#helper?.postMessage({ kind: "link.close" });
   }
 
@@ -290,13 +311,16 @@ export class ClientHelperProcess implements MainDaemonClient {
         return;
       }
       case "link.connected":
-        this.#settleConnect(undefined);
+        this.#settleConnect({ initializeResponse: message.initializeResponse });
         return;
       case "link.connectFailed":
-        this.#settleConnect(message.error);
+        this.#settleConnect({ error: message.error });
         return;
       case "link.state":
         this.#listener?.linkStateChanged(message.state);
+        return;
+      case "link.repairing":
+        this.#listener?.repairing(message.details);
         return;
       case "filePaths.swap":
       case "filePaths.mint":
@@ -330,10 +354,10 @@ export class ClientHelperProcess implements MainDaemonClient {
     }
   }
 
-  #settleConnect(error: JsonRpcError | undefined): void {
+  #settleConnect(outcome: ClientHelperConnectOutcome): void {
     const pending = this.#pendingConnect;
     this.#pendingConnect = undefined;
-    pending?.resolve(error);
+    pending?.resolve(outcome);
   }
 
   /** The helper exited: everything main held on it fails once, and the supervisor is told. */

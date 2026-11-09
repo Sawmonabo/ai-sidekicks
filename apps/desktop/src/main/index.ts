@@ -24,6 +24,9 @@ import {
   Tray,
   type NativeImage,
 } from "electron";
+
+import { daemonStatusFilePath, endDaemon } from "@ai-sidekicks/client-sdk";
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import { appFactsSwitches } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { ConsoleThemeReport } from "./appearance/console-theme-report.js";
@@ -45,15 +48,16 @@ import { installAppLinkHandler } from "./services/app-link.js";
 import { createCrashReporterDependencies, startCrashReporter } from "./services/crash-reporter.js";
 import { DaemonLink } from "./services/daemon/link/status.js";
 import { ClientHelperProcess } from "./services/daemon/client/process.js";
-import { clientHelperConnect, startClientHelper } from "./services/daemon/client/start.js";
+import { isTokenPresented, startClientHelper } from "./services/daemon/client/start.js";
 import { DaemonSupervisor } from "./services/daemon/supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
 import {
-  attachToServiceProcess,
-  NODE_PROCESS_IDENTITY_SYSTEM,
+  endServiceProcess,
+  readServiceProcessIdentity,
 } from "./services/daemon/service/process.js";
 import { resolveServiceProgram } from "./services/daemon/service/program.js";
 import { startServiceDetached } from "./services/daemon/service/start.js";
+import { readServiceStatusFile } from "./services/daemon/service/status-file.js";
 import {
   createMainDiagnosticLog,
   reportUnwrittenDiagnostics,
@@ -101,6 +105,9 @@ registerRendererScheme();
 // The lock, the crash reports and the logs all live under the profile folder, so it is keyed to
 // the install first: a development build and a shipped one never share a lock or a profile.
 keyProfileToInstall(app);
+
+/** The service's data folder, whose absence at start means an erase ran while the app was closed. */
+const DAEMON_DATA_FOLDER = path.join(homedir(), DAEMON_DATA_FOLDER_NAME);
 
 // Main's one log, handed to everything that writes it: two logs over one file could interleave a
 // line. Opened before the crash reporter, which records in it a settings file it could not read; a
@@ -190,7 +197,7 @@ if (!gotTheLock) {
 /** Main's log, or why its folder could not be resolved. */
 function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure: unknown } {
   try {
-    return { log: createMainDiagnosticLog(app.getPath("logs")) };
+    return { log: createMainDiagnosticLog(app.getPath("logs"), DAEMON_DATA_FOLDER) };
   } catch (failure) {
     return { failure };
   }
@@ -306,10 +313,6 @@ function startApplication(): void {
       }
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
-      // Built once: it keeps the boot it read for every later attach.
-      const readServiceProcessIdentity = operatingSystem.createProcessIdentityReader(
-        NODE_PROCESS_IDENTITY_SYSTEM,
-      );
       // One table of the file tokens handed to the pages: the native members mint them and the
       // daemon relay swaps them for paths.
       const filePathRefs = new FilePathRefs();
@@ -324,7 +327,7 @@ function startApplication(): void {
       // window; the supervisor forks it again after it exits.
       const helperProcess = new ClientHelperProcess({
         start: startClientHelper,
-        connect: clientHelperConnect(),
+        presentsToken: isTokenPresented(),
         answerFilePathAsk: (window, ask) =>
           answerFilePathAsk({ filePathRefs, pastedImages }, window, ask),
         logWarning: (message) => {
@@ -336,8 +339,10 @@ function startApplication(): void {
         helper: helperProcess,
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
-        attachServiceProcess: (identity) =>
-          attachToServiceProcess(identity, readServiceProcessIdentity),
+        endDaemon: (request) => endDaemon(request, isTokenPresented()),
+        endServiceProcess,
+        readProcessIdentity: readServiceProcessIdentity,
+        readServiceStatus: () => readServiceStatusFile(daemonStatusFilePath()),
         log,
       });
       installBridgeHandlers({
@@ -425,7 +430,7 @@ function startApplication(): void {
         const startupLog =
           "log" in mainLogOpening
             ? mainLogOpening.log
-            : createMainDiagnosticLog(app.getPath("logs"));
+            : createMainDiagnosticLog(app.getPath("logs"), DAEMON_DATA_FOLDER);
         startupLog.write({
           level: "error",
           source: "main/index",

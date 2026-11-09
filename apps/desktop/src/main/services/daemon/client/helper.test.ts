@@ -2,6 +2,8 @@
 // what reaches the addon, what reaches main, and what a window is told.
 
 import type { CallOutcome, StreamEvent, SubscribeOutcome } from "@ai-sidekicks/client-sdk";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -49,6 +51,14 @@ function fakeDaemonClient() {
 /** The helper served on fake ports, connected, with one window's port handed to it. */
 function servedHelper() {
   const daemon = fakeDaemonClient();
+  const connected = {
+    client: daemon.client,
+    initializeResponse: {
+      compatible: true,
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
+      deviceId: "device-1" as DeviceId,
+    },
+  };
   const toMain: ClientHelperToMainMessage[] = [];
   let fromMain: Parameters<ClientHelperParentPort["on"]>[1] | undefined;
   serveClientHelper(
@@ -60,12 +70,15 @@ function servedHelper() {
         toMain.push(message);
       },
     },
-    { connect: () => Promise.resolve({ client: daemon.client }) },
+    {
+      connect: () => Promise.resolve(connected),
+      waitForDaemon: () => Promise.resolve(connected),
+    },
   );
   const sendFromMain = (data: MainToClientHelperMessage, ports: ClientHelperWindowPort[] = []) => {
     fromMain!({ data, ports });
   };
-  sendFromMain({ kind: "link.connect", isPackaged: false, platform: "linux" });
+  sendFromMain({ kind: "link.connect", presentsToken: true, waitsForStart: false });
 
   const toWindow: ClientHelperAnswer[] = [];
   let fromWindow: ((messageEvent: { data: unknown }) => void) | undefined;
@@ -229,5 +242,34 @@ describe("the client helper", () => {
     });
     await Promise.resolve();
     expect(helper.toWindow.filter((answer) => answer.kind === "call.served")).toHaveLength(0);
+  });
+
+  it("drops a wait main closed before it settled, closing its client and telling main nothing", async () => {
+    const daemon = fakeDaemonClient();
+    const toMain: ClientHelperToMainMessage[] = [];
+    const waited = Promise.withResolvers<{ client: ClientHelperDaemonClient }>();
+    let fromMain: Parameters<ClientHelperParentPort["on"]>[1] | undefined;
+    serveClientHelper(
+      {
+        on: (_event, listener) => {
+          fromMain = listener;
+        },
+        postMessage: (message) => {
+          toMain.push(message);
+        },
+      },
+      { connect: () => new Promise(() => undefined), waitForDaemon: () => waited.promise },
+    );
+    fromMain!({
+      data: { kind: "link.connect", presentsToken: true, waitsForStart: true },
+      ports: [],
+    });
+    fromMain!({ data: { kind: "link.close" }, ports: [] });
+
+    waited.resolve({ client: daemon.client });
+    await vi.waitFor(() => {
+      expect(daemon.client.close).toHaveBeenCalledOnce();
+    });
+    expect(toMain).toStrictEqual([]);
   });
 });

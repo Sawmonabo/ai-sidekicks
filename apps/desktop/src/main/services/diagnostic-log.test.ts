@@ -1,7 +1,7 @@
 // Rotation is one generation at a byte ceiling measured on the file (not on one process's
 // writes) and at an age, so no file outlives its keeping, and a live file already gone is nothing
 // to rotate; appends never interleave, the sink creates its directory, and a failure stops the
-// log and is readable afterwards.
+// log and is readable afterwards. A start with no data folder deletes both files before it writes.
 
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   createFileSystemDiagnosticLogSink,
+  createMainDiagnosticLog,
   MainDiagnosticLog,
   reportUnwrittenDiagnostics,
   type DiagnosticLogFileSink,
@@ -290,6 +291,48 @@ describe("main diagnostic log", () => {
     expect(log.writeFailureCount).toBe(1);
     expect(log.lastWriteFailure).toBe("no space left on device");
     expect(log.writtenEntryCount).toBe(0);
+  });
+});
+
+describe("a start with no data folder", () => {
+  let directory = "";
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "sidekicks-main-log-"));
+    // Written now, so the first write's age rotation leaves both files where they are.
+    const at = new Date().toISOString();
+    await writeFile(
+      join(directory, "main.jsonl"),
+      toLogLine({ at, ...entry("notice", "before the erase") }),
+    );
+    await writeFile(
+      join(directory, "main.jsonl.1"),
+      toLogLine({ at, ...entry("notice", "older") }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("deletes main.jsonl and main.jsonl.1 before the first write", async () => {
+    const log = createMainDiagnosticLog(directory, join(directory, "erased-data-folder"));
+    log.write({ level: "error", source: "main/test", message: "after the erase" });
+    await log.drain();
+
+    const live = await readFile(join(directory, "main.jsonl"), "utf8");
+    expect(live).not.toContain("before the erase");
+    expect(live).toContain("after the erase");
+    await expect(stat(join(directory, "main.jsonl.1"))).rejects.toThrow();
+  });
+
+  it("negative control: with the data folder there, both files are kept", async () => {
+    const log = createMainDiagnosticLog(directory, directory);
+    log.write({ level: "error", source: "main/test", message: "after the start" });
+    await log.drain();
+
+    expect(await readFile(join(directory, "main.jsonl"), "utf8")).toContain("before the erase");
+    expect(await readFile(join(directory, "main.jsonl.1"), "utf8")).toContain("older");
   });
 });
 

@@ -6,6 +6,8 @@
 import path from "node:path";
 
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { vi } from "vitest";
 
 import { appFactsSwitches } from "#shared/app-facts.js";
@@ -128,6 +130,14 @@ function inProcessHelper(client: ClientHelperDaemonClient): {
       }) => void)
     | undefined;
   let hasExited = false;
+  const connected = {
+    client,
+    initializeResponse: {
+      compatible: true,
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
+      deviceId: "device-1" as DeviceId,
+    },
+  };
   serveClientHelper(
     {
       on: (_event, listener) => {
@@ -144,7 +154,7 @@ function inProcessHelper(client: ClientHelperDaemonClient): {
         });
       },
     },
-    { connect: () => Promise.resolve({ client }) },
+    { connect: () => Promise.resolve(connected), waitForDaemon: () => Promise.resolve(connected) },
   );
   const exit = (): void => {
     if (hasExited) {
@@ -188,15 +198,15 @@ export async function linkOver(
   const { DaemonLink } = await import("../services/daemon/link/status.js");
   const helperProcess: ClientHelperProcess = new ClientHelperProcess({
     start: daemon.start,
-    connect: { kind: "link.connect", isPackaged: false, platform: "linux" },
+    presentsToken: true,
     answerFilePathAsk: () => {
       throw new Error("No window holds a port in this suite.");
     },
     logWarning: () => undefined,
   });
-  const refused = await helperProcess.connect();
-  if (refused !== undefined) {
-    throw new Error(`The scripted daemon refused the connect: ${refused.message}`);
+  const connected = await helperProcess.connect(false);
+  if ("error" in connected) {
+    throw new Error(`The scripted daemon refused the connect: ${connected.error.message}`);
   }
   const link = new DaemonLink();
   link.attach(helperProcess, unlinkedState(linkConnection));

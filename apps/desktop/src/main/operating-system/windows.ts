@@ -1,8 +1,5 @@
 // What main takes from Windows.
 
-import { refuseWindowsDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
-import { createWindowsProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
-
 import { windowsClipboardHost } from "../bridge/native/clipboard/windows.js";
 import type { MainOperatingSystem } from "./contract.js";
 import { pcMainOperatingSystem } from "./pc.js";
@@ -15,8 +12,6 @@ export const WINDOWS_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   ...pcMainOperatingSystem("Windows"),
   platform: "win32",
   flushesFolderAfterRename: false,
-  createProcessIdentityReader: createWindowsProcessIdentityReader,
-  resolveDaemonRunFolder: refuseWindowsDaemonRunFolder,
   clipboardHost: windowsClipboardHost,
   hasPrimarySelection: false,
   // With throttling off, Electron still stops drawing frames for a hidden window here

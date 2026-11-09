@@ -2,8 +2,10 @@
 // their answers, which are a window's too (`#shared/daemon/port-message.ts`), the link's connect
 // and state, a window's port, and the file-path asks main answers for a window's call.
 
+import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
@@ -20,11 +22,15 @@ export type MainToClientHelperMessage =
   | {
       /** Connect, or connect again once the last connect failed or the link was closed. */
       readonly kind: "link.connect";
-      /** Whether the app runs packaged: the packaged Mac app presents no token. */
-      readonly isPackaged: boolean;
-      readonly platform: NodeJS.Platform;
+      /** Whether the handshake presents the token file's token. */
+      readonly presentsToken: boolean;
+      /** Whether to wait for a daemon that is starting rather than try once. */
+      readonly waitsForStart: boolean;
     }
-  /** Close the link: every call and stream on it ends, and the next request waits for a connect. */
+  /**
+   * Close the link: every call and stream on it ends, a connect under way is dropped, and the next
+   * request waits for a connect.
+   */
   | { readonly kind: "link.close" }
   | { readonly kind: "window.port"; readonly windowId: number }
   | {
@@ -48,9 +54,11 @@ export type MainToClientHelperMessage =
  */
 export type ClientHelperToMainMessage =
   | ClientHelperAnswer
-  | { readonly kind: "link.connected" }
+  | { readonly kind: "link.connected"; readonly initializeResponse: ConnectionInitializeResponse }
   | { readonly kind: "link.connectFailed"; readonly error: JsonRpcError }
   | { readonly kind: "link.state"; readonly state: ClientHelperLinkState }
+  /** A starting daemon answered that it is repairing its database file. */
+  | { readonly kind: "link.repairing"; readonly details: DaemonRepairingDetails }
   | {
       readonly kind: "filePaths.swap";
       readonly askId: number;

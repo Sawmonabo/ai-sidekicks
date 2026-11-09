@@ -20,6 +20,7 @@ export function unlinkedState(connection: DaemonConnection): MainProcessState {
     startedByApp: undefined,
     whileSignedOut: undefined,
     cannotStart: undefined,
+    cannotStop: undefined,
   };
 }
 

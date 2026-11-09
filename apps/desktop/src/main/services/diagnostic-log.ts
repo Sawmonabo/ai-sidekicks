@@ -20,6 +20,9 @@
 // written longer ago than that. Main checks both as it starts and the live file again at every
 // write, so a file is dropped whole past its bound, as the service's own logs are.
 //
+// Neither file is in the service's data folder, so an erase of it run while the app was closed
+// cannot reach them: main, starting with no data folder, deletes both before it writes.
+//
 // A write never throws at its caller and never fails silently: it stops accepting and records
 // why (`lastWriteFailure`), which the quit and exit paths read. The file and its folder are
 // readable only by the person, as main's other files are: a line can quote a path.
@@ -185,6 +188,23 @@ export class MainDiagnosticLog {
       if (rotatedAt !== null && now.getTime() - rotatedAt.getTime() > this.#keepMs) {
         await this.#sink.remove(rotatedPath);
       }
+    });
+  }
+
+  /**
+   * Delete the live and the previous file when `dataFolderPath` names nothing, so an erase of the
+   * service's data made while the app was closed leaves no main log behind. Queued like a write,
+   * so it runs before every write issued after it.
+   */
+  public dropWithoutDataFolder(dataFolderPath: string): void {
+    this.#enqueue(async () => {
+      if ((await this.#sink.modifiedAtOf(dataFolderPath)) !== null) {
+        return;
+      }
+      await this.#sink.remove(this.#filePath);
+      await this.#sink.remove(rotatedPathFor(this.#filePath));
+      this.#liveFileByteCount = 0;
+      this.#liveFileStartedAt = null;
     });
   }
 
@@ -370,12 +390,16 @@ const MAIN_DIAGNOSTIC_LOG_BYTE_CEILING = 2 * 1024 * 1024;
 export const MAIN_DIAGNOSTIC_LOG_FILE_NAME = "main.jsonl";
 
 /**
- * Build main's log under `logDirectory`; the instance holding the single-instance lock then drops
- * what it holds past `Keep diagnostic logs for`. `notice` is the floor because main writes few
- * lines and they are the only record of a process that may not have produced a window.
+ * Build main's log under `logDirectory`, its files deleted before the first write when the
+ * service's data folder at `dataFolderPath` is gone; the instance holding the single-instance lock
+ * then drops what it holds past `Keep diagnostic logs for`. `notice` is the floor because main
+ * writes few lines and they are the only record of a process that may not have produced a window.
  */
-export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
-  return new MainDiagnosticLog({
+export function createMainDiagnosticLog(
+  logDirectory: string,
+  dataFolderPath: string,
+): MainDiagnosticLog {
+  const log = new MainDiagnosticLog({
     filePath: path.join(logDirectory, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
     sink: createFileSystemDiagnosticLogSink(),
     minimumLevel: "notice",
@@ -384,6 +408,8 @@ export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog
     keepMs: DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS,
     now: () => new Date(),
   });
+  log.dropWithoutDataFolder(dataFolderPath);
+  return log;
 }
 
 /** Where a log that could not be written says so. Main passes `console.error`. */

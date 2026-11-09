@@ -1,43 +1,29 @@
-// The supervisor over a scripted service behind a fake client helper and a fake clock: it starts
-// the service when none answers and waits 10 seconds for the connect, through a token not written
-// yet and no longer once the started service exits, and ends a started service that never answers
-// the connect or the status read after it. A service found on its socket is waited for while its
-// token is not written yet, and a started or found one for as long as it answers it is repairing
-// its database file, reporting the count each answer carries, and while it binds its socket again
-// after. It brings a link the client reports lost, or a helper that exited, back at the backoff's
-// waits and stops after five failed starts, starts again on `Retry` as a fresh start, and starts
-// nothing once it is let go at quit. It reads the service's process as each link comes up, so a
-// hung service is ended whether this app started it or found it running, and a failed ending is
-// recorded.
+// The supervisor over a scripted service behind a fake client helper, a fake of the addon's ending
+// and a fake clock. It probes once and starts the service only when no socket answers, then hands
+// the wait to the client; a found service still writing its token or repairing is waited for and
+// never started over. A started service that exits before it answers ends the wait with how it
+// exited, and one still running once the client's wait ran out is ended by its identity. A link
+// that dies ends its service at once by the identity it reported, and the next start waits for that
+// ending. Lost links come back at the backoff's waits, five failed starts give up, `Retry` starts
+// afresh, and nothing starts once the quit lets go. The handshake's answer and the status file's
+// cannot-start reach the status topic.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import { AUTH_TOKEN_INVALID_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { HANDSHAKE_DEADLINE_MS } from "@ai-sidekicks/client-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import type { DaemonLink } from "./link/status.js";
-import { SERVICE_HELLO_WAIT_MS, type DaemonSupervisor } from "./supervisor.js";
+import type { DaemonSupervisor } from "./supervisor.js";
 import {
-  NO_SOCKET,
+  ENDING_MS,
+  FOUND_SERVICE_PROCESS_ID,
   linkToRunningService,
+  linkToStartedService,
   supervisorOverScriptedService,
   type ScriptedService,
   type SupervisorUnderTest,
 } from "./supervisor.test-support.js";
-
-/** The connect's failure while the token file is not written yet, which carries no refusal code. */
-const NO_TOKEN_FILE = {
-  code: JsonRpcErrorCode.InternalError,
-  message: "the token file could not be read: No such file or directory",
-};
-
-/** The connect's refusal of the last start's token. */
-const STALE_TOKEN = {
-  code: JsonRpcErrorCode.DomainRefusal,
-  message: "token invalid",
-  data: { type: AUTH_TOKEN_INVALID_CODE, category: "unauthenticated" },
-};
 
 let under: SupervisorUnderTest;
 let service: ScriptedService;
@@ -58,13 +44,20 @@ afterEach(async () => {
 });
 
 describe("starting the service", () => {
-  it("starts the service when none answers, and reports the link up and started by the app", async () => {
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(0);
+  it("probes, starts the service when no socket answers, and hands the wait to the client", async () => {
+    await linkToStartedService(under);
 
     expect(service.startTimes).toStrictEqual([0]);
+    expect(service.connects).toStrictEqual([
+      { at: 0, waitsForStart: false },
+      { at: 0, waitsForStart: true },
+    ]);
     expect(link.client).toBeDefined();
-    expect(link.state).toMatchObject({ connection: { kind: "connected" }, startedByApp: true });
+    expect(link.state).toMatchObject({
+      connection: { kind: "connected" },
+      startedByApp: true,
+      negotiation: { compatible: true, deviceId: "device-1", behind: undefined },
+    });
     expect(connections.map((connection) => connection.kind)).toStrictEqual([
       "connecting",
       "connecting",
@@ -80,120 +73,23 @@ describe("starting the service", () => {
     expect(link.state.startedByApp).toBe(false);
   });
 
-  it("waits 10 seconds for the connect, and tries again", async () => {
-    service.connectAnswer = { kind: "silent" };
-    supervisor.start();
-
-    await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS - 1);
-    expect(service.connectTimes).toStrictEqual([0]);
-    await vi.advanceTimersByTimeAsync(1);
-    // The start after a failed one waits the backoff's first 100 ms.
-    await vi.advanceTimersByTimeAsync(100);
-    expect(service.connectTimes).toStrictEqual([0, SERVICE_HELLO_WAIT_MS + 100]);
-    expect(link.client).toBeUndefined();
-  });
-
-  it("still links to a service that does not name its process", async () => {
-    service.connectAnswer = { kind: "answering" };
-    service.isIdentityReported = false;
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(link.state.connection).toStrictEqual({ kind: "connected" });
-    expect(log.write).toHaveBeenCalledWith(
-      expect.objectContaining({
-        level: "warning",
-        message: expect.stringContaining("The background service did not name its process"),
-      }),
-    );
-  });
-
-  it("keeps trying a just-started service with no token file yet, or the last start's token", async () => {
-    service.connectFailures.push(NO_SOCKET, NO_TOKEN_FILE, STALE_TOKEN);
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(1_000);
-
-    expect(service.startTimes).toStrictEqual([0]);
-    // The probe, then the started service at the socket wait's first two pauses.
-    expect(service.connectTimes).toStrictEqual([0, 0, 50, 150]);
-    expect(link.state.connection).toStrictEqual({ kind: "connected" });
-  });
-
-  it("ends the hello wait when the started service exits, and records how it exited", async () => {
-    service.afterStart = { kind: "silent" };
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(0);
-
-    service.exit(4001, { code: 1, signal: null });
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(log.write).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message:
-          "The background service did not start: The background service exited before it " +
-          "answered its connect (exit code 1)",
-      }),
-    );
-    // The next attempt comes at the backoff's first 100 ms, not after the hello wait.
-    await vi.advanceTimersByTimeAsync(100);
-    expect(service.connectTimes).toStrictEqual([0, 0, 100]);
-  });
-
   it.each([
-    ["no token file yet", NO_TOKEN_FILE],
-    ["the last start's token", STALE_TOKEN],
-  ])("waits for a found service with %s rather than starting another", async (_case, failure) => {
-    service.connectFailures.push(failure);
-    service.connectAnswer = { kind: "answering" };
+    ["still writing its token", { kind: "noToken" } as const],
+    ["repairing its database file", { kind: "repairing", fields: {} } as const],
+  ])("waits for a found service %s and never starts one over it", async (_case, probeAnswer) => {
+    service.connectAnswer = probeAnswer;
+    service.waitAnswer = { kind: "answering" };
     supervisor.start();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(service.startTimes).toStrictEqual([]);
-    expect(service.connectTimes).toStrictEqual([0, 50]);
+    expect(service.connects.map((connect) => connect.waitsForStart)).toStrictEqual([false, true]);
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 
-  it("ends a started service that never answers the connect, and waits for it to exit", async () => {
-    service.afterStart = { kind: "silent" };
-    supervisor.start();
-
-    await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS);
-    expect(service.endedServices).toStrictEqual(["4001 unanswered"]);
-    // The next attempt waits out the ended service, which exits a second later.
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(service.connectTimes).toStrictEqual([0, 0, SERVICE_HELLO_WAIT_MS + 1_000]);
-  });
-
-  it.each([
-    ["started", [0]],
-    ["found running", []],
-  ])(
-    "waits for a service it %s for as long as it answers it is repairing, and through its new bind",
-    async (way, startTimes) => {
-      if (way === "started") {
-        service.afterStart = { kind: "repairing", fields: {} };
-      } else {
-        service.connectAnswer = { kind: "repairing", fields: {} };
-      }
-      supervisor.start();
-
-      await vi.advanceTimersByTimeAsync(3 * SERVICE_HELLO_WAIT_MS);
-      expect(service.endedServices).toStrictEqual([]);
-      expect(link.state.connection).toStrictEqual({ kind: "repairing", progress: undefined });
-      // The repair is done and the socket is gone until the service binds it again.
-      service.connectAnswer = { kind: "absent" };
-      await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS / 2);
-      service.connectAnswer = { kind: "answering" };
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      expect(service.endedServices).toStrictEqual([]);
-      expect(service.startTimes).toStrictEqual(startTimes);
-      expect(link.state.connection).toStrictEqual({ kind: "connected" });
-    },
-  );
-
-  it("reports the count each repairing answer carries, and none once an answer carries none", async () => {
+  it("reports the count each repairing answer carries while the client waits", async () => {
     service.connectAnswer = { kind: "repairing", fields: { progress: { done: 120, total: 400 } } };
+    service.waitAnswer = { kind: "silent" };
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(link.state.connection).toStrictEqual({
@@ -201,76 +97,113 @@ describe("starting the service", () => {
       progress: { done: 120, total: 400 },
     });
 
-    // The supervisor asks again within a second while the service repairs.
-    service.connectAnswer = { kind: "repairing", fields: { progress: { done: 121, total: 400 } } };
-    await vi.advanceTimersByTimeAsync(1_000);
+    service.answerRepairing({ progress: { done: 121, total: 400 } });
     expect(link.state.connection).toStrictEqual({
       kind: "repairing",
       progress: { done: 121, total: 400 },
     });
-
-    service.connectAnswer = { kind: "repairing", fields: {} };
-    await vi.advanceTimersByTimeAsync(1_000);
+    service.answerRepairing({});
     expect(link.state.connection).toStrictEqual({ kind: "repairing", progress: undefined });
+  });
+
+  it("ends the wait when the started service exits, closes the link and records how it exited", async () => {
+    service.afterStart = { kind: "silent" };
+    supervisor.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    service.exit(4001, { code: 3, signal: null });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(service.endings).toStrictEqual([]);
+    expect(log.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: "error",
+        message:
+          "The background service did not start: The background service exited before it " +
+          "answered its connect (exit code 3)",
+      }),
+    );
+    expect(link.state.connection).toStrictEqual({ kind: "starting" });
+  });
+
+  it("ends a started service still running once the client's wait ran out, and waits for it", async () => {
+    service.afterStart = { kind: "noToken" };
+    supervisor.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(service.endings).toStrictEqual([{ at: 0, ending: "process 4001" }]);
+    // The next start waits the backoff's 100 ms, then for the ending to settle.
+    service.connectAnswer = { kind: "answering" };
+    await vi.advanceTimersByTimeAsync(ENDING_MS - 1);
+    expect(service.connects).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(service.connects.map((connect) => connect.at)).toStrictEqual([0, 0, ENDING_MS]);
   });
 
   it("fails a start whose status read never answers, and ends the service it started", async () => {
     service.statusReadAnswer = "silent";
     supervisor.start();
 
-    await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS - 1);
+    await vi.advanceTimersByTimeAsync(HANDSHAKE_DEADLINE_MS - 1);
     expect(link.state.connection).toStrictEqual({ kind: "starting" });
     await vi.advanceTimersByTimeAsync(1);
 
     expect(service.links[0]?.isClosedByMain()).toBe(true);
-    expect(service.endedServices).toStrictEqual(["4001 unanswered"]);
-    expect(log.write).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message:
-          "The background service did not start: The background service did not answer " +
-          "daemon.status.read within 10 seconds",
-      }),
-    );
+    expect(service.endings).toStrictEqual([{ at: HANDSHAKE_DEADLINE_MS, ending: "process 4001" }]);
+  });
+
+  it("links a service on another version as one that serves reads, naming the side behind", async () => {
+    service.connectAnswer = { kind: "answering", isCompatible: false };
+    supervisor.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(link.state).toMatchObject({
+      connection: { kind: "version_incompatible" },
+      negotiation: {
+        compatible: false,
+        daemonProtocolVersion: "2027-01-01",
+        daemonSupportedProtocols: ["2027-01-01"],
+        reason: "connection.version.floorExceeded",
+        behind: "app",
+      },
+    });
+  });
+
+  it("puts the status file's cannot-start on the topic once a start fails", async () => {
+    service.afterStart = undefined;
+    service.statusFile = { cannotStart: { reason: "savedSessionsFromAnotherVersion" } };
+    supervisor.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(link.state.cannotStart).toStrictEqual({ reason: "savedSessionsFromAnotherVersion" });
   });
 });
 
 describe("watching the link", () => {
-  it("records an ending that fails, as a failed look at the system would", async () => {
-    service.statusReadAnswer = "silent";
-    service.isEndingFailing = true;
-    supervisor.start();
-
-    await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS);
-
-    expect(log.write).toHaveBeenCalledWith(
-      expect.objectContaining({
-        level: "error",
-        message: "Ending the background service failed: ps could not run",
-      }),
-    );
-  });
-
-  it("brings back a link the client reports lost, closing it and starting again after 100 ms", async () => {
+  it("ends the service of a link that died at once, by the identity it reported", async () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };
 
     service.loseLink();
+
+    expect(service.endings).toStrictEqual([
+      { at: 0, ending: `process ${String(FOUND_SERVICE_PROCESS_ID)}` },
+    ]);
     expect(service.links[0]?.isClosedByMain()).toBe(true);
     expect(link.client).toBeUndefined();
     expect(link.state.connection.kind).toBe("transient_disconnect");
-    await vi.advanceTimersByTimeAsync(99);
+    // The start after the loss waits for the ending, not only the backoff's 100 ms.
+    await vi.advanceTimersByTimeAsync(ENDING_MS - 1);
     expect(service.startTimes).toStrictEqual([]);
     await vi.advanceTimersByTimeAsync(1);
-
-    expect(service.startTimes).toStrictEqual([100]);
+    expect(service.startTimes).toStrictEqual([ENDING_MS]);
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 
-  it("reconnects at the backoff's first wait when the client helper exits", async () => {
+  it("negative control: a helper that exits ends no service, and reconnects at 100 ms", async () => {
     await linkToRunningService(under);
 
     service.exitHelper();
-    expect(link.client).toBeUndefined();
     expect(link.state.connection).toStrictEqual({
       kind: "transient_disconnect",
       attempt: 1,
@@ -278,26 +211,23 @@ describe("watching the link", () => {
     });
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(service.connectTimes).toStrictEqual([0, 100]);
-    expect(service.startTimes).toStrictEqual([]);
+    expect(service.endings).toStrictEqual([]);
+    expect(service.connects.map((connect) => connect.at)).toStrictEqual([0, 100]);
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 });
 
 describe("bringing the service back", () => {
   it("starts again at 100, 300, 1000, 3000 and 10000 ms, and stops after five failed starts", async () => {
-    await linkToRunningService(under);
-    service.connectAnswer = { kind: "absent" };
     service.afterStart = undefined;
-
-    service.loseLink();
+    supervisor.start();
     await vi.advanceTimersByTimeAsync(60_000);
 
-    expect(service.startTimes).toStrictEqual([100, 400, 1_400, 4_400, 14_400]);
+    expect(service.startTimes).toStrictEqual([0, 100, 400, 1_400, 4_400]);
     expect(link.state.connection).toStrictEqual({
       kind: "degraded",
       attemptLimit: 5,
-      lastError: "spawn node ENOENT",
+      lastError: "spawn sidekicks-daemon ENOENT",
     });
   });
 
@@ -305,7 +235,6 @@ describe("bringing the service back", () => {
     service.afterStart = undefined;
     supervisor.start();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(service.startTimes).toHaveLength(5);
     expect(link.state.connection.kind).toBe("degraded");
 
     service.afterStart = { kind: "answering" };
@@ -314,51 +243,18 @@ describe("bringing the service back", () => {
 
     expect(service.startTimes).toStrictEqual([0, 100, 400, 1_400, 4_400, 60_000]);
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
-    supervisor.requestStart();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(service.startTimes).toHaveLength(6);
   });
 
   it("starts nothing once let go at quit, even with a start pending, and ends the helper", async () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };
-    service.loseLink();
+    service.exitHelper();
 
     await supervisor.dispose();
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(service.isHelperDisposed).toBe(true);
-    expect(service.connectTimes).toStrictEqual([0]);
+    expect(service.connects).toHaveLength(1);
     expect(service.startTimes).toStrictEqual([]);
-  });
-
-  it("closes main's connection at quit and signals nothing", async () => {
-    await linkToRunningService(under);
-
-    await supervisor.dispose();
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(service.links[0]?.isClosedByMain()).toBe(true);
-    expect(service.endedServices).toStrictEqual([]);
-    expect(service.connectTimes).toStrictEqual([0]);
-  });
-
-  it("reads Retry after a lost link gave up as a fresh start, not the link's return", async () => {
-    await linkToRunningService(under);
-    service.connectAnswer = { kind: "absent" };
-    service.afterStart = undefined;
-    service.loseLink();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(link.state.connection.kind).toBe("degraded");
-    connections.length = 0;
-
-    service.afterStart = { kind: "silent" };
-    supervisor.requestStart();
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(connections.map((connection) => connection.kind)).toStrictEqual([
-      "connecting",
-      "starting",
-    ]);
   });
 });

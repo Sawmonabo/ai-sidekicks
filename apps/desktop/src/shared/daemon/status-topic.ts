@@ -3,9 +3,14 @@
 //
 // Main is the one writer and the renderer the one reader. The topic is not part of the
 // daemon's method map because it must speak while no service answers: at boot, while a start
-// is retried, and on Windows when the service wrote down why it cannot start.
+// is retried, and when the service wrote down why it cannot start or stop.
 
 import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
+import type {
+  DaemonCannotStart,
+  DaemonCannotStop,
+  DaemonStopStep,
+} from "@ai-sidekicks/contracts/daemon/service-status";
 
 /**
  * What the app says when the background service does not answer: a call the operating system
@@ -104,15 +109,15 @@ export type WhileSignedOut =
   | "turnedOffInLoginItems";
 
 /**
- * On Windows, why the service cannot start, as the service's Windows half wrote it down: WSL
- * not responding, its restarts used up (with the error it gave, verbatim), the place it ran
- * in gone, or its connection's name held by another program.
+ * Why the person's last `Stop` did not happen, which Runtime reads as `Could not stop.`: the
+ * service's status file says it could not save that it was stopped (`stopIntent`), or that a step
+ * of its stop was still running (`stillStopping`); or the client's own ending failed with `error`,
+ * verbatim (`notEnded`).
  */
-export type ServiceCannotStart =
-  | { readonly reason: "wslNotResponding" }
-  | { readonly reason: "restartsExhausted"; readonly error: string }
-  | { readonly reason: "placeGone" }
-  | { readonly reason: "connectionNameTaken" };
+export type ServiceCannotStop =
+  | DaemonCannotStop
+  | { readonly reason: "stillStopping"; readonly step: DaemonStopStep }
+  | { readonly reason: "notEnded"; readonly error: string };
 
 /**
  * One delivery of the topic, the first being the current state. Every member other than the
@@ -127,6 +132,8 @@ export interface MainProcessState {
   readonly startedByApp: boolean | undefined;
   /** Windows only; absent elsewhere. */
   readonly whileSignedOut: WhileSignedOut | undefined;
-  /** Windows only, and only while the service has written down why it cannot start. */
-  readonly cannotStart: ServiceCannotStart | undefined;
+  /** Only while the service has written down in its status file why it cannot start. */
+  readonly cannotStart: DaemonCannotStart | undefined;
+  /** Only after a `Stop` that did not happen, until the next start or link. */
+  readonly cannotStop: ServiceCannotStop | undefined;
 }

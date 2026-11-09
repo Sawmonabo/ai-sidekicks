@@ -1,12 +1,10 @@
-// Main's start of the client helper: the utility process that holds the desktop's one connection
-// to the daemon, and the connect main sends it. It is never forked with `disclaim`, since the
-// daemon admits the helper only while the app is its responsible process.
+// Main's start of the client helper, the utility process that holds the desktop's one connection
+// to the daemon, and whether main's links to the daemon present its token. The helper is never
+// forked with `disclaim`, since the daemon admits it only while the app is its responsible process.
 
 import path from "node:path";
 
 import { app, utilityProcess, type UtilityProcess } from "electron";
-
-import type { MainToClientHelperMessage } from "./messages.js";
 
 /** The helper's bundle, which the build writes beside main's own. */
 const CLIENT_HELPER_ENTRY = path.join(import.meta.dirname, "client-helper.js");
@@ -22,12 +20,9 @@ export function startClientHelper(): UtilityProcess {
 }
 
 /**
- * The helper's connect, presenting the token unless this is the packaged Mac app, which the daemon
- * admits by its code signature.
+ * Whether main's links to the daemon present the token file's token: every one but the packaged
+ * Mac app's, which the daemon admits by its code signature.
  */
-export function clientHelperConnect(): Extract<
-  MainToClientHelperMessage,
-  { readonly kind: "link.connect" }
-> {
-  return { kind: "link.connect", isPackaged: app.isPackaged, platform: process.platform };
+export function isTokenPresented(): boolean {
+  return !(app.isPackaged && process.platform === "darwin");
 }

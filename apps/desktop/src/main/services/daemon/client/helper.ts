@@ -4,12 +4,15 @@
 // addon. A window's call to a method that carries file paths has its tokens swapped for their paths
 // by asking main, which keeps them, and main mints tokens for the paths a reply offers. A window
 // port that closes cancels every call and stream it left open. Main connects the link and closes
-// it; a request waits for the connect under way, and one made once the link is closed fails. The
-// link's state goes to main as the addon reports it; the addon pings and times the link itself, so
-// the helper keeps no timer.
+// it; a request waits for the connect under way, and one made once the link is closed fails. A
+// connect main closed before it settled is dropped, its link closed unused. The link's state, and
+// a starting daemon's answers that it is repairing, go to main as the addon reports them; the addon
+// pings, times and retries the link itself, so the helper keeps no timer.
 
 import type { DaemonClient, StreamEvent, WireReply } from "@ai-sidekicks/client-sdk";
+import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { FILE_PATH_METHODS } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
@@ -31,12 +34,27 @@ export type ClientHelperDaemonClient = Pick<
   "call" | "cancelCall" | "subscribe" | "cancelStream" | "close"
 >;
 
-/** What the helper uses of the addon: its connect, answering a client or the wire's error. */
+/** A connect's answer from the addon: the client and the daemon's handshake answer, or the error. */
+export interface ClientHelperConnectAnswer {
+  readonly client?: ClientHelperDaemonClient;
+  readonly initializeResponse?: ConnectionInitializeResponse;
+  readonly error?: JsonRpcError;
+}
+
+/**
+ * What the helper uses of the addon: its one connect, and its wait for a daemon that is starting,
+ * which hands each answer that the daemon is repairing to `onRepairing`.
+ */
 export interface ClientHelperAddon {
   connect(
     presentsToken: boolean,
     onState: (state: string) => void,
-  ): Promise<{ client?: ClientHelperDaemonClient; error?: JsonRpcError }>;
+  ): Promise<ClientHelperConnectAnswer>;
+  waitForDaemon(
+    presentsToken: boolean,
+    onState: (state: string) => void,
+    onRepairing: (details: DaemonRepairingDetails) => void,
+  ): Promise<ClientHelperConnectAnswer>;
 }
 
 /** A window's port as the helper serves it: Electron's `MessagePortMain`. */
@@ -150,7 +168,7 @@ class ClientHelper {
   ): void {
     switch (message.kind) {
       case "link.connect":
-        this.#startConnect(!(message.isPackaged && message.platform === "darwin"));
+        this.#startConnect(message.presentsToken, message.waitsForStart);
         return;
       case "link.close":
         void this.#closeLink();
@@ -173,8 +191,11 @@ class ClientHelper {
     }
   }
 
-  /** Connects unless a connect is under way or a client is held. */
-  #startConnect(presentsToken: boolean): void {
+  /**
+   * Connects unless a connect is under way or a client is held; `waitsForStart` waits for a daemon
+   * that is starting rather than trying once.
+   */
+  #startConnect(presentsToken: boolean, waitsForStart: boolean): void {
     if (this.#isConnecting || (this.#linkOutcome !== undefined && "client" in this.#linkOutcome)) {
       return;
     }
@@ -183,34 +204,57 @@ class ClientHelper {
       this.#pendingLink = Promise.withResolvers<LinkOutcome>();
     }
     this.#isConnecting = true;
-    void this.#connect(presentsToken);
+    void this.#connect(presentsToken, waitsForStart);
   }
 
-  async #connect(presentsToken: boolean): Promise<void> {
+  async #connect(presentsToken: boolean, waitsForStart: boolean): Promise<void> {
     const generation = ++this.#linkGeneration;
-    const connected = await this.#addon.connect(presentsToken, (state) => {
-      if (generation !== this.#linkGeneration) {
-        return;
+    const isCurrent = (): boolean => generation === this.#linkGeneration;
+    const onState = (state: string): void => {
+      if (isCurrent()) {
+        // The addon reports only the four states it names.
+        this.#parentPort.postMessage({ kind: "link.state", state: state as ClientHelperLinkState });
       }
-      // The addon reports only the four states it names.
-      this.#parentPort.postMessage({ kind: "link.state", state: state as ClientHelperLinkState });
-    });
+    };
+    const connected = await (waitsForStart
+      ? this.#addon.waitForDaemon(presentsToken, onState, (details) => {
+          if (isCurrent()) {
+            this.#parentPort.postMessage({ kind: "link.repairing", details });
+          }
+        })
+      : this.#addon.connect(presentsToken, onState));
+    if (!isCurrent()) {
+      // Main closed the link while this connect ran: its client goes unused.
+      await connected.client?.close();
+      return;
+    }
     this.#isConnecting = false;
-    const outcome: LinkOutcome =
-      connected.client === undefined
-        ? { error: wireErrorOf(connected.error) }
-        : { client: connected.client };
-    this.#parentPort.postMessage(
-      "client" in outcome
-        ? { kind: "link.connected" }
-        : { kind: "link.connectFailed", error: outcome.error },
-    );
-    this.#settleLink(outcome);
+    if (connected.client === undefined) {
+      const error = wireErrorOf(connected.error);
+      this.#parentPort.postMessage({ kind: "link.connectFailed", error });
+      this.#settleLink({ error });
+      return;
+    }
+    this.#parentPort.postMessage({
+      kind: "link.connected",
+      // The addon answers the daemon's handshake answer with every client.
+      initializeResponse: connected.initializeResponse as ConnectionInitializeResponse,
+    });
+    this.#settleLink({ client: connected.client });
   }
 
-  /** Closes the client held: every call and stream on it ends, and later requests fail. */
+  /**
+   * Closes the link: a client held ends with every call and stream on it, a connect under way is
+   * dropped, and later requests fail until the next connect.
+   */
   async #closeLink(): Promise<void> {
     const outcome = this.#linkOutcome;
+    if (this.#isConnecting) {
+      this.#isConnecting = false;
+      this.#linkGeneration += 1;
+      this.#settleLink(CLOSED_LINK);
+      return;
+    }
     if (outcome === undefined || !("client" in outcome)) {
       return;
     }

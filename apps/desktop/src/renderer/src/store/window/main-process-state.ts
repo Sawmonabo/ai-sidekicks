@@ -7,10 +7,9 @@
 // `unreported` is the state before main's first delivery: not `connected` and not `degraded`,
 // since either would be a guess.
 
-import {
-  describeDaemonRepairingLine,
-  type DaemonRepairProgress,
-} from "@ai-sidekicks/contracts/daemon/recovery";
+import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
+import { describeDaemonRepairingLine } from "@ai-sidekicks/contracts/daemon/repairing-line";
+import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-status";
 
 import {
   figurePart,
@@ -23,7 +22,7 @@ import {
   type DaemonConnection,
   type MainProcessNegotiation,
   type MainProcessState,
-  type ServiceCannotStart,
+  type ServiceCannotStop,
 } from "#shared/daemon/status-topic.js";
 
 /**
@@ -40,6 +39,7 @@ export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
   startedByApp: undefined,
   whileSignedOut: undefined,
   cannotStart: undefined,
+  cannotStop: undefined,
 };
 
 /**
@@ -55,6 +55,7 @@ export function mainProcessReportsAreEqual(
     left.startedByApp === right.startedByApp &&
     left.whileSignedOut === right.whileSignedOut &&
     cannotStartsAreEqual(left.cannotStart, right.cannotStart) &&
+    cannotStopsAreEqual(left.cannotStop, right.cannotStop) &&
     mainProcessNegotiationsAreEqual(left.negotiation, right.negotiation) &&
     daemonConnectionsAreEqual(left.connection, right.connection)
   );
@@ -185,19 +186,37 @@ function mainProcessNegotiationsAreEqual(
   );
 }
 
-/** Why the service cannot start, compared reason and error. Absent equals absent. */
+/** Why the service cannot start, compared reason and folder. Absent equals absent. */
 function cannotStartsAreEqual(
-  left: ServiceCannotStart | undefined,
-  right: ServiceCannotStart | undefined,
+  left: DaemonCannotStart | undefined,
+  right: DaemonCannotStart | undefined,
 ): boolean {
   if (left === undefined || right === undefined) {
     return left === right;
   }
   return (
     left.reason === right.reason &&
-    (left.reason !== "restartsExhausted" ||
-      (right.reason === "restartsExhausted" && left.error === right.error))
+    (left.reason !== "savedSessionsUnrepaired" ||
+      (right.reason === "savedSessionsUnrepaired" && left.asideFolder === right.asideFolder))
   );
+}
+
+/** Why a stop did not happen, compared reason, step and error. Absent equals absent. */
+function cannotStopsAreEqual(
+  left: ServiceCannotStop | undefined,
+  right: ServiceCannotStop | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  switch (left.reason) {
+    case "stopIntent":
+      return right.reason === "stopIntent";
+    case "stillStopping":
+      return right.reason === "stillStopping" && left.step === right.step;
+    case "notEnded":
+      return right.reason === "notEnded" && left.error === right.error;
+  }
 }
 
 /** The repair line with each count the service sent as a wire figure. */

@@ -1,6 +1,6 @@
-// Where the background service's program is. An installed app carries the service's standalone
-// bundle among its resources and starts its `sidekicks-daemon`; a development checkout starts the
-// workspace's built daemon with the `node` on the person's path, as the command line does.
+// Where the background service's program is. An installed app carries the service's bundle among
+// its resources and starts its `sidekicks-daemon`; a development checkout starts the workspace's
+// Cargo build of `sidekicks-daemon`.
 
 import path from "node:path";
 
@@ -15,22 +15,31 @@ export interface ServiceProgram {
 /** The service bundle's folder inside the installed app's resources. */
 const SERVICE_BUNDLE_FOLDER = "service";
 
-/** The program the service bundle starts the daemon with. */
-const SERVICE_BUNDLE_PROGRAM = path.join("bin", "sidekicks-daemon");
+/** The daemon program's file name on this system. */
+const DAEMON_PROGRAM_NAME =
+  process.platform === "win32" ? "sidekicks-daemon.exe" : "sidekicks-daemon";
 
-/** The workspace daemon's built entry, relative to main's built entry. */
-const WORKSPACE_DAEMON_ENTRY = "../../../../packages/runtime-daemon/dist/main.js";
+/** The repository root, relative to main's built entry in `apps/desktop/out/main`. */
+const REPOSITORY_ROOT_FROM_MAIN_BUNDLE = "../../../..";
+
+/** The folder Cargo writes the workspace's development build to, under the repository root. */
+const CARGO_DEVELOPMENT_BUILD_FOLDER = path.join("target", "debug");
 
 /** The program that starts the background service for this app. */
 export function resolveServiceProgram(location: InstallLocation): ServiceProgram {
   if (location.isPackaged) {
     return {
-      command: path.join(location.resourcesPath, SERVICE_BUNDLE_FOLDER, SERVICE_BUNDLE_PROGRAM),
+      command: path.join(location.resourcesPath, SERVICE_BUNDLE_FOLDER, "bin", DAEMON_PROGRAM_NAME),
       args: [],
     };
   }
   return {
-    command: "node",
-    args: [path.resolve(location.mainBundleFolder, WORKSPACE_DAEMON_ENTRY)],
+    command: path.resolve(
+      location.mainBundleFolder,
+      REPOSITORY_ROOT_FROM_MAIN_BUNDLE,
+      CARGO_DEVELOPMENT_BUILD_FOLDER,
+      DAEMON_PROGRAM_NAME,
+    ),
+    args: [],
   };
 }

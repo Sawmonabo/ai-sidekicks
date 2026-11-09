@@ -37,8 +37,8 @@ vi.mock("./services/daemon/supervisor.js", () => ({
 
     public requestStart(): void {}
 
-    public endService(): Promise<{ accepted: true }> {
-      return Promise.resolve({ accepted: true });
+    public endService(): Promise<"exited"> {
+      return Promise.resolve("exited");
     }
 
     public flushAtQuit(): Promise<void> {
