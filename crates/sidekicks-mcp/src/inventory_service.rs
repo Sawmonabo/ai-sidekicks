@@ -267,6 +267,38 @@ impl McpInventoryService {
             .collect())
     }
 
+    /// Every registered provider's declarations, in the registry's order, read as
+    /// [`Self::read_declarations`] reads one provider's, over the attached roots and `extra_roots`
+    /// besides, the attached roots and the accounts read once for every provider. Fails as a
+    /// source or a provider's driver cannot be read.
+    pub(crate) async fn read_every_declaration(
+        &self,
+        extra_roots: &[PlacedPath],
+    ) -> Result<Vec<(ProviderId, Vec<McpServerDeclaration>)>, McpInventoryError> {
+        let mut context = self.read_context().await?;
+        context.attached_roots.extend(extra_roots.iter().cloned());
+        let mut declarations = Vec::new();
+        for (provider, driver) in self.sources.providers.drivers() {
+            let rows = self
+                .read_resolved_rows(
+                    provider,
+                    driver.as_ref(),
+                    &context,
+                    false,
+                    McpProbeScope::None,
+                    None,
+                )
+                .await?;
+            declarations.push((
+                provider.clone(),
+                rows.into_iter()
+                    .map(|(_key, row)| row.declaration)
+                    .collect(),
+            ));
+        }
+        Ok(declarations)
+    }
+
     /// Fills the attribution table from one read per provider of what it loads at each attached
     /// root, with no account, no probe and no refresh, so a leg that reports before any list
     /// resolves its servers; the status tracker's readings stay as they are. A provider whose read

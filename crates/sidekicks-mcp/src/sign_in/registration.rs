@@ -19,7 +19,6 @@ use std::error::Error;
 
 use reqwest::StatusCode;
 use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata, OAuthClientConfig};
-use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
@@ -28,6 +27,7 @@ use crate::errors::SignInUnsupportedReason;
 use crate::oauth::address::is_loopback_address;
 use crate::oauth::client_authentication::TOKEN_ENDPOINT_AUTH_METHODS;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::admitted_client::{AdmittedClient, AdmittedClientStore};
 use crate::sign_in::oauth_http_client::{RegistrationOutcome, ServerOAuthHttpClient};
 
@@ -68,8 +68,8 @@ impl RelayAddress {
 /// (an owner-issued one or the daemon's loopback one), the client the server's owner issued for
 /// it, if any, and the scopes it asks for.
 pub(crate) struct ClientRequest<'a> {
-    /// The server signed in to.
-    pub(crate) server_address: &'a McpServerAddress,
+    /// The digest the server's sign-in and admitted client are kept under.
+    pub(crate) server_digest: &'a ServerAddressDigest,
     /// The redirect address registered and listened on.
     pub(crate) redirect_address: &'a Url,
     /// The `client_id` the server's owner issued, when the entry names one.
@@ -123,7 +123,7 @@ pub(crate) async fn choose_client(
     metadata: AuthorizationMetadata,
     is_published: bool,
 ) -> SignInClient {
-    match admitted_clients.read(request.server_address).await {
+    match admitted_clients.read(request.server_digest).await {
         Err(error) => {
             return SignInClient::Failed {
                 source: Box::new(error),

@@ -15,8 +15,8 @@ CREATE TABLE mcp_server_bindings (
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's own switch for a binding whose provider keeps none: Claude bindings, every plugin binding and a Codex `local` binding the daemon emulates — Claude user scope has no enabled field, a plugin's declaration is the plugin's, and an emulated `local` add's receipt carries the switch its config asks (on for a new server asking nothing), which the landed commit writes; Codex's other bindings use its native `enabled` config field; NULL = no overlay
-  last_declared_address TEXT,  -- the canonical address the binding's whole address last read as, written at each read that declares one; a removal whose address no longer reads (a variable lost its value) signs this one out, a remaining binding whose address no longer reads keeps its sign-in, and a read at another address owes this one's sign-out; NULL until one has read
   native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at the first facet materialization, held while any facet is materialized, dropped once facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). mcp.toolOverride.clear restores from it (Spec-024 §Tool-Level Overrides) — without it, restore-on-clear would invent values
+  last_declared_address_digest TEXT,  -- the server address digest of the address the binding's whole address last read as, written at each read that declares one; a removal whose address no longer reads (a variable lost its value) signs this one out, a remaining binding whose address no longer reads keeps its sign-in, and a read at another address owes this one's sign-out; NULL until one has read. Never the address, whose user name, password and query are credentials
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name),
@@ -129,6 +129,8 @@ CREATE TABLE mcp_project_server_switches (
 ) STRICT;
 ```
 
+A server is named in every row and keychain attribute by its **server address digest**: HMAC-SHA256 of its canonical address (scheme and host case, default port, trailing slash and fragment folded) under one 32-byte key, lowercase hex. The key is one item of the MCP sign-ins' credential-store service, made from the system's random source on first use and read once per daemon life; a store that cannot give it refuses the call as `mcp.bindingStoreUnavailable` and changes no row. The address itself, whose user name, password and query are credentials ([Spec-024 §Implementation Notes](../../specs/024-mcp-server-configuration-and-governance.md#implementation-notes), transient-secret handling), is kept only inside the sign-in's credential-store secret.
+
 ```sql
 -- Owner: Plan-022
 -- Which OAuth client each server admitted, one row per server address however many bindings or providers
@@ -138,7 +140,7 @@ CREATE TABLE mcp_project_server_switches (
 -- kept once here rather than on each binding that names the server. A sign-out forgets only the sign-in and
 -- keeps this row, so every later sign-in is one press. Not a credential.
 CREATE TABLE mcp_server_admitted_clients (
-  server_address           TEXT NOT NULL PRIMARY KEY,  -- the server's canonical address, the account its sign-in is kept under
+  server_address_digest    TEXT NOT NULL PRIMARY KEY,  -- the server address digest, the account its sign-in is kept under; never the address
   admitted_oauth_client    TEXT,  -- the open id of the provider whose own client the server admitted; NULL until one has
   own_client_unfinished_at TEXT,  -- when the daemon's own client last ended an attempt with no callback; NULL otherwise
   CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
@@ -149,10 +151,10 @@ CREATE TABLE mcp_server_admitted_clients (
 -- Owner: Plan-022
 -- The sign-out a removed binding, or one whose address changed, owes the server it named: written before the
 -- provider's write, so a stop between the write and the sign-out leaves it for the next start, and cleared once a
--- settle finds another binding naming the address or signs the server out. A credential store that refuses the
+-- settle finds another binding naming the server or signs it out. A credential store that refuses the
 -- sign-out keeps the row for the next settle, at the daemon's start or after a sign-in or sign-out press. Not a
 -- credential.
 CREATE TABLE mcp_server_owed_sign_outs (
-  server_address TEXT NOT NULL PRIMARY KEY  -- the server's canonical address, the account its sign-in is kept under
+  server_address_digest TEXT NOT NULL PRIMARY KEY  -- the server address digest, the account its sign-in is kept under; never the address
 ) STRICT;
 ```

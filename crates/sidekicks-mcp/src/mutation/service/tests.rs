@@ -143,22 +143,29 @@ pub(crate) fn scripted_driver(
         });
     let (address_config, address_server) = (Arc::clone(&config), Arc::clone(&server));
     driver
-        .expect_read_mcp_server_address()
-        .returning(move |request| {
-            let is_present =
-                lock(&address_config).contains_key(request.binding.server_name().as_str());
-            let reading = match (&*address_server, is_present) {
-                (ScriptedServer::Remote { address, .. }, true) => Ok(address.clone().map_or(
-                    McpServerAddressReading::Unreadable,
-                    McpServerAddressReading::Declared,
-                )),
-                (ScriptedServer::Remote { .. } | ScriptedServer::Program, _) => Err(
-                    DriverError::NoPersonServerEntry(Box::new(NoPersonServerEntry {
-                        binding: request.binding,
-                    })),
-                ),
-            };
-            Box::pin(ready(reading))
+        .expect_read_mcp_server_addresses()
+        .returning(move |requests| {
+            let config = lock(&address_config);
+            let readings = requests
+                .into_iter()
+                .map(|request| {
+                    let is_present = config.contains_key(request.binding.server_name().as_str());
+                    match (&*address_server, is_present) {
+                        (ScriptedServer::Remote { address, .. }, true) => {
+                            Ok(address.clone().map_or(
+                                McpServerAddressReading::Unreadable,
+                                McpServerAddressReading::Declared,
+                            ))
+                        }
+                        (ScriptedServer::Remote { .. } | ScriptedServer::Program, _) => Err(
+                            DriverError::NoPersonServerEntry(Box::new(NoPersonServerEntry {
+                                binding: request.binding,
+                            })),
+                        ),
+                    }
+                })
+                .collect();
+            Box::pin(ready(readings))
         });
     driver
         .expect_compose_mcp_server()

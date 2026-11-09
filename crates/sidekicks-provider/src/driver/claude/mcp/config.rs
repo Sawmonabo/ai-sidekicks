@@ -114,6 +114,7 @@ impl ClaudeOAuthMember {
                 .read()
                 .filter(|port| **port > 0)
                 .map(|port| format!("http://localhost:{port}/callback")),
+            callback_port: None,
             authorization_server_metadata_url: oauth.auth_server_metadata_url.read().cloned(),
             asks_offline_access_where_listed: true,
         };

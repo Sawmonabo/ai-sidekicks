@@ -213,6 +213,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         Some(McpServerSignInSettings {
             client_id: Some("client-1".to_owned()),
             callback_url: Some("http://127.0.0.1:5555/callback".to_owned()),
+            callback_port: None,
             authorization_server_metadata_url: None,
             asks_offline_access_where_listed: false,
         })
@@ -629,6 +630,30 @@ async fn an_agent_format_plugin_declares_its_servers_as_codex_reads_them() {
             "url": "https://mcp.example.com/mcp",
             "http_headers": {"X-Team": "core"},
             "enabled": true,
+        })
+    );
+}
+
+// An entry's fixed `oauth.callback_port` reaches the sign-in beside its callback address, which
+// it binds where the entry names none. Killed by the port not read.
+#[test]
+fn a_fixed_callback_port_reaches_the_sign_in() {
+    let entry = json!({
+        "url": "https://docs.example.test/mcp",
+        "oauth": {"client_id": "client-1", "callback_port": 8765},
+    });
+
+    let declaration =
+        super::server_entry::read_codex_server_entry(&entry).expect("the entry reads");
+
+    assert_eq!(
+        declaration.sign_in_settings,
+        Some(McpServerSignInSettings {
+            client_id: Some("client-1".to_owned()),
+            callback_url: None,
+            callback_port: Some(8765),
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: false,
         })
     );
 }

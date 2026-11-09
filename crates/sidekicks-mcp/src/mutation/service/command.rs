@@ -1,7 +1,9 @@
 //! The receipt of the sign-in and sign-out commands: the governance mutations' key, lock, digest
 //! and saved check, a `pending` intent begun before the command acts, and its answer committed in
-//! the form the command saves. A command writes no provider config and no daemon row, so a
-//! receipt a stop left `pending` is expired and a retry under its key runs the command again.
+//! the form the command saves. A command writes no provider config; the daemon rows it writes,
+//! the digest of the address its binding read as and the sign-out a changed address owes, are
+//! kept the same however often it runs, so a receipt a stop left `pending` is expired and a retry
+//! under its key runs the command again.
 
 use std::error::Error;
 use std::future::Future;

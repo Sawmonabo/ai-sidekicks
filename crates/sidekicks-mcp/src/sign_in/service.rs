@@ -12,8 +12,9 @@
 //! - **The scopes.** The entry's own where it pins any, `offline_access` added where the entry asks
 //!   for it and the metadata lists it; else, where the entry names a metadata address that read,
 //!   that metadata's `scopes_supported`; else rmcp's pick from discovery: the protected resource's
-//!   `scopes_supported`, never the authorization server's.
-//! - **One attempt per server.** Attempts are kept by the server's canonical address. A new launch
+//!   `scopes_supported`, never the authorization server's. Where the daemon picked them, the
+//!   first return that carries an error opens one more page asking for no scope.
+//! - **One attempt per server.** Attempts are kept by the server's digest. A new launch
 //!   ends the attempt before it, an attempt ends 15 minutes after it opened, and `close` ends
 //!   every attempt at the daemon's stop; each closes its listener and appends nothing. An attempt
 //!   that ran out or that the stop ended marks that the daemon's own client did not finish, so
@@ -54,8 +55,11 @@ use crate::oauth::pushed_authorization::{AuthorizationRequestEndpoints, PushedAu
 use crate::oauth::redirect_receiver::{
     CallbackPath, RedirectListener, RedirectReceiver, RedirectReceiverError,
 };
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::admitted_client::AdmittedClientStore;
-use crate::sign_in::canonical_server_address;
+use crate::sign_in::authorization_page::{
+    AuthorizationPageError, ScopeRetry, open_authorization_page,
+};
 use crate::sign_in::credential_store::SignInCustody;
 use crate::sign_in::oauth_http_client::{
     BrowserAddressError, CALL_TIMEOUT, OAuthCall, OAuthCallError, OAuthHttpPools,
@@ -75,9 +79,6 @@ const DPOP_SIGNING_ALGORITHMS: &str = "dpop_signing_alg_values_supported";
 
 /// The metadata field (RFC 9207 §3) saying the server returns `iss` with every response.
 const ISSUER_IN_RESPONSE: &str = "authorization_response_iss_parameter_supported";
-
-/// The authorization request's parameter (RFC 8707 §2) naming a resource the token is for.
-const RESOURCE_PARAMETER: &str = "resource";
 
 /// The scope (OIDC Core §11) asking for a refresh token.
 const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
@@ -130,8 +131,6 @@ pub(crate) enum SignInServer {
 pub(crate) struct AddressedServer {
     /// The server's address as the binding declares it.
     pub(super) address: McpServerAddress,
-    /// The address its sign-in is kept under.
-    pub(super) canonical_address: String,
     /// The client the server's owner issued, where the entry gives either half.
     pub(super) owner_client: Option<OwnerIssuedClient>,
     oauth_resource: Option<String>,
@@ -157,7 +156,6 @@ impl AddressedServer {
         asks_offline_access_where_listed: bool,
     ) -> Self {
         Self {
-            canonical_address: canonical_server_address(&address),
             address,
             owner_client,
             oauth_resource,
@@ -174,8 +172,11 @@ impl AddressedServer {
 pub(crate) struct OwnerIssuedClient {
     /// The `client_id` the owner issued; `None` takes the client the sign-in's order finds.
     pub(crate) client_id: Option<String>,
-    /// The callback address registered with the client; `None` listens on a free loopback port.
+    /// The callback address registered with the client; `None` listens on `callback_port`.
     pub(crate) callback_url: Option<Url>,
+    /// The fixed loopback port listened on where no callback address is registered, at the
+    /// server's own path; `None` listens on a free one.
+    pub(crate) callback_port: Option<u16>,
 }
 
 /// The account each provider's flow runs for, by provider; a provider with no account here offers
@@ -193,7 +194,8 @@ pub struct SignInService {
     /// The filtered pools every OAuth call goes through.
     pub(super) pools: OAuthHttpPools,
     relay: &'static PortRegistration<RelayAddress>,
-    attempts: Mutex<Attempts>,
+    /// The open attempts and the providers' flows.
+    pub(super) attempts: Mutex<Attempts>,
     /// Where each settled sign-in appends its completion event.
     pub(super) events: Arc<SessionEventAppender>,
     /// Stops every revocation still running, a sign-out's or a refused renewal's, every
@@ -202,12 +204,12 @@ pub struct SignInService {
     pub(super) revocations: DropGuard,
 }
 
-// The open attempts by canonical server address: the daemon's own client's, and the providers'
-// flows, each kept by its id beside the guard that stops it.
+/// The open attempts by the server's digest: the daemon's own client's, and the providers' flows,
+/// each kept by its id beside the guard that stops it.
 #[derive(Default)]
-struct Attempts {
-    by_address: HashMap<String, SignInAttempt>,
-    provider_flows: HashMap<String, (u64, DropGuard)>,
+pub(super) struct Attempts {
+    by_server: HashMap<ServerAddressDigest, SignInAttempt>,
+    pub(super) provider_flows: HashMap<ServerAddressDigest, (u64, DropGuard)>,
     next_id: u64,
     is_closed: bool,
 }
@@ -218,28 +220,40 @@ pub(super) struct SignInAttempt {
     id: u64,
     /// The binding, which the completion event names.
     pub(super) binding: McpServerBindingRef,
-    server: AddressedServer,
-    /// The manager holding the client, the code verifier, the attempt's credential store (the
+    /// The digest the server's sign-in is kept under.
+    pub(super) digest: ServerAddressDigest,
+    /// The manager holding the client, the code verifiers, the attempt's credential store (the
     /// attempt's key saved with the tokens) and the server's OAuth client (the key and nonce
     /// slots).
-    pub(super) manager: AuthorizationManager,
+    pub(super) manager: Arc<AuthorizationManager>,
     // The serving receiver, whose callbacks the attempt's redemption answers.
     _receiver: RedirectReceiver,
     /// The `state` the browser's return carries, which the code's exchange is keyed by.
     pub(super) expected_state: String,
+    /// The one more page asking for no scope, where the daemon picked the scopes and no return
+    /// has taken it yet.
+    pub(super) scope_retry: Option<ScopeRetry>,
     _timer: DropGuard,
+}
+
+/// The authorization one attempt waits on: its manager, the `state` and issuer its return must
+/// carry, and its one retry with no scope where it has one.
+struct AttemptAuthorization {
+    /// The manager the code is exchanged through.
+    manager: Arc<AuthorizationManager>,
+    /// The `state` the browser's return carries.
+    expected_state: String,
+    /// The issuer each return must name.
+    expected_issuer: ExpectedIssuer,
+    /// The one more page asking for no scope, where the daemon picked the scopes.
+    scope_retry: Option<ScopeRetry>,
 }
 
 impl SignInAttempt {
     /// Ends the attempt, closing its listener and stopping its timer, and answers its server's
-    /// address.
-    pub(super) fn end(self) -> McpServerAddress {
-        self.server.address
-    }
-
-    /// The server's address as its binding declares it.
-    pub(super) fn address(&self) -> &McpServerAddress {
-        &self.server.address
+    /// digest.
+    pub(super) fn end(self) -> ServerAddressDigest {
+        self.digest
     }
 }
 
@@ -284,7 +298,7 @@ impl SignInService {
     pub(crate) async fn launch(
         self: &Arc<Self>,
         target: &SignInTarget,
-        scopes: &[String],
+        entry_scopes: &[String],
         provider_accounts: &ProviderAccounts,
     ) -> Result<WebAddress, SignInLaunchError> {
         let unsupported = |reason| {
@@ -302,12 +316,17 @@ impl SignInService {
         let Some(server) = addressed_server(target) else {
             return Err(unsupported(SignInUnsupportedReason::NotReachedAtAddress));
         };
-        let since = self.custody.sign_out_generation(&server.address);
+        let digest = self
+            .custody
+            .digest(&server.address)
+            .await
+            .map_err(|error| SignInLaunchError::from(McpRefusal::from(error)))?;
+        let since = self.custody.sign_out_generation(&digest);
         // A press that replaces a waiting attempt tries the same client again, so it marks nothing.
-        if let Some(replaced) = self.take_attempt(&server.canonical_address, None) {
+        if let Some(replaced) = self.take_attempt(&digest, None) {
             replaced.end();
         }
-        self.end_provider_flow(&server.canonical_address, None);
+        self.end_provider_flow(&digest, None);
 
         let http_client = Arc::new(self.pools.server_client(&server.address));
         let mut manager = AuthorizationManager::new_with_oauth_http_client(
@@ -320,7 +339,7 @@ impl SignInService {
             Some(metadata_address) => {
                 match read_named_metadata(&http_client, metadata_address).await {
                     Ok(metadata) => Some((metadata, metadata_address.clone())),
-                    // Claude Code discovers the server's metadata when the named address fails.
+                    // A named address that does not read leaves the metadata to discovery.
                     Err(error) => {
                         tracing::warn!(
                             error = &error as &(dyn std::error::Error + 'static),
@@ -347,7 +366,7 @@ impl SignInService {
         let scopes = requested_scopes(
             &mut manager,
             server,
-            scopes,
+            entry_scopes,
             &metadata,
             metadata_address.is_some(),
         )
@@ -371,17 +390,25 @@ impl SignInService {
             &metadata.authorization_endpoint,
             &metadata.additional_fields,
         );
-        let owner_callback = server
-            .owner_client
-            .as_ref()
-            .and_then(|owner| owner.callback_url.as_ref());
+        let owner = server.owner_client.as_ref();
+        let fixed_port_callback = owner
+            .filter(|owner| owner.callback_url.is_none())
+            .and_then(|owner| owner.callback_port)
+            .map(|port| {
+                Url::parse(&format!("http://127.0.0.1:{port}/callback"))
+                    .expect("a loopback port and a fixed path form an http address")
+            });
+        let is_owner_callback_registered = owner.is_some_and(|owner| owner.callback_url.is_some());
+        let owner_callback = owner
+            .and_then(|owner| owner.callback_url.as_ref())
+            .or(fixed_port_callback.as_ref());
         // An owner-issued callback is registered as it is, so it never takes the server's id; the
-        // daemon's own loopback address, a client id alone's included, takes it unless the server
+        // daemon's own loopback address, on a fixed port or a free one, takes it unless the server
         // returns `iss`.
-        let callback_path = if owner_callback.is_some() || is_issuer_in_response {
+        let callback_path = if is_owner_callback_registered || is_issuer_in_response {
             CallbackPath::Shared
         } else {
-            CallbackPath::PerServer(&server.canonical_address)
+            CallbackPath::PerServer(digest.as_str())
         };
         let (listener, redirect_address) =
             match RedirectListener::bind(owner_callback, callback_path).await {
@@ -406,7 +433,7 @@ impl SignInService {
                 ),
             };
         let request = ClientRequest {
-            server_address: &server.address,
+            server_digest: &digest,
             redirect_address: &redirect_address,
             owner_client_id: server
                 .owner_client
@@ -427,13 +454,13 @@ impl SignInService {
         let mut tried = ProviderFlowsTried::No;
         if matches!(client, SignInClient::OwnClientUnfinished) {
             match self
-                .run_provider_flow(target, server, None, provider_accounts)
+                .run_provider_flow(target, server, &digest, None, provider_accounts)
                 .await?
             {
                 ProviderFlowStart::Opened(browser_url) => return Ok(browser_url),
                 ProviderFlowStart::NoneAdmits { failure } => {
                     self.admitted_clients
-                        .clear_own_client_unfinished(&server.address)
+                        .clear_own_client_unfinished(&digest)
                         .await
                         .map_err(|error| failed(Box::new(error)))?;
                     client = choose_client(
@@ -459,7 +486,14 @@ impl SignInService {
             }
         }
         let own_client = match self
-            .answer_other_client(target, server, client, provider_accounts, &mut tried)
+            .answer_other_client(
+                target,
+                server,
+                &digest,
+                client,
+                provider_accounts,
+                &mut tried,
+            )
             .await
         {
             ControlFlow::Break(answer) => return answer,
@@ -486,39 +520,39 @@ impl SignInService {
         let client_secret = own_client.client_secret.map(SecretString::from);
         manager.set_credential_store(
             self.custody
-                .attempt_credential_store(&server.address, since, dpop_key, client_secret.clone())
+                .attempt_credential_store(
+                    &digest,
+                    &server.address,
+                    since,
+                    dpop_key,
+                    client_secret.clone(),
+                )
                 .recording_metadata_address(metadata_address.as_ref()),
         );
-        let scope_names: Vec<&str> = scopes.iter().map(String::as_str).collect();
-        let authorization_url = manager
-            .get_authorization_url(&scope_names)
-            .await
-            .map_err(|error| failed(Box::new(error)))?;
-        let mut authorization_url =
-            Url::parse(&authorization_url).map_err(|error| failed(Box::new(error)))?;
-        // The entry's resource is one more beside rmcp's, sent once where it names the same one.
-        if let Some(resource) = &server.oauth_resource
-            && !authorization_url
-                .query_pairs()
-                .any(|(name, value)| name == RESOURCE_PARAMETER && value == resource.as_str())
+        let page = match open_authorization_page(
+            &manager,
+            &http_client,
+            &endpoints,
+            &scopes,
+            server.oauth_resource.as_deref(),
+            client_secret.as_ref(),
+        )
+        .await
         {
-            authorization_url
-                .query_pairs_mut()
-                .append_pair(RESOURCE_PARAMETER, resource);
-        }
-        let expected_state = authorization_url
-            .query_pairs()
-            .find_map(|(name, value)| (name == "state").then(|| value.into_owned()))
-            .expect("rmcp's authorization address carries the request's state");
-        let browser_url = match http_client
-            .browser_authorization_url(&endpoints, &authorization_url, client_secret.as_ref())
-            .await
-        {
-            Ok(browser_url) => browser_url,
-            Err(BrowserAddressError::Push(PushedAuthorizationError::Refused(refusal))) => {
+            Ok(page) => page,
+            Err(AuthorizationPageError::Browser(BrowserAddressError::Push(
+                PushedAuthorizationError::Refused(refusal),
+            ))) => {
                 let client = classify_pushed_authorization_refusal(refusal);
                 return match self
-                    .answer_other_client(target, server, client, provider_accounts, &mut tried)
+                    .answer_other_client(
+                        target,
+                        server,
+                        &digest,
+                        client,
+                        provider_accounts,
+                        &mut tried,
+                    )
                     .await
                 {
                     ControlFlow::Break(answer) => answer,
@@ -531,20 +565,30 @@ impl SignInService {
             Err(error) => return Err(failed(Box::new(error))),
         };
         // The metadata can name a page of any scheme; the receiver closes as the launch returns.
-        let Some(browser_url) = WebAddress::new(browser_url.as_str()) else {
+        let Some(browser_url) = WebAddress::new(page.browser_url.as_str()) else {
             tracing::warn!(
                 "the authorization server's metadata names a sign-in page that is no web address"
             );
             return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
         };
 
+        // Scopes the daemon picked may be refused; scopes the entry pins are the entry's to fix.
+        let scope_retry = (entry_scopes.is_empty() && !scopes.is_empty()).then(|| ScopeRetry {
+            http_client,
+            endpoints,
+            oauth_resource: server.oauth_resource.clone(),
+            client_secret,
+        });
         self.open_attempt(
             target,
-            server,
-            manager,
+            digest,
+            AttemptAuthorization {
+                manager: Arc::new(manager),
+                expected_state: page.expected_state,
+                expected_issuer,
+                scope_retry,
+            },
             listener,
-            expected_state,
-            expected_issuer,
         )
         .map_err(failed)?;
         Ok(browser_url)
@@ -584,23 +628,23 @@ impl SignInService {
             attempts.is_closed = true;
             attempts.provider_flows.clear();
             attempts
-                .by_address
+                .by_server
                 .drain()
                 .map(|(_, attempt)| attempt)
                 .collect()
         };
-        let addresses: Vec<McpServerAddress> = ended.into_iter().map(SignInAttempt::end).collect();
-        for address in addresses {
-            self.mark_unfinished_logged(&address).await;
+        let servers: Vec<ServerAddressDigest> = ended.into_iter().map(SignInAttempt::end).collect();
+        for server in servers {
+            self.mark_unfinished_logged(&server).await;
         }
     }
 
-    /// Keeps `flow`, the guard that stops a provider's flow for the server at `canonical_address`,
-    /// ending any flow kept there before, and answers the flow's id. Fails once the daemon's stop
-    /// has begun, `flow` dropped.
+    /// Keeps `flow`, the guard that stops a provider's flow for the server `digest` names, ending
+    /// any flow kept there before, and answers the flow's id. Fails once the daemon's stop has
+    /// begun, `flow` dropped.
     pub(super) fn keep_provider_flow(
         &self,
-        canonical_address: &str,
+        digest: &ServerAddressDigest,
         flow: DropGuard,
     ) -> Result<u64, SignInServiceClosed> {
         let (id, replaced) = {
@@ -610,26 +654,24 @@ impl SignInService {
             }
             let id = attempts.next_id;
             attempts.next_id += 1;
-            let replaced = attempts
-                .provider_flows
-                .insert(canonical_address.to_owned(), (id, flow));
+            let replaced = attempts.provider_flows.insert(digest.clone(), (id, flow));
             (id, replaced)
         };
         drop(replaced);
         Ok(id)
     }
 
-    /// Ends the provider's flow kept for the server at `canonical_address`, only when it is flow
-    /// `id` if one is named.
-    pub(super) fn end_provider_flow(&self, canonical_address: &str, id: Option<u64>) {
+    /// Ends the provider's flow kept for the server `digest` names, only when it is flow `id` if
+    /// one is named.
+    pub(super) fn end_provider_flow(&self, digest: &ServerAddressDigest, id: Option<u64>) {
         let ended = {
             let mut attempts = lock(&self.attempts);
             let is_named = attempts
                 .provider_flows
-                .get(canonical_address)
+                .get(digest)
                 .is_some_and(|(kept, _flow)| id.is_none_or(|id| *kept == id));
             if is_named {
-                attempts.provider_flows.remove(canonical_address)
+                attempts.provider_flows.remove(digest)
             } else {
                 None
             }
@@ -643,12 +685,16 @@ impl SignInService {
     fn open_attempt(
         self: &Arc<Self>,
         target: &SignInTarget,
-        server: &AddressedServer,
-        manager: AuthorizationManager,
+        digest: ServerAddressDigest,
+        authorization: AttemptAuthorization,
         listener: RedirectListener,
-        expected_state: String,
-        expected_issuer: ExpectedIssuer,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let AttemptAuthorization {
+            manager,
+            expected_state,
+            expected_issuer,
+            scope_retry,
+        } = authorization;
         let replaced = {
             let mut attempts = lock(&self.attempts);
             if attempts.is_closed {
@@ -656,24 +702,19 @@ impl SignInService {
             }
             let id = attempts.next_id;
             attempts.next_id += 1;
-            let redemption = AttemptRedemption::new(
-                Arc::downgrade(self),
-                server.canonical_address.clone(),
-                id,
-                expected_issuer,
-            );
+            let redemption =
+                AttemptRedemption::new(Arc::downgrade(self), digest.clone(), id, expected_issuer);
             let attempt = SignInAttempt {
                 id,
                 binding: target.binding.clone(),
-                server: server.clone(),
+                digest: digest.clone(),
                 manager,
                 _receiver: listener.receive(expected_state.clone(), Arc::new(redemption)),
                 expected_state,
-                _timer: self.start_timer(server.canonical_address.clone(), id),
+                scope_retry,
+                _timer: self.start_timer(digest.clone(), id),
             };
-            attempts
-                .by_address
-                .insert(server.canonical_address.clone(), attempt)
+            attempts.by_server.insert(digest, attempt)
         };
         if let Some(replaced) = replaced {
             replaced.end();
@@ -681,8 +722,8 @@ impl SignInService {
         Ok(())
     }
 
-    // Ends the attempt `id` at `canonical_address` once its life is over, unless it ended first.
-    fn start_timer(self: &Arc<Self>, canonical_address: String, id: u64) -> DropGuard {
+    // Ends the attempt `id` at `digest`'s server once its life is over, unless it ended first.
+    fn start_timer(self: &Arc<Self>, digest: ServerAddressDigest, id: u64) -> DropGuard {
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let service: Weak<Self> = Arc::downgrade(self);
@@ -693,7 +734,7 @@ impl SignInService {
                     let Some(service) = service.upgrade() else {
                         return;
                     };
-                    if let Some(expired) = service.take_attempt(&canonical_address, Some(id)) {
+                    if let Some(expired) = service.take_attempt(&digest, Some(id)) {
                         service.mark_unfinished_logged(&expired.end()).await;
                     }
                 }
@@ -702,30 +743,46 @@ impl SignInService {
         stop.drop_guard()
     }
 
-    /// Takes the attempt kept at `canonical_address`, only when it is attempt `id` if one is named.
+    /// Runs `change` on attempt `id`, the one kept for the server `digest` names, answering what it
+    /// answers, or `None` where that attempt is no longer kept.
+    pub(super) fn change_attempt<T>(
+        &self,
+        digest: &ServerAddressDigest,
+        id: u64,
+        change: impl FnOnce(&mut SignInAttempt) -> Option<T>,
+    ) -> Option<T> {
+        lock(&self.attempts)
+            .by_server
+            .get_mut(digest)
+            .filter(|attempt| attempt.id == id)
+            .and_then(change)
+    }
+
+    /// Takes the attempt kept for the server `digest` names, only when it is attempt `id` if one
+    /// is named.
     pub(super) fn take_attempt(
         &self,
-        canonical_address: &str,
+        digest: &ServerAddressDigest,
         id: Option<u64>,
     ) -> Option<SignInAttempt> {
         let mut attempts = lock(&self.attempts);
         let is_named = attempts
-            .by_address
-            .get(canonical_address)
+            .by_server
+            .get(digest)
             .is_some_and(|attempt| id.is_none_or(|id| attempt.id == id));
         if is_named {
-            attempts.by_address.remove(canonical_address)
+            attempts.by_server.remove(digest)
         } else {
             None
         }
     }
 
-    /// Marks that the daemon's own client did not finish at `address`, logging a mark that does not
-    /// keep where no caller waits on it.
-    pub(super) async fn mark_unfinished_logged(&self, address: &McpServerAddress) {
+    /// Marks that the daemon's own client did not finish at the server `digest` names, logging a
+    /// mark that does not keep where no caller waits on it.
+    pub(super) async fn mark_unfinished_logged(&self, digest: &ServerAddressDigest) {
         if let Err(error) = self
             .admitted_clients
-            .mark_own_client_unfinished(address)
+            .mark_own_client_unfinished(digest)
             .await
         {
             tracing::warn!(

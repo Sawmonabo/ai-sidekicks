@@ -22,7 +22,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::{
     CODEX_CREDENTIALS_FILE, OAUTH_LOGIN_COMPLETED_METHOD, OAUTH_LOGIN_METHOD,
-    read_codex_saved_sign_in, read_codex_server_address, sign_in_with_codex_client,
+    read_codex_saved_sign_in, read_codex_server_addresses, sign_in_with_codex_client,
 };
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::DESCRIPTOR;
@@ -361,7 +361,12 @@ async fn read_declared_address(
     };
     let reading = tokio::spawn({
         let registry = Arc::clone(&fixture.registry);
-        async move { read_codex_server_address(&registry, &home_folder, &request).await }
+        async move {
+            read_codex_server_addresses(&registry, &home_folder, vec![request])
+                .await
+                .pop()
+                .expect("one reading answers one request")
+        }
     });
     if let Some(servers) = servers {
         answer_config_read(fixture, servers).await;
@@ -430,8 +435,14 @@ async fn a_connector_has_no_address_of_the_persons() {
         project_rows: Vec::new(),
     };
 
-    let refused =
-        read_codex_server_address(&fixture.registry, &person_home_folder(&fixture), &request).await;
+    let refused = read_codex_server_addresses(
+        &fixture.registry,
+        &person_home_folder(&fixture),
+        vec![request],
+    )
+    .await
+    .pop()
+    .expect("one reading answers one request");
 
     assert!(
         matches!(

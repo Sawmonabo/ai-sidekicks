@@ -8,7 +8,7 @@ pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
 mod mcp_attribution;
-mod method_inputs;
+pub(crate) mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
 mod provider_accounts;

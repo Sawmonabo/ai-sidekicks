@@ -10,7 +10,6 @@ use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
-use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
 use sidekicks_platforms::PathRules;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
@@ -72,16 +71,6 @@ fn address() -> McpServerAddress {
 }
 
 /// The environment rows of `entries`, each a name and its value.
-pub(super) fn environment_rows(entries: &[(&str, &str)]) -> Vec<EnvironmentRow> {
-    entries
-        .iter()
-        .map(|(name, value)| EnvironmentRow {
-            name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
-            value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
-        })
-        .collect()
-}
-
 pub(super) fn user_binding() -> McpServerBindingRef {
     McpServerBindingRef::User {
         provider: DESCRIPTOR.provider_id(),
@@ -586,9 +575,8 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 // saved sign-in reads back whether Claude Code saved the address filled or as declared. Killed by
 // matching the `url` as written, which names no server, by filling it from no environment, by the
 // rows not handed to the process's environment (the row case reads the no-entry arm), by no
-// record kept, by expanding a covered credential name, and by matching the saved address only as
-// written. The record is read once the process is up, so a record written after the start but
-// before the browser opens survives this test.
+// record kept or one written after the start, by expanding a covered credential name, and by
+// matching the saved address only as written.
 #[rstest]
 #[case::a_default_where_unset(
     &[],
@@ -649,7 +637,6 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
                     .map(|(variable, value)| ((*variable).to_owned(), (*value).to_owned())),
             )
             .collect();
-    let sign_ins = sign_ins_folder(&scripted);
     let driver = driver_on_environment(
         &DriverServices {
             base_environment: Arc::from(base_environment),
@@ -667,19 +654,11 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
     let (mut request, opened, returned) = request(user_binding());
     request.server_address =
         McpServerAddress::new(requested_address).expect("a test address is a web address");
-    request.project_rows = environment_rows(rows);
+    request.project_rows = EnvironmentRow::test_rows(rows);
     let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
     opened
         .await
         .expect("the authorization address is handed out");
-    let records: Vec<String> = std::fs::read_dir(&sign_ins)
-        .expect("the sign-ins' folder reads")
-        .map(|folder| {
-            let folder = folder.expect("the sign-in's folder lists").path();
-            std::fs::read_to_string(folder.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE))
-                .expect("the sign-in's folder records its keychain account")
-        })
-        .collect();
     returned
         .send(Url::parse(RETURNED_URL).expect("an address"))
         .expect("the sign-in waits for the browser");
@@ -706,7 +685,10 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
             Some(*value)
         );
     }
-    assert_eq!(records, [claude_keychain_account(&start.environment)]);
+    assert_eq!(
+        start.keychain_account_record,
+        Some(claude_keychain_account(&start.environment))
+    );
 }
 
 // A sign-in's process that writes a frame reporting an error, or exits, before its sign-in ends

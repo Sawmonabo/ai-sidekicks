@@ -44,17 +44,18 @@ use url::Url;
 use self::saved_credentials::{complete_client, holds_sign_in_for, read_saved_sign_in};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
-    ClaudeCredentialReadError, ClaudeSignInReader, claude_keychain_account,
-    read_claude_credential_file,
+    ClaudeCredentialReadError, ClaudeSignInReader, KEYCHAIN_ACCOUNT_VARIABLE,
+    claude_keychain_account, read_claude_credential_file,
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
-    ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader, MCP_SERVERS_MEMBER,
-    OAUTH_MEMBER, URL_MEMBER,
+    ClaudeDeclaredEntry, ClaudeOAuthMember, ClaudePersonConfigFiles, ClaudeServerEntryReader,
+    MCP_SERVERS_MEMBER, OAUTH_MEMBER, URL_MEMBER,
 };
 use crate::driver::claude::mcp::machine_probe::variables::{
     ClaudePluginPlaceholders, expand_remote_address, fill_entry_plugin_placeholders,
 };
+use crate::driver::claude::mcp::organization::read_managed_entry;
 use crate::driver::claude::session::account_servers::{
     ClaudeAccountReadAsk, ClaudeAccountServerReads,
 };
@@ -89,13 +90,7 @@ const SIGN_IN_SERVERS_FILE: &str = "sign-in-servers.json";
 
 /// The file in the sign-in's folder recording the keychain account its process files the sign-in
 /// under, which an environment row can set through `USER`.
-const SIGN_IN_KEYCHAIN_ACCOUNT_FILE: &str = "keychain-account";
-
-/// The variable Claude Code names its keychain account by.
-const KEYCHAIN_ACCOUNT_VARIABLE: &str = "USER";
-
-/// The member of a server entry's `oauth` naming the id of the client its owner issued.
-const OAUTH_CLIENT_ID_MEMBER: &str = "clientId";
+pub(crate) const SIGN_IN_KEYCHAIN_ACCOUNT_FILE: &str = "keychain-account";
 
 /// The `redirectScheme` Claude Code answers when the authorization server took the redirect
 /// address it was sent, so the browser's return comes to the daemon.
@@ -272,15 +267,15 @@ pub(crate) async fn sign_in_with_claude_client(
     let name = request.binding.server_name().clone();
     let entry = read_sign_in_entry(
         &sources,
+        &mut ClaudeServerEntryReader::new(&sources.person, &sources.plugin_home),
         &request.binding,
         Some(&request.provider_account_id),
     )
     .await?;
     let configured_client_id = entry
         .get(OAUTH_MEMBER)
-        .and_then(|oauth| oauth.get(OAUTH_CLIENT_ID_MEMBER))
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+        .and_then(|oauth| ClaudeOAuthMember::deserialize(oauth).ok())
+        .and_then(|oauth| oauth.read_sign_in().0.client_id);
     // A `url` naming no variable reads the same in any environment, so an entry at another server
     // is turned away here, before a folder is made or an environment composed for it.
     if !entry
@@ -474,8 +469,8 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
         .fold(data_folder.to_path_buf(), |folder, part| folder.join(part))
 }
 
-// The entry `binding`'s server declares: the person's own, re-read with its values, for a user,
-// local, project or plugin server, a plugin's placeholders filled, since Claude Code fills them
+// The entry `binding`'s server declares: the person's own, re-read with its values through
+// `entries`, for a user, local, project or plugin server, a plugin's placeholders filled, since Claude Code fills them
 // only in the plugin's own files; and for an organization's server the administrator's MCP file's
 // entry of its name, else the one `account`'s managed settings declare, since Claude Code takes
 // the file's entry where both define a name. Fails with `NoPersonServerEntry` for a connector,
@@ -484,6 +479,7 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 // asked.
 async fn read_sign_in_entry(
     sources: &ClaudeMcpSignInSources<'_>,
+    entries: &mut ClaudeServerEntryReader<'_>,
     binding: &McpServerBindingRef,
     account: Option<&ProviderAccountId>,
 ) -> Result<Map<String, Value>, DriverError> {
@@ -496,45 +492,46 @@ async fn read_sign_in_entry(
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => return Err(no_entry()),
         McpServerBindingRef::Managed { server_name, .. } => {
-            let file_entry = sources
-                .managed_mcp_servers
-                .as_ref()
-                .and_then(|servers| servers.get(server_name.as_str()));
-            match (file_entry, account) {
-                (Some(entry), _) => Some(entry.clone()),
-                (None, None) => return Err(no_entry()),
-                (None, Some(account)) => sources
+            let organization_entry = async {
+                let Some(account) = account else {
+                    return Err(no_entry());
+                };
+                Ok(sources
                     .account_servers
                     .read(account, ClaudeAccountReadAsk::List)
                     .await
                     .map_err(|error| internal(Box::new(error)))?
                     .organization_entries
                     .get(server_name)
-                    .cloned()
-                    .map(Value::Object),
-            }
+                    .cloned())
+            };
+            read_managed_entry(
+                sources.managed_mcp_servers.as_ref(),
+                server_name,
+                organization_entry,
+            )
+            .await?
+            .map(Value::Object)
         }
         McpServerBindingRef::User { .. }
         | McpServerBindingRef::Local { .. }
         | McpServerBindingRef::Project { .. }
-        | McpServerBindingRef::Plugin { .. } => {
-            ClaudeServerEntryReader::new(&sources.person, &sources.plugin_home)
-                .read(binding)
-                .await
-                .map_err(|error| internal(Box::new(error)))?
-                .map(
-                    |ClaudeDeclaredEntry {
-                         entry,
-                         plugin_folders,
-                     }| match plugin_folders {
-                        Some(folders) => fill_entry_plugin_placeholders(
-                            entry,
-                            &ClaudePluginPlaceholders::new(&folders, None),
-                        ),
-                        None => entry,
-                    },
-                )
-        }
+        | McpServerBindingRef::Plugin { .. } => entries
+            .read(binding)
+            .await
+            .map_err(|error| internal(Box::new(error)))?
+            .map(
+                |ClaudeDeclaredEntry {
+                     entry,
+                     plugin_folders,
+                 }| match plugin_folders {
+                    Some(folders) => fill_entry_plugin_placeholders(
+                        entry,
+                        &ClaudePluginPlaceholders::new(&folders, None),
+                    ),
+                    None => entry,
+                },
+            ),
     };
     match entry {
         Some(Value::Object(entry)) => Ok(entry),

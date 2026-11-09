@@ -10,10 +10,10 @@
 
 mod login_failure;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -31,7 +31,7 @@ use self::login_failure::read_codex_login_failure;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
-use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
+use crate::driver::codex::mcp::config::plugins::{CodexPluginServer, read_plugin_server_entries};
 use crate::driver::codex::mcp::config::server_entry::{OAUTH_MEMBER, URL_MEMBER};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
@@ -162,24 +162,20 @@ pub(crate) async fn sign_in_with_codex_client(
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
     let name = request.binding.server_name().clone();
-    let entry = read_sign_in_entry(
-        registry,
-        home_folder,
-        &request.binding,
-        request.root_folder.as_deref(),
-    )
-    .await?
-    .filter(|entry| {
-        entry
-            .get(URL_MEMBER)
-            .and_then(Value::as_str)
-            .is_some_and(|url| names_server_at(url, &request.server_address))
-    })
-    .ok_or_else(|| {
-        DriverError::from(NoPersonServerEntry {
-            binding: request.binding.clone(),
+    let entry = CodexServerEntryReader::new(registry, home_folder)
+        .read(&request.binding, request.root_folder.as_deref())
+        .await?
+        .filter(|entry| {
+            entry
+                .get(URL_MEMBER)
+                .and_then(Value::as_str)
+                .is_some_and(|url| names_server_at(url, &request.server_address))
         })
-    })?;
+        .ok_or_else(|| {
+            DriverError::from(NoPersonServerEntry {
+                binding: request.binding.clone(),
+            })
+        })?;
     // Codex keeps no client secret in its saved sign-in, so the one its entry configures is kept.
     let configured_client_secret = entry
         .get(OAUTH_MEMBER)
@@ -223,95 +219,137 @@ pub(crate) async fn sign_in_with_codex_client(
     }
 }
 
-/// Reads the whole address `request`'s server entry declares: its `url` as Codex's merged config
-/// or the plugin's file gives it, `request`'s environment rows not read, since Codex fills no
-/// variable there. Fails with
+/// Reads the whole address each of `requests`' server entries declares, in the requests' order:
+/// its `url` as Codex's merged config or the plugin's file gives it, the environment rows not
+/// read, since Codex fills no variable there. Codex's config is read once for each root the
+/// requests name and the plugins' files once. Each reading fails with
 /// [`DriverError::NoPersonServerEntry`] for a connector and an entry that is gone or names no
-/// `url`, and as the entry's read fails.
-pub(crate) async fn read_codex_server_address(
+/// `url`, and as its entry's read fails.
+pub(crate) async fn read_codex_server_addresses(
     registry: &CodexServiceRegistry,
     home_folder: &Path,
-    request: &McpServerAddressRead,
-) -> Result<McpServerAddressReading, DriverError> {
-    let entry = read_sign_in_entry(
-        registry,
-        home_folder,
-        &request.binding,
-        request.root_folder.as_deref(),
-    )
-    .await?;
-    let Some(url) = entry
-        .as_ref()
-        .and_then(|entry| entry.get(URL_MEMBER))
-        .and_then(Value::as_str)
-    else {
-        return Err(DriverError::from(NoPersonServerEntry {
-            binding: request.binding.clone(),
+    requests: Vec<McpServerAddressRead>,
+) -> Vec<Result<McpServerAddressReading, DriverError>> {
+    let mut entries = CodexServerEntryReader::new(registry, home_folder);
+    let mut readings = Vec::with_capacity(requests.len());
+    for request in requests {
+        let entry = entries
+            .read(&request.binding, request.root_folder.as_deref())
+            .await;
+        readings.push(entry.and_then(|entry| {
+            let Some(url) = entry
+                .as_ref()
+                .and_then(|entry| entry.get(URL_MEMBER))
+                .and_then(Value::as_str)
+            else {
+                return Err(DriverError::from(NoPersonServerEntry {
+                    binding: request.binding.clone(),
+                }));
+            };
+            Ok(McpServerAddress::new(url).map_or(
+                McpServerAddressReading::Unreadable,
+                McpServerAddressReading::Declared,
+            ))
         }));
-    };
-    Ok(McpServerAddress::new(url).map_or(
-        McpServerAddressReading::Unreadable,
-        McpServerAddressReading::Declared,
-    ))
+    }
+    readings
 }
 
-// The entry of `binding`'s server, switched on: a plugin's as its file declares it, as Codex reads
-// its own plugins' entries, and any other's as Codex's config read at the binding's root, else at
-// `home_folder`, merges it; `None` where none declares the server. Fails with
-// `NoPersonServerEntry` for a connector, whose sign-in is the account's own, so another
-// provider's flow is asked.
-async fn read_sign_in_entry(
-    registry: &CodexServiceRegistry,
-    home_folder: &Path,
-    binding: &McpServerBindingRef,
-    root_folder: Option<&Path>,
-) -> Result<Option<Map<String, Value>>, DriverError> {
-    let name = binding.server_name();
-    let entry = match binding {
-        McpServerBindingRef::Connector { .. } => {
-            return Err(DriverError::from(NoPersonServerEntry {
-                binding: binding.clone(),
-            }));
-        }
-        McpServerBindingRef::Plugin { .. } => {
-            read_plugin_server_entries(&plugin_home(home_folder, &DESCRIPTOR.provider_id()))
-                .await
-                .into_iter()
-                .find(|server| server.declaration.binding == *binding)
-                .map(|server| server.compose_codex_entry())
-        }
-        McpServerBindingRef::User { .. }
-        | McpServerBindingRef::Project { .. }
-        | McpServerBindingRef::Local { .. }
-        | McpServerBindingRef::Managed { .. } => {
-            read_person_server_entry(registry, root_folder.unwrap_or(home_folder), name).await?
-        }
-    };
-    Ok(entry.map(|mut entry| {
-        entry.remove(ENTRY_SWITCH_MEMBER);
-        entry
-    }))
+// Reads server entries for one sign-in or one batch of address reads, Codex's config read once at
+// each root and the plugins' files once, however many entries they hold.
+struct CodexServerEntryReader<'sources> {
+    registry: &'sources CodexServiceRegistry,
+    home_folder: &'sources Path,
+    // Each root's merged `mcp_servers`, by the root it was read at.
+    configs: HashMap<PathBuf, Option<Map<String, Value>>>,
+    plugins: Option<Vec<CodexPluginServer>>,
 }
 
-// The person's own entry for `name`, as Codex's config read at `cwd` merges it; `None` where it
-// declares none.
-async fn read_person_server_entry(
-    registry: &CodexServiceRegistry,
-    cwd: &Path,
-    name: &McpServerName,
-) -> Result<Option<Map<String, Value>>, DriverError> {
-    let read = registry
-        .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
-            let connection = service.connection()?;
-            read_codex_config::<Map<String, Value>>(&connection, Some(cwd), false).await
-        })
-        .await?;
-    Ok(read
-        .config
-        .get(MCP_SERVERS_KEY)
-        .and_then(|servers| servers.get(name.as_str()))
-        .and_then(Value::as_object)
-        .cloned())
+impl<'sources> CodexServerEntryReader<'sources> {
+    fn new(registry: &'sources CodexServiceRegistry, home_folder: &'sources Path) -> Self {
+        Self {
+            registry,
+            home_folder,
+            configs: HashMap::new(),
+            plugins: None,
+        }
+    }
+
+    // The entry of `binding`'s server, switched on: a plugin's as its file declares it, as Codex
+    // reads its own plugins' entries, and any other's as Codex's config read at `root_folder`,
+    // else at the home folder, merges it; `None` where none declares the server. Fails with
+    // `NoPersonServerEntry` for a connector, whose sign-in is the account's own, so another
+    // provider's flow is asked.
+    async fn read(
+        &mut self,
+        binding: &McpServerBindingRef,
+        root_folder: Option<&Path>,
+    ) -> Result<Option<Map<String, Value>>, DriverError> {
+        let name = binding.server_name();
+        let entry = match binding {
+            McpServerBindingRef::Connector { .. } => {
+                return Err(DriverError::from(NoPersonServerEntry {
+                    binding: binding.clone(),
+                }));
+            }
+            McpServerBindingRef::Plugin { .. } => {
+                if self.plugins.is_none() {
+                    self.plugins = Some(
+                        read_plugin_server_entries(&plugin_home(
+                            self.home_folder,
+                            &DESCRIPTOR.provider_id(),
+                        ))
+                        .await,
+                    );
+                }
+                self.plugins
+                    .iter()
+                    .flatten()
+                    .find(|server| server.declaration.binding == *binding)
+                    .map(CodexPluginServer::compose_codex_entry)
+            }
+            McpServerBindingRef::User { .. }
+            | McpServerBindingRef::Project { .. }
+            | McpServerBindingRef::Local { .. }
+            | McpServerBindingRef::Managed { .. } => {
+                let cwd = root_folder.unwrap_or(self.home_folder);
+                if !self.configs.contains_key(cwd) {
+                    let servers = self.read_person_servers(cwd).await?;
+                    self.configs.insert(cwd.to_path_buf(), servers);
+                }
+                self.configs
+                    .get(cwd)
+                    .and_then(Option::as_ref)
+                    .and_then(|servers| servers.get(name.as_str()))
+                    .and_then(Value::as_object)
+                    .cloned()
+            }
+        };
+        Ok(entry.map(|mut entry| {
+            entry.remove(ENTRY_SWITCH_MEMBER);
+            entry
+        }))
+    }
+
+    // The person's own servers, as Codex's config read at `cwd` merges them; `None` where it
+    // declares none.
+    async fn read_person_servers(
+        &self,
+        cwd: &Path,
+    ) -> Result<Option<Map<String, Value>>, DriverError> {
+        let read = self
+            .registry
+            .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
+                let connection = service.connection()?;
+                read_codex_config::<Map<String, Value>>(&connection, Some(cwd), false).await
+            })
+            .await?;
+        Ok(read
+            .config
+            .get(MCP_SERVERS_KEY)
+            .and_then(Value::as_object)
+            .cloned())
+    }
 }
 
 /// The settings of a sign-in's own Codex home: sign-ins kept in a file, and `entry` as the one

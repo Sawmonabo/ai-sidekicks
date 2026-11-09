@@ -6,7 +6,7 @@
 //! the stop ends.
 
 pub(crate) mod error;
-mod mcp;
+pub(crate) mod mcp;
 mod recovery;
 mod worktree;
 
@@ -30,8 +30,8 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
-use sidekicks_mcp::sign_in::owed_sign_out::OwedSignOuts;
 use sidekicks_mcp::sign_in::service::SignInService;
+use sidekicks_mcp::sign_in::sign_out::owed::OwedSignOuts;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,

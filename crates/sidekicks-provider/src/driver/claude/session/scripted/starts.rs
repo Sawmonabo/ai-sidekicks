@@ -30,7 +30,7 @@ use crate::driver::claude::account::credentials::{
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
-use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
+use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInStart, SIGN_IN_KEYCHAIN_ACCOUNT_FILE};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
@@ -155,6 +155,8 @@ pub(crate) struct ScriptedSignInStart {
     pub(crate) environment: Vec<(String, String)>,
     /// The servers file it was handed, as read when it started; `None` where it was handed none.
     pub(crate) servers: Option<Value>,
+    /// The keychain account its folder recorded when it started; `None` where none was.
+    pub(crate) keychain_account_record: Option<String>,
 }
 
 /// Every start answered as scripted; a start with nothing scripted fails as a spawn would.
@@ -558,9 +560,14 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     }
                     None => None,
                 };
+            let keychain_account_record =
+                tokio::fs::read_to_string(start.folder.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE))
+                    .await
+                    .ok();
             self.lock().sign_in_starts.push(ScriptedSignInStart {
                 environment: start.environment.clone(),
                 servers,
+                keychain_account_record,
             });
             let ScriptedSignIn {
                 channel,

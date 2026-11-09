@@ -411,7 +411,9 @@ interface McpLiveApplicationResult {
 // tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
 //   mcp.server.signIn        McpServerBindingRef & {clientIdempotencyKey: string} →
 // {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of
-// server it is, and returns the address of the sign-in page for the client to open; a new
+// server it is, and returns the address of the sign-in page for the client to open; it reads the
+// whole address the binding's entry declares, through the provider's driver, on every sign-in and
+// sign-out, so a changed variable takes effect at the next press; a new
 // mcp.server.signIn on a server whose sign-in is still waiting ends that wait and starts the next
 // attempt; a binding or server no sign-in the daemon or a provider can run reaches is refused with
 // mcp.server.signInUnsupported, its message naming which cause: a binding not reached at an

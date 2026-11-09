@@ -169,15 +169,23 @@ pub enum DpopSendError {
     /// The request's proof could not be made.
     #[error("the request's DPoP proof could not be made")]
     Proof(#[from] DpopProofError),
-    /// The request failed on the network, or its body could not be read.
+    /// The request failed on the network, or its body could not be read; the error holds no
+    /// address, whose query may carry a credential.
     #[error("the request to the authorization server failed")]
-    Http(#[from] reqwest::Error),
+    Http(#[source] reqwest::Error),
     /// The response's body is past the bound.
     #[error("the authorization server's response body is past {max_bytes} bytes")]
     BodyTooLarge {
         /// The bound, in bytes.
         max_bytes: usize,
     },
+}
+
+impl From<reqwest::Error> for DpopSendError {
+    /// The network failure with its address dropped.
+    fn from(error: reqwest::Error) -> Self {
+        Self::Http(error.without_url())
+    }
 }
 
 /// Sends a request of `method` to `target` over `http` with a proof signed by `key` and bound to
@@ -228,7 +236,7 @@ pub(crate) async fn read_response(
     let body = read_capped_body(response, MAX_RESPONSE_BODY_BYTES)
         .await
         .map_err(|error| match error {
-            CappedBodyError::Read(error) => DpopSendError::Http(error),
+            CappedBodyError::Read(error) => DpopSendError::from(error),
             CappedBodyError::TooLarge { max_bytes } => DpopSendError::BodyTooLarge { max_bytes },
         })?;
     Ok(AuthorizationServerResponse {

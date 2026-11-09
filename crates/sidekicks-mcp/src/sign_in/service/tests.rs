@@ -6,6 +6,7 @@ use rstest::rstest;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_provider::captured_logs::CapturedLogs;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{
@@ -81,7 +82,7 @@ async fn is_marked_unfinished(harness: &Harness, address: &McpServerAddress) -> 
     for _ in 0..500 {
         let is_marked = harness
             .admitted_clients
-            .read(address)
+            .read(&harness.service.custody.test_digest(address).await)
             .await
             .expect("the admitted client reads")
             .is_some_and(|admitted| admitted.is_own_client_unfinished);
@@ -124,7 +125,7 @@ async fn a_second_launch_for_a_server_closes_the_first_attempt_and_marks_nothing
     assert_eq!(
         harness
             .admitted_clients
-            .read(&address)
+            .read(&harness.service.custody.test_digest(&address).await)
             .await
             .expect("the admitted client reads"),
         None
@@ -149,7 +150,7 @@ async fn a_press_after_an_attempt_ran_out_reaches_the_own_client_where_no_provid
 
     assert!(is_marked_unfinished(&harness, &address).await);
     assert!(!is_listening(port).await);
-    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+    assert!(super::lock(&harness.service.attempts).by_server.is_empty());
     // An attempt that ran out appends nothing.
     assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
 
@@ -159,7 +160,7 @@ async fn a_press_after_an_attempt_ran_out_reaches_the_own_client_where_no_provid
     assert_eq!(
         harness
             .admitted_clients
-            .read(&address)
+            .read(&harness.service.custody.test_digest(&address).await)
             .await
             .expect("the admitted client reads"),
         None
@@ -197,7 +198,7 @@ async fn a_closed_service_frees_its_attempts_port_and_opens_no_attempt_after() {
             McpRefusal::ServerSignInFailed { .. }
         ))
     ));
-    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+    assert!(super::lock(&harness.service.attempts).by_server.is_empty());
 }
 
 #[rstest]
@@ -237,26 +238,38 @@ async fn a_binding_no_sign_in_reaches_is_refused_before_anything_is_sent(
         ))
     ));
     assert_eq!(server.requests.load(Ordering::SeqCst), 0);
-    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+    assert!(super::lock(&harness.service.attempts).by_server.is_empty());
 }
 
 /// An entry naming only its owner's client id signs in as that client with no registration, the
-/// browser returning to the daemon's own loopback receiver on the server's own path. Killed by
-/// registering anyway (the fake refuses every registration, which refuses the launch), and by the
-/// shared path taken for a client id alone.
+/// browser returning to the daemon's own loopback receiver on the server's own path, on the fixed
+/// port the entry names where it names one. Killed by registering anyway (the fake refuses every
+/// registration, which refuses the launch), by the shared path taken for a client id alone, and by
+/// the fixed port not listened on (`fixed_port`).
+#[rstest]
+#[case::free_port(false)]
+#[case::fixed_port(true)]
 #[tokio::test]
-async fn a_client_id_alone_signs_in_as_that_client_with_no_registration() {
+async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
+    #[case] is_port_fixed: bool,
+) {
     let server = serve_authorization_server(FakeServerAnswers {
         is_registration_refused: true,
         ..FakeServerAnswers::default()
     })
     .await;
     let harness = harness().await;
+    let fixed_port = if is_port_fixed {
+        Some(free_port().await)
+    } else {
+        None
+    };
     let target = entry_target(
         &server.base,
         Some(OwnerIssuedClient {
             client_id: Some(OWNER_CLIENT_ID.to_owned()),
             callback_url: None,
+            callback_port: fixed_port,
         }),
         None,
     );
@@ -264,6 +277,9 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration() {
     let browser_url = launch_to_browser(&harness, &target).await;
 
     assert_eq!(parameters(&browser_url, "client_id"), [OWNER_CLIENT_ID]);
+    if let Some(port) = fixed_port {
+        assert_eq!(receiver_port(&browser_url), port);
+    }
     let redirect_uri =
         Url::parse(&parameters(&browser_url, "redirect_uri")[0]).expect("the redirect is a URL");
     let segments: Vec<&str> = redirect_uri
@@ -290,6 +306,7 @@ async fn a_callback_alone_is_listened_on_and_registered() {
         Some(OwnerIssuedClient {
             client_id: None,
             callback_url: Some(callback_url.clone()),
+            callback_port: None,
         }),
         None,
     );
@@ -357,6 +374,7 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
         Some(OwnerIssuedClient {
             client_id: None,
             callback_url: Some(callback_url),
+            callback_port: None,
         }),
         None,
     );
@@ -376,7 +394,7 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
         ))
     ));
     assert!(!is_listening(port).await);
-    assert!(super::lock(&harness.service.attempts).by_address.is_empty());
+    assert!(super::lock(&harness.service.attempts).by_server.is_empty());
 }
 
 // An entry naming its authorization server's metadata address signs in from the metadata read
@@ -434,6 +452,42 @@ async fn an_entry_naming_its_metadata_address_signs_in_without_discovery(
         "{paths:?}"
     );
     assert_eq!(parameters(&browser_url, "scope"), [expected_scope]);
+}
+
+// A named metadata address that does not read is logged by its origin alone, its query never,
+// and the sign-in discovers the metadata. Killed by the network error logged with its address
+// (`unreachable`) and by the refused address printed whole (`refused`).
+#[rstest]
+#[case::unreachable("http://127.0.0.1:9/metadata?key=metadata-secret")]
+#[case::refused("http://169.254.169.254/metadata?key=metadata-secret")]
+#[tokio::test]
+async fn a_named_metadata_address_that_does_not_read_logs_no_query(#[case] named: &str) {
+    let server = serve_authorization_server(FakeServerAnswers::default()).await;
+    let harness = harness().await;
+    let target = SignInTarget {
+        server: SignInServer::Address(Box::new(AddressedServer::new(
+            McpServerAddress::new(&server.base).expect("a server address"),
+            None,
+            None,
+            Some(Url::parse(named).expect("a URL")),
+            true,
+        ))),
+        ..addressed_target(&server.base)
+    };
+    let (logs, _capture) = CapturedLogs::start();
+
+    let launched = harness
+        .service
+        .launch(&target, &[], &ProviderAccounts::new())
+        .await;
+
+    assert!(launched.is_ok(), "the sign-in discovers the metadata");
+    let text = logs.text();
+    assert!(text.contains("the sign-in discovers it"), "{text}");
+    assert!(
+        !text.contains("metadata-secret") && !text.contains("/metadata?"),
+        "{text}"
+    );
 }
 
 // A named metadata document's own `scope` comes first, then `default_scope`, then the scopes it

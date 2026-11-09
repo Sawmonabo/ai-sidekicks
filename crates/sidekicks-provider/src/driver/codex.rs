@@ -30,7 +30,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
-use crate::driver::codex::mcp::sign_in::read_codex_server_address;
+use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -733,14 +733,11 @@ impl ProviderDriver for CodexDriver {
         self.remove_left_sign_in_folders().boxed()
     }
 
-    fn read_mcp_server_address(
+    fn read_mcp_server_addresses(
         &self,
-        request: McpServerAddressRead,
-    ) -> BoxFuture<'_, Result<McpServerAddressReading, DriverError>> {
-        async move {
-            read_codex_server_address(&self.registry, &self.project_rules.home_folder, &request)
-                .await
-        }
-        .boxed()
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
+        read_codex_server_addresses(&self.registry, &self.project_rules.home_folder, requests)
+            .boxed()
     }
 }

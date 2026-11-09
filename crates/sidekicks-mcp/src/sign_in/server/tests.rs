@@ -9,7 +9,6 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::{EnvironmentRow, MachineSettings};
 use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
-use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::CurrentProviderAccount;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -62,7 +61,7 @@ pub(crate) struct TestSources {
     /// The board the inventory's tracker sends on.
     pub(crate) board: Arc<McpNoticeBoard>,
     /// The database under them, which a test stores rows in.
-    database: TestDatabase,
+    pub(crate) database: TestDatabase,
 }
 
 impl TestSources {
@@ -195,9 +194,9 @@ pub(crate) fn answer_address_read(
     answer: Result<McpServerAddressReading, DriverError>,
 ) {
     driver
-        .expect_read_mcp_server_address()
+        .expect_read_mcp_server_addresses()
         .times(1)
-        .return_once(move |_request| Box::pin(ready(answer)));
+        .return_once(move |_requests| Box::pin(ready(vec![answer])));
 }
 
 fn declared(address: &str) -> McpServerAddressReading {
@@ -251,6 +250,7 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
         client_id: Some("owner-client".to_owned()),
         callback_url: Some("http://localhost:8080/callback".to_owned()),
         authorization_server_metadata_url: Some(metadata_address.to_owned()),
+        callback_port: None,
         asks_offline_access_where_listed: true,
     });
     let mut driver = driver_declaring(vec![declaration]);
@@ -367,7 +367,7 @@ async fn a_binding_no_sign_in_reaches_is_refused(
     match address_answer {
         Some(answer) => answer_address_read(&mut driver, answer),
         None => {
-            driver.expect_read_mcp_server_address().times(0);
+            driver.expect_read_mcp_server_addresses().times(0);
         }
     }
     let sources = test_sources(vec![Arc::new(driver)]).await;
@@ -381,16 +381,6 @@ async fn a_binding_no_sign_in_reaches_is_refused(
         Err(error) => panic!("the read failed: {error:?}"),
     };
     assert_eq!(code, expected);
-}
-
-fn rows(entries: &[(&str, &str)]) -> Vec<EnvironmentRow> {
-    entries
-        .iter()
-        .map(|(name, value)| EnvironmentRow {
-            name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
-            value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
-        })
-        .collect()
 }
 
 // The address read the driver receives and the target both carry the `Every project` rows
@@ -409,8 +399,8 @@ async fn a_target_read_carries_its_bindings_environment_rows(
     binding["provider"] = json!(first_provider().as_str());
     binding["serverName"] = json!("docs");
     let binding: McpServerBindingRef = serde_json::from_value(binding).expect("a binding");
-    let every_project_rows = rows(&[("API_HOST", "every.example.test")]);
-    let project_rows = rows(&[("API_HOST", "project.example.test")]);
+    let every_project_rows = EnvironmentRow::test_rows(&[("API_HOST", "every.example.test")]);
+    let project_rows = EnvironmentRow::test_rows(&[("API_HOST", "project.example.test")]);
     let mut driver = driver_declaring(vec![remote_declaration(
         &binding,
         "https://docs.example.test/",
@@ -418,11 +408,11 @@ async fn a_target_read_carries_its_bindings_environment_rows(
     let asked = Arc::new(Mutex::new(None));
     let asked_by_driver = Arc::clone(&asked);
     driver
-        .expect_read_mcp_server_address()
+        .expect_read_mcp_server_addresses()
         .times(1)
-        .return_once(move |request| {
-            *asked_by_driver.lock().expect("never poisoned") = Some(request);
-            Box::pin(ready(Ok(declared(DECLARED_ADDRESS))))
+        .return_once(move |mut requests| {
+            *asked_by_driver.lock().expect("never poisoned") = requests.pop();
+            Box::pin(ready(vec![Ok(declared(DECLARED_ADDRESS))]))
         });
     let sources = test_sources(vec![Arc::new(driver)]).await;
     let connection = sources.database.reader();

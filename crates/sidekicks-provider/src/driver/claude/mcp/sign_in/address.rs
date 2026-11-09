@@ -1,11 +1,11 @@
 //! The whole address a Claude Code server's entry declares, read from the same entry a sign-in
 //! through Claude Code copies, its `url` filled as Claude Code fills it before it connects.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
 use super::{ClaudeMcpSignInSources, read_sign_in_entry};
-use crate::driver::claude::mcp::config::URL_MEMBER;
+use crate::driver::claude::mcp::config::{ClaudeServerEntryReader, URL_MEMBER};
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
@@ -15,22 +15,44 @@ use crate::driver::contract::sign_in::{
 /// The text that opens a variable in an entry's `url`, which one left unfilled still holds.
 const VARIABLE_OPENING: &str = "${";
 
-/// Reads the whole address `request`'s server entry declares, its `url` filled from
-/// `environment`, an organization's server read from the administrator's MCP file's entry where
-/// one declares it. Fails with [`DriverError::NoPersonServerEntry`] for a connector, an
-/// organization's server the file does not declare read for no account, and an entry that is gone
-/// or names no `url`, and as the entry's read fails.
-pub(crate) async fn read_claude_server_address(
+/// Reads the whole address each of `requests`' server entries declares, in the requests' order,
+/// each `url` filled from the environment `environment_of` composes for its request, an
+/// organization's server read from the administrator's MCP file's entry where one declares it;
+/// each of the person's files is parsed once for the whole batch. A reading fails with
+/// [`DriverError::NoPersonServerEntry`] for a connector, an organization's server the file does not
+/// declare read for no account, and an entry that is gone or names no `url`, and as the entry's
+/// read or its environment's composition fails.
+pub(crate) async fn read_claude_server_addresses(
     sources: &ClaudeMcpSignInSources<'_>,
+    requests: Vec<McpServerAddressRead>,
+    environment_of: impl Fn(&McpServerAddressRead) -> Result<Vec<(String, String)>, DriverError>,
+) -> Vec<Result<McpServerAddressReading, DriverError>> {
+    let mut entries = ClaudeServerEntryReader::new(&sources.person, &sources.plugin_home);
+    let mut readings = Vec::with_capacity(requests.len());
+    for request in requests {
+        let reading = match read_sign_in_entry(
+            sources,
+            &mut entries,
+            &request.binding,
+            request.provider_account_id.as_ref(),
+        )
+        .await
+        {
+            Ok(entry) => environment_of(&request)
+                .map(|environment| address_reading(&entry, &environment, &request)),
+            Err(error) => Err(error),
+        };
+        readings.push(reading.and_then(|reading| reading));
+    }
+    readings
+}
+
+// The whole address `entry` declares for `request`'s binding, its `url` filled from `environment`.
+fn address_reading(
+    entry: &Map<String, Value>,
     environment: &[(String, String)],
     request: &McpServerAddressRead,
 ) -> Result<McpServerAddressReading, DriverError> {
-    let entry = read_sign_in_entry(
-        sources,
-        &request.binding,
-        request.provider_account_id.as_ref(),
-    )
-    .await?;
     let Some(url) = entry.get(URL_MEMBER).and_then(Value::as_str) else {
         return Err(DriverError::from(NoPersonServerEntry {
             binding: request.binding.clone(),
@@ -57,9 +79,9 @@ mod tests {
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
     use super::super::tests::{
-        PERSON_CONFIG, SERVER_NAME, driver_on_environment, environment_rows, name, user_binding,
+        PERSON_CONFIG, SERVER_NAME, driver_on_environment, name, user_binding,
     };
-    use super::read_claude_server_address;
+    use super::read_claude_server_addresses;
     use crate::driver::DriverServices;
     use crate::driver::claude::DESCRIPTOR;
     use crate::driver::claude::session::scripted::driver::ScriptedDriver;
@@ -148,8 +170,13 @@ mod tests {
         );
 
         let reading = driver
-            .read_mcp_server_address(address_read(user_binding(), environment_rows(project_rows)))
+            .read_mcp_server_addresses(vec![address_read(
+                user_binding(),
+                EnvironmentRow::test_rows(project_rows),
+            )])
             .await
+            .pop()
+            .expect("one reading answers one request")
             .expect("the entry reads");
 
         match (&reading, expected) {
@@ -177,8 +204,10 @@ mod tests {
 
         let refused = scripted
             .driver
-            .read_mcp_server_address(address_read(connector.clone(), Vec::new()))
-            .await;
+            .read_mcp_server_addresses(vec![address_read(connector.clone(), Vec::new())])
+            .await
+            .pop()
+            .expect("one reading answers one request");
 
         assert!(
             matches!(
@@ -216,12 +245,14 @@ mod tests {
             server_name: name(),
         };
 
-        let reading = read_claude_server_address(
+        let reading = read_claude_server_addresses(
             &scripted.driver.sign_in_sources_for(Some(servers)).await,
-            &scripted.driver.sources.base_environment,
-            &address_read(managed, Vec::new()),
+            vec![address_read(managed, Vec::new())],
+            |_| Ok(scripted.driver.sources.base_environment.to_vec()),
         )
         .await
+        .pop()
+        .expect("one reading answers one request")
         .expect("the file's entry reads");
 
         let McpServerAddressReading::Declared(address) = &reading else {
@@ -252,12 +283,14 @@ mod tests {
             server_name: name(),
         };
 
-        let reading = read_claude_server_address(
+        let reading = read_claude_server_addresses(
             &scripted.driver.sign_in_sources_for(None).await,
-            &scripted.driver.sources.base_environment,
-            &address_read(managed, Vec::new()),
+            vec![address_read(managed, Vec::new())],
+            |_| Ok(scripted.driver.sources.base_environment.to_vec()),
         )
         .await
+        .pop()
+        .expect("one reading answers one request")
         .expect("the organization's entry reads");
 
         let McpServerAddressReading::Declared(address) = &reading else {

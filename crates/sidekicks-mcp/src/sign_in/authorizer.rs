@@ -30,8 +30,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "the sign-in's composition builds an authorizer for each signed-in server's \
-                  connection"
+        reason = "the fronted route builds an authorizer for each signed-in server's connection"
     )
 )]
 
@@ -56,12 +55,12 @@ use crate::client::http::{
     AuthorizationResult, BEARER_AUTHORIZATION_SCHEME, McpRequestAuthorizer, RefusalAnswer,
 };
 use crate::oauth::dpop_proof::{DpopKey, DpopKeyError, DpopProofError, make_proof};
-use crate::sign_in::canonical_server_address;
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::credential_store::{
     DpopKeyScalar, HeldSignIn, McpCredentialStore, SignInCustody, SignInCustodyError,
 };
 use crate::sign_in::oauth_http_client::{OAuthHttpPools, ServerOAuthHttpClient};
-use crate::sign_in::sign_out::revoke_on_task;
+use crate::sign_in::sign_out::revocation::revoke_on_task;
 
 /// The `error` a server's challenge names for a token it no longer takes (RFC 6750 §3.1).
 const INVALID_TOKEN: &str = "invalid_token";
@@ -127,8 +126,8 @@ pub(crate) struct SignInAuthorizer {
     store: McpCredentialStore,
     /// The server's address, which stands in for the redirect address of the renewal's client.
     address: McpServerAddress,
-    /// The server's canonical address.
-    account: String,
+    /// The digest the server's sign-in is kept under.
+    digest: ServerAddressDigest,
     /// The proof key last read from the held scalar, made again only when the scalar changes.
     dpop_key: Mutex<Option<(Arc<DpopKeyScalar>, Arc<DpopKey>)>>,
     /// The server's metadata the authorizer was made with, which a refused renewal's revocation
@@ -161,10 +160,13 @@ impl SignInAuthorizer {
         metadata: AuthorizationMetadata,
         stop: CancellationToken,
     ) -> Result<Self, SignInAuthorizationError> {
-        let store = custody.credential_store(address);
-        let account = canonical_server_address(address);
+        let digest = custody
+            .digest(address)
+            .await
+            .map_err(SignInCustodyError::from)?;
+        let store = custody.credential_store(&digest, address);
         {
-            let _hold = custody.renewals.acquire(account.clone()).await;
+            let _hold = custody.renewals.acquire(digest.clone()).await;
             let Some(held) = store.held().await? else {
                 store.mark_needs_sign_in(None).await?;
                 return Err(SignInAuthorizationError::SignInRequired);
@@ -189,7 +191,7 @@ impl SignInAuthorizer {
         .await
         .expect("a server address is a web address");
         manager.set_metadata(metadata.clone());
-        manager.set_credential_store(custody.credential_store(address));
+        manager.set_credential_store(custody.credential_store(&digest, address));
         Ok(Self {
             manager: tokio::sync::Mutex::new(RenewingManager {
                 manager,
@@ -201,7 +203,7 @@ impl SignInAuthorizer {
             custody: Arc::clone(custody),
             store,
             address: address.clone(),
-            account,
+            digest,
             dpop_key: Mutex::new(None),
             metadata,
         })
@@ -214,7 +216,7 @@ impl SignInAuthorizer {
     // sign-in kept since the first read, which found the server needs a sign-in, is tried once
     // more; a server still found to need one is marked so.
     async fn current_token(&self) -> Result<(String, Arc<HeldSignIn>), SignInAuthorizationError> {
-        let _hold = self.custody.renewals.acquire(self.account.clone()).await;
+        let _hold = self.custody.renewals.acquire(self.digest.clone()).await;
         let mut found = self.store.held().await?;
         let mut token = self.token_of(found.as_ref()).await;
         if matches!(token, Err(SignInAuthorizationError::SignInRequired))
@@ -369,7 +371,7 @@ impl SignInAuthorizer {
         if challenge_error != Some(INVALID_TOKEN) {
             return Ok(false);
         }
-        let _hold = self.custody.renewals.acquire(self.account.clone()).await;
+        let _hold = self.custody.renewals.acquire(self.digest.clone()).await;
         let Some(held) = self.store.held().await? else {
             self.store.mark_needs_sign_in(None).await?;
             return Ok(false);

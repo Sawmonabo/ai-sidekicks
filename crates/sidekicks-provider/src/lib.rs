@@ -11,8 +11,8 @@ pub mod bearer_token;
 pub mod build_record;
 pub mod callback_tools;
 pub mod capability;
-#[cfg(test)]
-pub(crate) mod captured_logs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod captured_logs;
 pub(crate) mod child_ending;
 pub mod command;
 pub mod command_search;

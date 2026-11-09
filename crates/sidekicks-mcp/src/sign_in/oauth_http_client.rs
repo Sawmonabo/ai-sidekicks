@@ -42,6 +42,7 @@ use rmcp::transport::auth::{
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::oauth::address::normalized_host;
@@ -51,7 +52,6 @@ use crate::oauth::dpop_proof::{
 use crate::oauth::pushed_authorization::{
     AuthorizationRequestEndpoints, DpopSigning, PushedAuthorizationError, browser_authorization_url,
 };
-use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 use crate::sign_in::oauth_http_client::address_policy::{
     AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name,
@@ -124,10 +124,10 @@ impl OAuthHttpPools {
     }
 
     /// A new client for one authorization manager of the server at `address`, judged by the
-    /// server's canonical address, with an empty key slot and nonce slot.
+    /// server's folded address, with an empty key slot and nonce slot.
     pub(crate) fn server_client(&self, address: &McpServerAddress) -> ServerOAuthHttpClient {
-        let server = Url::parse(&canonical_server_address(address))
-            .expect("a canonical server address parses as a web address");
+        let server = Url::parse(&fold_server_address(address))
+            .expect("a folded server address parses as a web address");
         let policy = AddressPolicy::of_server(&server);
         let http = match policy.reach {
             ServerReach::Public => &self.public,
@@ -207,8 +207,12 @@ pub(crate) enum BrowserAddressError {
 /// Why an OAuth call got no response.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OAuthCallError {
-    /// The call's literal address, or a redirect's, is not one this server may reach.
-    #[error("an OAuth call to `{0}` was refused: the address is not allowed for this server")]
+    /// The call's literal address, or a redirect's, is not one this server may reach; only its
+    /// origin prints, as its path and query may carry a credential.
+    #[error(
+        "an OAuth call to `{}` was refused: the address is not allowed for this server",
+        .0.origin().ascii_serialization()
+    )]
     AddressRefused(Url),
     /// Every address the host resolved to is one this server may not reach.
     #[error("an OAuth call to `{0}` was refused: no address it resolves to is allowed")]
@@ -369,7 +373,7 @@ impl ServerOAuthHttpClient {
         };
         let Some(dpop_key) = dpop_key else {
             let request = finish(self.http.request(call.method.clone(), call.url.clone()));
-            let response = request.send().await.map_err(DpopSendError::Http)?;
+            let response = request.send().await.map_err(DpopSendError::from)?;
             return Ok(read_response(response).await?);
         };
         let key = DpopKey::from_scalar(dpop_key.expose_secret())?;

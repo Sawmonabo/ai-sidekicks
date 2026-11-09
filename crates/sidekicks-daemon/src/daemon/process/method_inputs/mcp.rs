@@ -17,10 +17,10 @@ use sidekicks_mcp::sign_in::admitted_client::AdmittedClientStore;
 use sidekicks_mcp::sign_in::commands::McpSignInCommands;
 use sidekicks_mcp::sign_in::credential_store::SignInCustody;
 use sidekicks_mcp::sign_in::oauth_http_client::OAuthHttpPools;
-use sidekicks_mcp::sign_in::owed_sign_out::OwedSignOuts;
 use sidekicks_mcp::sign_in::registration::RELAY_ADDRESS;
+use sidekicks_mcp::sign_in::server::SignInTargetReads;
 use sidekicks_mcp::sign_in::service::SignInService;
-use sidekicks_mcp::sign_in::target::SignInTargetReads;
+use sidekicks_mcp::sign_in::sign_out::owed::OwedSignOuts;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
@@ -107,46 +107,46 @@ impl McpStatusServices {
 
 /// What the sign-ins to MCP servers and the binding edits' service are built over, beside the
 /// inventory.
-pub(super) struct McpSignInStart<'start> {
+pub(crate) struct McpSignInStart<'start> {
     /// The registered drivers, whose own clients sign in where the daemon's cannot.
-    pub(super) providers: &'start Arc<ProviderRegistry>,
+    pub(crate) providers: &'start Arc<ProviderRegistry>,
     /// The inventory a sign-in's target and each edit's row are read from.
-    pub(super) inventory: &'start Arc<McpInventoryService>,
+    pub(crate) inventory: &'start Arc<McpInventoryService>,
     /// The board each committed edit's notice is sent on.
-    pub(super) board: &'start Arc<McpNoticeBoard>,
+    pub(crate) board: &'start Arc<McpNoticeBoard>,
     /// The port the provider accounts' reader is registered on.
-    pub(super) provider_accounts: &'start Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    pub(crate) provider_accounts: &'start Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// The machine's settings, whose environment rows fill a server address's variables.
-    pub(super) settings: &'start Arc<dyn MachineSettingsReader>,
+    pub(crate) settings: &'start Arc<dyn MachineSettingsReader>,
     /// The project records, whose roots and rows a target reads.
-    pub(super) projects: &'start Arc<ProjectRecords>,
+    pub(crate) projects: &'start Arc<ProjectRecords>,
     /// Where the sign-ins and the receipt key are kept.
-    pub(super) secret_items: &'start Arc<SecretItems>,
+    pub(crate) secret_items: &'start Arc<SecretItems>,
     /// The daemon's one writer.
-    pub(super) writer: &'start Arc<DatabaseWriter>,
+    pub(crate) writer: &'start Arc<DatabaseWriter>,
     /// The daemon's one read pool.
-    pub(super) reads: &'start Arc<DatabaseReadPool>,
+    pub(crate) reads: &'start Arc<DatabaseReadPool>,
     /// Where each settled sign-in appends its completion event.
-    pub(super) appender: &'start Arc<SessionEventAppender>,
+    pub(crate) appender: &'start Arc<SessionEventAppender>,
 }
 
 /// The sign-ins to MCP servers: the service the stop closes, the sign-outs a removal owes, which
 /// the start settles, the binding edits' service and the commands the methods forward to.
-pub(super) struct McpSignIns {
+pub(crate) struct McpSignIns {
     /// The service, which holds each open attempt.
-    pub(super) service: Arc<SignInService>,
+    pub(crate) service: Arc<SignInService>,
     /// The sign-outs the bindings' removals owe.
-    pub(super) owed_sign_outs: Arc<OwedSignOuts>,
+    pub(crate) owed_sign_outs: Arc<OwedSignOuts>,
     /// The binding edits' service, each removal owing its server's sign-out.
-    pub(super) mutations: Arc<McpMutationService>,
+    pub(crate) mutations: Arc<McpMutationService>,
     /// The receipted sign-in and sign-out commands.
-    pub(super) commands: Arc<McpSignInCommands>,
+    pub(crate) commands: Arc<McpSignInCommands>,
 }
 
 /// Builds the sign-in service, the sign-outs a removal owes, the binding edits' service over them
 /// and the sign-in commands over `start`, and starts the service's seed of the signed-in servers
 /// from the keychain. Fails when the sign-ins' HTTP pools cannot be built.
-pub(super) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, reqwest::Error> {
+pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, reqwest::Error> {
     let custody = SignInCustody::new(Arc::new(
         start.secret_items.keychain(KeychainService::McpSignIns),
     ));

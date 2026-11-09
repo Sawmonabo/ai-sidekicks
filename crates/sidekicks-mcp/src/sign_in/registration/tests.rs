@@ -24,6 +24,7 @@ use super::{
 use crate::errors::SignInUnsupportedReason;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
 use crate::schema::schema_parts;
+use crate::sign_in::address_digest::ServerAddressKey;
 use crate::sign_in::admitted_client::{
     AdmittedClientStore, MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY,
 };
@@ -316,6 +317,7 @@ async fn each_registration_row_ends_in_its_arm(
 ) {
     let (base, server) = serve(&row).await;
     let server_address = McpServerAddress::new(&base).expect("a server address");
+    let server_digest = ServerAddressKey::of_test_fill(1).digest(&server_address);
 
     let database = TestDatabase::new(schema_parts());
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -332,13 +334,13 @@ async fn each_registration_row_ends_in_its_arm(
         Admitted::Nothing => {}
         Admitted::Provider => admitted_clients
             .record_admitted_provider(
-                &server_address,
+                &server_digest,
                 &ProviderId::new("provider-a".to_owned()).expect("a provider id"),
             )
             .await
             .expect("the admitted client is recorded"),
         Admitted::OwnClientUnfinished => admitted_clients
-            .mark_own_client_unfinished(&server_address)
+            .mark_own_client_unfinished(&server_digest)
             .await
             .expect("the mark is recorded"),
     }
@@ -363,7 +365,7 @@ async fn each_registration_row_ends_in_its_arm(
     let resolution = manager.resolve_metadata().await.expect("discovery answers");
     let redirect_address = Url::parse(row.redirect_address).expect("a URL");
     let request = ClientRequest {
-        server_address: &server_address,
+        server_digest: &server_digest,
         redirect_address: &redirect_address,
         owner_client_id: row.owner_client_id,
         scopes: &[],

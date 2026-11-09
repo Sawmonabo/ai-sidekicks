@@ -56,6 +56,7 @@ use crate::oauth::redirect_receiver::{
     CallbackAnswer, CallbackPath, RedirectCallback, RedirectCallbackOwner, RedirectListener,
     RedirectReceiver, ResultPage,
 };
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::completion_event::{SignInFailureReason, append_sign_in_completed};
 use crate::sign_in::credential_store::SignOutGeneration;
 use crate::sign_in::redemption::REDEMPTION_BOUND;
@@ -133,7 +134,7 @@ pub(super) enum ProviderFlowsTried {
 struct RunningFlow {
     binding: McpServerBindingRef,
     address: McpServerAddress,
-    canonical_address: String,
+    digest: ServerAddressDigest,
     provider: ProviderId,
     flow_id: u64,
     stop: CancellationToken,
@@ -153,6 +154,7 @@ impl SignInService {
         self: &Arc<Self>,
         target: &SignInTarget,
         server: &AddressedServer,
+        digest: &ServerAddressDigest,
         admitted_provider: Option<ProviderId>,
         provider_accounts: &ProviderAccounts,
     ) -> Result<ProviderFlowStart, McpRefusal> {
@@ -161,10 +163,10 @@ impl SignInService {
                 binding: Box::new(target.binding.clone()),
                 source,
             };
-        let since = self.custody.sign_out_generation(&server.address);
+        let since = self.custody.sign_out_generation(digest);
         let stop = self.revocations.token().child_token();
         let flow_id = self
-            .keep_provider_flow(&server.canonical_address, stop.clone().drop_guard())
+            .keep_provider_flow(digest, stop.clone().drop_guard())
             .map_err(|error| failed(Box::new(error)))?;
         let binding_provider = McpBindingKey::of(&target.binding).provider;
         let mut candidates: Vec<(ProviderId, Arc<dyn ProviderDriver>)> = self
@@ -197,18 +199,17 @@ impl SignInService {
             let (browser_return, request_return) = if can_return_to_daemon_receiver {
                 let bound = match listener.take() {
                     Some(bound) => bound,
-                    None => match RedirectListener::bind(
-                        None,
-                        CallbackPath::PerServer(&server.canonical_address),
-                    )
-                    .await
-                    {
-                        Ok(bound) => bound,
-                        Err(error) => {
-                            self.end_provider_flow(&server.canonical_address, Some(flow_id));
-                            return Err(failed(Box::new(error)));
+                    None => {
+                        match RedirectListener::bind(None, CallbackPath::PerServer(digest.as_str()))
+                            .await
+                        {
+                            Ok(bound) => bound,
+                            Err(error) => {
+                                self.end_provider_flow(digest, Some(flow_id));
+                                return Err(failed(Box::new(error)));
+                            }
                         }
-                    },
+                    }
                 };
                 let redirect_url = bound.redirect_url().clone();
                 listener = Some(bound);
@@ -249,7 +250,7 @@ impl SignInService {
                 let Some(page) = WebAddress::new(browser_url.as_str()) else {
                     drop(flow);
                     drop(listener);
-                    self.end_provider_flow(&server.canonical_address, Some(flow_id));
+                    self.end_provider_flow(digest, Some(flow_id));
                     return Err(McpRefusal::ServerSignInUnsupported {
                         binding: Box::new(target.binding.clone()),
                         reason: SignInUnsupportedReason::UnusableMetadata,
@@ -258,7 +259,7 @@ impl SignInService {
                 let running = RunningFlow {
                     binding: target.binding.clone(),
                     address: server.address.clone(),
-                    canonical_address: server.canonical_address.clone(),
+                    digest: digest.clone(),
                     provider,
                     flow_id,
                     stop,
@@ -284,12 +285,12 @@ impl SignInService {
                 Ok(None) => ProviderFlowError::Ended,
                 Err(error) => ProviderFlowError::TaskFailed(error),
             };
-            self.end_provider_flow(&server.canonical_address, Some(flow_id));
+            self.end_provider_flow(digest, Some(flow_id));
             return Ok(ProviderFlowStart::NoneAdmits {
                 failure: Some(failure),
             });
         }
-        self.end_provider_flow(&server.canonical_address, Some(flow_id));
+        self.end_provider_flow(digest, Some(flow_id));
         Ok(ProviderFlowStart::NoneAdmits { failure: None })
     }
 
@@ -302,6 +303,7 @@ impl SignInService {
         self: &Arc<Self>,
         target: &SignInTarget,
         server: &AddressedServer,
+        digest: &ServerAddressDigest,
         client: SignInClient,
         provider_accounts: &ProviderAccounts,
         tried: &mut ProviderFlowsTried,
@@ -331,7 +333,7 @@ impl SignInService {
             ProviderFlowsTried::NoneAdmitted(failure) => failure,
             ProviderFlowsTried::No => {
                 match self
-                    .run_provider_flow(target, server, admitted_provider, provider_accounts)
+                    .run_provider_flow(target, server, digest, admitted_provider, provider_accounts)
                     .await
                 {
                     Ok(ProviderFlowStart::Opened(browser_url)) => {
@@ -396,7 +398,7 @@ impl SignInService {
             }
             forward.park(receiver);
             if let Some(service) = service.upgrade() {
-                service.end_provider_flow(&running.canonical_address, Some(running.flow_id));
+                service.end_provider_flow(&running.digest, Some(running.flow_id));
             }
         });
     }
@@ -454,7 +456,7 @@ impl SignInService {
     async fn clear_own_client_unfinished(&self, running: &RunningFlow) {
         if let Err(error) = self
             .admitted_clients
-            .clear_own_client_unfinished(&running.address)
+            .clear_own_client_unfinished(&running.digest)
             .await
         {
             tracing::warn!(
@@ -478,12 +480,18 @@ impl SignInService {
         let client_secret = takeover.client_secret.clone().map(SecretString::from);
         let saved = self
             .custody
-            .attempt_credential_store(&running.address, running.since, None, client_secret)
+            .attempt_credential_store(
+                &running.digest,
+                &running.address,
+                running.since,
+                None,
+                client_secret,
+            )
             .save(stored_credentials(takeover, SystemTime::now()))
             .await;
         if let Err(error) = self
             .admitted_clients
-            .record_admitted_provider(&running.address, &running.provider)
+            .record_admitted_provider(&running.digest, &running.provider)
             .await
         {
             // The next press finds the provider's flow again.

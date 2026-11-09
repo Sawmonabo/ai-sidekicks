@@ -9,11 +9,11 @@ use tracing_subscriber::layer::SubscriberExt as _;
 /// Every line logged on the test's thread while its guard lives, tasks a current-thread runtime
 /// runs there included.
 #[derive(Clone, Default)]
-pub(crate) struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+pub struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
 
 impl CapturedLogs {
     /// Starts capturing the thread's log, until the guard drops.
-    pub(crate) fn start() -> (Self, DefaultGuard) {
+    pub fn start() -> (Self, DefaultGuard) {
         let logs = Self::default();
         let writer = logs.clone();
         let subscriber = tracing_subscriber::registry().with(
@@ -25,7 +25,7 @@ impl CapturedLogs {
     }
 
     /// The text logged so far.
-    pub(crate) fn text(&self) -> String {
+    pub fn text(&self) -> String {
         String::from_utf8(self.0.lock().expect("the capture is not poisoned").clone())
             .expect("the log is text")
     }

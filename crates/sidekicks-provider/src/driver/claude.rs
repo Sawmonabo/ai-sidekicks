@@ -643,11 +643,11 @@ impl ProviderDriver for ClaudeDriver {
         self.remove_left_sign_in_folders().boxed()
     }
 
-    fn read_mcp_server_address(
+    fn read_mcp_server_addresses(
         &self,
-        request: McpServerAddressRead,
-    ) -> BoxFuture<'_, Result<McpServerAddressReading, DriverError>> {
-        self.read_mcp_server_address(request).boxed()
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
+        self.read_mcp_server_addresses(requests).boxed()
     }
 }
 

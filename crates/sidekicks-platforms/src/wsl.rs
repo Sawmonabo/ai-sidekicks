@@ -9,10 +9,9 @@
 //! character table at lines 27 to 156 and `UnescapePathInplace` at lines 298 to 340, which
 //! `UtilWinPathTranslateInternal` in `src/linux/init/util.cpp` runs on a `\\wsl.localhost\` or
 //! `\\wsl$\` path. `DistributionPath::windows_path` writes the inverse, as `EscapePathForNt` at
-//! line 196 of the same file does.
-//! `drive_path_of` is the other way, read from the same release: `CollapsePath` in
-//! `src/linux/init/wslpath.cpp`, the drive folders `config.cpp` mounts, and `EscapePathForNt` in
-//! `escape.cpp`.
+//! line 196 of the same file does. `drive_path_of` is the other way, read from the same release:
+//! `CollapsePath` in `src/linux/init/wslpath.cpp`, the drive folders `config.cpp` mounts, and
+//! `EscapePathForNt` in `escape.cpp`.
 
 use std::path::{Path, PathBuf};
 
@@ -143,13 +142,7 @@ const fn is_escaped_by_wsl(byte: u8) -> bool {
 
 /// `name` with each character WSL escapes moved into the private-use range from U+F000.
 fn escape_name(name: &str) -> String {
-    name.chars()
-        .map(|character| match u8::try_from(character) {
-            Ok(byte) if is_escaped_by_wsl(byte) => char::from_u32(0xF000 + u32::from(byte))
-                .expect("U+F001 to U+F07C are scalar values"),
-            _ => character,
-        })
-        .collect()
+    name.chars().map(escape_for_windows).collect()
 }
 
 /// `name` with each character of the escaped range, U+F000 to U+F07F, put back where its low bits

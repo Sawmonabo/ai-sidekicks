@@ -1,10 +1,11 @@
-//! The target of an MCP sign-in, read from its binding: the provider's declaration, the whole
+//! The server an MCP sign-in reaches, read from its binding: the provider's declaration, the whole
 //! address the binding's entry declares as its driver reads it, never the stripped one the
 //! inventory serves, the client the server's owner issued, the scopes and the resource the entry
 //! asks for, the `https:` address its authorization server's metadata is read at where the entry
 //! names one, the binding's project root on this computer, the environment rows that fill the
 //! address's variables and each provider's current account.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use reqwest::Url;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::DistributionPath;
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -25,9 +27,9 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
-use sidekicks_workspace::project::records::ProjectRecords;
+use sidekicks_workspace::project::records::{AttachedProjectRoot, ProjectRecords};
 
-use crate::binding::resolver::attached_root_path;
+use crate::binding::resolver::{attached_root_path, detached_root_path};
 use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::inventory_service::McpInventoryService;
 use crate::sign_in::service::{
@@ -203,6 +205,61 @@ impl SignInTargetReads {
         })
     }
 
+    /// The whole address a sign-out of `binding` reaches, as its driver reads it: `None` where it
+    /// no longer reads, as one whose variable lost its value. No metadata address or owner's client
+    /// is read, so a held sign-in is always removable. Refuses as [`Self::read`] does a binding no
+    /// provider declares, a connector or a program (`NotReachedAtAddress`) and a WebSocket server
+    /// (`AddressUnreadable`); fails as the inventory, the accounts, the rows or the driver fail.
+    pub(crate) async fn read_sign_out_address(
+        &self,
+        binding: &McpServerBindingRef,
+    ) -> Result<Option<McpServerAddress>, HandlerError> {
+        let refused = |refusal: McpRefusal| HandlerError::Refused(refusal.into());
+        let unsupported = |reason| {
+            refused(McpRefusal::ServerSignInUnsupported {
+                binding: Box::new(binding.clone()),
+                reason,
+            })
+        };
+        let not_found = || {
+            refused(McpRefusal::ServerNotFound {
+                binding: Box::new(binding.clone()),
+            })
+        };
+        if matches!(binding, McpServerBindingRef::Connector { .. }) {
+            return Err(unsupported(SignInUnsupportedReason::NotReachedAtAddress));
+        }
+        let declaration = self
+            .inventory
+            .read_declarations(binding.provider())
+            .await?
+            .into_iter()
+            .find(|declaration| declaration.binding == *binding)
+            .ok_or_else(not_found)?;
+        match declaration.config {
+            McpServerConfigView::Stdio { .. } => {
+                Err(unsupported(SignInUnsupportedReason::NotReachedAtAddress))
+            }
+            McpServerConfigView::Ws { .. } => {
+                Err(unsupported(SignInUnsupportedReason::AddressUnreadable))
+            }
+            McpServerConfigView::Http { .. } | McpServerConfigView::Sse { .. } => {
+                let driver = self.providers.lookup(binding.provider())?;
+                let provider_accounts = self.read_provider_accounts().await?;
+                match self
+                    .read_address(driver.as_ref(), binding, &provider_accounts)
+                    .await?
+                    .reading
+                {
+                    Ok(McpServerAddressReading::Declared(address)) => Ok(Some(address)),
+                    Ok(McpServerAddressReading::Unreadable) => Ok(None),
+                    Err(DriverError::NoPersonServerEntry(_)) => Err(not_found()),
+                    Err(error) => Err(HandlerError::from(error)),
+                }
+            }
+        }
+    }
+
     /// The whole address `binding`'s entry declares, read before a removal of it: `None` where
     /// the address does not read or the entry declares none, as a program's does. Fails as the
     /// accounts, the rows or the provider's driver fail, and refuses `provider.notFound` for a
@@ -228,14 +285,36 @@ impl SignInTargetReads {
     /// Every registered provider's remote bindings, each with the whole address it declares as
     /// read with its own rows, `None` where the address does not read; a program, a WebSocket
     /// server and a connector are left unread, and so is a binding whose entry left before its
-    /// read. Fails as the inventory, the accounts, the rows or a driver fail.
+    /// read. A detached project's folder counts as a project root, so the entries its files still
+    /// declare are bindings here. The settings, the attached and detached roots and the accounts
+    /// are read once, and each provider's addresses in one read. Fails as the inventory, the
+    /// accounts, the rows or a driver fail.
     pub(crate) async fn read_remote_addresses(
         &self,
     ) -> Result<Vec<(McpServerBindingRef, Option<McpServerAddress>)>, HandlerError> {
+        let internal = |error: Box<dyn Error + Send + Sync>| HandlerError::Internal(error);
         let provider_accounts = self.read_provider_accounts().await?;
+        let mut rows = EnvironmentRowReads::read(self).await?;
+        let detached_roots = self
+            .projects
+            .read_detached_roots()
+            .await
+            .map_err(|error| internal(Box::new(error)))?
+            .iter()
+            .map(detached_root_path)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| internal(Box::new(error)))?;
         let mut addresses = Vec::new();
-        for (provider, driver) in self.providers.drivers() {
-            for declaration in self.inventory.read_declarations(provider).await? {
+        for (provider, declarations) in self
+            .inventory
+            .read_every_declaration(&detached_roots)
+            .await?
+        {
+            let Ok(driver) = self.providers.lookup(&provider) else {
+                continue;
+            };
+            let mut requests = Vec::new();
+            for declaration in declarations {
                 let is_remote = matches!(
                     declaration.config,
                     McpServerConfigView::Http { .. } | McpServerConfigView::Sse { .. }
@@ -245,16 +324,31 @@ impl SignInTargetReads {
                 {
                     continue;
                 }
-                let read = self
-                    .read_address(driver.as_ref(), &declaration.binding, &provider_accounts)
-                    .await?;
-                let address = match read.reading {
+                let (every_project_rows, project_rows) =
+                    rows.rows_of(&self.projects, &declaration.binding).await?;
+                requests.push(McpServerAddressRead {
+                    provider_account_id: provider_accounts.get(&provider).cloned(),
+                    root_folder: root_folder_of(&declaration.binding),
+                    binding: declaration.binding,
+                    every_project_rows,
+                    project_rows,
+                });
+            }
+            let bindings: Vec<McpServerBindingRef> = requests
+                .iter()
+                .map(|request| request.binding.clone())
+                .collect();
+            for (binding, reading) in bindings
+                .into_iter()
+                .zip(driver.read_mcp_server_addresses(requests).await)
+            {
+                let address = match reading {
                     Ok(McpServerAddressReading::Declared(address)) => Some(address),
                     Ok(McpServerAddressReading::Unreadable) => None,
                     Err(DriverError::NoPersonServerEntry(_)) => continue,
                     Err(error) => return Err(HandlerError::from(error)),
                 };
-                addresses.push((declaration.binding, address));
+                addresses.push((binding, address));
             }
         }
         Ok(addresses)
@@ -269,73 +363,26 @@ impl SignInTargetReads {
         binding: &McpServerBindingRef,
         provider_accounts: &ProviderAccounts,
     ) -> Result<AddressRead, HandlerError> {
-        let (every_project_rows, project_rows) = self.read_environment_rows(binding).await?;
+        let (every_project_rows, project_rows) = EnvironmentRowReads::read(self)
+            .await?
+            .rows_of(&self.projects, binding)
+            .await?;
         let reading = driver
-            .read_mcp_server_address(McpServerAddressRead {
+            .read_mcp_server_addresses(vec![McpServerAddressRead {
                 binding: binding.clone(),
                 provider_account_id: provider_accounts.get(binding.provider()).cloned(),
                 root_folder: root_folder_of(binding),
                 every_project_rows: every_project_rows.clone(),
                 project_rows: project_rows.clone(),
-            })
-            .await;
+            }])
+            .await
+            .pop()
+            .expect("a driver answers one reading per read");
         Ok(AddressRead {
             reading,
             every_project_rows,
             project_rows,
         })
-    }
-
-    // The `Every project` rows, and the rows of the project whose attached root is a `project` or
-    // `local` binding's root; no project's rows for any other binding, or for a root no attached
-    // project holds, as a session outside a project reads none.
-    async fn read_environment_rows(
-        &self,
-        binding: &McpServerBindingRef,
-    ) -> Result<(Vec<EnvironmentRow>, Vec<EnvironmentRow>), HandlerError> {
-        let internal = |error: Box<dyn Error + Send + Sync>| HandlerError::Internal(error);
-        let every_project_rows = self
-            .machine_settings
-            .read_machine_settings()
-            .await
-            .map_err(internal)?
-            .environment_rows;
-        let (scope_ref, place) = match binding {
-            McpServerBindingRef::Project {
-                scope_ref, place, ..
-            }
-            | McpServerBindingRef::Local {
-                scope_ref, place, ..
-            } => (scope_ref, place),
-            McpServerBindingRef::User { .. }
-            | McpServerBindingRef::Plugin { .. }
-            | McpServerBindingRef::Connector { .. }
-            | McpServerBindingRef::Managed { .. } => return Ok((every_project_rows, Vec::new())),
-        };
-        let mut project_id = None;
-        for root in self
-            .projects
-            .read_attached_roots()
-            .await
-            .map_err(|error| internal(Box::new(error)))?
-        {
-            let root_path = attached_root_path(&root).map_err(|error| internal(Box::new(error)))?;
-            if root_path.path == *scope_ref && root_path.place == *place {
-                project_id = Some(root.project_id);
-                break;
-            }
-        }
-        let Some(project_id) = project_id else {
-            return Ok((every_project_rows, Vec::new()));
-        };
-        let project_rows = self
-            .projects
-            .read_entry(project_id)
-            .await
-            .map_err(|error| internal(Box::new(error)))?
-            .map(|entry| entry.environment_rows)
-            .unwrap_or_default();
-        Ok((every_project_rows, project_rows))
     }
 
     // Each registered provider's current account; a provider with none is left out.
@@ -371,6 +418,84 @@ struct AddressRead {
     project_rows: Vec<EnvironmentRow>,
 }
 
+/// What the bindings' environment rows are read from, read once for any number of bindings: the
+/// machine's `Every project` rows, the attached roots and each project's rows once read.
+struct EnvironmentRowReads {
+    every_project_rows: Vec<EnvironmentRow>,
+    attached_roots: Vec<AttachedProjectRoot>,
+    project_rows: HashMap<ProjectId, Vec<EnvironmentRow>>,
+}
+
+impl EnvironmentRowReads {
+    // The settings and the attached roots `reads` reads from. Fails as either read fails.
+    async fn read(reads: &SignInTargetReads) -> Result<Self, HandlerError> {
+        let internal = |error: Box<dyn Error + Send + Sync>| HandlerError::Internal(error);
+        let every_project_rows = reads
+            .machine_settings
+            .read_machine_settings()
+            .await
+            .map_err(internal)?
+            .environment_rows;
+        let attached_roots = reads
+            .projects
+            .read_attached_roots()
+            .await
+            .map_err(|error| internal(Box::new(error)))?;
+        Ok(Self {
+            every_project_rows,
+            attached_roots,
+            project_rows: HashMap::new(),
+        })
+    }
+
+    // The `Every project` rows, and the rows of the project whose attached root is a `project` or
+    // `local` binding's root, read from `projects` once per project; no project's rows for any
+    // other binding, or for a root no attached project holds, as a session outside a project
+    // reads none.
+    async fn rows_of(
+        &mut self,
+        projects: &ProjectRecords,
+        binding: &McpServerBindingRef,
+    ) -> Result<(Vec<EnvironmentRow>, Vec<EnvironmentRow>), HandlerError> {
+        let internal = |error: Box<dyn Error + Send + Sync>| HandlerError::Internal(error);
+        let every_project_rows = self.every_project_rows.clone();
+        let (scope_ref, place) = match binding {
+            McpServerBindingRef::Project {
+                scope_ref, place, ..
+            }
+            | McpServerBindingRef::Local {
+                scope_ref, place, ..
+            } => (scope_ref, place),
+            McpServerBindingRef::User { .. }
+            | McpServerBindingRef::Plugin { .. }
+            | McpServerBindingRef::Connector { .. }
+            | McpServerBindingRef::Managed { .. } => return Ok((every_project_rows, Vec::new())),
+        };
+        let mut project_id = None;
+        for root in &self.attached_roots {
+            let root_path = attached_root_path(root).map_err(|error| internal(Box::new(error)))?;
+            if root_path.path == *scope_ref && root_path.place == *place {
+                project_id = Some(root.project_id);
+                break;
+            }
+        }
+        let Some(project_id) = project_id else {
+            return Ok((every_project_rows, Vec::new()));
+        };
+        if let Some(rows) = self.project_rows.get(&project_id) {
+            return Ok((every_project_rows, rows.clone()));
+        }
+        let rows = projects
+            .read_entry(project_id)
+            .await
+            .map_err(|error| internal(Box::new(error)))?
+            .map(|entry| entry.environment_rows)
+            .unwrap_or_default();
+        self.project_rows.insert(project_id, rows.clone());
+        Ok((every_project_rows, rows))
+    }
+}
+
 /// An owner's callback that does not parse as an address.
 struct OwnerCallbackUnparsed;
 
@@ -382,6 +507,7 @@ fn owner_client_of(
     let Some(McpServerSignInSettings {
         client_id,
         callback_url,
+        callback_port,
         ..
     }) = sign_in_settings
     else {
@@ -391,12 +517,13 @@ fn owner_client_of(
         .map(|callback_url| Url::parse(&callback_url))
         .transpose()
         .map_err(|_error| OwnerCallbackUnparsed)?;
-    if client_id.is_none() && callback_url.is_none() {
+    if client_id.is_none() && callback_url.is_none() && callback_port.is_none() {
         return Ok(None);
     }
     Ok(Some(OwnerIssuedClient {
         client_id,
         callback_url,
+        callback_port,
     }))
 }
 

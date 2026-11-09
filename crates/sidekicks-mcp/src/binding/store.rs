@@ -27,6 +27,8 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
+use crate::sign_in::address_digest::ServerAddressDigest;
+
 /// The distinct statements the binding store keeps prepared on each read connection.
 pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
 
@@ -266,10 +268,10 @@ static PROVIDER_BINDINGS_SQL: &str =
   WHERE provider = @provider
   ORDER BY scope, scope_ref, scope_place, server_name";
 
-static PROVIDER_LAST_DECLARED_ADDRESSES_SQL: &str =
-    "SELECT scope, scope_ref, scope_place, server_name, last_declared_address
+static PROVIDER_LAST_DECLARED_DIGESTS_SQL: &str =
+    "SELECT scope, scope_ref, scope_place, server_name, last_declared_address_digest
   FROM mcp_server_bindings
-  WHERE provider = @provider AND last_declared_address IS NOT NULL";
+  WHERE provider = @provider AND last_declared_address_digest IS NOT NULL";
 
 static PROVIDER_TOOL_OVERRIDES_SQL: &str =
     "SELECT scope, scope_ref, scope_place, server_name, tool_name, enabled, approval_mode,
@@ -315,15 +317,16 @@ static ENABLED_OVERRIDE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static LAST_DECLARED_ADDRESS_SQL: LazyLock<String> = LazyLock::new(|| {
+static LAST_DECLARED_DIGEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_server_bindings
-  (provider, scope, scope_ref, scope_place, server_name, last_declared_address, first_observed_at,
-    updated_at)
-  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @address,
+  (provider, scope, scope_ref, scope_place, server_name, last_declared_address_digest,
+    first_observed_at, updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @digest,
     {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
   ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
-    SET last_declared_address = excluded.last_declared_address, updated_at = excluded.updated_at"
+    SET last_declared_address_digest = excluded.last_declared_address_digest,
+      updated_at = excluded.updated_at"
     )
 });
 
@@ -424,40 +427,43 @@ impl McpBindingStore {
             .await
     }
 
-    /// The canonical address each of `provider`'s bindings last read as, for each binding one has
-    /// read for, in one short read. Fails with [`McpBindingStoreError::Database`] or
+    /// The digest of the address each of `provider`'s bindings last read as, for each binding one
+    /// has read for, in one short read. Fails with [`McpBindingStoreError::Database`] or
     /// [`McpBindingStoreError::Pool`] as the read fails.
-    pub(crate) async fn read_last_declared_addresses(
+    pub(crate) async fn read_last_declared_digests(
         &self,
         provider: &ProviderId,
-    ) -> Result<HashMap<McpBindingKey, String>, McpBindingStoreError> {
+    ) -> Result<HashMap<McpBindingKey, ServerAddressDigest>, McpBindingStoreError> {
         let provider = provider.clone();
         self.reads
             .read(ReadLength::Short, move |connection| {
-                let mut addresses = HashMap::new();
+                let mut digests = HashMap::new();
                 let mut statement =
-                    connection.prepare_cached(PROVIDER_LAST_DECLARED_ADDRESSES_SQL)?;
+                    connection.prepare_cached(PROVIDER_LAST_DECLARED_DIGESTS_SQL)?;
                 let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
                 while let Some(row) = rows.next()? {
-                    addresses.insert(read_key(&provider, row)?, row.get(4)?);
+                    digests.insert(
+                        read_key(&provider, row)?,
+                        ServerAddressDigest::from_stored(row.get(4)?),
+                    );
                 }
-                Ok(addresses)
+                Ok(digests)
             })
             .await
     }
 
-    /// Records `canonical_address` as the address `binding` last read as, writing the binding's
+    /// Records `digest` as the digest of the address `binding` last read as, writing the binding's
     /// row where it has none. Fails with [`McpBindingStoreError::Write`] as the write fails.
-    pub(crate) async fn record_last_declared_address(
+    pub(crate) async fn record_last_declared_digest(
         &self,
         binding: &McpServerBindingRef,
-        canonical_address: &str,
+        digest: &ServerAddressDigest,
     ) -> Result<(), McpBindingStoreError> {
         let mut bindings = key_bindings(&McpBindingKey::of(binding));
-        bindings.push(text_binding("@address", canonical_address));
+        bindings.push(text_binding("@digest", digest.as_str()));
         self.writer
             .write(vec![WriteStatement {
-                sql: Cow::Borrowed(LAST_DECLARED_ADDRESS_SQL.as_str()),
+                sql: Cow::Borrowed(LAST_DECLARED_DIGEST_SQL.as_str()),
                 bindings: StatementBindings::Named(bindings),
                 expected_row_count: Some(1),
             }])

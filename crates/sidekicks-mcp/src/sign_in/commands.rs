@@ -13,11 +13,12 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::registry::HandlerError;
 
+use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::mutation::service::command::{McpCommand, McpCommandAnswer};
 use crate::mutation::service::{McpMutationService, response_of, response_value};
-use crate::sign_in::owed_sign_out::OwedSignOuts;
+use crate::sign_in::server::SignInTargetReads;
 use crate::sign_in::service::{SignInService, SignInTarget, addressed_server};
-use crate::sign_in::target::SignInTargetReads;
+use crate::sign_in::sign_out::owed::OwedSignOuts;
 
 /// The receipted sign-in and sign-out commands the daemon's handlers forward to.
 pub struct McpSignInCommands {
@@ -83,9 +84,11 @@ impl McpSignInCommands {
     }
 
     /// Signs out of the server `request`'s binding reaches once per key, answering `{}`, and a
-    /// retry under the key with the same answer. Refuses as the receipt and the target read
-    /// refuse, `mcp.server.signInUnsupported` for a binding no sign-in reaches, and
-    /// `mcp.server.signOutFailed` when the keychain keeps the sign-in.
+    /// retry under the key with the same answer: the server its address reads as, or where it no
+    /// longer reads, the one it last read as. Refuses as the receipt and the address read refuse,
+    /// `mcp.server.signInUnsupported` for a binding no sign-in reaches or whose address never
+    /// read, `mcp.bindingStoreUnavailable` when the address key or the binding store cannot be
+    /// used, and `mcp.server.signOutFailed` when the keychain keeps the sign-in.
     pub async fn sign_out(
         &self,
         request: McpServerSignOutRequest,
@@ -99,10 +102,23 @@ impl McpSignInCommands {
                 &request,
                 &binding,
                 || async {
-                    let read = self.targets.read(&binding).await?;
-                    self.note_declared(&read.target).await;
+                    let address = self.targets.read_sign_out_address(&binding).await?;
+                    let digest = self
+                        .owed
+                        .sign_out_digest(&binding, address.as_ref())
+                        .await
+                        .map_err(|error| HandlerError::Refused(McpRefusal::from(error).into()))?
+                        .ok_or_else(|| {
+                            HandlerError::Refused(
+                                McpRefusal::ServerSignInUnsupported {
+                                    binding: Box::new(binding.clone()),
+                                    reason: SignInUnsupportedReason::AddressUnreadable,
+                                }
+                                .into(),
+                            )
+                        })?;
                     self.sign_ins
-                        .sign_out(&read.target)
+                        .sign_out(&binding, &digest)
                         .await
                         .map_err(|refusal| HandlerError::Refused(refusal.into()))?;
                     let signed_out = response_value(&EmptyPayload {});
@@ -183,6 +199,7 @@ mod tests {
     use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
     use sidekicks_provider::driver::contract::sign_in::McpServerAddressReading;
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::mcp_server::read::McpServerSignInSettings;
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::credential_store::service::KeychainService;
@@ -192,15 +209,14 @@ mod tests {
     use super::McpSignInCommands;
     use crate::mutation::receipts::tests::idempotency_key;
     use crate::mutation::service::{McpMutationService, McpMutationSources};
-    use crate::sign_in::canonical_server_address;
-    use crate::sign_in::owed_sign_out::OwedSignOuts;
-    use crate::sign_in::service::SignInService;
-    use crate::sign_in::sign_out::tests::{
-        address, presented_authorization, received_revocations, signed_in,
-    };
-    use crate::sign_in::target::tests::{
+    use crate::sign_in::server::tests::{
         TestSources, answer_address_read, docs_binding, driver_declaring, program_declaration,
         remote_declaration, test_sources,
+    };
+    use crate::sign_in::service::SignInService;
+    use crate::sign_in::sign_out::owed::OwedSignOuts;
+    use crate::sign_in::sign_out::revocation::tests::{
+        address, presented_authorization, received_revocations, signed_in,
     };
     use crate::sign_in::test_service::{
         FakeAuthorizationServer, FakeServerAnswers, harness_with, serve_authorization_server,
@@ -319,7 +335,14 @@ mod tests {
         assert!(
             harness
                 .keychain
-                .read(&canonical_server_address(&address(&server)))
+                .read(
+                    harness
+                        .service
+                        .custody
+                        .test_digest(&address(&server))
+                        .await
+                        .as_str()
+                )
                 .await
                 .expect("the keychain answers")
                 .is_none()
@@ -334,7 +357,12 @@ mod tests {
         let test = commands_over(driver_reaching(&server), &harness.service).await;
         harness.platform_store.refuse_next_call(
             KeychainService::McpSignIns.as_str(),
-            &canonical_server_address(&address(&server)),
+            harness
+                .service
+                .custody
+                .test_digest(&address(&server))
+                .await
+                .as_str(),
         );
 
         let signed_out = test.commands.sign_out(press(&docs_binding())).await;
@@ -359,7 +387,14 @@ mod tests {
         assert!(
             harness
                 .keychain
-                .read(&canonical_server_address(&address(&server)))
+                .read(
+                    harness
+                        .service
+                        .custody
+                        .test_digest(&address(&server))
+                        .await
+                        .as_str()
+                )
                 .await
                 .expect("the keychain answers")
                 .is_some(),
@@ -406,7 +441,7 @@ mod tests {
                 (connector, driver)
             }
         };
-        driver.expect_read_mcp_server_address().times(0);
+        driver.expect_read_mcp_server_addresses().times(0);
         let test = commands_over(Arc::new(driver), &harness.service).await;
 
         let signed_out = test.commands.sign_out(press(&binding)).await;
@@ -418,11 +453,99 @@ mod tests {
         assert!(
             harness
                 .keychain
-                .read(&canonical_server_address(&address(&server)))
+                .read(
+                    harness
+                        .service
+                        .custody
+                        .test_digest(&address(&server))
+                        .await
+                        .as_str()
+                )
                 .await
                 .expect("the keychain answers")
                 .is_some(),
             "the sign-in held at the address stays"
+        );
+    }
+
+    /// What a sign-out's address read finds.
+    #[derive(Clone, Copy, Debug)]
+    enum SignOutAddress {
+        /// The address, with a metadata address no sign-in can use.
+        UnusableMetadata,
+        /// No address any more, after one was read.
+        UnreadableAfterARead,
+        /// No address, and none ever read.
+        NeverRead,
+    }
+
+    // A held sign-in is removable whatever its entry now says: a metadata address a sign-in
+    // refuses does not refuse the sign-out, and an address that no longer reads signs out the
+    // server it last read as; one never read is refused and removes nothing. Killed by the
+    // sign-out reading the sign-in's target (`UnusableMetadata` refused), by an unreadable address
+    // refused in place of its last digest, and by a sign-out of nothing answered success.
+    #[rstest]
+    #[case::unusable_metadata(SignOutAddress::UnusableMetadata)]
+    #[case::unreadable_after_a_read(SignOutAddress::UnreadableAfterARead)]
+    #[case::never_read(SignOutAddress::NeverRead)]
+    #[tokio::test]
+    async fn a_held_sign_in_signs_out_however_its_entry_now_reads(#[case] case: SignOutAddress) {
+        let (server, harness, _authorizer) = signed_in(StatusCode::OK, None, None).await;
+        let mut declaration = remote_declaration(&docs_binding(), &server.base);
+        declaration.sign_in_settings = Some(McpServerSignInSettings {
+            client_id: None,
+            callback_url: None,
+            callback_port: None,
+            authorization_server_metadata_url: Some("http://metadata.example.test/".to_owned()),
+            asks_offline_access_where_listed: false,
+        });
+        let mut driver = driver_declaring(vec![declaration]);
+        answer_address_read(
+            &mut driver,
+            Ok(match case {
+                SignOutAddress::UnusableMetadata => {
+                    McpServerAddressReading::Declared(address(&server))
+                }
+                SignOutAddress::UnreadableAfterARead | SignOutAddress::NeverRead => {
+                    McpServerAddressReading::Unreadable
+                }
+            }),
+        );
+        let test = commands_over(Arc::new(driver), &harness.service).await;
+        if matches!(case, SignOutAddress::UnreadableAfterARead) {
+            test.commands
+                .owed
+                .note_declared(&docs_binding(), &address(&server))
+                .await
+                .expect("the address read is kept");
+        }
+
+        let signed_out = test.commands.sign_out(press(&docs_binding())).await;
+
+        let is_signed_out = !matches!(case, SignOutAddress::NeverRead);
+        match &signed_out {
+            Ok(_) => assert!(is_signed_out, "a sign-out of nothing is refused"),
+            Err(HandlerError::Refused(refusal)) => {
+                assert!(!is_signed_out, "{refusal:?}");
+                assert_eq!(refusal.code, RefusalCode::McpServerSignInUnsupported);
+            }
+            Err(error) => panic!("the sign-out failed: {error:?}"),
+        }
+        assert_eq!(
+            harness
+                .keychain
+                .read(
+                    harness
+                        .service
+                        .custody
+                        .test_digest(&address(&server))
+                        .await
+                        .as_str()
+                )
+                .await
+                .expect("the keychain answers")
+                .is_none(),
+            is_signed_out
         );
     }
 }

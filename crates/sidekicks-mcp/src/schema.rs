@@ -143,9 +143,9 @@ CREATE TABLE mcp_server_bindings (
   -- tool override there, kept while any override is written and dropped once none is, so clearing
   -- an override restores what the provider had.
   native_tool_baseline_json  TEXT,
-  -- The canonical address the binding's whole address last read as, which a removal signs out
-  -- once its variables no longer read; NULL until one has read. It may hold credentials.
-  last_declared_address      TEXT,
+  -- The keyed digest of the address the binding's whole address last read as, which a removal
+  -- signs out once its variables no longer read; NULL until one has read. Never the address.
+  last_declared_address_digest  TEXT,
   first_observed_at          TEXT NOT NULL,
   updated_at                 TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name),
@@ -253,11 +253,12 @@ CREATE TABLE mcp_project_server_switches (
 
 -- ---------------------------------------------------------------------------
 -- mcp_server_admitted_clients: which sign-in client each server admitted, one row per server
--- address however many bindings name it, kept through a sign-out. Not a credential.
+-- however many bindings name it, kept through a sign-out. Not a credential.
 -- ---------------------------------------------------------------------------
 CREATE TABLE mcp_server_admitted_clients (
-  -- The server's canonical address, the account its sign-in is kept under.
-  server_address            TEXT NOT NULL PRIMARY KEY,
+  -- The keyed digest of the server's address, the account its sign-in is kept under; never the
+  -- address.
+  server_address_digest     TEXT NOT NULL PRIMARY KEY,
   -- The open id of the provider whose own client the server admitted; NULL until one has.
   admitted_oauth_client     TEXT,
   -- When the daemon's own client last ended an attempt with no callback; NULL otherwise.
@@ -266,12 +267,12 @@ CREATE TABLE mcp_server_admitted_clients (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
--- mcp_server_owed_sign_outs: the canonical address of a server a removed binding, or one whose
--- address changed, named, whose sign-out is owed unless another binding still names it; a removal
--- writes it before the provider's write. Not a credential.
+-- mcp_server_owed_sign_outs: the keyed digest of the address of a server a removed binding, or
+-- one whose address changed, named, whose sign-out is owed unless another binding still names it;
+-- a removal writes it before the provider's write. Never the address and not a credential.
 -- ---------------------------------------------------------------------------
 CREATE TABLE mcp_server_owed_sign_outs (
-  server_address  TEXT NOT NULL PRIMARY KEY
+  server_address_digest  TEXT NOT NULL PRIMARY KEY
 ) STRICT;
 "
     )

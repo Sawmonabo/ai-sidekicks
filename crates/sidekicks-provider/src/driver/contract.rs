@@ -719,12 +719,14 @@ pub trait ProviderDriver: Send + Sync {
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
 
-    /// Reads the whole address `request`'s server entry declares, the one the provider connects
-    /// to: its user name and query kept and its variables filled as the provider fills them. The
-    /// address is held only in memory. Fails with [`DriverError::NoPersonServerEntry`] for a
-    /// connector and for a binding whose entry declares no remote server, and as the read fails.
-    fn read_mcp_server_address(
+    /// Reads the whole address each of `requests`' server entries declares, the one the provider
+    /// connects to, answering one reading per request in their order: its user name and query kept
+    /// and its variables filled as the provider fills them, each config the requests share read
+    /// once. The addresses are held only in memory. A reading fails with
+    /// [`DriverError::NoPersonServerEntry`] for a connector and for a binding whose entry declares
+    /// no remote server, and as its read fails.
+    fn read_mcp_server_addresses(
         &self,
-        request: McpServerAddressRead,
-    ) -> BoxFuture<'_, Result<McpServerAddressReading, DriverError>>;
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>>;
 }

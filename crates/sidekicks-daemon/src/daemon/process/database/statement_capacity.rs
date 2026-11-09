@@ -9,7 +9,7 @@ use sidekicks_mcp::binding::store::MCP_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_mcp::client::dispatch::restart_sweep::MCP_RESTART_SWEEP_STATEMENT_CAPACITY;
 use sidekicks_mcp::mutation::service::MCP_MUTATION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_mcp::sign_in::admitted_client::MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY;
-use sidekicks_mcp::sign_in::owed_sign_out::MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY;
+use sidekicks_mcp::sign_in::sign_out::owed::MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY;
 use sidekicks_provider::account::resolver::PROVIDER_ACCOUNTS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;

@@ -17,6 +17,8 @@ pub(crate) mod sent_entry;
 pub(super) mod variables;
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
+use std::future::ready;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -38,6 +40,7 @@ use crate::driver::claude::mcp::config::{
     ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudePluginRoot, ClaudeServerEntryReader,
     is_kept_out_server,
 };
+use crate::driver::claude::mcp::organization::read_managed_entry;
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::ClaudeStreamFrame;
@@ -109,8 +112,11 @@ pub(crate) struct ClaudeMcpProbeSources<'sources> {
     pub(crate) plugin_roots: &'sources [ClaudePluginRoot],
     /// The attached project roots, in the order the probe goes through them.
     pub(crate) attached_roots: &'sources [PlacedPath],
+    /// The administrator's MCP file's servers, where one is deployed, whose entry of a name is
+    /// the one sent in place of the account's.
+    pub(crate) managed_mcp_servers: Option<&'sources Map<String, Value>>,
     /// Each organization server's entry of the account as written, by its name; one with no
-    /// entry here, or one the set cannot carry whole, is not sent.
+    /// entry here or in the file, or one the set cannot carry whole, is not sent.
     pub(crate) organization_entries: &'sources BTreeMap<McpServerName, Map<String, Value>>,
 }
 
@@ -199,13 +205,13 @@ pub(crate) fn plan_claude_probe(
 /// Probes `targets` through `sources`, one process per attached root in turn: a `project` or
 /// `local` binding at its own root, every other binding at the first attached root, and plugins
 /// Claude Code loads under one name in processes of their own. An organization's server is sent as
-/// its managed settings declare it, and every other declaration is re-read from the person's
-/// config or its plugin's files, each file once. A plugin's server is sent only where Claude Code
-/// loaded its plugin, and reads `failed` with Claude Code's own words otherwise, or with Claude
-/// Code's notice, unsent, where a deployed managed MCP file connects no plugin's server. A target
-/// whose entry or plugin is gone gets no reading; one whose entry the
-/// set cannot carry whole, an organization's server with no sendable entry among them, reads
-/// `unknown` unsent; a sent one no status answer names by the ceiling reads `failed`. Fails as the
+/// the administrator's MCP file declares it, else as its managed settings do, and every other
+/// declaration is re-read from the person's config or its plugin's files, each file once. A
+/// plugin's server is sent only where Claude Code loaded its plugin, and reads `failed` with
+/// Claude Code's own words otherwise, or with Claude Code's notice, unsent, where a deployed
+/// managed MCP file connects no plugin's server. A target whose entry or plugin is gone gets no
+/// reading; one whose entry the set cannot carry whole, an organization's server with no sendable
+/// entry among them, reads `unknown` unsent; a sent one no status answer names by the ceiling reads `failed`. Fails as the
 /// config read, a start or a request does, the process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
@@ -221,17 +227,20 @@ pub(crate) async fn probe_claude_mcp_servers(
         for (target, name) in batch.targets {
             let sent = match &target.binding {
                 McpServerBindingRef::Managed { server_name, .. } => Some((
-                    sources
-                        .organization_entries
-                        .get(server_name)
-                        .and_then(|entry| compose_tool_server_entry(Value::Object(entry.clone())))
-                        .map_or(SentEntry::Unsendable, |entry| {
-                            SentEntry::Sent(expand_entry_variables(
-                                entry,
-                                &sources.environment,
-                                None,
-                            ))
-                        }),
+                    read_managed_entry(
+                        sources.managed_mcp_servers,
+                        server_name,
+                        ready(Ok::<_, Infallible>(
+                            sources.organization_entries.get(server_name).cloned(),
+                        )),
+                    )
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|entry| compose_tool_server_entry(Value::Object(entry)))
+                    .map_or(SentEntry::Unsendable, |entry| {
+                        SentEntry::Sent(expand_entry_variables(entry, &sources.environment, None))
+                    }),
                     None,
                 )),
                 binding @ (McpServerBindingRef::User { .. }

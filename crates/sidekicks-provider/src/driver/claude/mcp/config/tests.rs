@@ -238,6 +238,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
             Some(&McpServerSignInSettings {
                 client_id: Some("owner-client".to_owned()),
                 callback_url: Some("http://localhost:8080/callback".to_owned()),
+                callback_port: None,
                 authorization_server_metadata_url: Some(
                     "https://auth.example.test/meta?tenant=metadata-secret".to_owned()
                 ),
@@ -484,6 +485,7 @@ async fn an_oauth_member_reads_each_setting_on_its_own(
         Some(McpServerSignInSettings {
             client_id: None,
             callback_url: callback_url.map(str::to_owned),
+            callback_port: None,
             authorization_server_metadata_url: None,
             asks_offline_access_where_listed: true,
         })

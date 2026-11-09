@@ -2,12 +2,13 @@
 //! computer and the entries it declares, and the servers a Claude Code process reports from it and
 //! from the managed settings' `managedMcpServers`, a remote one served with its address's host
 //! only. A `managedMcpServers` entry is always a remote one, since Claude Code drops one that names
-//! a program, and is kept whole as written, its headers included, for a probe and a sign-in. The
-//! file's entries are read as written for a sign-in's address and its takeover; a listing still
-//! takes each from the process, which reports it as an `enterprise` row, a program's included.
+//! a program, and is kept whole as written, its headers included, for a probe and a sign-in.
+//! Where the file and the managed settings both declare a name, Claude Code loads the file's
+//! entry, so one reader answers that entry for the listing, the probe and the sign-in alike.
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -19,7 +20,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpEndpoint, ClaudeMcpServer, ClaudeOAuthMember, MCP_SERVERS_MEMBER, read_json_file,
 };
-use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
+use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
 use crate::driver::mcp_server::address::{
     ServerAddressIdentity, ServerAddressReading, read_server_address,
@@ -45,20 +46,33 @@ pub(crate) async fn has_readable_managed_mcp_file(managed_settings_folder: Optio
 
 /// The servers of the administrator's MCP file in `managed_settings_folder`, by name, each entry as
 /// the administrator wrote it with its `${VAR}` unfilled, for any reader of the file's servers:
-/// `None` where Claude Code can read no such file, and no servers where the file does not parse or
-/// lists none, since it is still deployed. Fails as the file's read fails for a reason other than its
-/// absence or its permissions.
+/// `None` where Claude Code can read no such file, and no servers where the file does not parse,
+/// does not read once opened, as a folder of its name does, or lists none, since it is still
+/// deployed. A file that does not read is logged once per daemon life.
 pub(crate) async fn read_managed_mcp_servers(
     managed_settings_folder: Option<&Path>,
-) -> Result<Option<Map<String, Value>>, ClaudeSettingsReadError> {
-    let Some(folder) = managed_settings_folder else {
-        return Ok(None);
-    };
+) -> Option<Map<String, Value>> {
+    static IS_UNREAD_FILE_LOGGED: AtomicBool = AtomicBool::new(false);
+    let folder = managed_settings_folder?;
     if !has_readable_managed_mcp_file(Some(folder)).await {
-        return Ok(None);
+        return None;
     }
-    let file: Option<Map<String, Value>> =
-        read_json_file(&folder.join(CLAUDE_MANAGED_MCP_FILE)).await?;
+    let file: Option<Map<String, Value>> = match read_json_file(
+        &folder.join(CLAUDE_MANAGED_MCP_FILE),
+    )
+    .await
+    {
+        Ok(file) => file,
+        Err(error) => {
+            if !IS_UNREAD_FILE_LOGGED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the administrator's MCP file did not read; it is read as listing no servers"
+                );
+            }
+            None
+        }
+    };
     let servers = match file.and_then(|mut file| file.remove(MCP_SERVERS_MEMBER)) {
         Some(Value::Object(servers)) => servers,
         Some(
@@ -66,39 +80,68 @@ pub(crate) async fn read_managed_mcp_servers(
         )
         | None => Map::new(),
     };
-    Ok(Some(servers))
+    Some(servers)
 }
 
-/// Puts in place of each organization server among `servers` that `file_servers`, the
-/// administrator's MCP file's servers, declares by name the file's entry, whole: its transport,
-/// address, program and `oauth`, since Claude Code loads the file's entry where both define a
-/// name. A file entry of no form a declaration reads leaves the server as listed.
-pub(crate) fn take_managed_file_entries(
+/// The entry of the organization's server `server_name` as Claude Code loads it: the one
+/// `file_servers`, the administrator's MCP file's servers, declares by that name, else the one
+/// `organization_entries` answers, an account's `managedMcpServers` entry, which is awaited only
+/// where the file does not declare the name. A file entry of no object form reads as none. Fails
+/// as `organization_entries` fails.
+pub(crate) async fn read_managed_entry<E>(
+    file_servers: Option<&Map<String, Value>>,
+    server_name: &McpServerName,
+    organization_entries: impl Future<Output = Result<Option<Map<String, Value>>, E>>,
+) -> Result<Option<Map<String, Value>>, E> {
+    match file_servers.and_then(|servers| servers.get(server_name.as_str())) {
+        Some(Value::Object(entry)) => Ok(Some(entry.clone())),
+        Some(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
+        ) => Ok(None),
+        None => organization_entries.await,
+    }
+}
+
+/// Lists each organization server among `servers` from its entry as [`read_managed_entry`]
+/// answers it from `file_servers` and `organization_entries`, whole: its transport, its address
+/// with its `${VAR}` filled from `environment`, as Claude Code fills it, its program and its
+/// `oauth`. A server with no entry, or one of no form a declaration reads, stays as listed.
+pub(crate) async fn take_managed_entries(
     servers: &mut [ClaudeMcpServer],
-    file_servers: &Map<String, Value>,
+    file_servers: Option<&Map<String, Value>>,
+    organization_entries: &BTreeMap<McpServerName, Map<String, Value>>,
+    environment: &[(String, String)],
 ) {
     for server in servers {
         let McpServerBindingRef::Managed { server_name, .. } = &server.binding else {
             continue;
         };
-        let Some(entry) = file_servers
-            .get(server_name.as_str())
-            .and_then(|entry| ClaudeManagedServerEntry::deserialize(entry).ok())
+        let organization_entry = std::future::ready(Ok::<_, std::convert::Infallible>(
+            organization_entries.get(server_name).cloned(),
+        ));
+        let Ok(Some(entry)) =
+            read_managed_entry(file_servers, server_name, organization_entry).await
         else {
             continue;
         };
-        let address = entry.url.as_deref().map(read_server_address);
+        let Ok(entry) = ClaudeManagedServerEntry::deserialize(Value::Object(entry)) else {
+            continue;
+        };
+        let address = entry
+            .url
+            .as_deref()
+            .map(|url| read_server_address(&expand_remote_address(url, environment)));
         let program = entry
             .command
             .map(|command| (command, entry.args.unwrap_or_default()));
-        if let Some(file_server) = managed_server(
+        if let Some(entry_server) = managed_server(
             server_name.as_str(),
             entry.transport.as_deref(),
             address,
             program,
-            &entry.oauth,
+            Some(&entry.oauth),
         ) {
-            *server = file_server;
+            *server = entry_server;
         }
     }
 }
@@ -132,7 +175,7 @@ pub(crate) fn read_claude_organization_servers(
             entry.transport.as_deref(),
             address,
             None,
-            &entry.oauth,
+            Some(&entry.oauth),
         ) {
             if let (McpServerBindingRef::Managed { server_name, .. }, Some(written)) =
                 (&server.binding, written.as_object())
@@ -155,13 +198,9 @@ pub(crate) fn read_claude_organization_servers(
             .map(|command| (command, config.args.clone().unwrap_or_default()));
         let address = config.address.as_ref().map(copy_address);
         // A row reports no `oauth`, so it names no sign-in settings of its own.
-        if let Some(server) = managed_server(
-            name,
-            config.transport.as_deref(),
-            address,
-            program,
-            &ClaudeOAuthMember::default(),
-        ) {
+        if let Some(server) =
+            managed_server(name, config.transport.as_deref(), address, program, None)
+        {
             push_unlisted(&mut servers, server);
         }
     }
@@ -274,14 +313,15 @@ struct ClaudeManagedServerEntry {
 }
 
 // One organization server named `name`: a remote one served with its address's host alone and
-// the sign-in settings and scopes `oauth` names, a program with its command and arguments. `None`
-// for a name that is no server name, or a transport with no declaration form.
+// the sign-in settings and scopes `oauth` names, none where it is `None` as a row's is, or a
+// program with its command and arguments. `None` for a name that is no server name, or a
+// transport with no declaration form.
 fn managed_server(
     name: &str,
     transport: Option<&str>,
     address: Option<ServerAddressReading>,
     program: Option<(String, Vec<String>)>,
-    oauth: &ClaudeOAuthMember,
+    oauth: Option<&ClaudeOAuthMember>,
 ) -> Option<ClaudeMcpServer> {
     let server_name = McpServerName::new(name.to_owned()).ok()?;
     let (config, endpoint, sign_in_settings) = match (transport, address, program) {
@@ -291,16 +331,17 @@ fn managed_server(
             None,
         ),
         (Some(transport @ ("http" | "sse")), Some(address), _) => {
-            let (sign_in_settings, oauth_scopes) = oauth.read_sign_in();
+            let (sign_in_settings, oauth_scopes) =
+                oauth.map(ClaudeOAuthMember::read_sign_in).unzip();
             (
                 remote_server_view(
                     transport,
                     address_host(&address.stripped_url),
                     None,
-                    oauth_scopes,
+                    oauth_scopes.flatten(),
                 )?,
                 address.identity.map(ClaudeMcpEndpoint::Address),
-                Some(sign_in_settings),
+                sign_in_settings,
             )
         }
         (None | Some("stdio"), _, Some((command, args))) => (
@@ -360,14 +401,17 @@ fn push_unlisted(servers: &mut Vec<ClaudeMcpServer>, server: ClaudeMcpServer) {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-    use serde_json::{Value, json};
+    use std::convert::Infallible;
+    use std::future::ready;
 
+    use rstest::rstest;
+    use serde_json::{Map, Value, json};
+    use sidekicks_contracts::mcp::server::McpServerName;
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 
     use super::{
         CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file, read_claude_organization_servers,
-        read_managed_mcp_servers, take_managed_file_entries,
+        read_managed_entry, read_managed_mcp_servers, take_managed_entries,
     };
 
     // The check reads the folder it is handed: a test folder with the file and one without.
@@ -390,15 +434,16 @@ mod tests {
         json!({"type": "http", "url": "https://${HOST:-docs.example.test}/mcp"})
     }
 
-    // The file's servers are read as written where it is deployed, none where it does not parse,
-    // and no file where there is none. Killed by the file not read, by another member read, and by
-    // an unparsed file read as absent.
+    // The file's servers are read as written where it is deployed, none where it does not parse or
+    // read, and no file where there is none. Killed by the file not read, by another member read,
+    // by an unparsed file read as absent, and by an unreadable one failing the read.
     #[rstest]
     #[case::deployed(
         Some(json!({"mcpServers": {"docs": docs_entry()}}).to_string()),
         Some(json!({"docs": docs_entry()}))
     )]
     #[case::unparsed(Some("not JSON".to_owned()), Some(json!({})))]
+    #[case::unreadable(Some(String::new()), Some(json!({})))]
     #[case::absent(None, None)]
     #[tokio::test]
     async fn the_managed_file_servers_are_read_where_it_is_deployed(
@@ -406,52 +451,95 @@ mod tests {
         #[case] expected: Option<Value>,
     ) {
         let folder = tempfile::tempdir().expect("a test folder");
-        if let Some(contents) = contents {
-            tokio::fs::write(folder.path().join(CLAUDE_MANAGED_MCP_FILE), contents)
+        // An empty text stands for a folder of the file's name, which opens and does not read.
+        match contents.as_deref() {
+            Some("") => tokio::fs::create_dir(folder.path().join(CLAUDE_MANAGED_MCP_FILE))
                 .await
-                .expect("the file is written");
+                .expect("the folder is made"),
+            Some(contents) => {
+                tokio::fs::write(folder.path().join(CLAUDE_MANAGED_MCP_FILE), contents)
+                    .await
+                    .expect("the file is written");
+            }
+            None => {}
         }
 
-        let read = read_managed_mcp_servers(Some(folder.path()))
-            .await
-            .expect("the file reads");
+        let read = read_managed_mcp_servers(Some(folder.path())).await;
 
         assert_eq!(read.map(Value::Object), expected);
     }
 
-    // A name the administrator's MCP file and the managed settings both declare lists the file's
-    // entry, whole. Killed by the organization's entry kept, and by only `oauth` taken from the
-    // file.
-    #[test]
-    fn a_name_both_declare_lists_the_files_entry_whole() {
-        let mut organization = read_claude_organization_servers(
-            &[],
-            Some(&json!({ "managedMcpServers": { "docs": {
+    // A name the administrator's MCP file and the managed settings both declare reads as the
+    // file's entry, whole, without the organization's entry asked for, and lists from it with its
+    // address's `${VAR}` filled from the environment; a name only the managed settings declare
+    // reads as theirs. Killed by the organization's entry read first, by only `oauth` taken from
+    // the file, and by the file's address listed unfilled (its host then reads empty).
+    #[rstest]
+    #[case::the_default(&[], "docs.example.test")]
+    #[case::the_value(&[("HOST", "tenant.example.test")], "tenant.example.test")]
+    #[tokio::test]
+    async fn a_name_both_declare_reads_and_lists_the_files_entry_whole(
+        #[case] environment: &[(&str, &str)],
+        #[case] expected_host: &str,
+    ) {
+        let settings = json!({ "managedMcpServers": {
+            "docs": {
                 "type": "http",
                 "url": "https://org.example.test/mcp",
                 "oauth": { "clientId": "org-client" },
-            } } })),
-        );
+            },
+            "wiki": { "type": "http", "url": "https://wiki.example.test/mcp" },
+        } });
+        let mut organization = read_claude_organization_servers(&[], Some(&settings));
         let Value::Object(file_servers) = json!({ "docs": {
             "type": "http",
-            "url": "https://file.example.test/mcp",
+            "url": "https://${HOST:-docs.example.test}/mcp",
             "oauth": { "clientId": "file-client" },
         } }) else {
             unreachable!("an object");
         };
+        let environment: Vec<(String, String)> = environment
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect();
+        let name = |name: &str| McpServerName::new(name.to_owned()).expect("a server name");
+        // An organization entry asked for fails the read.
+        let unasked = async { Err::<Option<Map<String, Value>>, _>("the organization was asked") };
 
-        take_managed_file_entries(&mut organization.servers, &file_servers);
+        let read = read_managed_entry(Some(&file_servers), &name("docs"), unasked).await;
+        let wiki: Result<_, Infallible> = read_managed_entry(
+            Some(&file_servers),
+            &name("wiki"),
+            ready(Ok(organization.entries.get(&name("wiki")).cloned())),
+        )
+        .await;
+        take_managed_entries(
+            &mut organization.servers,
+            Some(&file_servers),
+            &organization.entries,
+            &environment,
+        )
+        .await;
 
-        let [server] = organization.servers.as_slice() else {
-            panic!("one server lists");
-        };
-        let McpServerConfigView::Http { url, .. } = &server.config else {
-            panic!("an http server: {:?}", server.config);
-        };
-        assert_eq!(url, "file.example.test");
         assert_eq!(
-            server
-                .sign_in_settings
+            read.map(|entry| entry.map(Value::Object)),
+            Ok(file_servers.get("docs").cloned())
+        );
+        assert_eq!(
+            wiki.ok().flatten().map(Value::Object),
+            Some(settings["managedMcpServers"]["wiki"].clone())
+        );
+        let docs = organization
+            .servers
+            .iter()
+            .find(|server| server.binding.server_name() == &name("docs"))
+            .expect("the file's server lists");
+        let McpServerConfigView::Http { url, .. } = &docs.config else {
+            panic!("an http server: {:?}", docs.config);
+        };
+        assert_eq!(url, expected_host);
+        assert_eq!(
+            docs.sign_in_settings
                 .as_ref()
                 .and_then(|settings| settings.client_id.as_deref()),
             Some("file-client")
