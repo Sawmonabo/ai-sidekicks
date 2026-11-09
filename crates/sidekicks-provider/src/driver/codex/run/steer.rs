@@ -35,7 +35,7 @@ use crate::driver::run_control::SteerTurnEndedError;
 mod tests;
 
 /// Codex's request that adds input to a running turn.
-const CODEX_TURN_STEER_METHOD: &str = "turn/steer";
+pub(crate) const CODEX_TURN_STEER_METHOD: &str = "turn/steer";
 
 /// The words of Codex's refusals of a steer whose turn is no longer there to take it: it ended,
 /// another turn runs, or the running turn takes no steer.

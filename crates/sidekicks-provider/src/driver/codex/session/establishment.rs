@@ -3,7 +3,7 @@
 //! (`resume`); then its record composed, its routing band bound and its conversation registered on
 //! the service. A failed resume never becomes a new conversation: it answers the failure.
 
-mod adoption;
+pub(crate) mod adoption;
 pub(crate) mod answer_steer;
 pub(crate) mod continuation;
 pub(crate) mod helpers;

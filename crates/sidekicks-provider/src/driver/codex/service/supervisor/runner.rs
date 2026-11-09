@@ -356,7 +356,7 @@ impl ServiceRunner {
                 .report();
             }
             SupervisorAction::Publish(availability) => {
-                service.availability.send_replace(availability);
+                service.publish_availability(availability);
             }
         }
     }

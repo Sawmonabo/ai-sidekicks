@@ -257,10 +257,17 @@ impl CodexServiceRegistry {
     /// The service on the person's own folder while terminal reach is on, read as
     /// [`Self::is_terminal_service_on`] reads it; `None` while it is off.
     pub(crate) fn terminal_reach_service(&self) -> Option<Arc<CodexService>> {
+        self.terminal_home_service()
+            .filter(|service| service.is_serving())
+    }
+
+    /// The service on the folder terminal reach names, running or not: one that went down still
+    /// tells how long the terminals joined to it have been without it.
+    pub(crate) fn terminal_home_service(&self) -> Option<Arc<CodexService>> {
         self.lock()
             .by_home
             .values()
-            .find(|service| is_terminal_reach_home(service.home()) && service.is_serving())
+            .find(|service| is_terminal_reach_home(service.home()))
             .cloned()
     }
 

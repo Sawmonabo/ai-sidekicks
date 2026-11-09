@@ -348,7 +348,7 @@ impl CodexSessionEstablishment {
 /// `thread/resume` of `thread_id` as it stands, with no setting but the session's memory switch
 /// where `auto_memory` is set, asking for its newest turn, and the reply. Fails as the request
 /// does, and when the reply names another conversation.
-pub(super) async fn request_bare_thread_resume(
+pub(crate) async fn request_bare_thread_resume(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     auto_memory: Option<bool>,

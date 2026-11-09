@@ -145,7 +145,7 @@ impl ScriptedCodexService {
         availability: CodexServiceAvailability,
     ) -> Option<Arc<CodexAppServerConnection>> {
         let connection = self.service.lock_live().connection.take();
-        self.service.availability.send_replace(availability);
+        self.service.publish_availability(availability);
         connection
     }
 
@@ -197,8 +197,7 @@ impl ScriptedCodexService {
     pub(crate) fn publish_up(&self, connection: Option<Arc<CodexAppServerConnection>>) {
         self.service.lock_live().connection = connection;
         self.service
-            .availability
-            .send_replace(CodexServiceAvailability::Up);
+            .publish_availability(CodexServiceAvailability::Up);
     }
 
     /// Publishes the service up again on `connection` once its supervisor reads it starting, as a
@@ -453,9 +452,7 @@ pub(crate) fn script_codex_service(
     service.routed_dial.store(SCRIPTED_DIAL, Ordering::Release);
     service.start_connection();
     service.lock_live().connection = Some(Arc::new(connection));
-    service
-        .availability
-        .send_replace(CodexServiceAvailability::Up);
+    service.publish_availability(CodexServiceAvailability::Up);
     (service, script)
 }
 
