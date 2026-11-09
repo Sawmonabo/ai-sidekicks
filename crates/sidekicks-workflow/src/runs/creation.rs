@@ -12,6 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
+use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -56,8 +57,11 @@ pub(crate) struct WorkflowRunCreation {
     pub(crate) provider: Option<ProviderId>,
     /// When the request, fire or call that started it did so, in the stored form.
     pub(crate) started_at: WireInstant,
-    /// The input its trigger step starts on.
-    pub(crate) trigger_input: WorkflowPayloadRef,
+    /// The input its trigger step starts on; `None` on a node run that reuses its trigger's step,
+    /// which writes no trigger row.
+    pub(crate) trigger_input: Option<WorkflowPayloadRef>,
+    /// The node a node run targets and what it covers; `None` on a whole run.
+    pub(crate) node_run: Option<WorkflowNodeRun>,
 }
 
 /// The key of the step the run's trigger runs as: its first attempt, the run's first execution.
@@ -84,12 +88,13 @@ static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     let new_run = <&'static str>::from(WorkflowRunStatus::New);
     format!(
         "INSERT INTO workflow_runs (
-    id, workflow_version_id, session_id, provider, status, mode, trigger_json, started_by,
-    chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept, started_at
+    id, workflow_version_id, session_id, provider, status, mode, trigger_json, node_run_json,
+    started_by, chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept,
+    started_at
   ) VALUES (
     @id, @workflow_version_id, @session_id, @provider, '{new_run}', @mode, @trigger_json,
-    @started_by, @chain_root_run_id, @chain_from_error, @chain_run_count, @chain_kept_going, 0,
-    @started_at
+    @node_run_json, @started_by, @chain_root_run_id, @chain_from_error, @chain_run_count,
+    @chain_kept_going, 0, @started_at
   )"
     )
 });
@@ -149,7 +154,8 @@ pub(crate) fn execution_context_statement_index(chain: &WorkflowRunChainPlace) -
 /// [`CHAIN_COUNT_STATEMENT_INDEX`], which refuses it once the chain has started `chain_ask_after`
 /// runs and the person has not answered Keep going, `None` never; its execution context's row
 /// where it has one, at [`execution_context_statement_index`]; and, last, its trigger step's
-/// `pending` row on its trigger input, at the run's start. A first run's own row counts itself.
+/// `pending` row on its trigger input, at the run's start, unless a node run reuses its trigger's
+/// step. A first run's own row counts itself.
 #[cfg_attr(
     not(test),
     expect(
@@ -168,6 +174,9 @@ pub(crate) fn workflow_run_creation_statements(
         .expect("a trigger writes as JSON, holding only text");
     let started_by = serde_json::to_string(&creation.started_by)
         .expect("a run's starter writes as JSON, holding only text and ids");
+    let node_run_json = creation.node_run.as_ref().map(|node_run| {
+        serde_json::to_string(node_run).expect("a node run writes as JSON, holding only text")
+    });
     let (chain_root_run_id, is_from_error) = match &creation.chain {
         WorkflowRunChainPlace::Starts {} => (run_id, false),
         WorkflowRunChainPlace::Joins {
@@ -195,6 +204,7 @@ pub(crate) fn workflow_run_creation_statements(
             ),
             text_binding("@mode", <&'static str>::from(creation.mode)),
             text_binding("@trigger_json", &trigger_json),
+            nullable_text_binding("@node_run_json", node_run_json.as_deref()),
             text_binding("@started_by", &started_by),
             text_binding("@chain_root_run_id", chain_root_run_id.as_str()),
             (
@@ -232,12 +242,14 @@ pub(crate) fn workflow_run_creation_statements(
     if let Some(context) = &creation.execution_context {
         statements.push(context.clone());
     }
-    statements.push(insert_pending_step(
-        &trigger_step_key(creation.workflow_run_id, &creation.trigger),
-        &[],
-        &creation.trigger_input,
-        &creation.started_at,
-    ));
+    if let Some(trigger_input) = &creation.trigger_input {
+        statements.push(insert_pending_step(
+            &trigger_step_key(creation.workflow_run_id, &creation.trigger),
+            &[],
+            trigger_input,
+            &creation.started_at,
+        ));
+    }
     statements
 }
 
@@ -245,10 +257,13 @@ pub(crate) fn workflow_run_creation_statements(
 mod tests {
     use rstest::rstest;
     use rusqlite::{Connection, OptionalExtension, params};
+    use serde_json::json;
     use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+    use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
+    use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
     use sidekicks_contracts::workflow::run::trigger::{
@@ -287,7 +302,8 @@ mod tests {
             execution_context: None,
             provider: None,
             started_at: WireInstant::try_from(STARTED_AT.to_owned()).expect("an instant"),
-            trigger_input: WorkflowPayloadRef::Inline { items: Vec::new() },
+            trigger_input: Some(WorkflowPayloadRef::Inline { items: Vec::new() }),
+            node_run: None,
         }
     }
 
@@ -482,5 +498,44 @@ mod tests {
                 assert_eq!(chain_columns(&rows, ROOT_RUN_ID), root_before);
             }
         }
+    }
+
+    /// A node run that reuses its trigger's step stores its row naming its target and writes no
+    /// trigger row. Mutation: push the trigger step's row whatever the trigger input, which leaves
+    /// a `pending` trigger step behind.
+    #[tokio::test]
+    async fn a_node_run_reusing_its_trigger_stores_its_target_and_no_trigger_row() {
+        let database = TestDatabase::new(schema_parts());
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens the test database");
+        let rows = database.reader();
+        insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Node run");
+        let node_run = WorkflowRunCreation {
+            trigger_input: None,
+            node_run: Some(WorkflowNodeRun {
+                node_id: WorkflowNodeId::new("ask".to_owned()).expect("a node id"),
+                scope: WorkflowNodeExecuteScope::FromHere,
+            }),
+            ..creation(NEW_RUN_ID, WorkflowRunChainPlace::Starts {})
+        };
+
+        writer
+            .write(workflow_run_creation_statements(&node_run, None))
+            .await
+            .expect("the node run is stored");
+
+        let stored: String = rows
+            .query_row(
+                "SELECT node_run_json FROM workflow_runs WHERE id = ?1",
+                [NEW_RUN_ID],
+                |row| row.get(0),
+            )
+            .expect("the node run's row is stored");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&stored).expect("the column holds JSON"),
+            json!({"nodeId": "ask", "scope": "fromHere"})
+        );
+        assert_eq!(trigger_step(&rows, NEW_RUN_ID), None);
     }
 }

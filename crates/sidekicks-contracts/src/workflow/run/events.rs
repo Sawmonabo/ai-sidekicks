@@ -10,7 +10,9 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use crate::workflow::definition::item::WorkflowStepError;
-use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
+use crate::workflow::run::control::{
+    WorkflowCancelReason, WorkflowNodeExecuteScope, names_whole_repin,
+};
 use crate::workflow::run::id::WorkflowRunId;
 use crate::workflow::run::step::events::WorkflowReadiedStep;
 use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
@@ -39,13 +41,29 @@ macro_rules! workflow_run_event {
 
 pub(crate) use workflow_run_event;
 
+/// The node a node run targets and what it covers, as its started event and its row name it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowNodeRun {
+    /// The target node.
+    pub node_id: WorkflowNodeId,
+    /// What the node run covers.
+    pub scope: WorkflowNodeExecuteScope,
+}
+
 workflow_run_event! {
     /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
-    /// it, its place in its chain and the input its trigger step starts on, so the run row
-    /// rebuilds from events.
+    /// it, its place in its chain, the node a node run targets and the input its trigger step
+    /// starts on, so the run row rebuilds from events. `inputRef` is absent exactly on a node run
+    /// that reuses its trigger's step, which writes no trigger row.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
+    #[garde(custom(|payload: &Self, (): &()| leaves_its_input_only_on_a_node_run(payload)))]
+    #[schemars(extend("anyOf" = [
+        { "required": ["inputRef"], "properties": { "inputRef": true } },
+        { "required": ["nodeRun"], "properties": { "nodeRun": true } },
+    ]))]
     pub struct WorkflowRunStartedPayload {
         /// How it was started.
         pub mode: WorkflowRunMode,
@@ -63,9 +81,36 @@ workflow_run_event! {
         )]
         #[schemars(with = "ProviderId")]
         pub provider: Option<ProviderId>,
-        /// The input its trigger step starts on.
+        /// The node a node run targets; absent on a whole run.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowNodeRun")]
+        pub node_run: Option<WorkflowNodeRun>,
+        /// The input its trigger step starts on; absent on a node run that reuses its trigger's
+        /// step.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
         #[garde(dive)]
-        pub input_ref: WorkflowPayloadRef,
+        pub input_ref: Option<WorkflowPayloadRef>,
+    }
+}
+
+/// Refuses a started payload that leaves its trigger's input out unless it starts a node run,
+/// the one run that may reuse its trigger's step.
+fn leaves_its_input_only_on_a_node_run(payload: &WorkflowRunStartedPayload) -> garde::Result {
+    if payload.input_ref.is_some() || payload.node_run.is_some() {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "a run's start names its trigger's input unless a node run reuses its trigger's step",
+        ))
     }
 }
 
@@ -288,6 +333,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           waited, failed, completed, was canceled, resumed or deleted, and its results were posted \
           into a session.",
     definitions: &[
+        Definition::read::<WorkflowNodeRun>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
@@ -311,7 +357,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::WorkflowRunFailedPayload;
+    use super::{WorkflowRunFailedPayload, WorkflowRunStartedPayload};
 
     /// The step an ended run names.
     fn ending_step() -> Value {
@@ -355,6 +401,45 @@ mod tests {
         }
         let payload =
             serde_json::from_value::<WorkflowRunFailedPayload>(wire).expect("the payload reads");
+        assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
+    }
+
+    /// A run's start names its trigger's input unless it is a node run, which may reuse its
+    /// trigger's step. Mutation: drop the garde check on `WorkflowRunStartedPayload`, which lets
+    /// the start naming neither through.
+    #[rstest]
+    #[case::whole_run(true, false, true)]
+    #[case::node_run_reusing_its_trigger(false, true, true)]
+    #[case::node_run_given_items(true, true, true)]
+    #[case::neither(false, false, false)]
+    fn a_runs_start_leaves_its_input_out_only_on_a_node_run(
+        #[case] has_input: bool,
+        #[case] is_node_run: bool,
+        #[case] is_accepted: bool,
+    ) {
+        let mut wire = json!({
+            "sessionId": "018f0000-0000-7000-8000-000000000001",
+            "workflowRunId": "018f0000-0000-7000-8000-000000000004",
+            "definitionId": "018f0000-0000-7000-8000-000000000005",
+            "workflowVersionId": "018f0000-0000-7000-8000-000000000006",
+            "mode": "manual",
+            "startedBy": {"kind": "schedule"},
+            "trigger": {"kind": "trigger.manual", "nodeId": "start"},
+            "chain": {"kind": "starts"},
+        });
+        if let Some(members) = wire.as_object_mut() {
+            if has_input {
+                members.insert("inputRef".into(), json!({"kind": "inline", "items": []}));
+            }
+            if is_node_run {
+                members.insert(
+                    "nodeRun".into(),
+                    json!({"nodeId": "ask", "scope": "fromHere"}),
+                );
+            }
+        }
+        let payload =
+            serde_json::from_value::<WorkflowRunStartedPayload>(wire).expect("the payload reads");
         assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
     }
 }

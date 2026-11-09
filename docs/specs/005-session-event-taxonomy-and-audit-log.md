@@ -461,7 +461,7 @@ Payload shape: `{sessionId, workflowRunId, definitionId, workflowVersionId}` —
 | Type | Description |
 | --- | --- |
 | `workflow.version.created` | A workflow definition was authored or a new immutable version of one was written. |
-| `workflow.run.started` | A run of a pinned definition version was started by the request, fire or call that asked for it, and its row written; the event's instant is the run's start. The run reads `new` until the engine admits it. |
+| `workflow.run.started` | A run of a pinned definition version was started by the request, fire or call that asked for it, and its row written; the event's instant is the run's start. The run reads `new` until the engine admits it. A node run (`Run this node`, `Run from here`) names its target node and scope (`nodeRun`); `inputRef`, the input the trigger step starts on, is absent exactly when a node run reuses its trigger's step, which then gets no `pending` row. |
 | `workflow.gate.reached` | A run reached a gate that must resolve before it continues. |
 | `workflow.run.failed` | A run failed on a step and either parked or ended. A parked run leaves the cause to the failing step's own event; an ended run's payload carries the `endingStep` its ending sits on and the run's `error`, the ending step's own or, where the run passed its cap, the cap's. |
 | `workflow.run.completed` | A run reached its terminal steps and succeeded. |

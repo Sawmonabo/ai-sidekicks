@@ -646,7 +646,8 @@ impl WorkflowRunStarter {
                 .map(|binding| context_statement(binding, &prepared.started_at)),
             provider: checked.provider.clone(),
             started_at: prepared.started_at.clone(),
-            trigger_input: trigger_input.clone(),
+            trigger_input: Some(trigger_input.clone()),
+            node_run: None,
         };
         let draft = SessionEventDraft::of_session(
             session_id,
@@ -660,7 +661,8 @@ impl WorkflowRunStarter {
                 trigger: checked.trigger_node.clone(),
                 chain: chain.clone(),
                 provider: checked.provider.clone(),
-                input_ref: trigger_input.clone(),
+                node_run: None,
+                input_ref: Some(trigger_input.clone()),
             }),
         )?;
         // The checkout's lock spans the one write of the run's context, as the agent run's does.

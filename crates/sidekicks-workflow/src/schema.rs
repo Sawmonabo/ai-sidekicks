@@ -194,6 +194,9 @@ CREATE TABLE workflow_runs (
   -- JSON: which trigger node started the run and with what.
   trigger_json              TEXT NOT NULL DEFAULT '{{}}'
                             CHECK(json_valid(trigger_json)),
+  -- JSON: the node a node run targets and what it covers; NULL on a whole run.
+  node_run_json             TEXT
+                            CHECK(node_run_json IS NULL OR json_valid(node_run_json)),
   -- JSON: who or what started the run.
   started_by                TEXT NOT NULL
                             CHECK(json_valid(started_by)),

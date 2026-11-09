@@ -609,7 +609,8 @@ impl Harness {
             execution_context: None,
             provider: None,
             started_at: started_at.clone(),
-            trigger_input: trigger_input.clone(),
+            trigger_input: Some(trigger_input.clone()),
+            node_run: None,
         };
         let draft = SessionEventDraft::of_session(
             base.session_id,
@@ -623,7 +624,8 @@ impl Harness {
                 trigger: trigger.clone(),
                 chain: WorkflowRunChainPlace::Starts {},
                 provider: None,
-                input_ref: trigger_input.clone(),
+                node_run: None,
+                input_ref: Some(trigger_input.clone()),
             }),
         )
         .expect("the started event drafts");
