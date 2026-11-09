@@ -5,6 +5,7 @@
 //! since the cancel no longer reaches it.
 
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
@@ -19,6 +20,8 @@ pub(crate) enum BranchCancelReason {
     FirstToArrive,
     /// A park or an end stopped the run's other branches, each of which fails as a sibling.
     SiblingFailure,
+    /// A person canceled the run, whose branches each fail as canceled with it.
+    RunCanceled,
 }
 
 /// A step on a losing branch, with its cancel.
@@ -120,7 +123,13 @@ impl BranchWave {
         if self.unsettled > 0 {
             return WaveSettle::Pending { run_to_stop };
         }
-        let is_sibling_failure = self.reason == BranchCancelReason::SiblingFailure;
+        let cancellation_reason = match self.reason {
+            BranchCancelReason::FirstToArrive => None,
+            BranchCancelReason::SiblingFailure => {
+                Some(WorkflowPhaseCancellationReason::SiblingFailure)
+            }
+            BranchCancelReason::RunCanceled => Some(WorkflowPhaseCancellationReason::RunCanceled),
+        };
         let members = std::mem::take(&mut self.members);
         let branches_canceled = StepReport {
             step: self.deciding.clone(),
@@ -136,7 +145,7 @@ impl BranchWave {
             at: closed_at.clone(),
             kind: StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure,
+                cancellation_reason,
             }),
         });
         WaveSettle::Closed {
@@ -159,8 +168,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{BranchCancelReason, BranchLoser, WaveSettle, cancel_branches};
-    use crate::engine::ports::ScriptedAgentRunner;
+    use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+    use crate::kinds::step_context::StepRecords;
 
     /// The first execution of node `node_id`.
     fn step(node_id: &str) -> WorkflowStepKey {
@@ -181,13 +191,15 @@ mod tests {
             }
             StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at,
-                is_sibling_failure,
+                cancellation_reason,
             }) => json!({ "canceled": {
-                "holdStartedAt": hold_started_at, "isSiblingFailure": is_sibling_failure,
+                "holdStartedAt": hold_started_at, "cancellationReason": cancellation_reason,
             } }),
             StepReportKind::WaitingOnPool { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
+            | StepReportKind::ResumeDue { .. }
+            | StepReportKind::RunCapped { .. }
             | StepReportKind::Settled(
                 StepSettlement::Completed { .. }
                 | StepSettlement::Failed { .. }
@@ -216,13 +228,15 @@ mod tests {
     /// or count; stamp the closing reports with fresh clock reads; close the wave at its first
     /// settlement; write a raced `Completed` as completed; put the held loser in the wave or give
     /// it a `Canceling`; answer `Pending` for a report that is no member's settlement; set
-    /// `siblingFailure` on a `firstToArrive` wave; order the members by settlement.
+    /// a reason on a `firstToArrive` wave's members, or another reason than the wave's; order the
+    /// members by settlement.
     #[rstest]
-    #[case::first_to_arrive(BranchCancelReason::FirstToArrive, false)]
-    #[case::sibling_failure(BranchCancelReason::SiblingFailure, true)]
+    #[case::first_to_arrive(BranchCancelReason::FirstToArrive, None)]
+    #[case::sibling_failure(BranchCancelReason::SiblingFailure, Some("siblingFailure"))]
+    #[case::run_canceled(BranchCancelReason::RunCanceled, Some("runCanceled"))]
     fn running_losers_settle_as_one_wave(
         #[case] reason: BranchCancelReason,
-        #[case] is_sibling_failure: bool,
+        #[case] cancellation_reason: Option<&str>,
     ) {
         let tokens = [
             CancellationToken::new(),
@@ -251,13 +265,13 @@ mod tests {
         let held_since = WireInstant::now();
         let held_canceled = StepReportKind::Settled(StepSettlement::Canceled {
             hold_started_at: Some(held_since.clone()),
-            is_sibling_failure: false,
+            cancellation_reason: None,
         });
         for (passing, expected) in [
             (
                 report("held", held_canceled),
                 json!(["held", { "canceled": {
-                    "holdStartedAt": held_since, "isSiblingFailure": false,
+                    "holdStartedAt": held_since, "cancellationReason": null,
                 } }]),
             ),
             (
@@ -283,7 +297,7 @@ mod tests {
         ));
         let a_canceled = StepReportKind::Settled(StepSettlement::Canceled {
             hold_started_at: None,
-            is_sibling_failure: false,
+            cancellation_reason: None,
         });
         // A past instant, so a closing report stamped with a fresh clock read cannot match it.
         let closed_at = WireInstant::try_from("2025-03-04T15:00:00.000Z".to_owned())
@@ -301,7 +315,7 @@ mod tests {
         };
         assert!(closing.iter().all(|closed| closed.at == closed_at));
         let canceled = json!({ "canceled": {
-            "holdStartedAt": null, "isSiblingFailure": is_sibling_failure,
+            "holdStartedAt": null, "cancellationReason": cancellation_reason,
         } });
         assert_eq!(
             closing.iter().map(report_json).collect::<Vec<_>>(),
@@ -339,6 +353,8 @@ mod tests {
                     provider_account_id: serde_json::from_value(json!("account-a"))
                         .expect("the test's account id reads"),
                     run: runner.made_run(),
+                    resets_at: None,
+                    records: StepRecords::default(),
                 }),
             )
         };

@@ -43,6 +43,7 @@ use crate::driver::claude::spawn::environment::{
 use crate::driver::claude::spawn::launch::control_only::{
     ClaudeSignInSources, probe_claude_sign_in,
 };
+use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
     read_sign_in_address,
@@ -250,7 +251,7 @@ async fn start_flow(
         .map_err(ClaudeSignInError::WorkingFolder)?;
     let mut command = compose_claude_command(
         &executable.start,
-        &CLAUDE_SIGN_IN_ARGUMENTS,
+        &compose_claude_subcommand_arguments(&CLAUDE_SIGN_IN_ARGUMENTS),
         &executable.environment,
         working_folder,
     );

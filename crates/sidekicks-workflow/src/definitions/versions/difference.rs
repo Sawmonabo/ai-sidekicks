@@ -23,13 +23,14 @@ pub(crate) fn diff_workflow_bodies(
     let after_nodes = version_nodes(after);
     let before_node_by_id: HashMap<&WorkflowNodeId, &WorkflowVersionNode> = before_nodes
         .iter()
-        .map(|node| (node_id(node), node))
+        .map(|node| (version_node_id(node), node))
         .collect();
-    let after_node_ids: HashSet<&WorkflowNodeId> = after_nodes.iter().map(node_id).collect();
+    let after_node_ids: HashSet<&WorkflowNodeId> =
+        after_nodes.iter().map(version_node_id).collect();
     let mut nodes_added = Vec::new();
     let mut nodes_changed = Vec::new();
     for after_node in &after_nodes {
-        match before_node_by_id.get(node_id(after_node)) {
+        match before_node_by_id.get(version_node_id(after_node)) {
             None => nodes_added.push(after_node.clone()),
             Some(&before_node) if before_node != after_node => {
                 nodes_changed.push(WorkflowVersionNodeChange {
@@ -42,7 +43,7 @@ pub(crate) fn diff_workflow_bodies(
     }
     let nodes_removed = before_nodes
         .iter()
-        .filter(|node| !after_node_ids.contains(node_id(node)))
+        .filter(|node| !after_node_ids.contains(version_node_id(node)))
         .cloned()
         .collect();
     WorkflowVersionDiffReadResponse {
@@ -74,7 +75,8 @@ fn version_nodes(body: &WorkflowDocumentHashedBody) -> Vec<WorkflowVersionNode> 
         .collect()
 }
 
-fn node_id(node: &WorkflowVersionNode) -> &WorkflowNodeId {
+/// The id of `node`, the trigger or another node of a version.
+pub(crate) fn version_node_id(node: &WorkflowVersionNode) -> &WorkflowNodeId {
     match node {
         WorkflowVersionNode::Node(node) => &node.id,
         WorkflowVersionNode::Trigger(trigger) => &trigger.id,

@@ -46,6 +46,8 @@ sidekicks-session = { workspace = true, features = ["test-support"] }
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session rows the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The workflow, run and step rows the gate card's tests build on.
+sidekicks-workflow = { workspace = true, features = ["test-support"] }
 # The git runner and the workspace rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

@@ -395,9 +395,9 @@ impl RestartSettle {
     }
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their
-    /// interventions with no outcome, their pending asks, their unsettled choices and the plans a
-    /// lost request held, reading `stop`, where the caller has one, before each step. Fails at the
-    /// first step that fails, or with `Stopped`.
+    /// interventions with no outcome, their pending asks and the cards of workflow waits no one
+    /// holds, their unsettled choices and the plans a lost request held, reading `stop`, where the
+    /// caller has one, before each step. Fails at the first step that fails, or with `Stopped`.
     pub(crate) async fn settle_ended(
         &self,
         session_id: SessionId,
@@ -427,6 +427,11 @@ impl RestartSettle {
                 .cancel_pending_for_run(run.run_id, None)
                 .await?;
         }
+        // A workflow wait's card whose wait ended while the daemon was down, before its withdraw.
+        self.deps
+            .approvals
+            .cancel_unheld_wait_asks(session_id)
+            .await?;
         check_stop(stop)?;
         let with_open_choices = self
             .read(move |reader| read_ended_runs_with_open_choices(reader, Some(&session_id)))

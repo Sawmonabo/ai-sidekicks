@@ -15,10 +15,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, ProgramStart, Spawner};
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 
-use super::session_controls::{FULL_MODEL_ID, one_turn_reply};
+use super::session_controls::{FULL_MODEL_ID, one_turn_outcome, one_turn_reply};
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
@@ -90,10 +91,10 @@ async fn a_session_asks_copy_is_locked_down_and_the_persons_keeps_the_sessions_r
     }
     fixture
         .starts
-        .script_one_turn(one_turn_reply("for the person", None));
+        .script_one_turn(one_turn_outcome(one_turn_reply("for the person"), None));
     fixture
         .starts
-        .script_one_turn(one_turn_reply("for the session", None));
+        .script_one_turn(one_turn_outcome(one_turn_reply("for the session"), None));
     let conversation_home = fixture.folder.path().join("conversation-home");
     std::fs::create_dir_all(&conversation_home).expect("the home is made");
     std::fs::write(
@@ -201,6 +202,7 @@ async fn a_real_session_asks_copy_refuses_a_pre_approved_write_and_leaves_no_fil
         Arc::new(UnrecordedChildren),
         Arc::new(ProviderProcessRegistry::default()),
         registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+        Arc::new(PortRegistration::new("telemetry target")),
         DriverPorts::new().raw_provider_messages,
         folder.path(),
     );
@@ -270,6 +272,7 @@ async fn a_real_session_asks_copy_refuses_a_pre_approved_write_and_leaves_no_fil
     tokio::time::timeout(Duration::from_secs(180), turn)
         .await
         .expect("the copy answers within three minutes")
+        .reply
         .expect("the copy's turn ends");
 
     assert!(!target.exists(), "the copy wrote a pre-approved file");

@@ -19,14 +19,14 @@
 //!   and the provider ask that carries them out takes the correction once, in a guarded write. A
 //!   decline records the person's words with the answer, so a resend hands its provider the same.
 
+mod cancel;
 pub mod session_sweep;
 
 use std::error::Error;
 use std::sync::Arc;
 
-use sidekicks_contracts::approval::events::{
-    ApprovalCanceledPayload, ApprovalRequestedPayload, ApprovalResolvedPayload,
-};
+use sidekicks_contracts::approval::events::{ApprovalRequestedPayload, ApprovalResolvedPayload};
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalLateCreateReason, ApprovalRequestId,
     ApprovalResolutionInvalidReason, ApprovalResolveRequest, ApprovalResolveResponse,
@@ -44,13 +44,12 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -72,6 +71,7 @@ use crate::store::{
     insert_correction_use_statement, insert_request_statement, insert_resolution_statement,
     run_live_statement, session_open_statement, settle_pending_statement,
 };
+use crate::workflow_gate::{ApprovalWaitAnswer, ApprovalWaits};
 
 // The positions of a create's guards among its statements.
 const SESSION_OPEN_GUARD_INDEX: usize = 0;
@@ -211,6 +211,12 @@ pub enum ApprovalServiceError {
     /// The event log did not keep a cancel.
     #[error("the approval request was not canceled")]
     Cancel(#[source] SessionEventAppendError),
+    /// An answer reached a workflow wait's card before the workflow engine registered its waits.
+    #[error(transparent)]
+    WaitsUnregistered(#[from] PortRegistrationError),
+    /// The workflow wait holding the card could not take its answer.
+    #[error("the workflow wait did not take the approval's answer")]
+    Wait(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl From<ApprovalServiceError> for HandlerError {
@@ -221,7 +227,9 @@ impl From<ApprovalServiceError> for HandlerError {
             fault @ (ApprovalServiceError::Read(_)
             | ApprovalServiceError::Pool(_)
             | ApprovalServiceError::Draft(_)
-            | ApprovalServiceError::Cancel(_)) => Self::Internal(Box::new(fault)),
+            | ApprovalServiceError::Cancel(_)
+            | ApprovalServiceError::WaitsUnregistered(_)
+            | ApprovalServiceError::Wait(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -232,7 +240,7 @@ pub struct ApprovalService {
     /// Where the asks are read.
     reads: Arc<DatabaseReadPool>,
     /// Where the approval events are appended.
-    events: Arc<SessionEventAppender>,
+    pub(crate) events: Arc<SessionEventAppender>,
     /// Where a correction's one use is recorded.
     writer: Arc<DatabaseWriter>,
     /// Whose folders an approval marks stale.
@@ -245,6 +253,8 @@ pub struct ApprovalService {
     raised_cards: KeyedWaits<RaisedCardKey, RaisedRequestSettlement>,
     /// Closed sessions whose pending asks the sweep has yet to cancel.
     closed_sessions: PendingSessions,
+    /// Where an answer to a workflow wait's card goes, registered once by the workflow engine.
+    waits: PortRegistration<Arc<dyn ApprovalWaits>>,
 }
 
 impl ApprovalService {
@@ -267,7 +277,14 @@ impl ApprovalService {
             run_holds,
             raised_cards: KeyedWaits::default(),
             closed_sessions: PendingSessions::default(),
+            waits: PortRegistration::new("approval waits"),
         }
+    }
+
+    /// The workflow waits' port, which the workflow engine registers once; until then an answer
+    /// to a wait's card is refused as a fault.
+    pub fn waits(&self) -> &PortRegistration<Arc<dyn ApprovalWaits>> {
+        &self.waits
     }
 
     /// Raises one ask, pending until it is answered or canceled, and answers its id with the wait
@@ -293,9 +310,10 @@ impl ApprovalService {
         let approval_request_id =
             ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
         let created_at = WireInstant::now();
+        let holder = ApprovalHolder::Run { run_id };
         let payload = ApprovalRequestedPayload {
             session_id,
-            run_id,
+            holder: holder.clone(),
             approval_request_id,
             category,
             scope: scope.clone(),
@@ -308,7 +326,7 @@ impl ApprovalService {
         let inserted = InsertedApprovalRequest {
             approval_request_id,
             session_id,
-            run_id,
+            holder: holder.clone(),
             requested_by,
             category,
             scope,
@@ -337,11 +355,11 @@ impl ApprovalService {
             let refusal = match failure.refused_statement_index() {
                 Some(SESSION_OPEN_GUARD_INDEX) => approval_late_create(
                     session_id,
-                    run_id,
+                    &holder,
                     ApprovalLateCreateReason::SessionClosed,
                 ),
                 Some(RUN_LIVE_GUARD_INDEX) => {
-                    approval_late_create(session_id, run_id, ApprovalLateCreateReason::RunEnded)
+                    approval_late_create(session_id, &holder, ApprovalLateCreateReason::RunEnded)
                 }
                 Some(_) | None => refusal_of_failed_write(failure),
             };
@@ -364,7 +382,9 @@ impl ApprovalService {
     /// under its client resolution id is answered with what was saved),
     /// `approval.resolutionInvalid` for an answer that does not fit its ask, the session's own
     /// refusal of the write, and `approval.persistenceUnavailable` when the record could not be
-    /// kept.
+    /// kept. An answer to a workflow wait's card is handed, with its write, to the registered
+    /// [`ApprovalWaits`], which settles the card in the step's own write; this writes nothing for
+    /// it but the cancel of a card whose wait no longer waits, refused `approval.requestCanceled`.
     pub(crate) async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
@@ -392,7 +412,7 @@ impl ApprovalService {
         let resolved_at = WireInstant::now();
         let payload = ApprovalResolvedPayload {
             session_id: stored.session_id,
-            run_id: stored.run_id,
+            holder: stored.holder.clone(),
             approval_request_id,
             category: stored.category,
             scope: stored.scope.clone(),
@@ -405,31 +425,55 @@ impl ApprovalService {
         };
         let resolution = InsertedApprovalResolution {
             approval_request_id,
-            device_id: device_id.clone(),
+            device_id,
             client_resolution_id: answer.client_resolution_id.clone(),
             decision: answer.decision,
-            effective_scope: effective_scope.clone(),
+            effective_scope,
             asked_scope: answer.remembered_scope.cloned(),
             edited_action: answer.edited_action.cloned(),
             decline_reason: answer.decline_reason.cloned(),
             resolved_at: resolved_at.clone(),
         };
         let settlement = ApprovalSettlement::Decided(answer.decision);
+        let run_id = match stored.holder.clone() {
+            ApprovalHolder::Run { run_id } => run_id,
+            ApprovalHolder::Wait {
+                workflow_run_id,
+                wait_id,
+                node_id,
+            } => {
+                let wait_answer = ApprovalWaitAnswer::of(
+                    &stored,
+                    workflow_run_id,
+                    wait_id,
+                    node_id,
+                    payload,
+                    &resolution,
+                );
+                return self
+                    .hand_wait_answer(stored, &answer, wait_answer, resolution)
+                    .await;
+            }
+        };
         let raised_key = RaisedCardKey {
-            run_id: stored.run_id,
+            run_id,
             approval_request_id,
         };
         let is_orphaned = match &stored.ask_id {
-            Some(ask_id) => !is_ask_held(stored.run_id, ask_id),
+            Some(ask_id) => !is_ask_held(run_id, ask_id),
             None => !self.raised_cards.is_armed(&raised_key),
         };
         let mut transactional_prelude = vec![
             settle_pending_statement(&approval_request_id, settlement, &resolved_at),
-            run_live_statement(&stored.session_id, &stored.run_id),
+            run_live_statement(&stored.session_id, &run_id),
             insert_resolution_statement(&resolution),
         ];
         if is_orphaned {
-            transactional_prelude.push(insert_orphaned_answer_statement(&stored, &resolved_at));
+            transactional_prelude.push(insert_orphaned_answer_statement(
+                &stored,
+                run_id,
+                &resolved_at,
+            ));
         }
         let draft = SessionEventDraft::new(payload, resolved_event(answer.decision))?;
         let linkage = SessionEventLinkage {
@@ -441,17 +485,7 @@ impl ApprovalService {
             return match failure.refused_statement_index() {
                 // Settled between the read and the write; the ask reads back while its session
                 // stands.
-                Some(PENDING_GUARD_INDEX) => {
-                    let settled = self
-                        .read_request(approval_request_id)
-                        .await?
-                        .ok_or_else(|| approval_not_found(approval_request_id))?;
-                    Ok(ResolvedAnswer {
-                        response: answer_settled(&settled, &answer)?,
-                        request: settled,
-                        is_orphaned: false,
-                    })
-                }
+                Some(PENDING_GUARD_INDEX) => self.read_back_settled(&answer).await,
                 // The run ended before its end canceled the ask, which that cancel is about to do.
                 Some(ANSWER_RUN_LIVE_GUARD_INDEX) => {
                     Err(approval_request_canceled(approval_request_id).into())
@@ -478,9 +512,9 @@ impl ApprovalService {
             },
         );
         if is_orphaned {
-            self.run_holds.reconcile_or_log(stored.run_id).await;
+            self.run_holds.reconcile_or_log(run_id).await;
         } else {
-            self.run_holds.spawn_reconcile(stored.run_id);
+            self.run_holds.spawn_reconcile(run_id);
         }
         if answer.decision == ApprovalDecision::Approved {
             self.mark_working_folder_stale(stored.session_id).await;
@@ -494,31 +528,24 @@ impl ApprovalService {
                 "the call hand of an orphaned answer could not be claimed"
             );
         }
+        Ok(resolved_answer_of(stored, resolution, is_orphaned))
+    }
+
+    /// What an answer that lost to another settlement of its ask between the read and the write
+    /// is answered: the saved answer when it is the same one sent again, else the refusal naming
+    /// how the ask settled; the ask reads back while its session stands.
+    pub(crate) async fn read_back_settled(
+        &self,
+        answer: &ResolveAnswer<'_>,
+    ) -> Result<ResolvedAnswer, ApprovalServiceError> {
+        let settled = self
+            .read_request(answer.approval_request_id)
+            .await?
+            .ok_or_else(|| approval_not_found(answer.approval_request_id))?;
         Ok(ResolvedAnswer {
-            response: ApprovalResolveResponse {
-                approval_request_id,
-                state: settlement.state(),
-                device_id,
-                effective_scope,
-                resolved_at: resolved_at.clone(),
-            },
-            request: StoredApprovalRequest {
-                state: settlement.state(),
-                updated_at: resolved_at,
-                resolution: Some(StoredApprovalResolution {
-                    device_id: resolution.device_id,
-                    client_resolution_id: resolution.client_resolution_id,
-                    decision: resolution.decision,
-                    effective_scope: resolution.effective_scope,
-                    remembered_scope: None,
-                    asked_scope: resolution.asked_scope,
-                    edited_action: resolution.edited_action,
-                    decline_reason: resolution.decline_reason,
-                    resolved_at: resolution.resolved_at,
-                }),
-                ..stored
-            },
-            is_orphaned,
+            response: answer_settled(&settled, answer)?,
+            request: settled,
+            is_orphaned: false,
         })
     }
 
@@ -531,8 +558,11 @@ impl ApprovalService {
         let Some(stored) = self.read_request(approval_request_id).await? else {
             return Ok(());
         };
-        if stored.state == ApprovalState::Pending && self.cancel(&stored, None).await? {
-            self.run_holds.spawn_reconcile(stored.run_id);
+        if stored.state == ApprovalState::Pending
+            && self.cancel(&stored, None).await?
+            && let Some(run_id) = stored.holder.run_id()
+        {
+            self.run_holds.spawn_reconcile(run_id);
         }
         Ok(())
     }
@@ -552,7 +582,7 @@ impl ApprovalService {
             return Ok(false);
         };
         let is_carried_out_here = stored.state == ApprovalState::Approved
-            && stored.run_id == run_id
+            && stored.holder.run_id() == Some(run_id)
             && stored
                 .resolution
                 .as_ref()
@@ -647,44 +677,6 @@ impl ApprovalService {
         Ok(pending)
     }
 
-    /// Cancels every ask the run still holds pending, one `approval.canceled` each and no
-    /// resolution row, appending under `hold` where the caller already holds the session's
-    /// appends; an ask answered meanwhile keeps its answer. A failed cancel does not stop the
-    /// rest, and whatever the cancels returned, every wait on a card of the run settles canceled,
-    /// a card whose row is gone among them. Fails with every cancel's failure once all have run.
-    pub async fn cancel_pending_for_run(
-        &self,
-        run_id: RunId,
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let canceled = match self
-            .read(move |reader| reader.list_pending_for_run(&run_id))
-            .await
-        {
-            Ok(pending) => self.cancel_all(&pending, hold).await,
-            Err(failure) => Err(SettleFailures::One(failure)),
-        };
-        self.raised_cards.settle_where(
-            |key| key.run_id == run_id,
-            RaisedRequestSettlement::Canceled,
-        );
-        canceled
-    }
-
-    /// Cancels every ask the session still holds pending, across all its runs, as
-    /// [`ApprovalService::cancel_pending_for_run`] does for one run; its runs are not moved, since
-    /// every provider leg of a closed session ended before its close.
-    pub(crate) async fn cancel_pending_for_session(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let pending = self
-            .read(move |reader| reader.list_pending_for_session(&session_id))
-            .await
-            .map_err(SettleFailures::One)?;
-        self.cancel_all(&pending, None).await
-    }
-
     /// Marks the session's working folder stale once an action was allowed, since work the person
     /// has not seen may land there. The allow already stands, so a folder that could not be marked
     /// is logged rather than failing it.
@@ -698,66 +690,9 @@ impl ApprovalService {
         }
     }
 
-    async fn cancel_all(
-        &self,
-        pending: &[StoredApprovalRequest],
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<(), SettleFailures<ApprovalServiceError>> {
-        let mut outcomes = Vec::with_capacity(pending.len());
-        for request in pending {
-            outcomes.push(self.cancel(request, hold).await.map(drop));
-        }
-        settle_all(outcomes, "canceling pending approval requests").map(drop)
-    }
-
-    // Answers whether this cancel settled the ask; an answer that landed first keeps it.
-    async fn cancel(
-        &self,
-        request: &StoredApprovalRequest,
-        hold: Option<&SessionAppendHold>,
-    ) -> Result<bool, ApprovalServiceError> {
-        let canceled_at = WireInstant::now();
-        let payload = ApprovalCanceledPayload {
-            session_id: request.session_id,
-            run_id: request.run_id,
-            approval_request_id: request.approval_request_id,
-            category: request.category,
-            scope: request.scope.clone(),
-        };
-        let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalCanceled)?;
-        let linkage = SessionEventLinkage {
-            occurred_at: Some(canceled_at.clone()),
-            transactional_prelude: vec![settle_pending_statement(
-                &request.approval_request_id,
-                ApprovalSettlement::Canceled,
-                &canceled_at,
-            )],
-            ..SessionEventLinkage::default()
-        };
-        let appended = match hold {
-            Some(hold) => self.events.append_held(hold, draft, linkage).await,
-            None => self.events.append(draft, linkage).await,
-        };
-        match appended {
-            Ok(_receipt) => {
-                self.raised_cards.settle_all(
-                    &RaisedCardKey {
-                        run_id: request.run_id,
-                        approval_request_id: request.approval_request_id,
-                    },
-                    RaisedRequestSettlement::Canceled,
-                );
-                Ok(true)
-            }
-            Err(failure) if failure.refused_statement_index() == Some(PENDING_GUARD_INDEX) => {
-                Ok(false)
-            }
-            Err(failure) => Err(ApprovalServiceError::Cancel(failure)),
-        }
-    }
-
-    // Every read here is of a few rows.
-    async fn read<Output: Send + 'static>(
+    /// Runs `read` over the asks on the read pool, as a short read of a few rows. Fails as the
+    /// read fails.
+    pub(crate) async fn read<Output: Send + 'static>(
         &self,
         read: impl FnOnce(&ApprovalRequestReader<'_>) -> rusqlite::Result<Output> + Send + 'static,
     ) -> Result<Output, ApprovalServiceError> {
@@ -769,9 +704,10 @@ impl ApprovalService {
     }
 }
 
-// A write the session refused is answered by the session's own code; any other failure means the
-// record could not be kept, so the action it gates does not proceed.
-fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
+/// The refusal of a failed write: a write the session refused is answered by the session's own
+/// code; any other failure means the record could not be kept, so the action it gates does not
+/// proceed.
+pub(crate) fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
     match failure {
         SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => {
             refusal.into()
@@ -779,6 +715,42 @@ fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
         other @ (SessionEventAppendError::Append(_) | SessionEventAppendError::OccurredAt(_)) => {
             approval_persistence_unavailable(other)
         }
+    }
+}
+
+/// The answer `resolution` as its ask's resolve answers it: the response, and the ask as the
+/// answer settled it with its stored answer.
+pub(crate) fn resolved_answer_of(
+    stored: StoredApprovalRequest,
+    resolution: InsertedApprovalResolution,
+    is_orphaned: bool,
+) -> ResolvedAnswer {
+    let state = ApprovalSettlement::Decided(resolution.decision).state();
+    ResolvedAnswer {
+        response: ApprovalResolveResponse {
+            approval_request_id: stored.approval_request_id,
+            state,
+            device_id: resolution.device_id.clone(),
+            effective_scope: resolution.effective_scope.clone(),
+            resolved_at: resolution.resolved_at.clone(),
+        },
+        request: StoredApprovalRequest {
+            state,
+            updated_at: resolution.resolved_at.clone(),
+            resolution: Some(StoredApprovalResolution {
+                device_id: resolution.device_id,
+                client_resolution_id: resolution.client_resolution_id,
+                decision: resolution.decision,
+                effective_scope: resolution.effective_scope,
+                remembered_scope: None,
+                asked_scope: resolution.asked_scope,
+                edited_action: resolution.edited_action,
+                decline_reason: resolution.decline_reason,
+                resolved_at: resolution.resolved_at,
+            }),
+            ..stored
+        },
+        is_orphaned,
     }
 }
 

@@ -173,7 +173,7 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
         .iter()
         .copied()
         .chain(no_mcp_servers)
-        .chain([CLAUDE_WINDOW_TURN_LINE])
+        .chain([CLAUDE_WINDOW_TURN_LINE, "--settings"])
         .flat_map(|argument| [argument, "\n"])
         .collect();
     assert_eq!(
@@ -183,7 +183,15 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
         no_mcp_servers.is_some(),
         "the turn loads no MCP server unless an administrator's file does"
     );
-    assert_eq!(arguments, expected);
+    let (named, settings_file) = arguments
+        .trim_end_matches('\n')
+        .rsplit_once('\n')
+        .expect("the command line ends in its settings file");
+    assert_eq!(format!("{named}\n"), expected);
+    assert!(
+        Path::new(settings_file).starts_with(&services.data_folder),
+        "the settings are read from a file of the daemon's own: {settings_file}"
+    );
     let lines: Vec<&str> = arguments.lines().collect();
     assert!(
         lines

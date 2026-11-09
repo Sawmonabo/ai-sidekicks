@@ -1,9 +1,14 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
-//! conversation, its agent view held off, every message from another session let in, the
-//! session's whole permission rules, its advisor and output style, and the command sandbox at
-//! Sandboxed; for a process pre-approved nothing, no allow rule and no sandbox, the person's own
-//! deny rules carried beside the session's.
+//! conversation, its agent view held off, every message from another session let in, a session's
+//! whole permission rules, its advisor and output style, the command sandbox at Sandboxed, and the
+//! telemetry switches in its `env`; for a process pre-approved nothing, no allow rule and no
+//! sandbox, the person's own deny rules carried beside the session's.
 
+pub(crate) mod private_file;
+pub(crate) mod telemetry_switches;
+
+use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::{Serialize, Serializer};
@@ -22,6 +27,11 @@ use crate::driver::claude::session::rules::{
 use crate::driver::claude::session::transport::control::{
     ClaudePermissionsDocument, ClaudeSandboxFilesystem, ClaudeSandboxSettings,
 };
+use crate::driver::claude::spawn::settings::telemetry_switches::{
+    NoOtelHeadersHelper, compose_claude_telemetry_switches,
+};
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 
 /// How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
@@ -59,8 +69,9 @@ impl Serialize for CrossSessionInboundAccepted {
 
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
-/// settings resolve it; `output_style` is absent where the session chose none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// settings resolve it; `output_style` is absent where the session chose none. A short process's
+/// document carries no rules, advisor, style or sandbox.
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeSpawnSettings {
     /// [`CLAUDE_CLEANUP_PERIOD_DAYS`].
@@ -69,8 +80,9 @@ pub(crate) struct ClaudeSpawnSettings {
     pub(crate) disable_agent_view: AgentViewOff,
     /// Messages from other sessions, let in.
     pub(crate) cross_session_inbound: CrossSessionInboundAccepted,
-    /// The session's whole permission rules.
-    pub(crate) permissions: ClaudePermissionsDocument,
+    /// The session's whole permission rules, absent on a short process.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) permissions: Option<ClaudePermissionsDocument>,
     /// The session's advisor model, `""` for none, absent where none was picked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) advisor_model: Option<String>,
@@ -80,6 +92,73 @@ pub(crate) struct ClaudeSpawnSettings {
     /// The command sandbox, at Sandboxed alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sandbox: Option<ClaudeSandboxSettings>,
+    /// Every hook of the person's off, written only where `true`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) disable_all_hooks: bool,
+    /// The variables Claude Code sets inside the process, over its starting environment.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) env: BTreeMap<&'static str, String>,
+    /// No exporter headers helper, written with the telemetry switches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) otel_headers_helper: Option<NoOtelHeadersHelper>,
+}
+
+// `env` carries the telemetry token's header, so only its names are written.
+impl fmt::Debug for ClaudeSpawnSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ClaudeSpawnSettings")
+            .field("cleanup_period_days", &self.cleanup_period_days)
+            .field("disable_agent_view", &self.disable_agent_view)
+            .field("cross_session_inbound", &self.cross_session_inbound)
+            .field("permissions", &self.permissions)
+            .field("advisor_model", &self.advisor_model)
+            .field("output_style", &self.output_style)
+            .field("sandbox", &self.sandbox)
+            .field("disable_all_hooks", &self.disable_all_hooks)
+            .field("env", &self.env.keys().collect::<Vec<_>>())
+            .field("otel_headers_helper", &self.otel_headers_helper)
+            .finish()
+    }
+}
+
+impl ClaudeSpawnSettings {
+    /// A short process's document: the cleanup period, the agent view off and messages from other
+    /// sessions let in, with every hook of the person's off where `are_hooks_off`, and no rules,
+    /// advisor, style or sandbox.
+    pub(crate) fn short_process(are_hooks_off: bool) -> Self {
+        Self {
+            cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
+            disable_agent_view: AgentViewOff,
+            cross_session_inbound: CrossSessionInboundAccepted,
+            permissions: None,
+            advisor_model: None,
+            output_style: None,
+            sandbox: None,
+            disable_all_hooks: are_hooks_off,
+            env: BTreeMap::new(),
+            otel_headers_helper: None,
+        }
+    }
+
+    /// Puts the telemetry switches into the document: the export to the target's receiver under
+    /// the process's own bearer where both are given, every exporter off where they are not, and
+    /// no exporter headers helper.
+    pub(crate) fn set_telemetry_switches(
+        &mut self,
+        export: Option<(&TelemetryTarget, &TelemetryBearer)>,
+    ) {
+        self.env.extend(compose_claude_telemetry_switches(export));
+        self.otel_headers_helper = Some(NoOtelHeadersHelper);
+    }
+}
+
+/// The document a Claude Code subcommand run outside the launcher carries inline, every exporter
+/// off: it holds no token, so it needs no file of its own.
+pub(crate) fn compose_claude_export_off_settings() -> String {
+    let mut settings = ClaudeSpawnSettings::short_process(false);
+    settings.set_telemetry_switches(None);
+    serde_json::to_string(&settings).expect("the settings document always serializes")
 }
 
 /// What a session's permission rules are composed from.
@@ -263,10 +342,13 @@ pub(crate) fn compose_claude_spawn_settings(
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
         cross_session_inbound: CrossSessionInboundAccepted,
-        permissions,
+        permissions: Some(permissions),
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
         sandbox,
+        disable_all_hooks: false,
+        env: BTreeMap::new(),
+        otel_headers_helper: None,
     })
 }
 
@@ -312,6 +394,7 @@ fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -320,14 +403,35 @@ mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
 
     use super::{
-        ClaudePermissionsRequest, ClaudePreApprovals, ClaudeSessionAdvisor,
+        ClaudePermissionsRequest, ClaudePreApprovals, ClaudeSessionAdvisor, ClaudeSpawnSettings,
         compose_claude_permissions, compose_claude_spawn_settings,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
+    use crate::driver::claude::DESCRIPTOR;
+    use crate::pricing::receiver::TelemetryTarget;
+    use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
     use crate::run::posture::{
         CredentialDenyPath, CredentialDenyPathKind, compose_execution_posture,
     };
+
+    // Killed by the derived `Debug`, which writes the export's `Authorization` value into any log
+    // line or panic that prints the document.
+    #[test]
+    fn a_printed_document_names_its_variables_without_the_token() {
+        let bearers = Arc::new(TelemetryBearers::default());
+        let bearer = bearers
+            .mint(DESCRIPTOR.provider_id(), TelemetryHolderId::new(1))
+            .expect("a token mints");
+        let target = TelemetryTarget::new(43_210, bearers);
+        let mut settings = ClaudeSpawnSettings::short_process(false);
+        settings.set_telemetry_switches(Some((&target, &bearer)));
+
+        let printed = format!("{settings:?}");
+
+        assert!(printed.contains("OTEL_EXPORTER_OTLP_HEADERS"));
+        assert!(!printed.contains(bearer.exporter_headers().as_str()));
+    }
 
     // Killed by dropping the credential paths from `permissions.deny`, which lets every
     // file-reading tool read them, by a folder's rule that leaves out what is under it, and by a
@@ -519,20 +623,26 @@ mod tests {
 
         let kept = compose(ClaudePreApprovals::Kept);
         let locked = compose(ClaudePreApprovals::DenyRulesOnly(&person_deny_rules));
+        let rules = |settings: &ClaudeSpawnSettings| {
+            settings
+                .permissions
+                .clone()
+                .expect("a session process's document carries its rules")
+        };
 
         assert_eq!(
-            kept.permissions.allow,
+            rules(&kept).allow,
             [
                 "Read(//Users/alice/.claude/agent-memory/**)",
                 "Edit(//Users/alice/.claude/agent-memory/**)",
             ]
         );
         assert!(kept.sandbox.is_some());
-        assert_eq!(locked.permissions.allow, [] as [String; 0]);
+        assert_eq!(rules(&locked).allow, [] as [String; 0]);
         assert_eq!(locked.sandbox, None);
         assert_eq!(
-            locked.permissions.deny,
-            [kept.permissions.deny.as_slice(), &person_deny_rules].concat()
+            rules(&locked).deny,
+            [rules(&kept).deny.as_slice(), &person_deny_rules].concat()
         );
     }
 }

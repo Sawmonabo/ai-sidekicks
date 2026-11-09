@@ -1,5 +1,6 @@
 //! The Claude Code driver.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -36,6 +37,9 @@ use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
 use crate::driver::claude::session::state::ClaudeToolCallThread;
+use crate::driver::claude::spawn::settings::private_file::{
+    compose_claude_settings_folder, remove_left_claude_settings_files,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
@@ -82,6 +86,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::rule::RequestPricer;
 
 mod account;
 mod attachments;
@@ -103,6 +108,7 @@ mod lifecycle;
 mod live_sessions;
 mod mcp;
 mod output_speed;
+mod pricing;
 mod rate_limit_windows;
 mod release_notes;
 mod run;
@@ -147,6 +153,10 @@ const CLAUDE_TOOL_USE_ID_META_KEY: &str = "claudecode/toolUseId";
 const NO_HELD_TURN_REASON: &str = "Claude Code holds no turn for a safety check.";
 
 impl ProviderDriver for ClaudeDriver {
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
+        Some(Arc::new(pricing::ClaudeRequestPricer))
+    }
+
     fn create_session(
         &self,
         params: CreateSessionParams,
@@ -652,6 +662,19 @@ impl ProviderDriver for ClaudeDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        vec![compose_claude_settings_folder(&self.sources.data_folder)]
+    }
+
+    fn remove_left_settings_files(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        async {
+            remove_left_claude_settings_files(&self.sources.data_folder)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))
+        }
+        .boxed()
     }
 
     fn read_mcp_server_addresses(

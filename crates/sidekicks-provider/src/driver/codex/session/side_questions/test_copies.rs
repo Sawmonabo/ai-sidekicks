@@ -130,8 +130,8 @@ pub(crate) async fn accept_copy(listener: &Listener) -> CopySocket {
 }
 
 // Serves the copy's connection as Codex through its fork: the connection's start and a fork of the
-// stored conversation whose reply names `profile`, or no profile; answers the connection and the
-// fork's params.
+// stored conversation at the `priority` tier whose reply names `profile`, or no profile; answers
+// the connection and the fork's params.
 async fn fork_copy(listener: &Listener, profile: Option<&str>) -> (CopySocket, Map<String, Value>) {
     let mut socket = accept_copy(listener).await;
     let read = next_socket_request(&mut socket).await;
@@ -143,7 +143,10 @@ async fn fork_copy(listener: &Listener, profile: Option<&str>) -> (CopySocket, M
     .await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
-    let mut reply = json!({"thread": {"id": COPY_THREAD, "sessionId": "codex-session"}});
+    let mut reply = json!({
+        "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+        "serviceTier": "priority",
+    });
     if let Some(profile) = profile {
         reply["activePermissionProfile"] = json!({"id": profile});
     }
@@ -156,8 +159,8 @@ async fn fork_copy(listener: &Listener, profile: Option<&str>) -> (CopySocket, M
 }
 
 /// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
-/// of the stored conversation under `profile`; answers the connection, the fork's params and the
-/// turn's.
+/// of the stored conversation under `profile` at the `priority` tier; answers the connection, the
+/// fork's params and the turn's.
 pub(crate) async fn open_copy(
     listener: &Listener,
     profile: &str,
@@ -192,6 +195,8 @@ pub(crate) async fn serve_unprofiled_copy(listener: Listener) -> Vec<Message> {
 pub(crate) enum CopyTurnEnding {
     /// Completed with [`ANSWER`].
     Answered,
+    /// One usage reading of 1,000 input and 100 output tokens, then completed with [`ANSWER`].
+    MeteredThenAnswered,
     /// Failed, Codex's policy having refused it.
     RefusedByPolicy,
 }
@@ -208,8 +213,22 @@ pub(crate) async fn serve_copy(
     ending: CopyTurnEnding,
 ) -> Map<String, Value> {
     let (mut socket, fork, _turn) = open_copy(&listener, &profile).await;
+    if let CopyTurnEnding::MeteredThenAnswered = ending {
+        // The fork's total carries the stored conversation's restored figures beside its request.
+        let total = json!({"inputTokens": 51_000, "outputTokens": 2_100, "totalTokens": 53_100});
+        let last = json!({"inputTokens": 1_000, "outputTokens": 100, "totalTokens": 1_100});
+        send_on_socket(
+            &mut socket,
+            json!({"jsonrpc": "2.0", "method": "thread/tokenUsage/updated", "params": {
+                "threadId": COPY_THREAD,
+                "turnId": COPY_TURN,
+                "tokenUsage": {"total": total, "last": last},
+            }}),
+        )
+        .await;
+    }
     let turn = match ending {
-        CopyTurnEnding::Answered => {
+        CopyTurnEnding::Answered | CopyTurnEnding::MeteredThenAnswered => {
             send_on_socket(
                 &mut socket,
                 json!({"jsonrpc": "2.0", "method": "item/completed", "params": {

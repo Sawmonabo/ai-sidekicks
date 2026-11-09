@@ -49,9 +49,11 @@ ts_constants! {
     /// Where the file sits, relative to the person's home folder.
     pub const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: [&str; 2] =
         [DAEMON_DATA_FOLDER_NAME, "machine-settings.json"];
-    /// The longest environment name or value. Windows caps one variable at 32,767 characters, the
-    /// tightest limit of the three platforms.
-    pub const ENVIRONMENT_ROW_MAX_LEN: usize = 32_767;
+    /// The most UTF-16 units one environment entry, `NAME=value` and its NUL, may fill: Windows'
+    /// 32,767 characters a variable, the tightest limit of the three platforms, read as the whole
+    /// entry. A name's or a value's own cap takes the same number but counts code points; only the
+    /// whole-entry check counts UTF-16 units.
+    pub const ENVIRONMENT_ENTRY_MAX_UNITS: usize = 32_767;
     /// The longest editor id, call voice name or dictation language.
     pub const MACHINE_SETTINGS_NAME_MAX_LEN: usize = 256;
     /// The longest branch-name pattern.
@@ -157,7 +159,7 @@ pub fn environment_name_refusal(name: &str) -> Option<EnvironmentNameRefusalReas
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectEnvironmentNameRefusedDetails {
     /// The name as typed.
-    pub name: BoundedText<1, ENVIRONMENT_ROW_MAX_LEN>,
+    pub name: BoundedText<1, ENVIRONMENT_ENTRY_MAX_UNITS>,
     /// Why it was refused.
     pub reason: EnvironmentNameRefusalReason,
 }
@@ -189,14 +191,31 @@ pub enum ProjectBranchPatternRefusedDetails {
 
 /// One `name = value` row passed to every process the app starts, in `Every project` or in one
 /// project's own list. The name rule is [`environment_name_refusal`], checked by the service when
-/// a list is saved.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// a list is saved. Its whole entry fits [`ENVIRONMENT_ENTRY_MAX_UNITS`], so every system starts a
+/// process with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct EnvironmentRow {
     /// The variable's name.
-    pub name: BoundedText<1, ENVIRONMENT_ROW_MAX_LEN>,
+    pub name: BoundedText<1, ENVIRONMENT_ENTRY_MAX_UNITS>,
     /// Its value; a NUL would cut the environment entry short.
-    pub value: NulFreeText<ENVIRONMENT_ROW_MAX_LEN>,
+    #[garde(custom(|value: &NulFreeText<ENVIRONMENT_ENTRY_MAX_UNITS>, (): &()| {
+        fits_one_entry(self.name.as_str(), value.as_str())
+    }))]
+    pub value: NulFreeText<ENVIRONMENT_ENTRY_MAX_UNITS>,
+}
+
+// Whether `NAME=value` and its NUL fit the entry bound, counted in UTF-16 units as Windows counts.
+fn fits_one_entry(name: &str, value: &str) -> garde::Result {
+    let units = name.encode_utf16().count() + value.encode_utf16().count() + 2;
+    if units <= ENVIRONMENT_ENTRY_MAX_UNITS {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "an environment entry passes the most UTF-16 units one variable may fill",
+        ))
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -509,6 +528,7 @@ pub struct MachineSettings {
     /// `Simplify for a screen reader`, carried into the Terminal pane's shells.
     pub screen_reader_mode: bool,
     /// `Every project`'s environment rows.
+    #[garde(dive)]
     pub environment_rows: Vec<EnvironmentRow>,
     /// The backup settings.
     pub backup: BackupSettings,
@@ -630,8 +650,9 @@ pub fn parse_machine_settings_file(
 /// `notifications` is written whole, so a change to one of its switches carries the group as the
 /// page last read it with that switch moved. A pattern's `{title}` rule is the service's coded
 /// refusal, not a parse failure.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase")]
+#[garde(allow_unvalidated)]
 pub enum MachineSettingsChange {
     /// `Check for updates automatically`.
     UpdatesAutomatic(bool),
@@ -674,7 +695,7 @@ pub enum MachineSettingsChange {
     /// `Simplify for a screen reader`.
     ScreenReaderMode(bool),
     /// `Every project`'s environment rows, whole.
-    EnvironmentRows(Vec<EnvironmentRow>),
+    EnvironmentRows(#[garde(dive)] Vec<EnvironmentRow>),
     /// The backup settings, whole.
     Backup(BackupSettings),
     /// `Every project`'s `Branch names`.
@@ -739,6 +760,7 @@ pub struct MachineSettingsReading {
 #[garde(allow_unvalidated)]
 pub struct MachineSettingsUpdateRequest {
     /// The change.
+    #[garde(dive)]
     pub change: MachineSettingsChange,
 }
 
@@ -822,59 +844,4 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 };
 
 #[cfg(test)]
-mod tests {
-    use serde::Deserialize;
-    use serde_json::Value;
-
-    use super::{
-        EnvironmentNameRefusalReason, environment_name_refusal, parse_machine_settings_file,
-    };
-
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct EnvironmentNameCase {
-        name: String,
-        refusal: Option<EnvironmentNameRefusalReason>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct SettingsFileCase {
-        file: Value,
-        settings: Option<Value>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct MachineSettingsCases {
-        environment_names: Vec<EnvironmentNameCase>,
-        settings_files: Vec<SettingsFileCase>,
-    }
-
-    fn cases() -> MachineSettingsCases {
-        serde_json::from_str(include_str!("../../tests/fixtures/machine-settings.json"))
-            .expect("the case table parses")
-    }
-
-    #[test]
-    fn a_row_name_is_refused_for_the_reason_the_table_gives() {
-        for case in cases().environment_names {
-            assert_eq!(
-                environment_name_refusal(&case.name),
-                case.refusal,
-                "{}",
-                case.name
-            );
-        }
-    }
-
-    #[test]
-    fn a_settings_file_reads_over_the_defaults_or_is_refused_whole() {
-        for case in cases().settings_files {
-            let read = parse_machine_settings_file(case.file.clone())
-                .ok()
-                .map(|settings| serde_json::to_value(settings).expect("settings serialize"));
-            assert_eq!(read, case.settings, "{}", case.file);
-        }
-    }
-}
+mod tests;

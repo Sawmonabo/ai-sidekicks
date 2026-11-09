@@ -286,6 +286,7 @@ mod tests {
             .write(&LastingServiceRecord::launched(
                 process.clone(),
                 folder.join("codex.sock"),
+                None,
             ))
             .expect("the record is kept");
         let lasting = repin_lasting_codex_service(process)

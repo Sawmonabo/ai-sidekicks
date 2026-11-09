@@ -29,6 +29,7 @@ use crate::driver::claude::session::transport::control::{
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 use crate::lenient_json::read_is_non_empty_text;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -131,7 +132,8 @@ pub(crate) struct ClaudeShortProcess {
 
 impl ClaudeShortProcess {
     /// Starts `executable` with `arguments` in `working_folder`, under `provider_account_id`'s
-    /// account where given, handed `token` where given and else the account's sealed one. Fails as
+    /// account where given, handed `token` where given and else the account's sealed one, with a
+    /// short process's settings, every hook of the person's off where `are_hooks_off`. Fails as
     /// the launcher's start does.
     pub(crate) async fn start(
         launcher: &ClaudeProcessLauncher,
@@ -140,6 +142,7 @@ impl ClaudeShortProcess {
         working_folder: PathBuf,
         provider_account_id: Option<ProviderAccountId>,
         token: Option<SecretString>,
+        are_hooks_off: bool,
     ) -> Result<Self, ClaudeLaunchError> {
         let (listener, arrivals) = ForwardedArrivals::open();
         let process = launcher
@@ -147,11 +150,13 @@ impl ClaudeShortProcess {
                 ClaudeProcessLaunch {
                     start: executable.start.clone(),
                     arguments,
+                    settings: ClaudeSpawnSettings::short_process(are_hooks_off),
                     environment: executable.environment.clone(),
                     working_folder,
                     provider_session_id: mint_uuid_v7().to_string(),
                     account: ClaudeProcessAccount::new(provider_account_id),
                     token,
+                    telemetry_target: None,
                 },
                 listener,
                 None,
@@ -185,6 +190,7 @@ impl ClaudeShortProcess {
             working_folder,
             provider_account_id,
             token,
+            false,
         )
         .await
     }

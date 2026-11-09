@@ -10,9 +10,11 @@ use std::path::{Path, PathBuf};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Serialize;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_provider::port::raw_provider_messages::RawProviderMessages;
 use sidekicks_provider::port::tool_traces::{ToolTrace, ToolTraces};
+use sidekicks_workflow::engine::ports::EngineRecordSink;
 use tokio::sync::watch;
 
 use crate::daemon::configuration::{ConfigurationStore, DaemonConfiguration};
@@ -63,6 +65,14 @@ fn bucket_folder(data_folder: &Path, bucket_name: &str) -> PathBuf {
 )]
 pub(crate) fn workflow_engine_events_bucket(data_folder: &Path) -> DailyFileBucket {
     DailyFileBucket::new(workflow_engine_events_folder(data_folder))
+}
+
+impl EngineRecordSink for DailyFileBucket {
+    /// Appends the engine's line as one line of today's file; a line that is lost is told in the
+    /// service log.
+    fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()> {
+        Box::pin(async move { self.append(&entry).await })
+    }
 }
 
 /// One message a provider sent the service, word for word.

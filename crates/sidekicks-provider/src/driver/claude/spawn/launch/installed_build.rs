@@ -45,7 +45,7 @@ use crate::driver::claude::spawn::launch::figures::{
 use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
 use crate::driver::claude::spawn::launch::one_turn::{
-    ClaudeOneTurnReply, ClaudeOneTurnRequest, run_claude_one_turn,
+    ClaudeOneTurnOutcome, ClaudeOneTurnRequest, run_claude_one_turn,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::version::read_reported_version;
@@ -95,11 +95,11 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         place: ClaudeSessionFolderReadRequest,
     ) -> BoxFuture<'static, Result<ClaudeReplyReserveReads, ClaudeLaunchError>>;
 
-    /// Runs one unkept turn.
+    /// Runs one unkept turn, answering its reply or failure with its process's spend.
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>>;
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome>;
 
     /// Asks a process that keeps nothing, started in `environment` on `provider_account_id`'s
     /// account, how it is signed in.
@@ -202,6 +202,7 @@ impl ClaudeInstalledBuild {
             working_folder,
             Some(provider_account_id),
             None,
+            false,
         )
         .await?;
         if let Err(error) = short.initialize().await {
@@ -316,12 +317,16 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome> {
         async move {
             let environment = request.spawn.legs.spawn_environment.clone();
-            let executable =
-                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
-            run_claude_one_turn(&self.launcher, &executable, request).await
+            match resolve_claude_build(&self.command_search, &self.home_folder, environment).await {
+                Ok(executable) => run_claude_one_turn(&self.launcher, &executable, request).await,
+                Err(error) => ClaudeOneTurnOutcome {
+                    reply: Err(error.into()),
+                    spend: None,
+                },
+            }
         }
         .boxed()
     }

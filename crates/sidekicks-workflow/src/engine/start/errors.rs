@@ -8,6 +8,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 use sidekicks_store::machine::registry::MachineRegistryReadError;
 use sidekicks_workspace::working_folder::{ProjectEnvironmentReadError, WorkingFolderReadError};
@@ -20,7 +21,9 @@ use crate::engine::ports::PortError;
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
-    /// The start was refused: `workflow.run.startDenied` or `workflow.run.inputRequired`.
+    /// The start was refused: `workflow.run.startDenied`, `workflow.run.inputRequired`,
+    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`,
+    /// `workflow.run.nodeKindUnavailable` or `workflow.run.handleUndeclared`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -33,13 +36,17 @@ pub(crate) enum WorkflowRunStartError {
     /// The version's stored body, or the workflow's pinned data, does not read.
     #[error("the pinned workflow version or its pins do not read")]
     StoredDocument(#[from] StoredDocumentError),
+    /// The items pinned onto a node cannot be canonicalized for their hash, such as ones nesting
+    /// past the ceiling.
+    #[error("the items pinned onto a node cannot be hashed")]
+    PinHash(#[from] CanonicalizationRefusal),
     /// This machine's owner, whom a trigger's fire is judged as, did not read.
     #[error(transparent)]
     Owner(#[from] MachineRegistryReadError),
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
-    /// The workflow's level or pins, or the session's project, did not read.
+    /// The workflow's level, pins or provider, or the session's project, did not read.
     #[error("the run's scope did not read")]
     Scope(#[from] rusqlite::Error),
     /// The environment rows of the session's project did not read, or its project has no row.
@@ -48,13 +55,6 @@ pub(crate) enum WorkflowRunStartError {
     /// The values the workflow keeps did not read.
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
-    /// The provider the run's command steps run under did not read.
-    #[error("the run's provider could not be read")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Provider(#[source] PortError),
     /// The run's own folder could not be made.
     #[error("the run's own folder could not be made")]
     #[cfg_attr(
@@ -143,11 +143,11 @@ impl From<WorkflowRunStartError> for HandlerError {
             WorkflowRunStartError::KeptValues(error) => error.into(),
             fault @ (WorkflowRunStartError::Session(WorkingFolderReadError::Database(_))
             | WorkflowRunStartError::StoredDocument(_)
+            | WorkflowRunStartError::PinHash(_)
             | WorkflowRunStartError::Owner(_)
             | WorkflowRunStartError::Pool(_)
             | WorkflowRunStartError::Scope(_)
             | WorkflowRunStartError::ProjectEnvironment(_)
-            | WorkflowRunStartError::Provider(_)
             | WorkflowRunStartError::Folder(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)

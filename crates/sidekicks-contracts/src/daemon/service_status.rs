@@ -66,6 +66,9 @@ pub enum DaemonStopStep {
     AttentionDecisions,
     /// The web address's sender ending, a write under way waited out.
     WebAddressSender,
+    /// The price list's fetch and the held requests' repricing ending, a write under way waited
+    /// out.
+    Pricing,
     /// The session services' follows of the log ending with the chats' write watch.
     SessionFollows,
     /// The chats' file recount ending, where no session services ran.
@@ -113,6 +116,7 @@ impl DaemonStopStep {
             Self::RepositoryAttachments => "ending the repositories' background work",
             Self::AttentionDecisions => "finishing the notifications under way",
             Self::WebAddressSender => "sending the last message to the web address",
+            Self::Pricing => "finishing the price updates",
             Self::SessionFollows | Self::ChatsRecount | Self::ChatsChanges => {
                 "finishing the chats' updates"
             }

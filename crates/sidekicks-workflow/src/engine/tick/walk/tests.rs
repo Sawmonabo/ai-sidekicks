@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -16,7 +16,8 @@ use super::{RunGraph, RunWalk, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
-    NodeExecutor, NodeKind, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, test_kind,
+    NodeExecutor, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, loop_test_kind,
+    main_test_kind, test_kind,
 };
 
 /// A test executor whose step runs on its first main input with items, passing its inputs on.
@@ -36,42 +37,17 @@ impl NodeExecutor for FirstInputExecutor {
     }
 }
 
-/// The test kind `name` with `inputs` main inputs and `outputs` main outputs.
-fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
-    let handles = |side: &str, count: usize| -> Value {
-        (0..count)
-            .map(|index| {
-                json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" })
-            })
-            .collect()
-    };
-    test_kind(
-        json!({
-            "kind": name, "version": 1, "category": "developer",
-            "displayName": "Test", "description": "A test kind.", "icon": "test",
-            "params": [], "outputsDeriveFromParams": false,
-            "inputs": handles("inputs", inputs), "outputs": handles("outputs", outputs),
-        }),
-        None,
-        Box::new(PassThroughExecutor),
-    )
-}
-
-/// The loop kind `test.loop`, with one main input and its done and loop outputs.
-fn loop_kind() -> NodeKind {
-    let mut loop_kind = kind("test.loop", 1, 2);
-    loop_kind.loop_output = Some(1);
-    loop_kind
-}
-
 /// The kinds the tests' graphs use.
 fn kinds() -> NodeKindTable {
+    let kind = |name: &str, handles: (usize, usize)| {
+        main_test_kind(name, "developer", handles, Box::new(PassThroughExecutor))
+    };
     NodeKindTable::new(vec![
-        kind("test.trigger", 0, 1),
-        kind("test.step", 1, 1),
-        kind("test.pair", 2, 2),
-        loop_kind(),
-        kind("test.triple", 3, 1),
+        kind("test.trigger", (0, 1)),
+        kind("test.step", (1, 1)),
+        kind("test.pair", (2, 2)),
+        loop_test_kind(),
+        kind("test.triple", (3, 1)),
         test_kind(
             json!({
                 "kind": "test.first", "version": 1, "category": "developer",
@@ -646,7 +622,10 @@ fn a_disabled_skips_successor_reads_the_items_it_passed_on() {
         },
     );
 
-    assert_eq!(walk.ready_inputs(s_ready, &outputs), [items]);
+    assert_eq!(
+        walk.ready_inputs(&s_ready.step, &s_ready.sources, &outputs),
+        [items]
+    );
 }
 
 /// A retry readies the next attempt under the next execution index with the run index and sources

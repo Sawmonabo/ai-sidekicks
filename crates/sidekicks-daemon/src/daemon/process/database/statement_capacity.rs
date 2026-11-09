@@ -13,6 +13,7 @@ use sidekicks_mcp::sign_in::sign_out::owed::MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY
 use sidekicks_provider::account::resolver::PROVIDER_ACCOUNTS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
+use sidekicks_provider::pricing::held::HELD_REQUEST_REPRICING_STATEMENT_CAPACITY;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
 use sidekicks_queue::service::RUN_QUEUE_STATEMENT_CAPACITY;
@@ -122,6 +123,8 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
+    // The repricing of held requests: its start's key read and its page reads.
+    + HELD_REQUEST_REPRICING_STATEMENT_CAPACITY
     + HELD_TOOL_CALLS_STATEMENT_CAPACITY
     + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY

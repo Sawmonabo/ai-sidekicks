@@ -737,6 +737,7 @@ fn read_sessions_with_leftovers(
         read_ended_runs_with_open_choices(reader, None)?,
     ];
     sessions.extend(ended_runs.iter().flatten().map(|run| run.session_id));
+    sessions.extend(ApprovalRequestReader::new(reader).list_sessions_with_unheld_wait_requests()?);
     sessions.extend(
         read_held_plans(reader, None)?
             .into_iter()

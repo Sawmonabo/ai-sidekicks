@@ -219,8 +219,10 @@ pub(crate) struct StepContext {
     pub(crate) permission_level: PermissionLevel,
     /// The folder the run works in.
     pub(crate) working_folder: PathBuf,
-    /// The provider whose shell a command step runs in.
-    pub(crate) provider: ProviderId,
+    /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
+    /// `None` when the workflow names none, which a start allows only when no step runs in a
+    /// sandbox.
+    pub(crate) provider: Option<ProviderId>,
     /// The secrets the node's sensitive params resolved to.
     pub(crate) secrets: Vec<ResolvedStepSecret>,
     /// The step's cancel.
@@ -275,8 +277,10 @@ pub(crate) struct StepContextParts {
     pub(crate) permission_level: PermissionLevel,
     /// The folder the run works in.
     pub(crate) working_folder: PathBuf,
-    /// The provider whose shell a command step runs in.
-    pub(crate) provider: ProviderId,
+    /// The workflow's provider as the run started, whose sandbox and shell its command steps use;
+    /// `None` when the workflow names none, which a start allows only when no step runs in a
+    /// sandbox.
+    pub(crate) provider: Option<ProviderId>,
     /// The secrets the node's sensitive params resolved to.
     pub(crate) secrets: Vec<ResolvedStepSecret>,
     /// The step's cancel.
@@ -503,7 +507,9 @@ pub(crate) fn test_step_context(
         run_index: 0,
         permission_level: PermissionLevel::Ask,
         working_folder: PathBuf::from("/workspace"),
-        provider: ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        provider: Some(
+            ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        ),
         secrets,
         cancel: CancellationToken::new(),
         redaction,

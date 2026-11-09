@@ -1,6 +1,6 @@
 //! The settings kept beside a workflow's versions, each stored on the definition in one write that
-//! mints no version: the canvas layout, the tags, the permission level, the background browser and
-//! the pinned data.
+//! mints no version: the canvas layout, the tags, the permission level, the background browser, the
+//! provider and the pinned data.
 
 use std::borrow::Cow;
 
@@ -10,7 +10,8 @@ use sidekicks_contracts::workflow::definition::builder::{
     WorkflowBackgroundBrowserUpdateRequest, WorkflowBackgroundBrowserUpdateResponse,
     WorkflowDefinitionSettingResponse, WorkflowLayoutUpdateRequest,
     WorkflowPermissionLevelUpdateRequest, WorkflowPermissionLevelUpdateResponse,
-    WorkflowPinDataUpdateRequest, WorkflowPinDataUpdateResponse, WorkflowTagsUpdateRequest,
+    WorkflowPinDataUpdateRequest, WorkflowPinDataUpdateResponse, WorkflowProviderUpdateRequest,
+    WorkflowProviderUpdateResponse, WorkflowTagsUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -31,6 +32,10 @@ const UPDATE_PERMISSION_LEVEL_SQL: &str =
 
 const UPDATE_BACKGROUND_BROWSER_SQL: &str = "UPDATE workflow_definitions
   SET background_browser = @value, updated_at = @updated_at
+  WHERE id = @definition_id AND deleted_at IS NULL";
+
+const UPDATE_PROVIDER_SQL: &str = "UPDATE workflow_definitions
+  SET provider = @value, updated_at = @updated_at
   WHERE id = @definition_id AND deleted_at IS NULL";
 
 // A merge patch sets the node's items, or removes the node at a JSON null, in one statement, so a
@@ -106,6 +111,27 @@ impl WorkflowDefinitionStore {
         Ok(WorkflowBackgroundBrowserUpdateResponse {
             definition_id: request.definition_id,
             pick: request.pick,
+        })
+    }
+
+    /// Sets the provider every run of the workflow starts with, minting no version.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow builder's settings handlers")
+    )]
+    pub(crate) async fn update_provider(
+        &self,
+        request: &WorkflowProviderUpdateRequest,
+    ) -> Result<WorkflowProviderUpdateResponse, WorkflowDefinitionStoreError> {
+        self.write_setting(
+            request.definition_id,
+            UPDATE_PROVIDER_SQL,
+            request.provider.as_str().to_owned(),
+        )
+        .await?;
+        Ok(WorkflowProviderUpdateResponse {
+            definition_id: request.definition_id,
+            provider: request.provider.clone(),
         })
     }
 

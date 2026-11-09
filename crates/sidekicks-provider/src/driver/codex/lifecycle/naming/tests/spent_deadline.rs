@@ -1,5 +1,7 @@
 //! A naming pass whose live leg spends the whole deadline, so its one-shot pass gets no time.
 
+use std::sync::Arc;
+
 use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
@@ -8,13 +10,14 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
-use super::{TITLE_THREAD, TITLE_TURN};
-use crate::driver::codex::lifecycle::CodexDriver;
+use super::{TITLE_THREAD, TITLE_TURN, driver_on_account};
 use crate::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
 use crate::driver::codex::service::supervisor::test_service::bind_test_listener;
 use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
 use crate::driver::session_control::NameSessionParams;
-use crate::driver::test_registry::test_driver_services;
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::runtime_binding::store::mint_runtime_binding_id;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Serves the title pass's connection as Codex up to its turn's start, which it never ends; answers
 // the interrupt the daemon sent.
@@ -72,7 +75,8 @@ async fn a_live_pass_that_spends_the_deadline_leaves_the_one_shot_pass_no_time()
     let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
         return;
     };
-    let driver = CodexDriver::new(&test_driver_services());
+    let engine = Arc::new(RecordingRunEngine::default());
+    let driver = driver_on_account(&session.scripted, &engine, test_provider_account_id());
     driver.views.show(&session.task.record);
     let served = tokio::spawn(serve_unended_title_turn(listener));
     let started = Instant::now();
@@ -83,6 +87,7 @@ async fn a_live_pass_that_spends_the_deadline_leaves_the_one_shot_pass_no_time()
             place: None,
             first_message: "Fix the login page".to_owned(),
             first_reply: "Looking at the form.".to_owned(),
+            binding_id: mint_runtime_binding_id(),
             cancel: CancellationToken::new(),
         })
         .await;

@@ -2,28 +2,38 @@
 //! gate a script or quick Code step waits at, the agent runs an agent step starts, the processes a
 //! step launches and the artifacts its large payloads go to, the approval cards and questions a
 //! step waiting on a person opens, a tool server's tool a step calls, the sink of the engine's own
-//! records, the limit a chain's runs are counted under, and the provider a run's command steps run
-//! under. The program implements each and hands the ones the dispatch reads to the engine as one
+//! records and the limits a run is held to: how many runs a chain may count, and how long one run
+//! may go. The program implements each and hands the ones the dispatch reads to the engine as one
 //! bundle.
 
+#[cfg(test)]
+pub(crate) mod kept_payloads;
+#[cfg(test)]
+pub(crate) mod run_limits;
+#[cfg(test)]
+pub(crate) mod scripted_agent_runs;
 pub mod tool_call;
 
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
+use sidekicks_contracts::daemon::config::{RunTimeLimitMinutes, WorkflowChainAskAfterRuns};
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
@@ -184,6 +194,8 @@ pub enum AgentStepOutcome {
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,
+        /// When the account's limit resets, where the provider stated the instant.
+        resets_at: Option<WireInstant>,
     },
     /// The run failed.
     Failed {
@@ -226,6 +238,11 @@ pub trait AgentStepRun: Send + Sync {
 
     /// Asks the run to stop. Fails when the stop cannot be sent.
     fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>>;
+
+    /// Takes the run's turn the spent account refused again, on the run's account. The resumed
+    /// turn enters the memory gate again as a creation does, so `admission` answers `None` while
+    /// the gate holds it; the run's next outcome then answers. Fails when the ask cannot be sent.
+    fn resume(&self) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
 /// What a step process runs.
@@ -344,6 +361,30 @@ pub trait ApprovalCardRaiser: Send + Sync {
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
+/// A snapshot point a workflow run takes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowRunSnapshotPointRequest {
+    /// The session the run belongs to.
+    pub session_id: SessionId,
+    /// The run whose checkout is recorded.
+    pub workflow_run_id: WorkflowRunId,
+    /// The point taken, in the execution it belongs to.
+    pub point: WorkflowRunSnapshotPoint,
+}
+
+/// Takes a workflow run's snapshot points; the program implements it over the turn-snapshot
+/// service.
+pub trait RunSnapshotPoints: Send + Sync {
+    /// Records `request`'s point of the run's checkout. A run with no checkout captures nothing
+    /// and answers `Ok`; the point's ref is create-only, so a point taken twice keeps its first
+    /// capture. The future borrows nothing, so the caller can spawn it. Fails when the capture
+    /// cannot be written.
+    fn take(
+        &self,
+        request: WorkflowRunSnapshotPointRequest,
+    ) -> BoxFuture<'static, Result<(), PortError>>;
+}
+
 /// A form question a step waiting on a person opens.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FormQuestionRequest {
@@ -405,22 +446,14 @@ pub trait EngineRecordSink: Send + Sync {
     fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()>;
 }
 
-/// The limit a run joining a chain is counted under, which the daemon reads from its configuration
-/// and hands the engine; it is read again at each joining start, so a change applies to the next.
-pub trait ChainAskAfterReader: Send + Sync {
+/// The limits a run is held to, which the daemon reads from its configuration and hands the
+/// engine; each is read again where it applies, so a change holds from the next read.
+pub trait WorkflowRunLimits: Send + Sync {
     /// `Ask me after one start leads to`, in runs, as set now; `None` is `Never ask`.
     fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns>;
-}
 
-/// Reads, at a run's start, the provider whose shell the run's command steps run in.
-pub trait RunProviderReader: Send + Sync {
-    /// The provider for a run of workflow `workflow_id` in session `session_id`. Fails when it
-    /// cannot be read, which fails the start.
-    fn run_provider<'call>(
-        &'call self,
-        workflow_id: &'call WorkflowDefinitionId,
-        session_id: &'call SessionId,
-    ) -> BoxFuture<'call, Result<ProviderId, PortError>>;
+    /// `Stop a run after`, as set now; `None` is `No limit`.
+    fn run_time_limit(&self) -> Option<RunTimeLimitMinutes>;
 }
 
 /// What a refusing test port panics or fails with: a test that reaches one has a fault.
@@ -542,7 +575,7 @@ pub(crate) struct ScriptedGate {
     /// Woken at each enqueue; a wake with no waiter is kept for the next.
     entered: tokio::sync::Notify,
     /// How many of its tickets were dropped.
-    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+    dropped_tickets: Arc<AtomicUsize>,
 }
 
 #[cfg(test)]
@@ -575,8 +608,7 @@ impl ScriptedGate {
 
     /// How many of its tickets were dropped.
     pub(crate) fn dropped_tickets(&self) -> usize {
-        self.dropped_tickets
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.dropped_tickets.load(Ordering::SeqCst)
     }
 }
 
@@ -600,7 +632,7 @@ struct ScriptedTicket {
     /// The gate's outcome.
     outcome: watch::Receiver<Option<StepAdmissionOutcome>>,
     /// The gate's count of dropped tickets.
-    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+    dropped_tickets: Arc<AtomicUsize>,
 }
 
 #[cfg(test)]
@@ -629,193 +661,7 @@ impl StepAdmissionTicket for ScriptedTicket {
 #[cfg(test)]
 impl Drop for ScriptedTicket {
     fn drop(&mut self) {
-        self.dropped_tickets
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-/// What a [`ScriptedAgentRunner`] shares with every run it answers, which the test sets.
-#[cfg(test)]
-struct ScriptedAgentRunControls {
-    /// Where every run stands at the memory gate.
-    admission: watch::Sender<Option<StepAdmissionOutcome>>,
-    /// How many turn ends and tool calls every run has passed.
-    progressed: watch::Sender<u64>,
-    /// The level every run starts at, `None` until it starts.
-    start: watch::Sender<Option<PermissionLevel>>,
-    /// How every run ends, `None` until it ends.
-    outcome: watch::Sender<Option<AgentStepOutcome>>,
-    /// Woken at each run's `cancel()`; a wake with no waiter is kept for the next.
-    canceled: tokio::sync::Notify,
-    /// Whether every run's `cancel()` fails.
-    is_stop_failing: std::sync::atomic::AtomicBool,
-}
-
-/// An agent step runner for a test: it records each request, holds each creation until the test
-/// releases it when built to, and answers runs that read the controls the test sets.
-#[cfg(test)]
-pub(crate) struct ScriptedAgentRunner {
-    /// What every run it answers reads.
-    controls: Arc<ScriptedAgentRunControls>,
-    /// The request each `run` was given, in order.
-    requests: std::sync::Mutex<Vec<AgentStepRequest>>,
-    /// Woken at each `run`; a wake with no waiter is kept for the next.
-    requested: tokio::sync::Notify,
-    /// Whether each creation waits for the test's release.
-    is_holding_creations: bool,
-    /// Lets a held creation go on; a release with no waiter is kept for the next.
-    creation_released: tokio::sync::Notify,
-}
-
-#[cfg(test)]
-impl ScriptedAgentRunner {
-    /// A runner whose runs start at the gate at `admission`: `None` holds, `Some(Admitted)` admits
-    /// at once. Each creation waits for [`Self::release_creation`] when `is_holding_creations`.
-    pub(crate) fn new(admission: Option<StepAdmissionOutcome>, is_holding_creations: bool) -> Self {
-        Self {
-            controls: Arc::new(ScriptedAgentRunControls {
-                admission: watch::Sender::new(admission),
-                progressed: watch::Sender::new(0),
-                start: watch::Sender::new(None),
-                outcome: watch::Sender::new(None),
-                canceled: tokio::sync::Notify::new(),
-                is_stop_failing: std::sync::atomic::AtomicBool::new(false),
-            }),
-            requests: std::sync::Mutex::new(Vec::new()),
-            requested: tokio::sync::Notify::new(),
-            is_holding_creations,
-            creation_released: tokio::sync::Notify::new(),
-        }
-    }
-
-    /// Lets one held creation go on.
-    pub(crate) fn release_creation(&self) {
-        self.creation_released.notify_one();
-    }
-
-    /// The requests made so far, in order.
-    pub(crate) fn requests(&self) -> Vec<AgentStepRequest> {
-        sidekicks_std::mutex_lock::lock(&self.requests).clone()
-    }
-
-    /// Returns once a run was asked for, at once when one was since the last return.
-    pub(crate) async fn wait_for_request(&self) {
-        self.requested.notified().await;
-    }
-
-    /// Fails every run's `cancel()` from now on.
-    pub(crate) fn fail_stops(&self) {
-        self.controls
-            .is_stop_failing
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Admits every run at the gate.
-    pub(crate) fn admit(&self) {
-        self.controls
-            .admission
-            .send_replace(Some(StepAdmissionOutcome::Admitted));
-    }
-
-    /// Starts every run at `permission_level`.
-    pub(crate) fn start(&self, permission_level: PermissionLevel) {
-        self.controls.start.send_replace(Some(permission_level));
-    }
-
-    /// Counts one more turn end on every run.
-    pub(crate) fn progress(&self) {
-        self.controls.progressed.send_modify(|count| *count += 1);
-    }
-
-    /// Ends every run with `outcome`.
-    pub(crate) fn end(&self, outcome: AgentStepOutcome) {
-        self.controls.outcome.send_replace(Some(outcome));
-    }
-
-    /// Returns once a run's `cancel()` was called, at once when one was since the last return.
-    pub(crate) async fn wait_for_cancel(&self) {
-        self.controls.canceled.notified().await;
-    }
-
-    /// A run reading the controls, as each creation answers.
-    pub(crate) fn made_run(&self) -> Box<dyn AgentStepRun> {
-        Box::new(ScriptedAgentRun {
-            controls: Arc::clone(&self.controls),
-        })
-    }
-}
-
-#[cfg(test)]
-impl AgentStepRunner for ScriptedAgentRunner {
-    fn run(
-        &self,
-        request: AgentStepRequest,
-    ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>> {
-        Box::pin(async move {
-            sidekicks_std::mutex_lock::lock(&self.requests).push(request);
-            self.requested.notify_one();
-            if self.is_holding_creations {
-                self.creation_released.notified().await;
-            }
-            Ok(self.made_run())
-        })
-    }
-
-    fn reattach<'call>(
-        &'call self,
-        _step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-}
-
-/// A run of a [`ScriptedAgentRunner`], reading the controls the test sets.
-#[cfg(test)]
-struct ScriptedAgentRun {
-    /// The runner's controls.
-    controls: Arc<ScriptedAgentRunControls>,
-}
-
-#[cfg(test)]
-impl AgentStepRun for ScriptedAgentRun {
-    fn admission(&self) -> watch::Receiver<Option<StepAdmissionOutcome>> {
-        self.controls.admission.subscribe()
-    }
-
-    fn progressed(&self) -> watch::Receiver<u64> {
-        self.controls.progressed.subscribe()
-    }
-
-    fn started(&self) -> BoxFuture<'_, Result<AgentStepStart, PortError>> {
-        let mut start = self.controls.start.subscribe();
-        Box::pin(async move {
-            let permission_level = (*start.wait_for(Option::is_some).await?)
-                .expect("the wait answers once a level is set");
-            Ok::<_, PortError>(AgentStepStart { permission_level })
-        })
-    }
-
-    fn outcome(&self) -> BoxFuture<'_, Result<AgentStepOutcome, PortError>> {
-        let mut outcome = self.controls.outcome.subscribe();
-        Box::pin(async move {
-            let ended = Option::clone(&*outcome.wait_for(Option::is_some).await?)
-                .expect("the wait answers once an outcome is set");
-            Ok::<_, PortError>(ended)
-        })
-    }
-
-    fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>> {
-        self.controls.canceled.notify_one();
-        let is_failing = self
-            .controls
-            .is_stop_failing
-            .load(std::sync::atomic::Ordering::SeqCst);
-        Box::pin(async move {
-            if is_failing {
-                return Err("the run's process did not take the stop".into());
-            }
-            Ok(())
-        })
+        self.dropped_tickets.fetch_add(1, Ordering::SeqCst);
     }
 }
 

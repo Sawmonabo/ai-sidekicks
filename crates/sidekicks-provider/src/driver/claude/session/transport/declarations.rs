@@ -12,6 +12,7 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
+use crate::record_readers::is_digits;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A fast-mode declaration as sent: `fast_mode_state` and `fast_mode_disabled_reason`, as the
@@ -102,11 +103,9 @@ impl ClaudeInitializeDeclaration {
 // own ids spell it.
 fn canonical_model_id(model: &str) -> String {
     let model = model.trim().to_lowercase();
-    let window = model.rsplit_once('-').filter(|(_, suffix)| {
-        suffix.strip_suffix('m').is_some_and(|digits| {
-            !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-        })
-    });
+    let window = model
+        .rsplit_once('-')
+        .filter(|(_, suffix)| suffix.strip_suffix('m').is_some_and(is_digits));
     match window {
         Some((base, suffix)) => format!("{base}[{suffix}]"),
         None => model,
@@ -146,7 +145,8 @@ pub(crate) struct ClaudeMessageUsageObservation {
 
 /// What prices one assistant message's request, each absent where the message carries none or a
 /// value that does not fit: its model without the larger-window mark, its speed as given, its
-/// region (none for `global`), and its longer-lifetime cache write and web searches so far.
+/// region (none for `global` or `not_available`), and its longer-lifetime cache write and web
+/// searches so far.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeMessageRequestFacts {
     /// The model.
@@ -161,8 +161,24 @@ pub(crate) struct ClaudeMessageRequestFacts {
     pub(crate) web_search_requests: Option<u64>,
 }
 
+/// One model's usage and cost since the process's previous result, its first since the process
+/// started, as a `result`'s `model_usage_since_last_result` entry states them over every thread.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ClaudeModelCost {
+    /// The model, without the larger-window mark.
+    pub(crate) model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The input, cached input, cache write and output, each absent where it is no whole count.
+    pub(crate) counts: UsageAxisCounts,
+    /// `webSearchRequests`, absent where it is no whole count.
+    pub(crate) web_search_requests: Option<u64>,
+    /// `costUSD`, the spend on the model in dollars, where it is a number.
+    pub(crate) cost_usd: Option<f64>,
+    /// `costBasis`, as sent.
+    pub(crate) cost_basis: Option<String>,
+}
+
 /// The routing facts of one inbound stream frame, not the frame itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClaudeInboundFrameObservation {
     /// The `type/subtype` wire kind, as sent and untrusted.
     pub(crate) frame_kind: String,
@@ -189,6 +205,9 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.
     pub(crate) compaction_boundary: Option<ClaudeCompactionBoundaryObservation>,
+    /// A `result`'s spend per model since the process's previous result; `None` on a `result`
+    /// carrying no figures and on any other frame, while an empty list states nothing spent.
+    pub(crate) model_costs: Option<Vec<ClaudeModelCost>>,
 }
 
 #[cfg(test)]

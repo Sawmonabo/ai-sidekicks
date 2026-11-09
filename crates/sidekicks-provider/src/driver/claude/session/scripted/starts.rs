@@ -52,7 +52,7 @@ use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
-use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::settings::{ClaudePreApprovals, ClaudeSessionAdvisor};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
@@ -116,7 +116,8 @@ struct ScriptedStartTables {
     session_commands: VecDeque<Vec<ClaudeListedCommand>>,
     session_command_holds: VecDeque<oneshot::Receiver<()>>,
     session_command_reads: usize,
-    one_turn_replies: VecDeque<ClaudeOneTurnReply>,
+    // Each scripted one turn's outcome, and what it waits for before answering it.
+    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnWait)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
     one_turn_reaches: Vec<ScriptedOneTurnReach>,
@@ -132,6 +133,16 @@ struct ScriptedStartTables {
     stop_deadlines: Vec<Instant>,
     stop_hold: Option<oneshot::Receiver<()>>,
     next_process_id: u32,
+}
+
+// What a scripted one turn waits for before it answers.
+enum OneTurnWait {
+    // Nothing: it answers at once.
+    Nothing,
+    // Its stop.
+    Stop,
+    // The test's release.
+    Release(oneshot::Receiver<()>),
 }
 
 // One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
@@ -259,9 +270,28 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().session_command_reads)
     }
 
-    /// Scripts the next one-turn process to answer `reply`.
-    pub(crate) fn script_one_turn(&self, reply: ClaudeOneTurnReply) {
-        self.lock().one_turn_replies.push_back(reply);
+    /// Scripts the next one-turn process to end as `outcome`.
+    pub(crate) fn script_one_turn(&self, outcome: ClaudeOneTurnOutcome) {
+        let wait = OneTurnWait::Nothing;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+    }
+
+    /// Scripts the next one-turn process to run until its stop fires, then end as `outcome`.
+    pub(crate) fn script_one_turn_until_stopped(&self, outcome: ClaudeOneTurnOutcome) {
+        let wait = OneTurnWait::Stop;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+    }
+
+    /// Scripts the next one-turn process to run until the answered sender sends or drops, then
+    /// end as `outcome`, whether or not anyone still waits for it.
+    pub(crate) fn script_one_turn_until_released(
+        &self,
+        outcome: ClaudeOneTurnOutcome,
+    ) -> oneshot::Sender<()> {
+        let (release, released) = oneshot::channel();
+        let wait = OneTurnWait::Release(released);
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+        release
     }
 
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
@@ -454,8 +484,8 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
-        let reply = {
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome> {
+        let outcome = {
             let mut tables = self.lock();
             tables.one_turns.push(ScriptedOneTurnRecord {
                 model: request.spawn.legs.model.clone(),
@@ -473,9 +503,28 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 },
                 has_tool_servers: request.spawn.in_process_servers.is_some(),
             });
-            tables.one_turn_replies.pop_front()
+            tables.one_turn_outcomes.pop_front()
         };
-        async move { reply.ok_or_else(|| spawn_failure("no one-turn reply scripted")) }.boxed()
+        let (outcome, wait) = outcome.unwrap_or_else(|| {
+            let outcome = ClaudeOneTurnOutcome {
+                reply: Err(spawn_failure("no one-turn reply scripted")),
+                spend: None,
+            };
+            (outcome, OneTurnWait::Nothing)
+        });
+        let stop = request.stop;
+        async move {
+            match wait {
+                OneTurnWait::Nothing => {}
+                OneTurnWait::Stop => stop.cancelled().await,
+                // A dropped sender releases the turn as a send does.
+                OneTurnWait::Release(released) => {
+                    let _is_sent = released.await.is_ok();
+                }
+            }
+            outcome
+        }
+        .boxed()
     }
 
     fn probe_sign_in(

@@ -8,12 +8,12 @@
 use std::error::Error;
 
 use serde_json::json;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
     ApprovalLateCreateReason, ApprovalRequestId, ApprovalResolutionInvalidReason, RememberedRuleId,
     ReviewerDenialId,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 
@@ -44,11 +44,12 @@ pub(crate) fn approval_request_canceled(approval_request_id: ApprovalRequestId) 
     .with_detail(json!({ "approvalRequestId": approval_request_id }))
 }
 
-/// `approval.requestCanceled` on a create: the run had ended or the session had closed, so no ask
-/// was raised; `reason` names which, read from their state when the create was refused.
+/// `approval.requestCanceled` on a create: the run that would hold it, an agent run or a workflow
+/// run, had ended or the session had closed, so no ask was raised; `reason` names which, read from
+/// their state when the create was refused, and `holder` what would have held it.
 pub(crate) fn approval_late_create(
     session_id: SessionId,
-    run_id: RunId,
+    holder: &ApprovalHolder,
     reason: ApprovalLateCreateReason,
 ) -> DomainError {
     let message = match reason {
@@ -59,7 +60,7 @@ pub(crate) fn approval_late_create(
     };
     DomainError::new(message, RefusalCode::ApprovalRequestCanceled).with_detail(json!({
         "sessionId": session_id,
-        "runId": run_id,
+        "holder": holder,
         "reason": reason,
     }))
 }

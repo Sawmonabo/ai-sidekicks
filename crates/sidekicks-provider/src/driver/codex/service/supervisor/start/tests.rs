@@ -8,6 +8,7 @@ use std::time::Duration;
 use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_platforms::{
     LeftoverSweep, Spawner, connect_unix_domain_socket, create_file_atomically, harness_test_name,
@@ -23,11 +24,14 @@ use tokio_util::sync::CancellationToken;
 use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_services};
 use super::{StartFailure, StartedService, compose_launch, start_codex_service};
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::exec_relay::compose_codex_executor_arguments;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
+use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::test_service::{
     STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
     bind_test_listener, next_socket_request, send_on_socket, test_codex_service_dependencies,
@@ -35,6 +39,8 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::session::errors::CodexError;
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
@@ -146,9 +152,10 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         working_folder: folder.path().to_owned(),
     };
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-    let service = start_lasting_codex_service(&spawner, launch, &folder.path().join("codex.log"))
-        .await
-        .expect("the root starts");
+    let service =
+        start_lasting_codex_service(&spawner, launch, None, &folder.path().join("codex.log"))
+            .await
+            .expect("the root starts");
     let mut survivor = tokio::time::timeout(SURVIVOR_WAIT, listener.accept())
         .await
         .expect("the survivor starts in time")
@@ -166,6 +173,7 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         .write(&LastingServiceRecord::launched(
             record.clone(),
             socket.clone(),
+            None,
         ))
         .expect("the record is written");
     let is_pinned = repin_lasting_codex_service(record.clone())
@@ -174,7 +182,7 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
 
     let retired = retire_former_service(
         &locked,
-        LastingServiceRecord::launched(record, socket.clone()),
+        LastingServiceRecord::launched(record, socket.clone(), None),
     )
     .await;
     let mut rest = Vec::new();
@@ -463,7 +471,7 @@ async fn every_launch_carries_the_person_s_privacy_choices_last() {
             .resolve(service.home())
             .await
             .expect("the test program resolves");
-        let Ok(launch) = compose_launch(
+        let Ok((launch, _bearer)) = compose_launch(
             &service,
             &executable,
             service.launch_config_overrides(),
@@ -488,6 +496,226 @@ async fn every_launch_carries_the_person_s_privacy_choices_last() {
                 "feedback.enabled=false".to_owned(),
             ]),
             "{arguments:?}"
+        );
+    }
+}
+
+/// What a case's launch carries for telemetry: the daemon's log export with its token, every
+/// exporter off, or the person's own settings alone.
+enum LaunchTelemetry {
+    DaemonExport,
+    ExportersOff,
+    PersonsOwn,
+}
+
+/// Every exporter off, as a command line carries them.
+const EXPORTERS_OFF: [&str; 3] = [
+    "otel.exporter=\"none\"",
+    "otel.trace_exporter=\"none\"",
+    "otel.metrics_exporter=\"none\"",
+];
+
+// Killed by the daemon's switches or its bearer on any home they do not belong to, the person's
+// folder's terminal service among them; by an exporter left on for a read service, for a short
+// command on a home of the daemon's own, or for a launch before the target is registered; by an
+// executor started with any exporter left on; by `statsig` or any metrics exporter left on a read
+// or a short command; by the bearer on the command line; by a header value the receiver's token
+// refuses; and by a launch exporting with no tag, and a tag on a launch that exports nowhere.
+#[rstest]
+#[case::an_account_service(
+    CodexHomeKind::Account(test_provider_account_id()),
+    CodexServiceKind::Account,
+    true,
+    LaunchTelemetry::DaemonExport
+)]
+#[case::an_account_service_before_the_target(
+    CodexHomeKind::Account(test_provider_account_id()),
+    CodexServiceKind::Account,
+    false,
+    LaunchTelemetry::ExportersOff
+)]
+#[case::the_capability_read(
+    CodexHomeKind::CapabilityRead,
+    CodexServiceKind::Account,
+    true,
+    LaunchTelemetry::ExportersOff
+)]
+#[case::a_transient_read_on_the_person_s_folder(
+    CodexHomeKind::PersonalFolder,
+    CodexServiceKind::Account,
+    true,
+    LaunchTelemetry::ExportersOff
+)]
+#[case::the_terminal_service(
+    CodexHomeKind::PersonalFolder,
+    CodexServiceKind::Terminal,
+    true,
+    LaunchTelemetry::PersonsOwn
+)]
+#[tokio::test]
+async fn a_launch_carries_its_home_s_telemetry_switches(
+    #[case] home_kind: CodexHomeKind,
+    #[case] service_kind: CodexServiceKind,
+    #[case] is_registered: bool,
+    #[case] expected: LaunchTelemetry,
+) {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let persons_headers = (
+        "OTEL_EXPORTER_OTLP_HEADERS".to_owned(),
+        "authorization=person".to_owned(),
+    );
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: write_failing_codex(folder.path()),
+            environment: vec![persons_headers.clone()],
+        }),
+        Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
+    );
+    let bearers = Arc::new(TelemetryBearers::default());
+    let target = Arc::new(TelemetryTarget::new(4318, Arc::clone(&bearers)));
+    if is_registered {
+        dependencies
+            .telemetry_target
+            .register(Arc::clone(&target))
+            .expect("the target registers once");
+    }
+    let socket = folder.path().join("s.sock");
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home: folder.path().join("home"),
+            kind: home_kind.clone(),
+        },
+        CodexServiceSocket {
+            path: socket.clone(),
+            home_socket: socket.clone(),
+        },
+        service_kind,
+        Arc::clone(&dependencies),
+        Vec::new(),
+    );
+    let executable = dependencies
+        .program
+        .resolve(service.home())
+        .await
+        .expect("the test program resolves");
+    // The launch's own token stays live while its guard is held here.
+    let Ok((launch, _bearer)) = compose_launch(
+        &service,
+        &executable,
+        service.launch_config_overrides(),
+        &socket,
+    )
+    .await
+    else {
+        panic!("the launch was not composed");
+    };
+
+    let switches: Vec<&str> = launch
+        .arguments
+        .iter()
+        .map(String::as_str)
+        .filter(|argument| argument.starts_with("otel."))
+        .collect();
+    let headers = launch
+        .environment
+        .iter()
+        .find(|(name, _)| name == "OTEL_EXPORTER_OTLP_LOGS_HEADERS");
+    let tag = launch
+        .environment
+        .iter()
+        .find(|(name, _)| name == "OTEL_RESOURCE_ATTRIBUTES");
+    match expected {
+        LaunchTelemetry::DaemonExport => {
+            let exporter = switches[0]
+                .strip_prefix("otel.exporter=")
+                .expect("the exporter leads");
+            let read: toml::Table =
+                toml::from_str(&format!("value = {exporter}")).expect("the value is TOML");
+            assert_eq!(
+                serde_json::to_value(&read["value"]).expect("a TOML value is JSON"),
+                json!({"otlp-http": {
+                    "endpoint": "http://127.0.0.1:4318/telemetry/codex/v1/logs",
+                    "protocol": "binary",
+                }})
+            );
+            assert_eq!(
+                switches[1..],
+                [
+                    "otel.trace_exporter=\"none\"",
+                    "otel.metrics_exporter=\"none\"",
+                    "otel.log_user_prompt=false",
+                    "otel.tool_result.max_bytes=0",
+                    "otel.log_agent_responses=false",
+                    "otel.log_guardian_assessments=false",
+                    "otel.log_sse_deltas=false",
+                ]
+            );
+            let (_, value) = headers.expect("the token is in the environment");
+            let presented = value
+                .strip_prefix("authorization=")
+                .expect("the header is the authorization");
+            let token = presented
+                .strip_prefix("Bearer ")
+                .expect("the authorization presents a bearer");
+            assert!(
+                launch
+                    .arguments
+                    .iter()
+                    .all(|argument| !argument.contains(token)),
+                "the token is on the command line"
+            );
+            let (_, attributes) = tag.expect("the launch's tag is in the environment");
+            let number: u64 = attributes
+                .strip_prefix("sidekicks.codex.service=")
+                .expect("the attributes are the launch's tag")
+                .parse()
+                .expect("the tag is a number");
+            assert_eq!(
+                bearers.resolve(&DESCRIPTOR.provider_id(), Some(presented.as_bytes())),
+                Some(TelemetryHolderId::new(number)),
+                "the launch's token resolves to its own tag"
+            );
+        }
+        LaunchTelemetry::ExportersOff => {
+            assert_eq!(switches, EXPORTERS_OFF, "{:?}", launch.arguments);
+            assert!(headers.is_none(), "{headers:?}");
+            assert!(tag.is_none(), "{tag:?}");
+        }
+        LaunchTelemetry::PersonsOwn => {
+            assert!(switches.is_empty(), "{switches:?}");
+            assert!(headers.is_none(), "{headers:?}");
+            assert!(tag.is_none(), "{tag:?}");
+            assert!(launch.environment.contains(&persons_headers));
+        }
+    }
+
+    let command_switches = home_exec_switches(&home_kind);
+    let command_otel: Vec<&str> = command_switches
+        .chunks(2)
+        .map(|pair| {
+            assert_eq!(pair[0], "-c", "{command_switches:?}");
+            pair[1].as_str()
+        })
+        .filter(|switch| switch.starts_with("otel."))
+        .collect();
+    if home_kind == CodexHomeKind::PersonalFolder {
+        assert!(command_otel.is_empty(), "{command_otel:?}");
+    } else {
+        assert_eq!(command_otel, EXPORTERS_OFF);
+    }
+    if matches!(home_kind, CodexHomeKind::Account(_)) {
+        let executor = compose_codex_executor_arguments(&home_kind);
+        let executor_otel: Vec<&str> = executor
+            .iter()
+            .map(String::as_str)
+            .filter(|argument| argument.starts_with("otel."))
+            .collect();
+        assert_eq!(executor_otel, EXPORTERS_OFF, "{executor:?}");
+        assert_eq!(
+            executor[executor.len() - 3..],
+            ["exec-server", "--listen", "stdio"]
         );
     }
 }

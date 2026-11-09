@@ -233,6 +233,7 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_std::port_registration::PortRegistration;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{
@@ -271,6 +272,7 @@ mod tests {
             )),
             providers: Arc::new(providers),
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
+            price_list: Arc::new(PortRegistration::new("price list")),
         };
 
         let followed = follow_provider_commands(&sources, session_id).await;

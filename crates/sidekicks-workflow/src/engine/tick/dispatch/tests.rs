@@ -8,9 +8,8 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
-use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
@@ -20,7 +19,9 @@ use tokio::sync::{Notify, mpsc};
 use tokio::time::timeout;
 
 use super::{test_dispatch, test_ready_step, test_run_snapshot};
+use crate::definitions::content_hash::hash_canonical_json;
 use crate::engine::ports::{AgentStepRequest, ScriptedGate, StepAdmission};
+use crate::engine::start::hash_run_pins;
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement, test_run_scope};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
@@ -261,10 +262,20 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
         StepReportKind::Started {
             input_ref,
             permission_level,
-        } => json!({ "started": { "inputRef": input_ref, "permissionLevel": permission_level } }),
+            pin_hash,
+        } => {
+            let mut started = json!({ "inputRef": input_ref, "permissionLevel": permission_level });
+            if let Some(pin_hash) = pin_hash {
+                started["pinHash"] = json!(pin_hash);
+            }
+            json!({ "started": started })
+        }
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling | StepReportKind::BranchesCanceled { .. } => {
-            panic!("no dispatched step winds a branch down")
+        StepReportKind::Canceling
+        | StepReportKind::BranchesCanceled { .. }
+        | StepReportKind::ResumeDue { .. }
+        | StepReportKind::RunCapped { .. } => {
+            panic!("no dispatched step winds a branch down or comes due")
         }
         StepReportKind::Settled(settlement) => settlement_json(settlement),
     }
@@ -313,13 +324,18 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
         } }),
         StepSettlement::AccountSpent {
             provider_account_id,
+            resets_at,
             run: _,
-        } => json!({ "accountSpent": { "providerAccountId": provider_account_id } }),
+            records,
+        } => json!({ "accountSpent": {
+            "providerAccountId": provider_account_id, "resetsAt": resets_at,
+            "logLines": records.log_lines,
+        } }),
         StepSettlement::Canceled {
             hold_started_at,
-            is_sibling_failure,
+            cancellation_reason,
         } => json!({ "canceled": {
-            "holdStartedAt": hold_started_at, "isSiblingFailure": is_sibling_failure,
+            "holdStartedAt": hold_started_at, "cancellationReason": cancellation_reason,
         } }),
     }
 }
@@ -395,18 +411,25 @@ fn completed(outputs: &Value, run_variables: &Value) -> Value {
     } })
 }
 
-/// The pin every pinned test node carries.
-fn pin_data() -> Record<String, Vec<WorkflowPinnedItem>> {
-    serde_json::from_value(json!({ "step": [{ "json": { "pinned": true } }] }))
-        .expect("the test's pins read")
+/// The items pinned onto every pinned test node.
+fn pinned_items() -> Value {
+    json!([{ "json": { "pinned": true } }])
 }
 
-/// What the dispatch answers for a node pinned in a manual run: admitted, started and completed
-/// with the pinned item.
+/// The stored pins of the test's workflow: the test node's pinned items.
+fn pin_data_json() -> String {
+    json!({ "step": pinned_items() }).to_string()
+}
+
+/// What the dispatch answers for a node pinned in a manual run: admitted, started with the hash of
+/// its pinned item list and completed with the pinned item.
 fn pinned_settlement() -> Vec<Value> {
+    let pin_hash = hash_canonical_json(&pinned_items()).expect("the test's pins hash");
+    let mut started = started();
+    started["started"]["pinHash"] = json!(pin_hash);
     vec![
         json!({ "admitted": null }),
-        started(),
+        started,
         completed(&json!([[{ "json": { "pinned": true } }]]), &json!({})),
     ]
 }
@@ -437,7 +460,7 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     let node = test_node(&settings);
     let mut scope = test_run_scope(mode, vec![node.clone()]);
     if is_pinned {
-        scope.pin_data = Some(pin_data());
+        scope.pins = hash_run_pins(Some(&pin_data_json()), mode).expect("the test's pins hash");
     }
     let names = ["Ada", "Bob", "Cy"];
     let inputs = names[..input_count]
@@ -628,7 +651,7 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
     assert!(probe.is_canceled.load(Ordering::SeqCst));
     assert_eq!(
         settled,
-        Some(json!({ "canceled": { "holdStartedAt": null, "isSiblingFailure": false } }))
+        Some(json!({ "canceled": { "holdStartedAt": null, "cancellationReason": null } }))
     );
     assert_eq!(next_report(&mut received, &step).await, None);
 }

@@ -89,6 +89,8 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
+use crate::pricing::rule::RequestPricer;
 
 mod account;
 mod account_home_logs;
@@ -105,6 +107,7 @@ mod delivery;
 mod descriptor;
 mod event_normalizer;
 mod exec_relay;
+mod exec_turn;
 mod goals;
 mod hand_over;
 mod hooks;
@@ -118,6 +121,7 @@ mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod pricing;
 mod privacy;
 mod rate_limits;
 mod release_notes;
@@ -128,6 +132,7 @@ mod server_requests;
 mod service;
 mod session;
 mod shells;
+mod telemetry;
 mod thread;
 mod token_usage;
 mod tools;
@@ -734,6 +739,18 @@ impl ProviderDriver for CodexDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        vec![self.registry.service_record_folder()]
+    }
+
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
+        Some(Arc::new(pricing::CodexRequestPricer))
+    }
+
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        Some(Arc::clone(&self.exports) as _)
     }
 
     fn read_mcp_server_addresses(

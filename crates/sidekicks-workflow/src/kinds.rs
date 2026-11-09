@@ -116,9 +116,12 @@ pub(crate) enum StepAdmissionNeed {
 
 /// What a step's run asks of the engine: its output, a wait on a person, or an agent run, which
 /// the engine opens and whose answer or outcome it makes the step's output.
-#[expect(
-    dead_code,
-    reason = "the tick's dispatch, which acts on what each executor answers"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the tick's dispatch, which acts on what each executor answers"
+    )
 )]
 #[derive(Debug)]
 pub(crate) enum StepOutcome {
@@ -131,9 +134,12 @@ pub(crate) enum StepOutcome {
 }
 
 /// A wait on a person a step asks for, and how long it waits.
-#[expect(
-    dead_code,
-    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+    )
 )]
 #[derive(Debug)]
 pub(crate) struct PersonWait {
@@ -144,9 +150,12 @@ pub(crate) struct PersonWait {
 }
 
 /// What a step waiting on a person asks.
-#[expect(
-    dead_code,
-    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+    )
 )]
 #[derive(Debug)]
 pub(crate) enum PersonAsk {
@@ -182,8 +191,9 @@ pub(crate) enum StepFailure {
     /// The step failed; its node's `onError` decides what follows. Boxed, so a result that may
     /// carry it stays small.
     Failed(Box<WorkflowStepError>),
-    /// The step failed on purpose to end its run, as `Stop and error` does: it is never retried,
-    /// its node's `onError` does not apply, and the run ends.
+    /// The step failed in a way that ends its run: on purpose, as `Stop and error` does, or when
+    /// the output its node's `onError` passes on cannot be stored either. It is never retried, its
+    /// node's `onError` does not apply, and the run ends.
     EndsRun(Box<WorkflowStepError>),
     /// The person declined the step's own card: the step fails and is never retried.
     Declined {
@@ -371,6 +381,8 @@ impl NodeKindTable {
                 category: spec.category,
                 inputs: spec.inputs.as_slice().to_vec(),
                 outputs,
+                needs_repository: spec.needs_repository(),
+                repository_param: spec.repository_param().cloned(),
             },
             shell_line_param: kind.shell_line_param,
         })
@@ -408,8 +420,55 @@ pub(crate) fn test_kind(
     }
 }
 
+/// The test kind `kind` in `category` with `input_count` main inputs and `output_count` main
+/// outputs, `inputs/main/<i>` and `outputs/main/<i>`, run by `executor`.
+#[cfg(test)]
+pub(crate) fn main_test_kind(
+    kind: &str,
+    category: &str,
+    (input_count, output_count): (usize, usize),
+    executor: Box<dyn NodeExecutor>,
+) -> NodeKind {
+    let handles = |side: &str, label: &str, count: usize| -> Vec<Value> {
+        (0..count)
+            .map(|index| {
+                serde_json::json!({
+                    "type": "main", "id": format!("{side}/main/{index}"), "label": label,
+                })
+            })
+            .collect()
+    };
+    test_kind(
+        serde_json::json!({
+            "kind": kind, "version": 1, "category": category, "displayName": kind,
+            "description": "A test kind.", "icon": "test", "params": [],
+            "outputsDeriveFromParams": false,
+            "inputs": handles("inputs", "In", input_count),
+            "outputs": handles("outputs", "Out", output_count),
+        }),
+        None,
+        executor,
+    )
+}
+
+/// The loop kind `test.loop`, with one main input, its done output and the loop output that
+/// starts its body, passing its inputs on.
+#[cfg(test)]
+pub(crate) fn loop_test_kind() -> NodeKind {
+    NodeKind {
+        loop_output: Some(1),
+        ..main_test_kind(
+            "test.loop",
+            "developer",
+            (1, 2),
+            Box::new(PassThroughExecutor),
+        )
+    }
+}
+
 /// The command step `developer.shell` at version 1, with one main input and one main output,
-/// whose shell line is the `command` param it lists, passing its inputs on as its outputs.
+/// whose shell line is the `command` param it lists, which runs in its provider's sandbox, passing
+/// its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
     test_kind(
@@ -421,8 +480,33 @@ pub(crate) fn command_test_kind() -> NodeKind {
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
             "outputsDeriveFromParams": false,
+            "capabilities": {
+                "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
+                "sandbox": {}
+            },
         }),
         Some(COMMAND_PARAM),
+        Box::new(PassThroughExecutor),
+    )
+}
+
+/// The git step `developer.git` at version 1, with one main input and one main output, which
+/// needs a project's repository, passing its inputs on as its outputs.
+#[cfg(test)]
+pub(crate) fn git_test_kind() -> NodeKind {
+    test_kind(
+        serde_json::json!({
+            "kind": "developer.git", "version": 1, "category": "developer",
+            "displayName": "Git", "description": "A git command in the run's repository.",
+            "icon": "git", "params": [],
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+            "capabilities": {
+                "cancelable": true, "resumable": false, "sideEffects": "local", "repository": true
+            },
+        }),
+        None,
         Box::new(PassThroughExecutor),
     )
 }
@@ -438,7 +522,10 @@ mod tests {
         WorkflowDefinitionFinding, check_workflow_graph,
     };
 
-    use super::{NodeKindTable, NodeKindTableError, PassThroughExecutor, test_kind};
+    use super::{
+        NodeKindTable, NodeKindTableError, PassThroughExecutor, command_test_kind, git_test_kind,
+        test_kind,
+    };
 
     /// A kind spec of `kind` at `version` with one main input and `outputs`.
     fn kind_spec(kind: &str, version: u64, outputs: &Value) -> Value {
@@ -519,6 +606,47 @@ mod tests {
             has_error_output
                 .then(|| json!({ "type": "main", "id": "outputs/main/1", "label": "Error" })),
         );
+    }
+
+    /// A trigger's rules name its `project` param as its `Repository`, and a kind's need of a
+    /// repository reaches its rules. Mutation: either member left at its default, which turns off
+    /// the save's repository rule.
+    #[test]
+    fn kind_rules_carry_the_kinds_repository_facts() {
+        let trigger = json!({
+            "kind": "trigger.schedule", "version": 1, "category": "trigger",
+            "displayName": "Schedule", "description": "Runs on a schedule.", "icon": "clock",
+            "params": [
+                { "id": "cron", "label": "Cron", "type": "text" },
+                { "id": "repository", "label": "Repository", "type": "project" },
+            ],
+            "inputs": [],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+        });
+        let table = NodeKindTable::new(vec![
+            test_kind(trigger, None, Box::new(PassThroughExecutor)),
+            git_test_kind(),
+            command_test_kind(),
+        ])
+        .expect("the table builds");
+        let rules_of = |kind| {
+            table
+                .kind_rules(&node("step", kind, 1, None))
+                .expect("the kind is listed")
+                .handles
+        };
+
+        let trigger = rules_of("trigger.schedule");
+        assert_eq!(
+            trigger
+                .repository_param
+                .map(|param| param.0.as_str().to_owned()),
+            Some("repository".to_owned())
+        );
+        assert!(!trigger.needs_repository);
+        assert!(rules_of("developer.git").needs_repository);
+        assert!(!rules_of("developer.shell").needs_repository);
     }
 
     /// Each version of a kind answers its own rules, an unlisted version none, a table listing one

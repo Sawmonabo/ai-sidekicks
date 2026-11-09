@@ -32,6 +32,7 @@ use super::{
     CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions, RelayedCommand, RelayedThread,
 };
 use crate::bearer_token::BearerToken;
+use crate::bounded_poll::poll_until;
 use crate::command::channel::test_support::{
     end_party, new_party_keys, party_command, ready_parties, sent_requests, write_party_record,
 };
@@ -504,7 +505,11 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
         fake.write(&json!({ "id": index, "result": {} })).await;
         if index == 0 {
             fake.write(&exited(&process)).await;
-            wait_until(|| relay.relayed_command(session_id, &call_id(call)).is_none()).await;
+            poll_until(
+                || relay.relayed_command(session_id, &call_id(call)).is_none(),
+                |is_gone| *is_gone,
+            )
+            .await;
         }
     }
     for process in ["1-process", "2-process"] {
@@ -534,17 +539,6 @@ fn exited(process: &str) -> Value {
 
 fn call_id(call: &str) -> CommandId {
     CommandId::new(call.to_owned()).expect("a call id")
-}
-
-// Yields until `holds` reads true, failing after a bound.
-async fn wait_until(mut holds: impl FnMut() -> bool) {
-    for _turn in 0..1_000 {
-        if holds() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    panic!("the condition never held");
 }
 
 // A write whose answer is late goes out once more under the same write id, which the executor
@@ -646,10 +640,14 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
             process: Some(EXECUTOR_PROCESS.to_owned()),
         },
     );
-    wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+    poll_until(
+        || sets.paired_wrapper(session_id, &command_id()) == Some(party),
+        |is_paired| *is_paired,
+    )
+    .await;
     // The wrapper's start is acknowledged and answered `Go`, so the stop is the third request.
     let written_requests = || sent_requests(&channel.channel, &keys, party);
-    wait_until(|| written_requests().len() == 2).await;
+    poll_until(|| written_requests().len(), |written| *written == 2).await;
     // From here the clock moves only once nothing can run, so the hold cannot run out before the
     // poll below, and a terminate passed on at once reaches the executor before it.
     tokio::time::pause();
@@ -663,7 +661,11 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
     let terminating = tokio::spawn(
         Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
     );
-    wait_until(|| written_requests().last() == Some(&DaemonRequest::Stop {})).await;
+    poll_until(
+        || written_requests().last() == Some(&DaemonRequest::Stop {}),
+        |is_stop_last| *is_stop_last,
+    )
+    .await;
 
     // Held once the wrapper is asked: nothing has reached the executor yet. `next_line` is
     // cancel-safe, so this one poll loses no line.
