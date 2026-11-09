@@ -8,7 +8,7 @@ pub const DAEMON_TOOL_SERVER_NAME: &str = "sidekicks";
 
 /// The name of the daemon's tool server that carries its hooks, as every provider session lists
 /// it.
-pub(crate) const DAEMON_HOOKS_TOOL_SERVER_NAME: &str = "sidekicks_hooks";
+pub const DAEMON_HOOKS_TOOL_SERVER_NAME: &str = "sidekicks_hooks";
 
 /// A provider's rule for the tool-server names a person may write: the characters it takes, the
 /// names it keeps whole, and the part of a name it matches against the names it keeps for itself.

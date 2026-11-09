@@ -72,9 +72,13 @@ impl InProcessToolServers for InProcessAgentToolServers {
             .body(())
             .expect("a tool server's path and a hex secret make a request")
             .into_parts();
-        let entry = self
-            .entries
-            .insert(path, spawn.provider, token, spawn.dispatcher);
+        let entry = self.entries.insert(
+            path,
+            spawn.provider,
+            token,
+            spawn.dispatcher,
+            spawn.hook_tools,
+        );
         Ok(Arc::new(SpawnToolServers {
             server: self.server.clone(),
             route,
@@ -420,6 +424,7 @@ mod tests {
             conversation: ToolServerConversation::of_session(session_id),
             provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
             dispatcher: Arc::clone(fixture.spawns[0].0.dispatcher()),
+            hook_tools: None,
         };
         let first = servers
             .open(spawn())

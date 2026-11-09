@@ -4,6 +4,7 @@
 
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -11,6 +12,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use uuid::Uuid;
 
 use crate::driver::callback_tool::CallbackToolDispatcher;
+use crate::port::hook_tool_server::HookToolServer;
 
 /// Which live conversation of a session a spawn runs, so that two at once each keep an entry of
 /// their own: the session's own conversation is keyed by the session's id whichever spawn runs it,
@@ -47,7 +49,8 @@ impl FromStr for ToolServerConversation {
 }
 
 /// One spawn as the daemon's tool servers admit it: the session and conversation it runs, its
-/// provider, and the dispatcher bound to its own callback-tool installation.
+/// provider, the dispatcher bound to its own callback-tool installation, and the tools of its
+/// hooks entry where its driver gave it hook rows.
 pub struct ToolServerSpawn {
     /// The session.
     pub session_id: SessionId,
@@ -57,6 +60,9 @@ pub struct ToolServerSpawn {
     pub provider: ProviderId,
     /// Answers the spawn's tool calls.
     pub dispatcher: CallbackToolDispatcher,
+    /// Lists and answers the tools its hook rows call, on its hooks entry; `None` for a spawn
+    /// given no hook rows.
+    pub hook_tools: Option<Arc<dyn HookToolServer>>,
 }
 
 /// Why a spawn's entry could not be opened: its secret could not be minted.

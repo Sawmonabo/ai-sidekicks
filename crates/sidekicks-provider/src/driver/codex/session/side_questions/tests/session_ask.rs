@@ -42,7 +42,6 @@ use crate::driver::codex::thread::view::{
     THREAD_START_METHOD, assert_active_permission_profile, read_thread,
 };
 use crate::runtime_binding::test_store::test_provider_account_id;
-use crate::tool_server_name::DAEMON_HOOKS_TOOL_SERVER_NAME;
 
 // Killed by a session ask's copy that keeps the session's folder trusted, so the person's project
 // rules and hooks load in it, by one that carries a daemon entry or a sandbox, and by an answer
@@ -100,10 +99,7 @@ async fn a_session_ask_copy_runs_untrusted_with_no_daemon_entry_and_answers_only
         json!({ copy_folder: {"trust_level": "untrusted"} })
     );
     let servers = &fork["config"][MCP_SERVERS_KEY];
-    for name in CODEX_DAEMON_TOOL_SERVER_NAMES
-        .iter()
-        .chain([&DAEMON_HOOKS_TOOL_SERVER_NAME])
-    {
+    for name in CODEX_DAEMON_TOOL_SERVER_NAMES {
         assert!(servers.get(name).is_none(), "the copy holds {name}");
     }
     assert_eq!(

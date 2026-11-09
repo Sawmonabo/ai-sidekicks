@@ -3,7 +3,8 @@
 //! entry its secret admits, so a replaced spawn is never answered from a connection's memory. A
 //! listing shows each tool the way the spawn's provider loads it; a call is mapped to the run that
 //! made it, checked against its tool's schema before any handler runs, held with progress, and
-//! canceled when its caller goes away.
+//! canceled when its caller goes away. On the daemon's hooks entry the spawn's driver lists the
+//! tools its hook rows call and answers each call itself.
 
 use std::error::Error;
 use std::fmt;
@@ -30,9 +31,13 @@ use sidekicks_provider::driver::ProviderDescriptor;
 use sidekicks_provider::driver::agent_tools::{AgentToolInstructions, AgentToolLoading};
 use sidekicks_provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::port::hook_tool_server::{HookToolAnswer, HookToolCall};
 use sidekicks_provider::port::tool_server_route::ToolServerConversation;
-use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use sidekicks_provider::tool_server_name::{
+    DAEMON_HOOKS_TOOL_SERVER_NAME, DAEMON_TOOL_SERVER_NAME,
+};
 use tokio::time::{Instant, interval_at};
+use tokio_util::sync::CancellationToken;
 
 use crate::tools::entries::{ToolServerEntries, ToolServerEntry};
 use crate::tools::group::{AgentTool, AgentToolGroup, ToolGroupLoading};
@@ -212,6 +217,23 @@ impl AgentToolServer {
         context: &RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let route = self.admitted(&context.extensions)?;
+        if route.path.server_name == DAEMON_HOOKS_TOOL_SERVER_NAME {
+            let tools = route
+                .entry
+                .hook_tools()
+                .map_or(&[][..], |hooks| hooks.tools());
+            return Ok(ListToolsResult::with_all_items(
+                tools
+                    .iter()
+                    .map(|tool| {
+                        // The row's template fills the arguments, so any object is taken.
+                        let schema =
+                            JsonObject::from_iter([("type".to_owned(), Value::from("object"))]);
+                        Tool::new(tool.name, tool.description, Arc::new(schema))
+                    })
+                    .collect(),
+            ));
+        }
         let mark = match route.descriptor.agent_tool_loading {
             AgentToolLoading::MarkedOnListing { meta_key } => Some(meta_key),
             AgentToolLoading::EntryPerLoading => None,
@@ -294,6 +316,79 @@ impl AgentToolServer {
         };
         Ok(compose_call_result(result))
     }
+
+    // Answers one call a hook row made on the hooks entry, through the tools the spawn's driver
+    // gave it; the call's token is canceled once the call is abandoned, however it ends.
+    async fn answer_hook_call(
+        route: &AdmittedRoute,
+        request: CallToolRequestParams,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(hooks) = route.entry.hook_tools() else {
+            return Err(no_such_tool(&request.name));
+        };
+        let token = CancellationToken::new();
+        let _canceled_when_abandoned = token.clone().drop_guard();
+        let call = HookToolCall {
+            tool_name: request.name.to_string(),
+            arguments: request.arguments.unwrap_or_default(),
+            meta: context.meta.0.0.clone(),
+        };
+        match hooks.answer(call, &token).await {
+            HookToolAnswer::Answered(text) => {
+                Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+            }
+            HookToolAnswer::Canceled => {
+                Err(McpError::internal_error("the hook call was canceled", None))
+            }
+            HookToolAnswer::NoSuchTool => Err(no_such_tool(&request.name)),
+        }
+    }
+
+    // Holds `answer` until it settles, telling the caller every 45 s it still runs where the
+    // request carries a progress token; a cancelable call ends early once its caller canceled it
+    // or its spawn's process is gone, dropping the answer's work.
+    async fn hold_call(
+        route: &AdmittedRoute,
+        context: &RequestContext<RoleServer>,
+        is_cancelable: bool,
+        answer: impl Future<Output = Result<CallToolResult, McpError>>,
+    ) -> Result<CallToolResponse, McpError> {
+        tokio::pin!(answer);
+        let progress_token = context.meta.get_progress_token();
+        let mut progress = interval_at(Instant::now() + PROGRESS_PERIOD, PROGRESS_PERIOD);
+        let mut beats = 0_u32;
+        loop {
+            tokio::select! {
+                biased;
+                // Either ending drops the answer's future, and with it the handler's work.
+                () = context.ct.cancelled(), if is_cancelable => {
+                    return Err(McpError::internal_error("the caller canceled the call", None));
+                }
+                () = route.entry.ended(), if is_cancelable => {
+                    return Err(McpError::internal_error("the caller's process is gone", None));
+                }
+                answer = &mut answer => return answer.map(CallToolResponse::from),
+                _ = progress.tick(), if progress_token.is_some() => {
+                    beats += 1;
+                    let token = progress_token.clone().expect("the arm runs only with a token");
+                    let beat = ProgressNotificationParam::new(token, f64::from(beats));
+                    // A beat that cannot be sent means the stream is gone, which cancels the call.
+                    if let Err(error) = context.peer.notify_progress(beat).await {
+                        tracing::debug!(
+                            error = &error as &(dyn Error + 'static),
+                            "a held call's progress did not reach its caller"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The refusal of a call naming a tool the entry does not offer.
+fn no_such_tool(name: &str) -> McpError {
+    McpError::invalid_params(format!("the session offers no tool named {name}"), None)
 }
 
 impl ServerHandler for AgentToolServer {
@@ -334,6 +429,11 @@ impl ServerHandler for AgentToolServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         let route = self.admitted(&context.extensions)?;
+        if route.path.server_name == DAEMON_HOOKS_TOOL_SERVER_NAME {
+            // A held hook call, such as a pause's, ends only by its answer or its caller's end.
+            let answer = Self::answer_hook_call(&route, request, &context);
+            return Self::hold_call(&route, &context, true, answer).await;
+        }
         let groups = listed_groups(route.descriptor, &route.path.server_name);
         let Some((group, tool)) = groups.iter().find_map(|group| {
             let tool = group
@@ -342,42 +442,11 @@ impl ServerHandler for AgentToolServer {
                 .find(|tool| tool.description.name == request.name)?;
             Some((group, *tool))
         }) else {
-            return Err(McpError::invalid_params(
-                format!("the session offers no tool named {}", request.name),
-                None,
-            ));
+            return Err(no_such_tool(&request.name));
         };
         let is_cancelable = group.can_cancel(tool.description.name);
         let answer = self.answer_call(&route, tool, request, &context);
-        tokio::pin!(answer);
-        let progress_token = context.meta.get_progress_token();
-        let mut progress = interval_at(Instant::now() + PROGRESS_PERIOD, PROGRESS_PERIOD);
-        let mut beats = 0_u32;
-        loop {
-            tokio::select! {
-                biased;
-                // Either ending drops the answer's future, and with it the handler's work.
-                () = context.ct.cancelled(), if is_cancelable => {
-                    return Err(McpError::internal_error("the caller canceled the call", None));
-                }
-                () = route.entry.ended(), if is_cancelable => {
-                    return Err(McpError::internal_error("the caller's process is gone", None));
-                }
-                answer = &mut answer => return answer.map(CallToolResponse::from),
-                _ = progress.tick(), if progress_token.is_some() => {
-                    beats += 1;
-                    let token = progress_token.clone().expect("the arm runs only with a token");
-                    let beat = ProgressNotificationParam::new(token, f64::from(beats));
-                    // A beat that cannot be sent means the stream is gone, which cancels the call.
-                    if let Err(error) = context.peer.notify_progress(beat).await {
-                        tracing::debug!(
-                            error = &error as &(dyn Error + 'static),
-                            "a held call's progress did not reach its caller"
-                        );
-                    }
-                }
-            }
-        }
+        Self::hold_call(&route, &context, is_cancelable, answer).await
     }
 }
 

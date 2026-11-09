@@ -272,6 +272,8 @@ pub(crate) fn open_claude_tool_servers(
                 conversation,
                 provider: DESCRIPTOR.provider_id(),
                 dispatcher: Arc::clone(dispatcher),
+                // Claude Code's hooks reach the daemon by its own hook callbacks, never a row.
+                hook_tools: None,
             })
         })
         .transpose()

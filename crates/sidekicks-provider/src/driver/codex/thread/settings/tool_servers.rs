@@ -1,5 +1,7 @@
 //! The entries a Codex conversation's `mcp_servers` table carries for the daemon's own tool
-//! servers, each at its address on the daemon's route with the spawn's secret in its headers.
+//! servers, each at its address on the daemon's route with the spawn's secret in its headers: the
+//! up-front tools' entry, the deferred tools' entry, and the hooks entry whose tools only the
+//! conversation's hook rows call.
 
 use std::sync::Arc;
 
@@ -13,17 +15,19 @@ use crate::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::hooks::server::CodexHookDispatch;
 use crate::driver::codex::mcp::config::server_entry::{
     DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, HTTP_HEADERS_MEMBER, OMIT_TOOLS_FROM_MEMBER,
-    TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
+    REQUIRED_MEMBER, TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
+use crate::driver::codex::service::command_line::CODEX_HOOK_TIMEOUT;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
 use crate::port::tool_server_route::{
     OpenedToolServerRoute, ToolServerConversation, ToolServerRoute, ToolServerSpawn,
 };
-use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use crate::tool_server_name::{DAEMON_HOOKS_TOOL_SERVER_NAME, DAEMON_TOOL_SERVER_NAME};
 
 /// The name of the daemon's entry for the tools Codex keeps behind its tool search, the workflow
 /// and browser tools, since Codex defers only a whole entry.
@@ -31,12 +35,17 @@ pub(crate) const CODEX_DEFERRED_TOOL_SERVER_NAME: &str = "sidekicks_workflow_bro
 
 /// The names of the daemon's own entries in a Codex conversation's table, each one Codex runs
 /// whatever the person switched on.
-pub(crate) const CODEX_DAEMON_TOOL_SERVER_NAMES: &[&str] =
-    &[DAEMON_TOOL_SERVER_NAME, CODEX_DEFERRED_TOOL_SERVER_NAME];
+pub(crate) const CODEX_DAEMON_TOOL_SERVER_NAMES: &[&str] = &[
+    DAEMON_TOOL_SERVER_NAME,
+    CODEX_DEFERRED_TOOL_SERVER_NAME,
+    DAEMON_HOOKS_TOOL_SERVER_NAME,
+];
 
-/// The daemon's entries a spawn opens: the one its tools load from at once, alone, because the
-/// daemon's server lists no deferred group, so a deferred entry would reach Codex empty.
-pub(crate) const CODEX_OPENED_TOOL_SERVER_NAMES: &[&str] = &[DAEMON_TOOL_SERVER_NAME];
+/// The daemon's entries a spawn opens: the one its tools load from at once and the hooks entry,
+/// but no deferred one, because the daemon's server lists no deferred group, so a deferred entry
+/// would reach Codex empty.
+pub(crate) const CODEX_OPENED_TOOL_SERVER_NAMES: &[&str] =
+    &[DAEMON_TOOL_SERVER_NAME, DAEMON_HOOKS_TOOL_SERVER_NAME];
 
 /// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
 /// 120 s a session ask is held and the route's own bound, so the route answers first.
@@ -49,6 +58,9 @@ const CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES: usize = 64 * 1024;
 /// The surface the up-front entry's tools are kept off, so they load at once and never wait
 /// behind Codex's tool search.
 const DEFERRED_SURFACE: &str = "deferred";
+
+/// Every surface the model reads tools from, all of which the hooks entry's tools are kept off.
+const MODEL_SURFACES: [&str; 3] = ["direct", DEFERRED_SURFACE, "code_mode"];
 
 /// One spawn's hold on the daemon's tool servers: its own callback-tool installation and the
 /// entries opened on the route under the secrets derived for their addresses, admitted while
@@ -63,19 +75,26 @@ pub(crate) struct CodexDaemonToolServers {
 }
 
 impl CodexDaemonToolServers {
-    /// Opens the daemon's entries for a new spawn of `session_id`'s conversation and installs
-    /// `callback_tools` for it, replacing the earlier spawn's installation; the earlier spawn's
-    /// entries stay admitted until its hold is let go. None until the route's owner registered
-    /// it. Fails when the callback-tool host is not registered beside the route.
+    /// Opens the daemon's entries for a new spawn of `session_id`'s conversation, its hook rows'
+    /// calls answered by `hook_dispatch`, and installs `callback_tools` for it, replacing the
+    /// earlier spawn's installation; the earlier spawn's entries stay admitted until its hold is
+    /// let go. None until the route's owner registered it. Fails when the callback-tool host is
+    /// not registered beside the route.
     pub(crate) fn open(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
+        hook_dispatch: &Arc<CodexHookDispatch>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<Self>, CodexError> {
-        Self::open_on(route, host, session_id, callback_tools, |route, spawn| {
-            route.open(spawn, CODEX_OPENED_TOOL_SERVER_NAMES)
-        })
+        Self::open_on(
+            route,
+            host,
+            hook_dispatch,
+            session_id,
+            callback_tools,
+            |route, spawn| route.open(spawn, CODEX_OPENED_TOOL_SERVER_NAMES),
+        )
     }
 
     /// Opens the daemon's entries as [`Self::open`] does for a conversation Codex still holds
@@ -84,12 +103,18 @@ impl CodexDaemonToolServers {
     pub(crate) fn adopt(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
+        hook_dispatch: &Arc<CodexHookDispatch>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<Self>, CodexError> {
-        Self::open_on(route, host, session_id, callback_tools, |route, spawn| {
-            route.adopt(spawn, CODEX_OPENED_TOOL_SERVER_NAMES)
-        })
+        Self::open_on(
+            route,
+            host,
+            hook_dispatch,
+            session_id,
+            callback_tools,
+            |route, spawn| route.adopt(spawn, CODEX_OPENED_TOOL_SERVER_NAMES),
+        )
     }
 
     // Installs `callback_tools` for a new spawn and opens its entries on the route through
@@ -97,6 +122,7 @@ impl CodexDaemonToolServers {
     fn open_on(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
+        hook_dispatch: &Arc<CodexHookDispatch>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
         open_entries: impl FnOnce(&dyn ToolServerRoute, ToolServerSpawn) -> OpenedToolServerRoute,
@@ -125,6 +151,7 @@ impl CodexDaemonToolServers {
                 conversation: ToolServerConversation::mint(),
                 provider: DESCRIPTOR.provider_id(),
                 dispatcher: Arc::clone(binding.dispatcher()),
+                hook_tools: Some(Arc::clone(hook_dispatch) as _),
             },
         );
         Ok(Some(Self {
@@ -153,7 +180,9 @@ impl CodexDaemonToolServers {
 
 /// Inserts into `servers` each of the daemon's own entries `route` opened for the spawn, switched
 /// on at its address and sending its headers, replacing any entry of the same name; the up-front
-/// entry's tools are kept off the deferred surface.
+/// entry's tools are kept off the deferred surface, and the hooks entry's off every surface the
+/// model reads, which the conversation does not start without and whose calls wait as long as a
+/// hook row does.
 pub(crate) fn insert_codex_daemon_tool_servers(
     servers: &mut Map<String, Value>,
     route: &OpenedToolServerRoute,
@@ -178,6 +207,12 @@ pub(crate) fn insert_codex_daemon_tool_servers(
         });
         if entry.server_name == DAEMON_TOOL_SERVER_NAME {
             members[OMIT_TOOLS_FROM_MEMBER] = json!([DEFERRED_SURFACE]);
+        }
+        if entry.server_name == DAEMON_HOOKS_TOOL_SERVER_NAME {
+            // A hook that cannot reach the daemon lets its call through, so none starts without.
+            members[REQUIRED_MEMBER] = json!(true);
+            members[OMIT_TOOLS_FROM_MEMBER] = json!(MODEL_SURFACES);
+            members[TOOL_TIMEOUT_SEC_MEMBER] = json!(CODEX_HOOK_TIMEOUT.as_secs());
         }
         servers.insert(entry.server_name.clone(), members);
     }

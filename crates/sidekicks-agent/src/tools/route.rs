@@ -68,6 +68,7 @@ impl AgentToolServerRoute {
                 spawn.provider.clone(),
                 token,
                 Arc::clone(&spawn.dispatcher),
+                spawn.hook_tools.clone(),
             ));
             paths.push(path);
         }
@@ -125,6 +126,7 @@ mod tests {
             conversation: ToolServerConversation::mint(),
             provider: ProviderId::new("codex".to_owned()).expect("the id is well formed"),
             dispatcher: dispatcher(),
+            hook_tools: None,
         }
     }
 
@@ -265,6 +267,7 @@ mod tests {
                 conversation: ToolServerConversation::of_session(session_id),
                 provider: ProviderId::new("codex".to_owned()).expect("the id is well formed"),
                 dispatcher: dispatcher(),
+                hook_tools: None,
             },
             &[DAEMON_TOOL_SERVER_NAME],
         );

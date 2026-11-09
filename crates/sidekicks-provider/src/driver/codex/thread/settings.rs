@@ -1,14 +1,16 @@
 //! The settings every Codex conversation is started, resumed and forked with: its folder, model,
 //! permission level and profile, base instructions, and a `config` carrying its model's window, the
-//! features it runs with, its tool servers, its connectors' defaults, its commands' environment,
-//! its helper limit, its helpers' role files and the session's memory switch. A resume and a fork
-//! send them all again, so a conversation never falls back to what Codex persisted; a resume that
-//! joins a conversation the service holds loaded sends none, since Codex applies none there. A
-//! start and every turn select the daemon's executor relay as the conversation's environment. Also
-//! the `turn/start` and `thread/settings/update` params, whose members carry absent, `null` and a
-//! value as three meanings, the Build or Plan collaboration mode they carry, and the
-//! item-injection method a loaded conversation takes changed instructions through.
+//! features it runs with, its tool servers, the daemon's hook rows beside its hooks entry, its
+//! connectors' defaults, its commands' environment, its helper limit, its helpers' role files and
+//! the session's memory switch. A resume and a fork send them all again, so a conversation never
+//! falls back to what Codex persisted; a resume that joins a conversation the service holds loaded
+//! sends none, since Codex applies none there. A start and every turn select the daemon's executor
+//! relay as the conversation's environment. Also the `turn/start` and `thread/settings/update`
+//! params, whose members carry absent, `null` and a value as three meanings, the Build or Plan
+//! collaboration mode they carry, and the item-injection method a loaded conversation takes
+//! changed instructions through.
 
+pub(crate) mod hook_rows;
 pub(crate) mod memories;
 pub(crate) mod tool_servers;
 
@@ -30,6 +32,7 @@ use crate::driver::codex::permission_level::{
 };
 use crate::driver::codex::session::helper_roles::CodexHelperRole;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::tool_server_name::DAEMON_HOOKS_TOOL_SERVER_NAME;
 
 /// The config table of the MCP servers, by name.
 pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
@@ -376,7 +379,8 @@ fn compose_thread_members(
 // The `config` a start, resume and fork carry. Dotted keys are Codex's own paths into its config.
 // Codex merges each table into the person's own config by name and by member, so none replaces
 // theirs: `agents` and `permissions` add the daemon's roles and profiles beside the person's, and
-// `mcp_servers` switches off by name each of their servers the session leaves out.
+// `mcp_servers` switches off by name each of their servers the session leaves out. The daemon's
+// hook rows go only beside its hooks entry, whose tools they call.
 fn compose_thread_config(
     settings: &CodexThreadSettings,
     mcp_servers: Map<String, Value>,
@@ -395,6 +399,12 @@ fn compose_thread_config(
     config.extend(compose_helper_limit(settings.subagent_policy.as_ref()));
     if let Some(roles) = compose_helper_roles(settings) {
         config.insert("agents".to_owned(), roles);
+    }
+    if mcp_servers.contains_key(DAEMON_HOOKS_TOOL_SERVER_NAME) {
+        config.insert(
+            hook_rows::HOOKS_KEY.to_owned(),
+            hook_rows::compose_codex_hooks_config(&hook_rows::codex_daemon_hook_rows()),
+        );
     }
     config.insert(MCP_SERVERS_KEY.to_owned(), Value::Object(mcp_servers));
     config.insert(

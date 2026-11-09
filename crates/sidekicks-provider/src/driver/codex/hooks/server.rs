@@ -1,15 +1,16 @@
 //! The daemon's answers to Codex's tool hooks, whatever carries the call: the hook input read from
-//! the tool call Codex makes for a hook row, and one dispatch point where each answerer in turn
-//! may answer or let the next one. A held call ends by an answer or by its cancellation, never by
-//! a timer.
+//! the tool call Codex makes for a hook row on the daemon's hooks entry, one dispatch point where
+//! each answerer in turn may answer or let the next one, and the answer written as the hook output
+//! Codex reads. A held call ends by an answer or by its cancellation, never by a timer.
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::error_description::describe_error;
@@ -17,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::bound_failure_detail;
+use crate::port::hook_tool_server::{HookTool, HookToolAnswer, HookToolCall, HookToolServer};
 use crate::record_readers::filter_non_empty;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
@@ -32,13 +34,6 @@ static ANSWERER_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
     });
 
 /// The tool hook events the daemon answers.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex hook tools name the event each one answers"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexHookEvent {
     /// Before a tool call runs; an answer may deny it.
@@ -46,6 +41,47 @@ pub(crate) enum CodexHookEvent {
     /// After a tool call ran; an answer may add words to the model's context.
     PostToolUse,
 }
+
+impl CodexHookEvent {
+    /// Every event the daemon answers, each with one row and one tool on the hooks entry.
+    pub(crate) const ALL: [Self; 2] = [Self::PreToolUse, Self::PostToolUse];
+
+    /// The event as a hook's config and its output name it: `PreToolUse`.
+    pub(crate) const fn config_name(self) -> &'static str {
+        match self {
+            Self::PreToolUse => "PreToolUse",
+            Self::PostToolUse => "PostToolUse",
+        }
+    }
+
+    /// The event as Codex writes it in a hook's trust key and hash: `pre_tool_use`.
+    pub(crate) const fn key_label(self) -> &'static str {
+        match self {
+            Self::PreToolUse => "pre_tool_use",
+            Self::PostToolUse => "post_tool_use",
+        }
+    }
+
+    /// The tool on the hooks entry the event's row calls.
+    pub(crate) const fn hook_tool(self) -> &'static HookTool {
+        match self {
+            Self::PreToolUse => &CODEX_HOOK_TOOLS[0],
+            Self::PostToolUse => &CODEX_HOOK_TOOLS[1],
+        }
+    }
+}
+
+/// The tools on the daemon's hooks entry, one per event, in [`CodexHookEvent::ALL`]'s order.
+const CODEX_HOOK_TOOLS: [HookTool; 2] = [
+    HookTool {
+        name: "pre_tool_use",
+        description: "Answers the daemon's hook before a tool call runs.",
+    },
+    HookTool {
+        name: "post_tool_use",
+        description: "Answers the daemon's hook after a tool call ran.",
+    },
+];
 
 /// One tool hook call as the dispatch point reads it: the hook event's members the row's template
 /// carries, and the conversation from the call's `_meta`.
@@ -94,15 +130,29 @@ pub(crate) enum CodexHookAnswer {
     },
 }
 
+impl CodexHookAnswer {
+    /// The answer as the hook output Codex reads from the hook tool's text for `event`: empty for
+    /// no decision, else a `hookSpecificOutput` naming the event.
+    pub(crate) fn to_hook_output(&self, event: CodexHookEvent) -> String {
+        let hook_event_name = event.config_name();
+        let output = match self {
+            Self::Pass => return String::new(),
+            Self::Deny { reason } => json!({
+                "hookEventName": hook_event_name,
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }),
+            Self::Context { additional_context } => json!({
+                "hookEventName": hook_event_name,
+                "additionalContext": additional_context,
+            }),
+        };
+        json!({ "hookSpecificOutput": output }).to_string()
+    }
+}
+
 /// One answerer at the dispatch point. `Ok(None)` lets the next one answer; an error denies a
 /// pre-tool call and passes a post-tool one. `token` cancels when the call no longer waits.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex hook tools dispatch each call to the answerers"
-    )
-)]
 pub(crate) trait CodexHookAnswerer: Send + Sync {
     /// Answers `input`, or lets the next answerer; fails when it could not decide.
     fn answer<'a>(
@@ -113,20 +163,12 @@ pub(crate) trait CodexHookAnswerer: Send + Sync {
 }
 
 /// The one dispatch point every Codex hook call is answered at: the answerers in order, the
-/// first answer winning and a call none answers passing.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex hook tools answer each call through it")
-)]
+/// first answer winning and a call none answers passing. It serves the hooks entry's tools.
 pub(crate) struct CodexHookDispatch {
     /// Asked in order.
     answerers: Vec<Arc<dyn CodexHookAnswerer>>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex hook tools answer each call through it")
-)]
 impl CodexHookDispatch {
     /// A dispatch point asking `answerers` in order.
     pub(crate) fn new(answerers: Vec<Arc<dyn CodexHookAnswerer>>) -> Self {
@@ -198,6 +240,38 @@ impl CodexHookDispatch {
     }
 }
 
+impl HookToolServer for CodexHookDispatch {
+    fn tools(&self) -> &'static [HookTool] {
+        &CODEX_HOOK_TOOLS
+    }
+
+    /// Answers the call of the event whose tool it names, its `_meta.threadId` naming the
+    /// conversation, with the dispatch point's answer as Codex's hook output.
+    fn answer<'a>(
+        &'a self,
+        call: HookToolCall,
+        token: &'a CancellationToken,
+    ) -> BoxFuture<'a, HookToolAnswer> {
+        let Some(event) = CodexHookEvent::ALL
+            .into_iter()
+            .find(|event| event.hook_tool().name == call.tool_name)
+        else {
+            return async { HookToolAnswer::NoSuchTool }.boxed();
+        };
+        let call = CodexHookCall {
+            arguments: call.arguments,
+            meta: call.meta,
+        };
+        async move {
+            match CodexHookDispatch::answer(self, event, call, token).await {
+                Some(answer) => HookToolAnswer::Answered(answer.to_hook_output(event)),
+                None => HookToolAnswer::Canceled,
+            }
+        }
+        .boxed()
+    }
+}
+
 // What a call gets when it could not be answered: a pre-tool call is denied with `reason`, since
 // a call let through unchecked could run what a check would refuse; a post-tool call passes.
 fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
@@ -210,13 +284,6 @@ fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
 /// One tool call Codex makes for a hook row, as the tool server hands it parsed: the call's
 /// arguments, which Codex fills from the row's `input` template, and the call's `_meta`, to which
 /// Codex adds the owning conversation's id.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex hook tools hand each call to the dispatch point"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct CodexHookCall {
     /// The call's `arguments` object.
@@ -280,11 +347,9 @@ fn read_hook_input(
         serde_json::from_value(Value::Object(call.arguments)).map_err(HookInputError::Malformed)?;
     let meta: HookCallMeta =
         serde_json::from_value(Value::Object(call.meta)).map_err(HookInputError::MalformedMeta)?;
-    let named_event = match arguments.hook_event_name.as_str() {
-        "PreToolUse" => Some(CodexHookEvent::PreToolUse),
-        "PostToolUse" => Some(CodexHookEvent::PostToolUse),
-        _ => None,
-    };
+    let named_event = CodexHookEvent::ALL
+        .into_iter()
+        .find(|named| named.config_name() == arguments.hook_event_name);
     if named_event != Some(event) {
         return Err(HookInputError::OtherEvent {
             named: arguments.hook_event_name,

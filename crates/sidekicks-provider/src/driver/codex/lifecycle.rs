@@ -44,6 +44,7 @@ use crate::driver::codex::delivery::asks::{
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDeliveryDependencies};
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::goals::CodexSessionGoals;
+use crate::driver::codex::hooks::server::CodexHookDispatch;
 use crate::driver::codex::intervention::CodexInterventionDispatcher;
 use crate::driver::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLink};
 use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
@@ -126,6 +127,8 @@ pub(crate) struct CodexDriver {
     pending_compactions: PendingCompactionRegistry,
     /// The helpers stopped alone, whose later turns are interrupted at their start.
     pub(crate) stopped_helpers: Arc<CodexStoppedHelpers>,
+    /// Answers the calls every conversation's hook rows make on its hooks entry.
+    hook_dispatch: Arc<CodexHookDispatch>,
     processes: Arc<ProviderProcessRegistry>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
@@ -329,6 +332,10 @@ impl CodexDriver {
                 source_views.command_source(session_id)
             }),
         );
+        let stopped_helpers = Arc::new(CodexStoppedHelpers::new(tasks.clone()));
+        let hook_dispatch = Arc::new(CodexHookDispatch::new(vec![
+            Arc::clone(&stopped_helpers) as _
+        ]));
         let compaction_limits = Arc::new(CodexCompactionLimits::new(
             Arc::clone(&services.pool),
             Arc::clone(&services.ports.database_writer),
@@ -346,7 +353,8 @@ impl CodexDriver {
             background_work: Arc::clone(&services.background_work),
             line_shells: shells.line_shells,
             pending_compactions: services.pending_compactions.clone(),
-            stopped_helpers: Arc::new(CodexStoppedHelpers::new(tasks.clone())),
+            stopped_helpers,
+            hook_dispatch,
             processes: Arc::clone(&services.processes),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
@@ -444,6 +452,7 @@ impl CodexDriver {
                 helper_roles_folder: self.helper_roles_folder.clone(),
                 tool_server_route: Arc::clone(&ports.tool_server_route),
                 callback_tool_host: Arc::clone(&ports.callback_tool_host),
+                hook_dispatch: Arc::clone(&self.hook_dispatch),
                 delivery: Arc::clone(&delivery),
                 run_routes: Arc::clone(&self.run_routes),
                 pending_compactions: self.pending_compactions.clone(),
@@ -553,6 +562,7 @@ impl CodexDriver {
                     services: Arc::clone(&self.registry),
                     tool_server_route: Arc::clone(&ports.tool_server_route),
                     callback_tool_host: Arc::clone(&ports.callback_tool_host),
+                    hook_dispatch: Arc::clone(&self.hook_dispatch),
                     reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),
                     session_relaunched: Arc::clone(&ports.session_relaunched),

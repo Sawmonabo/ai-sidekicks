@@ -349,6 +349,19 @@ mod tests {
         })
     }
 
+    fn hooks_entry() -> Value {
+        json!({
+            "url": "http://127.0.0.1:1/tools/sidekicks_hooks",
+            "http_headers": { "Authorization": "Bearer spawn-secret" },
+            "enabled": true,
+            "required": true,
+            "default_tools_approval_mode": "approve",
+            "tool_timeout_sec": 1_000_000_000_000_u64,
+            "tool_input_schema_max_bytes": 65_536,
+            "omit_tools_from": ["direct", "deferred", "code_mode"],
+        })
+    }
+
     // Each row of the table the call sends, against the call's own read. Killed by dropping a
     // loaded server the session leaves out (it stays on in the person's config), by sending a
     // loaded server as a `url` on the daemon's route, by leaving out the entry of a switched-on
@@ -357,7 +370,8 @@ mod tests {
     // switching a `local` or `project` binding on outside its root, by a daemon entry that
     // leaves out the spawn's `Authorization` header, which the route then refuses, or Codex's
     // `approve`, 300 s or the up-front loading, and by an empty deferred entry while the daemon
-    // lists no deferred group.
+    // lists no deferred group, and by a hooks entry Codex could start without, show the model or
+    // time out before a held hook.
     #[rstest]
     #[case::left_out_and_switched_off(
         vec![switched(user("github"), false)],
@@ -367,13 +381,18 @@ mod tests {
             "github": { "enabled": false },
             "notes": { "enabled": false },
             "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
         })
     )]
     #[case::loaded_and_switched_on(
         vec![switched(user("github"), true)],
         &["github"],
         false,
-        json!({ "github": { "enabled": true }, "sidekicks": daemon_entry() })
+        json!({
+            "github": { "enabled": true },
+            "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
+        })
     )]
     #[case::switched_on_and_unloaded(
         vec![switched(user("docs"), true)],
@@ -383,6 +402,7 @@ mod tests {
             "github": { "enabled": false },
             "docs": { "command": "docs-server", "args": ["--stdio"], "enabled": true },
             "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
         })
     )]
     #[case::copy_fork(
@@ -395,13 +415,21 @@ mod tests {
         vec![switched(local("notes", REPOSITORY), true)],
         &["notes"],
         false,
-        json!({ "notes": { "enabled": true }, "sidekicks": daemon_entry() })
+        json!({
+            "notes": { "enabled": true },
+            "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
+        })
     )]
     #[case::emulated_local_elsewhere(
         vec![switched(local("notes", "/work/other"), true)],
         &["notes"],
         false,
-        json!({ "notes": { "enabled": false }, "sidekicks": daemon_entry() })
+        json!({
+            "notes": { "enabled": false },
+            "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
+        })
     )]
     #[case::project_elsewhere(
         vec![
@@ -410,7 +438,11 @@ mod tests {
         ],
         &["notes"],
         false,
-        json!({ "notes": { "enabled": false }, "sidekicks": daemon_entry() })
+        json!({
+            "notes": { "enabled": false },
+            "sidekicks": daemon_entry(),
+            "sidekicks_hooks": hooks_entry(),
+        })
     )]
     fn the_table_switches_each_server_against_the_calls_own_read(
         #[case] tool_servers: Vec<SessionToolServer>,

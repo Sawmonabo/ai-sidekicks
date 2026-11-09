@@ -17,8 +17,10 @@ use sidekicks_platforms::{
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::shells::CodexShellKind;
 
-/// The hook `timeout`, 10^12 seconds, a hold no call outlasts and one Codex runs without fault;
-/// the code-mode yield takes the same hold in milliseconds, 10^15.
+/// The hold of a daemon hook, 10^12 seconds, which no call outlasts and Codex runs without fault:
+/// a hook command's `timeout` on the terminal service, a hook row's on the account services, and
+/// the hooks entry's tool timeout, since Codex cuts a row's call at the smaller of the two; the
+/// code-mode yield takes the same hold in milliseconds, 10^15.
 pub(crate) const CODEX_HOOK_TIMEOUT: Duration = Duration::from_secs(1_000_000_000_000);
 
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.

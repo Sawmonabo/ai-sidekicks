@@ -21,4 +21,4 @@ pub(super) mod supervisor;
 pub(super) mod switching;
 pub(super) mod telemetry_switches;
 pub(super) mod threads;
-mod trust;
+pub(super) mod trust;

@@ -239,6 +239,7 @@ pub(in crate::tools) fn fixture() -> Fixture {
                 provider,
                 token,
                 Arc::clone(binding.dispatcher()),
+                None,
             );
             (binding, Some(guard), secret)
         })

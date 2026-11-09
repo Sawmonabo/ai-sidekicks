@@ -1,5 +1,6 @@
 //! The shared tool server's live entries, one per conversation spawn and tool server: the spawn's
-//! provider, its secret, the dispatcher bound to that spawn and the MCP sessions admitted for it.
+//! provider, its secret, the dispatcher bound to that spawn, the tools its hook rows call and the
+//! MCP sessions admitted for it.
 //! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops, and every
 //! call the spawn's process left open is canceled with it. A spawn that adopts a conversation the
 //! provider kept from an earlier start of the daemon also answers, while it holds its adoption,
@@ -13,6 +14,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::bearer_token::BearerToken;
 use sidekicks_provider::driver::callback_tool::CallbackToolDispatcher;
+use sidekicks_provider::port::hook_tool_server::HookToolServer;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
@@ -41,6 +43,8 @@ pub struct ToolServerEntry {
     token: BearerToken,
     /// Answers the spawn's tool calls, bound to the spawn's own installation.
     dispatcher: CallbackToolDispatcher,
+    /// Lists and answers the tools the spawn's hook rows call; `None` for a spawn with no rows.
+    hook_tools: Option<Arc<dyn HookToolServer>>,
     /// The `Mcp-Session-Id`s admitted for the spawn.
     mcp_sessions: Mutex<HashSet<String>>,
     /// Canceled when the spawn drops, since its process is gone and no open call is answered.
@@ -59,6 +63,11 @@ impl ToolServerEntry {
     /// The dispatcher that answers the spawn's tool calls.
     pub fn dispatcher(&self) -> &CallbackToolDispatcher {
         &self.dispatcher
+    }
+
+    /// The tools the spawn's hook rows call, where its driver gave it rows.
+    pub fn hook_tools(&self) -> Option<&Arc<dyn HookToolServer>> {
+        self.hook_tools.as_ref()
     }
 
     /// Settles once the spawn dropped, so a call its process left open is canceled.
@@ -93,20 +102,23 @@ pub struct ToolServerEntries {
 }
 
 impl ToolServerEntries {
-    /// Adds the entry of a spawn at `path`, run by `provider`, presenting `token` and answered by
-    /// `dispatcher`, replacing the conversation's earlier entry there. The entry leaves the table
-    /// when the returned guard drops.
+    /// Adds the entry of a spawn at `path`, run by `provider`, presenting `token`, answered by
+    /// `dispatcher` and, for the calls its hook rows make, by `hook_tools`, replacing the
+    /// conversation's earlier entry there. The entry leaves the table when the returned guard
+    /// drops.
     pub fn insert(
         &self,
         path: ToolServerPath,
         provider: ProviderId,
         token: BearerToken,
         dispatcher: CallbackToolDispatcher,
+        hook_tools: Option<Arc<dyn HookToolServer>>,
     ) -> ToolServerEntryGuard {
         let entry = Arc::new(ToolServerEntry {
             provider,
             token,
             dispatcher,
+            hook_tools,
             mcp_sessions: Mutex::new(HashSet::new()),
             spawn_ended: CancellationToken::new(),
         });
@@ -268,7 +280,13 @@ pub(super) mod tests {
         let entries = ToolServerEntries::default();
         let first_token = BearerToken::mint().expect("the system's random source reads");
         let first_header = first_token.header_value();
-        let first = entries.insert(path.clone(), provider("codex"), first_token, dispatcher());
+        let first = entries.insert(
+            path.clone(),
+            provider("codex"),
+            first_token,
+            dispatcher(),
+            None,
+        );
         assert!(
             entries
                 .admitted(&path, Some(first_header.as_bytes()))
@@ -282,6 +300,7 @@ pub(super) mod tests {
             provider("claude-code"),
             second_token,
             dispatcher(),
+            None,
         );
         assert!(
             entries
@@ -306,6 +325,7 @@ pub(super) mod tests {
             provider("claude-code"),
             copy_token,
             dispatcher(),
+            None,
         );
         assert!(
             entries

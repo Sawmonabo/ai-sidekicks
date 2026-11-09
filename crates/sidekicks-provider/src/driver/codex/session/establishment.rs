@@ -34,6 +34,7 @@ use crate::driver::codex::auth_status::classify_codex_resume_recovery_condition;
 use crate::driver::codex::capabilities::{find_codex_model_row, read_codex_service_model_catalog};
 use crate::driver::codex::commands::CodexProviderCommandCache;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
+use crate::driver::codex::hooks::server::CodexHookDispatch;
 use crate::driver::codex::model_windows::read_codex_larger_window;
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::output_speed::{
@@ -45,6 +46,7 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::threads::ThreadClaim;
+use crate::driver::codex::service::trust::confirm_codex_daemon_hook_rows;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
@@ -62,6 +64,7 @@ use crate::driver::codex::session::owed_turn_ends::{
 };
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::driver::codex::thread::settings::hook_rows::sends_codex_daemon_hook_rows;
 use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_resume_params,
@@ -110,6 +113,8 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The callback-tool host each spawn installs its own registry on, beside the route.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    /// Answers the calls each spawn's hook rows make on its hooks entry.
+    pub(crate) hook_dispatch: Arc<CodexHookDispatch>,
     /// The frame delivery, which the frames that waited for a conversation go to.
     pub(crate) delivery: Arc<CodexFrameDelivery>,
     /// The driver's run routes, which an adopted conversation's live turns are bound on again.
@@ -339,6 +344,13 @@ impl CodexSessionEstablishment {
             let_go_codex_thread(&service, &thread.id).await;
             return Err(error);
         }
+        // A conversation whose hook rows would not run is let go before its first turn.
+        if sends_codex_daemon_hook_rows(route)
+            && let Err(error) = confirm_codex_daemon_hook_rows(&connection, &thread.id).await
+        {
+            let_go_codex_thread(&service, &thread.id).await;
+            return Err(error);
+        }
         let Some(version) = service.version_reading() else {
             let_go_codex_thread(&service, &thread.id).await;
             return Err(CodexError::Transport {
@@ -493,8 +505,8 @@ impl CodexSessionEstablishment {
     // `thread/resume` of the record's conversation on `service` with every setting the record
     // holds, its output speed rebuilt from the record and its tool servers against the resume's own
     // read, the daemon's on the entries `tool_servers` opened for the resume, and the reply. Fails
-    // as the reads or the request do, and when the reply names another conversation or runs it
-    // under another profile.
+    // as the reads or the request do, when the reply names another conversation or runs it under
+    // another profile, and when the conversation does not list the daemon's hook rows trusted.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
@@ -534,6 +546,9 @@ impl CodexSessionEstablishment {
             })
             .await?;
         assert_codex_thread_profile(&reply, settings, THREAD_RESUME_METHOD)?;
+        if sends_codex_daemon_hook_rows(route) {
+            confirm_codex_daemon_hook_rows(connection, thread_id).await?;
+        }
         Ok(reply)
     }
 
@@ -566,6 +581,7 @@ impl CodexSessionEstablishment {
         CodexDaemonToolServers::open(
             &self.dependencies.tool_server_route,
             &self.dependencies.callback_tool_host,
+            &self.dependencies.hook_dispatch,
             session_id,
             callback_tools,
         )

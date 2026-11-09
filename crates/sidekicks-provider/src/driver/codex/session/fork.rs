@@ -21,6 +21,7 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::driver::codex::hooks::server::CodexHookDispatch;
 use crate::driver::codex::mcp::live_switch::report_codex_servers_switched_off;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::output_speed::{
@@ -29,6 +30,7 @@ use crate::driver::codex::output_speed::{
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::trust::confirm_codex_daemon_hook_rows;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::{
     CodexSessionContextReadings, compose_codex_recovery_data,
@@ -43,6 +45,7 @@ use crate::driver::codex::session::history::read_codex_turns;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::driver::codex::thread::settings::hook_rows::sends_codex_daemon_hook_rows;
 use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_fork_params,
@@ -87,6 +90,8 @@ pub(crate) struct CodexForkDependencies {
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The callback-tool host each fork installs its own registry on, beside the route.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    /// Answers the calls each fork's hook rows make on its hooks entry.
+    pub(crate) hook_dispatch: Arc<CodexHookDispatch>,
     /// The reviewer's denials, whose held presses on a binding the fork retires are released.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
@@ -331,8 +336,10 @@ pub(crate) async fn bind_codex_first_run(
 /// its output speed resolved afresh against the model's tier list, which can change, and its tool
 /// servers against the fork's own read, read through `dependencies`' services, with the daemon's
 /// on the entries `tool_servers` opened for the fork and each stdio server in `service`'s sandbox
-/// where the session runs sandboxed. Fails as the catalog read, the tool servers' reads, the sandbox's wrap
-/// or the request does, and with `CodexError::Transport` for a reply that names no conversation.
+/// where the session runs sandboxed, then confirms the fork lists the daemon's hook rows trusted.
+/// Fails as the catalog read, the tool servers' reads, the sandbox's wrap, the request or the hook
+/// check does, letting a fork that fails the check go, and with `CodexError::Transport` for a reply
+/// that names no conversation.
 pub(crate) async fn request_codex_fork(
     source: CodexForkSource<'_>,
     dependencies: &CodexForkDependencies,
@@ -378,6 +385,13 @@ pub(crate) async fn request_codex_fork(
         })
         .await?;
     let thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
+    // A fork whose hook rows would not run is let go before the session moves onto it.
+    if sends_codex_daemon_hook_rows(route)
+        && let Err(error) = confirm_codex_daemon_hook_rows(connection, &thread_id).await
+    {
+        let_go_codex_thread(service, &thread_id).await;
+        return Err(error);
+    }
     Ok(CodexForkReply { reply, thread_id })
 }
 
@@ -520,6 +534,7 @@ fn open_fork_tool_servers(
     CodexDaemonToolServers::open(
         &dependencies.tool_server_route,
         &dependencies.callback_tool_host,
+        &dependencies.hook_dispatch,
         record.session_id,
         record.callback_tools(),
     )

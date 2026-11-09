@@ -371,9 +371,11 @@ mod tests {
         CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
         CodexHookInput,
     };
+    use crate::driver::codex::thread::settings::hook_rows::codex_daemon_hook_rows;
     use crate::driver::hook_pauses::PausedRole;
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::agent_tree_lookup::AgentTreeLookup;
+    use crate::port::hook_tool_server::{HookToolAnswer, HookToolCall, HookToolServer};
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";
@@ -587,5 +589,66 @@ mod tests {
         assert_eq!(settled(answered).await, Some(CodexHookAnswer::Pass));
         assert_eq!(run_control.took_effect.load(Ordering::SeqCst), 0);
         assert_eq!(pauses.thread_paused_for(&run_id()), None);
+    }
+
+    // Each daemon row's tool call reaches the pauses and answers the text Codex reads as that
+    // hook's output: a paused lead's pre-tool call denied, a continued helper's post-tool call
+    // given its words. Killed by the dispatch not answering the row's tool, by an answer as empty
+    // text, and by output naming another event than the row's.
+    #[tokio::test(start_paused = true)]
+    async fn a_rows_tool_call_reaches_the_pauses_and_answers_codexs_hook_output() {
+        let mut outputs = Vec::new();
+        for row in codex_daemon_hook_rows() {
+            let (pauses, _run_control) = pauses();
+            let thread_id = match row.event {
+                CodexHookEvent::PreToolUse => {
+                    pauses.pause(LEAD, PausedRole::Lead, pause());
+                    pauses.interrupt_sent(LEAD);
+                    LEAD
+                }
+                CodexHookEvent::PostToolUse => {
+                    pauses.pause(HELPER, PausedRole::Helper, pause());
+                    pauses.resume(HELPER, Some("check the tests first".to_owned()));
+                    HELPER
+                }
+            };
+            let dispatch = CodexHookDispatch::new(vec![pauses]);
+            let call = HookToolCall {
+                tool_name: row.handler["tool"]
+                    .as_str()
+                    .expect("a row names its tool")
+                    .to_owned(),
+                arguments: Map::from_iter([(
+                    "hook_event_name".to_owned(),
+                    Value::from(row.event.config_name()),
+                )]),
+                meta: Map::from_iter([("threadId".to_owned(), Value::from(thread_id))]),
+            };
+            let answer = tokio::time::timeout(
+                Duration::from_secs(1),
+                HookToolServer::answer(&dispatch, call, &CancellationToken::new()),
+            )
+            .await
+            .expect("the call is answered");
+            let HookToolAnswer::Answered(text) = answer else {
+                panic!("the row's call is answered, not {answer:?}");
+            };
+            outputs.push(serde_json::from_str::<Value>(&text).expect("the output is JSON"));
+        }
+
+        assert_eq!(
+            outputs,
+            [
+                serde_json::json!({ "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": super::PAUSED_REASON,
+                }}),
+                serde_json::json!({ "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": "check the tests first",
+                }}),
+            ]
+        );
     }
 }

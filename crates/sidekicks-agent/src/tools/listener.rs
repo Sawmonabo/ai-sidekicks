@@ -345,6 +345,7 @@ pub(super) mod tests {
             ProviderId::new("codex".to_owned()).expect("the id is well formed"),
             token,
             dispatcher(),
+            None,
         );
         (guard, printed, secret)
     }
