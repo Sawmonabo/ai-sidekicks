@@ -148,7 +148,7 @@ describe("McpFixtureMount", () => {
     await settleScheduledRead(fixture.scenarioEngine.clock);
 
     expect(readings()).toStrictEqual([
-      ["Codex decides from the tool's annotations", "The server's own"],
+      ["Decided from the tool's own description", "The server's own"],
       ["Can be undone", "Set here"],
     ]);
   });

@@ -8,15 +8,19 @@
 
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
+import type {
+  McpProviderReadFailure,
+  McpServerInventoryEntry,
+} from "@ai-sidekicks/contracts/mcp/server";
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
 export const MCP_INVENTORY_READ_ORIGIN = "mcp-servers";
 
-/** What the inventory read answers with. */
+/** What the inventory read answers with: the servers, and each provider whose list failed. */
 export interface McpInventory {
   readonly servers: readonly McpServerInventoryEntry[];
+  readonly failedProviders: readonly McpProviderReadFailure[];
 }
 
 /** The read the MCP fixture body is built on. */

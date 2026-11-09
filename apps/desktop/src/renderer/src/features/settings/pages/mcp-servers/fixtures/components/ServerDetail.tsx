@@ -11,14 +11,18 @@ import type {
   McpServerInventoryEntry,
   McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
+import type { ProjectListState } from "#renderer/store/projects/list.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
+import { ProjectSwitches } from "./ProjectSwitches.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { ToolSettingList } from "./ToolSettingList.js";
 import type {
   McpMutationOutcome,
+  McpProjectScopedBindingRef,
   McpSwitchableBindingRef,
   McpToolFacetChange,
 } from "../mutation.js";
@@ -41,9 +45,8 @@ const SWITCH_AND_TOOL_READINGS_MISSING_LINE =
  * Every control is offered and none is eligibility-gated; each disables only while its own call
  * is in flight and settles in place under itself. A control whose reading the service did not
  * send is not drawn: `On for runs` without an `enabled`, and the per-tool rows while the binding
- * store is unreachable, where the pane names each one missing. `On for runs` is not drawn on a
- * connector's or an organization's server either, whose switch applies in one project the pane
- * has no chooser for.
+ * store is unreachable, where the pane names each one missing. A connector's or an
+ * organization's server carries `On for runs` once per attached project.
  */
 export function ServerDetail(props: {
   readonly entry: McpServerInventoryEntry | undefined;
@@ -51,6 +54,15 @@ export function ServerDetail(props: {
   readonly outcome: McpMutationOutcome;
   readonly toolOutcomeFor: (toolName: string, facet: McpToolOverrideFacet) => McpMutationOutcome;
   readonly onSetEnabled: (binding: McpSwitchableBindingRef, enabled: boolean) => void;
+  /** The service's projects, one `On for runs` switch each on a project-scoped server. */
+  readonly projects: ProjectListState;
+  /** The outcome of one project's `On for runs` switch. */
+  readonly projectSwitchOutcomeFor: (project: ProjectListEntry) => McpMutationOutcome;
+  readonly onSetEnabledIn: (
+    binding: McpProjectScopedBindingRef,
+    project: ProjectListEntry,
+    enabled: boolean,
+  ) => void;
   /** The outcome of `Sign in to this server`. */
   readonly signInOutcome: McpMutationOutcome;
   readonly onSignIn: (binding: McpServerBindingRef) => void;
@@ -71,6 +83,9 @@ export function ServerDetail(props: {
     outcome,
     toolOutcomeFor,
     onSetEnabled,
+    projects,
+    projectSwitchOutcomeFor,
+    onSetEnabledIn,
     signInOutcome,
     onSignIn,
     onChangeTool,
@@ -121,9 +136,19 @@ export function ServerDetail(props: {
         />
       </div>
 
-      {enabled === undefined ||
-      binding.scope === "connector" ||
-      binding.scope === "managed" ? null : (
+      {enabled === undefined ? null : binding.scope === "connector" ||
+        binding.scope === "managed" ? (
+        <ProjectSwitches
+          entry={entry}
+          projects={projects}
+          outcomeFor={projectSwitchOutcomeFor}
+          onSetEnabledIn={(project, checked) => {
+            onSetEnabledIn(binding, project, checked);
+          }}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+        />
+      ) : (
         <div className="meridian-mcp__detail-block">
           <Switch
             label="On for runs"

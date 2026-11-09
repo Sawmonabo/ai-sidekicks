@@ -40,6 +40,9 @@ export const WORKFLOW_NOTICE_STREAM: Subscription<"workflow.subscribe"> = "workf
 /** The subscription name for the sessions on this machine: the list, then each change to it. */
 export const SESSION_LIST_STREAM: Subscription<"session.subscribe"> = "session.subscribe";
 
+/** The subscription name for the machine's projects: the whole list, then again on each change. */
+export const PROJECT_LIST_STREAM: Subscription<"project.subscribe"> = "project.subscribe";
+
 /** The subscription name for the machine's settings file: the file, then each written change. */
 export const MACHINE_SETTINGS_STREAM: Subscription<"machine.settings.subscribe"> =
   "machine.settings.subscribe";
@@ -55,4 +58,5 @@ export type DaemonStream =
   | typeof PROVIDER_NOTICE_STREAM
   | typeof WORKFLOW_NOTICE_STREAM
   | typeof SESSION_LIST_STREAM
+  | typeof PROJECT_LIST_STREAM
   | typeof MACHINE_SETTINGS_STREAM;

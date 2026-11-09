@@ -19,7 +19,7 @@ export type McpToolSettingSource = McpToolSetting["source"];
 
 /** The on-screen words for each approval mode, under `Ask before running`. */
 export const APPROVAL_MODE_WORDS: Readonly<Record<McpApprovalMode, string>> = {
-  auto: "Codex decides from the tool's annotations",
+  auto: "Decided from the tool's own description",
   prompt: "Always asks",
   writes: "Asks before a tool that writes",
   approve: "Pre-approved, never asks",

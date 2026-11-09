@@ -6,8 +6,9 @@
 // environment, header, token or authorization-URL value (the wire carries names in their place).
 //
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
-// identity, its sign-in by that identity and the word `signIn`, and each tool's facet by that
-// identity, the tool's name and the facet. It belongs
+// identity, its switch in one project by that identity and the project's root and distribution,
+// its sign-in by that identity and the word `signIn`, and each tool's facet by that identity, the
+// tool's name and the facet. It belongs
 // to the bridge it was produced through: the provider replaces the bridge under a live mount in
 // place, so the map rides the subject-scoped holder with the bridge as subject. It re-seeds
 // during the render that first sees a new bridge, and a publisher captured under the retired
@@ -18,11 +19,14 @@ import "./McpFixtureBody.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type {
+  McpProviderReadFailure,
   McpServerBindingRef,
   McpServerInventoryEntry,
   McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProjectListEntry } from "@ai-sidekicks/contracts/project";
 import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
+import type { ProjectListState } from "#renderer/store/projects/list.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
@@ -51,6 +55,7 @@ import {
   settlementOfMutation,
   settlementOfToolOverride,
   type McpMutationOutcome,
+  type McpProjectScopedBindingRef,
   type McpSwitchableBindingRef,
   type McpToolFacetChange,
   type SendMcpClearToolOverride,
@@ -59,6 +64,7 @@ import {
   type SendMcpToolOverride,
 } from "./mutation.js";
 import { ServerDetail } from "./components/ServerDetail.js";
+import { FailedProviderLine } from "./components/FailedProviderLine.js";
 import { ServerListEntry } from "./components/ServerListEntry.js";
 
 /** The subsystem a refused change names as its author. */
@@ -90,8 +96,10 @@ export function McpFixtureBody(props: {
   readonly mintKey?: IdempotencyKeyMinter;
   /** The service's sessions, which name each running session on the page. */
   readonly sessionDirectory: SessionDirectoryState;
+  /** The service's projects, each a switch on a connector's or an organization's server. */
+  readonly projects: ProjectListState;
 }): ReactNode {
-  const { bridge, operations, sessionDirectory } = props;
+  const { bridge, operations, sessionDirectory, projects } = props;
   const mintKey = props.mintKey ?? mintIdempotencyKey;
   // The scenario's frozen clock under the fixture, the real one otherwise.
   const clock = useClock();
@@ -181,6 +189,25 @@ export function McpFixtureBody(props: {
       ),
     }));
   };
+  const setEnabledIn = (
+    binding: McpProjectScopedBindingRef,
+    project: ProjectListEntry,
+    enabled: boolean,
+  ): void => {
+    sendChange(projectSwitchOutcomeKeyOf(binding, project), binding, async () => ({
+      kind: "settled",
+      binding,
+      settlement: settlementOfMutation(
+        await operations.sendEnabled({
+          ...binding,
+          enabled,
+          projectRoot: project.folderPath,
+          ...(typeof project.place === "object" ? { place: project.place } : {}),
+          clientIdempotencyKey: mintKey(),
+        }),
+      ),
+    }));
+  };
   // The service answers the sign-in page's address and the system browser is handed it; the
   // sign-in itself then finishes in the browser, outside this press.
   const signIn = (binding: McpServerBindingRef): void => {
@@ -232,6 +259,7 @@ export function McpFixtureBody(props: {
   const state = usePushDrivenRead(inventoryRead);
   const providerSections = useProviderSections();
   const servers = state.kind === "loaded" ? state.value.servers : NO_SERVERS;
+  const failedProviders = state.kind === "loaded" ? state.value.failedProviders : NO_FAILURES;
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   if (state.kind === "not-loaded") {
@@ -248,20 +276,38 @@ export function McpFixtureBody(props: {
       />
     );
   }
-  // A provider with no tool servers set up says so in words, never as an empty list: in place of
-  // the list when neither has any, and in quiet text at the list's foot otherwise.
+  // A provider whose list the service could not read says so where its servers would stand, and
+  // `Try again` asks for the whole list again. A provider with no tool servers set up says so in
+  // words, never as an empty list. Both stand in place of the list when no server was read, and at
+  // its foot otherwise.
+  const failedLines = failedProviders.map((failure) => (
+    <FailedProviderLine
+      key={failure.provider}
+      provider={failure.provider}
+      onTryAgain={() => {
+        inventoryRead.refresh("user-request");
+      }}
+    />
+  ));
   const providersWithNone = providerSections.filter(
-    (section) => !servers.some((entry) => entry.provider === section.provider),
+    (section) =>
+      !servers.some((entry) => entry.provider === section.provider) &&
+      !failedProviders.some((failure) => failure.provider === section.provider),
   );
   if (servers.length === 0) {
-    return providersWithNone.map((section) => (
-      <Nothing
-        key={section.provider}
-        kind="empty"
-        placement="block"
-        title={noServersLineFor(section)}
-      />
-    ));
+    return (
+      <>
+        {failedLines}
+        {providersWithNone.map((section) => (
+          <Nothing
+            key={section.provider}
+            kind="empty"
+            placement="block"
+            title={noServersLineFor(section)}
+          />
+        ))}
+      </>
+    );
   }
   const firstServer = servers[0];
   if (selectedKey === undefined && firstServer !== undefined) {
@@ -288,6 +334,7 @@ export function McpFixtureBody(props: {
             );
           })}
         </ul>
+        {failedLines}
         {providersWithNone.map((section) => (
           <p key={section.provider} className="meridian-settings-page__aside">
             {noServersLineFor(section)}
@@ -309,6 +356,13 @@ export function McpFixtureBody(props: {
             : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
         }
         onSetEnabled={setEnabled}
+        projects={projects}
+        projectSwitchOutcomeFor={(project) =>
+          selected === undefined
+            ? IDLE_MCP_MUTATION
+            : (outcomes.get(projectSwitchOutcomeKeyOf(selected, project)) ?? IDLE_MCP_MUTATION)
+        }
+        onSetEnabledIn={setEnabledIn}
         signInOutcome={
           selected === undefined
             ? IDLE_MCP_MUTATION
@@ -340,12 +394,27 @@ const SIGN_IN_PAGE_UNOPENED = refuse(
 /** What the list holds before the inventory is served. */
 const NO_SERVERS: readonly McpServerInventoryEntry[] = [];
 
+/** The providers whose list failed, before the inventory is served. */
+const NO_FAILURES: readonly McpProviderReadFailure[] = [];
+
 /** Every reading time the page draws an age for: each server's own and each of its sessions'. */
 function observedStampsOf(servers: readonly McpServerInventoryEntry[]): readonly string[] {
   return servers.flatMap((entry) => [
     ...(entry.observedAt === undefined ? [] : [entry.observedAt]),
     ...(entry.legs ?? []).flatMap((leg) => (leg.observedAt === undefined ? [] : [leg.observedAt])),
   ]);
+}
+
+/**
+ * The ledger key of one binding's switch in one project: the project's root and distribution
+ * nested as one member, so it can never read as a tool's name and facet.
+ */
+function projectSwitchOutcomeKeyOf(
+  binding: McpServerBindingRef,
+  project: ProjectListEntry,
+): string {
+  const distro = typeof project.place === "object" ? [project.place.distro] : [];
+  return structuralKey([mcpBindingKeyOf(binding), structuralKey([project.folderPath, ...distro])]);
 }
 
 /** The ledger key of one binding's sign-in. */

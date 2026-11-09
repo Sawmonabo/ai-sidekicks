@@ -19,7 +19,11 @@ import type {
   McpServerStatus,
   McpToolOverrideMutationResponse,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { DistroName } from "@ai-sidekicks/contracts/place";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ProjectListState } from "#renderer/store/projects/list.js";
 import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
@@ -149,6 +153,53 @@ const REVIEWER: McpServerInventoryEntry = {
   tools: [],
 };
 
+// A claude.ai connector, whose switch applies one project at a time.
+const LINEAR: McpServerInventoryEntry = {
+  provider: CLAUDE,
+  scope: "connector",
+  scopeRef: "account-work" as ProviderAccountId,
+  serverName: "linear",
+  serverBindingId: bindingIdFor("linear"),
+  config: { transport: "http", url: "https://mcp.linear.example/" },
+  status: "connected",
+  enabled: true,
+  tools: [],
+};
+
+// The projects attached to this computer: one on the machine, one in a WSL distribution.
+const ATTACHED_PROJECTS: ProjectListState = {
+  status: "served",
+  projects: [
+    {
+      projectId: "project-atlas" as ProjectId,
+      repoMountId: null,
+      name: "atlas",
+      folderPath: "/work/atlas",
+      state: "active",
+      sessionCount: 0,
+      runningSessionId: null,
+      sessionTally: { running: 0, waiting: 0, done: 0 },
+      setup: { filesToCopy: [], commands: [] },
+      environmentRows: [],
+      branchPattern: null,
+    },
+    {
+      projectId: "project-beacon" as ProjectId,
+      repoMountId: null,
+      name: "beacon",
+      folderPath: "/home/me/beacon",
+      state: "active",
+      sessionCount: 0,
+      runningSessionId: null,
+      sessionTally: { running: 0, waiting: 0, done: 0 },
+      setup: { filesToCopy: [], commands: [] },
+      environmentRows: [],
+      branchPattern: null,
+      place: { distro: "Ubuntu" as DistroName },
+    },
+  ],
+};
+
 // Saved, and missed one of the two running sessions.
 const PARTIAL_APPLICATION: McpServerMutationResponse = {
   server: { ...FILESYSTEM, enabled: false },
@@ -175,7 +226,7 @@ function operationsServing(
   overrides: Partial<McpServerOperations> = {},
 ): McpServerOperations {
   return {
-    listInventory: async () => await Promise.resolve({ servers }),
+    listInventory: async () => await Promise.resolve({ servers, failedProviders: [] }),
     subscribeInventoryChanges: () => () => undefined,
     sendEnabled: async () => await Promise.resolve(PARTIAL_APPLICATION),
     sendToolOverride: async () => await Promise.resolve(TOOL_SWITCHED_OFF),
@@ -201,6 +252,7 @@ function MountedMcpPage(props: {
       bridge={bridge}
       operations={props.operations}
       sessionDirectory={SESSION_DIRECTORY}
+      projects={ATTACHED_PROJECTS}
     />
   ) : (
     <McpFixtureBody
@@ -208,6 +260,7 @@ function MountedMcpPage(props: {
       operations={props.operations}
       mintKey={props.mintKey}
       sessionDirectory={SESSION_DIRECTORY}
+      projects={ATTACHED_PROJECTS}
     />
   );
 }
@@ -508,6 +561,75 @@ describe("McpFixtureBody", () => {
   });
 });
 
+describe("McpFixtureBody — a server switched per project", () => {
+  it("sends each project's switch with that project's root and distribution", async () => {
+    const sendEnabled = vi.fn(async () => await Promise.resolve(PARTIAL_APPLICATION));
+    const { container, clock } = await renderSettledMcpPage(
+      operationsServing([LINEAR], { sendEnabled }),
+      () => "project-press",
+    );
+    const switches = [...selectServer(container, "linear").querySelectorAll('[role="switch"]')];
+    expect(switches).toHaveLength(2);
+    for (const control of switches) {
+      fireEvent.click(control);
+    }
+    await settleScheduledRead(clock);
+    for (const request of [
+      {
+        provider: CLAUDE,
+        scope: "connector",
+        scopeRef: "account-work",
+        serverName: "linear",
+        enabled: false,
+        projectRoot: "/work/atlas",
+        clientIdempotencyKey: "project-press",
+      },
+      {
+        provider: CLAUDE,
+        scope: "connector",
+        scopeRef: "account-work",
+        serverName: "linear",
+        enabled: false,
+        projectRoot: "/home/me/beacon",
+        place: { distro: "Ubuntu" },
+        clientIdempotencyKey: "project-press",
+      },
+    ]) {
+      expect(sendEnabled).toHaveBeenCalledWith(request);
+    }
+  });
+});
+
+describe("McpFixtureBody — a provider whose list could not be read", () => {
+  it("says so where its servers would stand, and Try again reads the list again", async () => {
+    const listInventory = vi.fn(
+      async () =>
+        await Promise.resolve({
+          servers: [FILESYSTEM],
+          failedProviders: [{ provider: CODEX, cause: "codex mcp list exited 1" }],
+        }),
+    );
+    const { container, clock } = await renderSettledMcpPage(
+      operationsServing([], { listInventory }),
+    );
+    const foot = container.querySelector(".meridian-mcp__list");
+    expect(foot?.querySelector(".meridian-refusal__message")?.textContent).toBe(
+      "Codex's server list could not be read.",
+    );
+    // The failed provider is not also said to have no servers.
+    expect(foot?.textContent).not.toContain("No tool servers are set up for Codex.");
+
+    const reads = listInventory.mock.calls.length;
+    const tryAgain = foot?.querySelector(".meridian-refusal__try-again button");
+    if (!(tryAgain instanceof HTMLElement)) {
+      throw new Error("the failed provider's line drew no Try again");
+    }
+    fireEvent.click(tryAgain);
+    await settleScheduledRead(clock);
+    expect(listInventory.mock.calls.length).toBe(reads + 1);
+  });
+});
+
 describe("McpFixtureBody — signing in to a server", () => {
   it("sends the binding with the press's key and settles once its page is handed to the browser", async () => {
     const sendSignIn = vi.fn(
@@ -581,7 +703,7 @@ describe("McpFixtureBody — the list and the selected server", () => {
     let announceChange = (): void => undefined;
     const { container, clock } = await renderSettledMcpPage(
       operationsServing([], {
-        listInventory: async () => await Promise.resolve({ servers: served }),
+        listInventory: async () => await Promise.resolve({ servers: served, failedProviders: [] }),
         subscribeInventoryChanges: (onChange) => {
           announceChange = onChange;
           return () => undefined;

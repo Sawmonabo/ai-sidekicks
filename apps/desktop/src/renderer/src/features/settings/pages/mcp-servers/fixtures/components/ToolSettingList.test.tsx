@@ -84,7 +84,7 @@ describe("ToolSettingList", () => {
     expect(rows).toStrictEqual([
       {
         isOn: "true",
-        chosen: ["Codex decides from the tool's annotations", "Safe to run again"],
+        chosen: ["Decided from the tool's own description", "Safe to run again"],
         sources: ["The server's own", "The server's own", "Set here"],
       },
       {
@@ -103,7 +103,7 @@ describe("ToolSettingList", () => {
     );
     expect(options).toStrictEqual([
       [
-        "Codex decides from the tool's annotations",
+        "Decided from the tool's own description",
         "Always asks",
         "Asks before a tool that writes",
         "Pre-approved, never asks",

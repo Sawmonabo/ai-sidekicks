@@ -2,7 +2,8 @@
 // `callDaemon`, so each reply is parsed against the method's registered shape, and its live-status
 // signal is the governance stream, opened before the first read and opened again when it ends,
 // with a read after each re-open for what the gap hid. The running sessions are named from the
-// window's session list feed, which the sessions list shares.
+// window's session list feed, which the sessions list shares, and the projects a server's switches
+// apply in come from the window's project feed.
 
 import { useMemo, type ReactNode } from "react";
 
@@ -12,7 +13,9 @@ import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
+import { projectListFeedFor } from "#renderer/services/daemon/project-list.js";
 import { sessionDirectoryFeedFor } from "#renderer/services/daemon/session/list-feed.js";
+import { useProjectList } from "#renderer/store/projects/hooks/useProjectList.js";
 import { useSessionDirectory } from "#renderer/store/session/directory/useSessionDirectory.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
@@ -22,8 +25,14 @@ export function McpFixtureMount(): ReactNode {
   // Held per bridge: the body restarts its inventory read when the operations change.
   const operations = useMemo(() => mcpServerOperationsOver(bridge), [bridge]);
   const sessionDirectory = useSessionDirectory(sessionDirectoryFeedFor(bridge));
+  const projects = useProjectList(projectListFeedFor(bridge));
   return (
-    <McpFixtureBody bridge={bridge} operations={operations} sessionDirectory={sessionDirectory} />
+    <McpFixtureBody
+      bridge={bridge}
+      operations={operations}
+      sessionDirectory={sessionDirectory}
+      projects={projects}
+    />
   );
 }
 

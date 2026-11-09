@@ -12,6 +12,7 @@ import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pro
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
 import { PROVIDER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/settings";
+import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 import { daemonMethodBindingFor } from "#shared/daemon/method-bindings.js";
@@ -27,6 +28,7 @@ import type { MachineNoticeStreamName } from "../session/event/streams.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
+  PROJECT_LIST_STREAM,
   PROVIDER_NOTICE_STREAM,
   SESSION_LIST_STREAM,
   WORKFLOW_NOTICE_STREAM,
@@ -43,6 +45,7 @@ const MACHINE_NOTICE_EMISSION_CHECKS: Readonly<
   [WORKFLOW_NOTICE_STREAM]:
     WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionCheck,
   [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].emissionCheck,
+  [PROJECT_LIST_STREAM]: REPO_METHOD_DESCRIPTORS[PROJECT_LIST_STREAM].emissionCheck,
 });
 
 /**

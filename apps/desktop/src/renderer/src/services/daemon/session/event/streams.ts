@@ -8,9 +8,9 @@
 // The kind lists for narrowed streams are composed from `stream-kinds.ts`. Rows:
 // `session.event.subscribe` (the whole session log), `agent.run.subscribe` and
 // `agent.queueItem.subscribe` (narrowed projections), `presence.subscribe` (the connected devices),
-// and `mcp.subscribe`, `provider.account.subscribe`, `provider.subscribe`, `workflow.subscribe` and
-// `session.subscribe` (the machine's notices). The last six are not session-event streams, but
-// still `daemon.subscribe` names. The machine settings
+// and `mcp.subscribe`, `provider.account.subscribe`, `provider.subscribe`, `workflow.subscribe`,
+// `session.subscribe` and `project.subscribe` (the machine's notices). The last seven are not
+// session-event streams, but still `daemon.subscribe` names. The machine settings
 // feed has no row: the settings page reads it through the bridge's own `machineSettings` member.
 // The table and each row are frozen because a mutation would re-route every subscription in the
 // renderer.
@@ -19,6 +19,7 @@ import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
   MCP_NOTICE_STREAM,
   PRESENCE_EVENT_STREAM,
+  PROJECT_LIST_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
   PROVIDER_NOTICE_STREAM,
   RUN_QUEUE_EVENT_STREAM,
@@ -79,7 +80,8 @@ export type MachineNoticeStreamName =
   | typeof PROVIDER_ACCOUNT_NOTICE_STREAM
   | typeof PROVIDER_NOTICE_STREAM
   | typeof WORKFLOW_NOTICE_STREAM
-  | typeof SESSION_LIST_STREAM;
+  | typeof SESSION_LIST_STREAM
+  | typeof PROJECT_LIST_STREAM;
 
 /** One stream this table routes: every daemon stream the app opens but the settings feed. */
 export type SessionEventStreamName = Exclude<DaemonStream, typeof MACHINE_SETTINGS_STREAM>;
@@ -117,6 +119,9 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
       scope: "machine-notices",
     } satisfies SessionEventStream),
     [SESSION_LIST_STREAM]: Object.freeze({
+      scope: "machine-notices",
+    } satisfies SessionEventStream),
+    [PROJECT_LIST_STREAM]: Object.freeze({
       scope: "machine-notices",
     } satisfies SessionEventStream),
   });

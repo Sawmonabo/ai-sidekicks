@@ -65,6 +65,12 @@ export type McpSwitchableBindingRef = Exclude<
   { readonly scope: "connector" | "managed" }
 >;
 
+/** A binding whose switch applies in one project at a time: a connector's or an organization's. */
+export type McpProjectScopedBindingRef = Extract<
+  McpServerBindingRef,
+  { readonly scope: "connector" | "managed" }
+>;
+
 /** The code a sign-in reads under when the system browser would not open its page. */
 export const SIGN_IN_PAGE_UNOPENED_CODE = "mcp-sign-in-page-unopened";
 
