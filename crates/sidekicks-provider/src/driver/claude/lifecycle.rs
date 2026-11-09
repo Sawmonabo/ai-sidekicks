@@ -69,6 +69,7 @@ use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::ignored_settings::ClaudeIgnoredSettings;
 use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
@@ -511,6 +512,10 @@ impl ClaudeDriver {
                 idle_sleep,
                 inboxes,
                 context_readings,
+                ignored_settings: Arc::new(ClaudeIgnoredSettings::new(
+                    self.sources.spawner.clone(),
+                    &self.sources.data_folder,
+                )),
             });
             composed = Some((
                 restarts,

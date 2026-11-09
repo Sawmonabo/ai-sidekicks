@@ -44,6 +44,7 @@ use crate::driver::claude::spawn::launch::control_only::{
     CLAUDE_SUBSCRIPTION_SOURCE, ClaudeSignInSources, probe_claude_sign_in,
 };
 use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
+use crate::driver::claude::terminal_text::strip_terminal_controls;
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
     read_sign_in_address,
@@ -408,23 +409,6 @@ impl OutputScan {
         let keep = marker_len.saturating_sub(1);
         let excess = self.pending.len().saturating_sub(keep);
         self.pending.drain(..excess);
-    }
-}
-
-// The text of `line` as a terminal shows it: its printed characters, every control sequence and
-// operating-system command (the link wrapper among them) left out, then trimmed.
-fn strip_terminal_controls(line: &[u8]) -> String {
-    let mut shown = ShownText(String::with_capacity(line.len()));
-    vte::Parser::new().advance(&mut shown, line);
-    shown.0.trim().to_owned()
-}
-
-/// The characters a terminal prints, gathered as the parser hands them over.
-struct ShownText(String);
-
-impl vte::Perform for ShownText {
-    fn print(&mut self, character: char) {
-        self.0.push(character);
     }
 }
 

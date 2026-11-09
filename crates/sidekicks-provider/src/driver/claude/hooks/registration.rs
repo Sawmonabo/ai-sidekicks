@@ -33,6 +33,10 @@ pub(crate) const CLAUDE_MESSAGE_TOOL_NAME: &str = "SendMessage";
 /// The shell tool, whose commands the background-work refusal reads.
 const CLAUDE_SHELL_TOOL_MATCHER: &str = "^Bash$";
 
+/// The settings files whose change the daemon reads Claude Code's settings again after, by the
+/// source the change hook names: every one but the skills folder.
+const CLAUDE_SETTINGS_SOURCES_MATCHER: &str = "^(user|project|local|policy)_settings$";
+
 /// A hook the daemon registers, by what answers it; its callback id names it on the wire.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeHookCallback {
@@ -55,11 +59,13 @@ pub(crate) enum ClaudeHookCallback {
     HelperSteerAtStop,
     /// Forgets what a helper call asked for once the call fails, so no start will take it.
     HelperCallFailed,
+    /// Reads the settings Claude Code dropped again once a settings file changes.
+    SettingsChanged,
 }
 
 impl ClaudeHookCallback {
     /// Every hook, so a callback id is read back against each.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::PauseBeforeTool,
         Self::PauseAfterBatch,
         Self::HelperLimit,
@@ -69,6 +75,7 @@ impl ClaudeHookCallback {
         Self::HelperSteerAfterTool,
         Self::HelperSteerAtStop,
         Self::HelperCallFailed,
+        Self::SettingsChanged,
     ];
 
     /// The callback id the hook is registered under.
@@ -83,6 +90,7 @@ impl ClaudeHookCallback {
             Self::HelperSteerAfterTool => "sidekicks-helper-steer-after-tool",
             Self::HelperSteerAtStop => "sidekicks-helper-steer-at-stop",
             Self::HelperCallFailed => "sidekicks-helper-call-failed",
+            Self::SettingsChanged => "sidekicks-settings-changed",
         }
     }
 
@@ -116,7 +124,8 @@ impl ClaudeDialogKind {
 }
 
 /// The `initialize` request a session's process is brought up with: the daemon's hooks (a failed
-/// helper call's among them, which forgets what the call asked for), the session's helper
+/// helper call's among them, which forgets what the call asked for, and a settings file's change,
+/// after which the dropped settings are read again), the session's helper
 /// definitions, the two dialogs the console draws, and the per-task stop the console offers, and
 /// the tool servers the daemon hosts in-process, by name. The helper hold, on the helper and
 /// message tools, is registered only where the policy limits helpers at once.
@@ -178,6 +187,10 @@ pub(crate) fn compose_claude_initialize_request(
             post_tool_batch: vec![unheld(None, ClaudeHookCallback::PauseAfterBatch)],
             permission_denied: vec![unheld(None, ClaudeHookCallback::PermissionDenied)],
             subagent_stop: vec![unheld(None, ClaudeHookCallback::HelperSteerAtStop)],
+            config_change: vec![unheld(
+                Some(CLAUDE_SETTINGS_SOURCES_MATCHER.to_owned()),
+                ClaudeHookCallback::SettingsChanged,
+            )],
         }),
         agents,
         supported_dialog_kinds: Some(

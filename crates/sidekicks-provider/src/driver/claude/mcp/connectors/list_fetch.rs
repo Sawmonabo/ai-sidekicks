@@ -4,12 +4,12 @@
 //! as Claude Code's fetch decides it. A skip is claimed only where it surely holds, so a condition
 //! the daemon cannot read leaves the read waiting for the fetch instead.
 
-use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::account::credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
+use crate::driver::claude::session::transport::control::ClaudeSettingsReply;
 use crate::driver::claude::spawn::environment::{
     CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_text_variable,
 };
@@ -74,23 +74,11 @@ pub(crate) struct ClaudeConnectorFetchSettings {
     has_api_key_helper: bool,
 }
 
-// The members of a `get_settings` answer the fetch reads: the merged settings and each settings
-// source's own, as `{ source, settings }`.
-#[derive(Default, Deserialize)]
-struct ConnectorFetchSettingsReply {
-    #[serde(default)]
-    effective: Option<Value>,
-    #[serde(default)]
-    sources: Option<Value>,
-}
-
 impl ClaudeConnectorFetchSettings {
     /// Reads a `get_settings` answer; an absent one, one that is no object, or a member it lacks
     /// reads as not set.
     pub(crate) fn read(reply: Option<&RawValue>) -> Self {
-        let reply: ConnectorFetchSettingsReply = reply
-            .and_then(|reply| serde_json::from_str(reply.get()).ok())
-            .unwrap_or_default();
+        let reply = ClaudeSettingsReply::read(reply);
         let are_connectors_disabled = reply
             .sources
             .as_ref()

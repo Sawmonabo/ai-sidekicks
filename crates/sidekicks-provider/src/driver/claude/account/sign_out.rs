@@ -87,6 +87,7 @@ async fn run_sign_out(
         &CLAUDE_SIGN_OUT_ARGUMENTS,
         &working_folder,
         false,
+        false,
     )
     .await
     .map_err(|error| match error {

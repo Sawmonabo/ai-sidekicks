@@ -345,6 +345,9 @@ pub(crate) struct ClaudeHooks {
     /// When a tool call is denied.
     #[serde(rename = "PermissionDenied", skip_serializing_if = "Vec::is_empty")]
     pub(crate) permission_denied: Vec<ClaudeHookMatcher>,
+    /// When a settings file changes, before Claude Code loads it again.
+    #[serde(rename = "ConfigChange", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) config_change: Vec<ClaudeHookMatcher>,
 }
 
 /// One hook matcher: which tool names it runs on, the callbacks it calls and how long Claude Code
@@ -352,7 +355,8 @@ pub(crate) struct ClaudeHooks {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeHookMatcher {
-    /// A regular expression on the tool name; absent, every tool.
+    /// A regular expression on what the event names: a tool's name, or a changed settings file's
+    /// source; absent, every one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) matcher: Option<String>,
     /// The callback ids the hook calls, each answered over this channel.
@@ -494,16 +498,39 @@ pub(crate) struct ClaudeSessionTitleReply {
     pub(crate) title: Option<String>,
 }
 
-/// A `get_settings` answer: the settings merged from every source and what took effect for the
-/// session, each read by the member its reader needs; every other member is left unread.
+/// A `get_settings` answer: the settings merged from every source, each source's own, what took
+/// effect for the session and the settings Claude Code dropped, each read by the member its reader
+/// needs; every other member is left unread.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct ClaudeSettingsReply {
     /// The settings merged from every source.
     #[serde(default)]
     pub(crate) effective: Option<Value>,
+    /// Each settings source's own settings, as `{ source, settings }` in Claude Code's merge
+    /// order, the last deciding; a source that sets nothing, or whose file was dropped, is absent.
+    #[serde(default)]
+    pub(crate) sources: Option<Value>,
     /// What took effect for the session.
     #[serde(default)]
     pub(crate) applied: Option<Value>,
+    /// The settings Claude Code dropped as it loaded them; absent where it dropped none.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) errors: Option<LenientList<ClaudeSettingsErrorRow>>,
+}
+
+/// One settings file Claude Code dropped, whole or by one key, as `get_settings` and
+/// `get_hooks_listing` report it.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ClaudeSettingsErrorRow {
+    /// The file.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) file: Option<String>,
+    /// The key with the bad value, dotted; empty where the whole file failed to parse.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) path: Option<String>,
+    /// Claude Code's own words for what is wrong.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) message: Option<String>,
 }
 
 impl ClaudeSettingsReply {
@@ -520,6 +547,7 @@ lenient_object!(
     ClaudeInterruptReceipt,
     ClaudeBackgroundTasksReply,
     ClaudeSessionTitleReply,
+    ClaudeSettingsErrorRow,
 );
 
 /// Claude Code's permission modes, as `--permission-mode` and `set_permission_mode` take them.

@@ -26,6 +26,7 @@ use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFiles, ClaudeSettingsReadError, ClaudeSettingsSources, find_claude_setting,
     read_claude_managed_settings, read_claude_settings_files,
 };
+use crate::driver::claude::session::transport::control::ClaudeSettingsErrorRow;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
 // The tiers a listed hook names as its `source`, each kept in one known settings file or set of
@@ -57,7 +58,7 @@ struct HookListingReply {
     #[serde(default, deserialize_with = "read_lenient")]
     hooks: Option<LenientList<HookRow>>,
     #[serde(default, deserialize_with = "read_lenient")]
-    errors: Option<LenientList<SettingsErrorRow>>,
+    errors: Option<LenientList<ClaudeSettingsErrorRow>>,
     #[serde(default, deserialize_with = "read_lenient")]
     policy: Option<PolicyRow>,
 }
@@ -101,16 +102,6 @@ struct EditableRow {
 }
 
 #[derive(Deserialize)]
-struct SettingsErrorRow {
-    #[serde(default, deserialize_with = "read_lenient")]
-    file: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    path: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    message: Option<String>,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PolicyRow {
     #[serde(default, deserialize_with = "read_lenient")]
@@ -127,13 +118,7 @@ struct PolicyRow {
     policy_unreadable: Option<bool>,
 }
 
-lenient_object!(
-    HookListingReply,
-    HookRow,
-    EditableRow,
-    SettingsErrorRow,
-    PolicyRow
-);
+lenient_object!(HookListingReply, HookRow, EditableRow, PolicyRow);
 
 // One listed hook as the contract carries it, with its stored entry kept for naming its file.
 struct ListedHook {
@@ -249,7 +234,7 @@ fn read_hook(row: HookRow) -> Option<ListedHook> {
     })
 }
 
-fn read_settings_error(row: SettingsErrorRow) -> Option<ProviderHookSettingsError> {
+fn read_settings_error(row: ClaudeSettingsErrorRow) -> Option<ProviderHookSettingsError> {
     Some(ProviderHookSettingsError {
         file: row.file.and_then(|file| FilesystemPath::new(file).ok()),
         path: NulFreeText::new(row.path.unwrap_or_default()).ok()?,

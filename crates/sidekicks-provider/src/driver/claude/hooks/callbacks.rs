@@ -106,6 +106,12 @@ pub(crate) enum ClaudeRequestRoute {
         /// The failed call's id, `None` where the hook names none.
         call_id: Option<String>,
     },
+    /// Answer it with no decision, then read the settings Claude Code dropped again: a settings
+    /// file's change.
+    ReadSettingsAgain {
+        /// The request's id.
+        request_id: String,
+    },
     /// Forget what the withdrawn request's helper call asked for, then hand the withdrawal on to
     /// the event side.
     Withdrawn {
@@ -245,7 +251,8 @@ lenient_object!(HookInput, HookToolInput);
 /// helper-limit callback on the helper tool, is answered or held here, while one on the message
 /// tool that names a recipient goes to the helper-wake check and any other passes; a failed helper
 /// call's callback forgets what the call asked for; a helper's post-tool and stop callbacks carry
-/// its waiting words; the background-work callback is checked; the question hook goes on only at
+/// its waiting words; a settings file's change reads the dropped settings again; the
+/// background-work callback is checked; the question hook goes on only at
 /// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
 /// process can move, and pass with no decision off them; anything else goes on.
 pub(crate) fn route_claude_request(
@@ -367,6 +374,9 @@ pub(crate) fn route_claude_request(
         },
         RegisteredHook::HelperCallFailed => ClaudeRequestRoute::ForgetHelperCall {
             call_id,
+            request_id: request.request_id,
+        },
+        RegisteredHook::SettingsChanged => ClaudeRequestRoute::ReadSettingsAgain {
             request_id: request.request_id,
         },
         RegisteredHook::QuestionBridge => pass_off_level(PermissionLevel::Sandboxed, request),

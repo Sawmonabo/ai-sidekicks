@@ -72,6 +72,9 @@ pub(crate) struct ClaudeStartedSession {
     pub(crate) settings_readback: ClaudeSettingsReadback,
     /// The build's version and path, read from this process.
     pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    /// The build as resolved for this process, in its environment, which the session's other
+    /// commands run on.
+    pub(crate) executable: ResolvedProviderExecutable,
 }
 
 /// Every Claude Code process the driver starts, each on the build the command names at that start.
@@ -260,12 +263,13 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             let brought_up = bring_up_claude_process(&self.launcher, &executable, request).await?;
             let process = brought_up.process;
             let handshake_process = Arc::clone(&process);
+            let handshake = ProviderVersionHandshakeRequest {
+                provider: DESCRIPTOR.provider_id(),
+                executable,
+                client_name: DESCRIPTOR.id,
+            };
             let version = read_spawned_version(
-                &ProviderVersionHandshakeRequest {
-                    provider: DESCRIPTOR.provider_id(),
-                    executable,
-                    client_name: DESCRIPTOR.id,
-                },
+                &handshake,
                 async move |_request: &ProviderVersionHandshakeRequest| {
                     read_version_text(&*handshake_process).await
                 },
@@ -278,6 +282,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     initialize: brought_up.initialize,
                     settings_readback: brought_up.settings_readback,
                     spawned_version: to_binding_version_carriers(&version),
+                    executable: handshake.executable,
                 }),
                 Err(error) => {
                     process.terminate().await;

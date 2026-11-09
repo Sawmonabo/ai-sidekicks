@@ -47,6 +47,7 @@ use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::ClaudeSessionControls;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::ignored_settings::ClaudeIgnoredSettings;
 use crate::driver::claude::session::process::ClaudeProcessEnd;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::restart::ended_process::claude_process_exit_of;
@@ -115,6 +116,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) inboxes: Arc<ClaudeSessionInboxes>,
     /// Each session's context reads, asked after the frames that call for one.
     pub(crate) context_readings: Arc<ClaudeContextReadings>,
+    /// Each live process's settings readings, read again after a settings file's change.
+    pub(crate) ignored_settings: Arc<ClaudeIgnoredSettings>,
 }
 
 /// One live process's task: its session, its stream and its in-process tool-server calls.
@@ -340,6 +343,17 @@ impl ClaudeSessionTask {
                 )
                 .await;
             }
+            ClaudeRequestRoute::ReadSettingsAgain { request_id } => {
+                answer_claude_request(
+                    &*live.channel,
+                    &session_id,
+                    account,
+                    request_id,
+                    &ClaudeHookAnswer::Pass,
+                )
+                .await;
+                services.ignored_settings.read_again(session_id);
+            }
             ClaudeRequestRoute::Answer { request_id, answer } => {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
@@ -464,6 +478,7 @@ impl ClaudeSessionTask {
             services.delivery.settle_exit(&self.stream, held).await;
         }
         services.idle_sleep.note_process_ended(session_id);
+        services.ignored_settings.forget_session(session_id);
         services.requests.forget_session(session_id);
         services.settlement.handshakes.forget_handshake(session_id);
         services.dialogs.forget_session(session_id);

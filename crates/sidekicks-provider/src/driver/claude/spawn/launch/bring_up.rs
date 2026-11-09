@@ -19,6 +19,9 @@ use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
 use crate::driver::claude::session::errors::ClaudeSessionError;
+use crate::driver::claude::session::ignored_settings::{
+    ClaudeSettingsReport, read_claude_settings_report,
+};
 use crate::driver::claude::session::memory::CLAUDE_AUTO_MEMORY_SETTING;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
@@ -88,8 +91,8 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
 /// What a `get_settings` reply says the process runs with.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClaudeSettingsReadback {
-    /// The effective `cleanupPeriodDays`, where the reply carries a number.
-    pub(crate) cleanup_period_days: Option<f64>,
+    /// The settings Claude Code dropped, and the source whose retention is in force.
+    pub(crate) settings_report: ClaudeSettingsReport,
     /// The effective `autoMemoryEnabled`, where the reply carries a boolean.
     pub(crate) auto_memory_enabled: Option<bool>,
     /// The advisor Claude Code says it attaches.
@@ -236,8 +239,6 @@ async fn configure(
 fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
     let reply = ClaudeSettingsReply::read(reply);
     let effective = reply.effective.as_ref();
-    let cleanup_period_days =
-        effective.and_then(|effective| effective.get("cleanupPeriodDays").and_then(Value::as_f64));
     let auto_memory_enabled = effective.and_then(|effective| {
         effective
             .get(CLAUDE_AUTO_MEMORY_SETTING)
@@ -248,7 +249,7 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
         ClaudeSessionAdvisor::of(effective.get("advisorModel").and_then(Value::as_str))
     });
     ClaudeSettingsReadback {
-        cleanup_period_days,
+        settings_report: read_claude_settings_report(&reply),
         auto_memory_enabled,
         resolved_advisor,
         attached_advisor: read_claude_attached_advisor(&reply),

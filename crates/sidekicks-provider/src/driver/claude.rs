@@ -111,6 +111,7 @@ mod settings_rows;
 mod spawn;
 mod spent_retries_signal;
 mod switch_variable;
+mod terminal_text;
 mod tools;
 mod turn_evidence;
 mod version;

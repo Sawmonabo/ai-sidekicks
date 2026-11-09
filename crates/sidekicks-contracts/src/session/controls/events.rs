@@ -133,6 +133,14 @@ pub struct SettingsIgnoredAtLineNotice {
     )]
     #[schemars(with = "Never")]
     pub key: Option<Never>,
+    /// The provider's own words for what it ignored, quoted from its report, where it gave any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub text: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 /// A provider started without part of its own settings, by a report naming a file and the key with
@@ -171,6 +179,14 @@ pub struct SettingsIgnoredAtKeyNotice {
     )]
     #[schemars(with = "Never")]
     pub line: Option<Never>,
+    /// The provider's own words for what it ignored, quoted from its report, where it gave any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub text: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 /// Which kind of notice a provider warning came from: a warning, a deprecation notice, or the

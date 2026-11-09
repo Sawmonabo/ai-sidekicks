@@ -24,7 +24,6 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
-use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -40,7 +39,6 @@ use self::figures::ClaudeHeldFigures;
 use self::resume::ClaudeContinuedTurn;
 use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
-use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
@@ -59,10 +57,8 @@ use crate::driver::claude::session::arrivals::task::{
 use crate::driver::claude::session::arrivals::{
     ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
 };
-use crate::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
-};
-use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::session::ignored_settings::ClaudeSettingsWatch;
 use crate::driver::claude::session::inspector_reads::ClaudeInspectorReads;
 use crate::driver::claude::session::permission_mode::{
     ClaudePermissionModeRecord, follow_claude_reported_levels,
@@ -94,13 +90,11 @@ use crate::driver::claude::spawn::legs::{
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
-use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
     SubagentPolicy,
 };
-use crate::run::delivery::InboundDelivery;
 use crate::run::posture::CredentialPolicyResolveError;
 use crate::tool_call_arguments::ToolCallArgumentStore;
 
@@ -719,13 +713,24 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
+        let watched_stream = Arc::clone(&stream);
         self.adopt(&live, stream, band, receiver, level_reports, &started);
+        self.task_services.ignored_settings.follow(
+            ClaudeSettingsWatch::new(
+                session_id,
+                Arc::clone(&live.channel),
+                watched_stream,
+                settings,
+                started.executable,
+            ),
+            started.settings_readback.settings_report,
+        );
         self.account_servers
             .read_at_session_start(&live.admitted_provider_account_id());
         Ok(started.spawned_version)
     }
 
-    // The adopted process's stream, task and notices; the helper limit counts the helpers its
+    // The adopted process's stream and task; the helper limit counts the helpers its
     // routing `band` holds, and an interrupt reads there the helpers the session waits on. The
     // follow of Claude Code's own mode moves reads `level_reports`, subscribed at the record's
     // making.
@@ -776,12 +781,9 @@ impl ClaudeSessionEstablishment {
                 .unwrap_or(NonZeroUsize::MAX);
             lock(&self.helpers).limit_session(&session_id, limit, band);
         }
-        let mut task = ClaudeSessionTask::new(
-            Arc::clone(&self.task_services),
-            Arc::clone(live),
-            Arc::clone(&stream),
-        );
         let account = stream.account();
+        let mut task =
+            ClaudeSessionTask::new(Arc::clone(&self.task_services), Arc::clone(live), stream);
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });
@@ -793,36 +795,6 @@ impl ClaudeSessionEstablishment {
             session_id,
             Arc::clone(&self.sources.ports.session_level_followers),
         ));
-        let cleanup_period_days = started.settings_readback.cleanup_period_days;
-        tokio::spawn(async move {
-            let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-            let check = find_ignored_setting_notice(
-                session_id,
-                cleanup_period_days,
-                managed_settings_folder.as_deref(),
-            )
-            .await;
-            for failure in &check.failures {
-                record_unheard_claude_failure(
-                    DriverDiagnosticKind::ProcessReportFailed,
-                    session_id,
-                    "a managed settings read",
-                    failure,
-                );
-            }
-            if let Some(notice) = check.notice {
-                // The notice keeps its place among the process's rows through its queue.
-                drop(
-                    stream
-                        .arrivals()
-                        .dispatch(InboundDelivery::SessionNotice {
-                            session_id,
-                            notice: SessionNoticePostedPayload::SettingsIgnoredAtKey(notice),
-                        })
-                        .await,
-                );
-            }
-        });
     }
 
     // Ends a started process that was not adopted, before its live session existed.

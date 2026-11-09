@@ -166,6 +166,7 @@ pub(crate) fn read_codex_config_warning(
                 file,
                 line,
                 key: None,
+                text: None,
             },
         ));
     }

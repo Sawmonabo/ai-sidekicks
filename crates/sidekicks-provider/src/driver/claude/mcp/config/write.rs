@@ -246,6 +246,7 @@ impl ClaudeMcpCommand<'_> {
                 self.executable,
                 &arguments,
                 self.working_folder,
+                false,
                 true,
             ),
         )

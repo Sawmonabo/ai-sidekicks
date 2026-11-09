@@ -17,7 +17,9 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::{StandInKeychain, harness_test_name, run_keychain_tool_stand_in};
+use sidekicks_platforms::{
+    ProgramStart, StandInKeychain, harness_test_name, run_keychain_tool_stand_in,
+};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -32,6 +34,7 @@ use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInStart, SIGN_IN_KEYCHAIN_ACCOUNT_FILE};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::ignored_settings::ClaudeSettingsReport;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -57,6 +60,10 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
+use crate::spawned_version::ResolvedProviderExecutable;
+
+/// The program a scripted session's doctor run starts: one that prints nothing and exits 0.
+const SILENT_PROGRAM: &str = "/usr/bin/true";
 
 /// The build every scripted process reports.
 pub(super) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";
@@ -440,13 +447,23 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 },
                 initialize,
                 settings_readback: ClaudeSettingsReadback {
-                    cleanup_period_days: None,
+                    settings_report: ClaudeSettingsReport::default(),
                     auto_memory_enabled: None,
                     attached_advisor: ClaudeAttachedAdvisor::Unreported,
                     resolved_advisor,
                     ultracode: None,
                 },
                 spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
+                // A program that prints nothing, so the session's doctor run reports nothing.
+                executable: ResolvedProviderExecutable {
+                    requested_command: "claude".to_owned(),
+                    resolved_executable_path: PathBuf::from(SILENT_PROGRAM),
+                    start: ProgramStart {
+                        program: PathBuf::from(SILENT_PROGRAM),
+                        leading_arguments: Vec::new(),
+                    },
+                    environment: Vec::new(),
+                },
             })
         }
         .boxed()
