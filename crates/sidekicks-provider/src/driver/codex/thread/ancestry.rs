@@ -214,7 +214,8 @@ pub(crate) async fn place_codex_thread(
 }
 
 // One page of every sub-agent thread on the service, the most recently updated first, from
-// `cursor`.
+// `cursor`, read from Codex's state database alone: the walk reads only ids and parents, which the
+// database holds, and the rollout scan it skips costs most of a page's time.
 #[cfg_attr(
     not(test),
     expect(
@@ -243,7 +244,7 @@ async fn read_thread_list_page(
         sort_direction: None,
         sort_key: Some(ThreadSortKey::UpdatedAt),
         source_kinds: Some(SUB_AGENT_SOURCE_KINDS.to_vec()),
-        use_state_db_only: None,
+        use_state_db_only: Some(true),
     };
     let reply = connection.request(THREAD_LIST_METHOD, &params).await?;
     read_codex_object::<ThreadListPage>(reply.get()).ok_or_else(|| CodexError::Transport {
@@ -290,12 +291,13 @@ mod tests {
     }
 
     // A thread a session holds is streamed and nothing is asked; otherwise the walk pages
-    // `thread/list` over the sub-agent sources, most recently updated first, with each page's
-    // cursor, until the way up meets a held thread (whose child is the thread one hop below it,
-    // not the thread placed), a thread with no parent, a thread it passed or the end of its
-    // bound. Killed by reading the first page only, answering the placed thread as the child, no
-    // visited set (the loop never answers), unbounded paging and a listing that names no
-    // sub-agent source, which Codex answers with interactive threads only.
+    // `thread/list` over the sub-agent sources from the state database alone, most recently updated
+    // first, with each page's cursor, until the way up meets a held thread (whose child is the
+    // thread one hop below it, not the thread placed), a thread with no parent, a thread it passed
+    // or the end of its bound. Killed by dropping the state-database flag, reading the first page
+    // only, answering the placed thread as the child, no visited set (the loop never answers),
+    // unbounded paging and a listing that names no sub-agent source, which Codex answers with
+    // interactive threads only.
     #[rstest]
     #[case::streamed(&[THREAD], vec![], "streamed")]
     #[case::below(
@@ -363,6 +365,7 @@ mod tests {
                         ])
                     );
                     assert_eq!(list["params"]["sortKey"], "updated_at");
+                    assert_eq!(list["params"]["useStateDbOnly"], true);
                     assert_eq!(list["params"]["limit"], 100);
                     assert_eq!(list["params"]["cursor"], cursor);
                     script.answer(&list, &page);
