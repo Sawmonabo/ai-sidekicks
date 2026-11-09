@@ -220,10 +220,13 @@ pub(super) async fn observe_claude_sign_in(
     ))
 }
 
-// The kind of sign-in the sources name, as `claude auth status` reads them: a claude.ai token is
-// a subscription, a helper's token or key comes from elsewhere, any other token is a pasted one,
-// any other named key an API key; `None` is signed out.
+// The kind of sign-in the sources name, as `claude auth status` reads them: a claude.ai
+// subscription or token is a subscription, a helper's token or key comes from elsewhere, any other
+// token is a pasted one, any other named key an API key; `None` is signed out.
 fn read_claude_sign_in_mode(sources: &ClaudeSignInSources) -> Option<ProviderAuthMode> {
+    if sources.has_subscription() {
+        return Some(ProviderAuthMode::OauthSubscription);
+    }
     match sources.token_source() {
         Some("claude.ai") => Some(ProviderAuthMode::OauthSubscription),
         Some("apiKeyHelper") => Some(ProviderAuthMode::External),

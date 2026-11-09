@@ -230,24 +230,33 @@ struct InitializeAccount {
     account: Option<AccountSources>,
 }
 
-// The account's email is read only as whether it is a non-empty string, never kept.
+// The account's email and subscription are read only as whether each is a non-empty string, never
+// kept. A claude.ai subscriber's reply names its subscription in place of a token source.
 #[derive(Deserialize)]
 struct AccountSources {
     #[serde(rename = "tokenSource", default)]
     token_source: Option<Value>,
     #[serde(rename = "apiKeySource", default)]
     api_key_source: Option<Value>,
+    #[serde(
+        rename = "subscriptionType",
+        default,
+        deserialize_with = "read_is_non_empty_text"
+    )]
+    subscription: bool,
     #[serde(default, deserialize_with = "read_is_non_empty_text")]
     email: bool,
 }
 
 /// How an `initialize` reply's account says a process is signed in: the source Claude Code names
-/// for its token and for its API key, each `None` where it names none, and whether it names the
-/// account's email, which is never kept.
+/// for its token and for its API key, each `None` where it names none, whether it names a claude.ai
+/// subscription, which it names in place of a token source, and whether it names the account's
+/// email, which is never kept.
 #[derive(Default)]
 pub(crate) struct ClaudeSignInSources {
     token_source: Option<String>,
     api_key_source: Option<String>,
+    has_subscription: bool,
     has_email: bool,
 }
 
@@ -267,15 +276,24 @@ impl ClaudeSignInSources {
             .filter(|source| *source != CLAUDE_NO_SIGN_IN_SOURCE)
     }
 
+    /// Whether the reply named a claude.ai subscription.
+    pub(crate) fn has_subscription(&self) -> bool {
+        self.has_subscription
+    }
+
     /// Whether the reply named the account's email.
     pub(crate) fn has_email(&self) -> bool {
         self.has_email
     }
 
-    /// How the process is signed in, by the first source named: its token's, else its API key's.
-    /// Fails with `AuthenticationRequired` when that source is `none` or no source is named.
+    /// How the process is signed in, by the first source named: its token's, else a claude.ai
+    /// subscription, else its API key's. Fails with `AuthenticationRequired` when that source is
+    /// `none` or no source is named.
     pub(crate) fn into_signed_in_detail(self) -> Result<String, ClaudeLaunchError> {
-        match self.token_source.or(self.api_key_source) {
+        let subscription = self
+            .has_subscription
+            .then(|| CLAUDE_SUBSCRIPTION_SOURCE.to_owned());
+        match self.token_source.or(subscription).or(self.api_key_source) {
             Some(source) if source != CLAUDE_NO_SIGN_IN_SOURCE => {
                 Ok(format!("signed in through {source}"))
             }
@@ -290,11 +308,14 @@ impl ClaudeSignInSources {
 // The source an `initialize` reply names for a sign-in it does not have.
 const CLAUDE_NO_SIGN_IN_SOURCE: &str = "none";
 
+// Claude Code's own word for a claude.ai subscription's sign-in, as its `auth status` names it.
+const CLAUDE_SUBSCRIPTION_SOURCE: &str = "claude.ai";
+
 /// Brings a process up on the executable's home with nothing kept, under `provider_account_id`'s
 /// account where given and handed `token` as [`ClaudeShortProcess::start`] hands it, and answers
-/// the sign-in sources its `initialize` reply's account names, a blank one read as unnamed and a
-/// reply naming no account as signed out. Fails as the start or `initialize` does, and with
-/// `InitializeUnreadable` where the reply cannot be read.
+/// the sign-in sources its `initialize` reply's account names, a claude.ai subscription among them,
+/// a blank one read as unnamed and a reply naming no account as signed out. Fails as the start or
+/// `initialize` does, and with `InitializeUnreadable` where the reply cannot be read.
 pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
@@ -329,6 +350,7 @@ pub(crate) async fn probe_claude_sign_in(
         .map(|sources| ClaudeSignInSources {
             token_source: named(sources.token_source),
             api_key_source: named(sources.api_key_source),
+            has_subscription: sources.subscription,
             has_email: sources.email,
         })
         .unwrap_or_default())

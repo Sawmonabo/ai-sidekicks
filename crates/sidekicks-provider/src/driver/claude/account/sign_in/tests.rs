@@ -35,6 +35,10 @@ const OWN_BROWSER: &str = "/opt/own/browser";
 /// The last line the stand-in writes to its error stream before it exits unfinished.
 const CLAUDE_FAILURE: &str = "OAuth error: Request failed with status code 400";
 
+/// The account Claude Code's `initialize` reply names for a claude.ai subscriber.
+const SUBSCRIBER_ACCOUNT: &str =
+    r#"{"email":"person@example.test","subscriptionType":"Claude Max","apiProvider":"firstParty"}"#;
+
 /// How long a test waits on the stand-in.
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -365,6 +369,55 @@ async fn the_status_read_names_the_sign_in_as_claude_code_s_own_status_does(
             ProviderAccountHealthState::ReauthRequired
         }
     );
+}
+
+// A stand-in for `claude` whose `auth login` shows its address and prompt, finishes in the browser
+// a moment later with no code pasted, and whose status read then answers as Claude Code answers for
+// a claude.ai subscriber: its subscription and email, and no token source.
+fn browser_login_stand_in() -> String {
+    format!(
+        "#!/bin/sh\nif [ \"$1\" = auth ]; then\n\
+         printf \"If the browser didn't open, visit: %s\\n\" '{SIGN_IN_ADDRESS}'\n\
+         printf 'Paste code here if prompted > '\nsleep 1\nprintf 'Login successful.\\n'\nexit 0\n\
+         fi\n{}",
+        status_stand_in(SUBSCRIBER_ACCOUNT)
+    )
+}
+
+// A browser sign-in that finishes keeps its account: the flow ends with Claude Code's own login,
+// and the status read after it names the subscriber signed in. Killed by a subscription named in
+// place of a token source read as signed out, which leaves the account unnamed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_browser_sign_in_reads_its_subscriber_as_signed_in_and_named() {
+    let root = tempfile::tempdir().expect("a scratch folder is made");
+    let legs = legs_running(root.path(), browser_login_stand_in(), &[]).await;
+
+    let handle = legs
+        .start_sign_in(
+            test_provider_account_id(),
+            home(root.path()),
+            ProviderSignInArm::Browser,
+        )
+        .await
+        .expect("the sign-in starts");
+    let end = tokio::time::timeout(WAIT, handle.completion)
+        .await
+        .expect("the flow ends");
+    assert_eq!(end, ProviderSignInEnd::Finished);
+    let observed = legs
+        .observe_sign_in(test_provider_account_id(), home(root.path()))
+        .await
+        .expect("the status read answers");
+
+    assert_eq!(
+        observed.health.state,
+        ProviderAccountHealthState::Authenticated
+    );
+    assert_eq!(
+        observed.observed_auth_mode,
+        Some(ProviderAuthMode::OauthSubscription)
+    );
+    assert!(observed.is_account_named, "the subscriber was left unnamed");
 }
 
 // The installed Claude Code's sign-in from another device: it reaches the prompt, and the code
