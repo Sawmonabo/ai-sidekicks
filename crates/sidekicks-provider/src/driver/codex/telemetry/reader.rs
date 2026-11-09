@@ -75,7 +75,7 @@ impl CodexExports {
             }
         };
         let Some(service) = read.service.upgrade() else {
-            tracker.export_arrived();
+            tracker.export_arrived(|_stops| {});
             refuse_each(resource_logs, "the service that sent it has ended");
             return;
         };
@@ -105,16 +105,31 @@ impl CodexExports {
                 export_number: read.export_number,
             });
         }
-        // Codex's own stamps bound what the launch's rollout fallback prices, set before the
-        // status turns, so the fallback's last pass reads them.
-        read.rollouts.export_stamped(identities, arrived_at_ms);
-        tracker.export_arrived();
+        // Every record's stamp bounds what the launch's rollout fallback prices, set under the
+        // status's lock with the stop it ends, so the fallback reads the stop and its end together.
+        let newest_record_ms = read_newest_record_ms(resource_logs);
+        tracker.export_arrived(|stops| {
+            read.rollouts
+                .export_read(stops, identities, newest_record_ms, arrived_at_ms);
+        });
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,
             export_number: read.export_number,
         });
     }
+}
+
+// The newest stamp Codex put on any record `resource_logs` carries, completed response or not, in
+// Unix milliseconds; `None` where none is stamped.
+fn read_newest_record_ms(resource_logs: &ResourceLogs) -> Option<u64> {
+    resource_logs
+        .scope_logs
+        .iter()
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .map(|record| record.observed_time_unix_nano / 1_000_000)
+        .filter(|&at_ms| at_ms != 0)
+        .max()
 }
 
 // The tag `resource_logs`' resource carries, of either kind; `None` where it carries none a

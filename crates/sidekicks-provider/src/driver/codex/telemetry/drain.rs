@@ -31,7 +31,7 @@ use crate::driver::codex::telemetry::placement::{
     CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
 };
 use crate::driver::codex::telemetry::rollouts::fallback::{
-    CodexLaunchRollouts, CodexRolloutFallback, CodexStatusTurn,
+    CodexLaunchRollouts, CodexRolloutFallback,
 };
 
 // Why a response whose placement the daemon's stop abandoned was refused.
@@ -267,18 +267,20 @@ impl CodexExportDrain {
     }
 }
 
-// What wakes a launch's task: its next work, or its export status turning.
+// What wakes a launch's task: its next work, or its export status turning, `false` once its
+// tracker is gone.
 enum CodexLaunchEvent {
     Work(Option<CodexLaunchWork>),
-    Status(CodexStatusTurn),
+    Status(bool),
 }
 
 // Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
 // against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
 // naming its thread. Work whose service or launch is gone is refused. From the launch's first
-// read of its rollout files on, the task also owns its rollout fallback, which reads while the
-// export status reads stopped: once as it turns stopped and at each settled request turn. A turn
-// of the status is taken before queued work, so no queued read runs past an export's return.
+// read of its rollout files on, the task also owns its rollout fallback, which reads each stop
+// the export status counts: once as it is found, at each settled request turn, and a last time
+// once an export ended it. A turn of the status is taken before queued work, so no queued read
+// runs past an export's return.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
@@ -301,42 +303,27 @@ async fn run_launch_work(
         };
         let next = match event {
             CodexLaunchEvent::Work(next) => next,
-            CodexLaunchEvent::Status(turn) => {
-                match turn {
-                    CodexStatusTurn::Stopped => {
-                        if let Some(fallback) = fallback.as_mut() {
-                            fallback.start_reading();
-                        }
-                    }
-                    CodexStatusTurn::Arriving => {
-                        if let Some(fallback) = fallback.as_mut() {
-                            // A last pass prices what the lost exports carried, up to the
-                            // returned export's bound.
-                            if fallback.is_reading()
-                                && let Some(service) = service.upgrade()
-                            {
-                                tokio::select! {
-                                    biased;
-                                    () = stop.cancelled() => break,
-                                    () = fallback.pass(&service) => {}
-                                }
-                            }
-                            fallback.stop_reading();
-                        }
-                        continue;
-                    }
-                    CodexStatusTurn::Gone => {
-                        fallback = None;
-                        continue;
-                    }
+            CodexLaunchEvent::Status(is_live) => {
+                if !is_live {
+                    fallback = None;
+                    continue;
                 }
                 let (Some(service), Some(fallback)) = (service.upgrade(), fallback.as_mut()) else {
                     continue;
                 };
-                tokio::select! {
-                    biased;
-                    () = stop.cancelled() => break,
-                    () = fallback.pass(&service) => {}
+                let mut is_stopping = false;
+                while fallback.next_pass() {
+                    tokio::select! {
+                        biased;
+                        () = stop.cancelled() => {
+                            is_stopping = true;
+                            break;
+                        }
+                        () = fallback.pass(&service) => {}
+                    }
+                }
+                if is_stopping {
+                    break;
                 }
                 continue;
             }

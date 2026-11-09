@@ -1,14 +1,14 @@
-//! Each Codex launch's rollout fallback: while the launch's export status reads stopped, the
-//! rollout files in its service's home are read for the requests no export carried, stamped after
-//! the newest record the launch's last export carried: one pass as the status turns stopped and
-//! one at each request turn the launch settles, each file resumed from the offset its last read
-//! stopped at and opened only once it grew. A file of a thread a session streams is read too, each
-//! record checked against the stream's own; any other is read once the walk from the thread it
-//! came from reaches a thread a session holds. A record of a response an export carried is passed
-//! over, told by its thread and counts, since Codex stamps its line only after it logs the
-//! response. When an export arrives again, a last pass prices what the lost exports carried, up to
-//! the stamp a lost response's line can carry past that export's oldest record, the records that
-//! export carried passed over the same way; then the offsets go.
+//! Each Codex launch's rollout fallback: for each stop its export status counts, the rollout files
+//! in its service's home are read for the requests no export carried, stamped after the newest
+//! record the launch's last export carried: one pass as the stop is found and one at each request
+//! turn the launch settles, each file resumed from the offset its last read stopped at and opened
+//! only once it grew. A file of a thread a session streams is read too, each record checked against
+//! the stream's own; any other is read once the walk from the thread it came from reaches a thread
+//! a session holds. Every record is first offered to the launch's newest exported responses, and
+//! one an export carried is passed over, since Codex writes its line only after it logs it. The
+//! first export after a stop ends that stop's stretch at its newest record, under the export
+//! status's lock, and a last pass prices what the lost exports carried up to it; then the offsets
+//! go. A stop an export ended before the fallback looked is read the same way.
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -24,6 +24,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+use crate::bounded_queue::remember;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::drain::push_exported_response;
@@ -32,16 +33,14 @@ use crate::driver::codex::telemetry::held_responses::{
 };
 use crate::driver::codex::telemetry::rollouts::file::{
     CodexPricedWindow, CodexRolloutFile, CodexRolloutRequest, CodexRolloutThread, CodexRolloutTier,
-    remember,
 };
-use crate::driver::codex::telemetry::streamed_responses::is_same_counts;
 use crate::driver::codex::thread::ancestry::{
     CodexListedThread, CodexThreadPlacement, CodexUnplacedThread, list_recent_helper_threads,
     place_codex_thread,
 };
-use crate::pricing::export_status::{ExportStatus, ExportStatusTracker, PublishedExportStatus};
+use crate::pricing::export_status::{ExportStatusTracker, PublishedExportStatus};
 use crate::pricing::usage_files::read_usage_file_lines;
-use crate::usage_delta_accountant::UsageAxisCounts;
+use crate::usage_delta_accountant::{UsageAxisCounts, is_same_counts};
 
 /// The folder of a Codex home its rollout files are written under, by day.
 const SESSIONS_FOLDER: &str = "sessions";
@@ -57,11 +56,6 @@ const WALKS_KEPT: u8 = 3;
 /// record of one is passed over.
 const EXPORTED_RESPONSES_KEPT: usize = 256;
 
-/// How long after Codex logs a response its rollout line can be stamped, in milliseconds: Codex
-/// stamps the line as it writes it, after the log. A record stamped further past an exported
-/// response of its thread and counts is another response.
-const ROLLOUT_STAMP_LAG_MS: u64 = 1_000;
-
 /// A response an export of the launch carried, as a rollout record of it is told: its thread, its
 /// six counts, and when Codex logged it, in Unix milliseconds, 0 where its record carries no time.
 pub(crate) struct CodexExportedIdentity {
@@ -74,7 +68,8 @@ pub(crate) struct CodexExportedIdentity {
 }
 
 /// The handles a launch's fallback reads and publishes through: the launch's export status, which
-/// takes the rollout files it cannot read, and the stamps its exports' records carried.
+/// counts its stops and takes the rollout files it cannot read, and its exports' stamps and newest
+/// exported responses, which bound and thin out what it prices.
 #[derive(Clone)]
 pub(crate) struct CodexLaunchRollouts {
     tracker: Weak<ExportStatusTracker>,
@@ -92,82 +87,93 @@ impl CodexLaunchRollouts {
             times: Arc::new(Mutex::new(CodexExportTimes {
                 registered_at_ms,
                 newest_export_stamp_ms: None,
-                is_reading: false,
-                priced_until_ms: None,
+                last_ended_stop: 0,
+                ended_stops: VecDeque::new(),
                 exported: VecDeque::new(),
             })),
         }
     }
 
-    /// An export of the launch that arrived at `arrived_at_ms`, in Unix milliseconds, was read
-    /// carrying `responses`: each stamped one is kept by its identity, and their stamps bound what
-    /// the fallback prices. The first export while it reads ends it `ROLLOUT_STAMP_LAG_MS` past its
-    /// oldest stamp, never past its newest, or just before its arrival where it carries none.
-    pub(crate) fn export_stamped(&self, responses: Vec<CodexExportedIdentity>, arrived_at_ms: u64) {
-        let stamped = responses
-            .into_iter()
-            .filter(|response| response.observed_at_ms != 0);
+    /// An export of the launch was read after `stops` stops of its status, carrying `responses`,
+    /// its newest record stamped at `newest_record_ms` (`None` where none is stamped) and arriving
+    /// at `arrived_at_ms`, in Unix milliseconds. The first export after a stop ends that stop's
+    /// stretch at its newest record, since a response logged after it goes in a later export, or
+    /// just before its arrival where no record is stamped; each stamped response is kept by its
+    /// identity. Runs under the export status's lock, so no stop comes between it and the turn.
+    pub(crate) fn export_read(
+        &self,
+        stops: u64,
+        responses: Vec<CodexExportedIdentity>,
+        newest_record_ms: Option<u64>,
+        arrived_at_ms: u64,
+    ) {
         let mut times = lock(&self.times);
-        let mut stamps: Option<(u64, u64)> = None;
-        for response in stamped {
-            let at_ms = response.observed_at_ms;
-            stamps = Some(stamps.map_or((at_ms, at_ms), |(oldest, newest)| {
-                (oldest.min(at_ms), newest.max(at_ms))
-            }));
-            remember(&mut times.exported, response, EXPORTED_RESPONSES_KEPT);
+        if stops > times.last_ended_stop {
+            let since_ms = times.since_ms();
+            times.ended_stops.push_back(CodexEndedStop {
+                stop: stops,
+                since_ms,
+                until_ms: newest_record_ms.unwrap_or(arrived_at_ms.saturating_sub(1)),
+            });
+            times.last_ended_stop = stops;
         }
-        if times.is_reading && times.priced_until_ms.is_none() {
-            // A lost response's line is stamped at most the lag past its log, so before the
-            // export's oldest record plus the lag; a later one of the export's own is kept above.
-            times.priced_until_ms = Some(
-                stamps.map_or(arrived_at_ms.saturating_sub(1), |(oldest_ms, newest_ms)| {
-                    newest_ms.min(oldest_ms + ROLLOUT_STAMP_LAG_MS)
-                }),
-            );
+        for response in responses {
+            if response.observed_at_ms != 0 {
+                remember(&mut times.exported, response, EXPORTED_RESPONSES_KEPT);
+            }
         }
-        if let Some((_oldest_ms, newest_ms)) = stamps {
-            times.newest_export_stamp_ms = times.newest_export_stamp_ms.max(Some(newest_ms));
-        }
+        times.newest_export_stamp_ms = times.newest_export_stamp_ms.max(newest_record_ms);
     }
 }
 
-// The stamps of a launch's exported records, which bound the stretch its fallback prices, and its
-// newest exported responses, whose rollout records are passed over.
+// The stamps of a launch's exports, the stops they ended with the stretch each prices, and the
+// launch's newest exported responses, whose rollout records are passed over.
 struct CodexExportTimes {
     registered_at_ms: u64,
     newest_export_stamp_ms: Option<u64>,
-    is_reading: bool,
-    // The last stamp priced, once an export arrived since the fallback began reading.
-    priced_until_ms: Option<u64>,
+    // The last stop an export ended.
+    last_ended_stop: u64,
+    // The stops an export ended that the fallback has not let go, oldest first.
+    ended_stops: VecDeque<CodexEndedStop>,
     exported: VecDeque<CodexExportedIdentity>,
 }
 
+// A stop an export ended: the stretch of stamps it prices, both ends included.
+struct CodexEndedStop {
+    stop: u64,
+    since_ms: u64,
+    until_ms: u64,
+}
+
 impl CodexExportTimes {
-    // Takes the oldest exported response on `thread_id` that `request` is a record of: the same
-    // counts, logged at most `ROLLOUT_STAMP_LAG_MS` before the record's stamp; answers whether one
-    // was kept. Two equal responses are two entries.
-    fn take_exported(&mut self, thread_id: &str, request: &CodexRolloutRequest) -> bool {
+    // Where a stop that begins now starts pricing: just past the newest record exported, since a
+    // record stamped as it was in its export, else at the launch's registration.
+    fn since_ms(&self) -> u64 {
+        self.newest_export_stamp_ms
+            .map_or(self.registered_at_ms, |newest_ms| newest_ms + 1)
+    }
+
+    // The stop `stop` an export ended, if one has.
+    fn ended(&self, stop: u64) -> Option<&CodexEndedStop> {
+        self.ended_stops.iter().find(|ended| ended.stop == stop)
+    }
+
+    // Takes the oldest exported response on `thread_id` with `counts` logged at or before
+    // `at_ms`, the stamp of a rollout record, which Codex writes only after it logs the response;
+    // answers whether one was kept. A thread's responses come one after another, and a file is read
+    // in order, so each entry is taken by its own record before a later one's. Two equal responses
+    // are two entries.
+    fn take_exported(&mut self, thread_id: &str, counts: &UsageAxisCounts, at_ms: u64) -> bool {
         let Some(index) = self.exported.iter().position(|exported| {
             exported.thread_id == thread_id
-                && is_same_counts(&exported.counts, &request.counts)
-                && exported.observed_at_ms <= request.at_ms
-                && request.at_ms - exported.observed_at_ms <= ROLLOUT_STAMP_LAG_MS
+                && is_same_counts(&exported.counts, counts)
+                && exported.observed_at_ms <= at_ms
         }) else {
             return false;
         };
         self.exported.remove(index);
         true
     }
-}
-
-/// What the launch's export status turned to.
-pub(crate) enum CodexStatusTurn {
-    /// Stopped: the fallback reads.
-    Stopped,
-    /// Arriving again, or not yet read: the fallback stops.
-    Arriving,
-    /// The launch's tracker is gone.
-    Gone,
 }
 
 // Where a followed file's requests are filed.
@@ -201,80 +207,110 @@ struct CodexFollowedRollout {
     is_read_failed: bool,
 }
 
-/// One launch's rollout fallback, run by the launch's own work task, which owns it: the files it
-/// follows while the status reads stopped, and where the stretch it prices starts.
+// The stop the fallback reads: where its stretch starts, and whether the pass that sees its end
+// has run.
+struct CodexReadStop {
+    stop: u64,
+    since_ms: u64,
+    is_last_pass_done: bool,
+}
+
+/// One launch's rollout fallback, run by the launch's own work task, which owns it: the stop it
+/// reads, each taken in turn from the export status's count, and the files it follows meanwhile.
 pub(crate) struct CodexRolloutFallback {
     rollouts: CodexLaunchRollouts,
-    status: Option<ExportStatus>,
-    // The first stamp priced, in Unix milliseconds, while the fallback reads.
-    since_ms: Option<u64>,
+    // The last stop the fallback began reading.
+    read_stops: u64,
+    reading: Option<CodexReadStop>,
     files: HashMap<PathBuf, CodexFollowedRollout>,
 }
 
 impl CodexRolloutFallback {
-    /// A fallback over `rollouts`, reading at once where the status already reads stopped.
-    pub(crate) fn new(mut rollouts: CodexLaunchRollouts) -> Self {
-        let status = rollouts.status.borrow_and_update().status;
-        let mut fallback = Self {
+    /// A fallback over `rollouts`, which begins at the first stop [`Self::next_pass`] finds.
+    pub(crate) fn new(rollouts: CodexLaunchRollouts) -> Self {
+        Self {
             rollouts,
-            status,
-            since_ms: None,
+            read_stops: 0,
+            reading: None,
             files: HashMap::new(),
-        };
-        if status == Some(ExportStatus::Stopped) {
-            fallback.start_reading();
         }
-        fallback
     }
 
-    /// Whether the fallback reads, its status stopped.
+    /// Whether the fallback reads a stop.
     pub(crate) fn is_reading(&self) -> bool {
-        self.since_ms.is_some()
+        self.reading.is_some()
     }
 
-    /// Waits for the launch's export status to change, the files it names aside, and answers
-    /// what it turned to.
-    pub(crate) async fn status_turned(&mut self) -> CodexStatusTurn {
+    /// Waits until a pass is due, [`Self::next_pass`] saying which, and answers `true`; `false`
+    /// once the launch's tracker is gone. The files the status names never wake it.
+    pub(crate) async fn status_turned(&mut self) -> bool {
         loop {
-            if self.rollouts.status.changed().await.is_err() {
-                return CodexStatusTurn::Gone;
+            if self.is_pass_due() {
+                return true;
             }
-            let status = self.rollouts.status.borrow_and_update().status;
-            if status == self.status {
+            if self.rollouts.status.changed().await.is_err() {
+                return false;
+            }
+        }
+    }
+
+    // Whether a stop the fallback has not read is counted, or the one it reads has ended unread.
+    fn is_pass_due(&mut self) -> bool {
+        let stops = self.rollouts.status.borrow_and_update().stops;
+        let is_reading_ended = self.reading.as_ref().is_some_and(|reading| {
+            !reading.is_last_pass_done && lock(&self.rollouts.times).ended(reading.stop).is_some()
+        });
+        is_reading_ended || stops > self.read_stops
+    }
+
+    /// Moves on to the next pass due, answering whether one is: the last pass of the stop it reads
+    /// once an export ended it, else, that pass done, the stop let go and the next stop counted
+    /// begun. Each stop's stretch and its end are read under the stamps' lock, so an export ending
+    /// it however soon bounds it.
+    pub(crate) fn next_pass(&mut self) -> bool {
+        loop {
+            if let Some(reading) = &mut self.reading {
+                let is_ended = lock(&self.rollouts.times).ended(reading.stop).is_some();
+                if !is_ended {
+                    return false;
+                }
+                if !reading.is_last_pass_done {
+                    reading.is_last_pass_done = true;
+                    return true;
+                }
+                self.stop_reading();
                 continue;
             }
-            self.status = status;
-            return match status {
-                Some(ExportStatus::Stopped) => CodexStatusTurn::Stopped,
-                Some(ExportStatus::Arriving) | None => CodexStatusTurn::Arriving,
+            let stops = self.rollouts.status.borrow().stops;
+            if stops <= self.read_stops {
+                return false;
+            }
+            self.read_stops += 1;
+            let stop = self.read_stops;
+            let times = lock(&self.rollouts.times);
+            let (since_ms, is_ended) = match times.ended(stop) {
+                Some(ended) => (ended.since_ms, true),
+                None => (times.since_ms(), false),
             };
+            drop(times);
+            self.reading = Some(CodexReadStop {
+                stop,
+                since_ms,
+                is_last_pass_done: is_ended,
+            });
+            return true;
         }
     }
 
-    /// Starts reading from the launch's last export, else its registration, unless it reads.
-    pub(crate) fn start_reading(&mut self) {
-        if self.since_ms.is_some() {
+    // Stops reading: the offsets, the files it names and the stops ended up to the one read go.
+    fn stop_reading(&mut self) {
+        let Some(reading) = self.reading.take() else {
             return;
-        }
-        let mut times = lock(&self.rollouts.times);
-        times.is_reading = true;
-        times.priced_until_ms = None;
-        // A record stamped as the export's newest was in it.
-        self.since_ms = Some(
-            times
-                .newest_export_stamp_ms
-                .map_or(times.registered_at_ms, |newest_ms| newest_ms + 1),
-        );
-    }
-
-    /// Stops reading: the offsets and the files it names go.
-    pub(crate) fn stop_reading(&mut self) {
-        self.since_ms = None;
+        };
         self.files.clear();
-        let mut times = lock(&self.rollouts.times);
-        times.is_reading = false;
-        times.priced_until_ms = None;
-        drop(times);
+        lock(&self.rollouts.times)
+            .ended_stops
+            .retain(|ended| ended.stop > reading.stop);
         self.publish_unreadable();
     }
 
@@ -283,7 +319,11 @@ impl CodexRolloutFallback {
     /// grew read on from its offset once its thread is placed, each request it states pushed to
     /// the session holding the thread it came from, and the files it cannot read published.
     pub(crate) async fn pass(&mut self, service: &Arc<CodexService>) {
-        let Some(since_ms) = self.since_ms else {
+        let Some((stop, since_ms)) = self
+            .reading
+            .as_ref()
+            .map(|reading| (reading.stop, reading.since_ms))
+        else {
             return;
         };
         let sessions = service.home().codex_home.join(SESSIONS_FOLDER);
@@ -325,7 +365,7 @@ impl CodexRolloutFallback {
         }
         let times = Arc::clone(&self.rollouts.times);
         for (path, followed) in &mut self.files {
-            follow(service, path, followed, since_ms, &times).await;
+            follow(service, path, followed, stop, since_ms, &times).await;
         }
         self.publish_unreadable();
     }
@@ -380,15 +420,15 @@ impl CodexRolloutFallback {
 
 // Reads `followed` on where it grew past its offset: up to its first `session_meta` while its
 // thread is unknown, then, once its thread is placed, to its end, each request stamped from
-// `since_ms` on pushed to the session its placement names, up to the last stamp an export read
-// since reading began lets the fallback price, as `times` holds it at the read; one `times` keeps
-// the exported response of is the export's.
+// `since_ms` on pushed to the session its placement names, up to the end of `stop` an export set,
+// as `times` holds it at the read; one whose exported response `times` keeps is passed over.
 async fn follow(
     service: &Arc<CodexService>,
     path: &Path,
     followed: &mut CodexFollowedRollout,
+    stop: u64,
     since_ms: u64,
-    times: &Mutex<CodexExportTimes>,
+    times: &Arc<Mutex<CodexExportTimes>>,
 ) {
     loop {
         let held_thread = match &followed.placement {
@@ -431,10 +471,13 @@ async fn follow(
         // Read at each read, since an export can return while the pass waits on Codex.
         let window = CodexPricedWindow {
             since_ms,
-            until_ms: lock(times).priced_until_ms,
+            until_ms: lock(times).ended(stop).map(|ended| ended.until_ms),
         };
-        let read =
-            tokio::task::spawn_blocking(move || read_on(&read_path, offset, file, window)).await;
+        let read_times = Arc::clone(times);
+        let read = tokio::task::spawn_blocking(move || {
+            read_on(&read_path, offset, file, window, &read_times)
+        })
+        .await;
         let (file, read) = match read {
             Ok(read) => read,
             Err(error) => {
@@ -467,13 +510,6 @@ async fn follow(
                     && let Some(thread) = followed.file.thread()
                 {
                     for request in requests {
-                        if lock(times).take_exported(&thread.thread_id, &request) {
-                            tracing::debug!(
-                                conversation_id = thread.thread_id.as_str(),
-                                "a codex rollout record an export carried is passed over"
-                            );
-                            continue;
-                        }
                         push_request(service, session_id, thread, placed.as_ref(), request);
                     }
                 }
@@ -503,6 +539,7 @@ fn read_on(
     offset: u64,
     mut file: CodexRolloutFile,
     window: CodexPricedWindow,
+    times: &Mutex<CodexExportTimes>,
 ) -> (
     CodexRolloutFile,
     io::Result<(u64, Vec<CodexRolloutRequest>)>,
@@ -510,7 +547,10 @@ fn read_on(
     let is_thread_unknown = file.thread().is_none();
     let mut requests = Vec::new();
     let read = read_usage_file_lines(path, offset, |line| {
-        requests.extend(file.read_line(line, window));
+        let mut is_exported = |thread_id: &str, counts: &UsageAxisCounts, at_ms: u64| {
+            lock(times).take_exported(thread_id, counts, at_ms)
+        };
+        requests.extend(file.read_line(line, window, &mut is_exported));
         if is_thread_unknown && file.thread().is_some() {
             ControlFlow::Break(())
         } else {

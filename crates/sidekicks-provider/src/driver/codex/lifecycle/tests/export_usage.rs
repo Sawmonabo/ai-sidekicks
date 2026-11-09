@@ -229,10 +229,11 @@ fn wire_counts(counts: &UsageAxisCounts) -> Value {
 
 // Killed: `stated_first` by a ledger the stream's metered delta never enters (two rows);
 // `exported_first` by deciding a held response two intervals after its arrival while its turn is
-// live (a row before the turn completes); `export_only_on_a_streamed_thread` by passing over an export whose thread the
-// stream metered on, whatever its counts (one row); `held_when_the_session_closes` by dropping
-// the held responses with the session's record (no row); `stated_after_its_decision` by a priced
-// response that keeps no claim on its stream's late twin (two rows).
+// live (a row before the turn completes); `export_only_on_a_streamed_thread` by passing over an
+// export whose thread the stream metered on, whatever its counts (one row);
+// `held_when_the_session_closes` by dropping the held responses with the session's record (no
+// row); `stated_after_its_decision` by a priced response that keeps no claim on its stream's late
+// twin (two rows).
 #[rstest]
 #[case::stated_first(Arrival::StatedFirst)]
 #[case::exported_first(Arrival::ExportedFirst)]
@@ -681,16 +682,18 @@ async fn a_pass_prices_nothing_stamped_from_an_export_that_returned_while_it_ran
 }
 
 // The pass at the stop after an export passes over the record of a response that export carried,
-// though Codex stamps the record's line after the export's newest record: that response counts
-// once, and the warm-ups no export carried are counted. Killed by a rollout record not passed over
-// by its exported response's identity (the exported response counted again, five rows).
+// though Codex stamped the record's line well after the export's newest record (Codex sets no
+// bound on how long after): that response counts once, and the warm-ups no export carried are
+// counted. Killed by a rollout record not passed over by its exported response's identity, and by
+// a cap on how long after its log a line may be stamped to match (the exported response counted
+// again, five rows).
 #[tokio::test]
 async fn a_pass_after_an_export_passes_over_the_responses_that_export_carried() {
     let mut session = ExportingSession::start(&[TEST_TURN, SECOND_TURN]).await;
     // Well before the file is written, which the pass finds by its change time.
     let exported_at_ms = read_unix_time_ms() - 10_000;
-    let written_at_ms = exported_at_ms + 5;
-    let second_at_ms = exported_at_ms + 2_000;
+    let written_at_ms = exported_at_ms + 1_500;
+    let second_at_ms = exported_at_ms + 3_000;
     session.write_rollout(&[
         rollout_line(
             written_at_ms,

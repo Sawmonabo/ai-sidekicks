@@ -3,8 +3,10 @@
 //! of the `turn_context` carrying the record's turn and the tier of the file's own last settings
 //! snapshot before it, a spawned helper's at its root thread's tier; running totals and
 //! `token_count` lines are never read. A turn that settled with no record names the file as one
-//! that cannot be read until the file yields a record. Only the payloads of the four kinds read are
-//! parsed, and only a usage record that does not read is counted as refused.
+//! that cannot be read until the file yields a record. Every record of the file's own thread is
+//! offered to the export's responses first, in or out of the priced window, so a response an export
+//! carried is passed over by its own line. Only the payloads of the four kinds read are parsed, and
+//! only a usage record that does not read is counted as refused.
 
 use std::collections::VecDeque;
 
@@ -13,6 +15,7 @@ use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
+use crate::bounded_queue::remember;
 use crate::driver::codex::DESCRIPTOR;
 use crate::pricing::receiver::records::RecordRefusal;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -176,12 +179,14 @@ impl CodexRolloutFile {
     }
 
     /// Reads one line of the file, answering the request it states where it is a record of the
-    /// file's own thread not read before, stamped within `window`. A record that cannot be read,
-    /// or whose turn no `turn_context` names, is refused and logged.
+    /// file's own thread not read before, that `is_exported` does not take as a response an export
+    /// carried (asked with its thread, counts and stamp), stamped within `window`. A record that
+    /// cannot be read, or whose turn no `turn_context` names, is refused and logged.
     pub(crate) fn read_line(
         &mut self,
         line: &[u8],
         window: CodexPricedWindow,
+        is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
     ) -> Option<CodexRolloutRequest> {
         // A line cut short as Codex writes it is read whole by the next pass.
         let line = serde_json::from_slice::<RolloutLine>(line).ok()?;
@@ -204,7 +209,7 @@ impl CodexRolloutFile {
                 }
                 None
             }
-            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, window),
+            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, window, is_exported),
             "event_msg" => {
                 if let Some(event) = read_payload::<EventPayload>(&payload) {
                     self.read_event(event, at_ms, window);
@@ -215,12 +220,14 @@ impl CodexRolloutFile {
         }
     }
 
-    // A record's request, where it is the file's own thread's, read once and within `window`.
+    // A record's request, where it is the file's own thread's, read once, no exported response's
+    // and within `window`.
     fn read_record(
         &mut self,
         payload: &RawValue,
         at_ms: Option<u64>,
         window: CodexPricedWindow,
+        is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
     ) -> Option<CodexRolloutRequest> {
         let thread = self.thread.as_ref()?;
         let Some(UsageRecordPayload {
@@ -265,6 +272,21 @@ impl CodexRolloutFile {
             );
             return None;
         };
+        let counts = UsageAxisCounts {
+            input: Some(usage.input),
+            cached_input: Some(usage.cached_input),
+            cache_write_input: Some(usage.cache_write_input),
+            output: Some(usage.output),
+            reasoning_output: Some(usage.reasoning_output),
+            total: Some(usage.total),
+        };
+        if is_exported(&thread_id, &counts, at_ms) {
+            tracing::debug!(
+                conversation_id = thread_id.as_str(),
+                "a codex rollout record an export carried is passed over"
+            );
+            return None;
+        }
         if !window.covers(at_ms) {
             return None;
         }
@@ -294,14 +316,7 @@ impl CodexRolloutFile {
             response_id,
             model,
             tier,
-            counts: UsageAxisCounts {
-                input: Some(usage.input),
-                cached_input: Some(usage.cached_input),
-                cache_write_input: Some(usage.cache_write_input),
-                output: Some(usage.output),
-                reasoning_output: Some(usage.reasoning_output),
-                total: Some(usage.total),
-            },
+            counts,
             at_ms,
         })
     }
@@ -369,14 +384,6 @@ fn read_thread(meta: SessionMetaPayload) -> Option<CodexRolloutThread> {
 fn read_unix_ms(stamp: &str) -> Option<u64> {
     let timestamp = stamp.parse::<jiff::Timestamp>().ok()?;
     u64::try_from(timestamp.as_millisecond()).ok()
-}
-
-/// Pushes `entry` onto `kept`, the oldest forgotten past `bound`.
-pub(crate) fn remember<T>(kept: &mut VecDeque<T>, entry: T, bound: usize) {
-    if kept.len() >= bound {
-        kept.pop_front();
-    }
-    kept.push_back(entry);
 }
 
 // Reports `refusal` of a usage record of `thread_id`, naming its response where read, never a

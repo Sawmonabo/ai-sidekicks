@@ -5,12 +5,11 @@
 
 use std::collections::VecDeque;
 
-use strum::VariantArray as _;
 use tokio::time::Instant;
 
 use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
 use crate::pricing::export_status::INTERVALS_WAITED;
-use crate::usage_delta_accountant::{UsageAxisCounts, UsageTokenAxis};
+use crate::usage_delta_accountant::{UsageAxisCounts, is_same_counts};
 
 /// How many stated responses one session keeps unclaimed, and how many priced exported ones it
 /// keeps unmatched; past either the oldest is pushed out.
@@ -128,12 +127,4 @@ impl CodexStreamedResponses {
 // When a priced response settled now expires: once every late twin has had two export intervals.
 fn expiry() -> Instant {
     Instant::now() + CODEX_EXPORT_INTERVAL * INTERVALS_WAITED
-}
-
-/// Whether `left` and `right` carry the same count on every axis, an absent count reading as
-/// zero: how one response is told from another until its id is exported.
-pub(crate) fn is_same_counts(left: &UsageAxisCounts, right: &UsageAxisCounts) -> bool {
-    UsageTokenAxis::VARIANTS
-        .iter()
-        .all(|&axis| left.get(axis).unwrap_or(0) == right.get(axis).unwrap_or(0))
 }

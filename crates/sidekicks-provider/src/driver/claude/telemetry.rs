@@ -234,7 +234,7 @@ impl ClaudeExports {
             );
             return;
         };
-        process.tracker.export_arrived();
+        process.tracker.export_arrived(|_stops| {});
         let account = process.account.read();
         let mut exported = Vec::new();
         let mut interactions = Vec::new();

@@ -33,6 +33,9 @@ pub(crate) enum ExportStatus {
 pub(crate) struct PublishedExportStatus {
     /// `None` until an export arrives or a request turn's check finds none.
     pub(crate) status: Option<ExportStatus>,
+    /// How many times the status turned stopped, so a stop an export ended before a reader looked
+    /// is still seen.
+    pub(crate) stops: u64,
     /// The files read in the exports' place that cannot be read, by path.
     pub(crate) unreadable_files: Vec<PathBuf>,
 }
@@ -79,10 +82,13 @@ impl ExportStatusTracker {
         }
     }
 
-    /// An export from the process arrived: the armed check is canceled and the status reads
-    /// `Arriving`.
-    pub(crate) fn export_arrived(&self) {
+    /// An export from the process arrived: `read` runs with the count of stops so far, under the
+    /// tracker's lock, so no stop comes between it and the turn; then the armed check is canceled
+    /// and the status reads `Arriving`.
+    pub(crate) fn export_arrived(&self, read: impl FnOnce(u64)) {
         let mut state = lock(&self.state);
+        let stops = state.status.borrow().stops;
+        read(stops);
         state.last_export_at = Some(Instant::now());
         if let Some(check) = state.check.take() {
             check.job.cancel();
@@ -129,7 +135,10 @@ impl ExportStatusTracker {
                             state.check = None;
                             state.status.send_if_modified(|published| {
                                 let was_stopped = published.status == Some(ExportStatus::Stopped);
-                                published.status = Some(ExportStatus::Stopped);
+                                if !was_stopped {
+                                    published.status = Some(ExportStatus::Stopped);
+                                    published.stops += 1;
+                                }
                                 !was_stopped
                             });
                         }
@@ -192,10 +201,11 @@ mod tests {
         ExportStatusTracker::new(Arc::new(scheduler), INTERVAL)
     }
 
-    // A request turn with no export reads stopped only two intervals after its settle, the next
-    // export reads arriving again, and a turn with no request leaves that as it was. Killed by
-    // deciding at the settle, by stopping on a turn with no request, and by an export that leaves
-    // the stop standing.
+    // A request turn with no export reads stopped only two intervals after its settle, counted as
+    // the first stop, which the next export's read sees; the export reads arriving again, and a
+    // turn with no request leaves that as it was. Killed by deciding at the settle, by stopping on
+    // a turn with no request, by an export that leaves the stop standing, and by a stop never
+    // counted.
     #[tokio::test(start_paused = true)]
     async fn an_unexported_request_turn_reads_stopped_until_the_next_export() {
         let tracker = tracker();
@@ -214,7 +224,9 @@ mod tests {
         );
         assert!(settled_at.elapsed() >= INTERVAL * 2);
 
-        tracker.export_arrived();
+        let mut stops_read = None;
+        tracker.export_arrived(|stops| stops_read = Some(stops));
+        assert_eq!(stops_read, Some(1));
         assert_eq!(
             status.borrow_and_update().status,
             Some(ExportStatus::Arriving)
@@ -236,7 +248,7 @@ mod tests {
 
         let started_at = Instant::now();
         sleep(INTERVAL / 2).await;
-        tracker.export_arrived();
+        tracker.export_arrived(|_stops| {});
         sleep(INTERVAL / 2).await;
         tracker
             .turn_settled(true, started_at)

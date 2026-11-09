@@ -185,7 +185,7 @@ fn a_child_rollout_prices_its_own_records_once(
     let mut file = CodexRolloutFile::default();
     let requests: Vec<CodexRolloutRequest> = child_rollout(is_spawned, own_tier, between, stamps)
         .iter()
-        .filter_map(|line| file.read_line(line.as_bytes(), WHOLE_WINDOW))
+        .filter_map(|line| file.read_line(line.as_bytes(), WHOLE_WINDOW, &mut |_, _, _| false))
         .collect();
 
     let priced: Vec<&str> = requests
@@ -229,7 +229,7 @@ fn a_turn_settled_with_no_record_names_the_file_until_a_record_clears_it() {
     ];
     let mut file = CodexRolloutFile::default();
     for (index, (line, is_unreadable)) in steps.iter().enumerate() {
-        file.read_line(line.as_bytes(), WHOLE_WINDOW);
+        file.read_line(line.as_bytes(), WHOLE_WINDOW, &mut |_, _, _| false);
         assert_eq!(file.is_unreadable(), *is_unreadable, "after line {index}");
     }
 }
