@@ -222,6 +222,10 @@ async fn authorizer_for(
     metadata.issuer = issuer.map(str::to_owned);
     metadata.authorization_endpoint = format!("{base}/authorize");
     metadata.token_endpoint = format!("{base}/token");
+    metadata.additional_fields.insert(
+        "revocation_endpoint".to_owned(),
+        json!(format!("{base}/revoke")),
+    );
     SignInAuthorizer::new(
         custody,
         &OAuthHttpPools::new().expect("the pools build"),

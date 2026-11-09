@@ -532,7 +532,19 @@ async fn a_429_or_5xx_answer_fails_the_start_with_its_typed_status(
     let Err(McpConnectionError::Initialize(error)) = opened else {
         panic!("the start fails");
     };
-    let ClientInitializeError::TransportError { error, .. } = *error else {
+    // A 404 to `server/discover`, a refusal with no typed status, falls back to `initialize`,
+    // whose failure is the one read; a 429 or a 5xx fails the start at once.
+    let error = if let ClientInitializeError::LegacyFallbackFailed { fallback, .. } = *error {
+        assert!(
+            expected.is_none(),
+            "a 429 or a 5xx falls back to initialize"
+        );
+        *fallback
+    } else {
+        assert!(expected.is_some(), "a 404 does not fall back to initialize");
+        *error
+    };
+    let ClientInitializeError::TransportError { error, .. } = error else {
         panic!("the transport fails the start, not {error}");
     };
     let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&*error.error);

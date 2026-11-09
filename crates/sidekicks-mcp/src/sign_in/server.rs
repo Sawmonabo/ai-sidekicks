@@ -334,6 +334,10 @@ impl SignInTargetReads {
                     project_rows,
                 });
             }
+            // A provider with no remote binding has no address to read, so its driver is not asked.
+            if requests.is_empty() {
+                continue;
+            }
             let bindings: Vec<McpServerBindingRef> = requests
                 .iter()
                 .map(|request| request.binding.clone())
