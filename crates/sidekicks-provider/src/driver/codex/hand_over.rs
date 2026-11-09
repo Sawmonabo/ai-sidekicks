@@ -50,7 +50,8 @@ async fn summarize_on_copy(
     usage: &PortRegistration<Arc<dyn UsageSink>>,
 ) -> Result<DriverHandoverBriefResult, CodexError> {
     // The service is held until the copy's turn ended; the copy goes with its connection.
-    let (_service, mut copy) = fork_resting_copy(establishment, &params.resume).await?;
+    // The person's own summary runs with the session's folder trusted, as the session does.
+    let (_service, mut copy) = fork_resting_copy(establishment, &params.resume, false).await?;
     start_turn(
         &copy.connection,
         &copy.thread_id,

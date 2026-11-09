@@ -12,7 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     CodexCopyStops, CodexSideQuestion, CodexSideQuestionAnswer, CodexSideQuestions, CopyFrameTaken,
-    THREAD_FORK_METHOD, deliver_answer, file_copy_usage, request_copy_fork, start_turn,
+    THREAD_FORK_METHOD, deliver_answer, file_copy_usage, is_project_untrusted_for,
+    request_copy_fork, start_turn,
 };
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -53,7 +54,11 @@ impl CodexSideQuestions {
         }
         // A stop before the copy's turn is asked for drops the connection, which ends the copy.
         let forked = stop
-            .run_until_cancelled(fork_resting_copy(establishment, resume))
+            .run_until_cancelled(fork_resting_copy(
+                establishment,
+                resume,
+                is_project_untrusted_for(params.purpose),
+            ))
             .await;
         let (service, copy) = match forked {
             Some(Ok(forked)) => forked,
@@ -110,17 +115,24 @@ impl CodexSideQuestions {
 }
 
 /// Forks the resting session's stored conversation that `resume` names into a read-only copy on the
-/// account's service, over a connection of its own; the service and the copy. Fails as
-/// `ask_at_rest` fails.
+/// account's service, over a connection of its own, the session's folder untrusted where
+/// `is_project_untrusted`; the service and the copy. Fails as `ask_at_rest` fails.
 pub(crate) async fn fork_resting_copy(
     establishment: &CodexSessionEstablishment,
     resume: &ResumeSessionParams,
+    is_project_untrusted: bool,
 ) -> Result<(Arc<CodexService>, CodexRestingCopy), CodexError> {
     let (service, settings) = establishment.compose_resting_conversation(resume).await?;
     let (events, frames) = CodexDetachedFrames::new();
     let connection = service.open_detached_connection(events).await?;
     // An error from here drops the connection, which ends the copy.
-    let reply = request_copy_fork(&connection, &settings, &resume.resume_handle).await?;
+    let reply = request_copy_fork(
+        &connection,
+        &settings,
+        &resume.resume_handle,
+        is_project_untrusted,
+    )
+    .await?;
     let thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
     let read_only_profile =
         compose_codex_profile_name(PermissionLevel::Readonly, &settings.profile_folders);

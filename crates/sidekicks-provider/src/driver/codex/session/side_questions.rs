@@ -1,21 +1,22 @@
 //! A side question on Codex: a throwaway, read-only copy of the session's conversation answers it
-//! in one turn, the answer is delivered as `session.sideQuestion.answered`, and the ask is answered
-//! once the copy's turn ended: with the answer delivered, refused where Codex's policy refused the
+//! in one turn, the person's answer is delivered as `session.sideQuestion.answered`, and the ask is
+//! answered once the copy's turn ended: with the answer, refused where Codex's policy refused the
 //! turn, else refused `provider.unavailable` in Codex's words for why no answer came. The copy runs
 //! under the daemon's read-only profile, which keeps the credential denies, asks nothing and
-//! reaches no tool server. On a live session it is forked on the session's service and its frames
-//! are diverted before the session's own routing; on a resting one it is forked from the stored
-//! conversation on the account's service over a connection of its own, which only it reads. Its
-//! cost is metered apart from the session's turns, and the copy is let go once it answered or its
-//! session closed.
+//! reaches no tool server; another session's ask also runs it with the session's folder untrusted,
+//! so none of the person's project rules or hooks load, and delivers its answer to no stream. On a
+//! live session the copy is forked on the session's service and its frames are diverted before the
+//! session's own routing; on a resting one it is forked from the stored conversation on the
+//! account's service over a connection of its own, which only it reads. Its cost is metered apart
+//! from the session's turns, and the copy is let go once it answered or its session closed.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use serde_json::Value;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -68,7 +69,7 @@ use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::error_causes::{
     UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal, side_question_refusal,
 };
-use crate::driver::session_control::AskSideQuestionParams;
+use crate::driver::session_control::{AskSideQuestionParams, SideQuestionPurpose};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, SessionScopedRow};
@@ -96,6 +97,7 @@ pub(crate) struct CodexDivertedFrame {
 struct CodexSideQuestion {
     service: Arc<CodexService>,
     session_id: SessionId,
+    purpose: SideQuestionPurpose,
     // The session's binding, which the copy's cost is filed under.
     binding_id: RuntimeBindingId,
     provider_account_id: ProviderAccountId,
@@ -138,6 +140,7 @@ impl CodexSideQuestion {
         Self {
             service,
             session_id: params.session_id,
+            purpose: params.purpose,
             binding_id: params.binding_id.clone(),
             provider_account_id,
             side_question_id: params.side_question_id,
@@ -242,8 +245,13 @@ impl CodexSideQuestions {
         let claim = service.begin_thread_claim();
         let forked = async {
             let connection = service.connection()?;
-            let reply =
-                request_copy_fork(&connection, &record.thread_settings, &record.thread_id).await?;
+            let reply = request_copy_fork(
+                &connection,
+                &record.thread_settings,
+                &record.thread_id,
+                is_project_untrusted_for(params.purpose),
+            )
+            .await?;
             let copy_thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
             Ok::<_, CodexError>((connection, reply, copy_thread_id))
         }
@@ -449,15 +457,31 @@ impl CodexSideQuestions {
     }
 }
 
-// `thread/fork` of `thread_id` into a side question's copy under `settings` on `connection`, sent
-// over the servers the fork's own read loads, and the reply. Fails as the reads or the request do.
+// Whether `purpose`'s copy runs with the session's folder untrusted: another session's ask must
+// not run what the person pre-approved for their own work there.
+fn is_project_untrusted_for(purpose: SideQuestionPurpose) -> bool {
+    match purpose {
+        SideQuestionPurpose::Person => false,
+        SideQuestionPurpose::SessionAsk => true,
+    }
+}
+
+// `thread/fork` of `thread_id` into a throwaway copy under `settings` on `connection`, sent over
+// the servers the fork's own read loads, the session's folder untrusted where
+// `is_project_untrusted`, and the reply. Fails as the reads or the request do.
 async fn request_copy_fork(
     connection: &CodexAppServerConnection,
     settings: &CodexThreadSettings,
     thread_id: &str,
+    is_project_untrusted: bool,
 ) -> Result<Box<RawValue>, CodexError> {
     send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
-        let fork = compose_copy_fork(settings, thread_id.to_owned(), &loaded);
+        let fork = compose_copy_fork(
+            settings,
+            thread_id.to_owned(),
+            &loaded,
+            is_project_untrusted,
+        );
         async move { connection.request(THREAD_FORK_METHOD, &fork).await }
     })
     .await
@@ -466,11 +490,13 @@ async fn request_copy_fork(
 // The fork of `thread_id` a side question's copy runs on: ephemeral, its turns left out, asking
 // nothing, under the read-only profile. A fork keeps none of the thread's inline profiles, so the
 // copy carries the settings again; every server `loaded`, the fork's own read, names is switched
-// off and no other is sent, so it reaches no tool server.
+// off and no other is sent, so it reaches no tool server. Where `is_project_untrusted`, the copy's
+// folder is marked untrusted, so Codex loads none of its project rules, hooks or config.
 fn compose_copy_fork(
     settings: &CodexThreadSettings,
     thread_id: String,
     loaded: &CodexLoadedServers,
+    is_project_untrusted: bool,
 ) -> ThreadForkParams {
     let mcp_servers = compose_codex_session_table(CodexSessionTableInput {
         session_id: settings.session_id,
@@ -491,6 +517,14 @@ fn compose_copy_fork(
         &settings.profile_folders,
     ));
     fork.approval_policy = Some(AskForApproval::Never);
+    if is_project_untrusted {
+        // Keyed by the fork's own folder, the first spelling Codex looks its trust up under.
+        let folder = settings.working_directory.to_string_lossy();
+        fork.config.get_or_insert_default().insert(
+            "projects".to_owned(),
+            json!({ (folder): { "trust_level": "untrusted" } }),
+        );
+    }
     fork
 }
 
@@ -580,8 +614,9 @@ async fn finish(
     let_go_codex_thread(&service, &thread_id).await;
 }
 
-// Delivers the copy's answer when its turn completed with one, and answers the ask with what came
-// of it. A NUL the answer holds is dropped, since the row's text carries none.
+// Delivers the person's answer when the copy's turn completed with one, another session's to no
+// stream, and answers the ask with what came of it. A NUL the answer holds is dropped, since the
+// row's text carries none.
 async fn deliver_answer(
     dispatch: &dyn InboundDispatch,
     question: CodexSideQuestion,
@@ -589,6 +624,7 @@ async fn deliver_answer(
 ) {
     let CodexSideQuestion {
         session_id,
+        purpose,
         provider_account_id,
         side_question_id,
         question,
@@ -601,25 +637,31 @@ async fn deliver_answer(
     let is_completed = CopyTurn::is_completed(turn.as_ref());
     let outcome = match answer {
         Some(answer) if is_completed => {
-            Box::pin(dispatch_delivery(
-                dispatch,
-                DeliveryOrigin {
-                    provider: DESCRIPTOR.provider_id(),
-                    provider_account_id: Some(provider_account_id),
-                    raw_wire_type: Some(CODEX_TURN_COMPLETED_METHOD),
-                },
-                InboundDelivery::SessionEvent {
-                    row: SessionScopedRow::SideQuestionAnswered(
-                        SessionSideQuestionAnsweredPayload {
-                            session_id,
-                            side_question_id,
-                            question,
-                            answer: answer.clone(),
+            match purpose {
+                SideQuestionPurpose::Person => {
+                    Box::pin(dispatch_delivery(
+                        dispatch,
+                        DeliveryOrigin {
+                            provider: DESCRIPTOR.provider_id(),
+                            provider_account_id: Some(provider_account_id),
+                            raw_wire_type: Some(CODEX_TURN_COMPLETED_METHOD),
                         },
-                    ),
-                },
-            ))
-            .await;
+                        InboundDelivery::SessionEvent {
+                            row: SessionScopedRow::SideQuestionAnswered(
+                                SessionSideQuestionAnsweredPayload {
+                                    session_id,
+                                    side_question_id,
+                                    question,
+                                    answer: answer.clone(),
+                                },
+                            ),
+                        },
+                    ))
+                    .await;
+                }
+                // Returned to the asking session alone.
+                SideQuestionPurpose::SessionAsk => {}
+            }
             Ok(answer)
         }
         Some(_) | None => Err(unanswered(

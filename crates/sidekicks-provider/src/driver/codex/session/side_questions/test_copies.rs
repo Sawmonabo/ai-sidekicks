@@ -85,6 +85,14 @@ pub(crate) fn resting_question(session_id: SessionId, folder: &Path) -> AskSideQ
     }
 }
 
+/// Another session's ask on `session_id` at rest in `folder`, as [`resting_question`] is asked.
+pub(crate) fn resting_session_ask(session_id: SessionId, folder: &Path) -> AskSideQuestionParams {
+    AskSideQuestionParams {
+        purpose: SideQuestionPurpose::SessionAsk,
+        ..resting_question(session_id, folder)
+    }
+}
+
 /// The read-only profile a copy whose working folder is `folder`'s `work` runs under.
 pub(crate) fn read_only_profile(folder: &Path) -> String {
     compose_codex_profile_name(
@@ -121,13 +129,10 @@ pub(crate) async fn accept_copy(listener: &Listener) -> CopySocket {
     socket
 }
 
-/// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
-/// of the stored conversation under `profile`; answers the connection, the fork's params and the
-/// turn's.
-pub(crate) async fn open_copy(
-    listener: &Listener,
-    profile: &str,
-) -> (CopySocket, Map<String, Value>, Value) {
+// Serves the copy's connection as Codex through its fork: the connection's start and a fork of the
+// stored conversation whose reply names `profile`, or no profile; answers the connection and the
+// fork's params.
+async fn fork_copy(listener: &Listener, profile: Option<&str>) -> (CopySocket, Map<String, Value>) {
     let mut socket = accept_copy(listener).await;
     let read = next_socket_request(&mut socket).await;
     assert_eq!(read["method"], "config/read");
@@ -138,14 +143,26 @@ pub(crate) async fn open_copy(
     .await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
-    send_on_socket(
-        &mut socket,
-        json!({"id": fork["id"], "result": {
-            "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
-            "activePermissionProfile": {"id": profile},
-        }}),
-    )
-    .await;
+    let mut reply = json!({"thread": {"id": COPY_THREAD, "sessionId": "codex-session"}});
+    if let Some(profile) = profile {
+        reply["activePermissionProfile"] = json!({"id": profile});
+    }
+    send_on_socket(&mut socket, json!({"id": fork["id"], "result": reply})).await;
+    let fork = fork["params"]
+        .as_object()
+        .expect("the fork's params are an object")
+        .clone();
+    (socket, fork)
+}
+
+/// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+/// of the stored conversation under `profile`; answers the connection, the fork's params and the
+/// turn's.
+pub(crate) async fn open_copy(
+    listener: &Listener,
+    profile: &str,
+) -> (CopySocket, Map<String, Value>, Value) {
+    let (mut socket, fork) = fork_copy(listener, Some(profile)).await;
     let turn = next_socket_request(&mut socket).await;
     assert_eq!(turn["method"], "turn/start");
     assert_eq!(turn["params"]["threadId"], COPY_THREAD);
@@ -155,11 +172,20 @@ pub(crate) async fn open_copy(
             "status": "inProgress"}}}),
     )
     .await;
-    let fork = fork["params"]
-        .as_object()
-        .expect("the fork's params are an object")
-        .clone();
     (socket, fork, turn["params"].clone())
+}
+
+/// Serves the copy's connection as Codex through a fork whose reply names no permission profile;
+/// answers the text messages the daemon sent after the fork, once it let the connection go.
+pub(crate) async fn serve_unprofiled_copy(listener: Listener) -> Vec<Message> {
+    let (mut socket, _fork) = fork_copy(&listener, None).await;
+    let mut later = Vec::new();
+    while let Some(Ok(message)) = socket.next().await {
+        if let Message::Text(_) = message {
+            later.push(message);
+        }
+    }
+    later
 }
 
 /// How the copy's one turn ends.
