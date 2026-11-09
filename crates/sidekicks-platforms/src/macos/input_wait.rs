@@ -3,9 +3,14 @@
 //! reader's threads wait through Apple's `sample`, since macOS copies a thread's wait reason out to
 //! no other process. A thread's run state only rules a wait out; it never shows one.
 
+#[cfg(test)]
+use std::cell::RefCell;
 use std::io::{self, ErrorKind};
+#[cfg(test)]
+use std::path::PathBuf;
 use std::process::{Output, Stdio};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use libc::{c_int, c_void};
 use tokio::process::Command;
@@ -48,6 +53,18 @@ static CONTROLLING_TERMINAL_NODE: OnceLock<u32> = OnceLock::new();
 const SAMPLE_PROGRAM: &str = "/usr/bin/sample";
 const SAMPLE_SECONDS: &str = "0.1";
 const SAMPLE_INTERVAL_MILLISECONDS: &str = "10";
+
+// How many times `sample` runs on a process still there before its failure surfaces, and the gap
+// after each failed run: on a loaded machine it fails now and then on a process it can read.
+const SAMPLE_TRIES: u32 = 3;
+const SAMPLE_RETRY_GAP: Duration = Duration::from_millis(50);
+
+// The program a test runs in `sample`'s place on its own thread, so a test can make `sample` fail
+// as a loaded machine does; unset, `SAMPLE_PROGRAM` runs.
+#[cfg(test)]
+thread_local! {
+    static SAMPLE_STAND_IN: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
 
 // The process state reader that runs as root, which shows a process of another user, and the
 // status it exits with when a process it was asked for is missing.
@@ -148,12 +165,14 @@ unsafe extern "C" {
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
 /// off, with `sample` and `ps` started on `spawner`'s thread, about a tenth of a second per process
-/// holding the terminal for reading; a read on a blocking character device other than the
-/// terminal, or on a descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`,
-/// `PSHM`, `PSEM`), still reads as a wait on it.
+/// holding the terminal for reading, and up to about three tenths more per process when `sample`
+/// fails and runs again; a read on a blocking character device other than the terminal, or on a
+/// descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`, `PSHM`, `PSEM`),
+/// still reads as a wait on it.
 /// Fails with the system's error when a read is refused for a process this user may read, with
-/// `sample`'s or `ps`'s own error text when either fails on a process still there, `TimedOut` when
-/// either runs past its time limit, and `InvalidData` when `sample`'s report has no call graph.
+/// `sample`'s or `ps`'s own error text when either fails on a process still there, `sample` run
+/// three times about 50 ms apart before its failure surfaces, `TimedOut` when either runs past its
+/// time limit, and `InvalidData` when `sample`'s report has no call graph.
 pub async fn read_input_wait(
     spawner: &Spawner,
     terminal: &InputTerminal,
@@ -610,28 +629,46 @@ fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<O
 }
 
 // The innermost calls of each thread of process `process_id`, as one `sample` shows them; `None`
-// when `sample` fails because the process ended.
+// when `sample` fails because the process ended. A failure on a process still there runs `sample`
+// again, `SAMPLE_TRIES` runs in all, before the last failure surfaces.
 async fn sample_innermost_calls(
     spawner: &Spawner,
     process_id: u32,
 ) -> io::Result<Option<Vec<Vec<String>>>> {
-    let mut command = Command::new(SAMPLE_PROGRAM);
-    command.args([
-        &process_id.to_string(),
-        SAMPLE_SECONDS,
-        SAMPLE_INTERVAL_MILLISECONDS,
-        // Written to standard output alone, so no report is left in the temporary folder.
-        "-file",
-        "/dev/stdout",
-    ]);
-    let output = run_helper_program(spawner, "sample", command).await?;
-    if !output.status.success() {
+    #[cfg(test)]
+    let program = SAMPLE_STAND_IN
+        .with_borrow(Clone::clone)
+        .unwrap_or_else(|| SAMPLE_PROGRAM.into());
+    #[cfg(test)]
+    let program = program.as_path();
+    #[cfg(not(test))]
+    let program = SAMPLE_PROGRAM;
+    let mut tries = 0;
+    let output = loop {
+        let mut command = Command::new(program);
+        command.args([
+            &process_id.to_string(),
+            SAMPLE_SECONDS,
+            SAMPLE_INTERVAL_MILLISECONDS,
+            // Written to standard output alone, so no report is left in the temporary folder.
+            "-file",
+            "/dev/stdout",
+        ]);
+        let output = run_helper_program(spawner, "sample", command).await?;
+        tries += 1;
+        if output.status.success() {
+            break output;
+        }
         let pid = system_process_id(process_id)?.get();
         if is_gone(pid)? {
             return Ok(None);
         }
-        return Err(program_failure("sample", &process_id.to_string(), &output));
-    }
+        if tries == SAMPLE_TRIES {
+            let processes = format!("{process_id} on any of {SAMPLE_TRIES} tries");
+            return Err(program_failure("sample", &processes, &output));
+        }
+        tokio::time::sleep(SAMPLE_RETRY_GAP).await;
+    };
     read_innermost_calls(&String::from_utf8_lossy(&output.stdout)).map(Some)
 }
 
@@ -668,7 +705,8 @@ async fn run_helper_program(
         })?
 }
 
-// A program's failure on `processes`, with its status and the error text it wrote.
+// A program's failure on `processes`, which names the processes and, for a retried run, its tries,
+// with its last status and the error text it wrote.
 fn program_failure(program: &str, processes: &str, output: &Output) -> io::Error {
     io::Error::other(format!(
         "{program} could not read process {processes} ({}): {}",
@@ -730,7 +768,62 @@ fn read_innermost_calls(report: &str) -> io::Result<Vec<Vec<String>>> {
 
 #[cfg(test)]
 mod tests {
-    use super::read_innermost_calls;
+    use std::fs::{self, Permissions};
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::process::{Command, Stdio};
+
+    use super::{
+        READ_CALLS, SAMPLE_PROGRAM, SAMPLE_STAND_IN, read_innermost_calls, sample_innermost_calls,
+    };
+    use crate::spawner::Spawner;
+
+    // Fails when a `sample` that fails once on a process still there surfaces its failure rather
+    // than running again: the stand-in fails as `sample` does now and then on a loaded machine on
+    // its first run, and runs `sample` itself after.
+    #[tokio::test]
+    async fn a_sample_that_fails_on_a_live_process_runs_again() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let stand_in = folder.path().join("sample");
+        let tried = folder.path().join("tried");
+        let tried_path = tried.display();
+        fs::write(
+            &stand_in,
+            format!(
+                "#!/bin/sh\n\
+                 if [ ! -e '{tried_path}' ]; then\n\
+                 : > '{tried_path}'\n\
+                 echo \"sample[$$]: sample cannot examine process $1 (cat) for unknown reasons, \
+                 even though it appears to exist; try running with sudo.\" >&2\n\
+                 exit 255\n\
+                 fi\n\
+                 exec {SAMPLE_PROGRAM} \"$@\"\n"
+            ),
+        )
+        .expect("the stand-in is written");
+        fs::set_permissions(&stand_in, Permissions::from_mode(0o755)).expect("the stand-in runs");
+        SAMPLE_STAND_IN.set(Some(stand_in));
+        let mut reader = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("cat starts");
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+
+        let calls = sample_innermost_calls(&spawner, reader.id()).await;
+        reader.kill().expect("cat ends");
+        reader.wait().expect("cat is reaped");
+
+        assert!(tried.exists(), "the stand-in ran in sample's place");
+        let calls = calls
+            .expect("sample reads cat on its second try")
+            .expect("cat is still there");
+        assert!(
+            calls.iter().any(|thread| thread
+                .iter()
+                .any(|call| READ_CALLS.contains(&call.as_str()))),
+            "{calls:?}"
+        );
+    }
 
     // Fails when a frame some deeper frame follows is taken as innermost, a frame its sibling at
     // the same depth follows is not, or one thread's frames run into the next thread's.

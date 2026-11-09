@@ -286,10 +286,7 @@ mod tests {
             .expect("the command prompted")
             .expect("the test acts on the command");
         if is_stopped {
-            let before_stop = before_stop
-                .into_iter()
-                .collect::<std::io::Result<Vec<_>>>()
-                .expect("the wait reads before the stop");
+            let before_stop = keep_successful_readings(script, before_stop);
             assert!(
                 before_stop.last().is_some_and(|reading| reading.is_waiting),
                 "{script} never read as waiting before its stop within {READING_BOUND:?}, \
@@ -298,10 +295,7 @@ mod tests {
                 before_stop.last()
             );
         }
-        let readings = readings
-            .into_iter()
-            .collect::<std::io::Result<Vec<_>>>()
-            .expect("the wait reads");
+        let readings = keep_successful_readings(script, readings);
         if is_marked {
             assert!(
                 readings.last() == Some(&expected),
@@ -318,9 +312,10 @@ mod tests {
         }
     }
 
-    // The readings of `terminal`'s wait every few milliseconds until one `is_settled`, one fails or
-    // `bound` passes, the command's output read away as the daemon reads it, so a command drawing
-    // a screen never blocks on a full terminal.
+    // The readings of `terminal`'s wait every few milliseconds until one `is_settled` or `bound`
+    // passes, the command's output read away as the daemon reads it, so a command drawing a screen
+    // never blocks on a full terminal. A failed reading is kept and read past, as the daemon reads
+    // again on its next check, so a failure a loaded machine causes now and then fails no case.
     async fn read_input_waits(
         terminal: &InnerTerminal,
         spawner: &Spawner,
@@ -345,13 +340,28 @@ mod tests {
                 }
                 Err(error) => Err(error),
             };
-            let is_done = reading.as_ref().map_or(true, &is_settled);
+            let is_done = reading.as_ref().is_ok_and(&is_settled);
             readings.push(reading);
             if is_done || window_start.elapsed() >= bound {
                 return readings;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
+    }
+
+    // The readings of `script` that read, failing with the last reading's error and the readings'
+    // count when the last one failed, as a failure that lasted to the bound does.
+    fn keep_successful_readings(
+        script: &str,
+        readings: Vec<std::io::Result<InputWaitReading>>,
+    ) -> Vec<InputWaitReading> {
+        assert!(
+            readings.last().is_none_or(Result::is_ok),
+            "{script}: the wait reads, last of {} readings: {:?}",
+            readings.len(),
+            readings.last()
+        );
+        readings.into_iter().filter_map(Result::ok).collect()
     }
 
     // Fails when the count is read where the program's input is not, as the master on Linux, whose
