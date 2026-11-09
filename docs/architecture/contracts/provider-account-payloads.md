@@ -450,7 +450,7 @@ interface ProviderAccountCurrentUpdateRequest {
 }
 interface ProviderAccountCurrentUpdateResponse {
   account: ProviderAccount; // the account now current for its provider
-  // The sessions the daemon is moving, each at its next request, so the caller knows the press
+  // The sessions the daemon is moving, each between its turns, so the caller knows the press
   // reached live work rather than only the registry. It is NOT a settlement: each move settles on
   // its own session's transcript. A press that reached no running session carries an empty array,
   // which is a claim that nothing was live rather than an absence of information.
