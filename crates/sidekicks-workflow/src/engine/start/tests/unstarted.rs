@@ -8,22 +8,26 @@ use serde_json::{Value, json};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
+use sidekicks_workspace::execution_root::test_fixture::MOUNT_ID;
 
 use super::{
     Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, git_node, item, joins_root,
     refusal, runs_folders, shell_node, start,
 };
 use crate::engine::ports::REFUSED_PORT_CALL;
-use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
+use crate::engine::start::{WorkflowRunStartError, WorkflowStartArrival, WorkflowStartOutcome};
 
 /// How a start that writes nothing ends.
 #[derive(Clone, Copy, Debug)]
 enum NothingWritten {
     UnknownSession,
     UnknownVersion,
+    ProjectOnProjectSession,
+    BindingRefused,
     InputLeftOut,
     RepositoryRequired,
     ProviderRequired,
@@ -32,8 +36,10 @@ enum NothingWritten {
     HeldOnChain,
 }
 
-/// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
-/// inputs left unchecked (the run starts); a step that needs a repository started in a session
+/// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; a
+/// project named beside a project session let through; a project session's run written before its
+/// binding, or its binding's failure dropped (the run starts); the inputs left unchecked (the run
+/// starts); a step that needs a repository started in a session
 /// with no project's repository, or refused with a wrong detail; a step that runs in a sandbox
 /// started with no provider, refused with a wrong detail, or a disabled one counted; a version
 /// whose graph does not build started; one code answered for both errors; an unlisted kind or an
@@ -43,6 +49,8 @@ enum NothingWritten {
 #[rstest]
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
+#[case::project_on_project_session(NothingWritten::ProjectOnProjectSession)]
+#[case::binding_refused(NothingWritten::BindingRefused)]
 #[case::input_left_out(NothingWritten::InputLeftOut)]
 #[case::repository_required(NothingWritten::RepositoryRequired)]
 #[case::provider_required(NothingWritten::ProviderRequired)]
@@ -54,6 +62,10 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
     let session = match case {
         NothingWritten::UnknownSession => TestSession::Unknown,
+        // A project session whose workspace is not bound yet, so its binding finds none.
+        NothingWritten::ProjectOnProjectSession | NothingWritten::BindingRefused => {
+            TestSession::ProjectWithoutWorkspace
+        }
         NothingWritten::UnknownVersion
         | NothingWritten::InputLeftOut
         | NothingWritten::RepositoryRequired
@@ -84,6 +96,8 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         }
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
+        | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::BindingRefused
         | NothingWritten::InputLeftOut
         | NothingWritten::HeldOnChain => json!([]),
     };
@@ -107,6 +121,8 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::InputLeftOut => Vec::new(),
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
+        | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::BindingRefused
         | NothingWritten::RepositoryRequired
         | NothingWritten::ProviderRequired
         | NothingWritten::NodeKindUnavailable
@@ -121,6 +137,9 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     if let NothingWritten::UnknownVersion = case {
         request.workflow_version_id =
             WorkflowVersionId::new(UNKNOWN_VERSION_ID).expect("a version id");
+    }
+    if let NothingWritten::ProjectOnProjectSession = case {
+        request.project_id = Some(ProjectId::new(MOUNT_ID).expect("the project's id"));
     }
     if let NothingWritten::HeldOnChain = case {
         fixture.store_chain_root(25);
@@ -154,6 +173,16 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::UnknownVersion => {
             let refusal = refusal(outcome.expect_err("the start is refused"));
             assert_eq!(refusal.code, RefusalCode::WorkflowVersionNotFound);
+        }
+        NothingWritten::ProjectOnProjectSession => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(
+                refusal.code,
+                RefusalCode::WorkflowRunProjectOnProjectSession
+            );
+        }
+        NothingWritten::BindingRefused => {
+            assert!(matches!(outcome, Err(WorkflowRunStartError::Binding(_))));
         }
         NothingWritten::InputLeftOut => {
             let refusal = refusal(outcome.expect_err("the start is refused"));

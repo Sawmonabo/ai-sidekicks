@@ -13,6 +13,7 @@ use sidekicks_contracts::session::directory::{
     SessionWorkingFolderDisposition, SessionWorkingFolderUpdateRequest,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -31,6 +32,9 @@ use sidekicks_workspace::repo::mount::reattach::{
     RepoMountReattachService, RepoMountReattachServiceDeps,
 };
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use sidekicks_workspace::run_setup_gates::execution_root::context::{
+    SessionRunBinder, context_statement,
+};
 use sidekicks_workspace::run_setup_gates::execution_root::{
     ExecutionRootSetupGate, ExecutionRootSetupGateDeps, SessionFolderMoves,
 };
@@ -54,6 +58,9 @@ const REACH_BOUND: Duration = Duration::from_secs(1);
 
 // A workspace the session does not work in.
 const OTHER_WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb1";
+
+// A workflow run of the session, which the run engine's runs table never holds.
+const WORKFLOW_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb2";
 
 /// The working folders and the run setup gate over the execution roots' fixture, its database
 /// holding the runs table and its mount recording the repository's common folder.
@@ -315,6 +322,44 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     assert_eq!(moved.state, "ready");
     assert_eq!(moved.bound_root, Some(path_text(&feature)));
     assert_eq!(fixture.pending(SESSION_ID), None);
+}
+
+/// A live workflow run holds no move: the session moves at once, and the run's context keeps the
+/// root it recorded. Mutation: the live-run read counting a workflow run's context, which holds the
+/// move pending.
+#[tokio::test]
+async fn a_live_workflow_run_never_holds_its_sessions_move() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.ready_at_repository().await;
+    let feature = fixture.roots.add_tree("feature").await;
+    let binding = fixture
+        .gate
+        .bind_session_run(session_id(), WORKFLOW_RUN_ID, "Nightly")
+        .await
+        .expect("the workflow run binds");
+    fixture
+        .roots
+        .log
+        .writer
+        .write(vec![context_statement(&binding, &WireInstant::now())])
+        .await
+        .expect("the workflow run's context is written");
+
+    assert_eq!(
+        fixture.set(&feature).await,
+        SessionWorkingFolderDisposition::Applied
+    );
+    assert_eq!(
+        fixture.roots.workspace(workspace_id).bound_root,
+        Some(path_text(&feature))
+    );
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT execution_root FROM run_execution_contexts WHERE run_id = '{WORKFLOW_RUN_ID}' \
+             AND released_at IS NULL"
+        )),
+        Some(path_text(&fixture.roots.repository))
+    );
 }
 
 #[tokio::test]

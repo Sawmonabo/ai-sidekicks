@@ -1,6 +1,6 @@
 //! A project session's working folder: moving it into any tree its repository has, at once while no
-//! run of the session is live, or as a pending move on the session's own row that the run's next
-//! boundary applies. The row holds at most one, so a later request replaces it, and a request for
+//! agent run of the session is live, or as a pending move on the session's own row that the run's
+//! next boundary applies; a workflow run holds no move, its steps staying on its recorded root. The row holds at most one, so a later request replaces it, and a request for
 //! the folder the session already works in clears it. A removed tree's sessions are swept back to
 //! the repository's own checkout; one whose run is still bound there keeps its folder until that
 //! run is released, and is swept at that run's end.
@@ -118,21 +118,24 @@ static SELECT_MOUNT_WORKSPACES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A run of the session is live: one not yet ended, queued and starting included, or one whose
-// context its end has not released yet.
+// An agent run of the session is live: one not yet ended, queued and starting included, or one
+// whose context its end has not released yet. A workflow run holds no move: its steps stay on the
+// root its context records.
 static SELECT_LIVE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT EXISTS (SELECT 1 FROM runs
                  WHERE session_id = @session_id AND state NOT IN ({terminal}))
      OR EXISTS (SELECT 1 FROM run_execution_contexts
-                 WHERE session_id = @session_id AND released_at IS NULL)",
+                 WHERE session_id = @session_id AND released_at IS NULL
+                   AND run_id IN (SELECT run_id FROM runs WHERE session_id = @session_id))",
         terminal = RUN_TERMINAL_STATES_SQL.as_str(),
     )
 });
 
-// A run of the session still bound to its folder: its context not yet released.
+// An agent run of the session still bound to its folder: its context not yet released.
 const SELECT_BOUND_RUN_SQL: &str = "SELECT EXISTS (SELECT 1 FROM run_execution_contexts
-  WHERE session_id = @session_id AND released_at IS NULL)";
+  WHERE session_id = @session_id AND released_at IS NULL
+    AND run_id IN (SELECT run_id FROM runs WHERE session_id = @session_id))";
 
 // The removed tree the session's live workspace still works in, if any.
 static SELECT_REMOVED_TREE_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {

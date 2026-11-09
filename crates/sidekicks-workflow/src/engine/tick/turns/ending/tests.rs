@@ -20,6 +20,7 @@ use crate::engine::tick::turns::tests::harness::{
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::{PersonAsk, PersonWait};
+use crate::test_rows::{execution_context_released_at, insert_live_execution_context};
 
 /// The key of the step of `node_id`, read from its row.
 fn step_key(harness: &Harness, node_id: &str) -> WorkflowStepKey {
@@ -110,10 +111,11 @@ fn run_events(harness: &Harness) -> Vec<(String, Value)> {
 }
 
 /// A run whose steps all succeed reads `succeeded`, ended at the instant of its last event,
-/// with one `workflow.run.completed` in that write, and leaves the live set; a chat's run posts
-/// its results into its session once, as the write's last event after the ending, and a manual
-/// run posts none. Mutations: write nothing for a run whose steps all settled, which leaves it
-/// `running`; stamp the end with a fresh clock read; post outside the ending's write; post for
+/// with one `workflow.run.completed` in that write, its execution context released at that
+/// instant, and leaves the live set; a chat's run posts its results into its session once, as the
+/// write's last event after the ending, and a manual run posts none. Mutations: write nothing for
+/// a run whose steps all settled, which leaves it `running`; stamp the end with a fresh clock
+/// read; drop the context's release from the run's end; post outside the ending's write; post for
 /// every mode.
 #[rstest]
 #[case::manual(WorkflowRunMode::Manual, false)]
@@ -125,6 +127,11 @@ async fn a_run_whose_steps_all_succeed_ends_succeeded(
 ) {
     let mut harness = Harness::new(None).await;
     harness.scope.mode = mode;
+    insert_live_execution_context(
+        &harness.rows,
+        harness.scope.run_id.text().as_str(),
+        harness.scope.session_id.text().as_str(),
+    );
     harness
         .start(
             vec![
@@ -155,6 +162,10 @@ async fn a_run_whose_steps_all_succeed_ends_succeeded(
     assert!(
         ending_write.ends_with(&expected_tail),
         "the ending rides A's write: {ending_write:?}"
+    );
+    assert_eq!(
+        execution_context_released_at(&harness.rows, harness.scope.run_id.text().as_str()),
+        Some(completed_at.clone())
     );
     assert_eq!(
         run_row(&harness.rows),

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -50,8 +51,8 @@ const DEFINITION_SCOPE_SQL: &str =
 
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
-    // rule, the version, the session, the trigger's declared inputs, a project's repository for
-    // the steps that need one, the workflow's provider for the steps that run in its sandbox, then
+    // rule, the version, the session, a project named beside a project session, the trigger's
+    // declared inputs, a project's repository for the steps that need one, the workflow's provider for the steps that run in its sandbox, then
     // the run's graph.
     #[cfg_attr(
         not(test),
@@ -100,6 +101,15 @@ impl WorkflowRunStarter {
             }
         }
         let session = session?;
+        // A project session's run works in that session's repository, so it names no other.
+        if start.project_id.is_some() && session.shape == SessionShape::Project {
+            return Err(DomainError::new(
+                "This session works in its project's repository, so its run names no other \
+                 project.",
+                RefusalCode::WorkflowRunProjectOnProjectSession,
+            )
+            .into());
+        }
         let body = parse_stored_workflow_body(&version.definition_body)?;
         let declared = body
             .trigger
@@ -128,12 +138,9 @@ impl WorkflowRunStarter {
             }]
         };
         let trigger_node = WorkflowNode::from(&body.trigger);
-        // A step that needs a repository runs only in a project's; a chat's own folder is none.
-        let is_in_project = session
-            .repository
-            .as_ref()
-            .is_some_and(|repository| repository.is_project);
-        if !is_in_project {
+        // A step that needs a repository runs only in a project's: a project session's, whose
+        // workspace the start binds even while it is still preparing; a chat's own folder is none.
+        if session.shape != SessionShape::Project {
             let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
                 self.kinds
                     .kind_of(node)

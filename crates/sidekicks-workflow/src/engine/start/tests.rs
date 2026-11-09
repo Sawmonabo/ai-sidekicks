@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
@@ -12,8 +12,10 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
+use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceId, WorkspaceState};
+use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
 use sidekicks_contracts::session::id::{SessionId, UserId};
+use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -32,13 +34,13 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_store::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-};
-use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::log_service::EVENT_LOG_STATEMENT_CAPACITY;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_store::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
+use sidekicks_workspace::execution_root::test_fixture::{
+    ExecutionRootFixture, MOUNT_ID as REPOSITORY_MOUNT_ID,
+};
+use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::test_rows::project_and_mount_rows;
 
 use super::{
@@ -70,20 +72,25 @@ fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the test's provider id")
 }
 
-/// The session a start names: none stored, stored with no working folder, or stored working in a
-/// folder of its own.
+/// The session a start names: none stored; a chat with no working folder, or working in a folder
+/// of its own; or a project session on the fixture's real repository, its workspace `ready`,
+/// still `preparing`, or not bound yet.
 #[derive(Clone, Copy, Debug)]
 enum TestSession {
     Unknown,
     WithoutFolder,
     WithFolder,
+    Project,
+    PreparingProject,
+    ProjectWithoutWorkspace,
 }
 
-/// The starter over a test database holding the store's, workspace and workflow tables, the
-/// workflow's version 1 with `body` and no provider picked, the payloads it stored, the git kind,
-/// which needs a project's repository, and the command kind, which runs in its provider's sandbox.
+/// The starter over the execution roots' fixture, its database holding the store's, workspace and
+/// workflow tables, binding through the real setup gate: the workflow's version 1 with `body` and
+/// no provider picked, the payloads it stored, the git kind, which needs a project's repository,
+/// and the command kind, which runs in its provider's sandbox.
 struct Fixture {
-    database: TestDatabase,
+    roots: ExecutionRootFixture,
     rows: Connection,
     starter: WorkflowRunStarter,
     payloads: Arc<KeptPayloads>,
@@ -97,12 +104,9 @@ impl Fixture {
         session: TestSession,
         chain_ask_after: Option<WorkflowChainAskAfterRuns>,
     ) -> Self {
-        let database = TestDatabase::new(schema_parts());
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens the test database"),
-        );
+        let roots = ExecutionRootFixture::with(schema_parts(), test_git_runner()).await;
+        let database = &roots.database;
+        let writer = Arc::clone(&roots.log.writer);
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
             EVENT_LOG_STATEMENT_CAPACITY
@@ -110,14 +114,7 @@ impl Fixture {
                 + MACHINE_REGISTRY_STATEMENT_CAPACITY
                 + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY,
         ));
-        let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
-            writer: Arc::clone(&writer),
-            pool: Arc::clone(&pool),
-            followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: None,
-            refuse_session_write: None,
-            read_damaged_from_sequence: None,
-        }));
+        let event_log = Arc::clone(&roots.log.service);
         let machine_id = MachineId::new(mint_uuid_v7().to_string()).expect("a machine id");
         let payloads = Arc::new(KeptPayloads::default());
         let kept_values = Arc::new(WorkflowKeptValueStore::new(
@@ -173,26 +170,95 @@ impl Fixture {
                 ])
                 .expect("the kinds build"),
             ),
-            data_folder: test_folder(&database).join("data"),
+            binder: Arc::new(roots.setup_gate(roots.stand_in_moves())),
+            data_folder: test_folder(database).join("data"),
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
             )),
         });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);
-        store_session(&rows, session, &session_folder(&database));
-        Self {
-            database,
+        let fixture = Self {
+            roots,
             rows,
             starter,
             payloads,
             records,
             machine_id,
-        }
+        };
+        fixture.store_session(session).await;
+        fixture
     }
 
     fn data_folder(&self) -> PathBuf {
-        test_folder(&self.database).join("data")
+        test_folder(&self.roots.database).join("data")
+    }
+
+    // Stores the session `session` names.
+    async fn store_session(&self, session: TestSession) {
+        match session {
+            TestSession::Unknown => {}
+            TestSession::WithoutFolder => {
+                insert_session_row(&self.rows, TEST_SESSION_ID, None, None);
+            }
+            TestSession::WithFolder => {
+                insert_session_row(&self.rows, TEST_SESSION_ID, None, None);
+                store_chat_folder(&self.rows, &session_folder(&self.roots.database));
+            }
+            TestSession::Project | TestSession::PreparingProject => {
+                self.store_project_session();
+                let workspace_id = self.bind_repository().await;
+                if let TestSession::Project = session {
+                    self.roots
+                        .prepare(workspace_id, None)
+                        .await
+                        .expect("the bound folder is prepared");
+                }
+            }
+            TestSession::ProjectWithoutWorkspace => self.store_project_session(),
+        }
+    }
+
+    fn store_project_session(&self) {
+        insert_session_row(&self.rows, TEST_SESSION_ID, None, None);
+        self.rows
+            .execute(
+                "UPDATE sessions SET shape = ?1 WHERE id = ?2",
+                params![<&'static str>::from(SessionShape::Project), TEST_SESSION_ID],
+            )
+            .expect("the session is a project session");
+    }
+
+    // Binds the session to the fixture's repository as a `boundRoot` checkout, which lands
+    // `preparing`.
+    async fn bind_repository(&self) -> WorkspaceId {
+        self.roots
+            .workspaces
+            .bind(&WorkspaceBindRequest {
+                session_id: session_id(),
+                repo_mount_id: RepoMountId::new(REPOSITORY_MOUNT_ID).expect("the id is a UUID"),
+                execution_mode: ExecutionMode::BoundRoot,
+                directory: None,
+            })
+            .await
+            .expect("the bind lands")
+            .workspace_id
+    }
+
+    // The workspace, root and creation of run `run_id`'s execution context, and its release.
+    fn execution_context(
+        &self,
+        run_id: WorkflowRunId,
+    ) -> Option<(String, String, String, Option<String>)> {
+        self.rows
+            .query_row(
+                "SELECT workspace_id, execution_root, created_at, released_at \
+                 FROM run_execution_contexts WHERE run_id = ?1",
+                [run_id.text().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .expect("the test reads the run's context")
     }
 
     // Stores the chain's first run, already counting `run_count` runs.
@@ -267,28 +333,24 @@ fn session_id() -> SessionId {
     SessionId::new(TEST_SESSION_ID).expect("the test's session")
 }
 
-fn store_session(rows: &Connection, session: TestSession, folder: &Path) {
-    if let TestSession::WithoutFolder | TestSession::WithFolder = session {
-        insert_session_row(rows, TEST_SESSION_ID, None, None);
+// Stores a ready workspace of the chat session working in `folder`, on a project's mount.
+fn store_chat_folder(rows: &Connection, folder: &Path) {
+    for row in project_and_mount_rows(MOUNT_ID, None) {
+        rows.execute_batch(&row).expect("a project row is stored");
     }
-    if let TestSession::WithFolder = session {
-        for row in project_and_mount_rows(MOUNT_ID, None) {
-            rows.execute_batch(&row).expect("a project row is stored");
-        }
-        rows.execute(
-            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
-             state, created_at, updated_at) VALUES ('workspace', ?1, ?6, ?2, ?3, ?4, ?5, ?5)",
-            params![
-                TEST_SESSION_ID,
-                <&'static str>::from(ExecutionMode::BoundRoot),
-                folder.to_string_lossy(),
-                <&'static str>::from(WorkspaceState::Ready),
-                ROWS_AT,
-                MOUNT_ID
-            ],
-        )
-        .expect("the session's workspace is stored");
-    }
+    rows.execute(
+        "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
+         state, created_at, updated_at) VALUES ('workspace', ?1, ?6, ?2, ?3, ?4, ?5, ?5)",
+        params![
+            TEST_SESSION_ID,
+            <&'static str>::from(ExecutionMode::BoundRoot),
+            folder.to_string_lossy(),
+            <&'static str>::from(WorkspaceState::Ready),
+            ROWS_AT,
+            MOUNT_ID
+        ],
+    )
+    .expect("the session's workspace is stored");
 }
 
 // A version body whose trigger declares `inputs`, or none, holding `nodes`.
@@ -365,6 +427,7 @@ fn start(
     WorkflowRunStart {
         workflow_version_id: WorkflowVersionId::new(VERSION_ID).expect("the test's version"),
         session_id: session_id(),
+        project_id: None,
         mode,
         trigger_kind,
         arrival,
@@ -470,8 +533,8 @@ enum WrittenStart {
     /// A trigger's start joining a chain, in a session with no folder, its trigger declaring an
     /// optional input with a default and the start giving none.
     TriggerJoiningAChain,
-    /// A person's start in a session working in a project's folder, given an input above the cap,
-    /// its version holding a step that needs a project's repository.
+    /// A person's start in a project session, given an input above the cap, its version holding a
+    /// step that needs a project's repository.
     ManualWithALargeInput,
 }
 
@@ -479,7 +542,8 @@ enum WrittenStart {
 /// own folder named without its id, or not made; a large input carried inline (its event refused,
 /// or no artifact); the folder made for a session that has one; the row's start and the event's
 /// instant read from the clock apart (killed when the two readings fall in different milliseconds);
-/// a step that needs a repository refused in a project's folder.
+/// a step that needs a repository refused in a project session; the creation's execution context
+/// left `None` (no row), or written at another instant than the run's start.
 #[rstest]
 #[case::a_trigger_joining_a_chain(WrittenStart::TriggerJoiningAChain)]
 #[case::a_manual_start_with_a_large_input(WrittenStart::ManualWithALargeInput)]
@@ -537,7 +601,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
         WrittenStart::ManualWithALargeInput => {
             let fixture = Fixture::new(
                 &body(None, &json!([git_node()])),
-                TestSession::WithFolder,
+                TestSession::Project,
                 None,
             )
             .await;
@@ -584,14 +648,32 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 serde_json::to_value(&artifact).expect("a payload ref writes as JSON")
             );
             assert_eq!(started_at, occurred_at);
-            assert_eq!(run.scope.working_folder, session_folder(&fixture.database));
+            assert_eq!(run.scope.working_folder, fixture.roots.repository);
             assert!(!fixture.data_folder().join("workflows").exists());
+            let workspace_id: String = fixture
+                .rows
+                .query_row(
+                    "SELECT id FROM workspaces WHERE session_id = ?1",
+                    [TEST_SESSION_ID],
+                    |row| row.get(0),
+                )
+                .expect("the session's workspace is stored");
+            assert_eq!(
+                fixture.execution_context(run.scope.run_id),
+                Some((
+                    workspace_id,
+                    fixture.roots.repository.to_string_lossy().into_owned(),
+                    started_at,
+                    None
+                ))
+            );
         }
     }
 }
 
-/// Mutations: pins taken for a trigger run, or dropped for a manual one; the trigger left out of
-/// the nodes or the version's nodes dropped; the scope's start read from the clock apart from the
+/// The run works in a chat's folder. Mutations: pins taken for a trigger run, or dropped for a
+/// manual one; a chat's run bound and given an execution context; the trigger left out of the
+/// nodes or the version's nodes dropped; the scope's start read from the clock apart from the
 /// event's instant; the provider read from anywhere but the workflow, or the run's row or started
 /// event left without it; a start with no provider refused though no step runs in a sandbox; kept
 /// values not read.
@@ -637,6 +719,8 @@ async fn the_start_scope_holds_the_pinned_version_and_its_pins(
     );
 
     let scope = &run.scope;
+    // A chat's folder is no project's checkout, so the run records no execution context.
+    assert_eq!(fixture.execution_context(scope.run_id), None);
     let mut node_ids: Vec<&str> = scope.nodes.keys().map(WorkflowNodeId::as_str).collect();
     node_ids.sort_unstable();
     assert_eq!(node_ids, ["review", "start"]);
@@ -722,4 +806,50 @@ async fn a_failed_scope_read_writes_no_run() {
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     assert_eq!(fixture.payloads.writes(), Vec::new());
+}
+
+/// A project session whose workspace is still `preparing` reads no working folder, so the start's
+/// binding makes its root, the run works there and records it, and its steps take the project's
+/// own environment rows. Mutations: the folder read from the session before the binding (the run
+/// works in its own folder); the rows read from the session's folder, which names no repository
+/// yet (none are taken); the context left out of the creation write.
+#[tokio::test]
+async fn a_project_sessions_start_binds_its_preparing_workspace() {
+    let fixture = Fixture::new(
+        &body(None, &json!([git_node()])),
+        TestSession::PreparingProject,
+        None,
+    )
+    .await;
+    fixture
+        .rows
+        .execute(
+            "UPDATE projects SET environment_rows = '[{\"name\":\"REGION\",\"value\":\"eu\"}]' \
+             WHERE id = ?1",
+            [REPOSITORY_MOUNT_ID],
+        )
+        .expect("the test sets the project's environment rows");
+
+    let run = started(
+        fixture
+            .starter
+            .start(start(
+                WorkflowStartArrival::Person,
+                WorkflowRunChainPlace::Starts {},
+                Vec::new(),
+            ))
+            .await,
+    );
+
+    let repository = fixture.roots.repository.to_string_lossy().into_owned();
+    assert_eq!(run.scope.working_folder, fixture.roots.repository);
+    assert_eq!(
+        serde_json::to_value(&*run.scope.environment_rows).expect("rows write as JSON"),
+        json!([{ "name": "REGION", "value": "eu" }])
+    );
+    let (_, root, _, released_at) = fixture
+        .execution_context(run.scope.run_id)
+        .expect("the run records its execution context");
+    assert_eq!((root, released_at), (repository, None));
+    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
 }

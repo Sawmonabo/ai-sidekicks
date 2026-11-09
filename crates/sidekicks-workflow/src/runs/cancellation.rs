@@ -19,7 +19,7 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::engine::results::{results_posted_event, run_posts_results};
-use crate::runs::record::end_run_row;
+use crate::runs::record::end_run_statements;
 use crate::runs::step_rows::CLEAR_WAIT_COLUMNS_SQL;
 
 /// A cancel as the run's rows record it.
@@ -74,7 +74,7 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 )]
 pub(crate) struct WorkflowRunCancellationWrite {
     /// The statements that apply the cancel.
-    pub(crate) statements: [WriteStatement; 2],
+    pub(crate) statements: [WriteStatement; 3],
     /// The run's results event, with its summary line, appended after its canceled event in the
     /// same write, for a run whose mode posts its results.
     pub(crate) results_posted: Option<SessionEvent>,
@@ -85,9 +85,10 @@ const RUN_RESULTS_POST_SQL: &str =
     "SELECT session_id, mode, summary FROM workflow_runs WHERE id = ?1";
 
 /// The write of `cancellation`, the run's session, mode and summary read on `connection`; `None`
-/// when no row has the run. Its statements end the run's row `canceled` through [`end_run_row`],
-/// its open wait on people closed, every step still running, waiting or held by the memory gate
-/// reads `canceled` with the same end, and no step of the run keeps a wait cause, wait start,
+/// when no row has the run. Its statements end the run's row `canceled` through
+/// [`end_run_statements`], its open wait on people closed and its execution context released,
+/// every step still running, waiting or held by the memory gate reads `canceled` with the same
+/// end, and no step of the run keeps a wait cause, wait start,
 /// resume instant, deadline, wait id or spent account; the write is refused, changing nothing,
 /// unless the run is still going or parked on a failed step. A run whose mode posts its results
 /// posts them as its ending in the tick would; a retry's retried mode is not on its row, so a
@@ -126,14 +127,16 @@ pub(crate) fn workflow_run_cancellation_statements(
 }
 
 /// The statements that apply `cancellation`, as [`workflow_run_cancellation_statements`] says.
-fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStatement; 2] {
+fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStatement; 3] {
+    let [end_row, release_context] = end_run_statements(
+        cancellation.workflow_run_id,
+        WorkflowRunStatus::Canceled,
+        &cancellation.finished_at,
+        cancellation.error.as_ref(),
+    );
     [
-        end_run_row(
-            cancellation.workflow_run_id,
-            WorkflowRunStatus::Canceled,
-            &cancellation.finished_at,
-            cancellation.error.as_ref(),
-        ),
+        end_row,
+        release_context,
         WriteStatement {
             sql: Cow::Borrowed(CANCEL_STEPS_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
@@ -168,7 +171,8 @@ mod tests {
     use crate::engine::results::results_posted_event;
     use crate::schema::schema_parts;
     use crate::test_rows::{
-        TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
+        TEST_SESSION_ID, TestStep, execution_context_released_at, insert_live_execution_context,
+        insert_run, insert_step, insert_workflow_version,
     };
 
     const CANCELED_AT: &str = "2026-10-02T00:10:00.000Z";
@@ -287,8 +291,9 @@ mod tests {
         assert!(missing.is_none(), "no row has the run");
     }
 
-    /// Mutation: drop the run's status guard, so the cancel overwrites the end of a run that has
-    /// already ended and clears nothing less.
+    /// The cancel's write also releases the going run's execution context at its end. Mutations:
+    /// drop the run's status guard, so the cancel overwrites the end of a run that has already
+    /// ended and clears nothing less; drop the context's release from the run's end.
     #[tokio::test]
     async fn a_cancel_clears_every_wait_of_a_going_run_and_never_touches_an_ended_one() {
         let database = TestDatabase::new(schema_parts());
@@ -343,6 +348,7 @@ mod tests {
             "2026-10-02T00:00:00.000Z",
             Some(ENDED_AT),
         );
+        insert_live_execution_context(&rows, WAITING_RUN_ID, TEST_SESSION_ID);
 
         writer
             .write(statements(&rows, WAITING_RUN_ID))
@@ -358,6 +364,10 @@ mod tests {
         assert_eq!(
             run_status_and_end(&rows, WAITING_RUN_ID),
             ("canceled".to_owned(), Some(CANCELED_AT.to_owned()))
+        );
+        assert_eq!(
+            execution_context_released_at(&rows, WAITING_RUN_ID),
+            Some(CANCELED_AT.to_owned())
         );
         let canceled = Some(CANCELED_AT.to_owned());
         let settled = |status: &str, finished_at: Option<String>| {

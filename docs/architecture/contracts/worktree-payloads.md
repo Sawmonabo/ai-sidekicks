@@ -76,7 +76,7 @@ type WorktreeStatusRecord = (
       baseBranchName: string; // the branch it was cut from (`off <base>`)
       state: Exclude<WorktreeState, "retired">;
       createdBySessionId: SessionId;
-      createdByRunId?: RunId; // absent for a tree prepared before any run
+      createdByRunId?: RunId; // absent for a tree prepared before any run or made by a workflow run's start, whose context row records it
       createdAt: string;
       updatedAt: string;
     }
