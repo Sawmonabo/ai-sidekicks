@@ -362,11 +362,10 @@ async fn a_resting_copy_s_rows_are_priced_at_its_model_and_declared_tier(
     let session_id = new_session_id();
     let asked = async {
         match copy {
-            RestingCopy::SideQuestion => {
-                driver
-                    .ask_side_question(resting_question(session_id, folder.path()))
-                    .await
-            }
+            RestingCopy::SideQuestion => driver
+                .ask_side_question(resting_question(session_id, folder.path()))
+                .await
+                .map(|_answer| ()),
             RestingCopy::HandOver => driver
                 .export_handover_brief(ExportHandoverBriefParams {
                     session_id,
