@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::time::{Duration, SystemTime};
 
 use jiff::Timestamp;
@@ -14,18 +15,19 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use tokio::time::timeout;
 
-use crate::engine::chain::KeepGoingAnswer;
 use crate::engine::ports::WorkflowRunSnapshotPointRequest;
 use crate::engine::tick::turns::tests::harness::ports::OrderedCall;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::engine::waits::answers::{EngineAnswers, WaitAnswerError};
 use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 use crate::kinds::{StepFailure, uncoded_step_error};
-use crate::runs::gate_resolution::tests::gate_answer;
+use crate::runs::gate_resolution::tests::{gate_answer, with_card_answer};
 use crate::test_rows::{TestStep, insert_chain_run, insert_step, insert_workflow_version};
 
 /// The deadline the step of `node_id` waits until, as its row stores it.
@@ -213,6 +215,89 @@ async fn the_first_of_an_answer_and_the_deadline_settles_the_wait(#[case] is_ans
         events,
         "a refused answer writes nothing"
     );
+}
+
+/// A card's answer through the engine's door settles its step in one write at the answer's own
+/// instant: the card's statements, then its `approval.approved` or `approval.rejected` just ahead
+/// of `workflow.gate.resolved` and the step's resume, the items down the branch the answer chose. Kills: the instant taken from the clock; the card's statements or its
+/// event left out of the step's write; the card's event after the gate's.
+#[rstest]
+#[case::approved(ApprovalDecision::Approved)]
+#[case::rejected(ApprovalDecision::Rejected)]
+#[tokio::test]
+async fn a_cards_answer_settles_its_step_in_one_write_at_its_instant(
+    #[case] decision: ApprovalDecision,
+) {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("approve", "test.approve", 1, None),
+            ],
+            &[edge("trigger", "approve", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "approve", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    let card_table = "CREATE TABLE settled_cards (approval_request_id TEXT NOT NULL)";
+    harness
+        .rows
+        .execute(card_table, [])
+        .expect("the card table");
+    let run_id = harness.scope.run_id.text().as_str().to_owned();
+    let gate = gate_answer(&run_id, 1, WorkflowGateKind::HumanApproval, decision);
+    let resolved_at = gate.resolved_at.as_str().to_owned();
+    let (gate, mut card) = with_card_answer(gate, harness.scope.session_id);
+    card.statements.push(WriteStatement {
+        sql: Cow::Borrowed("INSERT INTO settled_cards (approval_request_id) VALUES (@id)"),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@id",
+            gate.approval_request_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
+    });
+
+    let answers = EngineAnswers::new(harness.inbox.clone());
+    let answered = answers.answer_gate(harness.wait_id("approve"), gate, card);
+    let answered = timeout(WAIT, answered).await;
+    answered
+        .expect("the loop replies in time")
+        .expect("the card's answer settles the step");
+
+    assert_eq!(harness.status("approve").as_deref(), Some("succeeded"));
+    let settled: i64 = harness
+        .rows
+        .query_row("SELECT count(*) FROM settled_cards", [], |row| row.get(0))
+        .expect("the test counts the settled cards");
+    assert_eq!(settled, 1);
+    let (card_event, counts) = match decision {
+        ApprovalDecision::Approved => ("approval.approved", json!([1, 0])),
+        ApprovalDecision::Rejected => ("approval.rejected", json!([0, 1])),
+    };
+    let events = harness.events();
+    let first = events
+        .iter()
+        .position(|(_, event_type, _, _)| event_type == card_event)
+        .expect("the card's answer is written");
+    let written: Vec<(&str, &str)> = events[first..first + 3]
+        .iter()
+        .map(|(_, event_type, at, _)| (event_type.as_str(), at.as_str()))
+        .collect();
+    assert_eq!(
+        written,
+        [
+            (card_event, resolved_at.as_str()),
+            ("workflow.gate.resolved", resolved_at.as_str()),
+            ("workflow.phase.resumed", resolved_at.as_str()),
+        ]
+    );
+    let (_, _, _, completed) = harness.event("workflow.step.completed", "approve");
+    assert_eq!(completed["outputItemCounts"], counts);
 }
 
 /// An ask that cannot be raised fails its step through the step's error setting, here a park,
@@ -696,21 +781,22 @@ async fn keep_going_through_the_inbox_answers_once_its_write_commits() {
         "2026-10-02T00:00:00.000Z",
         None,
     );
-    let root = WorkflowRunId::new(ROOT_RUN_ID).expect("the test's run id");
+    let answers = EngineAnswers::new(harness.inbox.clone());
     let keep_going = || {
-        KeepGoingAnswer::new(
-            &root,
-            gate_answer(
-                ROOT_RUN_ID,
-                1,
-                WorkflowGateKind::Chain,
-                ApprovalDecision::Approved,
-            ),
-        )
-        .expect("an approval of the first run's question keeps it going")
+        let gate = gate_answer(
+            ROOT_RUN_ID,
+            1,
+            WorkflowGateKind::Chain,
+            ApprovalDecision::Approved,
+        );
+        let (gate, card) = with_card_answer(gate, harness.scope.session_id);
+        timeout(WAIT, answers.keep_going(gate, card))
     };
 
-    assert_eq!(harness.keep_going(keep_going()).await, Ok(Ok(())));
+    keep_going()
+        .await
+        .expect("the loop replies in time")
+        .expect("the chain's question is kept going");
     let kept_going: i64 = harness
         .rows
         .query_row(
@@ -727,9 +813,13 @@ async fn keep_going_through_the_inbox_answers_once_its_write_commits() {
         .expect("the answer is stored");
     assert_eq!(resolved.get("nodeId"), None);
 
-    assert_eq!(
-        harness.keep_going(keep_going()).await,
-        Ok(Err(PersonWaitRefusal::NotWaiting))
+    let again = keep_going().await.expect("the loop replies in time");
+    assert!(
+        matches!(
+            again,
+            Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting))
+        ),
+        "{again:?}"
     );
     assert_eq!(harness.events().len(), events.len());
     assert_eq!(harness.record_lines("keepGoingFailed").len(), 0);

@@ -1,5 +1,5 @@
 //! The tick's run endings: every step settling, `flow.stopError`, the run cap and a person's
-//! cancel, each checked on its rows and events.
+//! cancel, each checked on its rows and events, and the card of an approval wait a cancel ends.
 
 use std::collections::BTreeMap;
 
@@ -7,19 +7,24 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use tokio::time::timeout;
 
 use crate::engine::tick::turns::ending::RunCancelRefusal;
+use crate::engine::tick::turns::tests::harness::ports::WithdrawnCard;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, edge, item, node, step_column,
 };
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::engine::waits::PersonWaitAnswer;
 use crate::kinds::{PersonAsk, PersonWait};
+use crate::runs::gate_resolution::tests::gate_answer;
 use crate::test_rows::{execution_context_released_at, insert_live_execution_context};
 
 /// The key of the step of `node_id`, read from its row.
@@ -770,4 +775,87 @@ async fn a_cancel_ends_a_run_parked_on_its_failure_alone() {
 
     assert_eq!(run_row(&harness.rows).0, "canceled");
     assert_eq!(harness.status("F").as_deref(), Some("failed"));
+}
+
+/// How the test's approval wait ends.
+#[derive(Clone, Copy, Debug)]
+enum ApprovalWaitEnding {
+    /// A person's cancel of its run.
+    Canceled,
+    /// An approval of its card.
+    Answered,
+}
+
+/// A cancel of a run waiting on an approval withdraws the wait's card once, after the write that
+/// ends the wait commits, its intent and outcome recorded; an answered approval withdraws none.
+/// Kills: the withdraw not queued in `report_settlement`; the withdraw made before the write; an
+/// answer's settlement queuing one.
+#[rstest]
+#[case::canceled(ApprovalWaitEnding::Canceled)]
+#[case::answered(ApprovalWaitEnding::Answered)]
+#[tokio::test]
+async fn an_approval_wait_ended_unanswered_withdraws_its_card_after_its_write(
+    #[case] ending: ApprovalWaitEnding,
+) {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("approve", "test.approve", 1, None),
+            ],
+            &[edge("trigger", "approve", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "approve", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    let wait_id = harness.wait_id("approve");
+
+    let expected = match ending {
+        ApprovalWaitEnding::Canceled => {
+            let replied = harness.cancel("Not needed any more").await;
+            timeout(WAIT, replied)
+                .await
+                .expect("the loop replies in time")
+                .expect("the loop keeps the reply")
+                .expect("the cancel is taken");
+            vec![WithdrawnCard {
+                wait_id,
+                is_wait_stored: false,
+            }]
+        }
+        ApprovalWaitEnding::Answered => {
+            let run_id = harness.scope.run_id.text().as_str().to_owned();
+            let decision = ApprovalDecision::Approved;
+            let gate = gate_answer(&run_id, 1, WorkflowGateKind::HumanApproval, decision);
+            let answer = PersonWaitAnswer::Approval(decision);
+            assert_eq!(
+                harness.answer(wait_id, answer, Some(gate)).await,
+                Ok(Ok(()))
+            );
+            Vec::new()
+        }
+    };
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(harness.asks.withdrawn(), expected);
+    let intents = harness.record_lines("withdrawingCard");
+    assert_eq!(intents.len(), expected.len());
+    for intent in &intents {
+        assert_eq!(intent["waitId"], json!(wait_id));
+        let outcomes: Vec<Value> = harness
+            .records
+            .lines()
+            .into_iter()
+            .filter(|line| {
+                line["phase"] == json!("outcome") && line["intentSequence"] == intent["sequence"]
+            })
+            .map(|line| line["record"].clone())
+            .collect();
+        assert_eq!(outcomes, [json!("done")]);
+    }
 }

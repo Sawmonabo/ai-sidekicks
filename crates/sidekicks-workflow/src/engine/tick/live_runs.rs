@@ -1,7 +1,8 @@
 //! What the tick keeps of each run it drives between turns: the run's walk, what its steps
 //! recorded, each of its steps still to settle with what its failure route reads and how it is
 //! stopped, the waves of its steps winding down, how a failure stopped it, the approval asks
-//! waiting on their pause points, and what reached the run while it paused.
+//! waiting on their pause points, the approval cards to withdraw once its write commits, and what
+//! reached the run while it paused.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,7 +44,7 @@ use crate::runs::gate_resolution::RunEventKeys;
 /// `Set variables`, its steps still to settle, the reports its last dispatch
 /// answered, which open its next turn, its step counts and person-wait columns as its last write
 /// left them, the waves of its steps winding down, how a failure stopped it and the ending it
-/// decided, and its approval pauses.
+/// decided, its approval pauses, and the cards of the approval waits its turn ended unanswered.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct LiveRun {
     /// What the run's steps share.
@@ -99,6 +100,9 @@ pub(crate) struct LiveRun {
     /// The approval asks of the run's pause, each waiting on its point; all are asked once the
     /// last of their points ends.
     pub(crate) pausing: Vec<TurnAsk>,
+    /// The approval waits the run's turn ended unanswered, each with its step, whose cards are
+    /// withdrawn once the turn's write commits; a refused write drops them with the run.
+    pub(crate) withdrawn_cards: Vec<(WorkflowStepKey, UuidTextForm)>,
     /// What reached the run while it paused, taken by the turn its last pause point's end opens.
     pub(crate) held: HeldTurn,
 }
@@ -256,6 +260,7 @@ impl LiveRun {
             epoch: WorkflowRunEpoch(SafeInt::ZERO),
             approval_pauses: 0,
             pausing: Vec::new(),
+            withdrawn_cards: Vec::new(),
             held: HeldTurn {
                 answers: Vec::new(),
                 reports: Vec::new(),

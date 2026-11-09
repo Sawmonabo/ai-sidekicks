@@ -1,8 +1,8 @@
 //! The run's own share of a turn's write: the status its steps leave it in, stored with its
 //! person-wait columns and recorded by the run event the move implies, the write's last, or the
-//! run's ending in its place; the two moves that take a step out of a wait, a gate's answer and
-//! the step's resume, which a person's answer and Keep going share; and the mark that settles a
-//! form or reply wait's question in the write that ends the wait.
+//! run's ending in its place; the two moves that take a step out of a wait, a gate's answer with
+//! its approval card's, and the step's resume, which a person's answer and Keep going share; and
+//! the mark that settles a form or reply wait's question in the write that ends the wait.
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
@@ -28,7 +28,7 @@ use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
     run_status_statement, run_version_statement,
 };
-use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolved_payload};
+use crate::runs::gate_resolution::{ApprovalCardAnswer, WorkflowGateAnswer, gate_resolved_payload};
 use crate::runs::record::end_run_statements;
 use crate::runs::step_rows;
 
@@ -45,15 +45,23 @@ pub(crate) struct RunLiveStep<'tick> {
 }
 
 impl RunTurnCommit {
-    /// Writes `statements`, a gate answer's row and what its write guards, then `answer`'s
-    /// `workflow.gate.resolved` at `at`; the answer is recorded once the write commits.
+    /// Writes `statements`, a gate answer's row and what its write guards, then `card`'s statements
+    /// that settle the approval card; appends the card's answer event, then `answer`'s
+    /// `workflow.gate.resolved`, both at `at`. The answer is recorded once the write commits.
     pub(crate) fn answer_gate(
         &mut self,
         answer: &WorkflowGateAnswer,
+        card: ApprovalCardAnswer,
         statements: Vec<WriteStatement>,
         at: &WireInstant,
     ) {
+        let ApprovalCardAnswer {
+            statements: card_statements,
+            event: card_event,
+        } = card;
         self.statements.extend(statements);
+        self.statements.extend(card_statements);
+        self.push(at, card_event);
         self.push(
             at,
             SessionEvent::WorkflowGateResolved(gate_resolved_payload(answer, self.keys)),

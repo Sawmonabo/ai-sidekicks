@@ -1,6 +1,7 @@
 //! The report path of the tick's loop: each report first offered to its run's waves, then added
 //! to its run's turn, a settlement's payload failure failed in its place, a form or reply wait the
-//! settlement ends unanswered marked on its question, and what each settlement answers followed.
+//! settlement ends unanswered marked on its question and an approval wait's card queued for its
+//! withdrawal, and what each settlement answers followed.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -154,16 +155,17 @@ impl EngineTick {
     /// payload cannot be stored fails its step with that error in its place, and a failure whose
     /// passed-on output cannot be stored either ends the run, which stores nothing more. A step
     /// still waiting on a form or a reply has its question marked once, after the settlement that
-    /// lands: timed out where the step's own `Timeout` failed it, else ended.
+    /// lands: timed out where the step's own `Timeout` failed it, else ended. A step still waiting
+    /// on an approval has its card queued on the run, withdrawn once the turn's write commits.
     pub(super) async fn report_settlement(
         &self,
-        live: &LiveRun,
+        live: &mut LiveRun,
         commit: &mut RunTurnCommit,
         report: StepReport,
     ) -> SettlementAnswer {
         let step = report.step.clone();
         let at = report.at.clone();
-        let ended_wait = ended_question_wait(live, &report);
+        let ended_wait = ended_person_wait(live, &report);
         let answer = match commit.report(report, self.reported(live, &step)).await {
             Ok(answer) => answer,
             Err(failure) => {
@@ -184,8 +186,12 @@ impl EngineTick {
                 }
             }
         };
-        if let Some((wait_id, outcome)) = ended_wait {
-            commit.settle_wait_question(&wait_id, outcome, &at);
+        match ended_wait {
+            Some(EndedPersonWait::Question { wait_id, outcome }) => {
+                commit.settle_wait_question(&wait_id, outcome, &at);
+            }
+            Some(EndedPersonWait::Card { wait_id }) => live.withdrawn_cards.push((step, wait_id)),
+            None => {}
         }
         answer.expect("a settlement answers")
     }
@@ -371,13 +377,29 @@ impl EngineTick {
         }
     }
 
-    /// Asks the person each of `asks`, opened by the run of `live` in the turn whose write just
-    /// committed, whose step still waits under its wait: an approval whose pause point is not
-    /// taken yet starts its point on its own task and waits on the run, asked once the point
-    /// ends; otherwise the intent recorded, the card raised or the question opened, and the
-    /// outcome recorded. A failed ask fails its step with the port's error, its report queued on
-    /// the run's next batch, which routes it by the step's error setting.
+    /// Withdraws the cards the turn whose write just committed queued on the run of `live`, each
+    /// with its intent and outcome recorded, a failed one left to the restart's settle; then asks
+    /// the person each of `asks`, opened by that turn, whose step still waits under its wait: an
+    /// approval whose pause point is not taken yet starts its point on its own task and waits on
+    /// the run, asked once the point ends; otherwise the intent recorded, the card raised or the
+    /// question opened, and the outcome recorded. A failed ask fails its step with the port's
+    /// error, its report queued on the run's next batch, which routes it by the step's error
+    /// setting.
     pub(super) async fn ask_people(&mut self, live: &mut LiveRun, asks: Vec<TurnAsk>) {
+        for (step, wait_id) in std::mem::take(&mut live.withdrawn_cards) {
+            let intent = EngineIntent::WithdrawingCard { wait_id };
+            let pending = live.record.intent(Some(&step), intent).await;
+            let outcome = match self
+                .person_waits
+                .cards
+                .withdraw(live.scope.session_id, wait_id)
+                .await
+            {
+                Ok(()) => EngineOutcome::Done,
+                Err(_failed) => EngineOutcome::Failed { code: None },
+            };
+            live.record.outcome(pending, outcome).await;
+        }
         for turn_ask in asks {
             let is_waiting = live
                 .steps
@@ -650,22 +672,34 @@ pub(super) async fn sort_losers(
     siblings
 }
 
-/// The wait whose question the settlement `report` ends unanswered, with how: its step still
-/// waits on a form or a reply, and the step's own `Timeout` failing it reads timed out while
+/// A person wait a settlement ends unanswered.
+enum EndedPersonWait {
+    /// A form's or a reply's, whose question is marked with how it ended.
+    Question {
+        /// The wait.
+        wait_id: UuidTextForm,
+        /// How it ended.
+        outcome: QuestionWaitOutcome,
+    },
+    /// An approval's, whose card is withdrawn once the write commits.
+    Card {
+        /// The wait.
+        wait_id: UuidTextForm,
+    },
+}
+
+/// The person wait the settlement `report` ends unanswered: its step still waits on an approval,
+/// or on a form or a reply, where the step's own `Timeout` failing it reads timed out while
 /// anything else, the run cap's cut among them, reads ended. `None` for any other step, an answered
 /// one included, since its answer cleared its wait before its settlement.
-fn ended_question_wait(
-    live: &LiveRun,
-    report: &StepReport,
-) -> Option<(UuidTextForm, QuestionWaitOutcome)> {
+fn ended_person_wait(live: &LiveRun, report: &StepReport) -> Option<EndedPersonWait> {
     let live_step = live.steps.get(&report.step.execution_index.get())?;
+    let wait_id = live_step.wait_id?;
     match live_step.wait_cause? {
         WorkflowWaitCause::Form | WorkflowWaitCause::Reply => {}
-        WorkflowWaitCause::Approval | WorkflowWaitCause::Account | WorkflowWaitCause::Chain => {
-            return None;
-        }
+        WorkflowWaitCause::Approval => return Some(EndedPersonWait::Card { wait_id }),
+        WorkflowWaitCause::Account | WorkflowWaitCause::Chain => return None,
     }
-    let wait_id = live_step.wait_id?;
     let outcome = if matches!(
         &report.kind,
         StepReportKind::Settled(StepSettlement::Failed {
@@ -677,7 +711,7 @@ fn ended_question_wait(
     } else {
         QuestionWaitOutcome::Ended
     };
-    Some((wait_id, outcome))
+    Some(EndedPersonWait::Question { wait_id, outcome })
 }
 
 /// Whether `error` is the failure the step's own `Timeout` gives: `workflow.step.timedOut` with

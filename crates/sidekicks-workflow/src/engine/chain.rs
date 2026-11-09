@@ -31,7 +31,9 @@ use tokio::sync::oneshot;
 use crate::engine::ports::WorkflowApprovalCardRequest;
 use crate::engine::tick::commit::RunTurnCommit;
 use crate::engine::waits::{PersonWaitRefusal, step_key};
-use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolution_statement};
+use crate::runs::gate_resolution::{
+    ApprovalCardAnswer, RunEventKeys, WorkflowGateAnswer, gate_resolution_statement,
+};
 
 /// What a chain's question names, read from the chain's first run.
 #[derive(Clone, Debug, PartialEq)]
@@ -78,13 +80,6 @@ pub(crate) struct KeepGoingAnswer(WorkflowGateAnswer);
 
 /// Why an answer cannot keep its chain going.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start's handlers and the tick, which ask and answer a chain's question"
-    )
-)]
 pub(crate) enum KeepGoingRefusal {
     /// The answer stops the chain rather than keeping it going.
     #[error("the answer does not approve the chain's question")]
@@ -100,13 +95,6 @@ pub(crate) enum KeepGoingRefusal {
 impl KeepGoingAnswer {
     /// `answer` as the `Keep going` of the chain whose first run is `root`. Refused unless it is
     /// on `root`, answers the chain's question and approves it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the start's handlers and the tick, which ask and answer a chain's question"
-        )
-    )]
     pub(crate) fn new(
         root: &WorkflowRunId,
         answer: WorkflowGateAnswer,
@@ -136,8 +124,9 @@ impl KeepGoingAnswer {
     }
 }
 
-/// A `Keep going` as the tick's inbox takes it: the answer, when it was given, and where the tick
-/// replies once its write commits, or refused because the chain has no question left to answer.
+/// A `Keep going` as the tick's inbox takes it: the answer, the approval card's own answer, when
+/// it was given, and where the tick replies once its write commits, or refused because the chain
+/// has no question left to answer.
 #[cfg_attr(
     not(test),
     expect(
@@ -148,6 +137,8 @@ impl KeepGoingAnswer {
 pub(crate) struct KeepGoingIntake {
     /// The answer that keeps the chain going.
     pub(crate) answer: KeepGoingAnswer,
+    /// The chain card's own answer, settled in the same write.
+    pub(crate) card: ApprovalCardAnswer,
     /// When the person answered.
     pub(crate) at: WireInstant,
     /// Where the tick replies.
@@ -308,8 +299,9 @@ fn grouped_thousands(count: u64) -> String {
     grouped
 }
 
-/// The card that asks `question` as `prompt`, raised on the chain's first run, in its session and
-/// under [`chain_wait_id`]; it names no step, since the question belongs to the run.
+/// The card that asks `question` as `prompt`, raised on the chain's first run, in its session,
+/// under [`chain_wait_id`] and the workflow's name; it names no step, since the question belongs to
+/// the run.
 #[cfg_attr(
     not(test),
     expect(
@@ -324,6 +316,7 @@ pub(crate) fn chain_card_request(
     WorkflowApprovalCardRequest {
         session_id: question.keys.session_id,
         run_id: question.root,
+        workflow_name: question.workflow_name.clone(),
         step: None,
         wait_id: chain_wait_id(&question.root),
         prompt,
@@ -388,8 +381,8 @@ pub(crate) fn read_chain_held_steps(
 
 /// Keep going's write of `answer` at `at` over `commits`, one fresh turn of each run it touches,
 /// the chain's first run's among them: the first run's turn first, holding the kept-going update
-/// and the answer's row ahead of every other statement and `workflow.gate.resolved` with no node,
-/// then each of `held` resumed in its run's turn. Each turn's status move is drafted as it
+/// and the answer's row ahead of every other statement, then `card`'s settle, its answer event and
+/// `workflow.gate.resolved` with no node, then each of `held` resumed in its run's turn. Each turn's status move is drafted as it
 /// commits; the caller commits them together with [`RunTurnCommit::append_together`], whose
 /// refusal at [`KEEP_GOING_STATEMENT_INDEX`] means the chain has no question left to answer.
 #[cfg_attr(
@@ -401,6 +394,7 @@ pub(crate) fn read_chain_held_steps(
 )]
 pub(crate) fn keep_going_write(
     answer: &KeepGoingAnswer,
+    card: ApprovalCardAnswer,
     mut commits: Vec<RunTurnCommit>,
     held: &[ChainHeldStep],
     at: &WireInstant,
@@ -411,7 +405,7 @@ pub(crate) fn keep_going_write(
         .position(|commit| commit.run_id() == gate.workflow_run_id)
         .expect("the chain's first run has its turn");
     commits[..=root].rotate_right(1);
-    commits[0].answer_gate(gate, keep_going_statements(answer), at);
+    commits[0].answer_gate(gate, card, keep_going_statements(answer), at);
     for held_step in held {
         commits
             .iter_mut()

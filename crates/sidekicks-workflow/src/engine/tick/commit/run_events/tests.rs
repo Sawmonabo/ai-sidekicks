@@ -35,7 +35,7 @@ use crate::engine::waits::answers::{PersonWaitIntake, answered_step};
 use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal, WaitingPersonStep};
 use crate::kinds::{StepFailure, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
-use crate::runs::gate_resolution::tests::gate_answer;
+use crate::runs::gate_resolution::tests::{gate_answer, with_card_answer};
 use crate::test_rows::{TEST_NODE_ID, TEST_SESSION_ID, TestStep, insert_chain_run, insert_step};
 
 const T0: &str = "2026-10-02T00:10:00.000Z";
@@ -43,6 +43,11 @@ const T90: &str = "2026-10-02T00:11:30.000Z";
 const RUN_ID_TEXT: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
 const OTHER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e90";
 const OTHER_SESSION_ID: &str = "00000000-0000-7000-8000-0000000000aa";
+
+/// The session the test's first run lives in.
+fn test_session_id() -> SessionId {
+    SessionId::new(TEST_SESSION_ID).expect("the test's session id")
+}
 
 /// The wait columns of the step at `execution_index` in `run`, each as stored text or NULL.
 fn wait_columns(harness: &TurnHarness, run: &str, execution_index: u32) -> Vec<Option<String>> {
@@ -205,7 +210,8 @@ async fn a_run_waits_resumes_and_counts_only_time_waiting_on_people(
             ApprovalDecision::Approved,
         );
         let row = crate::runs::gate_resolution::gate_resolution_statement(&answer);
-        resumes.answer_gate(&answer, vec![row], &instant(T90));
+        let (answer, card) = with_card_answer(answer, test_session_id());
+        resumes.answer_gate(&answer, card, vec![row], &instant(T90));
         resumes.resume_step(&waiting, Some(&wait_id), cause, &instant(T90));
     }
     let running = RunLiveStep {
@@ -227,6 +233,7 @@ async fn a_run_waits_resumes_and_counts_only_time_waiting_on_people(
         &["workflow.phase.resumed", "workflow.run.resumed"]
     } else {
         &[
+            "approval.approved",
             "workflow.gate.resolved",
             "workflow.phase.resumed",
             "workflow.run.resumed",
@@ -271,13 +278,14 @@ enum AnswerCase {
     LeftTheWait,
 }
 
-/// An answer resumes its step in its turn, in the order an answer writes: an approval's
-/// `gate.resolved` and its row, then `phase.resumed`, then the settlement's events, its input on
-/// the `approved` handle; a form's writes no `gate.resolved`. An answer at its deadline, of another
-/// kind, an approval whose gate answer is missing or differs, and a form carrying one are refused
-/// `NotWaiting` with nothing written; one whose row left the wait refuses the write at the resume
-/// statement, nothing stored. Mutations: an answer at its deadline written; a resume not keyed on
-/// the wait id; `gate.resolved` on a form; the gate answer not checked.
+/// An answer resumes its step in its turn, in the order an answer writes: an approval's card
+/// answer, its `gate.resolved` and its row, then `phase.resumed`, then the settlement's events,
+/// its input on the `approved` handle; a form's writes no `gate.resolved` and settles its question
+/// after its resume. An answer at its deadline, of another kind, an approval whose gate answer is
+/// missing or differs, and a form carrying one are refused `NotWaiting` with nothing written; one
+/// whose row left the wait refuses the write at the resume statement, nothing stored. Mutations: an answer at its deadline
+/// written; a resume not keyed on the wait id; `gate.resolved` on a form; the gate answer not
+/// checked; the card's event after `gate.resolved`.
 #[rstest]
 #[case::approval_on_time(AnswerCase::ApprovalOnTime)]
 #[case::form_on_time(AnswerCase::FormOnTime)]
@@ -311,12 +319,8 @@ async fn an_answer_resumes_its_step_only_while_its_wait_holds(#[case] case: Answ
         deadline_at: (cause == WorkflowWaitCause::Approval).then(|| instant(T90)),
     };
     let gate = |outcome| {
-        Some(gate_answer(
-            RUN_ID_TEXT,
-            1,
-            WorkflowGateKind::HumanApproval,
-            outcome,
-        ))
+        let gate = gate_answer(RUN_ID_TEXT, 1, WorkflowGateKind::HumanApproval, outcome);
+        Some(with_card_answer(gate, test_session_id()))
     };
     let form = || PersonWaitAnswer::Form(serde_json::Map::from_iter([("ok".to_owned(), json!(1))]));
     let approved = PersonWaitAnswer::Approval(ApprovalDecision::Approved);
@@ -404,7 +408,10 @@ async fn an_answer_resumes_its_step_only_while_its_wait_holds(#[case] case: Answ
     ];
     if matches!(case, AnswerCase::ApprovalOnTime) {
         expected.insert(0, "workflow.gate.resolved");
-        assert_eq!(events[3].3["outputItemCounts"], json!([2, 0]));
+        expected.insert(0, "approval.approved");
+        assert_eq!(events[4].3["outputItemCounts"], json!([2, 0]));
+    } else {
+        expected.insert(1, "question.wait.settled");
     }
     assert_eq!(types, expected);
     assert_eq!(
@@ -415,12 +422,13 @@ async fn an_answer_resumes_its_step_only_while_its_wait_holds(#[case] case: Answ
 }
 
 /// Keep going over two runs of one chain, the first run's held step in its session and the
-/// other's in another, is one write: the kept-going update and the answer's row first,
-/// `gate.resolved` with no node, each held step's `phase.resumed` and each run's
-/// `workflow.run.resumed`, each session's events at its own consecutive sequences; both rows
-/// `running` with no wait column. A second Keep going is refused at the kept-going update and
+/// other's in another, is one write: the kept-going update and the answer's row first, the
+/// card's `approval.approved`, `gate.resolved` with no node, each held step's `phase.resumed` and
+/// each run's `workflow.run.resumed`, each session's events at its own consecutive sequences; both
+/// rows `running` with no wait column. A second Keep going is refused at the kept-going update and
 /// writes nothing in either session. Mutations: a held step left `waiting`; the answer's row
-/// written without the moves; the kept-going update not the write's first statement.
+/// written without the moves; the kept-going update not the write's first statement; the card's
+/// answer left out of the write.
 #[tokio::test]
 async fn keep_going_moves_every_held_step_in_one_write() {
     let harness = TurnHarness::new().await;
@@ -500,7 +508,17 @@ async fn keep_going_moves_every_held_step_in_one_write() {
     };
     let at = instant(T0);
 
-    let turns = keep_going_write(&keep_going(1), fresh_turns(), &held, &at);
+    let card = || {
+        let gate = gate_answer(
+            RUN_ID_TEXT,
+            1,
+            WorkflowGateKind::Chain,
+            ApprovalDecision::Approved,
+        );
+        with_card_answer(gate, test_session_id()).1
+    };
+
+    let turns = keep_going_write(&keep_going(1), card(), fresh_turns(), &held, &at);
     RunTurnCommit::append_together(writes(turns), &harness.appender)
         .await
         .expect("Keep going's write commits");
@@ -512,13 +530,14 @@ async fn keep_going_moves_every_held_step_in_one_write() {
     assert_eq!(
         first_session,
         [
-            (0, "workflow.gate.resolved".to_owned()),
-            (1, "workflow.phase.resumed".to_owned()),
-            (2, "workflow.run.resumed".to_owned()),
+            (0, "approval.approved".to_owned()),
+            (1, "workflow.gate.resolved".to_owned()),
+            (2, "workflow.phase.resumed".to_owned()),
+            (3, "workflow.run.resumed".to_owned()),
         ]
     );
     assert_eq!(
-        session_events(&harness, TEST_SESSION_ID)[0].2.get("nodeId"),
+        session_events(&harness, TEST_SESSION_ID)[1].2.get("nodeId"),
         None
     );
     let other_session: Vec<(i64, String)> = session_events(&harness, OTHER_SESSION_ID)
@@ -546,7 +565,7 @@ async fn keep_going_moves_every_held_step_in_one_write() {
         .expect("the first run's mark reads");
     assert_eq!(kept_going, 1);
 
-    let again = keep_going_write(&keep_going(2), fresh_turns(), &held, &at);
+    let again = keep_going_write(&keep_going(2), card(), fresh_turns(), &held, &at);
     let failure = RunTurnCommit::append_together(writes(again), &harness.appender)
         .await
         .expect_err("a chain answered once refuses a second Keep going");
@@ -554,7 +573,7 @@ async fn keep_going_moves_every_held_step_in_one_write() {
         failure.error.refused_statement_index(),
         Some(KEEP_GOING_STATEMENT_INDEX)
     );
-    assert_eq!(session_events(&harness, TEST_SESSION_ID).len(), 3);
+    assert_eq!(session_events(&harness, TEST_SESSION_ID).len(), 4);
     assert_eq!(session_events(&harness, OTHER_SESSION_ID).len(), 2);
 }
 

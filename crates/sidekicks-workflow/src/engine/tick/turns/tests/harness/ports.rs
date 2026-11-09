@@ -1,5 +1,6 @@
 //! The ports of the tick loop's test harness that keep what the loop calls: the approval cards
-//! and questions it asks, the snapshot points its runs take, and the one order log of both.
+//! and questions it asks, the cards it withdraws, the snapshot points its runs take, and the one
+//! order log of the asks and the points.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -55,11 +56,21 @@ pub(in crate::engine::tick::turns) struct RecordedAsk {
     pub(in crate::engine::tick::turns) run_statuses: Vec<(String, String)>,
 }
 
+/// A card the loop withdrew: its wait, and whether a step row still held the wait at the call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::engine::tick::turns) struct WithdrawnCard {
+    /// The wait the card answered.
+    pub(in crate::engine::tick::turns) wait_id: UuidTextForm,
+    /// Whether a step row held the wait when the withdraw was called.
+    pub(in crate::engine::tick::turns) is_wait_stored: bool,
+}
+
 /// The approval cards and questions of a test, over their own connection to its database: each
-/// call is kept with what the step's row reads at the call, and every call fails while told to.
+/// call is kept with what the step's row reads at the call, and every ask fails while told to.
 pub(in crate::engine::tick::turns) struct RecordingAsks {
     rows: Mutex<Connection>,
     calls: Mutex<Vec<RecordedAsk>>,
+    withdrawn: Mutex<Vec<WithdrawnCard>>,
     is_refusing: AtomicBool,
     order: Arc<OrderLog>,
 }
@@ -70,9 +81,15 @@ impl RecordingAsks {
         Self {
             rows: Mutex::new(rows),
             calls: Mutex::new(Vec::new()),
+            withdrawn: Mutex::new(Vec::new()),
             is_refusing: AtomicBool::new(false),
             order,
         }
+    }
+
+    /// Every card withdrawn, in order.
+    pub(in crate::engine::tick::turns) fn withdrawn(&self) -> Vec<WithdrawnCard> {
+        lock(&self.withdrawn).clone()
     }
 
     /// Makes every later call fail, as a card or question that cannot be written.
@@ -140,6 +157,25 @@ impl ApprovalCardRaiser for RecordingAsks {
         let step = request.step.expect("a step's approval names its step");
         let taken = self.take("approval", step, request.wait_id);
         Box::pin(async move { taken })
+    }
+
+    fn withdraw(
+        &self,
+        _session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<(), PortError>> {
+        let is_wait_stored = lock(&self.rows)
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE wait_id = ?1)",
+                [wait_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the step rows read");
+        lock(&self.withdrawn).push(WithdrawnCard {
+            wait_id,
+            is_wait_stored,
+        });
+        Box::pin(async { Ok(()) })
     }
 }
 

@@ -7,7 +7,7 @@ pub mod attention;
 pub(crate) mod cancellation;
 pub(crate) mod creation;
 pub mod deletion;
-pub(crate) mod gate_resolution;
+pub mod gate_resolution;
 pub(crate) mod invalid_cursor;
 pub mod projection;
 pub mod record;

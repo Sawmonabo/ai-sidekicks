@@ -1,10 +1,12 @@
 //! An answer to a run's gate as its append-only row stores it: the statement that appends the row,
 //! numbered per run inside the statement itself, and the `workflow.gate.resolved` event written
-//! with it. An approval step's answer names its node; a chain's question names none.
+//! with it. An approval step's answer names its node; a chain's question names none. The approval
+//! card's own answer rides beside it, so the card, the row and the step's resume land in one write.
 
 use std::borrow::Cow;
 
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -24,27 +26,38 @@ use sidekicks_store::database::statement::{
 /// One answer to a gate of a run, as the approval side hands it over: every member of its row but
 /// the sequence, which the row's statement counts.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct WorkflowGateAnswer {
+pub struct WorkflowGateAnswer {
     /// The answer's id, its row's and its `workflow.gate.resolved` event's.
-    pub(crate) gate_resolution_id: WorkflowGateResolutionId,
+    pub gate_resolution_id: WorkflowGateResolutionId,
     /// The run whose gate it answered: the approval step's run, or the chain's first run.
-    pub(crate) workflow_run_id: WorkflowRunId,
+    pub workflow_run_id: WorkflowRunId,
     /// Which kind of gate it answered.
-    pub(crate) gate: WorkflowGateKind,
+    pub gate: WorkflowGateKind,
     /// The approval step answered; `None` for a chain's question, which the row's check holds.
-    pub(crate) node_id: Option<WorkflowNodeId>,
+    pub node_id: Option<WorkflowNodeId>,
     /// The approval request's category, where the request carries one.
-    pub(crate) approval_category: Option<WorkflowGateApprovalCategory>,
+    pub approval_category: Option<WorkflowGateApprovalCategory>,
     /// The approval request answered.
-    pub(crate) approval_request_id: ApprovalRequestId,
+    pub approval_request_id: ApprovalRequestId,
     /// The answer.
-    pub(crate) outcome: ApprovalDecision,
+    pub outcome: ApprovalDecision,
     /// The device that answered.
-    pub(crate) device_id: DeviceId,
+    pub device_id: DeviceId,
     /// When, in the stored form.
-    pub(crate) resolved_at: WireInstant,
+    pub resolved_at: WireInstant,
     /// What the answer was given about: its scope, the resource and the reason text.
-    pub(crate) decision_context: JsonRecord,
+    pub decision_context: JsonRecord,
+}
+
+/// The approval card's own answer to a gate, written in the step's write ahead of the gate's row:
+/// the statements that settle the card, refused unless it is still pending, and its
+/// `approval.approved` or `approval.rejected` event.
+#[derive(Clone, Debug)]
+pub struct ApprovalCardAnswer {
+    /// The card's settle and its resolution row.
+    pub statements: Vec<WriteStatement>,
+    /// The card's answer event.
+    pub event: SessionEvent,
 }
 
 /// The keys every run event names besides the run: its session, its definition and the version it
@@ -82,11 +95,7 @@ const INSERT_GATE_RESOLUTION_SQL: &str = "INSERT INTO workflow_gate_resolutions 
 
 /// The statement that appends `answer`'s row as its run's next answer, counted from 1; it expects
 /// one row, and the row's check refuses an approval answer without its node or a chain's with one.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the approval side's gate answers and Keep going")
-)]
-pub(crate) fn gate_resolution_statement(answer: &WorkflowGateAnswer) -> WriteStatement {
+pub fn gate_resolution_statement(answer: &WorkflowGateAnswer) -> WriteStatement {
     let decision_context =
         serde_json::to_string(&answer.decision_context).expect("a JSON record writes as JSON");
     WriteStatement {
@@ -142,8 +151,15 @@ pub(crate) fn gate_resolved_payload(
 #[cfg(test)]
 pub(crate) mod tests {
     use rusqlite::Connection;
-    use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+    use sidekicks_contracts::approval::events::ApprovalResolvedPayload;
+    use sidekicks_contracts::approval::holder::ApprovalHolder;
+    use sidekicks_contracts::approval::{
+        ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalScope,
+    };
+    use sidekicks_contracts::event::session::SessionEvent;
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::trust_statement::DeviceId;
+    use sidekicks_contracts::wire::id::{ClientUuid, UuidTextForm, mint_uuid_v7};
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
@@ -155,7 +171,7 @@ pub(crate) mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-    use super::{WorkflowGateAnswer, gate_resolution_statement};
+    use super::{ApprovalCardAnswer, WorkflowGateAnswer, gate_resolution_statement};
     use crate::schema::schema_parts;
     use crate::test_rows::{TEST_NODE_ID, insert_run, insert_workflow_version};
 
@@ -197,6 +213,44 @@ pub(crate) mod tests {
                 .expect("an instant"),
             decision_context: JsonRecord::default(),
         }
+    }
+
+    /// `gate` beside its approval card's answer in the session `session_id`: the card's
+    /// `approval.approved` or `approval.rejected` event, held by a workflow wait, and no statement,
+    /// since the approval tables are not the workflow's.
+    pub(crate) fn with_card_answer(
+        gate: WorkflowGateAnswer,
+        session_id: SessionId,
+    ) -> (WorkflowGateAnswer, ApprovalCardAnswer) {
+        let scope = ApprovalScope::new(session_id.text().as_str().to_owned())
+            .expect("a session id is a scope");
+        let payload = ApprovalResolvedPayload {
+            session_id,
+            holder: ApprovalHolder::Wait {
+                workflow_run_id: gate.workflow_run_id,
+                wait_id: UuidTextForm::from(mint_uuid_v7()),
+                node_id: gate.node_id.clone(),
+            },
+            approval_request_id: gate.approval_request_id,
+            category: ApprovalCategory::Gate,
+            scope: scope.clone(),
+            effective_scope: scope,
+            device_id: gate.device_id.clone(),
+            client_resolution_id: ClientUuid::new(mint_uuid_v7().to_string())
+                .expect("a minted UUID is a client's"),
+            remembered_scope: None,
+            decline_reason: None,
+            edited_action: None,
+        };
+        let event = match gate.outcome {
+            ApprovalDecision::Approved => SessionEvent::ApprovalApproved(payload),
+            ApprovalDecision::Rejected => SessionEvent::ApprovalRejected(payload),
+        };
+        let card = ApprovalCardAnswer {
+            statements: Vec::new(),
+            event,
+        };
+        (gate, card)
     }
 
     // Each stored answer's run and sequence, in the order the rows were written.

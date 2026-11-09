@@ -39,7 +39,6 @@ use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
 use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::partial_run::PartialRunPlan;
@@ -75,6 +74,7 @@ use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
 };
 use crate::runs::gate_resolution::WorkflowGateAnswer;
+use crate::runs::gate_resolution::tests::with_card_answer;
 use crate::runs::step_payload::write_step_payload;
 use crate::schema::schema_parts;
 use crate::test_rows::insert_workflow_version_body;
@@ -751,8 +751,8 @@ impl Harness {
             .collect()
     }
 
-    /// Sends a person's `answer` to the wait `wait_id`, with an approval's `gate` answer, and
-    /// answers the loop's reply, or the error of a reply the loop dropped unsent.
+    /// Sends a person's `answer` to the wait `wait_id`, with an approval's `gate` answer and its
+    /// card's, and answers the loop's reply, or the error of a reply the loop dropped unsent.
     pub(in crate::engine::tick::turns) async fn answer(
         &self,
         wait_id: UuidTextForm,
@@ -763,25 +763,7 @@ impl Harness {
         self.send(EngineTickInput::Answer(PersonWaitIntake {
             wait_id,
             answer,
-            gate,
-            at: WireInstant::now(),
-            reply,
-        }))
-        .await;
-        timeout(WAIT, replied)
-            .await
-            .expect("the loop replies in time")
-    }
-
-    /// Sends `answer`'s `Keep going` and answers the loop's reply, or the error of a reply the loop
-    /// dropped unsent.
-    pub(in crate::engine::tick::turns) async fn keep_going(
-        &self,
-        answer: KeepGoingAnswer,
-    ) -> Result<Result<(), PersonWaitRefusal>, RecvError> {
-        let (reply, replied) = oneshot::channel();
-        self.send(EngineTickInput::KeepGoing(KeepGoingIntake {
-            answer,
+            gate: gate.map(|gate| with_card_answer(gate, self.scope.session_id)),
             at: WireInstant::now(),
             reply,
         }))

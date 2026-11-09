@@ -127,14 +127,19 @@ impl EngineTick {
         }
     }
 
-    /// Writes `intake`'s `Keep going` in one write over the chain's first run and every live run
-    /// holding a step behind its question, each held step moved to `running`, and replies once it
-    /// commits. A chain with no question left to answer, or a first run neither live nor stored,
-    /// is answered not waiting; a failed read or write leaves the reply unsent, which its sender
-    /// reads as not taken, and is recorded. Held steps of runs the tick does not drive are left for
-    /// the restart to settle.
+    /// Writes `intake`'s `Keep going` with its chain card's answer in one write over the chain's
+    /// first run and every live run holding a step behind its question, each held step moved to
+    /// `running`, and replies once it commits. A chain with no question left to answer, or a first
+    /// run neither live nor stored, is answered not waiting; a failed read or write leaves the
+    /// reply unsent, which its sender reads as not taken, and is recorded. Held steps of runs the
+    /// tick does not drive are left for the restart to settle.
     pub(super) async fn keep_going(&mut self, intake: KeepGoingIntake) {
-        let KeepGoingIntake { answer, at, reply } = intake;
+        let KeepGoingIntake {
+            answer,
+            card,
+            at,
+            reply,
+        } = intake;
         let root = answer.root();
         let is_root_live = self.runs.contains_key(&root);
         let read = self
@@ -184,7 +189,7 @@ impl EngineTick {
             };
             commits.push(commit);
         }
-        let commits = keep_going_write(&answer, commits, &held, &at);
+        let commits = keep_going_write(&answer, card, commits, &held, &at);
         // The write answers each turn in the order it was handed.
         let written: Vec<WorkflowRunId> = commits.iter().map(RunTurnCommit::run_id).collect();
         let writes = commits

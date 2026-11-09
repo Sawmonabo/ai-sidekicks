@@ -53,6 +53,11 @@ pub(crate) enum EngineIntent {
         /// The wait the question answers.
         wait_id: UuidTextForm,
     },
+    /// The approval card of a wait that ended unanswered is being withdrawn.
+    WithdrawingCard {
+        /// The wait the card answered.
+        wait_id: UuidTextForm,
+    },
 }
 
 /// How dispatched work ended, recorded against its intent.
@@ -333,6 +338,14 @@ impl RunEngineRecord {
                     &mut line,
                     "openingQuestion",
                     "The engine is dispatching the wait's question.",
+                );
+                line.insert("waitId".to_owned(), json!(wait_id));
+            }
+            EngineIntent::WithdrawingCard { wait_id } => {
+                says(
+                    &mut line,
+                    "withdrawingCard",
+                    "The engine is withdrawing the wait's approval card.",
                 );
                 line.insert("waitId".to_owned(), json!(wait_id));
             }

@@ -192,6 +192,7 @@ impl PersonWaitPorts {
                     .raise(WorkflowApprovalCardRequest {
                         session_id: scope.session_id,
                         run_id: scope.run_id,
+                        workflow_name: scope.workflow_name.clone(),
                         step: Some(step.clone()),
                         wait_id: opened.wait_id,
                         prompt: prompt.clone(),

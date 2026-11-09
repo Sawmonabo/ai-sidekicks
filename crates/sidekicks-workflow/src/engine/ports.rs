@@ -348,6 +348,8 @@ pub struct WorkflowApprovalCardRequest {
     pub session_id: SessionId,
     /// The run that waits.
     pub run_id: WorkflowRunId,
+    /// The workflow whose wait asks, named on the card.
+    pub workflow_name: WorkflowName,
     /// The step that waits, `None` for a chain's hold.
     pub step: Option<WorkflowStepKey>,
     /// The wait the answer settles.
@@ -363,6 +365,15 @@ pub trait ApprovalCardRaiser: Send + Sync {
     /// the request's wait id: the restart raises again for a stored wait whose card never landed,
     /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
+
+    /// Withdraws the card the wait `wait_id` holds open in `session_id`, once the write that ended
+    /// the wait unanswered committed; a card already answered or withdrawn is left as it is. Fails
+    /// when the card cannot be read or its cancel cannot be written.
+    fn withdraw(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
 /// A snapshot point a workflow run takes.
