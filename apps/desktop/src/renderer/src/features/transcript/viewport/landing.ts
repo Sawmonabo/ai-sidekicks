@@ -63,8 +63,8 @@ export interface ViewportLandingOptions {
 }
 
 /**
- * How reading toward a linked message the log lacks stands: still reading, or ended at both ends
- * of history without it.
+ * How reading toward a linked message the log lacks stands: still reading the page around it, or
+ * answered that the daemon holds no row there.
  */
 export type MessageReadBack = "reading-back" | "not-in-history";
 

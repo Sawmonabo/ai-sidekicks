@@ -118,17 +118,17 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.dispose();
   });
 
-  it("opens the window at the acknowledged position and the stream after it", async () => {
-    // Every beat has fallen due before the session opens, so the acknowledged row is in the log.
+  it("opens the window at the log's newest row and the stream after it", async () => {
+    // Every beat has fallen due before the session opens, so the whole log is delivered.
     const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
       scenario: TRANSCRIPT_STATES_SCENARIO,
     });
     engine.advance(lastScriptedBeatMs(TRANSCRIPT_STATES_SCENARIO) + 1);
-    let acknowledged: string | undefined;
+    let latest: string | undefined;
     const { bridge: reading, calls } = withDaemonCall(base, async (call, passThrough) => {
       const reply = await passThrough();
       if (call.method === "session.read") {
-        acknowledged = (reply as SessionReadResponse).transcriptCursors.acknowledged;
+        latest = (reply as SessionReadResponse).transcriptCursors.latest;
       }
       return reply;
     });
@@ -151,14 +151,14 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     await landReads(engine);
     engine.runFrame();
 
-    expect(acknowledged).toBeDefined();
+    expect(latest).toBe(TRANSCRIPT_STATES_SCENARIO.beats.at(-1)?.event.cursor);
     expect(calls.find((call) => call.method === "transcript.read")?.params).toMatchObject({
-      beforeCursor: acknowledged,
+      beforeCursor: latest,
       limit: OPENING_PAGE_LIMIT,
     });
-    expect(opens).toEqual([{ sessionId, afterCursor: acknowledged }]);
-    // The window ends at the acknowledged row and the stream sends every row after it, so the
-    // store holds the whole log, which is shorter than one page, once.
+    expect(opens).toEqual([{ sessionId, afterCursor: latest }]);
+    // The window ends at the newest row and the stream opens after it, so the store holds the
+    // whole log, which is shorter than one page, once.
     const store = registry.peek(sessionId)?.snapshot();
     expect(store?.transcriptHead.hasMore).toBe(false);
     expect(store?.transcript.map((event) => event.sequence)).toEqual(

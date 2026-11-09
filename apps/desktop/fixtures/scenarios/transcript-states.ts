@@ -15,14 +15,13 @@
 // empty session is the one composition no script reaches, and it lives in `empty-session.ts`.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
-// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session.ts`, and `fixtures/data/script-entries.ts` carries
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds each beat to its category and to the
+// generated check of its whole event, and `fixtures/data/script-entries.ts` carries
 // the payload builders so a member cannot drift between two beats of one kind.
 //
 // Deliberately not scripted:
 //
-//   - An approval card. The run reaches `waiting_for_approval` and returns to `running`, the
+//   - An approval card. The run reaches `waitingForApproval` and returns to `running`, the
 //     part of that story the log tells; the card belongs to the approvals view.
 //   - A cost or token reading. No meter is on the transcript frame, the run groups or the
 //     seams; `concurrent-streaming.ts` moves the meter.
@@ -54,6 +53,7 @@ import {
   findScenarioMember,
 } from "../data/opening-entries.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are this scenario's start instant.
@@ -103,20 +103,20 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
-    driverName: "claude",
+    providerName: "claude",
     modelId: "claude-opus-5-5",
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
-    driverName: "claude",
+    providerName: "claude",
     modelId: "claude-sonnet-5",
     definitionId: "019b793b-7b60-7de1-8120-d1a4c1150122",
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
-    driverName: "codex",
+    providerName: "codex",
     modelId: "gpt-5.6-sol",
     definitionId: "019b793b-7b60-7de1-8130-d1a4c1150123",
   },
@@ -136,7 +136,7 @@ const REVIEWER_TOOL_CALL_ID = "call-reviewer-1";
 
 // The reviewer's provider, read off the cast: a subagent is keyed by
 // `(runId, provider, subagentId)`, so it must match the reviewer's own runs.
-const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER).driverName;
+const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER).providerName;
 
 const lane = createRunEntryBuilders(SESSION_ID);
 
@@ -278,18 +278,18 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     body: COMMAND_OUTPUT,
   }),
 
-  // A wait for approval and its return: the run enters `waiting_for_approval` and
-  // comes back through `run.running`, which is the transition the daemon emits.
+  // A wait for approval and its return: the run enters `waitingForApproval` and
+  // comes back through `agent.run.running`, which is the transition the daemon emits.
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_620,
     runVersion: 4,
     previousState: "running",
-    newState: "waiting_for_approval",
+    newState: "waitingForApproval",
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_960,
     runVersion: 5,
-    previousState: "waiting_for_approval",
+    previousState: "waitingForApproval",
     newState: "running",
   }),
   {
@@ -460,9 +460,6 @@ function composeTranscriptStatesBeats(): readonly ScenarioBeat[] {
   });
 }
 
-/** The acknowledged log position: the implementer's answer after its rewind. */
-const ACKNOWLEDGED_LOG_POSITION = 29;
-
 /** The id of the transcript-states scenario. */
 export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
 
@@ -483,6 +480,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
         // need no scripted entries (a run this reply does not name gets the fixture's refusal),
         // while the entries are what no beat in this session produces.
@@ -506,9 +504,6 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
             ],
           },
         },
-        // An acknowledged position beside `latest` makes the resume cycle reachable: the store
-        // submits the acknowledged position on its next read. It sits behind `latest`, the newest
-        // row, as a real one does.
         sessionReadReply({
           sessionId: SESSION_ID,
           state: "active",
@@ -516,7 +511,6 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(beats),
           beats,
-          acknowledgedPosition: ACKNOWLEDGED_LOG_POSITION,
         }),
       ],
     };

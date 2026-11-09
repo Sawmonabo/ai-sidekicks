@@ -5,9 +5,17 @@
 // standing event has landed; the fixture daemon reads the newest position and the standing events
 // from the delivered log.
 
-import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
+import type {
+  SessionReadResponse,
+  SessionShape,
+  SessionState,
+} from "@ai-sidekicks/contracts/session/methods";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  START_OF_LOG_POSITION,
+  type EventCursor,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
 
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import type { ScenarioBeat } from "../scenario.js";
@@ -22,8 +30,6 @@ export interface SessionRecordInput {
   readonly updatedAt: string;
   /** The script whose newest beat the record's `latest` names; empty for a session with none. */
   readonly beats: readonly ScenarioBeat[];
-  /** The log position the person last acknowledged, where the record names one. */
-  readonly acknowledgedPosition?: number;
 }
 
 /** The `session.read` reply for one scenario's session. */
@@ -32,7 +38,7 @@ export function sessionReadReply(input: SessionRecordInput): ScenarioReply {
     call: "session.read",
     result: {
       session: {
-        id: input.sessionId,
+        id: input.sessionId as SessionId,
         state: input.state,
         shape: input.shape,
         muted: false,
@@ -40,6 +46,10 @@ export function sessionReadReply(input: SessionRecordInput): ScenarioReply {
         createdAt: input.createdAt,
         updatedAt: input.updatedAt,
         heldDraft: { draft: { text: "", extras: {} }, revision: 0 },
+        attachments: [],
+        permissionLevel: "ask",
+        sessionMode: "build",
+        addresses: [{ address: `/tmp/sidekicks/inbox/${input.sessionId}` }],
         tags: [],
       },
       transcriptCursors: {
@@ -47,13 +57,10 @@ export function sessionReadReply(input: SessionRecordInput): ScenarioReply {
         latest:
           input.beats.length === 0
             ? encodeEventCursor(START_OF_LOG_POSITION)
-            : findBeatCursor(input.beats, input.beats.length - 1),
-        ...(input.acknowledgedPosition === undefined
-          ? {}
-          : { acknowledged: findBeatCursor(input.beats, input.acknowledgedPosition) }),
+            : (findBeatCursor(input.beats, input.beats.length - 1) as EventCursor),
       },
       liveRuns: [],
       standingEvents: [],
-    },
+    } satisfies SessionReadResponse,
   };
 }

@@ -12,7 +12,7 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
-import type { TranscriptBodyReadRequest } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptBodyReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { COPY, pressKey } from "../../helpers/system-keys.js";
 import { FEED_HEIGHT_PX, ROW_SELECTOR, endGesture, mountTranscriptFeed } from "./long-tool-feed.js";
@@ -108,7 +108,10 @@ describe("a reply whose body is too large to travel with its row", () => {
           waitingReads.push((isServed) => {
             resolve(
               isServed
-                ? { status: "served", value: { status: "available", body: LARGE_BODY } }
+                ? {
+                    status: "served",
+                    value: { status: "available", body: LARGE_BODY, offset: 0, nextOffset: null },
+                  }
                 : {
                     status: "refused",
                     refusal: { code: "unscripted", detail: "No body there.", origin: "test" },

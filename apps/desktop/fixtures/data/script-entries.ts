@@ -19,6 +19,7 @@ import type { ResolvedAgent } from "@ai-sidekicks/contracts/run/queued";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioBeat } from "../scenario.js";
+import { WORK_ACCOUNT } from "./settings-replies.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
 export interface ScriptEntry {
@@ -143,7 +144,7 @@ export function newestBeatInstant(beats: readonly ScenarioBeat[]): string {
   return newest.event.occurredAt;
 }
 
-/** The one transition a run's linkage and resolved agent ride. */
+/** The one transition a run's linkage, resolved agent and admitting account ride. */
 const RUN_BIRTH_STATE = "queued";
 
 /** What one assistant-output beat says. */
@@ -241,6 +242,11 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
       newState: input.newState,
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
       ...creation,
+      ...(input.newState === RUN_BIRTH_STATE
+        ? // Every scripted run is admitted under the signed-in work account; no scenario shows
+          // a choice of account.
+          { admittedProviderAccountId: WORK_ACCOUNT.accountId }
+        : {}),
     },
   };
 }

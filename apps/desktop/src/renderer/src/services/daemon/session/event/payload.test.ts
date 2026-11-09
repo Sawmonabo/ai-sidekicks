@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 
+import type { FilePathRef } from "#shared/preload-api.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 import { readSessionStreamFrame, type SessionStreamFrameReading } from "./payload.js";
@@ -89,7 +90,7 @@ function frameCarrying(envelope: unknown): Readonly<Record<string, unknown>> {
 
 /** The frame carrying one envelope, read. */
 function readFrameOf(envelope: unknown): SessionStreamFrameReading | undefined {
-  return readSessionStreamFrame(frameCarrying(envelope));
+  return readSessionStreamFrame(frameCarrying(envelope), [], undefined);
 }
 
 /** The one event a frame carrying this envelope yields, or `undefined`. */
@@ -162,12 +163,42 @@ describe("readSessionStreamFrame — the far-behind frame", () => {
   it("reads the behind frame: no events, the daemon's mark, and its head cursor", () => {
     // The one frame with no changes the contract admits. Read as an empty batch, it would leave the
     // session short of rows with nothing saying so.
-    expect(readSessionStreamFrame({ kind: "behind", headCursor: EVENT_ID })).toStrictEqual({
+    expect(
+      readSessionStreamFrame({ kind: "behind", headCursor: EVENT_ID }, [], undefined),
+    ).toStrictEqual({
       events: [],
       unreadableEventCount: 0,
       isBehind: true,
       resumeCursor: EVENT_ID,
     });
+  });
+});
+
+describe("readSessionStreamFrame — the files a frame's events name", () => {
+  it("hands each event the tokens for the paths its own payload names, and no other", () => {
+    const settingsPath = "/Users/dev/.codex/config.toml";
+    const otherPath = "/Users/dev/.claude/settings.json";
+    const settingsRef = "ref-settings" as FilePathRef;
+    const frame = {
+      kind: "changes",
+      changes: [
+        {
+          cursor: CHANGE_CURSOR,
+          event: registeredEnvelope({ payload: { notice: { file: settingsPath } } }),
+        },
+        { cursor: "stream-position-42", event: registeredEnvelope({ id: USER_ID, sequence: 8 }) },
+      ],
+    };
+
+    const reading = readSessionStreamFrame(frame, [], {
+      [settingsPath]: settingsRef,
+      [otherPath]: "ref-other" as FilePathRef,
+    });
+
+    expect(reading?.events.map((event) => event.fileRefs)).toStrictEqual([
+      { [settingsPath]: settingsRef },
+      undefined,
+    ]);
   });
 });
 

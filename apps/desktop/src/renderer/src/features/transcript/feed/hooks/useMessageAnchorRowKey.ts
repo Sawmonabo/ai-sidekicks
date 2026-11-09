@@ -1,10 +1,13 @@
 // The row a link to a message lands on. The link names the message by its event cursor, which the
 // store's log carries on every event, streamed or read back. A message outside the window is
-// reached by reading stretches through the feed's history until the log holds it; one inside a
-// folded run group has the group opened first, once, so the row is drawn rather than hidden under
-// a header. An event the feed draws nothing for lands on the nearest row it does draw.
+// reached by asking the daemon for the page around it, which takes the window's place; one inside
+// a folded run group has the group opened first, once, so the row is drawn rather than hidden
+// under a header. An event the feed draws nothing for lands on the first row after it the feed
+// does draw.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import {
@@ -15,7 +18,6 @@ import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
-import { type HistoryEdgeState } from "../../history/reader.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type MessageReadBack } from "../../viewport/landing.js";
 
@@ -24,7 +26,7 @@ export interface MessageAnchorRowKeyInputs {
   readonly sessionStore: SessionStore;
   /** The cursor of the message to land on, or `undefined` for an ordinary open. */
   readonly messageAnchorCursor: string | undefined;
-  /** The history a message older than the window is read back through, or none to read with. */
+  /** The history the page around a message outside the window is read through, if any. */
   readonly history: TranscriptHistory | undefined;
   /** Every row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
@@ -50,8 +52,7 @@ export interface MessageAnchorLanding {
 /**
  * The row a link to a message lands on. An event the feed draws nothing for lands on the next
  * drawn row after it in log order, else the one before it. While the log lacks the event, this
- * reads back one stretch at a time until it arrives, history starts or a read fails. Nothing
- * stands in for a missing row, so the transcript opens as it would with no link.
+ * asks once for the page around it; a row the daemon no longer holds reads as not in history.
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): MessageAnchorLanding {
   const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
@@ -102,13 +103,11 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
 }
 
 /**
- * Asks for a stretch past the window while the linked message is not in the log: after it while
- * the tail was let go, then before it. A cursor carries no order, so the newer side is read
- * first, where a link most often points. Each landed stretch re-renders with the grown log, so
- * this reads stretch by stretch and stops on its own: at the message, at both ends of history, or
- * at a failed read, which the line at the top offers to try again before the window. Once the
- * message is found the reading back is over for that link, so a row that later leaves the log is
- * not chased back. Answers how the reading back stands, or `undefined` when none is owed.
+ * Asks once per link for the page around the linked message while the log lacks it, as soon as no
+ * other history read is under way. A failed read stands on the session's catch-up line, which
+ * sends it again. Once the message is found the reading back is over for that link, so a row that
+ * later leaves the log is not chased back. Answers how the reading back stands: `not-in-history`
+ * once the daemon holds no row at the cursor, or `undefined` when none is owed.
  */
 function useReadBackToMessage(
   messageAnchorCursor: string | undefined,
@@ -116,8 +115,9 @@ function useReadBackToMessage(
   history: TranscriptHistory | undefined,
 ): MessageReadBack | undefined {
   const [reachedCursor, setReachedCursor] = useState<string | undefined>(undefined);
-  // Keyed on the history object, which is new after every stretch, so a stretch that lands
-  // without the message asks for the next even when no flag reads differently.
+  const askedCursor = useRef<string | undefined>(undefined);
+  // Keyed on the history object, which is new whenever a read ends, so a link that waited on
+  // another read asks as soon as that one is over.
   useEffect(() => {
     if (messageAnchorCursor === undefined || reachedCursor === messageAnchorCursor) {
       return;
@@ -126,18 +126,12 @@ function useReadBackToMessage(
       setReachedCursor(messageAnchorCursor);
       return;
     }
-    if (history === undefined) {
-      return;
-    }
-    const { earlier, later } = history.state;
-    if (later.hasMore) {
-      if (!later.isReading && !later.hasFailed) {
-        history.readStretch("tail");
-      }
-      return;
-    }
-    if (earlier.hasMore && !earlier.isReading && !earlier.hasFailed) {
-      history.readStretch("head");
+    if (
+      history !== undefined &&
+      askedCursor.current !== messageAnchorCursor &&
+      history.readAroundRow(messageAnchorCursor as EventCursor)
+    ) {
+      askedCursor.current = messageAnchorCursor;
     }
   }, [messageAnchorCursor, reachedCursor, eventId, history]);
   if (
@@ -148,11 +142,7 @@ function useReadBackToMessage(
   ) {
     return undefined;
   }
-  // A failed read leaves the reading back owed: asking for the stretch again resumes it.
-  const isEdgeExhausted = (edge: HistoryEdgeState): boolean => !edge.hasMore && !edge.hasFailed;
-  return isEdgeExhausted(history.state.earlier) && isEdgeExhausted(history.state.later)
-    ? "not-in-history"
-    : "reading-back";
+  return history.state.missingRowCursor === messageAnchorCursor ? "not-in-history" : "reading-back";
 }
 
 /**

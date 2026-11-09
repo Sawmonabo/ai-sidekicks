@@ -1,11 +1,13 @@
 // The React side of the history reader: one reader per session and bridge, its state read as an
 // external store that changes when the reader or a store edge moves, the one act every trigger
-// asks a stretch through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
-// link reaching back for its message and the look-ahead that keeps rows loaded above the screen;
-// the jump Home and End read an end of the log through; and the page a long run's window reads
-// back inside the store's window before it opens onto calls the store let go.
+// asks a stretch through: `Load earlier` and `Try again`, the viewport's approach to an edge and
+// the look-ahead that keeps rows loaded above the screen; the jump Home and End read an end of the
+// log through; the page around the row a link names; and the page a long run's window reads back
+// inside the store's window before it opens onto calls the store let go.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -47,6 +49,11 @@ export interface TranscriptHistory {
    * when the store holds that end already.
    */
   readonly jumpTo: JumpToLogEnd;
+  /**
+   * Starts reading the page around the row at `rowCursor` in place of the held window; answers
+   * whether it started, not while another read is under way.
+   */
+  readonly readAroundRow: (rowCursor: EventCursor) => boolean;
   /** Hands the reader the viewport a stretch is measured in, or takes it back. */
   readonly measureWith: (measure: TranscriptStretchMeasure | undefined) => void;
 }
@@ -106,6 +113,7 @@ export function useTranscriptHistory(
             ) => reader.readReleasedStretch(stretch, direction, readPage),
             jumpTo: (side: WindowSide, beforePageLands: () => void) =>
               reader.jumpTo(side, readPage, beforePageLands),
+            readAroundRow: (rowCursor: EventCursor) => reader.readAroundRow(rowCursor, readPage),
             measureWith,
           },
     [readPage, reader, state, measureWith],

@@ -23,9 +23,11 @@
 // since a recovered row is what it is worth to them, and the standing events keep the newest of
 // each kind whatever order rows arrive in.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
-import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type {
+  TranscriptBodyReadResponse,
+  TranscriptRunFacts,
+} from "@ai-sidekicks/contracts/transcript/operations";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import { projectedContentOf } from "./entities/projected-content.js";

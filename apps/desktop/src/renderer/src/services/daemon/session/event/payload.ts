@@ -13,10 +13,15 @@ import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
-import { validateSessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
+import {
+  validateSessionStreamFrame,
+  type SessionStreamFrame,
+} from "@ai-sidekicks/contracts/session/methods";
 import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
+import type { FilePathRef } from "#shared/preload-api.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { withBytesPlaced } from "../../wire/attachments.js";
 
 /** What one readable frame tells the app. */
 export interface SessionStreamFrameReading {
@@ -40,13 +45,20 @@ export interface SessionStreamFrameReading {
  * Reads one delivered frame, or returns `undefined` when its generated check refuses it.
  *
  * A frame is refused whole for a forbidden member, an event the envelope check refuses, too many
- * changes, or no changes without being the far-behind frame. Each change's cursor rides on its
- * event, where a link to a message finds it, and the store orders events by `sequence`.
+ * changes, or no changes without being the far-behind frame. The check reads each `{"$bytes": n}`
+ * member from the delivery's `attachments`, which then take their placeholders' places. Each
+ * change's cursor rides on its event, where a link to a message finds it, and the store orders
+ * events by `sequence`. Each event keeps the tokens main minted for the paths its payload names.
  */
-export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameReading | undefined {
-  if (!validateSessionStreamFrame(delivered)) {
+export function readSessionStreamFrame(
+  frame: unknown,
+  attachments: readonly Uint8Array[],
+  fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
+): SessionStreamFrameReading | undefined {
+  if (!validateSessionStreamFrame.call({ attachments }, frame)) {
     return undefined;
   }
+  const delivered = withBytesPlaced(frame, attachments) as SessionStreamFrame;
   if (delivered.kind === "behind") {
     return {
       events: [],
@@ -61,9 +73,10 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
     const event = projectSessionEvent(change.event, change.cursor, change.runStamp);
     if (event === undefined) {
       unreadableEventCount += 1;
-    } else {
-      events.push(event);
+      continue;
     }
+    const eventFileRefs = fileRefsNamedBy(event.payload, fileRefs);
+    events.push(eventFileRefs === undefined ? event : { ...event, fileRefs: eventFileRefs });
   }
   // The check admits a changes frame only with at least one change.
   const lastChange = delivered.changes.at(-1) ?? delivered.changes[0];
@@ -102,4 +115,40 @@ export function projectSessionEvent(
     payload: envelope.payload,
     ...(runStamp === undefined ? {} : { runStamp }),
   };
+}
+
+/**
+ * The frame's tokens whose path one of `payload`'s string members spells, or `undefined` for none:
+ * a frame's tokens are keyed by path across its events, and each event keeps only its own.
+ */
+function fileRefsNamedBy(
+  payload: unknown,
+  fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
+): Readonly<Record<string, FilePathRef>> | undefined {
+  if (fileRefs === undefined) {
+    return undefined;
+  }
+  const named: Record<string, FilePathRef> = {};
+  for (const text of stringMembersOf(payload)) {
+    const ref = Object.hasOwn(fileRefs, text) ? fileRefs[text] : undefined;
+    if (ref !== undefined) {
+      named[text] = ref;
+    }
+  }
+  return Object.keys(named).length === 0 ? undefined : named;
+}
+
+/** Every string `value` holds, at any depth. */
+function* stringMembersOf(value: unknown): Generator<string> {
+  if (typeof value === "string") {
+    yield value;
+  } else if (Array.isArray(value)) {
+    for (const element of value) {
+      yield* stringMembersOf(element);
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const member of Object.values(value)) {
+      yield* stringMembersOf(member);
+    }
+  }
 }

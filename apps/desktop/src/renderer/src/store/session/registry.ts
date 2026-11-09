@@ -7,7 +7,7 @@
 // would each hold half the stream. It reads no wire; the composition root supplies `read`, which
 // keeps `store/` below `services/` in the import direction.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { RefusalError, refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -197,9 +197,9 @@ export class SessionStoreRegistry {
   }
 
   /**
-   * Tell a session its stream can no longer be followed, as when it dropped a hole too wide to
-   * fill, so the session is marked degraded and re-read. Answers with a refusal, not a throw, when
-   * the session is not open.
+   * Tell a session its stream can no longer be followed, as when the daemon marked it far behind
+   * its head, so the session is marked degraded and takes a snapshot read. Answers with a refusal,
+   * not a throw, when the session is not open.
    */
   public loseStream(sessionId: string): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);

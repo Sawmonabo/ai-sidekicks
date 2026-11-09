@@ -6,21 +6,15 @@
 // view must not count as waiting.
 //
 // Approval beats carry the full registered payload of each variant.
-// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
-// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and strict payload layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session.ts`.
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds each beat to its category and to the
+// generated check of its whole event.
 //
 // Ids are UUIDs, as the contracts' branded ids require, and a short readable id would render
 // narrower than a real one in a fixture that is measured.
 
-import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import {
-  UserIdSchema,
-  SessionIdSchema,
-  type UserId,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,
@@ -30,14 +24,15 @@ import {
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario } from "../scenario.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
-// identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id
-// fails the module and names the constant instead of failing a later reply.
-const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
-const USER_YOU: UserId = UserIdSchema.parse("019b7a33-3300-79a4-8110-cca0117a0510");
-const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8110-d1a4c1150501");
-const RUN_ID: RunId = RunIdSchema.parse("019b7a33-3300-740e-8110-d1a4c1150511");
+// identifies its fixture. The contract check holds each beat that names one to its generated
+// check, so a malformed id fails there.
+const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5" as SessionId;
+const USER_YOU = "019b7a33-3300-79a4-8110-cca0117a0510" as UserId;
+const AGENT_IMPLEMENTER = "019b7a33-3300-7a6e-8110-d1a4c1150501" as AgentId;
+const RUN_ID = "019b7a33-3300-740e-8110-d1a4c1150511" as RunId;
 
 const APPROVAL_RESOLVED = "019b7a33-3300-7f01-8110-d1a4c1150521";
 const APPROVAL_PENDING_GIT_RESET = "019b7a33-3300-7f01-8120-d1a4c1150522";
@@ -69,17 +64,17 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
       lead: {
         agentId: AGENT_IMPLEMENTER,
         name: "Implementer",
-        driverName: "claude",
+        providerName: "claude",
         modelId: "claude-sonnet-5",
       },
       createdAt: STARTED_AT_ISO,
     }),
   },
   // The run every request below was raised by. The execution posture is stamped only on
-  // `run.running`, where the workspace root and effective posture are final.
+  // `agent.run.running`, where the workspace root and effective posture are final.
   {
     atMs: 120,
-    kind: "run.running",
+    kind: "agent.run.running",
     payload: {
       sessionId: SESSION_ID,
       runId: RUN_ID,
@@ -199,6 +194,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         sessionReadReply({
           sessionId: SESSION_ID,
           state: "active",

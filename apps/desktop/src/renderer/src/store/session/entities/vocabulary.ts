@@ -14,6 +14,7 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { TranscriptRunFactsFold } from "@ai-sidekicks/contracts/transcript/run-facts";
 
+import type { FilePathRef } from "#shared/preload-api.js";
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { StoredText } from "#renderer/lib/text/published.js";
 
@@ -104,6 +105,11 @@ export interface ProjectedSessionEvent {
    * stamped it: on every event of a run, and on no session-level event.
    */
   readonly runStamp?: TranscriptRunStamp;
+  /**
+   * The token main minted to open each file the payload names, keyed by the path as the payload
+   * spells it; absent when the event names no file a person can open.
+   */
+  readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
   /**
    * The event's body as a `transcript.read` row brought it, its text packed, a large one as its
    * size; absent on an event the stream delivered, which carries no body.

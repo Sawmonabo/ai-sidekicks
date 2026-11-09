@@ -1,14 +1,16 @@
 // Every transcript cursor a scenario's session read hands out names a position its stream
-// resolves: `earliest` the one before the first row, the others a row it delivers. A subscription
-// opened after one catches up on exactly the rows behind it, none lost or doubled, and is never
-// refused, while a cursor the log never held is. Each case drives the real fixture bridge and
-// engine.
+// resolves: `earliest` the one before the first row, `latest` the newest row it delivers. A
+// subscription opened after one catches up on exactly the rows behind it, none lost or doubled,
+// and is never refused, while a cursor the log never held is. Each case drives the real fixture
+// bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/method-map";
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import {
+  SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
+  type EventCursor,
+} from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionReadResponse,
   SessionStreamFrame,
@@ -45,19 +47,6 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
     expect(SCENARIOS_HANDING_OUT_CURSORS.length).toBeGreaterThan(0);
   });
 
-  // The seam case below runs only for a read that hands out an acknowledged cursor, so it would
-  // pass with no scenario carrying one.
-  it("has a scenario whose read hands out an acknowledged cursor", async () => {
-    const acknowledgedCursors = await Promise.all(
-      SCENARIOS_HANDING_OUT_CURSORS.map(async (scenario) => {
-        const fixture = createFixture(scenario);
-        fixture.engine.advance(lastScriptedBeatMs(scenario) + 1);
-        return (await readTranscriptCursors(fixture)).acknowledged;
-      }),
-    );
-    expect(acknowledgedCursors.some((cursor) => cursor !== undefined)).toBe(true);
-  });
-
   it.each(SCENARIOS_HANDING_OUT_CURSORS.map((scenario) => [scenario.id, scenario] as const))(
     "%s: a subscription after each handed-out cursor delivers exactly the rows behind it",
     async (_scenarioId, scenario) => {
@@ -67,10 +56,10 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
       const loggedSequences = scenario.beats.map((beat) => beat.event.sequence);
 
       // The negative control: a cursor the log never held is refused and delivers nothing.
-      const afterUnknown = await resumeAfter(fixture, "cursor-the-log-never-held");
+      const afterUnknown = await resumeAfter(fixture, "cursor-the-log-never-held" as EventCursor);
       expect(afterUnknown.events).toStrictEqual([]);
       expect(afterUnknown.ends).toMatchObject([
-        { reason: "refused", refusal: { data: { type: EVENT_CURSOR_UNRESOLVABLE_CODE } } },
+        { reason: "refused", refusal: { data: { type: SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE } } },
       ]);
 
       // The start of the log has every row behind it, so a reader resuming there misses none.
@@ -82,19 +71,7 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
       const afterLatest = await resumeAfter(fixture, read.latest);
       expect(afterLatest.ends).toStrictEqual([]);
       expect(afterLatest.events).toStrictEqual([]);
-
-      if (read.acknowledged !== undefined) {
-        const afterAcknowledged = await resumeAfter(fixture, read.acknowledged);
-        expect(afterAcknowledged.ends).toStrictEqual([]);
-        // The rows delivered are the log's tail, and the row just before that tail is the one
-        // the cursor names, so nothing is lost or doubled at the seam.
-        const resumedAt = scenario.beats.length - afterAcknowledged.events.length;
-        expect(afterAcknowledged.events.length).toBeGreaterThan(0);
-        expect(scenario.beats[resumedAt - 1]?.event.cursor).toBe(read.acknowledged);
-        expect(afterAcknowledged.events.map((event) => event.sequence)).toStrictEqual(
-          loggedSequences.slice(resumedAt),
-        );
-      }
+      expect(scenario.beats.at(-1)?.event.cursor).toBe(read.latest);
     },
   );
 });
@@ -115,16 +92,25 @@ async function readTranscriptCursors(
  * Open the whole-session stream after one cursor, collect what it delivers and how it ends, and
  * close it.
  */
-async function resumeAfter(fixture: FixtureUnderTest, afterCursor: string): Promise<ResumedStream> {
+async function resumeAfter(
+  fixture: FixtureUnderTest,
+  afterCursor: EventCursor,
+): Promise<ResumedStream> {
   const events: EventEnvelope[] = [];
   const ends: DaemonSubscriptionEnd[] = [];
-  const request = { sessionId: fixture.engine.scenario.sessionId, afterCursor };
+  const sessionId = readSessionId(fixture.engine.scenario.sessionId);
+  if (sessionId === undefined) {
+    throw new Error(`scenario ${fixture.engine.scenario.id} has no wire session id`);
+  }
   const unsubscribe = fixture.bridge.daemon.subscribe(
-    SESSION_EVENT_STREAM as DaemonEvent,
-    request as DaemonSubscribeParams<DaemonEvent>,
-    (frame: unknown) => {
-      for (const change of (frame as SessionStreamFrame<EventEnvelope>).changes) {
-        events.push(change.event);
+    SESSION_EVENT_STREAM,
+    { sessionId, afterCursor },
+    (delivered: unknown) => {
+      const frame = delivered as SessionStreamFrame;
+      if (frame.kind === "changes") {
+        for (const change of frame.changes) {
+          events.push(change.event);
+        }
       }
     },
     (end) => {

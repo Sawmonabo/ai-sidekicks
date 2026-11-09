@@ -1,15 +1,17 @@
 // Reads the session's history past the edges of the window its store holds: backward before the
 // head, forward after a tail that was let go or never read, and the page at either end of the log,
 // which takes the place of the whole window, so Home and End reach the session's own ends without
-// walking the history between, and a page inside a stretch the store let go between two events it
-// holds, which a long run's window opening onto calls it left out reads back. A stretch is a
-// height, not a row count:
+// walking the history between, the page around one row a link names, which takes the window's
+// place too, and a page inside a stretch the store let go between two events it holds, which a
+// long run's window opening onto calls it left out reads back. A stretch is a height, not a row
+// count:
 // pages are read until the whole held transcript is estimated that much taller than when the read
 // began, or the daemon has no more, each page's limit sized from the height still owed. This holds
 // no rows and no position: pages go into the store, and every read is asked from the store's own
 // edge. A failed read toward the tail or inside the window stands on the session's catch-up line,
 // whose `Try again` sends it again.
 
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
@@ -54,13 +56,18 @@ export interface HistoryEdgeState {
 
 /**
  * The history past both edges, `earlier` before the head and `later` after the tail, and inside
- * the window, in the stretches the store let go between two events it holds.
+ * the window, in the stretches the store let go between two events it holds; and the cursor of the
+ * last row a link asked for that the daemon holds no row at.
  */
 export interface TranscriptHistoryState {
   readonly earlier: HistoryEdgeState;
   readonly later: HistoryEdgeState;
   readonly inside: HistoryEdgeState;
+  readonly missingRowCursor: EventCursor | undefined;
 }
+
+/** The places in {@link TranscriptHistoryState} that each hold one {@link HistoryEdgeState}. */
+export type HistoryEdgePlace = Exclude<keyof TranscriptHistoryState, "missingRowCursor">;
 
 /** How a stretch is sized and counted, read from the viewport the transcript is laid out in. */
 export interface TranscriptStretchMeasure {
@@ -107,6 +114,8 @@ export class TranscriptHistoryReader {
   readonly #failureCountBySide = new Map<HistoryReadPlace, number>();
   /** Whether the last read inside the window failed; it stands until a read inside is sent. */
   #hasInsideReadFailed = false;
+  /** The last row a link asked for that the daemon said no row stands at. */
+  #missingRowCursor: EventCursor | undefined;
   /**
    * The failed reads the session's catch-up line offers again, by where they read: each sends its
    * read again, answering whether there was still one to send.
@@ -165,6 +174,7 @@ export class TranscriptHistoryReader {
       earlier: this.#edgeState("head", transcriptHead.hasMore),
       later: this.#edgeState("tail", transcriptTail.hasMore),
       inside: this.#edgeState("inside", hasInsideMore),
+      missingRowCursor: this.#missingRowCursor,
     };
     return this.#state;
   }
@@ -287,6 +297,33 @@ export class TranscriptHistoryReader {
     return true;
   }
 
+  /**
+   * Starts reading the page around the row at `rowCursor`, which a link names, to put it in place
+   * of the store's whole window: the row, the rows before it and the rows after it, the head
+   * continuing toward the start and the tail read on from the page's newest row. Answers whether it
+   * started, not while another read is under way or with no viewport to size the page. A row the
+   * daemon holds none at is named in the state as missing; a read that failed otherwise stands on
+   * the session's catch-up line, whose `Try again` sends it again.
+   */
+  public readAroundRow(rowCursor: EventCursor, read: TranscriptPageRead): boolean {
+    const measure = this.#measure;
+    if (measure === undefined || this.#readingSide !== undefined) {
+      return false;
+    }
+    const owedHeightPx = TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * measure.screenHeightPx();
+    const request: TranscriptReadRequest = {
+      sessionId: heldIdAsWireId(this.#sessionStore.sessionId),
+      aroundCursor: rowCursor,
+      limit: pageLimitFor(owedHeightPx, measure.smallestRowHeightPx()),
+    };
+    const retry = (): boolean => this.readAroundRow(rowCursor, read);
+    const readNumber = this.#startRead("row");
+    this.#readRowPage(rowCursor, request, read, readNumber, retry).catch((error: unknown) => {
+      this.#failRowRead(retry, describeFailure(error));
+    });
+    return true;
+  }
+
   /** Reads `pending`'s page at an end of the log and puts it in place of the store's window. */
   async #readLogEnd(
     pending: PendingRead,
@@ -308,6 +345,39 @@ export class TranscriptHistoryReader {
       const page = readTranscriptPage(reply.value);
       beforePageLands();
       this.#sessionStore.replaceWithLogEndPage(pending.side === "head" ? "start" : "end", page);
+    } finally {
+      this.#endRead(readNumber);
+    }
+  }
+
+  /**
+   * Reads the page around one row and puts it in place of the store's window, its head going on
+   * toward the start and its tail detached after its newest row unless it reaches the stream.
+   * `readNumber` is the read `#startRead` marked.
+   */
+  async #readRowPage(
+    rowCursor: EventCursor,
+    request: TranscriptReadRequest,
+    read: TranscriptPageRead,
+    readNumber: number,
+    retry: () => boolean,
+  ): Promise<void> {
+    try {
+      const round = this.#readLine.openRound();
+      const reply = await read(request, { signal: round.signal });
+      if (isReadAbandoned(round.signal) || this.#readCount !== readNumber) {
+        return;
+      }
+      if (reply.status === "refused") {
+        if (reply.refusal.code === TRANSCRIPT_ROW_NOT_FOUND_CODE) {
+          this.#missingRowCursor = rowCursor;
+          return;
+        }
+        this.#failRowRead(retry, refusalDetail(reply.refusal));
+        return;
+      }
+      this.#sessionStore.replaceWithLogEndPage("end", readTranscriptPage(reply.value));
+      this.#settleCatchUp("row");
     } finally {
       this.#endRead(readNumber);
     }
@@ -445,7 +515,7 @@ export class TranscriptHistoryReader {
     this.#readingSide = place;
     if (place === "inside") {
       this.#hasInsideReadFailed = false;
-    } else {
+    } else if (place !== "row") {
       this.#failedReadBySide.delete(place);
     }
     this.#announceChange();
@@ -488,6 +558,13 @@ export class TranscriptHistoryReader {
     this.#hasInsideReadFailed = true;
     this.#countFailure("inside");
     this.#offerOnCatchUpLine("inside", retry);
+    this.#announceChange();
+    this.#recordCause("history-read-failed", cause);
+  }
+
+  /** A read around a linked row that failed: it stands on the catch-up line, which `retry` sends. */
+  #failRowRead(retry: () => boolean, cause: string): void {
+    this.#offerOnCatchUpLine("row", retry);
     this.#announceChange();
     this.#recordCause("history-read-failed", cause);
   }
@@ -567,7 +644,7 @@ export class TranscriptHistoryReader {
     return side === "head" ? state.transcriptHead : state.transcriptTail;
   }
 
-  #edgeState(place: HistoryReadPlace, hasMore: boolean): HistoryEdgeState {
+  #edgeState(place: WindowSide | "inside", hasMore: boolean): HistoryEdgeState {
     return {
       hasMore,
       isReading: this.#readingSide === place,
@@ -582,10 +659,16 @@ export class TranscriptHistoryReader {
   }
 }
 
-/** Where a read reaches: past one edge of the store's window, or inside it. */
-type HistoryReadPlace = WindowSide | "inside";
+/**
+ * Where a read reaches: past one edge of the store's window, inside it, or around one row a link
+ * names, in its place.
+ */
+type HistoryReadPlace = WindowSide | "inside" | "row";
 
-/** The reads the catch-up line offers again: toward the tail, and inside the window. */
+/** The refusal of a read around a row the session's log holds no row at. */
+const TRANSCRIPT_ROW_NOT_FOUND_CODE = "transcript.row.notFound" satisfies RefusalCode;
+
+/** The reads the catch-up line offers again: toward the tail, inside the window, around a row. */
 type CatchUpReadPlace = Exclude<HistoryReadPlace, "head">;
 
 /** What a refused read says of why, for the diagnostic capture. */

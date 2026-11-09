@@ -10,18 +10,18 @@
 // fold keeps every run's fold for the playback.
 
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import {
+  RUN_START_POSITION,
+  TOOL_CALL_OPENING_EVENT_TYPE,
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
+  TURN_STARTED_EVENT_TYPE,
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 import {
-  RUN_START_POSITION,
-  TOOL_CALL_OPENING_EVENT_TYPE,
-  TURN_STARTED_EVENT_TYPE,
   addSupersedingCut,
   stampedSourceOf,
   standingAfterRollback,
@@ -133,7 +133,7 @@ interface RunTurnFold {
   readonly openedToolCalls: Map<string, EpochPosition>;
 }
 
-/** The members of a `run.rolled_back` the fold reads. */
+/** The members of an `agent.run.rolledBack` the fold reads. */
 interface ScenarioRollback {
   readonly runId: string;
   readonly targetPosition: number;
@@ -160,7 +160,7 @@ function standingBefore(
   runId: string,
   beforeSequence: number,
 ): EpochPosition {
-  let standing = RUN_START_POSITION;
+  let standing: EpochPosition = RUN_START_POSITION;
   for (const event of log) {
     if (event.sequence >= beforeSequence) {
       continue;

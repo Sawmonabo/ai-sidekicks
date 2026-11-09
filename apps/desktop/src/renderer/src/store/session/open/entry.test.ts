@@ -1,11 +1,12 @@
 // When a read moves the stream: a read the store takes names the position the stream opens after,
-// and a whole live window makes no read. A stream lost past a hole too wide to fill takes a
-// snapshot that replaces the window with the log's newest rows; a hole the store saw replays from
+// and a whole live window makes no read. A stream marked far behind its head takes a snapshot
+// that replaces the window with the log's newest rows; a hole the store saw replays from
 // the row before it, and what the replaced stream left queued never reaches the replay. A replay
 // whose stream is refused goes on after the newest row it folded. Every position the stream
 // refused stays out of the next read's reach.
 
-import { encodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -89,7 +90,7 @@ function scriptedEntry(script: readonly (SessionBaseState | Promise<SessionBaseS
 }
 
 describe("OpenSessionEntry — the read places the window and the stream follows it", () => {
-  it("re-reads a lost stream once and replaces the window with the log's newest rows", async () => {
+  it("re-reads a lost stream once and lays the log's newest rows after the held ones", async () => {
     let landRepair: (baseState: SessionBaseState) => void = () => undefined;
     const repair = new Promise<SessionBaseState>((resolve) => {
       landRepair = resolve;
@@ -108,7 +109,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     expect(sequences()).toStrictEqual([6, 7]);
     expect(openings).toHaveLength(1);
 
-    // A burst of holes too wide to fill, with no focus and no press.
+    // A burst of far-behind frames, with no focus and no press.
     entry.loseStream();
     entry.loseStream();
     entry.loseStream();
@@ -118,25 +119,29 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     expect(entry.store.snapshot().degradedCause).toBe("stream-diverged");
     expect(sequences()).toStrictEqual([6, 7]);
 
-    // The read answers with the log's newest rows, which replace the window whole.
+    // The read answers with the log's newest rows, laid after the held ones so a reader keeps
+    // their place; the rows between are a released stretch a read inside brings back.
     landRepair(windowOf([40, 41, 42]));
     await settle();
     expect(entry.store.snapshot().degradedCause).toBeUndefined();
-    expect(sequences()).toStrictEqual([40, 41, 42]);
+    expect(sequences()).toStrictEqual([6, 7, 40, 41, 42]);
+    expect(entry.store.snapshot().releasedStretches).toStrictEqual([
+      { lastHeldSequenceBefore: 7, firstHeldCursorAfter: eventAt(40).cursor },
+    ]);
     // The stream after the window's newest row sends what follows; a row sent again is refused.
     entry.store.applyBatch([42, 43].map(eventAt));
-    expect(sequences()).toStrictEqual([40, 41, 42, 43]);
+    expect(sequences()).toStrictEqual([6, 7, 40, 41, 42, 43]);
 
     // One read for the whole burst, and the repair asks for no further one.
     await settle();
     expect(entry.refreshScheduler.performCount).toBe(3);
     expect(openings).toStrictEqual([
-      { opensAt: "resume", refusedCursors: new Set(), pageLimit: OPENING_PAGE_LIMIT },
+      { opensAt: "latest", refusedCursors: new Set(), pageLimit: OPENING_PAGE_LIMIT },
       { opensAt: "latest", refusedCursors: new Set(), pageLimit: OPENING_PAGE_LIMIT },
     ]);
     expect(positions).toStrictEqual([
-      { afterCursor: encodeEventCursor(5), afterSequence: undefined },
-      { afterCursor: "cursor-at-42", afterSequence: 42 },
+      { afterCursor: encodeEventCursor(5) },
+      { afterCursor: "cursor-at-42" },
     ]);
 
     entry.dispose();
@@ -197,10 +202,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
       { opensAt: "repair", reopening: { from: "row", rowCursor: "cursor-at-6" } },
       { opensAt: "repair", reopening: { from: "row", rowCursor: "cursor-at-8" } },
     ]);
-    expect(positions.at(-1)).toStrictEqual({
-      afterCursor: "cursor-at-8",
-      afterSequence: undefined,
-    });
+    expect(positions.at(-1)).toStrictEqual({ afterCursor: "cursor-at-8" });
     expect(entry.store.snapshot()).toMatchObject({ degradedCause: undefined, isReplaying: false });
     expect(entry.store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
       6, 7, 8, 9, 10,

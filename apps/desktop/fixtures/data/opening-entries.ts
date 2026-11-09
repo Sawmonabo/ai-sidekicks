@@ -1,12 +1,15 @@
 // The opening every scripted session plays before its first run: the room and its lead.
 // It reads the entry type from `script-entries.ts`, which reads nothing from here.
 
-import { AgentListEntrySchema, type AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
-import {
-  SessionCreatedPayloadSchema,
-  type SessionCreatedPayload,
-} from "@ai-sidekicks/contracts/session/events";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type {
+  AgentDefinitionId,
+  AgentId,
+  AgentProviderBinding,
+} from "@ai-sidekicks/contracts/agent/definition";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { ResolvedAgent } from "@ai-sidekicks/contracts/run/queued";
+import type { SessionCreatedPayload } from "@ai-sidekicks/contracts/session/events";
+import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import type { ScriptEntry } from "./script-entries.js";
@@ -18,7 +21,7 @@ import type { ScriptEntry } from "./script-entries.js";
 export interface ScenarioAgent {
   readonly agentId: string;
   readonly name: string;
-  readonly driverName: ProviderName;
+  readonly providerName: string;
   readonly modelId: string;
   /** The saved definition an agent other than the lead was started from. */
   readonly definitionId?: string;
@@ -58,29 +61,27 @@ export function findScenarioMember(cast: readonly ScenarioAgent[], agentId: stri
 }
 
 /**
- * The `session.created` payload, its lead shaped as the live agent list shapes it.
- *
- * Parsed here so an authoring mistake fails the scenario's module. The lead's binding names
- * no account and no effort, and its ancestry is empty because a lead has no parent.
+ * The `session.created` payload, its lead shaped as the live agent list shapes it. The lead's
+ * binding names no account and no effort, and its ancestry is empty because a lead has no
+ * parent. Typed against the generated payload; the scenario contract check holds the beat to
+ * its generated check.
  */
-export function composeSessionCreatedPayload(input: SessionCreatedInput): SessionCreatedPayload {
-  return SessionCreatedPayloadSchema.parse({
-    sessionId: input.sessionId,
+export function composeSessionCreatedPayload(
+  input: SessionCreatedInput,
+): Readonly<Record<string, unknown>> {
+  const payload = {
+    sessionId: input.sessionId as SessionId,
     shape: input.shape,
     mainAgent: {
-      agentId: input.lead.agentId,
+      agentId: input.lead.agentId as AgentId,
       name: input.lead.name,
-      binding: {
-        driverName: input.lead.driverName,
-        modelId: input.lead.modelId,
-        providerAccountId: null,
-        effort: null,
-      },
+      binding: unaccountedBinding(input.lead),
       ancestry: [],
       createdAt: input.createdAt,
     },
-    actor: input.openedBy,
-  });
+    actor: input.openedBy as UserId,
+  } satisfies SessionCreatedPayload;
+  return payload;
 }
 
 /**
@@ -90,32 +91,37 @@ export function composeSessionCreatedPayload(input: SessionCreatedInput): Sessio
  * The definition holds only empty defaults (no tool list, instructions or goal)
  * because no scenario reads them.
  */
-export function composeResolvedAgent(input: ResolvedAgentInput): AgentListEntry {
+export function composeResolvedAgent(input: ResolvedAgentInput): ResolvedAgent {
   const { agent } = input;
   if (agent.definitionId === undefined) {
     throw new RangeError(`agent ${agent.agentId} names no saved definition to be started from`);
   }
-  const binding = {
-    driverName: agent.driverName,
-    modelId: agent.modelId,
-    providerAccountId: null,
-    effort: null,
-  };
-  return AgentListEntrySchema.parse({
-    agentId: agent.agentId,
+  const binding = unaccountedBinding(agent);
+  return {
+    agentId: agent.agentId as AgentId,
     name: agent.name,
     binding,
     resolvedConfiguration: {
-      resolvedFromDefinitionId: agent.definitionId,
+      resolvedFromDefinitionId: agent.definitionId as AgentDefinitionId,
       resolvedBinding: binding,
       accentHue: null,
       toolAllowlist: null,
       instructions: "",
       goal: null,
     },
-    ancestry: [{ kind: "agent", agentId: input.lead.agentId }],
+    ancestry: [{ kind: "agent", agentId: input.lead.agentId as AgentId }],
     createdAt: input.resolvedAt,
-  });
+  };
+}
+
+/** An agent's binding to its provider and model, naming no account and no effort. */
+function unaccountedBinding(agent: ScenarioAgent): AgentProviderBinding {
+  return {
+    providerName: agent.providerName as ProviderId,
+    modelId: agent.modelId,
+    providerAccountId: null,
+    effort: null,
+  };
 }
 
 /** The opening of a scripted session: the room, born with its lead. */

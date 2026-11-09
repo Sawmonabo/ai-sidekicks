@@ -13,7 +13,7 @@
 //   - The other three lanes spin up. From the architect's `running` transition all four stream
 //     thinking, messages and tool calls, interleaved across four run groups.
 //   - An approval lands mid-stream: the request, the implementer entering
-//     `waiting_for_approval` while the others keep talking, the grant, and the return to
+//     `waitingForApproval` while the others keep talking, the grant, and the return to
 //     `running`.
 //   - A lane parks: a provider quota reading lands at 100% with its reset instant and the
 //     scout's run pauses, so the frame carries a countdown beside three streaming lanes.
@@ -23,9 +23,8 @@
 //     never shows: a run that has produced nothing yet.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
-// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session.ts`, because a fixture that plays a type no daemon
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds each beat to its category and to the
+// generated check of its whole event, because a fixture that plays a type no daemon
 // emits produces passing results about a wire that does not exist.
 //
 // The approval pair and the run-state pair are two records, not one: `approval_flow` records
@@ -65,9 +64,11 @@ import {
 } from "../data/opening-entries.js";
 import { WORKFLOW_RUN_DIFF_REPLIES } from "../data/workflow/run/review-diffs.js";
 import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
+import { PROJECT_LIST_OPENING_NOTICES } from "../data/project-list.js";
 import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -104,27 +105,27 @@ export const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
-    driverName: "claude",
+    providerName: "claude",
     modelId: "claude-opus-5-5",
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
-    driverName: "claude",
+    providerName: "claude",
     modelId: "claude-sonnet-5",
     definitionId: "019b79ee-0280-7de1-8120-d1a4c1150022",
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
-    driverName: "codex",
+    providerName: "codex",
     modelId: "gpt-5.6-sol",
     definitionId: "019b79ee-0280-7de1-8130-d1a4c1150023",
   },
   {
     agentId: AGENT_SCOUT,
     name: "Scout",
-    driverName: "codex",
+    providerName: "codex",
     modelId: "gpt-5.6-luna",
     definitionId: "019b79ee-0280-7de1-8140-d1a4c1150024",
   },
@@ -403,7 +404,7 @@ export function composeConcurrentStreamingLanes(
       atMs: at(1_600),
       runVersion: 4,
       previousState: "running",
-      newState: "waiting_for_approval",
+      newState: "waitingForApproval",
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(1_650),
@@ -444,7 +445,7 @@ export function composeConcurrentStreamingLanes(
     lane.transition(RUN_IMPLEMENTER, {
       atMs: at(1_850),
       runVersion: 5,
-      previousState: "waiting_for_approval",
+      previousState: "waitingForApproval",
       newState: "running",
       actorId: USER_YOU,
     }),
@@ -600,13 +601,18 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = defineScenario(
       "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
     sessionId: SESSION_ID,
     startedAtIso: STARTED_AT_ISO,
-    openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
+    openingNotices: [
+      ...WORKFLOW_OPENING_NOTICES,
+      ...SESSION_LIST_OPENING_NOTICES,
+      ...PROJECT_LIST_OPENING_NOTICES,
+    ],
   },
   () => {
     const beats = composeConcurrentStreamingBeats();
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         sessionReadReply({
           sessionId: SESSION_ID,
           state: "active",

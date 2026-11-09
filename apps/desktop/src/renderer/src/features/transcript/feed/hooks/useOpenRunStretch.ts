@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { heldRowCursor, type ReleasedEventStretch } from "#renderer/store/session/state.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
-import { type TranscriptHistoryState } from "../../history/reader.js";
+import { type HistoryEdgePlace, type TranscriptHistoryState } from "../../history/reader.js";
 import {
   readRunWindowEdgeKey,
   rowBesideRunWindowEdge,
@@ -142,13 +142,13 @@ interface PendingOpen {
   readonly besideRowId: string;
   readonly edge: RunWindowEdge;
   readonly releasedCount: number;
-  readonly place: keyof TranscriptHistoryState;
+  readonly place: HistoryEdgePlace;
 }
 
 /** The page read ahead for one edge line: the row beside the edge then, and where it reads. */
 interface ReadAhead {
   readonly besideRowId: string;
-  readonly place: keyof TranscriptHistoryState;
+  readonly place: HistoryEdgePlace;
 }
 
 /** The calls an edge's next stretch would read back, and the row beside that edge. */
@@ -160,7 +160,7 @@ interface OwedReadBack {
 
 /** A read of the calls let go beyond an edge: where it reads, and how it starts. */
 interface ReleasedReadBack {
-  readonly place: keyof TranscriptHistoryState;
+  readonly place: HistoryEdgePlace;
   /** Starts the read; answers whether it is under way. */
   readonly start: (history: TranscriptHistory) => boolean;
 }

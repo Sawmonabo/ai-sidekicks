@@ -190,16 +190,21 @@ export function withDaemonSubscribe(
       subscribe: ((
         event: string,
         request: unknown,
-        handler: (payload: unknown) => void,
+        handler: (payload: unknown, attachments: readonly Uint8Array[]) => void,
         onEnded?: (end: DaemonSubscriptionEnd) => void,
-      ): Unsubscribe =>
-        open(
-          (deliver = handler) => wrappedSubscribe(event, request, deliver, onEnded),
-          handler,
+      ): Unsubscribe => {
+        // A scenario delivers no bytes, so a frame a case hands over carries no attachments.
+        const deliverWithoutBytes = (payload: unknown): void => {
+          handler(payload, []);
+        };
+        return open(
+          (deliver = deliverWithoutBytes) => wrappedSubscribe(event, request, deliver, onEnded),
+          deliverWithoutBytes,
           request,
           onEnded,
           event,
-        )) as PlatformBridge["daemon"]["subscribe"],
+        );
+      }) as PlatformBridge["daemon"]["subscribe"],
     },
   };
 }

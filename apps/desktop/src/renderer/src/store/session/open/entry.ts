@@ -6,10 +6,12 @@
 // store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
 // session's scheduler for a read when a hole opened, so a quiet session still repairs itself.
 //
-// A window opens where the resume rule says, `acknowledged ?? latest`: the session's record, then
-// one window of its log, then the stream opened after the window's newest row. A stream lost to a
-// hole too wide to fill takes a snapshot: the record and the window at `latest`, which replaces
-// the window whole. Every other break is repaired with one read of the record, the window kept:
+// A window opens at `latest`: the session's record, then one window of its log ending at the log's
+// newest row, then the stream opened after that row. A stream the daemon marked far behind its
+// head takes a snapshot: the record and the window at `latest`, laid after the rows the window
+// holds with the rows between let go, so a reader scrolled away keeps their place and nothing the
+// stream would have sent is drawn twice. Every other break is repaired with one
+// read of the record, the window kept:
 // the stream reopens after the last row the window or its replay folded whole, or at the window's
 // head when no row precedes the fault or the stream refused the row named (`SessionStore.repair`).
 // Only a base state the store takes moves the stream: the entry names where it opens next, and
@@ -27,7 +29,7 @@
 // it makes and when the last screen showing the session lets it go, so it also holds for a session
 // opened and never shown.
 //
-// The subscriber reports when the stream cannot be followed: a hole too wide to fill, or a
+// The subscriber reports when the stream cannot be followed: a frame marking it far behind, or a
 // position the stream refused. The window is then marked degraded and its one repair read asked
 // for; no read opens the stream at a position among the newest refused, so a read never cycles
 // between refused ones. A failed read is told to the subscriber too, which asks again for one its
@@ -35,7 +37,7 @@
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import { describeFailure } from "#shared/failure-message.js";
@@ -67,11 +69,10 @@ import { SessionStore } from "../store.js";
 export type SessionWindowOpening =
   | {
       /**
-       * `resume` for a window opening, at `acknowledged ?? latest`; `latest` for the snapshot a
-       * stream lost past a hole too wide to fill takes, which replaces the window with the log's
-       * newest rows.
+       * A window read at the log's newest rows: a window's first opening, or the snapshot a stream
+       * marked far behind takes, laid after the rows the window holds.
        */
-      readonly opensAt: "resume" | "latest";
+      readonly opensAt: "latest";
       /** The positions the stream refused, which the read never opens at again. */
       readonly refusedCursors: ReadonlySet<EventCursor>;
       /** The row count the window's read asks for. */
@@ -110,11 +111,6 @@ export type SessionFirstRead = "read" | "gone" | "failed";
 export interface SessionStreamPosition {
   /** The daemon-issued position the stream opens after; `undefined` opens it at the log's start. */
   readonly afterCursor: EventCursor | undefined;
-  /**
-   * The sequence `afterCursor` names, which a drop's width is measured from: the newest row the
-   * window holds. Absent when it holds none, so the width is measured from the first delivery.
-   */
-  readonly afterSequence: number | undefined;
 }
 
 /**
@@ -144,7 +140,7 @@ export class OpenSessionEntry {
   public readonly refreshScheduler: RefreshScheduler;
   /** The positions the stream refused, oldest first, so no read opens the stream at one again. */
   readonly #refusedCursors = new Set<EventCursor>();
-  /** Whether the stream was lost past a hole too wide to fill, so the next read is a snapshot. */
+  /** Whether the stream was marked far behind its head, so the next read is a snapshot. */
   #isSnapshotOwed = false;
   #streamPosition: SessionStreamPosition | undefined = undefined;
   readonly #streamPositions = new Emitter<SessionStreamPosition>("session stream position");
@@ -312,8 +308,8 @@ export class OpenSessionEntry {
   }
 
   /**
-   * The stream dropped a hole too wide to fill: it is lost, and the read that repairs the window
-   * is a snapshot of the log's newest rows.
+   * The daemon marked the stream far behind its head: it is lost, and the read that repairs the
+   * window is a snapshot of the log's newest rows, which the store lays after the rows it holds.
    */
   public loseStream(): void {
     this.#isSnapshotOwed = true;
@@ -360,7 +356,9 @@ export class OpenSessionEntry {
     const isTaken =
       opening.opensAt === "repair"
         ? this.store.repair(baseState, opening.reopening)
-        : this.store.initialize(baseState);
+        : wasInitialized && this.#isSnapshotOwed
+          ? this.store.catchUp(baseState)
+          : this.store.initialize(baseState);
     if (!isTaken) {
       return;
     }
@@ -371,7 +369,7 @@ export class OpenSessionEntry {
     if (wasInitialized) {
       this.applyQueue.discardPending();
     }
-    this.#moveStream({ afterCursor: baseState.streamAfterCursor, afterSequence: baseState.cursor });
+    this.#moveStream({ afterCursor: baseState.streamAfterCursor });
   }
 
   /**
@@ -383,10 +381,7 @@ export class OpenSessionEntry {
     const refusedCursors: ReadonlySet<EventCursor> = new Set(this.#refusedCursors);
     const state = this.store.snapshot();
     const windowRead = { refusedCursors, pageLimit: options.openingPageLimit() };
-    if (!state.initialized) {
-      return { opensAt: "resume", ...windowRead };
-    }
-    if (this.#isSnapshotOwed) {
+    if (!state.initialized || this.#isSnapshotOwed) {
       return { opensAt: "latest", ...windowRead };
     }
     const rowCursor = this.store.repairResumeRowCursor;
@@ -416,7 +411,7 @@ export class OpenSessionEntry {
     if (newest === undefined || newest.sequence >= state.cursor) {
       return;
     }
-    this.#moveStream({ afterCursor: heldRowCursor(newest), afterSequence: newest.sequence });
+    this.#moveStream({ afterCursor: heldRowCursor(newest) });
   }
 
   /**
@@ -463,13 +458,13 @@ export class OpenSessionEntry {
  * answers for a deleted one.
  */
 function isSessionNotFound(failure: unknown): boolean {
-  return failure instanceof RefusalError && failure.refusal.code === "session.not_found";
+  return failure instanceof RefusalError && failure.refusal.code === "session.notFound";
 }
 
 // The most refused positions an entry remembers: as many as one read chooses between, the last
-// whole row, the head, the acknowledged position and the window's newest row or the floor. Once
-// each is refused the read is refused, so a read never cycles between refused ones.
-const REFUSED_CURSOR_LIMIT = 4;
+// whole row, the head and the window's newest row or the floor. Once each is refused the read is
+// refused, so a read never cycles between refused ones.
+const REFUSED_CURSOR_LIMIT = 3;
 
 /**
  * Whether one `applyBatch` lost rows the stream still holds, so an authoritative re-read is owed:

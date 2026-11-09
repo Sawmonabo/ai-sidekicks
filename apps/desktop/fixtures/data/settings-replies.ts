@@ -15,54 +15,57 @@
 // The two pages' writes behave as the daemon's do: a switched binding reads back switched, and a
 // tool's facet reads back set here or, once cleared, the server's own, each announced on
 // `mcp.subscribe`; a sign-in the page started ends on its own a few seconds later, reported on
-// `providerAccount.subscribe` unless it was canceled first (the first one fails with the
+// `provider.account.subscribe` unless it was canceled first (the first one fails with the
 // provider's reason, and every later one finishes), a checked account answers its current reading,
 // the first pasted token is one the provider does not accept, a re-supplied token keeps the
 // account it was pasted into and signs it back in, and the default moves to a signed-in account
-// while one whose login is gone is refused with its own remedy. The registry read reflects every
+// while one whose sign-in is gone is refused with its own remedy. The registry read reflects every
 // answered write.
 
 import {
+  MCP_TOOL_OVERRIDE_FACETS,
   type McpApplicationGrade,
-  type McpClearToolOverrideRequest,
-  type McpListResponse,
-  type McpMutationResult,
+  type McpServerBindingId,
   type McpServerBindingRef,
   type McpServerConfigChangedNotice,
   type McpServerInventoryEntry,
-  type McpSetToolOverrideRequest,
+  type McpServerListResponse,
+  type McpServerMutationResponse,
+  type McpServerSignInResponse,
   type McpToolOverrideApplication,
-  type McpToolOverrideMutationResult,
-} from "@ai-sidekicks/contracts/mcp/server";
-import {
-  MCP_TOOL_OVERRIDE_FACETS,
+  type McpToolOverrideClearRequest,
   type McpToolOverrideFacet,
+  type McpToolOverrideMutationResponse,
+  type McpToolOverrideUpdateRequest,
   type McpToolReading,
-  type McpToolSetting,
-} from "@ai-sidekicks/contracts/mcp/tool-settings";
+} from "@ai-sidekicks/contracts/mcp/server";
 import type {
   ProviderAccountNotification,
   ProviderAccount,
   ProviderAccountId,
   ProviderAccountListResponse,
-  ProviderLoginExpiredRemedy,
   ProviderReadiness,
+  ProviderSignInExpiredRemedy,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+  type ProviderAccountCurrentUpdateResponse,
   type ProviderAccountNotAuthenticatedDetails,
   type ProviderAccountProbeResponse,
-  type ProviderAccountSetCurrentResponse,
 } from "@ai-sidekicks/contracts/provider/account/methods";
 import {
   PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
-  type ProviderAccountLoginCancelResponse,
-  type ProviderAccountLoginResponse,
   type ProviderAccountRegisterResponse,
+  type ProviderAccountSignInAttemptCancelResponse,
+  type ProviderAccountSignInResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import type { SessionListAck, SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
+import type {
+  SessionListEntry,
+  SessionSubscribeResponse,
+} from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   AnsweredRequests,
@@ -79,12 +82,15 @@ const SESSION_B = "019b79ee-0280-75e5-8510-ada11a5a22a5" as SessionId;
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 const TOKEN_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
 
 const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
   {
-    provider: "claude",
+    provider: CLAUDE,
     scope: "user",
     serverName: "filesystem",
+    serverBindingId: "1".repeat(64) as McpServerBindingId,
     config: {
       transport: "stdio",
       command: "npx",
@@ -102,7 +108,7 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
         idempotencyClass: {
           value: "idempotent",
           source: "override",
-          serverValue: "manual_reconcile_only",
+          serverValue: "manualReconcileOnly",
         },
       },
       {
@@ -112,27 +118,33 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
         idempotencyClass: {
           value: "compensable",
           source: "override",
-          serverValue: "manual_reconcile_only",
+          serverValue: "manualReconcileOnly",
         },
       },
     ],
   },
   {
-    provider: "codex",
+    provider: CODEX,
     scope: "project",
     scopeRef: "/work/sidekicks",
     serverName: "issue-tracker",
+    serverBindingId: "2".repeat(64) as McpServerBindingId,
     config: {
       transport: "http",
       url: "https://issues.example.test/mcp",
       headerNames: ["X-Workspace"],
       bearerTokenEnvVar: "ISSUES_TOKEN",
     },
-    status: "needs-auth",
+    status: "needsAuth",
     observedAt: OBSERVED_AT,
     legs: [
-      { sessionId: SESSION_A, bindingId: "leg-a", status: "needs-auth", observedAt: OBSERVED_AT },
-      { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
+      {
+        sessionId: SESSION_A,
+        bindingId: "leg-a" as RuntimeBindingId,
+        status: "needsAuth",
+        observedAt: OBSERVED_AT,
+      },
+      { sessionId: SESSION_B, bindingId: "leg-b" as RuntimeBindingId, status: "connected" },
     ],
     enabled: true,
     tools: [
@@ -140,27 +152,29 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
         toolName: "create_issue",
         enabled: { value: true, source: "server" },
         approvalMode: { value: "writes", source: "server" },
-        idempotencyClass: { value: "manual_reconcile_only", source: "server" },
+        idempotencyClass: { value: "manualReconcileOnly", source: "server" },
       },
     ],
   },
   {
-    provider: "claude",
+    provider: CLAUDE,
     scope: "local",
     scopeRef: "/work/sidekicks",
     serverName: "scratchpad",
+    serverBindingId: "3".repeat(64) as McpServerBindingId,
     config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
     status: "unknown",
     bindingStoreUnavailable: true,
   },
   {
-    provider: "claude",
+    provider: CLAUDE,
     scope: "project",
     scopeRef: "/work/sidekicks",
     serverName: "scratchpad",
+    serverBindingId: "4".repeat(64) as McpServerBindingId,
     config: { transport: "stdio", command: "npx", args: ["-y", "scratchpad-mcp"] },
     status: "unknown",
-    supersededIn: ["/work/sidekicks"],
+    supersededIn: [{ path: "/work/sidekicks" }],
     enabled: true,
     tools: [],
   },
@@ -172,7 +186,7 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
  */
 export const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
-  provider: "claude",
+  provider: CLAUDE,
   credentialGeneration: 3,
   billingMode: "subscription",
   observedAccountEmail: "sam@example.com",
@@ -180,9 +194,9 @@ export const WORK_ACCOUNT: ProviderAccount = {
   isDefault: false,
   healthState: "authenticated",
   healthObservedAt: OBSERVED_AT,
-  observedAuthMode: "oauth_subscription",
-  loggedInAt: "2025-12-02T09:00:00.000Z",
-  expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
+  observedAuthMode: "oauthSubscription",
+  signedInAt: "2025-12-02T09:00:00.000Z",
+  signInNeededAtEstimate: "2026-01-01T09:00:00.000Z",
   probeEnabled: true,
   lastRefreshObservedAt: null,
   windowStartEnabled: true,
@@ -193,18 +207,18 @@ export const WORK_ACCOUNT: ProviderAccount = {
 /** An account whose credential home was absent when last observed. */
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
-  provider: "codex",
+  provider: CODEX,
   credentialGeneration: 1,
   billingMode: "metered",
   observedAccountEmail: "sam@example.org",
   observedAccountPlan: "team",
   observedAccountOrgName: "Example Inc",
   isDefault: true,
-  healthState: "home_missing",
+  healthState: "homeMissing",
   healthObservedAt: OBSERVED_AT,
   observedAuthMode: null,
-  loggedInAt: null,
-  expectedReloginAtEstimate: null,
+  signedInAt: null,
+  signInNeededAtEstimate: null,
   probeEnabled: true,
   lastRefreshObservedAt: null,
   windowStartEnabled: true,
@@ -215,16 +229,16 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
 /** A pasted-token account whose token stopped working, the default for its provider. */
 const TOKEN_ACCOUNT: ProviderAccount = {
   accountId: TOKEN_ACCOUNT_ID,
-  provider: "claude",
+  provider: CLAUDE,
   displayLabel: "Personal",
   credentialGeneration: 1,
   billingMode: "metered",
   isDefault: true,
-  healthState: "reauth_required",
+  healthState: "reauthRequired",
   healthObservedAt: OBSERVED_AT,
-  observedAuthMode: "oauth_token",
-  loggedInAt: "2025-12-20T09:00:00.000Z",
-  expectedReloginAtEstimate: null,
+  observedAuthMode: "oauthToken",
+  signedInAt: "2025-12-20T09:00:00.000Z",
+  signInNeededAtEstimate: null,
   probeEnabled: true,
   lastRefreshObservedAt: null,
   windowStartEnabled: true,
@@ -239,8 +253,8 @@ const SCRIPTED_ACCOUNTS: readonly ProviderAccount[] = [
   PERSONAL_ACCOUNT,
 ];
 
-/** The providers a readiness entry is drawn for, one each. */
-const READINESS_PROVIDERS: readonly ProviderName[] = ["claude", "codex"];
+/** The providers a readiness entry is drawn for, one each, and an account registered under. */
+const READINESS_PROVIDERS: readonly ProviderId[] = [CLAUDE, CODEX];
 
 const USAGE_WINDOWS: ProviderAccountListResponse["usageWindows"] = [
   {
@@ -267,7 +281,7 @@ const USAGE_WINDOWS: ProviderAccountListResponse["usageWindows"] = [
   },
 ];
 
-const SIGN_IN_CANCELED: ProviderAccountLoginCancelResponse = { status: "canceled" };
+const SIGN_IN_CANCELED: ProviderAccountSignInAttemptCancelResponse = { status: "canceled" };
 
 /** How long a started sign-in takes to finish on its own, in scenario time. */
 const SIGN_IN_FINISHES_AFTER_MS = 5000;
@@ -278,54 +292,62 @@ const SIGN_IN_CODE_LIFETIME_MS = 15 * 60 * 1000;
 /** Every call the two machine-level settings pages make, and what each is answered with. */
 export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   // Computed, so a binding switched earlier in the playback reads back switched.
-  { call: "mcp.list", resultFor: answerMcpList },
+  { call: "mcp.server.list", resultFor: answerMcpList },
   // Computed, so the row that was pressed is the row the answer names.
   {
-    call: "mcp.setEnabled",
+    call: "mcp.server.enabled.update",
     afterMs: 200,
     resultFor: answerMcpSetEnabled,
     noticesFor: announceMcpEdit,
   },
   // Computed, so the tool that was pressed is the tool the answer names, each facet set here.
   {
-    call: "mcp.setToolOverride",
+    call: "mcp.toolOverride.update",
     afterMs: 200,
     resultFor: answerMcpToolWrite,
     noticesFor: announceMcpEdit,
   },
   // Computed, so the facet cleared reads the server's own and the tool's others stand.
   {
-    call: "mcp.clearToolOverride",
+    call: "mcp.toolOverride.clear",
     afterMs: 200,
     resultFor: answerMcpToolWrite,
     noticesFor: announceMcpEdit,
   },
+  // The server needing authorization hands back the page its provider opens in the browser.
+  {
+    call: "mcp.server.signIn",
+    afterMs: 200,
+    result: {
+      authorizationUrl: "https://issues.example.test/authorize",
+    } satisfies McpServerSignInResponse,
+  },
   // Computed, so a moved default and a re-supplied token read back applied.
-  { call: "providerAccount.list", resultFor: answerAccountList },
+  { call: "provider.account.list", resultFor: answerAccountList },
   // Computed, so each attempt carries its own id and its completion names that one.
   {
-    call: "providerAccount.login",
+    call: "provider.account.signIn",
     afterMs: 200,
     resultFor: answerSignIn,
     noticesFor: finishSignIn,
   },
-  { call: "providerAccount.loginCancel", result: SIGN_IN_CANCELED },
+  { call: "provider.account.signInAttempt.cancel", result: SIGN_IN_CANCELED },
   // Computed, so the account answered is the one the form described.
-  { call: "providerAccount.register", afterMs: 200, resultFor: answerAccountRegistration },
+  { call: "provider.account.register", afterMs: 200, resultFor: answerAccountRegistration },
   // Computed, so the reading answered is the checked account's own.
-  { call: "providerAccount.probe", afterMs: 200, resultFor: answerAccountProbe },
-  // Computed, so an account whose login is gone is refused with its own remedy.
-  { call: "providerAccount.setCurrent", afterMs: 200, resultFor: answerSetCurrent },
+  { call: "provider.account.probe", afterMs: 200, resultFor: answerAccountProbe },
+  // Computed, so an account whose sign-in is gone is refused with its own remedy.
+  { call: "provider.account.current.update", afterMs: 200, resultFor: answerSetCurrent },
 ];
 
 /**
- * The frame `session.list` opens with: the list as it stands, naming the two running sessions the
- * inventory's legs belong to, both chats, so the daemon counts two.
+ * The frame `session.subscribe` opens with: the list as it stands, naming the two running sessions
+ * the inventory's legs belong to, both chats, so the daemon counts two.
  */
 export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
   {
-    stream: "session.list",
-    payloadAtOpen: (): SessionListAck => ({
+    stream: "session.subscribe",
+    payloadAtOpen: (): SessionSubscribeResponse => ({
       subscriptionId: "019b79ee-0280-7d11-8510-ada11a5a2300" as SubscriptionId,
       sessions: [
         runningChat(SESSION_A, "Fix login"),
@@ -351,17 +373,17 @@ function runningChat(sessionId: SessionId, name: string): SessionListEntry {
 }
 
 /**
- * The inventory, with each binding's newest answered `mcp.setEnabled` and every answered tool
- * override set and clear applied in the order they landed.
+ * The inventory, with each binding's newest answered `mcp.server.enabled.update` and every
+ * answered tool override update and clear applied in the order they landed.
  */
 function answerMcpList(
   _request: unknown,
   _settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
   answeredRequestsFor: AnsweredRequests,
-): McpListResponse {
-  const writes = answeredRequestsFor("mcp.setEnabled");
-  const toolWrites = answeredRequestsFor("mcp.setToolOverride", "mcp.clearToolOverride");
+): McpServerListResponse {
+  const writes = answeredRequestsFor("mcp.server.enabled.update");
+  const toolWrites = answeredRequestsFor("mcp.toolOverride.update", "mcp.toolOverride.clear");
   return {
     servers: MCP_INVENTORY.map((entry) => {
       const newestWrite = writes.findLast(
@@ -373,28 +395,30 @@ function answerMcpList(
         .filter((request) => scriptedServerAddressedBy(request) === entry)
         .reduce(withToolWriteApplied, switched);
     }),
+    failedProviders: [],
   };
 }
 
 /**
- * The inventory row a `mcp.setEnabled` request addresses, with the enablement it asked for, or
- * `undefined` for a request naming no scripted row, which settles as an unscripted call does.
+ * The inventory row a `mcp.server.enabled.update` request addresses, with the enablement it asked
+ * for, or `undefined` for a request naming no scripted row, which settles as an unscripted call
+ * does.
  */
-function answerMcpSetEnabled(request: unknown): McpMutationResult | undefined {
+function answerMcpSetEnabled(request: unknown): McpServerMutationResponse | undefined {
   const server = scriptedServerAddressedBy(request);
   const enabled = enablementOf(request);
   if (server === undefined || enabled === undefined) {
     return undefined;
   }
-  return { server: { ...server, enabled }, applied: "next_run" };
+  return { server: { ...server, enabled }, applied: "nextRun" };
 }
 
 /**
- * The inventory row a `mcp.setToolOverride` or `mcp.clearToolOverride` request addresses, with the
- * write applied and each facet it touched graded as the provider takes it. A request naming no
- * scripted row settles as an unscripted call does.
+ * The inventory row a `mcp.toolOverride.update` or `mcp.toolOverride.clear` request addresses,
+ * with the write applied and each facet it touched graded as the provider takes it. A request
+ * naming no scripted row settles as an unscripted call does.
  */
-function answerMcpToolWrite(request: unknown): McpToolOverrideMutationResult | undefined {
+function answerMcpToolWrite(request: unknown): McpToolOverrideMutationResponse | undefined {
   const server = scriptedServerAddressedBy(request);
   if (server === undefined) {
     return undefined;
@@ -416,26 +440,26 @@ function applicationOf(
   facets: readonly McpToolOverrideFacet[],
 ): McpToolOverrideApplication {
   const providerGrade: McpApplicationGrade =
-    entry.provider === "claude" ? "daemon_enforced" : "user_config_write";
+    entry.provider === CLAUDE ? "daemonEnforced" : "userConfigWrite";
   return {
     ...(facets.includes("enabled") ? { enabled: providerGrade } : {}),
     ...(facets.includes("approvalMode") ? { approvalMode: providerGrade } : {}),
-    ...(facets.includes("idempotencyClass") ? { idempotencyClass: "daemon_enforced" } : {}),
+    ...(facets.includes("idempotencyClass") ? { idempotencyClass: "daemonEnforced" } : {}),
   };
 }
 
 /**
  * An answered tool write as the page sent it. `callDaemon` sends only a request its method's
- * schema accepts, so a request the playback answered for either call has that call's shape.
+ * check accepts, so a request the playback answered for either call has that call's shape.
  */
-function toolWriteOf(request: unknown): McpSetToolOverrideRequest | McpClearToolOverrideRequest {
-  return request as McpSetToolOverrideRequest | McpClearToolOverrideRequest;
+function toolWriteOf(request: unknown): McpToolOverrideUpdateRequest | McpToolOverrideClearRequest {
+  return request as McpToolOverrideUpdateRequest | McpToolOverrideClearRequest;
 }
 
 /**
- * A row with one answered tool write applied to the tool it names: each facet a set names reads
- * set here over the server's own value, the facet a clear names reads the server's own value
- * again, and every other facet stands.
+ * A row with one answered tool write applied to the tool it names: each facet an update names
+ * reads set here over the server's own value, the facet a clear names reads the server's own
+ * value again, and every other facet stands.
  */
 function withToolWriteApplied(
   entry: McpServerInventoryEntry,
@@ -446,18 +470,22 @@ function withToolWriteApplied(
   }
   const write = toolWriteOf(request);
   const toolName = "facet" in write ? write.toolName : write.override.toolName;
-  const written = <OverrideValue, ServerValue>(
+  const override = "facet" in write ? undefined : write.override;
+  const written = <Setting extends McpToolReading[McpToolOverrideFacet]>(
     facet: McpToolOverrideFacet,
-    setting: McpToolSetting<OverrideValue, ServerValue>,
-    setValue: OverrideValue | undefined,
-  ): McpToolSetting<OverrideValue, ServerValue> => {
+    setting: Setting,
+    setValue: Setting["value"] | undefined,
+  ): Setting => {
     const serverValue = setting.source === "server" ? setting.value : setting.serverValue;
     if ("facet" in write) {
-      return write.facet === facet ? { source: "server", value: serverValue } : setting;
+      return (
+        write.facet === facet ? { source: "server", value: serverValue } : setting
+      ) as Setting;
     }
-    return setValue === undefined ? setting : { source: "override", value: setValue, serverValue };
+    return (
+      setValue === undefined ? setting : { source: "override", value: setValue, serverValue }
+    ) as Setting;
   };
-  const override = "facet" in write ? undefined : write.override;
   return {
     ...entry,
     tools: entry.tools.map(
@@ -486,7 +514,7 @@ function announceMcpEdit(request: unknown): readonly ScenarioNotice[] {
   }
   const payload: McpServerConfigChangedNotice = {
     ...bindingRefOf(server),
-    type: "mcp.server_config_changed",
+    type: "mcp.server.config.changed",
   };
   return [{ stream: "mcp.subscribe", afterMs: 0, payloadAtDelivery: () => payload }];
 }
@@ -498,8 +526,13 @@ function scriptedServerAddressedBy(request: unknown): McpServerInventoryEntry | 
       entry.provider === readMember(request, "provider") &&
       entry.scope === readMember(request, "scope") &&
       entry.serverName === readMember(request, "serverName") &&
-      (entry.scope === "user" ? undefined : entry.scopeRef) === readMember(request, "scopeRef"),
+      scopeRefOf(entry) === readMember(request, "scopeRef"),
   );
+}
+
+/** The scope reference a row's scope carries, or `undefined` for a scope that names none. */
+function scopeRefOf(entry: McpServerInventoryEntry): string | undefined {
+  return "scopeRef" in entry ? entry.scopeRef : undefined;
 }
 
 /** The enablement a request or override asked for, or `undefined` for none. */
@@ -510,14 +543,14 @@ function enablementOf(request: unknown): boolean | undefined {
 
 /** A row's binding address alone, as a notice carries it. */
 function bindingRefOf(entry: McpServerInventoryEntry): McpServerBindingRef {
-  return entry.scope === "user"
-    ? { provider: entry.provider, scope: entry.scope, serverName: entry.serverName }
-    : {
-        provider: entry.provider,
-        scope: entry.scope,
-        scopeRef: entry.scopeRef,
-        serverName: entry.serverName,
-      };
+  const { provider, scope, serverName } = entry;
+  const scopeRef = scopeRefOf(entry);
+  // The row's own scope and reference, so the address is one of the row's own arms.
+  return (
+    scopeRef === undefined
+      ? { provider, scope, serverName }
+      : { provider, scope, scopeRef, serverName }
+  ) as McpServerBindingRef;
 }
 
 /**
@@ -528,12 +561,13 @@ function answerSignIn(
   _request: unknown,
   settledAtMilliseconds: number,
   computedReplyOrdinal: number,
-): ProviderAccountLoginResponse {
+): ProviderAccountSignInResponse {
   return {
     attemptId: signInAttemptId(computedReplyOrdinal),
     verificationUri: "https://provider.example.test/device",
     userCode: "WXYZ-1234",
     expiresAt: new Date(settledAtMilliseconds + SIGN_IN_CODE_LIFETIME_MS).toISOString(),
+    isBrowserOpenedByProvider: false,
   };
 }
 
@@ -557,19 +591,19 @@ function finishSignIn(request: unknown, answer: unknown): readonly ScenarioNotic
   const payload: ProviderAccountNotification =
     attemptId === signInAttemptId(1)
       ? {
-          kind: "login_completed",
+          kind: "signInCompleted",
           attemptId,
           accountId: account.accountId,
           outcome: "failed",
           failureReason: "The device code expired before it was entered.",
         }
-      : { kind: "login_completed", attemptId, accountId: account.accountId, outcome: "succeeded" };
+      : { kind: "signInCompleted", attemptId, accountId: account.accountId, outcome: "succeeded" };
   return [
     {
-      stream: "providerAccount.subscribe",
+      stream: "provider.account.subscribe",
       afterMs: SIGN_IN_FINISHES_AFTER_MS,
       payloadAtDelivery: (answeredRequestsFor) =>
-        answeredRequestsFor("providerAccount.loginCancel").some(
+        answeredRequestsFor("provider.account.signInAttempt.cancel").some(
           (cancel) => readMember(cancel, "attemptId") === attemptId,
         )
           ? undefined
@@ -618,16 +652,16 @@ function answerAccountList(
 }
 
 /**
- * The named account made its provider's default, or the daemon's refusal where its login is gone,
- * carrying that account's own remedy; nothing moves on a refusal. A request naming no scripted
- * account settles as an unscripted call does.
+ * The named account made its provider's current one, or the daemon's refusal where its sign-in is
+ * gone, carrying that account's own remedy; nothing moves on a refusal. A request naming no
+ * scripted account settles as an unscripted call does.
  */
 function answerSetCurrent(
   request: unknown,
   settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
   answeredRequestsFor: AnsweredRequests,
-): ProviderAccountSetCurrentResponse | undefined {
+): ProviderAccountCurrentUpdateResponse | undefined {
   const account = accountNamedBy(
     request,
     currentAccounts(answeredRequestsFor, settledAtMilliseconds),
@@ -635,8 +669,10 @@ function answerSetCurrent(
   if (account === undefined) {
     return undefined;
   }
-  if (account.healthState === "reauth_required" || account.healthState === "home_missing") {
-    const details: ProviderAccountNotAuthenticatedDetails = { remedy: loginRemedyFor(account) };
+  if (account.healthState === "reauthRequired" || account.healthState === "homeMissing") {
+    const details = {
+      remedy: signInRemedyFor(account),
+    } satisfies ProviderAccountNotAuthenticatedDetails;
     // A thrown wire envelope is the scenario's way to script a daemon refusal.
     const refusal: ScenarioRefusalEnvelope = {
       code: PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
@@ -651,16 +687,16 @@ function answerSetCurrent(
 /**
  * The scripted accounts with every answered write applied: each re-supplied token signs its
  * account back in under the next credential generation, observed no later than `observedAtMs`,
- * then each answered default move takes the mark from the provider's other accounts.
+ * then each answered current-account move takes the mark from the provider's other accounts.
  */
 function currentAccounts(
   answeredRequestsFor: AnsweredRequests,
   observedAtMilliseconds: number,
 ): readonly ProviderAccount[] {
-  const resupplies = answeredRequestsFor("providerAccount.register").filter(
+  const resupplies = answeredRequestsFor("provider.account.register").filter(
     (request) => readMember(request, "accountId") !== undefined,
   );
-  const resupplied = SCRIPTED_ACCOUNTS.map((account) => {
+  const resupplied = SCRIPTED_ACCOUNTS.map((account): ProviderAccount => {
     const count = resupplies.filter(
       (request) => readMember(request, "accountId") === account.accountId,
     ).length;
@@ -669,11 +705,11 @@ function currentAccounts(
       : {
           ...account,
           credentialGeneration: account.credentialGeneration + count,
-          healthState: "authenticated" as const,
+          healthState: "authenticated",
           healthObservedAt: new Date(observedAtMilliseconds).toISOString(),
         };
   });
-  return answeredRequestsFor("providerAccount.setCurrent").reduce<readonly ProviderAccount[]>(
+  return answeredRequestsFor("provider.account.current.update").reduce<readonly ProviderAccount[]>(
     (accounts, request) => {
       const moved = accountNamedBy(request, accounts);
       return moved === undefined
@@ -688,23 +724,30 @@ function currentAccounts(
   );
 }
 
-/** One provider's readiness, resolved to its default account the way the daemon resolves it. */
+/**
+ * One provider's readiness, resolved to its current account the way the daemon resolves it. Cast
+ * because the generated readiness type reads the remedy's account-id cross-reference as a member.
+ */
 function readinessOf(
-  provider: ProviderName,
+  provider: ProviderId,
   accounts: readonly ProviderAccount[],
 ): ProviderReadiness {
   const providerAccounts = accounts.filter((account) => account.provider === provider);
-  if (providerAccounts.length === 0) {
-    return { provider, state: "no_account", remedy: { kind: "register", provider } };
+  const [firstAccount, ...otherAccounts] = providerAccounts;
+  if (firstAccount === undefined) {
+    return { provider, state: "noAccount", remedy: { kind: "register", provider } };
   }
   const resolved = providerAccounts.find((account) => account.isDefault);
   if (resolved === undefined) {
     return {
       provider,
-      state: "no_default",
+      state: "noCurrent",
       remedy: {
-        kind: "choose_default",
-        candidateAccountIds: providerAccounts.map((account) => account.accountId),
+        kind: "chooseCurrent",
+        candidateAccountIds: [
+          firstAccount.accountId,
+          ...otherAccounts.map((account) => account.accountId),
+        ],
       },
     };
   }
@@ -716,28 +759,38 @@ function readinessOf(
   switch (resolved.healthState) {
     case "authenticated":
       return { ...entry, state: "authenticated" };
-    case "reauth_required":
-    case "home_missing":
-      return { ...entry, state: resolved.healthState, remedy: loginRemedyFor(resolved) };
+    case "reauthRequired":
+      return {
+        ...entry,
+        state: "reauthRequired",
+        remedy: signInRemedyFor(resolved),
+      } as ProviderReadiness;
+    case "homeMissing":
+      return {
+        ...entry,
+        state: "homeMissing",
+        remedy: { kind: "signIn", accountId: resolved.accountId },
+      } as ProviderReadiness;
     case "indeterminate":
       return {
         ...entry,
         state: "indeterminate",
-        remedy: { kind: "look_again", accountId: resolved.accountId },
-      };
+        remedy: { kind: "lookAgain", accountId: resolved.accountId },
+      } as ProviderReadiness;
   }
 }
 
 /**
- * The one way back for an account whose login is gone: a token or API-key account cannot refresh
- * itself, so a fresh token is pasted; every other account signs in again through the provider.
+ * The one way back for an account whose sign-in is gone: a token or API-key account cannot
+ * refresh itself, so a fresh token is pasted; every other account signs in again through the
+ * provider.
  */
-function loginRemedyFor(account: ProviderAccount): ProviderLoginExpiredRemedy {
+function signInRemedyFor(account: ProviderAccount): ProviderSignInExpiredRemedy {
   const isPastedCredential =
-    account.observedAuthMode === "oauth_token" || account.observedAuthMode === "api_key";
-  return isPastedCredential && account.healthState === "reauth_required"
-    ? { kind: "paste_token", accountId: account.accountId }
-    : { kind: "sign_in", accountId: account.accountId };
+    account.observedAuthMode === "oauthToken" || account.observedAuthMode === "apiKey";
+  return isPastedCredential && account.healthState === "reauthRequired"
+    ? { kind: "pasteToken", accountId: account.accountId }
+    : { kind: "signIn", accountId: account.accountId };
 }
 
 /** The account among `accounts` a request's `accountId` names, or `undefined`. */
@@ -795,9 +848,10 @@ function answerAccountRegistration(
           },
         };
   }
-  const { provider, displayLabel, billingMode } = sent;
+  const { displayLabel, billingMode } = sent;
+  const provider = READINESS_PROVIDERS.find((known) => known === sent["provider"]);
   if (
-    (provider !== "claude" && provider !== "codex") ||
+    provider === undefined ||
     typeof displayLabel !== "string" ||
     (billingMode !== "subscription" && billingMode !== "metered" && billingMode !== "unknown")
   ) {
@@ -811,7 +865,7 @@ function answerAccountRegistration(
       displayLabel,
       billingMode,
       // The pasted credential's kind, which the registration's own status check observed.
-      observedAuthMode: provider === "codex" ? "api_key" : "oauth_token",
+      observedAuthMode: provider === CODEX ? "apiKey" : "oauthToken",
       isDefault: false,
       // Nothing has observed an account registered a moment ago.
       healthState: "indeterminate",

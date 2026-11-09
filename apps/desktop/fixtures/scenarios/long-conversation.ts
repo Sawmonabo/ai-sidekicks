@@ -50,6 +50,7 @@ import {
   bodyOf,
 } from "../data/transcript-bodies.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 // The session and its id stems. Ids are UUID v7 values whose leading bytes are a fixed instant.
 const SESSION_ID = "019b7c40-0280-75e5-8510-ada11a5a77a5";
@@ -319,6 +320,7 @@ export const LONG_CONVERSATION_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         sessionReadReply({
           sessionId: SESSION_ID,
           state: "active",

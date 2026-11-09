@@ -27,6 +27,22 @@ export interface ScenarioBeat {
   readonly storedBody?: string;
 }
 
+/**
+ * One shell of the scenario's session: what `terminal.subscribe` lists and the scrollback window
+ * `terminal.output.subscribe` opens with. Its holder and lease version are read off the delivered
+ * log's newest `terminal.control.changed` beat for it.
+ */
+export interface ScenarioShell {
+  readonly terminalId: string;
+  /** Its tab's title. */
+  readonly title: string;
+  /** The columns and rows the window was last drawn at. */
+  readonly columns: number;
+  readonly rows: number;
+  /** The window's text, sent as its UTF-8 bytes. */
+  readonly scrollback: string;
+}
+
 /** A scripted session: the beats it plays and the replies it answers with. */
 export interface Scenario {
   readonly id: string;
@@ -39,6 +55,8 @@ export interface Scenario {
   readonly replies: readonly ScenarioReply[];
   /** The frames machine streams open with, where the daemon sends one first. */
   readonly openingNotices?: readonly ScenarioOpeningNotice[];
+  /** The session's shells, in tab order; a scenario with none lists nothing. */
+  readonly shells?: readonly ScenarioShell[];
   /**
    * What the main process's updater reports, when the scenario states one.
    *

@@ -32,24 +32,24 @@
 // a window whose every stream ended with the service still sees it come back.
 //
 // Each session gets its own `session.subscribe`, and deliveries are still checked against that
-// session because the stream comes from another process. A delivery is a frame: a batch of events
-// oldest first, or the caught-up frame with none. When the daemon drops changes for this
-// connection, the next frame carries the drop mark. The hole is measured in sequences, from the
-// last change delivered to the frame's first, since the cursors are opaque. Within
-// `MAX_REPAIRABLE_SEQUENCE_GAP` the frame is set aside and the stream opened again after the last
-// change delivered, so the daemon fills the hole in order and the store never sees it; a
-// caught-up frame names no sequence, so it is filled the same way. Past the bound the hole is not
-// filled: the stream is closed and the store marked degraded, and its one repair read takes a
-// snapshot, the session's record and the window at the log's newest rows, and reopens the stream
-// after the window's newest row.
+// session because the stream comes from another process. A delivery is a frame: a batch of
+// changes oldest first, or the far-behind frame. The daemon never drops a change for a slow
+// reader; it reads each frame from its record at the reader's pace, and a stream too far behind
+// the record's head is sent one frame with no changes, marked behind, carrying the head cursor. The
+// stream is then closed and the store marked degraded, and its one repair read takes a snapshot,
+// the session's record and the window at the log's newest rows, which replaces the window whole
+// and reopens the stream after the window's newest row, so nothing between the old position and
+// the head is drawn, and nothing is drawn twice.
 // Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
 // tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
+  type EventCursor,
+} from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
-import type { Unsubscribe } from "#shared/preload-api.js";
+import type { FilePathRef, Unsubscribe } from "#shared/preload-api.js";
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -58,8 +58,6 @@ import {
 import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { SESSION_EVENT_STREAM } from "#shared/daemon/streams.js";
-import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { ReopenBackoff } from "../transport/reopen-backoff.js";
@@ -288,14 +286,18 @@ export class SessionEventSubscriber {
           afterCursor === undefined
             ? { sessionId: wireSessionId }
             : { sessionId: wireSessionId, afterCursor },
-          (frame: unknown) => {
+          (
+            frame: unknown,
+            attachments: readonly Uint8Array[],
+            fileRefs?: Readonly<Record<string, FilePathRef>>,
+          ) => {
             // A stream this class closed may still be mid-batch; its frames come again on the
             // stream that replaced it.
             if (binding.isReleased) {
               return;
             }
             binding.hasDelivered = true;
-            this.#deliver(sessionId, binding, frame);
+            this.#deliver(sessionId, binding, frame, attachments, fileRefs);
           },
           (end) => {
             this.#resumeEndedStream(sessionId, binding, end);
@@ -341,10 +343,7 @@ export class SessionEventSubscriber {
     if (this.#disposed || !this.#registry.has(sessionId)) {
       return;
     }
-    this.#deliveredPositionBySessionId.set(sessionId, {
-      cursor: opening.afterCursor,
-      sequence: opening.afterSequence,
-    });
+    this.#deliveredPositionBySessionId.set(sessionId, { cursor: opening.afterCursor });
     const binding = this.#bindingBySessionId.get(sessionId);
     if (binding !== undefined) {
       if (binding.afterCursor === opening.afterCursor && !binding.hasDelivered) {
@@ -359,9 +358,7 @@ export class SessionEventSubscriber {
   /** The position the session's last read placed its window at, as the registry names it. */
   #readPositionFor(sessionId: string): DeliveredPosition | undefined {
     const position = this.#registry.streamPositionFor(sessionId);
-    return position === undefined
-      ? undefined
-      : { cursor: position.afterCursor, sequence: position.afterSequence };
+    return position === undefined ? undefined : { cursor: position.afterCursor };
   }
 
   /**
@@ -412,7 +409,7 @@ export class SessionEventSubscriber {
     recordWireFact("subscription-ended", `session ${sessionId}: ${describeSubscriptionEnd(end)}`);
     if (
       end.reason === "refused" &&
-      end.refusal.data?.type === EVENT_CURSOR_UNRESOLVABLE_CODE &&
+      end.refusal.data?.type === SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE &&
       binding.afterCursor !== undefined
     ) {
       // The log no longer resolves that position, so no stream opens there again: the session's
@@ -463,55 +460,38 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Fills a hole the daemon dropped: the stream is closed and opened again after the last change
-   * it delivered, so the daemon sends the hole and what followed it in order. Through the re-open
-   * waits, so a wire that stays full is not re-opened in a loop.
-   */
-  #fillDroppedChanges(sessionId: string, binding: StreamBinding): void {
-    this.#releaseBinding(sessionId, binding);
-    recordWireFact("dropped-changes-filled", `session ${sessionId}`);
-    const backoff = this.#backoffFor(sessionId);
-    backoff.noteEnded(binding.openedAt);
-    backoff.schedule(() => {
-      this.#bindSession(sessionId);
-    });
-  }
-
-  /**
-   * Handles one delivered frame. The drop mark is acted on before the events are queued, and the
-   * frame is set aside either way, which is why the position is read before this frame moves it.
-   * Within the bound the hole is filled from the last change delivered. Past it the stream is
-   * closed and the store marked degraded (which the catching-up line reads) until the read that
+   * Handles one delivered frame. A far-behind frame carries no changes: the stream is closed and
+   * the store marked degraded (which the catching-up line reads) until the snapshot read that
    * repairs it lands.
    *
    * The refusal arm of `enqueue` covers a close race: emission iterates a snapshot of subscribers,
    * so a session closed mid-delivery still reaches this handler, and a throw here would break the
    * wire's subscription for every other session on it.
    */
-  #deliver(sessionId: string, binding: StreamBinding, delivered: unknown): void {
-    const frame = readSessionStreamFrame(delivered);
+  #deliver(
+    sessionId: string,
+    binding: StreamBinding,
+    delivered: unknown,
+    attachments: readonly Uint8Array[],
+    fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
+  ): void {
+    const frame = readSessionStreamFrame(delivered, attachments, fileRefs);
     if (frame === undefined) {
       this.#unreadableDeliveryCount += 1;
+      return;
+    }
+    if (frame.isBehind) {
+      if (this.#registry.has(sessionId)) {
+        this.#snapshotPastHead(sessionId, binding);
+      }
       return;
     }
     // Only this session's events reach its store; another session's event has no store here and is
     // dropped without being counted as unreadable.
     const events = frame.events.filter((event) => event.sessionId === sessionId);
-    const previous = this.#deliveredPositionBySessionId.get(sessionId);
-    if (frame.dropped && this.#registry.has(sessionId)) {
-      if (isFillableDrop(previous, events)) {
-        this.#fillDroppedChanges(sessionId, binding);
-      } else {
-        this.#rereadPastDroppedChanges(sessionId, binding);
-      }
-      return;
-    }
     this.#unreadableDeliveryCount += frame.unreadableEventCount;
     if (this.#registry.has(sessionId)) {
-      this.#deliveredPositionBySessionId.set(sessionId, {
-        cursor: frame.resumeCursor,
-        sequence: events.at(-1)?.sequence ?? previous?.sequence,
-      });
+      this.#deliveredPositionBySessionId.set(sessionId, { cursor: frame.resumeCursor });
     }
     if (events.length === 0) {
       return;
@@ -529,13 +509,14 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Repairs a hole too wide to fill by a read: the stream is closed and its position forgotten,
-   * and the session told it lost the stream, so its read repairs it and opens the stream again.
-   * Retained meanwhile, so a returning edge asks again when that read could not reach the daemon.
+   * Takes a stream marked far behind its head past the changes it would have sent: the stream is
+   * closed and its position forgotten, and the session told it lost the stream, so its snapshot
+   * read replaces the window and opens the stream again after it. Retained meanwhile, so a
+   * returning edge asks again when that read could not reach the daemon.
    */
-  #rereadPastDroppedChanges(sessionId: string, binding: StreamBinding): void {
+  #snapshotPastHead(sessionId: string, binding: StreamBinding): void {
     this.#releaseBinding(sessionId, binding);
-    recordWireFact("dropped-changes-reread", `session ${sessionId}`);
+    recordWireFact("stream-behind-snapshot", `session ${sessionId}`);
     this.#deliveredPositionBySessionId.delete(sessionId);
     this.#retry.retain(sessionId);
     this.#registry.loseStream(sessionId);
@@ -579,31 +560,9 @@ interface StreamBinding {
   readonly openedAt: number;
 }
 
-/**
- * Where a stream left off: the cursor a re-open resumes after (`undefined` for the log's start),
- * and the sequence of the last event of this session it delivered or its read placed the window
- * at, which measures a hole the cursor cannot.
- */
+/** Where a stream left off: the cursor a re-open resumes after, `undefined` for the log's start. */
 interface DeliveredPosition {
   readonly cursor: EventCursor | undefined;
-  readonly sequence: number | undefined;
-}
-
-/**
- * Whether a hole before this frame is filled from the daemon's record rather than repaired by a
- * read. The width is counted in sequences between the last event delivered and the frame's first;
- * where either is unknown (the caught-up frame, nothing delivered yet) it is filled, since the
- * daemon still holds every row.
- */
-function isFillableDrop(
-  previous: DeliveredPosition | undefined,
-  events: readonly ProjectedSessionEvent[],
-): boolean {
-  const firstSequence = events[0]?.sequence;
-  if (firstSequence === undefined || previous?.sequence === undefined) {
-    return true;
-  }
-  return firstSequence - previous.sequence - 1 <= MAX_REPAIRABLE_SEQUENCE_GAP;
 }
 
 /** Capture a wire fact for diagnostics; it never reaches the screen or the tripwire. */

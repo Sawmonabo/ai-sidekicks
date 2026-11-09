@@ -4,9 +4,8 @@
 // the real fixture bridge playing the concurrent-streaming scenario, whose whole-session stream
 // catches up past a cursor as the daemon does.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import { SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/id";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -71,9 +70,9 @@ async function createResumeHarness(
         onEnded?.({
           reason: "refused",
           refusal: {
-            code: JsonRpcErrorCode.InvalidParams,
+            code: JsonRpcErrorCode.DomainRefusal,
             message: "That cursor is not in this session's log.",
-            data: { type: EVENT_CURSOR_UNRESOLVABLE_CODE },
+            data: { type: SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE, category: "invalidArgument" },
           },
         });
       });
@@ -81,9 +80,12 @@ async function createResumeHarness(
     }
     let isHeld = true;
     const release: Unsubscribe = passThrough((delivered) => {
-      for (const change of (delivered as SessionStreamFrame<EventEnvelope>).changes) {
-        sequencesDelivered.push(change.event.sequence);
-        lastCursor = change.cursor;
+      const frame = delivered as SessionStreamFrame;
+      if (frame.kind === "changes") {
+        for (const change of frame.changes) {
+          sequencesDelivered.push(change.event.sequence);
+          lastCursor = change.cursor;
+        }
       }
       handler(delivered);
     });

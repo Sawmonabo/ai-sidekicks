@@ -1,11 +1,13 @@
 // A session that has been opened and has done nothing: an empty log.
 //
 // Every beat a script plays puts a row on screen, so only a scenario with no beats reaches
-// the transcript's empty state. Its one reply is `session.read`; a call it does not answer is
-// refused by name and each view renders that refusal where it happened.
+// the transcript's empty state. Its replies are the machine's `provider.list` and `session.read`;
+// a call it does not answer is refused by name and each view renders that refusal where it
+// happened.
 
 import type { Scenario } from "../scenario.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 /** The id of the empty-session scenario. */
 export const EMPTY_SESSION_SCENARIO_ID = "empty-session";
@@ -24,6 +26,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
   startedAtIso: STARTED_AT_ISO,
   beats: [],
   replies: [
+    PROVIDER_LIST_REPLY,
     sessionReadReply({
       sessionId: SESSION_ID,
       state: "active",

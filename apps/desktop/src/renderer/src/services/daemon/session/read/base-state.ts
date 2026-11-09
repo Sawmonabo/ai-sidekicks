@@ -1,14 +1,16 @@
 // The window's session read: the daemon's `session.read`, then, for a read that places the window,
 // one `transcript.read` window of the log, and the stream opened after the window's newest row. A
-// window opens where the resume rule says, `acknowledged ?? latest`; a snapshot opens it at
-// `latest`. A repair keeps the window and reads only the record, the stream reopened where the
-// opening says. The record's live runs become the run entities, their facts holding through the
-// record's newest position, since a window opened below a run's events never reads the events that
-// set its state; the window's reply serves the facts of the runs its rows name; and the record's
-// standing events become the store's, for the facts they carry. Every other position is relayed as
-// the daemon issued it and never read for a sequence: the window's rows carry their own.
+// window opens at `latest`, the log's newest row; where a person was reading is this device's to
+// keep, never the daemon's. A repair keeps the window and reads only the record, the stream
+// reopened where the opening says. The record's live runs become the run entities, their facts
+// holding through the record's newest position, since a window opened below a run's events never
+// reads the events that set its state; the window's reply serves the facts of the runs its rows
+// name; and the record's standing events become the store's, for the facts they carry. Every other
+// position is relayed as the daemon issued it and never read for a sequence: the window's rows
+// carry their own.
 
-import { decodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { decodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 
 import { callDaemon, unwrapDaemonReply } from "../../reply.js";
@@ -28,10 +30,7 @@ import {
   type SessionBaseState,
 } from "#renderer/store/session/state.js";
 import type { TranscriptWindowPage } from "#renderer/store/session/transcript-window.js";
-import {
-  type SessionBaseStateReader,
-  type SessionWindowOpening,
-} from "#renderer/store/session/open/entry.js";
+import { type SessionBaseStateReader } from "#renderer/store/session/open/entry.js";
 
 /** The subsystem a refusal from this read names as its author. */
 const SESSION_READ_ORIGIN = "session-read";
@@ -61,30 +60,13 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
       unwrapDaemonReply(
         await transcriptPageReadThroughDaemon(bridge)({
           sessionId: wireSessionId,
-          beforeCursor: openingCursorOf(record.transcriptCursors, opening),
+          beforeCursor: record.transcriptCursors.latest,
           limit: opening.pageLimit,
         }),
       ),
     );
     return windowBaseStateOf(record, page, opening.refusedCursors);
   };
-}
-
-/**
- * The position the window ends at: the acknowledged one when a window opens and one was
- * acknowledged, else the log's newest. A refused acknowledged position is passed over for the
- * newest.
- */
-function openingCursorOf(
-  cursors: SessionReadResponse["transcriptCursors"],
-  opening: Extract<SessionWindowOpening, { readonly opensAt: "resume" | "latest" }>,
-): EventCursor {
-  const { acknowledged } = cursors;
-  return opening.opensAt === "resume" &&
-    acknowledged !== undefined &&
-    !opening.refusedCursors.has(acknowledged)
-    ? acknowledged
-    : cursors.latest;
 }
 
 /**

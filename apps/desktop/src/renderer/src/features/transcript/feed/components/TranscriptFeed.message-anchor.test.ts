@@ -1,18 +1,17 @@
 // Opening a session at one message, as a link from a workflow run does: the feed finds the row by
 // its event cursor, keeps it however far back it sits, scrolls to it and puts focus on the log. A
-// message older than the window is reached by reading back. A cursor no read holds leaves the page
-// where it is, with nothing landed and one line saying the message was not found. One newer than a
-// tail the store let go is reached by reading forward.
+// message outside the window is reached by one read of the page around it, which takes the
+// window's place. A cursor the daemon holds no row at leaves the page where it is, with nothing
+// landed and one line saying the message was not found.
 
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   validateTranscriptReadResponse,
-  type TranscriptReadResponse,
+  type TranscriptReadRequest,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
@@ -30,7 +29,6 @@ import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openPagedSessionStore,
   openSessionStoreWithGeneralLog,
-  scriptedTranscriptLog,
   transcriptFixtureEventId,
   transcriptFixtureStreamCursor,
   transcriptReadRowAt,
@@ -77,69 +75,65 @@ function renderLongFeed(messageAnchorCursor?: string): HTMLElement {
   );
 }
 
-/** Rows per backward page: the log behind the window is two pages, the window a third. */
-const PAGE_ROWS = 50;
-/** On the second page back, so the first page alone does not reach it. */
-const BEFORE_FIRST_PAGE_INDEX = 10;
-/** The store's head cursor: everything at or before it is behind the window. */
-const WINDOW_HEAD_CURSOR = "position-before-100" as EventCursor;
+/** The paged session's log: the window holds its newest rows, `WINDOW_FIRST_INDEX` onward. */
+const LOG_ROW_COUNT = 150;
+const WINDOW_FIRST_INDEX = 100;
+/** A message well before the window, which no ordinary open holds. */
+const OUTSIDE_WINDOW_INDEX = 10;
+/** The rows the daemon serves around `OUTSIDE_WINDOW_INDEX`: ten before it and ten after. */
+const AROUND_FIRST_INDEX = 0;
+const AROUND_LAST_INDEX = 20;
 
-function rowsFrom(firstIndex: number): TranscriptReadRow[] {
-  return Array.from({ length: PAGE_ROWS }, (_unused, offset) =>
+/** The log's rows from `firstIndex` through `lastIndex`. */
+function rowsBetween(firstIndex: number, lastIndex: number): TranscriptReadRow[] {
+  return Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
     transcriptReadRowAt(firstIndex + offset),
   );
 }
 
-/** The log behind the window, oldest first. */
-const LOG_BEHIND_WINDOW: readonly TranscriptReadRow[] = [...rowsFrom(0), ...rowsFrom(50)];
-
-/** The two pages behind the window, keyed by the position each is asked before. */
-const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TranscriptReadResponse>> = {
-  [WINDOW_HEAD_CURSOR]: checkedValue(validateTranscriptReadResponse, {
-    entries: rowsFrom(50),
-    runs: runFactsServedFor(rowsFrom(50), LOG_BEHIND_WINDOW),
-    hasMore: true,
-    nextCursor: "position-before-50",
-    // The page's newest row, which it joined its pieces through.
-    joinedThrough: transcriptFixtureStreamCursor(2 * PAGE_ROWS - 1),
-  }),
-  "position-before-50": checkedValue(validateTranscriptReadResponse, {
-    entries: rowsFrom(0),
-    runs: runFactsServedFor(rowsFrom(0), LOG_BEHIND_WINDOW),
-    hasMore: false,
-  }),
-};
-
-/** The backward read over those pages, counting what it was asked. */
-function scriptedEarlierRead(): {
+/**
+ * The read the daemon answers around one row, counting what it was asked: the page around
+ * `OUTSIDE_WINDOW_INDEX`'s cursor, and for any other cursor the refusal that no row stands there.
+ */
+function scriptedAroundRead(): {
   readonly read: TranscriptPageRead;
-  readonly calls: () => number;
+  readonly requests: TranscriptReadRequest[];
 } {
-  let calls = 0;
+  const requests: TranscriptReadRequest[] = [];
+  const log = rowsBetween(0, LOG_ROW_COUNT - 1);
+  const page = rowsBetween(AROUND_FIRST_INDEX, AROUND_LAST_INDEX);
   return {
+    requests,
     read: (request) => {
-      calls += 1;
-      const page =
-        request.beforeCursor === undefined
-          ? undefined
-          : PAGES_BY_BEFORE_CURSOR[request.beforeCursor];
+      requests.push(request);
       return Promise.resolve(
-        page === undefined
+        request.aroundCursor === transcriptFixtureStreamCursor(OUTSIDE_WINDOW_INDEX)
           ? {
-              status: "refused",
-              refusal: { code: "unscripted", detail: "No page there.", origin: "test" },
+              status: "served",
+              value: checkedValue(validateTranscriptReadResponse, {
+                entries: page,
+                runs: runFactsServedFor(page, log),
+                hasMore: false,
+                joinedThrough: transcriptFixtureStreamCursor(AROUND_LAST_INDEX),
+              }),
             }
-          : { status: "served", value: page },
+          : {
+              status: "refused",
+              refusal: {
+                code: "transcript.row.notFound",
+                detail: "No row there.",
+                origin: "daemon",
+              },
+            },
       );
     },
-    calls: () => calls,
   };
 }
 
-/** A window whose head is `headCursor`, holding only the newest page of messages. */
-function openWindowAfterTwoPages(headCursor: EventCursor = WINDOW_HEAD_CURSOR): SessionStore {
-  return openPagedSessionStore(2 * PAGE_ROWS, 3 * PAGE_ROWS - 1, {
-    cursor: headCursor,
+/** A window holding the log's newest rows, with the history before them still to read. */
+function openWindowAtLogEnd(): SessionStore {
+  return openPagedSessionStore(WINDOW_FIRST_INDEX, LOG_ROW_COUNT - 1, {
+    cursor: transcriptFixtureStreamCursor(WINDOW_FIRST_INDEX - 1),
     hasMore: true,
   });
 }
@@ -225,92 +219,79 @@ describe("the transcript feed — opened at a message", () => {
   });
 });
 
-describe("the transcript feed — opened at a message older than the window", () => {
-  it("reads back past the first page to the message and lands on it, focused", async () => {
+describe("the transcript feed — opened at a message outside the window", () => {
+  it("reads the page around the message once and lands on it, focused", async () => {
     withLaidOutViewport();
-    const earlierRead = scriptedEarlierRead();
-    const feed = renderFeed(openWindowAfterTwoPages(), undefined, RowIdBody, {
-      messageAnchorCursor: transcriptFixtureStreamCursor(BEFORE_FIRST_PAGE_INDEX),
-      readTranscriptPage: earlierRead.read,
+    const aroundRead = scriptedAroundRead();
+    const feed = renderFeed(openWindowAtLogEnd(), undefined, RowIdBody, {
+      messageAnchorCursor: transcriptFixtureStreamCursor(OUTSIDE_WINDOW_INDEX),
+      readTranscriptPage: aroundRead.read,
     });
     await waitFor(() => {
-      expect(isMounted(feed, BEFORE_FIRST_PAGE_INDEX)).toBe(true);
+      expect(isMounted(feed, OUTSIDE_WINDOW_INDEX)).toBe(true);
     });
-    expect(earlierRead.calls()).toBe(2);
+    // One read names the row alone, with no cursor to read before or after.
+    expect(aroundRead.requests).toHaveLength(1);
+    expect(aroundRead.requests[0]?.aroundCursor).toBe(
+      transcriptFixtureStreamCursor(OUTSIDE_WINDOW_INDEX),
+    );
+    expect(aroundRead.requests[0]?.beforeCursor).toBeUndefined();
+    expect(aroundRead.requests[0]?.afterCursor).toBeUndefined();
+    expect(feed.textContent).not.toContain("Message not found");
     expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 
-  it("stops at the start of history for a cursor no page holds, landing nothing", async () => {
+  it("says the message was not found for a row the daemon no longer holds", async () => {
     withLaidOutViewport();
-    const earlierRead = scriptedEarlierRead();
-    const feed = renderFeed(openWindowAfterTwoPages(), undefined, RowIdBody, {
-      // The row id, not the cursor: no page carries it as a position.
-      messageAnchorCursor: transcriptFixtureEventId(BEFORE_FIRST_PAGE_INDEX),
-      readTranscriptPage: earlierRead.read,
+    const aroundRead = scriptedAroundRead();
+    const feed = renderFeed(openWindowAtLogEnd(), undefined, RowIdBody, {
+      // The row id, not the cursor: the daemon holds no row at it.
+      messageAnchorCursor: transcriptFixtureEventId(OUTSIDE_WINDOW_INDEX),
+      readTranscriptPage: aroundRead.read,
     });
-    // The page that ends history draws the one line in `Jump to latest`'s place, not at the top.
+    // The one line stands in `Jump to latest`'s place, where the person is looking.
     await waitFor(() => {
       expect(feed.querySelector(".meridian-transcript-viewport__tail")?.textContent).toBe(
         "Message not found",
       );
     });
     expect(feed.querySelector(".meridian-transcript-viewport__pill")).toBeNull();
-    expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
-    expect(earlierRead.calls()).toBe(2);
+    expect(aroundRead.requests).toHaveLength(1);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
     // It stays until the next act and goes with it.
     fireEvent.pointerDown(document.body);
     expect(feed.textContent).not.toContain("Message not found");
   });
 
-  it("stops at a refused read rather than asking again", async () => {
+  it("offers a refused read on the catch-up line, whose retry lands the message", async () => {
     withLaidOutViewport();
-    const earlierRead = scriptedEarlierRead();
-    const feed = renderFeed(
-      openWindowAfterTwoPages("position-no-page-answers" as EventCursor),
-      undefined,
-      RowIdBody,
-      {
-        messageAnchorCursor: transcriptFixtureStreamCursor(BEFORE_FIRST_PAGE_INDEX),
-        readTranscriptPage: earlierRead.read,
-      },
-    );
-    await waitFor(() => {
-      expect(feed.textContent).toContain("Couldn't load earlier messages");
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(earlierRead.calls()).toBe(1);
-    // The reading back is still owed, so the line offers `Try again` and says nothing is missing.
-    expect(feed.textContent).toContain("Try again");
-    expect(feed.textContent).not.toContain("Message not found");
-  });
-});
-
-describe("the transcript feed — opened at a message after a tail the store let go", () => {
-  it("reads forward to the message and lands on it, never announcing it missing", async () => {
-    withLaidOutViewport();
-    const lastIndex = 3 * PAGE_ROWS - 1;
-    const keptTailIndex = PAGE_ROWS - 1;
-    const linkedIndex = lastIndex - 10;
-    const log = scriptedTranscriptLog(lastIndex + 1);
-    // The store holds the conversation's start and let go of everything after its first page,
-    // as it does once a reader went far back; the message lies two pages past that tail.
-    const sessionStore = openPagedSessionStore(0, lastIndex);
-    sessionStore.releaseOutside(
-      transcriptFixtureStreamCursor(0),
-      transcriptFixtureStreamCursor(keptTailIndex),
-    );
+    let refuses = true;
+    const aroundRead = scriptedAroundRead();
+    const sessionStore = openWindowAtLogEnd();
     const feed = renderFeed(sessionStore, undefined, RowIdBody, {
-      messageAnchorCursor: transcriptFixtureStreamCursor(linkedIndex),
-      readTranscriptPage: log.read,
+      messageAnchorCursor: transcriptFixtureStreamCursor(OUTSIDE_WINDOW_INDEX),
+      readTranscriptPage: (request, options) =>
+        refuses
+          ? Promise.resolve({
+              status: "refused",
+              refusal: { code: "unscripted", detail: "No page.", origin: "test" },
+            })
+          : aroundRead.read(request, options),
     });
     await waitFor(() => {
-      expect(isMounted(feed, linkedIndex)).toBe(true);
+      expect(sessionStore.failedDependentReads.readable.getState().failedReads).toHaveLength(1);
     });
-    expect(log.requests.every((request) => request.afterCursor !== undefined)).toBe(true);
+    // A failed read is no missing message, and the link does not ask again on its own.
     expect(feed.textContent).not.toContain("Message not found");
-    expect(document.activeElement).toBe(scrollContainerOf(feed));
+    expect(aroundRead.requests).toHaveLength(0);
+    refuses = false;
+    act(() => {
+      sessionStore.failedDependentReads.retryFailed();
+    });
+    await waitFor(() => {
+      expect(isMounted(feed, OUTSIDE_WINDOW_INDEX)).toBe(true);
+    });
+    expect(aroundRead.requests).toHaveLength(1);
+    expect(sessionStore.failedDependentReads.readable.getState().failedReads).toEqual([]);
   });
 });

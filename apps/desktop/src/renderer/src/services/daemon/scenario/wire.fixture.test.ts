@@ -1,14 +1,16 @@
 // The fixture's streams answer as the daemon's do. The whole-session stream is catch up, then
 // follow, in frames within the contract's bound; the app's real subscriber names it, so every
 // scenario tier reads the session through it. A machine notice stream hands its subscriber the
-// notice a settled write pushes. Every case drives the real fixture bridge and engine.
+// notice a settled write pushes, and a scenario's shells are listed and open on their scrollback.
+// Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
-import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
-import { TranscriptRunStampSchema } from "@ai-sidekicks/contracts/transcript/row";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { validateSessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
+import { validateTerminalOutputFrame, type TerminalId } from "@ai-sidekicks/contracts/terminal";
 
 import {
   createFixture,
@@ -17,12 +19,9 @@ import {
 } from "#test/helpers/fixture/bridge.js";
 import type { Scenario, ScenarioBeat } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-
-/** The `session.subscribe` frame as the contract registers it, over the tolerant envelope. */
-const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(
-  EventEnvelopeSchema,
-  TranscriptRunStampSchema,
-);
+import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
+import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
+import { TERMINAL_LIST_STREAM, TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
@@ -65,7 +64,7 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         sequence: index + 1,
         cursor: `cursor-at-${String(index + 1)}`,
-        kind: "run.starting",
+        kind: "agent.run.starting",
         occurredAt: "2026-01-01T14:20:00.500Z",
       },
     }));
@@ -78,11 +77,12 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
 
     const received = subscribeToSessionStream(fixture);
 
-    // More than one frame, each the registered shape, and together the whole log in order.
+    // More than one frame, each the registered shape carrying changes, never the far-behind mark,
+    // and together the whole log in order.
     expect(received.frames.length).toBeGreaterThan(1);
     for (const frame of received.frames) {
-      expect(SESSION_FRAME_SCHEMA.safeParse(frame).success).toBe(true);
-      expect(frame.dropped).toBeUndefined();
+      expect(validateSessionStreamFrame(frame)).toBe(true);
+      expect(frame.kind).toBe("changes");
     }
     expect(received.events().map((envelope) => envelope.sequence)).toStrictEqual(
       Array.from({ length: LONG_LOG_BEAT_COUNT }, (_, index) => index + 1),
@@ -91,15 +91,15 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
 });
 
 describe("fixture bridge — a machine notice stream carries what a write pushes", () => {
-  it("hands an `mcp.subscribe` stream the notice a settled `mcp.setEnabled` pushes", async () => {
+  it("hands an `mcp.subscribe` stream the notice a settled `mcp.server.enabled.update` pushes", async () => {
     const fixture = createFixture();
     const notices: unknown[] = [];
     fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
       notices.push(notice);
     });
 
-    const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
-      provider: "claude",
+    const settled = fixture.bridge.daemon.call("mcp.server.enabled.update", {
+      provider: "claude" as ProviderId,
       scope: "user",
       serverName: "filesystem",
       enabled: false,
@@ -114,8 +114,61 @@ describe("fixture bridge — a machine notice stream carries what a write pushes
         provider: "claude",
         scope: "user",
         serverName: "filesystem",
-        type: "mcp.server_config_changed",
+        type: "mcp.server.config.changed",
       },
     ]);
+  });
+});
+
+describe("fixture bridge — a scenario's shells", () => {
+  it("lists the shell held as the newest lease beat says and opens it on its scrollback", () => {
+    const fixture = createFixture(TERMINAL_LEASE_SCENARIO);
+    const shell = TERMINAL_LEASE_SCENARIO.shells?.[0];
+    const lists: unknown[] = [];
+    const sessionId = TERMINAL_LEASE_SCENARIO.sessionId as SessionId;
+    fixture.bridge.daemon.subscribe(TERMINAL_LIST_STREAM, { sessionId }, (list) => {
+      lists.push(list);
+    });
+    fixture.engine.advance(lastScriptedBeatMs(TERMINAL_LEASE_SCENARIO) + 1);
+
+    // Opened before any lease beat, then restated once for the batch that moved the lease.
+    expect(lists).toHaveLength(2);
+    expect(lists[0]).toMatchObject({ terminals: [{ holder: null, leaseVersion: 0 }] });
+    expect(lists.at(-1)).toStrictEqual({
+      sessionId,
+      terminals: [
+        {
+          terminalId: shell?.terminalId,
+          title: shell?.title,
+          status: { state: "running" },
+          holder: { holderDeviceId: FIXTURE_DEVICE_ID },
+          leaseVersion: 7,
+        },
+      ],
+    });
+
+    const opened: { frame: unknown; attachments: readonly Uint8Array[] }[] = [];
+    const terminalId = shell?.terminalId as TerminalId;
+    fixture.bridge.daemon.subscribe(
+      TERMINAL_OUTPUT_STREAM,
+      { sessionId, terminalId },
+      (frame, attachments) => {
+        opened.push({ frame, attachments });
+      },
+    );
+    const [{ frame, attachments } = { frame: undefined, attachments: [] }] = opened;
+    expect(validateTerminalOutputFrame.call({ attachments }, frame)).toBe(true);
+    expect(new TextDecoder().decode(attachments[0])).toBe(shell?.scrollback);
+
+    // A watcher that holds every byte of the window is sent nothing again.
+    const reopened: unknown[] = [];
+    fixture.bridge.daemon.subscribe(
+      TERMINAL_OUTPUT_STREAM,
+      { sessionId, terminalId, afterOffset: attachments[0]?.byteLength ?? 0 },
+      (again) => {
+        reopened.push(again);
+      },
+    );
+    expect(reopened).toStrictEqual([]);
   });
 });

@@ -1,13 +1,12 @@
 // The waiting-for-input scenario: a session addressed to something, with a message pending.
 //
 // One person and two agents, so the composer's target is a real choice, and the newest run is
-// `waiting_for_input`: the state where the person's next sentence is what the session is
+// `waitingForInput`: the state where the person's next sentence is what the session is
 // blocked on.
 //
 // Every beat is a registered event with its registered payload, and every id is the UUID its
-// branded type declares. `tests/helpers/scenario/contract-check/all-axes.ts` holds the
-// beats to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict payload layer
-// (`SessionEventSchema`) in `packages/contracts/src/event/session.ts`. So:
+// branded type declares. `tests/helpers/scenario/contract-check/all-axes.ts` holds each beat to
+// its category and to the generated check of its whole event. So:
 //
 //   - `session.created` carries the lead, so the `agents` projection rebuilds from the log
 //     alone. The reviewer takes part only when a run names it.
@@ -17,27 +16,23 @@
 //
 // A reply is scripted only when a composer control issues that call to a real daemon method,
 // because `services/daemon/scripted/reply.fixture.ts` refuses an unscripted call as
-// `reply-unscripted`: `driver.compactContext` from the compaction popover,
-// `driver.listProviderCommands` from the command zone's discovery popover, and
-// `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
-// deliberately not scripted, so this scenario makes a refused approval read reachable.
+// `reply-unscripted`: `driver.listProviderCommands` from the command zone's discovery popover.
+// The approval reads are deliberately not scripted, so this scenario makes a refused approval
+// read reachable.
 //
 // There is one reply per call name: `replyFor` matches on the method name alone and serves the
 // first entry, so a second `driver.listProviderCommands` refusal would be unreachable. That arm
 // is tested in `features/composer/command-list/`, over a bridge whose scenario refuses the call.
 
-import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import {
-  UserIdSchema,
-  SessionIdSchema,
-  type UserId,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type {
+  ProviderCommandBinding,
+  ProviderCommandListResponse,
+} from "@ai-sidekicks/contracts/provider/driver/commands";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,
@@ -49,20 +44,21 @@ import {
 import { defineScenario, type Scenario } from "../scenario.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
-// this scenario's start instant. Parsed through the registered schemas, not cast, so a
-// malformed id fails the module and names the constant instead of failing a later reply.
-const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
-const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
-const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8110-d1a4c1150301");
-const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
+// this scenario's start instant. The contract check holds each beat that names one to its
+// generated check, so a malformed id fails there.
+const SESSION_ID = "019b7a11-1100-75e5-8510-ada11a5a33a5" as SessionId;
+const USER_YOU = "019b7a11-1100-79a4-8110-cca0117a0310" as UserId;
+const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301" as AgentId;
+const RUN_ID = "019b7a11-1100-740e-8110-d1a4c1150311" as RunId;
 
 /** The session's lead, born with it. */
 const COMPOSER_LEAD: ScenarioAgent = {
   agentId: AGENT_IMPLEMENTER,
   name: "Implementer",
-  driverName: "claude",
+  providerName: "claude",
   modelId: "claude-sonnet-5",
 };
 
@@ -70,64 +66,19 @@ const COMPOSER_LEAD: ScenarioAgent = {
 // answered once, with its own scripted latency; a beat is a stream frame routed by kind on the
 // frozen clock.
 
-// One driver's capability declaration with every registered flag stated:
-// `DriverCapabilities.flags` is a total record, and a forgotten flag would read as undeclared
-// rather than `false`.
-function declaredFlags(
-  enabled: readonly DriverCapabilityFlag[],
-): Record<DriverCapabilityFlag, boolean> {
-  const flags = {} as Record<DriverCapabilityFlag, boolean>;
-  for (const flag of DRIVER_CAPABILITY_FLAGS) {
-    flags[flag] = enabled.includes(flag);
-  }
-  return flags;
-}
-
-// What the pinned Claude build declares.
-const CLAUDE_FLAGS: readonly DriverCapabilityFlag[] = [
-  "resume",
-  "steer",
-  "interactive_requests",
-  "mcp",
-  "tool_calls",
-  "reasoning_stream",
-  "model_mutation",
-  "rollback",
-  "session_goals",
-  "callback_tools",
-  "subagents",
-  "context_compaction",
-  "provider_commands",
-  "output_speed",
-];
-
-// What the pinned Codex build declares. `output_speed` is absent, so the speed control is
-// absent for this driver rather than disabled, which would claim the capability exists.
-const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
-  "resume",
-  "steer",
-  "interactive_requests",
-  "mcp",
-  "tool_calls",
-  "reasoning_stream",
-  "model_mutation",
-  "structured_output",
-  "session_goals",
-  "callback_tools",
-  "subagents",
-  "context_compaction",
-  "provider_commands",
-];
+/** The provider and account the lead's commands are read under. */
+const LEAD_BINDING: ProviderCommandBinding = {
+  providerName: COMPOSER_LEAD.providerName as ProviderId,
+  providerAccountId: "pa-0001" as ProviderAccountId,
+};
 
 // Every call the scenario answers, and what it answers with.
 const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   {
     // The discovery popover's dispatch. The reply is the group list the wire declares, not a
-    // flat entry array: each group carries the `(driverName, providerAccountId)` its entries
-    // were read under, so an entry is offered only under its own binding.
-    //
-    // `runId` is the one live run on this binding, the arm the contract answers with that run
-    // rather than `null`. `providerAccountId` is `null` because this scenario binds no account.
+    // flat entry array: each group carries the provider and account its entries were read
+    // under, so an entry is offered only under its own binding. `runId` is the one live run on
+    // this binding, the arm the contract answers with that run rather than `null`.
     //
     // The command carries a description and the skill a scope and an `enabled` flag, so rows
     // with and without a provider description are both reachable.
@@ -136,107 +87,25 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
       bindings: [
         {
           runId: RUN_ID,
-          binding: { driverName: "claude", providerAccountId: null },
+          binding: LEAD_BINDING,
           entries: [
             {
               name: "compact",
               kind: "command",
               description: "Compact the conversation context.",
-              binding: { driverName: "claude", providerAccountId: null },
+              binding: LEAD_BINDING,
             },
             {
               name: "review",
               kind: "skill",
               scope: "project",
               enabled: true,
-              binding: { driverName: "claude", providerAccountId: null },
+              binding: LEAD_BINDING,
             },
           ],
         },
       ],
-    },
-  },
-  {
-    // The compaction popover's dispatch. The `applied` arm of `DriverCompactionResult` requires
-    // `boundaryPosition` (`number | null`); this scenario reports a position so the boundary is
-    // renderable.
-    call: "driver.compactContext",
-    // A scripted latency, so the control's in-flight state is reachable.
-    afterMs: 200,
-    result: { status: "applied", boundaryPosition: 8 },
-  },
-  {
-    // The first half of the driver catalog the target chip's axis popover renders. Two drivers:
-    // the lead runs on `claude` and the reviewer on `codex`, so the target choice is real.
-    call: "driver.listModels",
-    result: {
-      drivers: [
-        {
-          driverName: "claude",
-          models: [
-            {
-              id: "claude-sonnet-5",
-              name: "Sonnet 5",
-              capabilities: ["reasoning", "tool_calls"],
-              effortLevels: ["low", "medium", "high", "xhigh", "max"],
-              fast: false,
-              largerWindow: false,
-            },
-            {
-              id: "claude-opus-5-5",
-              name: "Opus 5.5",
-              capabilities: ["reasoning", "tool_calls"],
-              effortLevels: ["low", "medium", "high", "xhigh", "max"],
-              fast: true,
-              largerWindow: false,
-            },
-          ],
-        },
-        {
-          driverName: "codex",
-          models: [
-            {
-              id: "gpt-5.6-sol",
-              name: "GPT-5.6 Sol",
-              capabilities: ["reasoning", "tool_calls"],
-              effortLevels: ["low", "medium", "high", "xhigh"],
-              fast: true,
-              largerWindow: false,
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    // The catalog's other half, from the two flag sets above. `outputSpeedLevels` rides the
-    // claude row only, because it is present exactly where the flag is true.
-    call: "driver.listCapabilities",
-    result: {
-      drivers: [
-        {
-          driverName: "claude",
-          capabilities: { flags: declaredFlags(CLAUDE_FLAGS), contractVersion: "1.0" },
-          outputSpeedLevels: ["off", "on"],
-          builtInTools: [
-            "Read",
-            "Edit",
-            "Write",
-            "Bash",
-            "Glob",
-            "Grep",
-            "WebFetch",
-            "WebSearch",
-            "Agent",
-          ],
-        },
-        {
-          driverName: "codex",
-          capabilities: { flags: declaredFlags(CODEX_FLAGS), contractVersion: "1.0" },
-          builtInTools: ["shell", "apply_patch", "web_search"],
-        },
-      ],
-    },
+    } satisfies ProviderCommandListResponse,
   },
 ];
 
@@ -291,13 +160,13 @@ const WAITING_FOR_INPUT_SCRIPT: readonly ScriptEntry[] = [
     atMs: 480,
     runVersion: 4,
     previousState: "running",
-    newState: "waiting_for_input",
+    newState: "waitingForInput",
   }),
   // The implementer's goal lives only in the log: this event is the goal. A person set it, so
   // the beat carries an actor.
   {
     atMs: 540,
-    kind: "session.goal_updated",
+    kind: "session.goal.updated",
     actorId: USER_YOU,
     payload: {
       sessionId: SESSION_ID,
@@ -333,6 +202,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         sessionReadReply({
           sessionId: SESSION_ID,
           state: "active",

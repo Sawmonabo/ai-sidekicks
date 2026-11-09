@@ -23,8 +23,8 @@
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 
 import {
   readPerformanceMeterTime,
@@ -86,6 +86,7 @@ import {
   WHOLE_RESUME_POINT,
   admitsBaseState,
   establishedState,
+  heldRowCursor,
   liveTailAfter,
   repairResumeRowCursor,
   uninitializedState,
@@ -203,13 +204,53 @@ export class SessionStore {
     if (!admitsBaseState(current)) {
       return false;
     }
-    this.#replay = undefined;
-    this.#store.setState(this.#establish(baseState, current));
+    this.#takeBaseState(this.#establish(baseState, current));
+    return true;
+  }
 
-    const buffered = this.#preInitializationBuffer.drain();
-    if (buffered.length > 0) {
-      this.applyBatch(buffered);
+  /**
+   * Take a snapshot of the log's newest rows past a held window whose stream fell far behind. The
+   * held rows older than the snapshot stay, so a reader scrolled away from the bottom keeps the
+   * row they read, and the rows between the newest held and the snapshot's oldest are let go as a
+   * stretch a read inside brings back. A store holding no row takes the snapshot whole. Taken only
+   * by a degraded store (`admitsBaseState`); answers whether it was taken.
+   */
+  public catchUp(baseState: SessionBaseState): boolean {
+    const current = this.#store.getState();
+    if (!current.initialized || !admitsBaseState(current)) {
+      return false;
     }
+    const snapshotRows = orderBatchBySequence(baseState.transcript ?? []);
+    const oldestSnapshotRow = snapshotRows[0];
+    const heldRows =
+      oldestSnapshotRow === undefined
+        ? current.transcript
+        : current.transcript.filter((row) => row.sequence < oldestSnapshotRow.sequence);
+    const newestHeldRow = heldRows.at(-1);
+    if (newestHeldRow === undefined || oldestSnapshotRow === undefined) {
+      return this.initialize(baseState);
+    }
+    const transcript = [...heldRows, ...snapshotRows];
+    const caughtUp = this.#establish(
+      { ...baseState, transcript, transcriptHead: current.transcriptHead },
+      current,
+    );
+    const skipped: readonly ReleasedEventStretch[] =
+      oldestSnapshotRow.sequence > newestHeldRow.sequence + 1
+        ? [
+            {
+              lastHeldSequenceBefore: newestHeldRow.sequence,
+              firstHeldCursorAfter: heldRowCursor(oldestSnapshotRow),
+            },
+          ]
+        : [];
+    this.#takeBaseState({
+      ...caughtUp,
+      releasedStretches: [
+        ...releasedStretchesHeldIn(current.releasedStretches, heldRows),
+        ...skipped,
+      ],
+    });
     return true;
   }
 
@@ -407,7 +448,9 @@ export class SessionStore {
   /**
    * Puts a page read at one end of the log, its start or its end, in place of the whole window;
    * returns what it admitted. At the start the head closes; at the end the head takes the page's
-   * own edge, and the tail goes live when the page reaches what the stream has delivered. Not a
+   * own edge, and the tail goes live when the page reaches what the stream has delivered. The page
+   * around one row a link names lands as the end's does: it continues toward the start, and its
+   * tail is read on from its newest row. Not a
    * second apply chokepoint, on the terms of {@link prependEarlierEvents}.
    */
   public replaceWithLogEndPage(
@@ -509,6 +552,16 @@ export class SessionStore {
    * fact. The standing events take the read's own and its rows over the ones held. A base with no
    * sequence seeds below every row the stream delivers after it.
    */
+  /** Puts an established state in place, ending any replay, and drains what arrived first. */
+  #takeBaseState(established: SessionStoreState): void {
+    this.#replay = undefined;
+    this.#store.setState(established);
+    const buffered = this.#preInitializationBuffer.drain();
+    if (buffered.length > 0) {
+      this.applyBatch(buffered);
+    }
+  }
+
   #establish(baseState: SessionBaseState, current: SessionStoreState): SessionStoreState {
     const transcript = orderBatchBySequence(baseState.transcript ?? []);
     this.#reconciler.rebaseTo(

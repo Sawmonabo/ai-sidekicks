@@ -1,7 +1,7 @@
 // The fixture daemon: the daemon calls and subscriptions a scripted scenario answers. A method the
 // scenario scripts no reply for rejects with a named error rather than resolving `undefined`, so a
 // screen is never trained to render an empty state where the live daemon would fail. The reads
-// the daemon derives from the log, `transcript.read` and `transcript.bodyRead`, are answered from
+// the daemon derives from the log, `transcript.read` and `transcript.body.read`, are answered from
 // the delivered log, as the session stream is, unless the scenario scripts them, and the
 // `session.read` record names the delivered log's positions and standing events. A scenario's
 // daemon always answers, so the status topic reads connected from its first delivery, with the
@@ -36,7 +36,7 @@ import {
 const LOG_DERIVED_READS: ReadonlyMap<string, (engine: ScenarioEngine, params: unknown) => unknown> =
   new Map([
     ["transcript.read", readScenarioTranscript],
-    ["transcript.bodyRead", readScenarioTranscriptBody],
+    ["transcript.body.read", readScenarioTranscriptBody],
   ]);
 
 /** The record read whose log positions the fixture reads from the delivered log. */
@@ -93,13 +93,14 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         return () => undefined;
       }
       // The delivery is untyped scenario data cast to the topic's payload; the app parses every
-      // delivery at its own boundary, as it does the live bridge's. Scenario data carries no bytes.
+      // delivery at its own boundary, as it does the live bridge's. Only a shell's scrollback
+      // carries bytes.
       return subscribeToScenario(
         scenarioEngine,
         event,
         params,
-        (delivered) => {
-          handler(delivered as DaemonWirePayload<Topic>, []);
+        (delivered, attachments = []) => {
+          handler(delivered as DaemonWirePayload<Topic>, attachments);
         },
         onEnded,
       );

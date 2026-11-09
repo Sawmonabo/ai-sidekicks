@@ -68,7 +68,7 @@ export interface TranscriptFeedProps {
    */
   readonly readTranscriptPage?: TranscriptPageRead | undefined;
   /**
-   * The `transcript.bodyRead` a large body is read in full with when its control is pressed. A
+   * The `transcript.body.read` a large body is read in full with when its control is pressed. A
    * composition with none offers no control and draws a large body as not read.
    */
   readonly readTranscriptBody?: TranscriptBodyRead | undefined;

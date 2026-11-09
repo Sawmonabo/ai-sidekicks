@@ -14,6 +14,7 @@ import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import { composeScenarioInstant, composeScriptBeats } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import { sessionReadReply } from "../data/session-record.js";
+import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
 
 /** The id of the first-run scenario. */
 export const FIRST_RUN_SCENARIO_ID = "first-run";
@@ -42,7 +43,7 @@ function composeFirstRunBeats(): readonly ScenarioBeat[] {
           lead: {
             agentId: AGENT_LEAD,
             name: "Lead",
-            driverName: "claude",
+            providerName: "claude",
             modelId: "claude-sonnet-5",
           },
           createdAt: STARTED_AT_ISO,
@@ -68,6 +69,7 @@ export const FIRST_RUN_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
+        PROVIDER_LIST_REPLY,
         // `provisioning` is what a session being created reads as before it is admitted.
         sessionReadReply({
           sessionId: SESSION_ID,

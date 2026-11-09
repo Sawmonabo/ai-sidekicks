@@ -383,7 +383,6 @@ describe("the transcript feed — a session off screen", () => {
       {
         sessionId: PAGED_SESSION_ID,
         afterCursor: transcriptFixtureStreamCursor(READ_THROUGH),
-        afterSequence: READ_THROUGH,
       },
     ]);
 

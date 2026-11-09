@@ -11,11 +11,8 @@
 // judges are the schemas, run by `tests/helpers/scenario/contract-check/all-axes.ts` on every
 // beat before a scenario ships and by `session/event/payload.ts` on every delivery.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
-import {
-  STREAM_FRAME_MAX_CHANGES,
-  type StreamFrame,
-} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
+import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
@@ -57,8 +54,15 @@ export interface ScenarioSessionStreamChange {
   readonly runStamp?: TranscriptRunStamp;
 }
 
-/** One composed `session.subscribe` frame. */
-export type ScenarioSessionStreamFrame = StreamFrame<ScenarioSessionStreamChange, string>;
+/** One cut of a stream's changes, at most `STREAM_FRAME_MAX_CHANGES` of them, oldest first. */
+export interface ScenarioStreamFrame<Change> {
+  readonly changes: readonly Change[];
+}
+
+/** One composed `session.subscribe` frame: its changes, never the far-behind mark. */
+export interface ScenarioSessionStreamFrame extends ScenarioStreamFrame<ScenarioSessionStreamChange> {
+  readonly kind: "changes";
+}
 
 /**
  * Compose the wire envelope one beat is delivered as. Total: every beat composes, including a
@@ -97,18 +101,18 @@ export function composeScenarioSessionFrames(
       event: composeScenarioEventEnvelope(event),
       ...(event.runStamp === undefined ? {} : { runStamp: event.runStamp }),
     })),
-  );
+  ).map((frame) => ({ kind: "changes", ...frame }));
 }
 
 /**
  * Cut one batch of a stream's changes into the frames that carry them: at most
  * `STREAM_FRAME_MAX_CHANGES` each, oldest first. The fixture never falls behind, so no frame
- * carries the drop mark, and an empty batch is no frame at all.
+ * carries the far-behind mark, and an empty batch is no frame at all.
  */
 export function composeScenarioStreamFrames<Change>(
   changes: readonly Change[],
-): readonly StreamFrame<Change, string>[] {
-  const frames: StreamFrame<Change, string>[] = [];
+): readonly ScenarioStreamFrame<Change>[] {
+  const frames: ScenarioStreamFrame<Change>[] = [];
   for (let start = 0; start < changes.length; start += STREAM_FRAME_MAX_CHANGES) {
     frames.push({ changes: changes.slice(start, start + STREAM_FRAME_MAX_CHANGES) });
   }

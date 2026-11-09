@@ -6,11 +6,11 @@
 // sequence gap, and one re-opened after a cursor catches up only past it; each change carries the
 // run stamp `turn-attribution.fixture.ts` folds. `wire.fixture.ts` composes this function.
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
-  encodeEventCursor,
-  EVENT_CURSOR_UNRESOLVABLE_CODE,
+  SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
   START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
+} from "@ai-sidekicks/contracts/session/id";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -29,6 +29,7 @@ import {
   composeScenarioStreamFrames,
 } from "../event/envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../session/event/streams.js";
+import { subscribeToScenarioShells } from "./shells.fixture.js";
 import { ScenarioTurnAttribution } from "./turn-attribution.fixture.js";
 
 const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
@@ -50,13 +51,14 @@ const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
  * error reaches whoever advanced the clock without silencing other subscribers. The presence
  * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
  * delivers. The machine's notice streams deliver the frame the scenario opens them with, then the
- * notices its settled replies push, live, with no catch-up.
+ * notices its settled replies push, live, with no catch-up. The shell streams deliver the
+ * scenario's scripted shells (`shells.fixture.ts`), the only frames here that carry bytes.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
   subscriptionName: string,
   request: unknown,
-  deliver: (delivered: unknown) => void,
+  deliver: (delivered: unknown, attachments?: readonly Uint8Array[]) => void,
   onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined,
 ): Unsubscribe {
   // Only the whole-session stream catches up; the stream's `scope` from
@@ -65,6 +67,9 @@ export function subscribeToScenario(
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream?.scope === "machine-presence") {
     return () => undefined;
+  }
+  if (stream?.scope === "shell") {
+    return subscribeToScenarioShells(engine, subscriptionName, request, deliver);
   }
   if (stream?.scope === "machine-notices") {
     const unsubscribe = engine.subscribeToNotices(subscriptionName, deliver);
@@ -93,9 +98,9 @@ export function subscribeToScenario(
         onEnded?.({
           reason: "refused",
           refusal: {
-            code: JsonRpcErrorCode.InvalidParams,
+            code: JsonRpcErrorCode.DomainRefusal,
             message: "That cursor is not in this session's log.",
-            data: { type: EVENT_CURSOR_UNRESOLVABLE_CODE },
+            data: { type: SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE, category: "invalidArgument" },
           },
         });
       });
@@ -147,8 +152,8 @@ export function subscribeToScenario(
   });
 }
 
-/** The registered read whose reply carries the queue rows, `QueueItemListResponse`. */
-const RUN_QUEUE_ROW_READ = "run.queueList";
+/** The registered read whose reply carries the queue rows, `AgentQueueItemListResponse`. */
+const RUN_QUEUE_ROW_READ = "agent.queueItem.list";
 
 /**
  * The row for one queue item in the scenario's scripted queue read, or `undefined`

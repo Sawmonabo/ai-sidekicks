@@ -23,7 +23,7 @@ export interface TranscriptPaneBodyProps {
   readonly goneSessionTarget: GoneSessionRaise["target"] | undefined;
   /** The `transcript.read` the feed reads its history past the store's window with. */
   readonly readTranscriptPage: TranscriptPageRead;
-  /** The `transcript.bodyRead` the feed reads an opened large body with. */
+  /** The `transcript.body.read` the feed reads an opened large body with. */
   readonly readTranscriptBody: TranscriptBodyRead;
 }
 

@@ -72,7 +72,7 @@ export interface MachineNoticeStream {
 
 /**
  * A stream of a session's shells: their list, or one shell's output. It carries no session-event
- * kind, and the fixture scripts no shell, so it delivers nothing there.
+ * kind; the fixture delivers the shells a scenario scripts.
  */
 export interface ShellStream {
   readonly scope: "shell";

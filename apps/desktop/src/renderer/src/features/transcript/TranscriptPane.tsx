@@ -1,6 +1,6 @@
 // The transcript pane: the address it hands the shared pane chrome, the registered row renderer
 // its rows are drawn with, the `transcript.read` its history is read through and the
-// `transcript.bodyRead` an opened large body is read with. The close control is not defaulted: a
+// `transcript.body.read` an opened large body is read with. The close control is not defaulted: a
 // control nobody can perform is left out, so a close prop is forwarded only where the caller owns
 // the pane.
 
