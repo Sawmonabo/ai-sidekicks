@@ -4,6 +4,8 @@
 // with the row. An opened body stays opened: when its row is drawn again carrying its size alone,
 // as it is once the store let it go and read it back, the body is read again through the same
 // client. A copy reads a body in full through the same client without opening it or keeping it.
+// A body longer than one page comes in parts, each asked for at the offset the last one names, and
+// is joined in order before it lands or is copied; a part that fails fails the whole read.
 // Every read ends with the session's pane: one still out is abandoned, never parsed. A refused
 // read is recorded in the window's diagnostics. A context, as the row toggles are, so a body's
 // control reaches the reads without a prop through every card.
@@ -14,12 +16,12 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
-import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { type DaemonReply } from "#renderer/services/daemon/reply.js";
-import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import type { DaemonReply, DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
+import type { TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
-import { type SessionStore } from "#renderer/store/session/store.js";
-import { type FullOutputReading } from "./bodies/FullOutputControl.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
+import type { FullOutputReading } from "./bodies/FullOutputControl.js";
 
 /** Reads and opens one session's large bodies, and tells a body's control where its read stands. */
 export class FullBodyReads {
@@ -69,17 +71,46 @@ export class FullBodyReads {
   };
 
   /**
-   * Read one row's large body in full for a copy, which neither opens it nor keeps it: the row
-   * still draws its control. Resolves the refusal in place of a body that could not be read, and
-   * a `read-abandoned` refusal once the pane went.
+   * Read one row's large body in full, every part joined in order, for a copy, which neither opens
+   * it nor keeps it: the row still draws its control. Resolves the refusal in place of a body that
+   * could not be read, a part's refusal when any part could not, a `reply-unreadable` refusal for
+   * parts that do not follow one another within the body's stated length, and a `read-abandoned`
+   * refusal once the pane went.
    */
-  public readonly readFullBody = (
+  public readonly readFullBody = async (
     rowId: string,
-  ): Promise<DaemonReply<TranscriptBodyReadResponse>> =>
-    this.#readBody(
-      { sessionId: heldIdAsWireId<SessionId>(this.#sessionStore.sessionId), rowId },
-      { signal: this.#lifetime.signal },
-    );
+  ): Promise<DaemonReply<TranscriptBodyReadResponse>> => {
+    const sessionId = heldIdAsWireId<SessionId>(this.#sessionStore.sessionId);
+    const options = { signal: this.#lifetime.signal };
+    const firstReply = await this.#readBody({ sessionId, rowId }, options);
+    if (firstReply.status === "refused" || firstReply.value.status === "unavailable") {
+      return firstReply;
+    }
+    const first = firstReply.value;
+    if (first.offset !== 0) {
+      return PARTS_OUT_OF_ORDER;
+    }
+    const end = first.contentLength ?? Number.POSITIVE_INFINITY;
+    const parts = [first];
+    let part = first;
+    while (part.nextOffset !== null) {
+      const offset = part.nextOffset;
+      // Each part starts past the last and short of the stated end, so the read ends.
+      if (offset <= part.offset || offset >= end) {
+        return PARTS_OUT_OF_ORDER;
+      }
+      const reply = await this.#readBody({ sessionId, rowId, offset }, options);
+      if (reply.status === "refused" || reply.value.status === "unavailable") {
+        return reply;
+      }
+      if (reply.value.offset !== offset) {
+        return PARTS_OUT_OF_ORDER;
+      }
+      part = reply.value;
+      parts.push(part);
+    }
+    return { status: "served", value: joinedBodyOf(first, parts) };
+  };
 
   public constructor(sessionStore: SessionStore, readBody: TranscriptBodyRead) {
     this.#sessionStore = sessionStore;
@@ -135,3 +166,44 @@ export const FullBodyReadsContext: Context<FullBodyReads | undefined> = createCo
 
 /** Where a refused read is recorded from in the window's diagnostics. */
 const FULL_BODY_READS_SOURCE = "features/transcript/full-body-reads";
+
+/** One part of a body read, as the daemon serves it. */
+type BodyPart = Extract<TranscriptBodyReadResponse, { status: "available" }>;
+
+/**
+ * The whole body from its parts in order: their text and block starts, which already count from
+ * the body's start, end to end, with the first part's length and cut failure, which every part
+ * repeats.
+ */
+function joinedBodyOf(first: BodyPart, parts: readonly BodyPart[]): BodyPart {
+  const startParts = parts.flatMap((part) =>
+    part.blockStarts === undefined ? [] : [part.blockStarts],
+  );
+  const blockStarts = new Uint8Array(
+    startParts.reduce((total, starts) => total + starts.length, 0),
+  );
+  let written = 0;
+  for (const starts of startParts) {
+    blockStarts.set(starts, written);
+    written += starts.length;
+  }
+  return {
+    status: "available",
+    body: parts.map((part) => part.body).join(""),
+    offset: 0,
+    nextOffset: null,
+    ...(first.contentLength === undefined ? {} : { contentLength: first.contentLength }),
+    ...(blockStarts.length === 0 ? {} : { blockStarts }),
+    ...(first.blockCutFailure === undefined ? {} : { blockCutFailure: first.blockCutFailure }),
+  };
+}
+
+/** The read of a body whose parts do not follow one another, which no reading can join. */
+const PARTS_OUT_OF_ORDER: DaemonReply<never> = {
+  status: "refused",
+  refusal: refuse(
+    FULL_BODY_READS_SOURCE,
+    "reply-unreadable" satisfies DaemonReplyRefusalCode,
+    "The background service sent this body's parts out of order.",
+  ),
+};
