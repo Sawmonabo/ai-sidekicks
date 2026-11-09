@@ -41,7 +41,6 @@ use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
     skip_other_shapes,
 };
-use crate::port::file_tool_write::FileToolWriteSettled;
 use crate::port::tool_traces::{ToolTrace, ToolTraces, record_tool_traces};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 use crate::tool_call_arguments::{KeptToolCallArguments, ToolCallArgumentStore};
@@ -324,8 +323,6 @@ pub(crate) struct ClaudeUserFrameReading {
     pub(crate) held_stand_ins: Vec<(String, String)>,
     /// The trace of each call the frame answered, while `Record traces` is on.
     pub(crate) traces: Vec<ClaudeKeptTrace>,
-    /// Each open file-tool call the frame answered, settled by its result.
-    pub(crate) file_tool_writes: Vec<FileToolWriteSettled>,
 }
 
 impl ClaudeMessageFrame {
@@ -603,7 +600,7 @@ pub(crate) fn read_claude_user_rows(
     session_id: SessionId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     tool_server_tasks: &ClaudeToolServerTasks,
-    file_tool_writes: &mut ClaudeFileToolWrites,
+    file_tool_writes: &ClaudeFileToolWrites,
     now: Timestamp,
     is_tracing: bool,
 ) -> ClaudeUserFrameReading {
@@ -612,7 +609,6 @@ pub(crate) fn read_claude_user_rows(
         failed_results: Vec::new(),
         held_stand_ins: Vec::new(),
         traces: Vec::new(),
-        file_tool_writes: Vec::new(),
     };
     let results: Vec<&ClaudeContentBlock> = frame
         .blocks()
@@ -649,15 +645,13 @@ pub(crate) fn read_claude_user_rows(
         } else {
             None
         };
-        reading
-            .file_tool_writes
-            .extend(file_tool_writes.settle_result(
-                session_id,
-                call_id,
-                is_error,
-                is_lone_result,
-                tool_use_result.as_ref(),
-            ));
+        file_tool_writes.settle_result(
+            session_id,
+            call_id,
+            is_error,
+            is_lone_result,
+            tool_use_result.as_ref(),
+        );
         let Some(mut opened) = opened else {
             continue;
         };

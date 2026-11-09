@@ -30,7 +30,7 @@ impl ClaudeDeliveryStream {
             let opened_writes = {
                 let mut readings = session.lock();
                 // Read before the calls' inputs move off the frame.
-                let opened_writes = readings
+                let opened_writes = session
                     .file_tool_writes
                     .open_calls(&message, session.session_id);
                 readings.command_tasks.observe_calls(&message);
@@ -49,19 +49,14 @@ impl ClaudeDeliveryStream {
             }
         } else if *kind == ClaudeWireFrameKind::User {
             let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
-            let (traces, settled_writes) = {
-                let mut readings = session.lock();
-                let traces = readings.helper_tool_calls.read_traces(
-                    &message,
-                    session.session_id,
-                    is_tracing,
-                );
-                let settled_writes = readings
-                    .file_tool_writes
-                    .settle_results(&message, session.session_id);
-                (traces, settled_writes)
-            };
-            session.file_tool_settles.hand(settled_writes).await;
+            let traces = session.lock().helper_tool_calls.read_traces(
+                &message,
+                session.session_id,
+                is_tracing,
+            );
+            session
+                .file_tool_writes
+                .settle_results(&message, session.session_id);
             record_claude_traces(&self.dependencies.tool_traces, traces).await;
         }
     }

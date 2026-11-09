@@ -4,17 +4,19 @@
 //! with no write, or unread. A call still open when its turn ends, an interrupt is answered or the
 //! process ends settles unread, so no call holds its path's watch reports for good. An open is
 //! handed to the intake on the session's task, ahead of the frames after it; a settle is recorded
-//! on a task of the session's own, so no frame waits on a version's disk read or writes.
+//! on a task of the session's own, so no frame waits on a version's disk read or writes, and the
+//! call stays open until it is recorded.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::mpsc;
 
@@ -134,42 +136,72 @@ struct ClaudeFileToolInput {
     notebook_path: Option<String>,
 }
 
-// A call opened on its path, awaiting its result.
-struct ClaudeOpenFileToolWrite {
-    tool: ClaudeFileTool,
-    path: PathBuf,
+// A call the session opened, from its `tool_use` until the intake has recorded its settle.
+enum ClaudeOpenFileToolWrite {
+    // Opened on its path, awaiting its result.
+    AwaitingResult { tool: ClaudeFileTool, path: PathBuf },
+    // Settled and handed to the intake, which has not yet recorded it.
+    Recording,
 }
 
-/// The file-tool calls of one session's process, the lead's and its helpers', opened and not yet
-/// settled, by `tool_use_id`.
-#[derive(Default)]
+/// The file-tool calls of one session's process, the lead's and its helpers', by `tool_use_id`,
+/// each from its open until the chat versions' intake has recorded its settle, which a task of
+/// the session's own does in the order the settles were handed, so no frame waits on a version's
+/// disk read or writes. The queue to that task is unbounded in type only: each settle in it is a
+/// call still in the open map, removed once recorded, so it never holds more than the session's
+/// open calls. The task ends once this is dropped with the session's stream.
 pub(crate) struct ClaudeFileToolWrites {
-    open: HashMap<String, ClaudeOpenFileToolWrite>,
+    open: Arc<Mutex<HashMap<String, ClaudeOpenFileToolWrite>>>,
+    settles: mpsc::UnboundedSender<FileToolWriteSettled>,
 }
 
 impl ClaudeFileToolWrites {
+    /// No call open yet, and the task handing each settle to the intake `file_tool_writes`:
+    /// dropped while it is unregistered, and a settle it could not record logged.
+    pub(crate) fn start(
+        file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
+    ) -> Self {
+        let open = Arc::new(Mutex::new(HashMap::new()));
+        let (settles, mut receiver) = mpsc::unbounded_channel::<FileToolWriteSettled>();
+        let recorded_open = Arc::clone(&open);
+        tokio::spawn(async move {
+            while let Some(settled) = receiver.recv().await {
+                let call_id = settled.call_id.clone();
+                if let Some(port) = file_tool_writes.port() {
+                    let session_id = settled.session_id;
+                    if let Err(error) = port.settle_file_tool_write(settled).await {
+                        report_intake_failure(session_id, &call_id, "settle", &*error);
+                    }
+                }
+                lock(&recorded_open).remove(&call_id);
+            }
+        });
+        Self { open, settles }
+    }
+
     /// Opens each file-tool call `frame`, an `assistant` frame, starts on `session_id` whose input
     /// names a path, read before the rows move the input off the frame; a call already open is
     /// not opened again.
     pub(crate) fn open_calls(
-        &mut self,
+        &self,
         frame: &ClaudeMessageFrame,
         session_id: SessionId,
     ) -> Vec<FileToolWriteOpened> {
+        let mut open = lock(&self.open);
         let mut opened = Vec::new();
         for (call_id, tool_name, input) in frame.tool_uses() {
             let Some(tool) = ClaudeFileTool::of(tool_name) else {
                 continue;
             };
-            if self.open.contains_key(call_id) {
+            if open.contains_key(call_id) {
                 continue;
             }
             let Some(path) = input.and_then(|input| tool.read_path(input)) else {
                 continue;
             };
-            self.open.insert(
+            open.insert(
                 call_id.to_owned(),
-                ClaudeOpenFileToolWrite {
+                ClaudeOpenFileToolWrite::AwaitingResult {
                     tool,
                     path: path.clone(),
                 },
@@ -183,24 +215,41 @@ impl ClaudeFileToolWrites {
         opened
     }
 
-    /// Whether the call `call_id` is open, so its result is read for its write.
+    /// Whether the call `call_id` is open and awaiting its result, so its result is read for its
+    /// write.
     pub(crate) fn is_open(&self, call_id: &str) -> bool {
-        self.open.contains_key(call_id)
+        matches!(
+            lock(&self.open).get(call_id),
+            Some(ClaudeOpenFileToolWrite::AwaitingResult { .. })
+        )
     }
 
-    /// Settles the open call `call_id` on `session_id` by its result: `NotWritten` for one Claude
-    /// Code marked an error, `Unread` for one not alone in its frame, else what `tool_use_result`,
-    /// the frame's structured result, says; one whose shape is not read is `Unread`, logged.
-    /// `None` for a call not open.
+    // The call `call_id`'s tool and path, the call now awaiting its record; `None` for a call
+    // not awaiting its result.
+    fn take_awaiting(&self, call_id: &str) -> Option<(ClaudeFileTool, PathBuf)> {
+        let mut open = lock(&self.open);
+        let entry = open.get_mut(call_id)?;
+        match std::mem::replace(entry, ClaudeOpenFileToolWrite::Recording) {
+            ClaudeOpenFileToolWrite::AwaitingResult { tool, path } => Some((tool, path)),
+            ClaudeOpenFileToolWrite::Recording => None,
+        }
+    }
+
+    /// Settles the open call `call_id` on `session_id` by its result and hands it to the intake's
+    /// task: `NotWritten` for one Claude Code marked an error, `Unread` for one not alone in its
+    /// frame, else what `tool_use_result`, the frame's structured result, says; one whose shape is
+    /// not read is `Unread`, logged. A call not open settles nothing.
     pub(crate) fn settle_result(
-        &mut self,
+        &self,
         session_id: SessionId,
         call_id: &str,
         is_error: bool,
         is_lone_result: bool,
         tool_use_result: Option<&Value>,
-    ) -> Option<FileToolWriteSettled> {
-        let ClaudeOpenFileToolWrite { tool, path } = self.open.remove(call_id)?;
+    ) {
+        let Some((tool, path)) = self.take_awaiting(call_id) else {
+            return;
+        };
         let outcome = if is_error {
             FileToolWriteOutcome::NotWritten
         } else if !is_lone_result {
@@ -221,24 +270,19 @@ impl ClaudeFileToolWrites {
                     FileToolWriteOutcome::Unread
                 })
         };
-        Some(FileToolWriteSettled {
+        self.hand(FileToolWriteSettled {
             session_id,
             call_id: call_id.to_owned(),
             path,
             outcome,
-        })
+        });
     }
 
     /// Settles each open call `frame`, a `user` frame of a helper's, answers, as
     /// [`Self::settle_result`] reads it.
-    pub(crate) fn settle_results(
-        &mut self,
-        frame: &ClaudeMessageFrame,
-        session_id: SessionId,
-    ) -> Vec<FileToolWriteSettled> {
+    pub(crate) fn settle_results(&self, frame: &ClaudeMessageFrame, session_id: SessionId) {
         let results: Vec<(&str, bool)> = frame.tool_results().collect();
         let is_lone_result = results.len() == 1;
-        let mut settled = Vec::new();
         for (call_id, is_error) in results {
             if !self.is_open(call_id) {
                 continue;
@@ -247,28 +291,55 @@ impl ClaudeFileToolWrites {
                 .then(|| frame.tool_use_result())
                 .flatten()
                 .and_then(|result| serde_json::from_str::<Value>(result.get()).ok());
-            settled.extend(self.settle_result(
+            self.settle_result(
                 session_id,
                 call_id,
                 is_error,
                 is_lone_result,
                 tool_use_result.as_ref(),
-            ));
+            );
         }
-        settled
     }
 
-    /// Settles every open call on `session_id` `Unread`, as no result will come for it.
-    pub(crate) fn settle_all_unread(&mut self, session_id: SessionId) -> Vec<FileToolWriteSettled> {
-        self.open
-            .drain()
-            .map(|(call_id, open)| FileToolWriteSettled {
+    /// Settles every call on `session_id` still awaiting its result `Unread`, as no result will
+    /// come for it.
+    pub(crate) fn settle_all_unread(&self, session_id: SessionId) {
+        let awaiting: Vec<(String, PathBuf)> = {
+            let mut open = lock(&self.open);
+            open.iter_mut()
+                .filter_map(|(call_id, entry)| {
+                    match std::mem::replace(entry, ClaudeOpenFileToolWrite::Recording) {
+                        ClaudeOpenFileToolWrite::AwaitingResult { path, .. } => {
+                            Some((call_id.clone(), path))
+                        }
+                        ClaudeOpenFileToolWrite::Recording => None,
+                    }
+                })
+                .collect()
+        };
+        for (call_id, path) in awaiting {
+            self.hand(FileToolWriteSettled {
                 session_id,
                 call_id,
-                path: open.path,
+                path,
                 outcome: FileToolWriteOutcome::Unread,
-            })
-            .collect()
+            });
+        }
+    }
+
+    // Hands `settled` to the intake's task, which never makes the frame wait: its call's entry in
+    // the open map is the room it takes in the queue.
+    fn hand(&self, settled: FileToolWriteSettled) {
+        if let Err(error) = self.settles.send(settled) {
+            let settled = &error.0;
+            report_intake_failure(settled.session_id, &settled.call_id, "settle", &error);
+        }
+    }
+
+    /// How many calls are open: awaiting their result, or settled and not yet recorded.
+    #[cfg(test)]
+    pub(crate) fn open_count(&self) -> usize {
+        lock(&self.open).len()
     }
 }
 
@@ -285,49 +356,6 @@ pub(crate) async fn open_file_tool_writes(
         let (session_id, call_id) = (opened.session_id, opened.call_id.clone());
         if let Err(error) = port.open_file_tool_write(opened).await {
             report_intake_failure(session_id, &call_id, "open", &*error);
-        }
-    }
-}
-
-/// How many settles one session's sender holds before a further hand-off waits for the intake.
-const FILE_TOOL_SETTLE_CAPACITY: usize = 64;
-
-/// One session's settled file-tool calls on their way to the chat versions' intake, recorded in
-/// the order they were handed on a task of their own, which ends once the sender is dropped with
-/// the session's stream.
-pub(crate) struct ClaudeFileToolSettles {
-    sender: mpsc::Sender<FileToolWriteSettled>,
-}
-
-impl ClaudeFileToolSettles {
-    /// Starts the task handing each settle to the intake `file_tool_writes`: dropped while it is
-    /// unregistered, and a settle it could not record logged.
-    pub(crate) fn start(
-        file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
-    ) -> Self {
-        let (sender, mut receiver) =
-            mpsc::channel::<FileToolWriteSettled>(FILE_TOOL_SETTLE_CAPACITY);
-        tokio::spawn(async move {
-            while let Some(settled) = receiver.recv().await {
-                let Some(port) = file_tool_writes.port() else {
-                    continue;
-                };
-                let (session_id, call_id) = (settled.session_id, settled.call_id.clone());
-                if let Err(error) = port.settle_file_tool_write(settled).await {
-                    report_intake_failure(session_id, &call_id, "settle", &*error);
-                }
-            }
-        });
-        Self { sender }
-    }
-
-    /// Hands each of `settled` to the task, in order; waits only while the task's queue is full.
-    pub(crate) async fn hand(&self, settled: Vec<FileToolWriteSettled>) {
-        for settled in settled {
-            if let Err(error) = self.sender.send(settled).await {
-                let settled = &error.0;
-                report_intake_failure(settled.session_id, &settled.call_id, "settle", &error);
-            }
         }
     }
 }

@@ -12,12 +12,13 @@ use super::{ClaudeMessageFrame, ClaudeMessageRowKind, ClaudeOpenToolCall, read_c
 use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::ports::DriverPorts;
 use crate::run::delivery::LateAppendableRow;
 
 // Killed by a patch completion that names no file in `omittedPatches`, which leaves
 // `transcript.patch.list` nothing to list for the call, or names a size other than its patch's.
-#[test]
-fn a_patch_completion_names_its_file_in_omitted_patches() {
+#[tokio::test]
+async fn a_patch_completion_names_its_file_in_omitted_patches() {
     let run = ClaudeBoundRun {
         run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
         binding_id: RuntimeBindingId::new("binding".to_owned()).expect("a valid binding id"),
@@ -49,7 +50,7 @@ fn a_patch_completion_names_its_file_in_omitted_patches() {
         SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
         &mut open_tool_calls,
         &ClaudeToolServerTasks::default(),
-        &mut ClaudeFileToolWrites::default(),
+        &ClaudeFileToolWrites::start(DriverPorts::new().file_tool_writes),
         Timestamp::now(),
         false,
     );

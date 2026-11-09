@@ -342,8 +342,12 @@ async fn every_open_file_tool_call_settles_unread_when_no_result_can_come(
 
 // A settle is recorded off the session's task: while the intake is still recording the first, the
 // frames after it are read and their calls opened, and the settles then land after their opens in
-// the order they were handed. Killed by the settle awaited on the session's task (the later calls
-// never open while the first settle is held).
+// the order they were handed. Each call stays open until its settle is recorded, which is the room
+// it takes in the queue, so a hundred settles held at the intake never make a frame wait, a result
+// for no open call takes none, and the queue never holds more than the open calls. Killed by the
+// settle awaited on the session's task (the later calls never open while the first settle is
+// held), by a fixed queue capacity under a hundred (`w4` never opens) and by a call leaving the
+// open map at its settle (the open count reads short while the intake holds them).
 #[tokio::test(start_paused = true)]
 async fn a_settle_is_recorded_off_the_sessions_task_after_its_open_in_order() {
     let session = ScriptedSession::new().await;
@@ -386,17 +390,54 @@ async fn a_settle_is_recorded_off_the_sessions_task_after_its_open_in_order() {
         lock(&kept.settled).is_empty(),
         "the intake still records the first settle"
     );
+    assert_eq!(
+        session.stream.file_tool_writes.open_count(),
+        3,
+        "a settled call stays open until the intake records it"
+    );
+
+    let many: Vec<String> = (0..100).map(|i| format!("m{i}")).collect();
+    let uses: Vec<Value> = many
+        .iter()
+        .map(|call_id| {
+            json!({"type": "tool_use", "id": call_id, "name": "Write",
+                   "input": {"file_path": format!("/chat/{call_id}.md"), "content": "one\n"}})
+        })
+        .collect();
+    session.frame(&json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {"id": "message-many", "role": "assistant", "content": uses},
+    }));
+    let mut answered: Vec<&str> = many.iter().map(String::as_str).collect();
+    answered.push("x1");
+    session.frame(&answer(&answered, false, None, None));
+    session.frame(&write("w4", "/chat/d.md"));
+    wait_until(|| lock(&kept.opened).len() == 104).await;
+    assert!(
+        lock(&kept.settled).is_empty(),
+        "the intake still records the first settle"
+    );
+    assert_eq!(
+        session.stream.file_tool_writes.open_count(),
+        104,
+        "the hundred settles queued are open calls, and a result for no open call is none"
+    );
+
     kept.settle_gate
         .as_ref()
         .expect("the intake is gated")
-        .add_permits(2);
-    wait_until(|| lock(&kept.settled).len() == 2).await;
+        .add_permits(102);
+    wait_until(|| lock(&kept.settled).len() == 102).await;
 
-    assert_eq!(
-        *lock(&kept.settled),
-        [
-            ("w1".to_owned(), claimed("one\n")),
-            ("w2".to_owned(), claimed("one\n")),
-        ]
+    let mut expected = vec![
+        ("w1".to_owned(), claimed("one\n")),
+        ("w2".to_owned(), claimed("one\n")),
+    ];
+    expected.extend(
+        many.iter()
+            .map(|call_id| (call_id.clone(), FileToolWriteOutcome::Unread)),
     );
+    assert_eq!(*lock(&kept.settled), expected);
+    wait_until(|| session.stream.file_tool_writes.open_count() == 2).await;
 }

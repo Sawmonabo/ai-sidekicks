@@ -136,7 +136,9 @@ impl ClaudeDeliveryStream {
                 .end_unrestored(restored.iter().map(String::as_str))
         };
         self.close_held_calls(session, unrestored, "result").await;
-        self.settle_open_file_tool_writes(session).await;
+        session
+            .file_tool_writes
+            .settle_all_unread(session.session_id);
         // Read to the file's end first, so an outcome written just before the `result` counts.
         let has_goal_record = self.read_goal_records(session).await;
         let (turn_number, run_version, pieces, released, failed_call_words) = {

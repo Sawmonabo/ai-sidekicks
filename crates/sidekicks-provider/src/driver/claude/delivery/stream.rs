@@ -496,7 +496,9 @@ impl ClaudeDeliveryStream {
             self.send_pieces(session, &turn.binding_id, pieces).await;
         }
         self.send_rows(session, released, None).await;
-        self.settle_open_file_tool_writes(session).await;
+        session
+            .file_tool_writes
+            .settle_all_unread(session.session_id);
         let held = {
             let mut readings = session.lock();
             readings.daemon_ended.clear();
@@ -517,15 +519,6 @@ impl ClaudeDeliveryStream {
         }
         self.dependencies.context.forget_session(session.session_id);
         held
-    }
-
-    // Settles every file-tool call still open on the session `Unread`, as no result will come.
-    async fn settle_open_file_tool_writes(&self, session: &ClaudeSessionStream) {
-        let settled = session
-            .lock()
-            .file_tool_writes
-            .settle_all_unread(session.session_id);
-        session.file_tool_settles.hand(settled).await;
     }
 
     async fn mark_initialized(
@@ -586,7 +579,7 @@ impl ClaudeDeliveryStream {
             let mut readings = session.lock();
             readings.has_turn_message = true;
             // Read before the rows move each call's input off the frame.
-            let opened_writes = readings
+            let opened_writes = session
                 .file_tool_writes
                 .open_calls(frame, session.session_id);
             readings.command_tasks.observe_calls(frame);
@@ -656,7 +649,7 @@ impl ClaudeDeliveryStream {
         frame: &ClaudeMessageFrame,
     ) {
         let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
-        let (rows, tasks, stand_ins, arrival, traces, settled_writes) = {
+        let (rows, tasks, stand_ins, arrival, traces) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let is_turn_start = !readings.has_turn_message;
@@ -669,7 +662,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 &mut readings.open_tool_calls,
                 &readings.tool_server_tasks,
-                &mut readings.file_tool_writes,
+                &session.file_tool_writes,
                 Timestamp::now(),
                 is_tracing,
             );
@@ -683,16 +676,8 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (
-                rows,
-                tasks,
-                reading.held_stand_ins,
-                arrival,
-                reading.traces,
-                reading.file_tool_writes,
-            )
+            (rows, tasks, reading.held_stand_ins, arrival, reading.traces)
         };
-        session.file_tool_settles.hand(settled_writes).await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }

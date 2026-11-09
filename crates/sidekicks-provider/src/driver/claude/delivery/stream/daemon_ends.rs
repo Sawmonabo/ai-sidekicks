@@ -256,7 +256,9 @@ impl ClaudeDeliveryStream {
             ClaudeOwnDelivery::DaemonEnd { run_id, settlement } => {
                 // Claude Code answered the interrupt, so no file-tool call of its turn writes on.
                 if settlement == ClaudeDaemonEndSettlement::Interrupted {
-                    self.settle_open_file_tool_writes(session).await;
+                    session
+                        .file_tool_writes
+                        .settle_all_unread(session.session_id);
                 }
                 let settled =
                     session
