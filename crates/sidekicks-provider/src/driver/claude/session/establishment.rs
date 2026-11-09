@@ -513,9 +513,18 @@ impl ClaudeSessionEstablishment {
         } else {
             None
         };
-        let (goal_file, restored_goal) =
-            ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id, fork).await;
-        // A process with no file yet restores none, and a fork keeps what its predecessor held.
+        let settings = sources
+            .read_settings_sources(&legs.spawn_environment, &legs.working_directory)
+            .await;
+        let (goal_file, restored_goal) = ClaudeGoalFile::open(
+            &legs.spawn_environment,
+            &provider_session_id,
+            fork,
+            &settings.sources(),
+        )
+        .await;
+        // A process with no file yet restores none, and a fork keeps what its predecessor held,
+        // unless the settings turn hooks off.
         if let Some(restored_goal) = restored_goal {
             self.task_services
                 .goal_endings

@@ -1,6 +1,7 @@
 //! One process's conversation file as the goal reads follow it: found in its Claude Code home,
 //! followed from where the process came up, the goal a resumed process restores read from it, and
-//! the records a fork copied from its predecessor passed over.
+//! the records a fork copied from its predecessor passed over. A process whose settings carry
+//! `disableAllHooks` restores no goal.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -8,11 +9,16 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_std::mutex_lock::lock;
 
 use super::records::{GoalStatusRecord, goal_status_uuids_through, read_goal_status_tail};
 use crate::driver::claude::session::conversation_file::conversation_file_of;
+use crate::driver::claude::session::settings_file::{ClaudeSettingsSources, read_claude_setting};
+
+// The settings key that turns off every hook, the goal's own check among them.
+const CLAUDE_DISABLE_ALL_HOOKS_SETTING: &str = "disableAllHooks";
 
 /// What one process's goal is read against: the session's lead, whose goal it is, and the
 /// conversation file its outcomes are written to.
@@ -50,15 +56,37 @@ impl ClaudeGoalFile {
     /// is never read again; one not yet written is followed from its start once it appears. A
     /// home that cannot be listed is logged, and the file looked for again at the next read.
     /// Beside it, the goal the process restores from the records already written, where the file
-    /// exists and reads; a file that cannot be read is logged and restores none. For a `fork`, the
-    /// records its predecessor's file holds through the fork point are passed over when the fork's
-    /// copy of them is read; a predecessor's file that cannot be found or read is logged, and its
-    /// copies are read as they come.
+    /// exists and reads; a file that cannot be read is logged and restores none. A process whose
+    /// `settings` carry `disableAllHooks` restores no goal, whatever its file holds; settings that
+    /// cannot be read are logged and restore none. For a `fork`, the records its predecessor's
+    /// file holds through the fork point are passed over when the fork's copy of them is read; a
+    /// predecessor's file that cannot be found or read is logged, and its copies are read as they
+    /// come.
     pub(crate) async fn open(
         spawn_environment: &[(String, String)],
         provider_session_id: &str,
         fork: Option<ClaudeGoalFork<'_>>,
+        settings: &ClaudeSettingsSources<'_>,
     ) -> (Self, Option<RestoredGoal>) {
+        let disables_all_hooks = read_claude_setting(
+            settings,
+            &[CLAUDE_DISABLE_ALL_HOOKS_SETTING],
+            Value::as_bool,
+        )
+        .await
+        .map(|setting| setting.is_some_and(|(_source, is_disabled)| is_disabled))
+        .inspect_err(|failures| {
+            tracing::warn!(
+                provider_session_id,
+                error = failures as &(dyn Error + 'static),
+                "Claude Code's settings could not be read for the goal a resume restores"
+            );
+        })
+        .ok();
+        // The goal the settings leave the process with, whatever its file holds: none under
+        // `disableAllHooks`, and nothing known where they could not be read.
+        let restored_by_settings =
+            || (disables_all_hooks == Some(true)).then_some(RestoredGoal { condition: None });
         let copied_records = match fork {
             Some(fork) => read_copied_records(spawn_environment, fork).await,
             None => HashSet::new(),
@@ -78,14 +106,18 @@ impl ClaudeGoalFile {
             }
         };
         let Some(path) = found else {
-            return (file, None);
+            return (file, restored_by_settings());
         };
         match tokio::fs::metadata(&path).await {
             Ok(metadata) => file.end = metadata.len(),
             Err(error) => {
                 report_unlocated(provider_session_id, &error);
-                return (file, None);
+                return (file, restored_by_settings());
             }
+        }
+        if disables_all_hooks != Some(false) {
+            file.path = Some(path);
+            return (file, restored_by_settings());
         }
         let restored_goal = match read_goal_status_tail(&path, 0).await {
             Ok(tail) => Some(RestoredGoal {
@@ -190,18 +222,43 @@ pub(crate) async fn read_new_records(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_platforms::PathRules;
 
-    use super::{ClaudeGoalFile, ClaudeGoalFork, read_new_records, restored_condition};
+    use super::{
+        ClaudeGoalFile, ClaudeGoalFork, RestoredGoal, read_new_records, restored_condition,
+    };
     use crate::driver::claude::goals::records::GoalStatusRecord;
     use crate::driver::claude::goals::records::tests::{append, goal_status_line, record};
+    use crate::driver::claude::session::establishment::spawn_sources::claude_account_settings_file;
+    use crate::driver::claude::session::rules::ClaudeProjectFolder;
     use crate::driver::claude::session::scripted::binding_id;
     use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
+    use crate::driver::claude::session::settings_file::ClaudeSettingsSources;
     use crate::driver::test_registry::new_run_id;
+
+    // Settings read from the account home's own file alone.
+    fn person_settings_only<'a>(
+        home: &'a Path,
+        project: &'a Path,
+        account_settings_file: &'a Path,
+    ) -> ClaudeSettingsSources<'a> {
+        ClaudeSettingsSources {
+            managed_settings_folder: None,
+            project_folder: ClaudeProjectFolder {
+                working_folder: project,
+                repository: None,
+            },
+            home_folder: home,
+            account_settings_file,
+            path_rules: PathRules::NATIVE,
+        }
+    }
 
     // Killed by reading the oldest record, by a met or failed record read as active, and by a clear
     // read as active; `unmet_check` by reading only a set's sentinel as active.
@@ -267,7 +324,10 @@ mod tests {
             resume_handle: "before",
             resume_at_message_uuid: "at",
         };
-        let (file, restored) = ClaudeGoalFile::open(&spawn_environment, "after", Some(fork)).await;
+        let settings_file = claude_account_settings_file(&spawn_environment);
+        let settings = person_settings_only(home.path(), &project, &settings_file);
+        let (file, restored) =
+            ClaudeGoalFile::open(&spawn_environment, "after", Some(fork), &settings).await;
         assert_eq!(restored, None);
         let file = Mutex::new(file);
         let forked = project.join("after.jsonl");
@@ -293,6 +353,47 @@ mod tests {
                 uuid: Some("met".to_owned()),
                 ..record(true, false, false, Some("c"))
             }]
+        );
+    }
+
+    // Killed by the branch on `disableAllHooks` read as hooks on, which would restore the goal
+    // Claude Code does not, and by that branch taken with no setting, which would restore none.
+    #[rstest]
+    #[case::hooks_disabled(Some(r#"{"disableAllHooks": true}"#), None)]
+    #[case::hooks_on(None, Some("c"))]
+    #[tokio::test]
+    async fn a_saved_goal_is_restored_only_while_the_settings_leave_hooks_on(
+        #[case] person_settings: Option<&str>,
+        #[case] restored: Option<&str>,
+    ) {
+        let home = tempfile::tempdir().expect("a scratch home");
+        let project = home.path().join("projects/work");
+        std::fs::create_dir_all(&project).expect("the project folder is made");
+        let spawn_environment = vec![(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            home.path().display().to_string(),
+        )];
+        append(
+            &project.join("resumed.jsonl"),
+            &goal_status_line(
+                "set",
+                json!({"met": false, "sentinel": true, "condition": "c"}),
+            ),
+        );
+        let settings_file = claude_account_settings_file(&spawn_environment);
+        if let Some(person_settings) = person_settings {
+            std::fs::write(&settings_file, person_settings).expect("the settings are written");
+        }
+        let settings = person_settings_only(home.path(), &project, &settings_file);
+
+        let (_file, restored_goal) =
+            ClaudeGoalFile::open(&spawn_environment, "resumed", None, &settings).await;
+
+        assert_eq!(
+            restored_goal,
+            Some(RestoredGoal {
+                condition: restored.map(str::to_owned),
+            })
         );
     }
 
