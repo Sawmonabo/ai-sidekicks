@@ -15,7 +15,8 @@ use http::header::AUTHORIZATION;
 use http::request::Parts;
 use rmcp::ServiceExt as _;
 use rmcp::model::{
-    ClientJsonRpcMessage, GetExtensions as _, JsonRpcMessage, RequestId, ServerJsonRpcMessage,
+    ClientJsonRpcMessage, ClientNotification, GetExtensions as _, JsonRpcMessage, RequestId,
+    ServerJsonRpcMessage,
 };
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -183,11 +184,21 @@ impl SpawnInProcessToolServers for SpawnToolServers {
             }
             other @ (JsonRpcMessage::Response(_)
             | JsonRpcMessage::Notification(_)
-            | JsonRpcMessage::Error(_)) => async move {
-                incoming.send(other).await.map_err(connection_closed)?;
-                Ok(None)
+            | JsonRpcMessage::Error(_)) => {
+                // rmcp drops a canceled request's reply, so the call waiting on it ends here.
+                if let JsonRpcMessage::Notification(notification) = &other
+                    && let ClientNotification::CancelledNotification(cancelled) =
+                        &notification.notification
+                    && let Some(request_id) = &cancelled.params.request_id
+                {
+                    lock(&pending).remove(request_id);
+                }
+                async move {
+                    incoming.send(other).await.map_err(connection_closed)?;
+                    Ok(None)
+                }
+                .boxed()
             }
-            .boxed(),
         }
     }
 }
@@ -270,8 +281,9 @@ fn open_connection(
     }
 }
 
-// Hands each answer the server writes to the request it answers and every other message to the
-// provider; once the server ends, every request still waiting fails.
+// Hands each answer the server writes to the request it answers and each notification to the
+// provider; a request of the server's own, which no server sends, is dropped, since nothing would
+// answer it. Once the server ends, every request still waiting fails.
 async fn route_outgoing(
     mut outgoing: mpsc::Receiver<ServerJsonRpcMessage>,
     pending: Arc<PendingCalls>,
@@ -281,7 +293,11 @@ async fn route_outgoing(
         let answered = match &message {
             JsonRpcMessage::Response(response) => Some(Some(response.id.clone())),
             JsonRpcMessage::Error(error) => Some(error.id.clone()),
-            JsonRpcMessage::Request(_) | JsonRpcMessage::Notification(_) => None,
+            JsonRpcMessage::Notification(_) => None,
+            JsonRpcMessage::Request(_) => {
+                tracing::warn!("an in-process tool server sent a request, which nothing answers");
+                continue;
+            }
         };
         let written = serde_json::value::to_raw_value(&message);
         match (answered, written) {

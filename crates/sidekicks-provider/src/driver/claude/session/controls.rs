@@ -135,6 +135,10 @@ pub(crate) enum ClaudeOneTurnReach {
         /// The callback-tool installation that answers its calls to the daemon's tool servers.
         callback_tools: Arc<CallbackToolSpawnBinding>,
     },
+    /// A copy that answers the person: plan mode, which runs nothing, with the session's rules and
+    /// the person's settings files and none of the daemon's tool servers, since its calls of them
+    /// would run on no run of the session.
+    Plan,
     /// Read only: in `dontAsk`, pre-approved nothing and holding none of the daemon's tool
     /// servers, so it asks no one and refuses whatever would need an approval; only deny rules
     /// hold, the session's own and the person's.
@@ -142,17 +146,6 @@ pub(crate) enum ClaudeOneTurnReach {
         /// The person's own deny rules, read from the settings files the process does not load.
         person_deny_rules: Vec<String>,
     },
-}
-
-impl ClaudeOneTurnReach {
-    /// The reach of a copy that answers the person: plan mode, which runs nothing, its calls
-    /// answered by `callback_tools`.
-    pub(crate) fn plan(callback_tools: Arc<CallbackToolSpawnBinding>) -> Self {
-        Self::Session {
-            permission_mode: Some(ClaudePermissionMode::Plan),
-            callback_tools,
-        }
-    }
 }
 
 /// The copy a side question runs on: the legs at the session's full model id, the account, the
@@ -175,7 +168,7 @@ impl ClaudeSideQuestionCopy {
             legs: without_credential_prompts(one_turn_legs(live, None, None)),
             provider_account_id: live.admitted_provider_account_id(),
             parent_provider_session_id: live.provider_session_id.clone(),
-            reach: ClaudeOneTurnReach::plan(Arc::clone(&live.callback_tool_binding)),
+            reach: ClaudeOneTurnReach::Plan,
         }
     }
 }
@@ -653,7 +646,7 @@ impl ClaudeSessionControls {
                     ToolServerConversation::mint(),
                     callback_tools.dispatcher(),
                 ),
-                ClaudeOneTurnReach::LockedDown { .. } => Ok(None),
+                ClaudeOneTurnReach::Plan | ClaudeOneTurnReach::LockedDown { .. } => Ok(None),
             };
             let in_process_servers = match opened {
                 Ok(in_process_servers) => in_process_servers,
@@ -670,6 +663,9 @@ impl ClaudeSessionControls {
                 ClaudeOneTurnReach::Session {
                     permission_mode, ..
                 } => (*permission_mode, ClaudePreApprovals::Kept),
+                ClaudeOneTurnReach::Plan => {
+                    (Some(ClaudePermissionMode::Plan), ClaudePreApprovals::Kept)
+                }
                 ClaudeOneTurnReach::LockedDown { person_deny_rules } => (
                     Some(ClaudePermissionMode::DontAsk),
                     ClaudePreApprovals::DenyRulesOnly(person_deny_rules),

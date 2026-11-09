@@ -7,7 +7,7 @@
 //! each other conversation of its session with no live entry whose request presents the secret
 //! the daemon's key derives for that conversation's path.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
@@ -46,7 +46,7 @@ pub struct ToolServerEntry {
     /// Lists and answers the tools the spawn's hook rows call; `None` for a spawn with no rows.
     hook_tools: Option<Arc<dyn HookToolServer>>,
     /// The `Mcp-Session-Id`s admitted for the spawn.
-    mcp_sessions: Mutex<HashSet<String>>,
+    mcp_sessions: Mutex<HashMap<String, CancellationToken>>,
     /// Canceled when the spawn drops, since its process is gone and no open call is answered.
     spawn_ended: CancellationToken,
 }
@@ -75,19 +75,21 @@ impl ToolServerEntry {
         self.spawn_ended.cancelled().await;
     }
 
-    /// Admits `mcp_session_id` for the spawn.
-    pub(crate) fn admit_mcp_session(&self, mcp_session_id: String) {
-        lock(&self.mcp_sessions).insert(mcp_session_id);
+    /// Admits `mcp_session_id` for the spawn; `closed` is canceled once its client closes it.
+    pub(crate) fn admit_mcp_session(&self, mcp_session_id: String, closed: CancellationToken) {
+        lock(&self.mcp_sessions).insert(mcp_session_id, closed);
     }
 
     /// Whether `mcp_session_id` was admitted for the spawn and not forgotten since.
     pub(crate) fn admits_mcp_session(&self, mcp_session_id: &str) -> bool {
-        lock(&self.mcp_sessions).contains(mcp_session_id)
+        lock(&self.mcp_sessions).contains_key(mcp_session_id)
     }
 
-    /// Forgets `mcp_session_id`, once its client closed it.
+    /// Forgets `mcp_session_id`, once its client closed it, and cancels its `closed` token.
     pub(crate) fn forget_mcp_session(&self, mcp_session_id: &str) {
-        lock(&self.mcp_sessions).remove(mcp_session_id);
+        if let Some(closed) = lock(&self.mcp_sessions).remove(mcp_session_id) {
+            closed.cancel();
+        }
     }
 }
 
@@ -119,7 +121,7 @@ impl ToolServerEntries {
             token,
             dispatcher,
             hook_tools,
-            mcp_sessions: Mutex::new(HashSet::new()),
+            mcp_sessions: Mutex::new(HashMap::new()),
             spawn_ended: CancellationToken::new(),
         });
         let guard = ToolServerEntryGuard {

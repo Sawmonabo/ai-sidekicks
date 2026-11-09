@@ -48,8 +48,8 @@ pub trait SpawnInProcessToolServers: Send + Sync {
     ) -> BoxFuture<'static, Result<Option<Box<RawValue>>, InProcessToolServerError>>;
 }
 
-/// The route a server's own messages take to the provider: a progress notification, or a request
-/// of its own.
+/// The route a server's own notifications take to the provider, such as a progress beat; no
+/// server sends a request of its own.
 pub trait InProcessToolServerOutbound: Send + Sync {
     /// Sends `message`, one JSON-RPC message from `server_name`, and settles once the provider
     /// took it. Fails when the provider's channel did.

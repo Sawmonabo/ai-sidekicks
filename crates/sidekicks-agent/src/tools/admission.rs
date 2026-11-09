@@ -15,6 +15,7 @@ use axum::response::{IntoResponse as _, Response};
 use rmcp::transport::common::http_header::HEADER_SESSION_ID;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{SessionId, SessionManager as _};
+use tokio_util::sync::CancellationToken;
 
 use crate::tools::entries::{ToolServerEntries, ToolServerEntry};
 use crate::tools::server::ToolServerPath;
@@ -29,12 +30,23 @@ pub(super) struct ToolServerAdmission {
     entries: Arc<ToolServerEntries>,
     /// rmcp's sessions, which reap no idle session, so an ended spawn's are closed here.
     sessions: Arc<LocalSessionManager>,
+    /// The daemon's stop, whose child each admitted session's close token is.
+    stop: CancellationToken,
 }
 
 impl ToolServerAdmission {
-    /// An admission over `entries`, closing an ended spawn's sessions in `sessions`.
-    pub(super) fn new(entries: Arc<ToolServerEntries>, sessions: Arc<LocalSessionManager>) -> Self {
-        Self { entries, sessions }
+    /// An admission over `entries`, closing an ended spawn's sessions in `sessions`; the wait on
+    /// each session ends at `stop` too.
+    pub(super) fn new(
+        entries: Arc<ToolServerEntries>,
+        sessions: Arc<LocalSessionManager>,
+        stop: CancellationToken,
+    ) -> Self {
+        Self {
+            entries,
+            sessions,
+            stop,
+        }
     }
 
     // Whether rmcp holds no session `mcp_session`, as for one a client kept across a restart of the
@@ -49,12 +61,17 @@ impl ToolServerAdmission {
     }
 
     // Admits `mcp_session`, which rmcp just minted, for `entry`'s spawn alone, and closes it once
-    // that spawn ends; the wait holds no timer.
+    // that spawn ends; the wait holds no timer, and ends with nothing to close once the client
+    // closed the session or the daemon stops.
     fn keep_for_spawn(&self, entry: Arc<ToolServerEntry>, mcp_session: String) {
-        entry.admit_mcp_session(mcp_session.clone());
+        let closed = self.stop.child_token();
+        entry.admit_mcp_session(mcp_session.clone(), closed.clone());
         let sessions = Arc::clone(&self.sessions);
         tokio::spawn(async move {
-            entry.ended().await;
+            tokio::select! {
+                () = entry.ended() => {}
+                () = closed.cancelled() => return,
+            }
             let mcp_session = SessionId::from(mcp_session);
             if let Err(error) = sessions.close_session(&mcp_session).await {
                 tracing::warn!(
@@ -131,9 +148,14 @@ mod tests {
     use axum::http::StatusCode;
     use axum::http::header::{ORIGIN, WWW_AUTHENTICATE};
 
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use crate::tools::listener::tests::{
-        CLAUDE_SESSION, CODEX_SESSION, add_spawn, initialize, mcp_session_of, ping, serve_stub,
+        CLAUDE_SESSION, CODEX_SESSION, add_spawn, close, initialize, mcp_session_of, ping,
+        serve_stub,
     };
+    use crate::tools::server::ToolServerPath;
 
     const REVISION: &str = "2025-11-25";
 
@@ -218,5 +240,36 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(own.status(), StatusCode::OK);
+    }
+
+    // A session its client closes lets go of its spawn's entry at once, not at the spawn's end.
+    // Killed by a parked task that waits on the spawn's end alone, which keeps the entry held.
+    #[tokio::test]
+    async fn a_session_its_client_closes_lets_go_of_its_spawns_entry() {
+        let served = serve_stub().await;
+        let (_live, path, secret) = add_spawn(&served.entries, CODEX_SESSION);
+        let mcp_session = served.open_session(&path, &secret, REVISION).await;
+        let parsed = ToolServerPath::parse(&path).expect("the path parses");
+        let authorization = format!("Bearer {secret}");
+        let entry = served
+            .entries
+            .admitted(&parsed, Some(authorization.as_bytes()))
+            .expect("the live spawn admits its secret");
+        let held = Arc::strong_count(&entry);
+
+        let closed = close(&served, &path, &mcp_session, REVISION)
+            .bearer_auth(&secret)
+            .send()
+            .await
+            .expect("an answer");
+        assert!(closed.status().is_success(), "{}", closed.status());
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while Arc::strong_count(&entry) >= held {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the closed session's task lets go of the entry");
     }
 }

@@ -44,12 +44,6 @@ pub enum ToolServerListenerError {
         #[source]
         source: io::Error,
     },
-    /// The port file holds no port.
-    #[error("the tool servers' port file {} holds no port", path.display())]
-    NoPortInFile {
-        /// The port file.
-        path: PathBuf,
-    },
     /// Loopback refused the listener.
     #[error("the tool servers' listener could not bind loopback")]
     Bind(#[source] io::Error),
@@ -144,7 +138,11 @@ impl ToolServerListener {
             .with_sse_keep_alive(None);
         let service =
             StreamableHttpService::new(move || Ok(server()), Arc::clone(&sessions), config);
-        let admission = Arc::new(ToolServerAdmission::new(entries, sessions));
+        let admission = Arc::new(ToolServerAdmission::new(
+            entries,
+            sessions,
+            self.stop.child_token(),
+        ));
         self.mount(
             Router::new()
                 .route_service(&format!("/{TOOL_SERVER_PATH_ROOT}/{{*route}}"), service)
@@ -168,10 +166,12 @@ impl ToolServerListener {
     }
 }
 
-// The port `port_file` keeps; `None` when no file stands there yet.
+// The port `port_file` keeps; `None` when no file stands there yet or it holds no port, garbled or
+// zero, so a bad file costs the kept port and never the start. Fails only as an existing file
+// cannot be read.
 async fn read_kept_port(port_file: &Path) -> Result<Option<u16>, ToolServerListenerError> {
-    let text = match tokio::fs::read_to_string(port_file).await {
-        Ok(text) => text,
+    let bytes = match tokio::fs::read(port_file).await {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {
             return Err(ToolServerListenerError::ReadPort {
@@ -180,12 +180,10 @@ async fn read_kept_port(port_file: &Path) -> Result<Option<u16>, ToolServerListe
             });
         }
     };
-    match text.trim().parse::<u16>() {
-        Ok(port) if port != 0 => Ok(Some(port)),
-        Ok(_) | Err(_) => Err(ToolServerListenerError::NoPortInFile {
-            path: port_file.to_owned(),
-        }),
-    }
+    Ok(std::str::from_utf8(&bytes)
+        .ok()
+        .and_then(|text| text.trim().parse::<u16>().ok())
+        .filter(|port| *port != 0))
 }
 
 async fn bind_free_port() -> Result<TcpListener, ToolServerListenerError> {
@@ -234,7 +232,7 @@ pub(super) mod tests {
     use tokio::time::timeout;
     use tokio_util::sync::{CancellationToken, DropGuard};
 
-    use super::ToolServerListener;
+    use super::{PORT_FILE_NAME, ToolServerListener};
     use crate::tools::entries::tests::dispatcher;
     use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
     use crate::tools::server::ToolServerPath;
@@ -384,6 +382,20 @@ pub(super) mod tests {
             .header(HEADER_MCP_PROTOCOL_VERSION, revision)
     }
 
+    /// The client's own close of `mcp_session` on `path` at `revision`, with no secret yet.
+    pub(in crate::tools) fn close(
+        served: &Served,
+        path: &str,
+        mcp_session: &str,
+        revision: &str,
+    ) -> RequestBuilder {
+        served
+            .client
+            .delete(format!("{}{path}", served.base))
+            .header(HEADER_SESSION_ID, mcp_session)
+            .header(HEADER_MCP_PROTOCOL_VERSION, revision)
+    }
+
     /// The `Mcp-Session-Id` an answer carries.
     pub(in crate::tools) fn mcp_session_of(response: &reqwest::Response) -> Option<String> {
         let value = response.headers().get(HEADER_SESSION_ID)?;
@@ -444,5 +456,24 @@ pub(super) mod tests {
 
         let after = bind().await.expect("the new port binds again");
         assert_eq!((after.port(), after.moved_from()), (moved_to, None));
+    }
+
+    // A port file that holds no port is no kept port: the listener binds a port the system picks
+    // and keeps it. Killed by failing the start on the file, or by binding without keeping.
+    #[tokio::test]
+    async fn a_port_file_holding_no_port_is_replaced_by_the_bound_port() {
+        let data_folder = tempfile::tempdir().expect("a scratch folder");
+        let port_file = data_folder.path().join(PORT_FILE_NAME);
+        for garbled in [b"0".as_slice(), b"not a port", &[0xff, 0xfe]] {
+            std::fs::write(&port_file, garbled).expect("the port file is written");
+
+            let listener = ToolServerListener::bind(data_folder.path(), CancellationToken::new())
+                .await
+                .expect("a bad port file does not stop the start");
+
+            let kept = std::fs::read_to_string(&port_file).expect("the port file reads");
+            assert_eq!(kept.trim(), listener.port().to_string());
+            assert_eq!(listener.moved_from(), None);
+        }
     }
 }

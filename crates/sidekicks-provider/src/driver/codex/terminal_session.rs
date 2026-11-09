@@ -12,7 +12,10 @@ use std::time::Duration;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::task::TaskTracker;
 
-use self::exchanges::{CodexTerminalDelivery, CodexTerminalMessage, deliver_to_terminal_session};
+use self::exchanges::{
+    CodexTerminalDelivery, CodexTerminalMessage, CodexTerminalTurnEnd, deliver_to_terminal_session,
+    reread_turn_end,
+};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -168,30 +171,72 @@ async fn deliver_and_publish(
             message_id: message_id.clone(),
         },
     );
-    if let CodexTerminalDelivery::Started(ended) = delivered {
+    if let CodexTerminalDelivery::Started { turn_id, ended } = delivered {
         let readings = Arc::clone(readings);
+        let service = Arc::clone(service);
+        let thread_id = thread_id.to_owned();
         tasks.spawn(async move {
-            // A seat whose connection ended before the turn did leaves the turn's end unread.
-            let reading = match ended.await {
-                Ok(end) if end.is_completed => SessionMessageReading::Answered {
+            let end = match ended.await {
+                Ok(end) => Some(end),
+                // A seat whose connection ended before the turn did leaves the turn's end unread.
+                Err(_unread) => await_turn_end_again(&service, &thread_id, &turn_id).await,
+            };
+            let reading = match end {
+                Some(CodexTerminalTurnEnd::Answered { reply }) => SessionMessageReading::Answered {
                     // The message opened the turn, so its id names the turn's record.
                     turn_record: message_id.clone(),
                     message_id,
-                    answer: end.reply,
+                    answer: reply,
                 },
-                Ok(end) => SessionMessageReading::Failed {
+                Some(CodexTerminalTurnEnd::Failed { notice }) => {
+                    SessionMessageReading::Failed { message_id, notice }
+                }
+                None => SessionMessageReading::NotReachable {
                     message_id,
-                    notice: end.notice,
-                },
-                Err(_unread) => SessionMessageReading::Failed {
-                    message_id,
-                    notice: None,
+                    reopen: CodexTerminalExchangeError::GivenUp { thread_id }.to_string(),
                 },
             };
             publish_terminal_reading(&readings, reading);
         });
     }
     Ok(SessionMessageSent::Sent)
+}
+
+// The end of the turn `turn_id` of `thread_id` on `service`, read again after the seat's connection
+// ended before it: at once while the service is up, else once it is back within the terminal's
+// reconnect window, the wait staying open meanwhile; a read the service's going away cuts short
+// waits again. `None` past the window, or where no terminal holds the conversation any more.
+async fn await_turn_end_again(
+    service: &Arc<CodexService>,
+    thread_id: &str,
+    turn_id: &str,
+) -> Option<CodexTerminalTurnEnd> {
+    loop {
+        if let Some(away) = service.away_for() {
+            let window_left = TERMINAL_RECONNECT_WINDOW.saturating_sub(away);
+            if window_left.is_zero()
+                || tokio::time::timeout(window_left, service.when_up())
+                    .await
+                    .is_err()
+            {
+                return None;
+            }
+        }
+        match reread_turn_end(service, thread_id, turn_id).await {
+            Ok(Some(end)) => return Some(end),
+            Ok(None) | Err(CodexTerminalExchangeError::Codex(_))
+                if service.away_for().is_some() => {}
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a terminal session's turn could not be read again"
+                );
+                return None;
+            }
+        }
+    }
 }
 
 // Publishes one reading of a message to a terminal session; one made before the readings are

@@ -11,9 +11,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeDriver, ClaudeSessionParts};
-use crate::callback_tools::host::CallbackToolSpawnRequest;
-use crate::callback_tools::spawn_binding::bind_callback_tools_for_spawn;
-use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeOneTurnReach, ClaudeSideQuestionCopy, claude_full_model_id,
     without_credential_prompts,
@@ -45,7 +42,7 @@ impl ClaudeDriver {
     ) -> Result<Option<FreeFormText<{ usize::MAX }>>, DriverError> {
         let parts = self.parts()?;
         let session_id = params.session_id;
-        let copy = self.compose_copy(parts, session_id, params.resume, params.purpose)?;
+        let copy = self.compose_copy(parts, session_id, params.resume)?;
         let copy = match params.purpose {
             SideQuestionPurpose::Person => copy,
             SideQuestionPurpose::SessionAsk => lock_down(copy, Arc::clone(&self.sources)).boxed(),
@@ -71,14 +68,13 @@ impl ClaudeDriver {
     }
 
     /// The copy of `session_id`'s conversation a one-turn process runs on: the live process's own,
-    /// else the one `resume` names, composed once awaited for `purpose`. Fails `NoLiveSession` for
-    /// a session at rest with no resume material.
+    /// else the one `resume` names, composed once awaited. Fails `NoLiveSession` for a session at
+    /// rest with no resume material.
     pub(crate) fn compose_copy(
         &self,
         parts: &ClaudeSessionParts,
         session_id: SessionId,
         resume: Option<ResumeSessionParams>,
-        purpose: SideQuestionPurpose,
     ) -> Result<ClaudeCopyComposition, DriverError> {
         Ok(match parts.run_start.live_session(session_id) {
             Ok(live) => ready(Ok(ClaudeSideQuestionCopy::of_live(&live))).boxed(),
@@ -87,7 +83,6 @@ impl ClaudeDriver {
                     Arc::clone(&self.sources),
                     Arc::clone(&self.starts),
                     resume,
-                    purpose,
                 )
                 .boxed(),
                 None => return Err(no_live_session.into()),
@@ -115,17 +110,13 @@ async fn lock_down(
 }
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, in the
-// home that holds its conversation, offering no callback tools, its calls to the daemon's tool
-// servers answered by an installation of its own where it answers the person, and on the full id
-// of its model, which the build's catalog resolves since no process of the session declared it.
-// Another session's ask binds no installation, since its copy is locked down with no tool server.
-// Fails as the context, the legs or the catalog cannot be read, and for the person while no
-// callback-tool host is registered.
+// home that holds its conversation, in plan mode with none of the daemon's tool servers, and on
+// the full id of its model, which the build's catalog resolves since no process of the session
+// declared it. Fails as the context, the legs or the catalog cannot be read.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
     resume: ResumeSessionParams,
-    purpose: SideQuestionPurpose,
 ) -> Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>> {
     let context = resolve_claude_spawn_context(
         &sources.ports.spawn_contexts,
@@ -160,25 +151,6 @@ async fn compose_resting_side_question_copy(
         )
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
-    let reach = match purpose {
-        // No process of the session holds an installation, so the copy's calls to the daemon's
-        // tool servers are answered by one of its own.
-        SideQuestionPurpose::Person => {
-            ClaudeOneTurnReach::plan(Arc::new(bind_callback_tools_for_spawn(
-                sources.ports.callback_tool_host.require_port()?,
-                CallbackToolSpawnRequest {
-                    session_id: resume.session_id,
-                    provider: DESCRIPTOR.provider_id(),
-                    requested_tools: resume.callback_tools.unwrap_or_default(),
-                    provider_registration_unavailable: None,
-                },
-            )))
-        }
-        // The lock-down sets the person's deny rules once the copy is composed.
-        SideQuestionPurpose::SessionAsk => ClaudeOneTurnReach::LockedDown {
-            person_deny_rules: Vec::new(),
-        },
-    };
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
@@ -186,6 +158,6 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
-        reach,
+        reach: ClaudeOneTurnReach::Plan,
     })
 }

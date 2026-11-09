@@ -82,9 +82,10 @@ impl SpawnInProcessToolServers for NamedServers {
 
 // Killed by a session ask's copy that keeps the daemon's tool servers or the person's settings
 // files, runs in plan mode rather than asking no one, drops the person's deny rules or carries
-// their allow rule, or tells the asked session of the ask; and by a person's copy locked down.
+// their allow rule, or tells the asked session of the ask; by a person's copy locked down; and by
+// a person's copy holding the daemon's tool servers, whose calls would run on no run.
 #[tokio::test(start_paused = true)]
-async fn a_session_asks_copy_is_locked_down_and_the_persons_keeps_the_sessions_reach() {
+async fn a_session_asks_copy_is_locked_down_and_the_persons_holds_no_tool_server() {
     let fixture = ScriptedDriver::new();
     fixture
         .services
@@ -169,7 +170,7 @@ async fn a_session_asks_copy_is_locked_down_and_the_persons_keeps_the_sessions_r
         reaches[0],
         ScriptedOneTurnReach {
             deny_rules_only: None,
-            has_tool_servers: true,
+            has_tool_servers: false,
         }
     );
     assert!(!reaches[1].has_tool_servers);

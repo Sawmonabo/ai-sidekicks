@@ -33,6 +33,7 @@ use crate::driver::claude::session::conversation_file::peer_replies::{
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_messages::{
     SessionMessageDelivery, SessionMessageKind, SessionMessageSent, SessionMessageTarget,
+    no_session_named,
 };
 
 /// The frame version Claude Code's own sender writes.
@@ -86,19 +87,19 @@ pub(crate) struct ClaudeInboxSent {
 /// Why a message did not reach its receiver's inbox whole.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeInboxDeliveryError {
-    /// The receiver's registry file names no inbox.
-    #[error("the session has no inbox")]
-    NoInbox,
+    /// The terminal receiver is gone: the registry no longer lists it, or its row names no
+    /// inbox.
+    #[error("the terminal session {provider_session_id} is gone")]
+    Gone {
+        /// The receiver's id, as the provider names it.
+        provider_session_id: String,
+    },
     /// The receiver's reply could not be awaited, so nothing was written.
     #[error("the session's reply could not be awaited: {0}")]
     ReplyUnawaited(#[source] io::Error),
     /// The inbox refused the connection or the write, in the system's words.
     #[error("{0}")]
     Refused(#[source] io::Error),
-    /// The message was written, but the idle notice its reply waits for could not be asked for,
-    /// so its reply is not awaited.
-    #[error("the message was sent, but its idle notice could not be asked for: {0}")]
-    IdleNoticeUnasked(#[source] io::Error),
     /// The delivery is a wake-up or a reminder, which Claude Code is never sent: its waits hold
     /// the call, and it keeps reminders of its own.
     #[error("Claude Code is sent no wake-up or reminder: its waits hold the call")]
@@ -108,9 +109,9 @@ pub(crate) enum ClaudeInboxDeliveryError {
 /// Delivers `delivery`, another session's message, into a Claude Code session from the daemon's
 /// inbox: a hosted session's to its own inbox, a terminal session's to the socket its registry
 /// file names, found in the registry folders `registry_folders` reads, its reply kept awaited until
-/// its idle notice. Answers `Refused` with the system's words where the receiver has no inbox or
-/// its inbox refused the frame. Fails for a wake-up or a reminder, as the registry folders' read
-/// fails, and as the reply's wait or the idle notice's request fails.
+/// its idle notice. Answers `Refused` with the no-session words where a terminal receiver is gone
+/// and with the system's words where its inbox refused the frame. Fails for a wake-up or a
+/// reminder, as the registry folders' read fails, and as the reply's wait fails.
 pub(crate) async fn deliver_claude_session_message(
     inboxes: &ClaudeSessionInboxes,
     registry_folders: BoxFuture<'_, Result<Vec<PathBuf>, DriverError>>,
@@ -161,7 +162,9 @@ pub(crate) async fn deliver_claude_session_message(
                     )
                     .await
                 }
-                None => Err(ClaudeInboxDeliveryError::NoInbox),
+                None => Err(ClaudeInboxDeliveryError::Gone {
+                    provider_session_id: provider_session_id.clone(),
+                }),
             }
         }
     };
@@ -172,9 +175,13 @@ pub(crate) async fn deliver_claude_session_message(
             }
             Ok(SessionMessageSent::Sent)
         }
-        Err(
-            refusal @ (ClaudeInboxDeliveryError::NoInbox | ClaudeInboxDeliveryError::Refused(_)),
-        ) => Ok(SessionMessageSent::Refused {
+        // A session that is gone is named as no session, in the words a lookup uses.
+        Err(ClaudeInboxDeliveryError::Gone {
+            provider_session_id,
+        }) => Ok(SessionMessageSent::Refused {
+            words: no_session_named(&provider_session_id),
+        }),
+        Err(refusal @ ClaudeInboxDeliveryError::Refused(_)) => Ok(SessionMessageSent::Refused {
             words: refusal.to_string(),
         }),
         Err(error) => Err(DriverError::Internal(Box::new(error))),
@@ -201,10 +208,13 @@ pub(crate) async fn deliver_claude_peer_message(
             Ok(ClaudeInboxSent { reply_wait: None })
         }
         ClaudeInboxReceiver::Terminal(session) => {
-            let inbox = session
-                .socket
-                .as_deref()
-                .ok_or(ClaudeInboxDeliveryError::NoInbox)?;
+            let inbox =
+                session
+                    .socket
+                    .as_deref()
+                    .ok_or_else(|| ClaudeInboxDeliveryError::Gone {
+                        provider_session_id: session.session_id.clone().unwrap_or_default(),
+                    })?;
             let notice_id = mint_uuid_v7();
             let reply_wait = peer_replies
                 .await_reply(
@@ -225,9 +235,15 @@ pub(crate) async fn deliver_claude_peer_message(
                 "from": from,
                 "from_mode": sender_mode(message.sender_level),
             });
-            write_frame(inbox, &notice_request)
-                .await
-                .map_err(ClaudeInboxDeliveryError::IdleNoticeUnasked)?;
+            // The message is in, so the delivery stands; only the wait for its reply is lost.
+            if let Err(error) = write_frame(inbox, &notice_request).await {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a terminal session's idle notice could not be asked for, so its reply to a \
+                     message is not awaited"
+                );
+                return Ok(ClaudeInboxSent { reply_wait: None });
+            }
             Ok(ClaudeInboxSent {
                 reply_wait: Some(reply_wait),
             })

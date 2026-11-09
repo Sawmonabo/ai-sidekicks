@@ -398,7 +398,7 @@ Fields:
 
 Results, the same meaning on both providers, worded by how the daemon waits:
 
-- Claude Code, where the call holds: `builder finished: <its answer>` · `builder needs the person: <what it is asking>` · `builder failed: <the turn's own notice>` · `Waiting on: builder (your message, 4 min ago), tax-fix (started by you, just now).`, an age under a minute reading `just now` · with nothing awaited, `Not waiting on any session.`
+- Claude Code, where the call holds: `builder finished: <its answer>` · `builder needs the person: <what it is asking>` · `builder failed: <the turn's own notice>` · for a Codex session typed in a terminal whose service stayed away past its reconnect window before the turn's end was read, `builder is not reachable. Reopen it in a terminal: codex resume <thread id>.` (within the window the wait stays open, and at the service's return the turn is read again and answers in the words above) · `Waiting on: builder (your message, 4 min ago), tax-fix (started by you, just now).`, an age under a minute reading `just now` · with nothing awaited, `Not waiting on any session.`
 - Codex, where the call returns at once: `Waiting on builder. End your turn now; builder's answer arrives as a message when it finishes or needs the person.` The answer arrives as the wake-up below.
 
 The `wait: true` results on `session_send` and `session_start` use the same wording.

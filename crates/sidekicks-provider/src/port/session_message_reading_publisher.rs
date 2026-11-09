@@ -61,13 +61,22 @@ pub enum SessionMessageReading {
         /// The text of the turn's last reply; `None` where it held no text.
         answer: Option<String>,
     },
-    /// The turn the message started in a terminal session failed, or its end could not be read;
-    /// a failed turn's partial reply is never its answer.
+    /// The turn the message started in a terminal session failed; a failed turn's partial reply
+    /// is never its answer.
     Failed {
         /// The message's id.
         message_id: String,
-        /// The provider's own notice of the failure; `None` where the turn's end went unread.
-        notice: Option<String>,
+        /// The provider's own notice of the failure.
+        notice: String,
+    },
+    /// The terminal session the message started a turn in went out of reach before the turn's
+    /// end could be read, and its provider's service stayed away past its reconnect window.
+    NotReachable {
+        /// The message's id.
+        message_id: String,
+        /// The line that tells how to reach it again, such as `Reopen it in a terminal: codex
+        /// resume <thread id>`.
+        reopen: String,
     },
     /// A hosted session took in a message another session sent.
     Arrived(SessionMessageArrival),
