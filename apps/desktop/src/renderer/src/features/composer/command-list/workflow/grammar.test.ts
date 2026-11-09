@@ -72,7 +72,7 @@ describe("the documented line, end to end through the recognizer and the router"
   it("intercepts `/workflow run <name>` and starts the named definition", async () => {
     registerRoot(WORKFLOW_COMMAND_ROOT);
     const calls = recordedWorkflowCalls();
-    const resolution = routerOverRegistry().resolve("/workflow run nightly", SESSION_TARGET);
+    const resolution = routerOverRegistry().resolve("/workflow run nightly", SESSION_TARGET, {});
 
     expect(resolution).toStrictEqual({
       outcome: "console-command",

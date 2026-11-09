@@ -5,6 +5,7 @@
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { DraftStore } from "#renderer/store/drafts.js";
+import type { ComposerHeldDraft } from "../../held-draft.js";
 import type { ComposerTarget } from "../../target.js";
 import type { CommandExecutor } from "../../types.js";
 import type { DraftCaret } from "../caret.js";
@@ -21,6 +22,8 @@ export interface SendControllerDependencies {
   readonly calls: ComposerSendCalls;
   readonly target: ComposerTarget;
   readonly draftStore: DraftStore;
+  /** What rides with the words, read at the press and dropped once the send is taken. */
+  readonly heldDraft: ComposerHeldDraft;
   /**
    * Whether a name is a registered console command. Supplied with `commandExecutor` by the
    * command zone: a recognizer without an executor intercepts into a refusal.

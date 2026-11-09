@@ -8,7 +8,8 @@
 // settlement identity, so a return to an earlier session does not find a latch held by a parked
 // call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
-// The history walk is held here, and the unsent body lives only in the supplied `DraftStore`.
+// The history walk is held here, and the unsent body lives only in the supplied `DraftStore`; what
+// rides with it is the supplied held draft's, read at the press and dropped when the send is taken.
 
 import { useCallback, useMemo } from "react";
 
@@ -31,7 +32,7 @@ const NO_EXECUTOR_DETAIL =
 
 /** Build the controller for one session's composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const { bridge, calls, target, draftStore, commandExecutor, recognizeConsoleCommand } =
+  const { bridge, calls, target, draftStore, heldDraft, commandExecutor, recognizeConsoleCommand } =
     dependencies;
   const router = useMemo(
     () =>
@@ -74,6 +75,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const send = useCallback(async () => {
     const body = readDraftText();
+    const { extras } = heldDraft.snapshot();
     // Claimed for this session's draft, so a send from another session does not block this one.
     // A second press here is silent: the message is already going.
     const latchKey = visitOperationKey(draftKey, visit, "send");
@@ -85,7 +87,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     // Captured before the await, so what settles is measured against the draft sent from.
     const identity = issueSettlementIdentity("send");
     try {
-      const routed = await router.send(body, target);
+      const routed = await router.send(body, target, extras);
       if (routed.status === "intercepted") {
         if (commandExecutor === undefined) {
           settle(identity, composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
@@ -116,13 +118,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       }
       // A line its command did not act on goes out untrimmed, as any other message does.
       const outcome =
-        routed.status === "intercepted" ? await router.sendAsTyped(body, target) : routed;
+        routed.status === "intercepted" ? await router.sendAsTyped(body, target, extras) : routed;
       switch (outcome.status) {
         case "sent":
           history.recordSent(body);
           // Clear only where the settlement is still current: the draft store is keyed by
           // session, not visit, so a return trip would erase text typed on the second visit.
           clearSentDraft(identity, draftKey);
+          heldDraft.clear();
           settle(identity, undefined);
           return;
         case "refused":
@@ -148,6 +151,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     router,
     target,
     draftKey,
+    heldDraft,
     visit,
     clearSentDraft,
     commandExecutor,

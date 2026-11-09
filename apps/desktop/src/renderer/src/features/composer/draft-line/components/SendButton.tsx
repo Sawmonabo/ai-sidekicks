@@ -13,6 +13,7 @@ import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
 import { useWorkflowStartHandlers } from "../../command-list/workflow/hooks/useWorkflowStartHandlers.js";
 import { type WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
+import type { ComposerHeldDraft } from "../../held-draft.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -25,6 +26,8 @@ export type SendButtonProps = ComposerProps & {
   readonly calls: ComposerSendCalls;
   /** The two calls a typed `/workflow run <name>` makes: the definition read and the start. */
   readonly workflowStartOperations: WorkflowStartOperations;
+  /** What rides with the words, which the send carries. */
+  readonly heldDraft: ComposerHeldDraft;
 };
 
 /** Send for the addressed draft, resolving to the wire call the addressed target admits. */
@@ -43,6 +46,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
     calls: props.calls,
     target,
     draftStore: props.draftStore,
+    heldDraft: props.heldDraft,
     recognizeConsoleCommand: commandZone.recognizeConsoleCommand,
     commandExecutor: commandZone.commandExecutor,
   });

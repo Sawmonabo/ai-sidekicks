@@ -1,12 +1,13 @@
-// The popover listing what the console can do and what the run's provider enumerated, the
-// console's commands first and then the provider's, each provider row carrying its origin mark.
-// Every provider entry is one the provider enumerated for the addressed binding; nothing here
-// composes or completes a provider command. `CommandList.tsx` owns when the line asks for the
+// The popover listing what the console can do, what the run's provider enumerated and the skills
+// that provider runs, in that order, each provider and skill row carrying its origin mark. Every
+// provider entry is one the provider enumerated for the addressed binding; nothing here composes
+// or completes a provider command. A skill row is picked into the message by the list's owner. `CommandList.tsx` owns when the line asks for the
 // popover; the popover draws only while a row matches what is typed, because a word no row matches
 // goes to the provider as typed.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import type { SkillListState } from "#renderer/store/skills/list.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListRow } from "./CommandListRow.js";
@@ -20,6 +21,7 @@ import {
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
   type CommandListEntry,
+  type SkillCommandEntry,
 } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandReadState } from "../provider/read.js";
@@ -34,8 +36,11 @@ const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
 
 /** Why pressing a key on a provider row runs nothing, shown only in answer to the press. */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
-  "Provider commands and skills are listed for reference. This app " +
+  "Provider commands are listed for reference. This app " +
   "starts no turn from one, so there is nothing here to run.";
+
+/** What the list says under its rows when the skill list could not be read. */
+const SKILLS_UNREAD = "The skills could not be read.";
 
 /**
  * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.
@@ -45,8 +50,8 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
  * own keys work again; the next edit asks afresh.
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element | null {
-  const { prefix, readCommands, enumeration, addressed, stepIntoListToken } = props;
-  const { onDismiss } = props;
+  const { prefix, readCommands, enumeration, skills, addressed, stepIntoListToken } = props;
+  const { onDismiss, onPickSkill } = props;
   const listId = useId();
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
@@ -64,9 +69,12 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const catalog = composeCommandList({
     runnableCommands: readCommands().runnableCommands,
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
+    skills: skills.status === "served" ? skills.skills : [],
+    providerName: addressed.providerName,
   });
   const entries = filterCommandList(catalog, prefix);
-  const hasNoMatchToCome = entries.length === 0 && haveAllSourcesAnswered(enumeration);
+  const hasNoMatchToCome =
+    entries.length === 0 && haveAllSourcesAnswered(enumeration) && skills.status !== "reading";
   useEffect(() => {
     if (hasNoMatchToCome) {
       onDismiss();
@@ -99,20 +107,25 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   }, [stepIntoListToken]);
 
   // Enter, Space and a press on a row that can act come through here: a console entry runs, a
-  // provider entry is answered with why nothing ran.
+  // skill is picked into the message, and a provider entry is answered with why nothing ran.
   const activateEntry = useCallback(
     (entry: CommandListEntry) => {
-      if (entry.source === "console") {
-        setActionOutcome(undefined);
-        setActivationNotice(undefined);
-        void executor({ commandName: entry.commandId, text: `/${entry.commandId}` }).then(
-          setActionOutcome,
-        );
-        return;
+      switch (entry.source) {
+        case "console":
+          setActionOutcome(undefined);
+          setActivationNotice(undefined);
+          void executor({ commandName: entry.commandId, text: `/${entry.commandId}` }).then(
+            setActionOutcome,
+          );
+          return;
+        case "skill":
+          onPickSkill(entry);
+          return;
+        case "provider":
+          setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
       }
-      setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
     },
-    [executor],
+    [executor, onPickSkill],
   );
 
   const onListKeyDown = useCallback(
@@ -185,6 +198,9 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         />
       )}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
+      {skills.status === "failed" ? (
+        <div className="meridian-command-discovery__state">{SKILLS_UNREAD}</div>
+      ) : null}
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
       ) : null}
@@ -196,6 +212,10 @@ interface CommandListPopoverProps {
   readonly prefix: string;
   readonly readCommands: () => ComposerCommands;
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
+  /** The service's skills, of which the list offers those the addressed provider runs. */
+  readonly skills: SkillListState;
+  /** Picks a skill row into the message. */
+  readonly onPickSkill: (entry: SkillCommandEntry) => void;
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
   readonly onDismiss: () => void;

@@ -3,6 +3,7 @@
 // it, and a line its command does not act on goes to the provider exactly as typed.
 
 import { act, render } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { inertBridge } from "#renderer/features/composer/Composer.test-support.js";
@@ -28,6 +29,7 @@ import { composerDraftKey } from "../../draft-key.js";
 import type { ComposerSendCalls } from "../dispatch.js";
 import type { SendController } from "../controller-contract.js";
 import { useSendController } from "./useSendController.js";
+import { ComposerHeldDraft } from "#renderer/features/composer/held-draft.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../router.test-support.js";
 
 const SESSION_TARGET: ComposerSessionTarget = {
@@ -53,11 +55,15 @@ function ControllerProbe(props: {
   readonly commandExecutor: CommandExecutor | undefined;
   readonly onController: (controller: SendController) => void;
 }): null {
+  const [heldDraft] = useState(
+    () => new ComposerHeldDraft(props.draftStore, composerDraftKey(SESSION_TARGET.sessionId)),
+  );
   const controller = useSendController({
     bridge: BRIDGE,
     calls: props.calls,
     target: SESSION_TARGET,
     draftStore: props.draftStore,
+    heldDraft,
     recognizeConsoleCommand: (commandName) =>
       commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
     commandExecutor: props.commandExecutor,

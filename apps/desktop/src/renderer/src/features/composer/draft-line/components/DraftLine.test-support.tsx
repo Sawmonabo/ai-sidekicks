@@ -4,6 +4,7 @@
 
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render, type RenderResult } from "@testing-library/react";
+import { useState } from "react";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -23,6 +24,8 @@ import {
 } from "#fixtures/data/opening-entries.js";
 import { composeScriptBeats, createRunEntryBuilders } from "#fixtures/data/script-entries.js";
 import { SendButton } from "./SendButton.js";
+import { ComposerHeldDraft } from "../../held-draft.js";
+import { composerDraftKey } from "../draft-key.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import type { WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
 import { fixtureWorkflowStartOperations } from "../../command-list/workflow/start-from-line.test-support.js";
@@ -93,6 +96,10 @@ function LineAndSend(props: {
   readonly calls: ComposerSendCalls;
   readonly workflowStartOperations: WorkflowStartOperations;
 }): React.JSX.Element {
+  const { draftStore, sessionStore } = props.composerProps;
+  const [heldDraft] = useState(
+    () => new ComposerHeldDraft(draftStore, composerDraftKey(sessionStore.sessionId)),
+  );
   return (
     <>
       <DraftLine {...props.composerProps} />
@@ -100,6 +107,7 @@ function LineAndSend(props: {
         {...props.composerProps}
         calls={props.calls}
         workflowStartOperations={props.workflowStartOperations}
+        heldDraft={heldDraft}
       />
     </>
   );
@@ -167,7 +175,6 @@ const LEAD_SESSION_BEATS = composeScriptBeats({
       runVersion: 4,
       previousState: "running",
       newState: "completed",
-      completionKind: "turn",
     }),
   ],
 }).map((beat) => beat.event as ProjectedSessionEvent);

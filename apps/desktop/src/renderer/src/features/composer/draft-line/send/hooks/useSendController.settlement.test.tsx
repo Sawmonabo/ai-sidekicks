@@ -3,6 +3,7 @@
 // timing across a re-address; `send/settlement.test.ts` states them over literals.
 
 import { act, render } from "@testing-library/react";
+import { useMemo } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../../hooks/parked-daemon-calls.test-support.js";
@@ -14,6 +15,7 @@ import type { ComposerRunTarget } from "#renderer/features/composer/target.js";
 import { composerDraftKey } from "../../draft-key.js";
 import type { SendController } from "../controller-contract.js";
 import { useSendController } from "./useSendController.js";
+import { ComposerHeldDraft } from "#renderer/features/composer/held-draft.js";
 import { RUN_TARGET } from "../router.test-support.js";
 
 const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
@@ -32,11 +34,16 @@ function AddressableProbe(props: {
   readonly target: ComposerRunTarget;
   readonly onController: (controller: SendController) => void;
 }): null {
+  const heldDraft = useMemo(
+    () => new ComposerHeldDraft(props.draftStore, composerDraftKey(props.target.sessionId)),
+    [props.draftStore, props.target.sessionId],
+  );
   const controller = useSendController({
     bridge: props.bridge,
     calls: props.calls,
     target: props.target,
     draftStore: props.draftStore,
+    heldDraft,
   });
   props.onController(controller);
   return null;

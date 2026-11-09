@@ -1,14 +1,17 @@
-// What a leading slash opens and what the popover lists: pure decisions over two sources. A
-// console entry is an act this client performs; a provider entry is discovery only, so the
-// entry type is a union and a render cannot forget to ask whether one can be acted on. Provider
-// `description`, `scope` and `enabled` are wire-verbatim or absent, never defaulted. Only one
-// binding's group reaches the list, because a command enumerated under one binding is never
-// offered under another. A skill is never a provider row: the daemon's skill list is the one
-// inventory of skills, so a row the provider marks as a skill is dropped by that mark.
+// What a leading slash opens and what the popover lists: pure decisions over three sources. A
+// console entry is an act this client performs; a provider entry is discovery only; a skill entry
+// is picked into the message. The entry type is a union, so a render cannot forget to ask which
+// one it holds. Provider `description`, `scope` and `enabled` are wire-verbatim or absent, never
+// defaulted. Only one binding's group reaches the list, because a command enumerated under one
+// binding is never offered under another. A skill is never a provider row: the daemon's skill list
+// is the one inventory of skills, so a row the provider marks as a skill is dropped by that mark,
+// and the list offers only the skills the addressed provider can run.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { QueuedSkillPick } from "@ai-sidekicks/contracts/run/queue";
+import type { SkillListEntry } from "@ai-sidekicks/contracts/skill";
 
 import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { ComposerTarget } from "../target.js";
@@ -38,8 +41,26 @@ export interface ProviderCommandEntry {
   readonly providerAccountId: ProviderAccountId;
 }
 
-/** One row of the command list: a console act or a provider discovery entry. */
-export type CommandListEntry = ConsoleCommandEntry | ProviderCommandEntry;
+/** One skill the addressed provider can run, picked into the message as its call form. */
+export interface SkillCommandEntry {
+  readonly source: "skill";
+  readonly key: string;
+  readonly name: string;
+  readonly description: string | undefined;
+  /** What the provider is called with, which the pick puts at the head of the line. */
+  readonly callForm: string;
+  /** What the send carries, so the folder picked is the one that runs. */
+  readonly pick: QueuedSkillPick;
+  readonly origin: SkillListEntry["origin"];
+  readonly originProvider: ProviderId | undefined;
+  readonly pluginName: string | undefined;
+  readonly scope: SkillListEntry["scope"];
+  /** The daemon's own reason it could not load the skill, which grays the row. */
+  readonly loadError: string | undefined;
+}
+
+/** One row of the command list: a console act, a provider discovery entry or a skill. */
+export type CommandListEntry = ConsoleCommandEntry | ProviderCommandEntry | SkillCommandEntry;
 
 /**
  * The binding the composer is addressed to, as much of it as the console holds. Both members
@@ -85,10 +106,16 @@ export function selectAddressedBindingGroup(
   return onThisDriver.length === 1 ? onThisDriver[0] : undefined;
 }
 
-/** Compose the two sources into one list, console acts first, with no provider-marked skill. */
+/**
+ * Compose the three sources into one list: console acts, then the provider's words with no
+ * provider-marked skill, then the skills `providerName` can run. A skill another provider alone
+ * runs, or whose folder is gone, is absent; with no addressed provider no skill is offered.
+ */
 export function composeCommandList(input: {
   readonly runnableCommands: readonly CommandDefinition[];
   readonly providerGroups: readonly ProviderCommandBindingGroup[];
+  readonly skills: readonly SkillListEntry[];
+  readonly providerName: ProviderId | undefined;
 }): readonly CommandListEntry[] {
   const consoleEntries: CommandListEntry[] = input.runnableCommands.map((command) => ({
     source: "console",
@@ -120,17 +147,47 @@ export function composeCommandList(input: {
       });
     }
   }
-  return [...consoleEntries, ...providerEntries];
+  const skillEntries: CommandListEntry[] = [];
+  for (const skill of input.skills) {
+    const callForm = skill.callForms.find((form) => form.provider === input.providerName);
+    const isRunnable = skill.availability.some(
+      (availability) => availability.provider === input.providerName && availability.available,
+    );
+    if (skill.orphaned || !isRunnable || callForm === undefined) {
+      continue;
+    }
+    skillEntries.push({
+      source: "skill",
+      key: `skill:${skill.skillId}`,
+      name: skill.name,
+      description: skill.description ?? undefined,
+      callForm: callForm.callForm,
+      pick: { name: skill.name, folderPath: skill.folderPath },
+      origin: skill.origin,
+      originProvider: skill.originProvider,
+      pluginName: skill.pluginName,
+      scope: skill.scope,
+      loadError: skill.loadError ?? undefined,
+    });
+  }
+  return [...consoleEntries, ...providerEntries, ...skillEntries];
 }
 
 /**
- * Whether the provider declared this entry unavailable. `enabled` is three-valued on the
- * wire, so the test is against `false` and never falsiness: an absent flag read as disabled
- * would report a state the provider never published. Shared so the row and the key handler
- * cannot spell the test two ways.
+ * Whether this entry cannot be acted on: the provider declared it disabled, or the skill failed to
+ * load. `enabled` is three-valued on the wire, so the test is against `false` and never falsiness:
+ * an absent flag read as disabled would report a state the provider never published. Shared so
+ * the row and the key handler cannot spell the test two ways.
  */
 export function isDeclaredUnavailable(entry: CommandListEntry): boolean {
-  return entry.source === "provider" && entry.enabled === false;
+  switch (entry.source) {
+    case "provider":
+      return entry.enabled === false;
+    case "skill":
+      return entry.loadError !== undefined;
+    case "console":
+      return false;
+  }
 }
 
 /**

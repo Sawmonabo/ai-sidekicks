@@ -1,6 +1,7 @@
 // What the popover draws and what a press on it does: a closed console command is not drawn, a
 // provider row runs nothing, a console row runs, a row the provider declared disabled takes
-// neither the cursor nor a press, and the list is open only while a row matches what is typed.
+// neither the cursor nor a press, the list is open only while a row matches what is typed, and the
+// skills the service lists are offered and picked into the line.
 // Driven through the whole composer, because that is where an open popover exists.
 
 import { act, fireEvent } from "@testing-library/react";
@@ -22,6 +23,47 @@ import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
 import { recordingBridge } from "../provider/enumeration.test-support.js";
+
+describe("CommandList — the service's skills", () => {
+  it("lists the skills a scripted skill.list reply carries, and a pick puts its call form in the line", async () => {
+    // Mutation: a list that never reads `skill.list` offers no `codemod` row.
+    const { bridge } = bridgeAnswering(async (call, passThrough) =>
+      call.method === "skill.list" ? { skills: [CODEMOD_SKILL] } : await passThrough(),
+    );
+    const mounted = await mountComposer({ bridge });
+    await typeIntoLine(mounted.line, "/codem");
+
+    expect(optionNames(mounted.container)).toContain("codemod");
+
+    const list = await stepIntoList(mounted);
+    await pressOnList(list, "Enter");
+
+    expect(mounted.line.value).toMatch(/^[/$]codemod $/u);
+  });
+});
+
+/** One skill of ours, available on both providers, as `skill.list` serves it. */
+const CODEMOD_SKILL = {
+  skillId: "skill-codemod",
+  name: "codemod",
+  description: "Rewrite call sites across the tree.",
+  icon: null,
+  origin: "ours",
+  scope: "project",
+  folderPath: "/repo/.ai-sidekicks/skills/codemod",
+  files: [{ path: "SKILL.md", size: 512, readable: true }],
+  availability: [
+    { provider: "claude", available: true },
+    { provider: "codex", available: true },
+  ],
+  callForms: [
+    { provider: "claude", callForm: "/codemod" },
+    { provider: "codex", callForm: "$codemod" },
+  ],
+  orphaned: false,
+  disabledInProvider: [],
+  loadError: null,
+};
 
 describe("CommandList — the list activates its active row", () => {
   function registerCountedConsoleCommand(): { runCount: () => number } {

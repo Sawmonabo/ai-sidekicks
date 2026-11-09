@@ -1,12 +1,16 @@
-// The composer host: the region, and the palette's replace question, the draft line, the command
-// list and the toolbar it mounts in that order. It owns the provider-command enumeration holder
-// and hands it to the command list, whose enumeration is read live and never cached.
+// The composer host: the region, and the palette's replace question, the held draft's files, the
+// draft line, the command list and the toolbar it mounts in that order. It owns the
+// provider-command enumeration holder and hands it to the command list, whose enumeration is read
+// live and never cached; it follows the session's held draft, whose words land in the line and
+// whose skill picks the command list adds to; and it answers Ctrl+B for its session.
 
 import { useRef } from "react";
 
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { HeldAttachmentStrip } from "./attachments/HeldAttachmentStrip.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
 import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.js";
@@ -14,6 +18,8 @@ import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components
 import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import { composerDraftKey } from "./draft-line/draft-key.js";
 import { useCarryComposerChromeHeight } from "./hooks/useCarryComposerChromeHeight.js";
+import { useHeldDraft } from "./hooks/useHeldDraft.js";
+import { useMoveToBackground } from "./hooks/useMoveToBackground.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
 
@@ -53,11 +59,26 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
   // it asks above the draft before replacing unsent words.
   const draftKey = composerDraftKey(props.sessionStore.sessionId);
   const prefillPrompt = useWorkflowStartPrefill({ draftStore: props.draftStore, draftKey });
+  const { heldDraft, reading } = useHeldDraft(
+    props.bridge,
+    props.sessionStore.sessionId,
+    props.draftStore,
+  );
+  const backgroundRefusal = useMoveToBackground(props.bridge, props.sessionStore.sessionId);
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
       <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
+      <HeldAttachmentStrip files={reading.files} />
       <DraftLine {...props} scrollerRef={draftScrollerRef} />
-      <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
+      {backgroundRefusal === undefined ? null : (
+        <InlineRefusal code={backgroundRefusal.code} detail={backgroundRefusal.detail} />
+      )}
+      <CommandList
+        {...props}
+        region={regionRef}
+        commandEnumeration={commandEnumeration}
+        heldDraft={heldDraft}
+      />
       <ComposerToolbar {...props} />
     </section>
   );

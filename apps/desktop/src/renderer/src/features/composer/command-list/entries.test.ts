@@ -1,6 +1,7 @@
 // Only the addressed run's binding reaches the command list: one binding's commands are never
 // listed under another binding's address, and where the binding cannot be named nothing is. A
-// skill is listed once, from the daemon's own skill list, never again as a provider row.
+// skill is listed once, from the daemon's own skill list, never again as a provider row, and only
+// where the addressed provider can run it.
 import { describe, expect, it } from "vitest";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type {
@@ -8,6 +9,7 @@ import type {
   ProviderCommandBindingGroup,
 } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { SkillId, SkillListEntry } from "@ai-sidekicks/contracts/skill";
 
 import { composeCommandList, selectAddressedBindingGroup } from "./entries.js";
 
@@ -107,10 +109,60 @@ describe("composeCommandList", () => {
       ],
     };
 
-    const names = composeCommandList({ runnableCommands: [], providerGroups: [group] }).map(
-      (entry) => entry.name,
-    );
+    const names = composeCommandList({
+      runnableCommands: [],
+      providerGroups: [group],
+      skills: [],
+      providerName: CLAUDE,
+    }).map((entry) => entry.name);
 
     expect(names).toStrictEqual(["review", "list_prs"]);
   });
+
+  it("lists the skills the addressed provider runs after its words, each picked by its folder", () => {
+    // Mutation: dropping the availability filter lists `release-notes`, which only Codex runs;
+    // dropping `folderPath` from the pick sends a skill the daemon cannot tell from a namesake.
+    const codemod = skillOn("codemod", [CLAUDE, CODEX]);
+    const releaseNotes = skillOn("release-notes", [CODEX]);
+    const gone = { ...skillOn("old-skill", [CLAUDE]), orphaned: true };
+
+    const entries = composeCommandList({
+      runnableCommands: [],
+      providerGroups: [GROUPS[0]!],
+      skills: [codemod, releaseNotes, gone],
+      providerName: CLAUDE,
+    });
+
+    expect(entries.map((entry) => entry.name)).toStrictEqual(["compact", "codemod"]);
+    expect(entries.at(-1)).toMatchObject({
+      source: "skill",
+      callForm: "/codemod",
+      pick: { name: "codemod", folderPath: "/repo/.ai-sidekicks/skills/codemod" },
+    });
+  });
 });
+
+/** A skill of ours in the project, available on `providers` and callable there by its name. */
+function skillOn(name: string, providers: readonly ProviderId[]): SkillListEntry {
+  return {
+    skillId: `skill-${name}` as SkillId,
+    name,
+    description: null,
+    icon: null,
+    origin: "ours",
+    scope: "project",
+    folderPath: `/repo/.ai-sidekicks/skills/${name}`,
+    files: [],
+    availability: [CLAUDE, CODEX].map((provider) => ({
+      provider,
+      available: providers.includes(provider),
+    })),
+    callForms: [
+      { provider: CLAUDE, callForm: `/${name}` },
+      { provider: CODEX, callForm: `$${name}` },
+    ],
+    orphaned: false,
+    disabledInProvider: [],
+    loadError: null,
+  };
+}

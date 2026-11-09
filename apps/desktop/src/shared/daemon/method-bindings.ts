@@ -13,6 +13,10 @@ import {
   type ArtifactMethodDescriptors,
 } from "@ai-sidekicks/contracts/artifacts/methods";
 import {
+  COMMAND_METHOD_DESCRIPTORS,
+  type CommandMethodDescriptors,
+} from "@ai-sidekicks/contracts/command";
+import {
   DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
   type DaemonAppDiagnosticMethodDescriptors,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
@@ -86,6 +90,10 @@ import {
   type SessionMethodDescriptors,
 } from "@ai-sidekicks/contracts/session/methods";
 import {
+  SKILL_METHOD_DESCRIPTORS,
+  type SkillMethodDescriptors,
+} from "@ai-sidekicks/contracts/skill";
+import {
   TERMINAL_CONTROL_METHOD_DESCRIPTORS,
   TERMINAL_METHOD_DESCRIPTORS,
   type TerminalControlMethodDescriptors,
@@ -122,6 +130,7 @@ import {
 
 /** Every generated method table a window reaches, merged and keyed by each method's wire name. */
 type WindowMethodTables = ArtifactMethodDescriptors &
+  CommandMethodDescriptors &
   DaemonAppDiagnosticMethodDescriptors &
   DaemonStatusMethodDescriptors &
   GitMethodDescriptors &
@@ -140,6 +149,7 @@ type WindowMethodTables = ArtifactMethodDescriptors &
   SessionDraftMethodDescriptors &
   SessionInspectorMethodDescriptors &
   SessionMethodDescriptors &
+  SkillMethodDescriptors &
   TerminalControlMethodDescriptors &
   TerminalMethodDescriptors &
   TranscriptMethodDescriptors &
@@ -212,6 +222,7 @@ export type DaemonStreamEmission<StreamMethod extends DaemonStreamMethod> = Chec
 export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDescriptor>> =
   Object.freeze({
     ...ARTIFACT_METHOD_DESCRIPTORS,
+    ...COMMAND_METHOD_DESCRIPTORS,
     ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
     ...DAEMON_STATUS_METHOD_DESCRIPTORS,
     ...GIT_METHOD_DESCRIPTORS,
@@ -230,6 +241,7 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
     ...SESSION_DRAFT_METHOD_DESCRIPTORS,
     ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
     ...SESSION_METHOD_DESCRIPTORS,
+    ...SKILL_METHOD_DESCRIPTORS,
     ...TERMINAL_CONTROL_METHOD_DESCRIPTORS,
     ...TERMINAL_METHOD_DESCRIPTORS,
     ...TRANSCRIPT_METHOD_DESCRIPTORS,

@@ -1,8 +1,9 @@
-// The composer's keybinding: the chord that asks for the composer from anywhere in the window.
+// The composer's keybindings: the chord that asks for the composer from anywhere in the window, and
+// Ctrl+B, which moves the command the agent waits on to the background.
 
 import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import type { Keybinding } from "#renderer/registries/commands/keybinding.js";
-import { COMPOSER_FOCUS_COMMAND_ID } from "./commands.js";
+import { COMPOSER_FOCUS_COMMAND_ID, MOVE_TO_BACKGROUND_COMMAND_ID } from "./commands.js";
 
 /**
  * The chord in `tinykeys` grammar. `KeyL` is the physical key code, the same key on every
@@ -20,6 +21,16 @@ export const COMPOSER_FOCUS_KEYBINDING: Keybinding = {
   allowInTextInput: true,
 };
 
+/**
+ * Ctrl+B on every platform, the key the provider's own terminal moves a command with. Live in the
+ * message line, where it is pressed while a turn runs.
+ */
+const MOVE_TO_BACKGROUND_KEYBINDING: Keybinding = {
+  chord: "Control+KeyB",
+  commandId: MOVE_TO_BACKGROUND_COMMAND_ID,
+  allowInTextInput: true,
+};
+
 const COMPOSER_KEYBINDING_OWNER = "composer-keybindings";
 
 /** Contribute the composer's keybindings to the supplied registry, so tests own theirs. */
@@ -27,6 +38,6 @@ export function registerComposerKeybindings(registry: CommandContributionRegistr
   registry.contribute({
     owner: COMPOSER_KEYBINDING_OWNER,
     commands: [],
-    keyBindings: [COMPOSER_FOCUS_KEYBINDING],
+    keyBindings: [COMPOSER_FOCUS_KEYBINDING, MOVE_TO_BACKGROUND_KEYBINDING],
   });
 }
