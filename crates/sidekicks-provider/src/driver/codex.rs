@@ -28,6 +28,7 @@ use sidekicks_contracts::session::id::SessionId;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
+use crate::command::helper_background::{HelperBackgroundParams, helper_move_unsupported};
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
@@ -547,6 +548,15 @@ impl ProviderDriver for CodexDriver {
         params: RunningCommandParams,
     ) -> BoxFuture<'_, Result<bool, DriverError>> {
         std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+    }
+
+    // Codex has no foreground helper: each helper is its own thread, and what holds the lead is
+    // its own wait call.
+    fn move_helper_to_background(
+        &self,
+        params: HelperBackgroundParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>> {
+        std::future::ready(Err(helper_move_unsupported(&params).into())).boxed()
     }
 
     fn write_command_input(

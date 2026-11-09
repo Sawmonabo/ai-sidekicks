@@ -1,7 +1,11 @@
 use serde_json::json;
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 
+use crate::command::helper_background::HelperBackgroundParams;
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
@@ -144,6 +148,85 @@ async fn a_command_moves_to_the_background_through_the_call_that_started_it() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["subtype"], "background_tasks");
     assert_eq!(requests[0]["tool_use_id"], "call-b");
+}
+
+fn helper(session: &ScriptedSession, run_id: RunId, subagent_id: &str) -> HelperBackgroundParams {
+    HelperBackgroundParams {
+        session_id: session.session_id,
+        run_id,
+        child_handle: ChildHandle::new(format!("handle-{subagent_id}")).expect("a handle"),
+        subagent_id: SubagentId::new(subagent_id.to_owned()).expect("a helper id"),
+    }
+}
+
+// A helper's `task_started` in the foreground, by the `Agent` call that started it.
+fn foreground_helper_started(subagent_id: &str, tool_use_id: &str) -> serde_json::Value {
+    json!({
+        "type": "system",
+        "subtype": "task_started",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": subagent_id,
+        "task_type": "local_agent",
+        "tool_use_id": tool_use_id,
+        "is_backgrounded": false,
+    })
+}
+
+// Killed by moving a helper through any call but the one that started it, or by the bare request,
+// which would move a running command too; by asking Claude Code to move a helper whose call was
+// answered, which has finished, or one Claude Code moved to the background already; and by asking
+// for a helper no thread waits on.
+#[tokio::test(start_paused = true)]
+async fn a_helper_moves_to_the_background_through_the_call_that_started_it() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    for (subagent_id, tool_use_id) in [
+        ("helper-1", "call-1"),
+        ("finished", "call-2"),
+        ("moved", "call-3"),
+    ] {
+        session.frame(&foreground_helper_started(subagent_id, tool_use_id));
+    }
+    session.frame(&json!({
+        "type": "user",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call-2", "content": "done"}],
+        },
+    }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "task_updated",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": "moved",
+        "patch": {"is_backgrounded": true},
+    }));
+    settle().await;
+    let controls = &session.parts.run_controls;
+
+    let mut answers = Vec::new();
+    for subagent_id in ["finished", "moved", "unknown", "helper-1"] {
+        let moved = controls
+            .move_helper_to_background(&helper(&session, run_id, subagent_id))
+            .await
+            .expect("the move is answered");
+        answers.push((subagent_id, moved));
+    }
+
+    assert_eq!(
+        answers,
+        [
+            ("finished", false),
+            ("moved", false),
+            ("unknown", false),
+            ("helper-1", true),
+        ]
+    );
+    let requests = session.control_requests_after_start();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["subtype"], "background_tasks");
+    assert_eq!(requests[0]["tool_use_id"], "call-1");
 }
 
 // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for

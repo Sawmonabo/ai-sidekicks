@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::command::helper_background::HelperBackgroundParams;
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
@@ -523,6 +524,24 @@ impl ClaudeRunControls {
             .await?)
     }
 
+    /// Moves a helper a thread of the session waits on to the background through the tool call that
+    /// started it, and answers whether it moved: `false` for a helper no thread waits on, already
+    /// in the background or finished. Fails as `background_task` fails.
+    pub(crate) async fn move_helper_to_background(
+        &self,
+        params: &HelperBackgroundParams,
+    ) -> Result<bool, DriverError> {
+        let Some(tool_use_id) = self
+            .interventions
+            .awaited_helper_call(params.session_id, params.subagent_id.as_str())
+        else {
+            return Ok(false);
+        };
+        Ok(self
+            .background_task(params.session_id, &tool_use_id)
+            .await?)
+    }
+
     // Tells the run that started the stopped `command` that the person stopped it, in the daemon's
     // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
     // in its running turn, and the lead in its running turn or as its own run while no run holds
@@ -651,6 +670,17 @@ impl ClaudeDriver {
     ) -> Result<bool, DriverError> {
         self.live_run_controls(params.session_id)?
             .move_command_to_background(&params)
+            .await
+    }
+
+    /// Moves a helper the session waits on to the background, answering whether it moved. Fails
+    /// `NoLiveSession` and as the request fails.
+    pub(crate) async fn move_helper_to_background(
+        &self,
+        params: HelperBackgroundParams,
+    ) -> Result<bool, DriverError> {
+        self.live_run_controls(params.session_id)?
+            .move_helper_to_background(&params)
             .await
     }
 

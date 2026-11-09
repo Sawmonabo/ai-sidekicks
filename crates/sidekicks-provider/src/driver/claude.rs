@@ -21,6 +21,7 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
+use crate::command::helper_background::HelperBackgroundParams;
 use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
@@ -494,6 +495,13 @@ impl ProviderDriver for ClaudeDriver {
         params: RunningCommandParams,
     ) -> BoxFuture<'_, Result<bool, DriverError>> {
         self.move_command_to_background(params).boxed()
+    }
+
+    fn move_helper_to_background(
+        &self,
+        params: HelperBackgroundParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>> {
+        self.move_helper_to_background(params).boxed()
     }
 
     fn write_command_input(

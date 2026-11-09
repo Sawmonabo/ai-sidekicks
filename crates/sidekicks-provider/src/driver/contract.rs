@@ -29,6 +29,7 @@ use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
+use crate::command::helper_background::HelperBackgroundParams;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -493,6 +494,14 @@ pub trait ProviderDriver: Send + Sync {
     fn move_command_to_background(
         &self,
         params: RunningCommandParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>>;
+
+    /// Moves a helper of the provider's own that a thread of the session waits on to the
+    /// background, answering whether the provider moved it, `false` when no thread waited on it;
+    /// refused `provider.capability.unsupported` where the provider moves no helper.
+    fn move_helper_to_background(
+        &self,
+        params: HelperBackgroundParams,
     ) -> BoxFuture<'_, Result<bool, DriverError>>;
 
     /// Writes the person's input to the agent's running command, then ends its input where asked;

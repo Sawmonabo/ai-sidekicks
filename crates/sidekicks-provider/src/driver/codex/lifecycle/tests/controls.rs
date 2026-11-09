@@ -1,6 +1,7 @@
 //! A live session's level and mode moves Codex refuses, its switch of its tool servers, a settle
-//! as the session opens and while it comes back, with the resume its service's return owes it, and
-//! its service's restart after the executor's end, through the driver.
+//! as the session opens and while it comes back, with the resume its service's return owes it, its
+//! service's restart after the executor's end, and the helper move Codex has no form of, through
+//! the driver.
 
 use std::pin::pin;
 use std::sync::{Arc, OnceLock};
@@ -10,15 +11,19 @@ use futures::FutureExt as _;
 
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use super::super::service_events::CodexDriverServiceEvents;
 use super::{LiveCodexSession, driver_holding};
+use crate::command::helper_background::HelperBackgroundParams;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
@@ -31,13 +36,14 @@ use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, create_session_params, fork_reply, no_turns, test_thread_settings,
 };
+use crate::driver::contract::ProviderDriver as _;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::mcp_server::session_switch::McpSessionSwitch;
 use crate::driver::session_control::{
     SessionToolServer, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
-use crate::driver::test_registry::new_session_id;
+use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::run::posture::compose_execution_posture;
 
 /// How long a test waits before it counts a settle or a move as stuck.
@@ -108,6 +114,27 @@ async fn a_level_or_mode_codex_refuses_is_refused_as_not_offered(
         panic!("a refused setting is refused, not {moved:?}");
     };
     assert_eq!(refusal.code, code);
+}
+
+// Killed by a Codex driver that answers a helper's move at all but as the capability unsupported:
+// each Codex helper is its own thread, so none holds the lead in the foreground.
+#[tokio::test]
+async fn a_helpers_move_to_the_background_is_refused_as_unsupported() {
+    let driver = CodexDriver::new(&test_driver_services());
+
+    let moved = driver
+        .move_helper_to_background(HelperBackgroundParams {
+            session_id: new_session_id(),
+            run_id: new_run_id(),
+            child_handle: ChildHandle::new("child-1".to_owned()).expect("a handle"),
+            subagent_id: SubagentId::new("helper-1".to_owned()).expect("a helper id"),
+        })
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = moved else {
+        panic!("a Codex helper's move is refused, not {moved:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderCapabilityUnsupported);
 }
 
 // An idle session's switch moves it onto a fork and answers `Applied`; where Codex refuses the

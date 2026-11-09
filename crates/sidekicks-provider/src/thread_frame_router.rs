@@ -360,6 +360,14 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             .collect()
     }
 
+    /// The tool call whose parent waits on the child `child_thread_id`, while it waits.
+    pub(crate) fn call_awaiting_child(&self, child_thread_id: &str) -> Option<&str> {
+        self.waiting_children_by_call
+            .iter()
+            .find(|(_, waiting)| waiting.child_thread_id == child_thread_id)
+            .map(|(call_id, _)| call_id.as_str())
+    }
+
     /// Stops reading a call's result as a child's end once its parent no longer waits on it.
     pub(crate) fn stop_waiting_on_child(&mut self, child_thread_id: &str) {
         self.waiting_children_by_call

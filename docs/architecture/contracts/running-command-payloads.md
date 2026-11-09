@@ -13,7 +13,7 @@ The console's window onto the shell commands an agent started. The provider deci
 | `agent.command.background` | `mutation` | `AgentCommandBackgroundRequest` | `AgentCommandBackgroundResponse` |
 | `agent.command.write` | `mutation` | `AgentCommandWriteRequest` | `NullPayload` |
 
-`agent.command.subscribe` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `agent.command.background` acts only on a row that carries `Move to background`, which the row's `canMoveToBackground` says the session's provider offers for that command: today Claude Code's driver offers it on a command its agent waits on in the foreground, and Codex's on none, because every Codex command already streams. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `agent.command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would. Stop, background and write are each refused with `provider.unavailable` when the session's provider cannot take the act now and with `provider.timeout` when it gave no answer in time, as run control's acts are; a stop answers `stopped: true` only once the provider has acknowledged it.
+`agent.command.subscribe` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `agent.command.background` moves a command or a helper. Its `command` target acts only on a row that carries `Move to background`, which the row's `canMoveToBackground` says the session's provider offers for that command: today Claude Code's driver offers it on a command its agent waits on in the foreground, and Codex's on none, because every Codex command already streams. Its `helper` target is Ctrl+B in a helper's transcript: it names a provider's own helper as the session's agent tree does, by the run it runs in and its handle, and moves it when a thread waits on it in the foreground, through Claude Code's own background request on the call that started it; a handle the tree does not hold under that run is refused `agent.childRun.notFound`, a helper already in the background or finished `agent.command.notInForeground`, and every Codex helper `provider.capability.unsupported`, since each Codex helper is its own thread and what holds the lead is its own wait call. Where the driver puts none the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `agent.command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would. Stop, background and write are each refused with `provider.unavailable` when the session's provider cannot take the act now and with `provider.timeout` when it gave no answer in time, as run control's acts are; a stop answers `stopped: true` only once the provider has acknowledged it.
 
 ```ts
 // One running command, in the order the commands started. `name` is the command as the agent ran
@@ -76,15 +76,19 @@ interface AgentCommandStopResponse {
   stopped: true;
 }
 
-// Moving a waited-on command to the background continues the agent's turn and starts the output
-// streaming into the command's own row. Refused where the bound provider has no such mechanism, and
-// where no command is waiting in the foreground.
+// Moving a waited-on command or helper to the background continues the agent's turn; a command's
+// output then streams into its own row. Refused where the bound provider has no such mechanism, and
+// where nothing named is waiting in the foreground.
+type AgentCommandBackgroundTarget =
+  | { kind: "command"; commandId: string }
+  // A provider's own helper, named as the agent tree names it.
+  | { kind: "helper"; runId: RunId; childHandle: string };
 interface AgentCommandBackgroundRequest {
   sessionId: SessionId;
-  commandId: string;
+  target: AgentCommandBackgroundTarget;
 }
 interface AgentCommandBackgroundResponse {
-  commandId: string;
+  target: AgentCommandBackgroundTarget;
   waitingInForeground: false;
 }
 

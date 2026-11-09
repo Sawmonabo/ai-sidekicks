@@ -1,12 +1,14 @@
 //! The shell commands an agent started: one live list, and the acts stop, background, write and end
-//! input. The provider decides how a command runs. Every list frame carries the whole running set,
-//! because a subscriber composing deltas could hold a command the provider has already dropped.
-//! Output arrives on the same subscription as it prints and is never stored; the stored
+//! input; the background act also moves a provider's own helper the agent waits on. The provider
+//! decides how a command runs. Every list frame carries the whole running set, because a
+//! subscriber composing deltas could hold a command the provider has already dropped. Output
+//! arrives on the same subscription as it prints and is never stored; the stored
 //! `agent.command.ended` event settles a row after a reload.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::tree::ChildHandle;
 use crate::event::declared_variants::with_machine_content_descriptor;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
@@ -148,26 +150,51 @@ pub struct AgentCommandStopResponse {
     pub stopped: True,
 }
 
-/// `agent.command.background`: moves a command the agent is waiting on to the background, so the
-/// agent's turn continues and the command's output streams into its row. Sent only for a command
-/// whose entry reads `canMoveToBackground`; where no entry does, the control does not exist.
+/// What `agent.command.background` moves: a running command the agent waits on, or a provider's
+/// own helper the agent waits on, named as the session's agent tree names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum AgentCommandBackgroundTarget {
+    /// A running command the agent waits on, sent only where its entry reads
+    /// `canMoveToBackground`.
+    Command {
+        /// The command.
+        command_id: CommandId,
+    },
+    /// A provider's own helper the agent waits on: Ctrl+B in the helper's transcript.
+    Helper {
+        /// The run it runs in.
+        run_id: RunId,
+        /// Its handle.
+        child_handle: ChildHandle,
+    },
+}
+
+/// `agent.command.background`: moves a command or a helper the agent is waiting on to the
+/// background, so the agent's turn continues; a command's output then streams into its row.
+/// Where the session's provider moves neither, the control does not exist.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AgentCommandBackgroundRequest {
     /// The session.
     pub session_id: SessionId,
-    /// The command.
-    pub command_id: CommandId,
+    /// The command or the helper.
+    pub target: AgentCommandBackgroundTarget,
 }
 
-/// The command no longer holds the agent's turn.
+/// The command or the helper no longer holds the agent's turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AgentCommandBackgroundResponse {
-    /// The command.
-    pub command_id: CommandId,
+    /// The command or the helper the request named.
+    pub target: AgentCommandBackgroundTarget,
     /// Always false.
     pub waiting_in_foreground: False,
 }
@@ -333,13 +360,14 @@ methods! {
                 ProviderTimeout,
             ],
         },
-        /// Moves a command the agent waits on to the background.
+        /// Moves a command or a helper the agent waits on to the background.
         AgentCommandBackground = mutation "agent.command.background" {
             mutating: true,
             params: AgentCommandBackgroundRequest,
             result: AgentCommandBackgroundResponse,
             refusals: [
                 SessionNotFound,
+                AgentChildRunNotFound,
                 ProviderCapabilityUnsupported,
                 AgentCommandNotInForeground,
                 ProviderUnavailable,
@@ -374,6 +402,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentCommandSubscribeFrame>().checked(),
         Definition::read::<AgentCommandStopRequest>(),
         Definition::read::<AgentCommandStopResponse>(),
+        Definition::read::<AgentCommandBackgroundTarget>(),
         Definition::read::<AgentCommandBackgroundRequest>(),
         Definition::read::<AgentCommandBackgroundResponse>(),
         Definition::read::<AgentCommandWriteRequest>().checked(),

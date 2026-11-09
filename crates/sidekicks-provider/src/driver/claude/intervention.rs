@@ -235,6 +235,20 @@ impl ClaudeInterventions {
         lock(&self.routing_bands).insert(session_id, band);
     }
 
+    /// The tool call a thread of `session_id` waits on for the helper `subagent_id`, while one
+    /// waits on it in the foreground.
+    pub(crate) fn awaited_helper_call(
+        &self,
+        session_id: SessionId,
+        subagent_id: &str,
+    ) -> Option<String> {
+        let band = lock(&self.routing_bands).get(&session_id).cloned()?;
+        lock(&band)
+            .router
+            .call_awaiting_child(subagent_id)
+            .map(str::to_owned)
+    }
+
     /// Forgets a session whose process is gone: its held steers are dropped unwritten, the queue
     /// handing them again, and its helpers' tracking goes.
     pub(crate) fn forget_session(&self, session_id: SessionId) {

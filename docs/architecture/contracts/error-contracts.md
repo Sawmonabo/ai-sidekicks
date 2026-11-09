@@ -199,7 +199,7 @@ Every namespace below follows the same rules:
 | `agent.run.notFound` | Run does not exist | `notFound` | 404 |
 | `agent.run.recoveryFailed` | Run recovery failed due to an internal error | `internal` | 500 |
 | `agent.childRun.controlRefused` | A control on one named child of a run — `agent.childRun.steer`, `agent.childRun.interrupt` or `agent.childRun.paused.update`, or a queue verb carrying `childHandle` — refused. `data.fields.reason` is `childEnded` (the child has already ended) or `providerRefused` (the provider declined the control). A child the daemon bridges is its own run and is controlled through that run's own verbs; a lost hold is a result on the reply, never this refusal | `failedPrecondition` | 409 |
-| `agent.childRun.notFound` | A control on one named child of a run, or a queue verb carrying `childHandle`, whose handle names no child of this run; nothing is sent | `notFound` | 404 |
+| `agent.childRun.notFound` | A control on one named child of a run (`agent.command.background`'s helper target among them), or a queue verb carrying `childHandle`, whose handle names no child of this run; nothing is sent | `notFound` | 404 |
 
 `agent.run.create` registers no code of its own (Plan-013 D-013-11): refused at admission, it answers with a reused code, §Agent `agent.notFound`, or §Agent Run `agent.run.notFound` where the parent run is missing. Every such refusal is zero-residue — no run row, no queue item, no partial state survives it (I-013-7) — and the daemon records it durably as the `agent.run.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). A reached spend limit is not a refusal: a message sent while it stands lands with the `Spend limit reached` row under it and starts no turn ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies)).
 
@@ -228,7 +228,7 @@ Refusals of the operations on a run's running commands ([Running Command Payload
 
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
-| `agent.command.notInForeground` | `agent.command.background` named a command no turn is waiting on in the foreground; nothing moves | `failedPrecondition` | 409 |
+| `agent.command.notInForeground` | `agent.command.background` named a command or a helper no turn is waiting on in the foreground, one already in the background or finished; nothing moves | `failedPrecondition` | 409 |
 | `agent.command.notStopped` | `agent.command.stop` reached the provider, which answered that the command is still running; the command's row stays as it was | `failedPrecondition` | 409 |
 | `agent.command.takesNoInput` | `agent.command.write` named a command that neither takes input nor has a prompt open; nothing is written | `failedPrecondition` | 409 |
 
