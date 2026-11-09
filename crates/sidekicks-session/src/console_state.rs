@@ -54,6 +54,11 @@ const UPSERT_SESSION_MODE_SQL: &str = "INSERT INTO session_console_state
   ON CONFLICT(session_id) DO UPDATE
     SET session_mode = excluded.session_mode, updated_at = excluded.updated_at";
 
+const UPSERT_MAX_STEPS_PER_TURN_SQL: &str = "INSERT INTO session_console_state
+  (session_id, max_steps_per_turn, updated_at) VALUES (@sessionId, @maxStepsPerTurn, @updatedAt)
+  ON CONFLICT(session_id) DO UPDATE
+    SET max_steps_per_turn = excluded.max_steps_per_turn, updated_at = excluded.updated_at";
+
 const UPSERT_AUTO_MEMORY_SQL: &str = "INSERT INTO session_console_state
   (session_id, auto_memory, updated_at) VALUES (@sessionId, @autoMemory, @updatedAt)
   ON CONFLICT(session_id) DO UPDATE
@@ -150,6 +155,27 @@ pub fn session_mode_change_statement(
         bindings: StatementBindings::Named(vec![
             text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@sessionMode", <&'static str>::from(session_mode)),
+            text_binding("@updatedAt", updated_at),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The statement storing the session's own bound on the steps one turn may take, `None` clearing
+/// it so the machine's own value applies, read from the session's next turn.
+pub fn max_steps_per_turn_change_statement(
+    session_id: &SessionId,
+    max_steps_per_turn: Option<SafeInt<1>>,
+    updated_at: &str,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(UPSERT_MAX_STEPS_PER_TURN_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@sessionId", session_id.text().as_str()),
+            (
+                Cow::Borrowed("@maxStepsPerTurn"),
+                max_steps_per_turn.map_or(Value::Null, |bound| Value::Integer(bound.into())),
+            ),
             text_binding("@updatedAt", updated_at),
         ]),
         expected_row_count: None,

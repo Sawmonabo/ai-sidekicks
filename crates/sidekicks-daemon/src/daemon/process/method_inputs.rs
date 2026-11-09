@@ -812,6 +812,7 @@ pub(crate) async fn register_method_inputs(
                 provider_sessions: Arc::clone(&session.provider_sessions),
                 run_queue: Arc::clone(&session.queue),
             },
+            session_max_steps: Arc::clone(&database.writer),
             branches: Arc::clone(&repo.branches),
             working_folders: Arc::clone(&repo.folder_watch),
             projects,

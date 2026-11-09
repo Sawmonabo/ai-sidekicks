@@ -34,6 +34,7 @@ use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
 use sidekicks_session::working_folder::SessionWorkingFolders;
 use sidekicks_shell::table::ShellTable;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_workspace::clone::service::CloneService;
 use sidekicks_workspace::execution_root::ExecutionRootService;
@@ -94,6 +95,7 @@ use crate::ipc::handlers::session::goal::register_session_goal_methods;
 use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
+use crate::ipc::handlers::session::max_steps::register_session_max_steps;
 use crate::ipc::handlers::session::mcp_servers::{McpServerMethods, register_mcp_servers};
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::register_session_restart;
@@ -192,6 +194,8 @@ pub(crate) struct MethodTableServices {
     /// The session controls' inputs: the level, the mode, side questions, reviews and the
     /// command list.
     pub(crate) session_controls: SessionControlMethods,
+    /// The database writer each session's own step bound is stored through.
+    pub(crate) session_max_steps: Arc<DatabaseWriter>,
     /// What a session's server methods read and act through.
     pub(crate) mcp_servers: McpServerMethods,
     /// Lists a repository's branches.
@@ -285,6 +289,7 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.session_controls.provider_sessions),
     )?;
     register_session_controls(builder, services.session_controls)?;
+    register_session_max_steps(builder, services.session_max_steps)?;
     register_mcp_servers(builder, services.mcp_servers)?;
     register_session_goal_methods(builder, services.session_goals)?;
     register_session_tags(builder, services.tags)?;

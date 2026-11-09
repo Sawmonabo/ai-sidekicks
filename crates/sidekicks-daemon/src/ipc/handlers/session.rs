@@ -11,6 +11,7 @@ pub(crate) mod goal;
 pub(crate) mod group;
 pub(crate) mod links;
 pub(crate) mod list;
+pub(crate) mod max_steps;
 pub(crate) mod mcp_servers;
 pub(crate) mod read;
 pub(crate) mod recovery;
