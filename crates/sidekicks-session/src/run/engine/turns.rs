@@ -37,9 +37,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use sidekicks_store::events::session::read::session_read_bound;
 
-use crate::checkpoints::store::{
-    Checkpoint, insert_checkpoint_statement, insert_turn_start_checkpoint_statement, is_prompt_kept,
-};
+use crate::checkpoints::store::insert_turn_start_checkpoint_statement;
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::LimitStop;
@@ -165,8 +163,8 @@ impl<Written> WriteWithResend<Written> {
 }
 
 // What a turn start reads before each attempt: the number it takes, where the run stands at the
-// log's end, and the place in the log of the new message of the person's that opened it, `None`
-// for a turn no such message opened.
+// log's end, and the place in the log of the message its opening queue item sent, `None` for a
+// turn no sent message opened; the write decides whether that prompt is new.
 struct TurnStartReading {
     turn_number: SafeInt<1>,
     standing: EpochPosition,
@@ -285,24 +283,15 @@ impl RunEngine {
                 .expect("a turn start's payload serializes as a JSON object");
             let turn = standing_after_message_taken(reading.standing, started_payload);
             // After both guards, so a refusal's index still names the guard that refused.
-            transactional_prelude.push(match reading.opening_sequence {
-                Some(message_sequence) => insert_checkpoint_statement(&Checkpoint {
-                    checkpoint_id: checkpoint_id.clone(),
-                    session_id: run.session_id,
-                    message_sequence,
-                    run_id,
-                    turn_number,
-                    turn,
-                }),
-                None => insert_turn_start_checkpoint_statement(
-                    &checkpoint_id,
-                    run.session_id,
-                    run_id,
-                    turn_number,
-                    turn,
-                    opening,
-                ),
-            });
+            transactional_prelude.push(insert_turn_start_checkpoint_statement(
+                &checkpoint_id,
+                run.session_id,
+                run_id,
+                turn_number,
+                turn,
+                opening,
+                reading.opening_sequence,
+            ));
             let draft = SessionEventDraft::of_session(
                 run.session_id,
                 &SessionEvent::AgentTurnStarted(payload),
@@ -722,13 +711,10 @@ impl RunEngine {
                 let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
                 let standing = RunTurnReads::new(reader, &*read_damaged_from_sequence)
                     .read_standing_before(&session_id, &run_id, log_end)?;
-                let mut opening_sequence = None;
-                if let Some(opening) = opening
-                    && let Some(message_sequence) = read_sent_message(reader, &session_id, opening)?
-                    && !is_prompt_kept(reader, session_id, message_sequence)?
-                {
-                    opening_sequence = Some(message_sequence);
-                }
+                let opening_sequence = match opening {
+                    Some(opening) => read_sent_message(reader, &session_id, opening)?,
+                    None => None,
+                };
                 Ok::<_, RunEngineError>(TurnStartReading {
                     turn_number,
                     standing,

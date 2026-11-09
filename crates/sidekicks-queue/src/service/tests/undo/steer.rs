@@ -18,9 +18,10 @@ use sidekicks_session::run::engine::undo::RollbackCompanions;
 
 use super::super::client_key;
 use super::{
-    ANSWER_EDIT, ANSWER_STEER_EDIT, ANSWER_STEER_WORDS, LATER_WORDS, OPENING_EDIT, OPENING_WORDS,
-    SECOND_STEER_WORDS, STEER_EDIT, STEER_POSITION, STEER_WORDS, Scene, TARGET_POSITION,
-    applied_in_place, cut_words, daemon_turn_scene, device, position, steer_scene,
+    ANSWER_EDIT, ANSWER_STEER_EDIT, ANSWER_STEER_WORDS, DaemonTurnOpening, LATER_OPENING_POSITION,
+    LATER_WORDS, OPENING_EDIT, OPENING_WORDS, SECOND_STEER_WORDS, STEER_EDIT, STEER_POSITION,
+    STEER_WORDS, Scene, TARGET_POSITION, applied_in_place, cut_words, daemon_turn_scene, device,
+    position, steer_scene,
 };
 use crate::service::undo::ConversationCut;
 use crate::service::undo::reach::{QueuedOpeningKind, TurnOpening, UndoReach};
@@ -252,9 +253,8 @@ async fn a_resend_of_an_edited_steer_is_one_message_of_its_turn() {
 // lands only at turns, the undo goes back to the checkpoint that turn's start wrote, asking the cut
 // through the steer, rolling back before the turn, putting back both of its edits and naming no
 // queue item as its opening, and the resend of the edit is the edit alone; where it lands inside a
-// turn, the undo goes back to the steer. Killed by the turn's start writing no checkpoint, by the
-// opening found by position rather than through the turn, and by the cut asked before another
-// queue item.
+// turn, the undo goes back to the steer. Killed by the turn's start writing no checkpoint, and by
+// the cut asked before another queue item.
 #[rstest]
 #[case::where_the_cut_lands_only_at_turns(false)]
 #[case::where_the_cut_lands_inside_a_turn(true)]
@@ -262,7 +262,12 @@ async fn a_resend_of_an_edited_steer_is_one_message_of_its_turn() {
 async fn an_undo_on_a_steer_into_an_answer_turn_goes_back_to_that_turns_start(
     #[case] can_cut_inside_turn: bool,
 ) {
-    let answer_turn = daemon_turn_scene(applied_in_place(), can_cut_inside_turn, None).await;
+    let answer_turn = daemon_turn_scene(
+        applied_in_place(),
+        can_cut_inside_turn,
+        DaemonTurnOpening::None,
+    )
+    .await;
     let scene = &answer_turn.scene;
     let start = &answer_turn.turn_start;
 
@@ -296,7 +301,7 @@ async fn an_undo_on_a_steer_into_an_answer_turn_goes_back_to_that_turns_start(
 // review's queue item left off its turn's checkpoint, and by the cut asked before the review.
 #[tokio::test]
 async fn an_undo_on_a_steer_into_a_review_names_the_review_and_resends_the_steer_alone() {
-    let review_turn = daemon_turn_scene(applied_in_place(), false, Some(Form::Review)).await;
+    let review_turn = daemon_turn_scene(applied_in_place(), false, DaemonTurnOpening::Review).await;
     let scene = &review_turn.scene;
 
     let (_, reach) = cut_to_target(scene).await;
@@ -315,4 +320,45 @@ async fn an_undo_on_a_steer_into_a_review_names_the_review_and_resends_the_steer
     );
     assert_eq!(cut_words(&reach), [ANSWER_STEER_WORDS]);
     assert_eq!(reach.resend_with(edited()), edited());
+}
+
+// A steer into a turn that sent again a prompt an earlier turn already sent, as Codex's
+// faster-model retry turn does with O3, where the cut lands only at turns: the undo goes back to
+// O3's own checkpoint, asking the cut before O3 and rolling back before its first turn, so O3's
+// words go back into the draft and, ahead of the edit, into the resend; both of the retry turn's
+// edits are put back. Killed by the reach landing at the retry start less one.
+#[tokio::test]
+async fn an_undo_on_a_steer_into_a_retry_turn_goes_back_to_the_retried_prompt() {
+    let retry_turn = daemon_turn_scene(applied_in_place(), false, DaemonTurnOpening::Retry).await;
+    let scene = &retry_turn.scene;
+    let retried = retry_turn.opening_id.expect("the retry sent O3 again");
+
+    let (positions, reach) = cut_to_target(scene).await;
+
+    assert_eq!(
+        *scene.rewound_message_ids.lock().expect("unpoisoned"),
+        [retried.to_string()]
+    );
+    assert_eq!(positions, [position(LATER_OPENING_POSITION - 1)]);
+    assert_eq!(
+        reach.opening,
+        Some(TurnOpening::Queued {
+            queue_item_id: retried,
+            kind: QueuedOpeningKind::Message(
+                FreeFormText::new(LATER_WORDS.to_owned()).expect("a test message")
+            ),
+        })
+    );
+    assert_eq!(cut_words(&reach), [LATER_WORDS, ANSWER_STEER_WORDS]);
+    // In path order.
+    assert_eq!(
+        scene
+            .fixture
+            .restored_paths(reach.checkpoint.message_sequence),
+        [ANSWER_STEER_EDIT, ANSWER_EDIT]
+    );
+    assert_eq!(
+        reach.resend_with(edited()).content.as_str(),
+        format!("{LATER_WORDS}\n\n{EDITED_WORDS}")
+    );
 }

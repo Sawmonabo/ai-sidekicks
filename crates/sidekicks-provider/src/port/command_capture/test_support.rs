@@ -157,5 +157,6 @@ pub async fn next_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>) -> Cap
 /// Panics, naming `what`, unless `called` takes no call for 200 ms.
 pub async fn no_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>, what: &str) {
     let call = tokio::time::timeout(Duration::from_millis(200), called.recv()).await;
-    assert!(call.is_err(), "{what}: {call:?}");
+    // A closed channel is no call: the capture was handed away, not called.
+    assert!(!matches!(call, Ok(Some(_))), "{what}: {call:?}");
 }

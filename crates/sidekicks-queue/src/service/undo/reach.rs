@@ -24,7 +24,8 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::checkpoints::store::Checkpoint;
 use sidekicks_session::checkpoints::store::kept::{
-    CheckpointReadError, checkpoints_of_runs_from, read_checkpoint, turn_start_checkpoint,
+    CheckpointReadError, checkpoints_of_runs_from, read_checkpoint, sent_message_checkpoint,
+    turn_start_checkpoint,
 };
 use sidekicks_session::driver_resolution::resolve_live_run_driver;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueMessageBody};
@@ -75,7 +76,8 @@ static STEERED_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct UndoReach {
     /// The checkpoint the undo goes back to, conversation and files together: the pressed
     /// message's own, or, with the conversation in scope on a provider whose cut lands only at
-    /// turns, the one the start of the turn the pressed message steered into wrote.
+    /// turns, the one the start of the turn the pressed message steered into wrote, or, for a
+    /// turn that reopened a prompt an earlier turn sent, as a retry turn does, that prompt's own.
     pub checkpoint: Checkpoint,
     /// The queue item the provider's cut is asked before: the person's message at `checkpoint`,
     /// or, where a turn no queue item opened stands there, the pressed steer, which a provider
@@ -138,7 +140,7 @@ pub struct CutMessage {
     pub body: QueueMessageBody,
     /// Whether a resend of an edit of the pressed message carries it: the pressed message, and,
     /// where the undo goes back to the start of the pressed message's turn, every message of the
-    /// person's in that turn.
+    /// person's in that turn and the reopened prompt it goes back to.
     pub is_resent: bool,
 }
 
@@ -151,11 +153,11 @@ impl UndoReach {
 
     /// The one message a resend of `edited`, the pressed message's edit, sends as the new turn:
     /// `edited` alone where the undo goes back to the pressed message, else each of the person's
-    /// messages of its turn the undo takes back, in send order with the edit in the pressed one's
-    /// place, so a review, a plan's message or a retried message that opened the turn is left out
-    /// for the person to run again from its own control: their words joined by a blank line, their
-    /// files in the same order, each skill picked once in the order first picked, and the turn
-    /// speed of the first of them, the opening's where the person sent it.
+    /// messages of its turn the undo takes back with a prompt the turn reopened, in send order
+    /// with the edit in the pressed one's place, so a review or a plan's message that opened the
+    /// turn is left out for the person to run again from its own control: their words joined by a
+    /// blank line, their files in the same order, each skill picked once in the order first
+    /// picked, and the turn speed of the first of them, the opening's where the person sent it.
     pub fn resend_with(&self, edited: SessionRestoreResend) -> SessionRestoreResend {
         if self.is_pressed_message() {
             return edited;
@@ -362,34 +364,42 @@ pub(super) fn read_reach(
     } else {
         None
     };
-    let turn_opening_id = steered_turn_start
-        .as_ref()
-        .and_then(|start| start.turn_opening_id);
-    let checkpoint = steered_turn_start.map_or_else(|| pressed.clone(), |start| start.checkpoint);
+    // A start row naming a prompt an earlier turn of the run already sent, as a retry turn's does,
+    // gives way to that prompt's own checkpoint: the provider's cut before the opening drops it
+    // from the conversation, so the rollback, the draft and the resend take it back too.
+    let reach_start = match steered_turn_start {
+        Some(start) => match start.turn_opening_id {
+            Some(opening) => Some(
+                sent_message_checkpoint(reader, read_damaged, session_id, opening)
+                    .map_err(cut_error_of)?
+                    .filter(|sent| sent.checkpoint.run_id == run_id)
+                    .unwrap_or(start),
+            ),
+            None => Some(start),
+        },
+        None => None,
+    };
+    let turn_opening_id = reach_start.as_ref().and_then(|start| start.turn_opening_id);
+    let checkpoint = reach_start.map_or_else(|| pressed.clone(), |start| start.checkpoint);
     let reached_runs: Vec<RunId> = std::iter::once(run_id)
         .chain(later_run_ids.iter().copied())
         .collect();
-    let reached = match checkpoints_of_runs_from(
+    let reached = checkpoints_of_runs_from(
         reader,
         read_damaged,
         session_id,
         &reached_runs,
         checkpoint.message_sequence,
-    ) {
-        Ok(reached) => reached,
-        Err(SupersededTurnsReadError::Database(error)) => {
-            return Err(QueueError::from(error).into());
-        }
-        Err(SupersededTurnsReadError::Rollback(error)) => {
-            return Err(ConversationCutError::Rollback(error));
-        }
-    };
+    )
+    .map_err(cut_error_of)?;
     let reached: Vec<&Checkpoint> = reached.iter().map(|stored| &stored.checkpoint).collect();
     let at_sequence = read_events(&reached)?;
     let is_turn_reach = checkpoint.checkpoint_id != pressed.checkpoint_id;
     let is_resent = |cut: &Checkpoint| {
         if is_turn_reach {
-            cut.run_id == run_id && cut.turn_number == pressed.turn_number
+            cut.run_id == run_id
+                && (cut.turn_number == pressed.turn_number
+                    || cut.checkpoint_id == checkpoint.checkpoint_id)
         } else {
             cut.checkpoint_id == pressed.checkpoint_id
         }
@@ -459,4 +469,12 @@ pub(super) fn read_reach(
         later_run_ids,
         driver,
     })
+}
+
+// The cut's refusal for a failed read of the reach's checkpoints.
+fn cut_error_of(error: SupersededTurnsReadError) -> ConversationCutError {
+    match error {
+        SupersededTurnsReadError::Database(error) => QueueError::from(error).into(),
+        SupersededTurnsReadError::Rollback(error) => ConversationCutError::Rollback(error),
+    }
 }

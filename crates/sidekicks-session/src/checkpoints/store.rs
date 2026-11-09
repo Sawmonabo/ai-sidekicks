@@ -50,16 +50,26 @@ static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The checkpoint at the sequence the session's log gives its next event, which is the turn start
-// whose append's prelude this statement rides: that append writes no event before the start.
+// A turn start's one checkpoint, chosen in the write: before its opening prompt at
+// `@openingSequence` where no checkpoint holds that prompt yet, else at the sequence the session's
+// log gives its next event, which is the turn start whose append's prelude this statement rides
+// (that append writes no event before the start), naming the opening queue item.
 static INSERT_TURN_START_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_checkpoints
   (checkpoint_id, session_id, message_sequence, run_id, turn_number, turn_opening_id, epoch,
    position, created_at)
-  VALUES (@checkpointId, @sessionId,
-          COALESCE((SELECT MAX(sequence) FROM session_events WHERE session_id = @sessionId) + 1, 0),
-          @runId, @turnNumber, @turnOpeningId, @epoch, @position, {DATABASE_NOW_SQL})"
+  SELECT @checkpointId, @sessionId,
+         CASE WHEN prompt.is_new THEN @openingSequence
+              ELSE COALESCE((SELECT MAX(sequence) FROM session_events
+                              WHERE session_id = @sessionId) + 1, 0) END,
+         @runId, @turnNumber,
+         CASE WHEN prompt.is_new THEN NULL ELSE @turnOpeningId END,
+         @epoch, @position, {DATABASE_NOW_SQL}
+    FROM (SELECT @openingSequence IS NOT NULL
+                 AND NOT EXISTS (SELECT 1 FROM session_checkpoints
+                                  WHERE session_id = @sessionId
+                                    AND message_sequence = @openingSequence) AS is_new) AS prompt"
     )
 });
 
@@ -116,10 +126,6 @@ macro_rules! select_checkpoints {
 
 const NEWEST_CHECKPOINT_SQL: &str =
     select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence DESC LIMIT 1");
-
-// One probe of the checkpoints' prompt index.
-const PROMPT_KEPT_SQL: &str = "SELECT EXISTS (SELECT 1 FROM session_checkpoints
-  WHERE session_id = @sessionId AND message_sequence = @messageSequence)";
 
 const RECORDED_PATHS_SQL: &str =
     "SELECT DISTINCT path FROM checkpoint_versions WHERE checkpoint_id = @checkpointId";
@@ -352,11 +358,12 @@ pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
     }
 }
 
-/// The checkpoint row the start of `turn_number` of `run_id`, standing at `turn` and opened with
-/// the queue item `opening` where one opened it, writes in its own append's prelude where no new
-/// message of the person's opened the turn, at the start's own sequence. Only that prelude may
-/// carry it: an event written before the start in the same append would take the sequence it
-/// names.
+/// The one checkpoint row the start of `turn_number` of `run_id`, standing at `turn`, writes in
+/// its own append's prelude: before the prompt the queue item `opening` sent at `opening_sequence`
+/// where no checkpoint holds that prompt yet, else at the start's own sequence naming `opening`.
+/// The choice is made in the write, so a prompt kept meanwhile still leaves the turn a start row.
+/// Only that prelude may carry it: an event written before the start in the same append would
+/// take the sequence it names.
 pub(crate) fn insert_turn_start_checkpoint_statement(
     checkpoint_id: &SnapshotId,
     session_id: SessionId,
@@ -364,11 +371,18 @@ pub(crate) fn insert_turn_start_checkpoint_statement(
     turn_number: SafeInt<1>,
     turn: EpochPosition,
     opening: Option<QueueItemId>,
+    opening_sequence: Option<SafeInt<0>>,
 ) -> WriteStatement {
     let mut bindings = checkpoint_bindings(checkpoint_id, session_id, run_id, turn_number, turn);
     bindings.push(nullable_text_binding(
         "@turnOpeningId",
         opening.map(|opening| opening.to_string()).as_deref(),
+    ));
+    bindings.push((
+        Cow::Borrowed("@openingSequence"),
+        opening_sequence.map_or(SqlValue::Null, |sequence| {
+            SqlValue::Integer(i64::from(sequence))
+        }),
     ));
     WriteStatement {
         sql: Cow::Borrowed(INSERT_TURN_START_CHECKPOINT_SQL.as_str()),
@@ -616,22 +630,6 @@ pub fn newest_checkpoint(
             stored_checkpoint_of,
         )
         .optional()
-}
-
-/// Whether a checkpoint of `session_id`, standing or cut away, holds the prompt at
-/// `message_sequence`. Fails as SQLite does.
-pub(crate) fn is_prompt_kept(
-    connection: &Connection,
-    session_id: SessionId,
-    message_sequence: SafeInt<0>,
-) -> rusqlite::Result<bool> {
-    connection.prepare_cached(PROMPT_KEPT_SQL)?.query_row(
-        named_params! {
-            "@sessionId": session_id.text().as_str(),
-            "@messageSequence": i64::from(message_sequence),
-        },
-        |row| row.get(0),
-    )
 }
 
 /// Every path a version of `checkpoint_id` names. Fails as SQLite does, or when a stored path does

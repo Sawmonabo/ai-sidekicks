@@ -230,6 +230,8 @@ struct SteerScene {
     opening_message_id: QueueItemId,
     /// The opening's checkpoint.
     opening: SessionRestoreTarget,
+    /// The queue item of O3, which opened the run's next turn.
+    later_message_id: QueueItemId,
 }
 
 /// The steer scene, its provider answering every cut with `answer` and cutting inside a turn as
@@ -259,7 +261,7 @@ async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: F
     fixture
         .append_turn_event(run_id, "agent.turn.completed", TARGET_TURN_NUMBER)
         .await;
-    let (_, later_sequence) = fixture
+    let (later_message_id, later_sequence) = fixture
         .insert_sent_message(run_id, Form::Words(LATER_WORDS))
         .await;
     fixture
@@ -281,13 +283,13 @@ async fn steer_scene(answer: RewindAnswer, can_cut_inside_turn: bool, opening: F
         scene,
         opening_message_id,
         opening,
+        later_message_id,
     }
 }
 
 /// The steer scene, cutting inside a turn as `can_cut_inside_turn` says, with a turn after it
-/// that no message of the person's of its own opened: the run engine opens it with the queue item
-/// of `opening` admitted to the run where given, as a review is, else with none, as Codex's answer
-/// turn is; it edits [`ANSWER_EDIT`], takes the steer S3, edits [`ANSWER_STEER_EDIT`] and ends.
+/// that no new message of the person's opened, opened as `opening` says; it edits
+/// [`ANSWER_EDIT`], takes the steer S3, edits [`ANSWER_STEER_EDIT`] and ends.
 struct DaemonTurnScene {
     /// The scene, its `target` and `target_message_id` naming S3.
     scene: Scene,
@@ -297,24 +299,34 @@ struct DaemonTurnScene {
     opening_id: Option<QueueItemId>,
 }
 
+/// What the run engine opens the daemon-turn scene's turn with.
+enum DaemonTurnOpening {
+    /// No queue item, as Codex's answer turn.
+    None,
+    /// A review admitted to the run.
+    Review,
+    /// O3, which opened the turn before, as Codex's faster-model retry turn sends it again.
+    Retry,
+}
+
 /// The daemon-turn scene, its provider answering every cut with `answer`.
 async fn daemon_turn_scene(
     answer: RewindAnswer,
     can_cut_inside_turn: bool,
-    opening: Option<Form>,
+    opening: DaemonTurnOpening,
 ) -> DaemonTurnScene {
-    let mut scene = steer_scene(answer, can_cut_inside_turn, Form::Words(OPENING_WORDS))
-        .await
-        .scene;
+    let steer = steer_scene(answer, can_cut_inside_turn, Form::Words(OPENING_WORDS)).await;
+    let mut scene = steer.scene;
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
     let opening_id = match opening {
-        Some(form) => {
-            let queue_item_id = fixture.queue_form(run_id, form).await;
+        DaemonTurnOpening::None => None,
+        DaemonTurnOpening::Review => {
+            let queue_item_id = fixture.queue_form(run_id, Form::Review).await;
             fixture.admit(queue_item_id, run_id).await;
             Some(queue_item_id)
         }
-        None => None,
+        DaemonTurnOpening::Retry => Some(steer.later_message_id),
     };
     let started = RunHost::start_turn(
         fixture.queue.engine.as_ref(),
@@ -365,7 +377,7 @@ async fn daemon_turn_scene(
 
 impl Fixture {
     /// Writes the person's message of `form`, sent through the queue into `run_id` and taken by
-    /// it, and answers its queue item and its sequence.
+    /// it under its queue item's correlation id, and answers its queue item and its sequence.
     async fn insert_sent_message(&self, run_id: RunId, form: Form) -> (QueueItemId, u64) {
         let words = form
             .body()
@@ -387,15 +399,26 @@ impl Fixture {
                 "message": words,
             }),
         );
-        let sequence: i64 = self
-            .database
-            .reader()
+        let connection = self.database.reader();
+        let sequence: i64 = connection
             .query_row(
                 "SELECT MAX(sequence) FROM session_events WHERE session_id = ?1",
                 [self.session_id.text().as_str()],
                 |row| row.get(0),
             )
             .expect("the test reads the message's sequence");
+        // The recorder writes the queue item as the sent message's correlation id.
+        connection
+            .execute(
+                "UPDATE session_events SET correlation_id = ?1
+                  WHERE session_id = ?2 AND sequence = ?3",
+                rusqlite::params![
+                    queue_item_id.to_string(),
+                    self.session_id.text().as_str(),
+                    sequence
+                ],
+            )
+            .expect("the test writes the message's correlation id");
         (
             queue_item_id,
             u64::try_from(sequence).expect("a stored sequence is not negative"),

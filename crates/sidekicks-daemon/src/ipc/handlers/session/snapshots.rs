@@ -106,8 +106,9 @@ pub(crate) fn register_session_snapshots(
 
 // The session's snapshots in one read: none for a chat, else one per checkpoint no later rollback
 // took back whose prompt the log reads, oldest prompt first; the checkpoint of a turn's start no
-// new prompt opened is reached through an undo to a steer into that turn, never listed. A prompt the log does not read, one
-// at or past a damaged session's read bound or in a range it skipped, leaves its checkpoint out.
+// new prompt opened is reached through an undo to a steer into that turn, never listed. A prompt
+// the log does not read, one at or past a damaged session's read bound or in a range it skipped,
+// leaves its checkpoint out.
 async fn list_snapshots(
     sources: &SessionSnapshotSources,
     session_id: SessionId,

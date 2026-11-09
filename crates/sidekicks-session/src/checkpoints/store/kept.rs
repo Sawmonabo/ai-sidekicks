@@ -1,12 +1,15 @@
 //! The reads of the checkpoints no later undo cut away: one by the point a request names, a
-//! session's list, the one a turn's start wrote, and those of the runs an undo reaches from a
-//! point on.
+//! session's list, the one a turn's start wrote, the one before a queue item's sent prompt, and
+//! those of the runs an undo reaches from a point on.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::event_cursor::{
     SessionEventCursorUnresolvable, decode_event_cursor,
 };
@@ -35,6 +38,18 @@ const TURN_START_CHECKPOINT_SQL: &str = select_checkpoints!(
     "WHERE run_id = @runId AND turn_number = @turnNumber AND session_id = @sessionId
   ORDER BY position LIMIT 1"
 );
+
+// The checkpoint before the `user.message.sent` the queue item `@correlationId` was recorded as,
+// found through the correlation index.
+static SENT_MESSAGE_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{} AND message_sequence = (SELECT sequence FROM session_events
+    WHERE correlation_id = @correlationId AND session_id = @sessionId AND type = '{}'
+    ORDER BY sequence LIMIT 1)",
+        select_checkpoints!("WHERE session_id = @sessionId"),
+        SessionEventType::UserMessageSent.as_str()
+    )
+});
 
 // The checkpoints of the runs `@runIds`, a JSON array, from `@fromSequence` on, in prompt order.
 const CHECKPOINTS_OF_RUNS_FROM_SQL: &str = select_checkpoints!(
@@ -178,6 +193,34 @@ pub fn turn_start_checkpoint(
             stored_checkpoint_of,
         )
         .optional()
+}
+
+/// The checkpoint before the prompt the queue item `queue_item_id` sent in `session_id`, `None`
+/// where it sent none, no checkpoint holds it, or a later undo cut it away, read from the log as
+/// far as `read_damaged_from_sequence` lets it read. Fails as [`list_checkpoints`] does.
+pub fn sent_message_checkpoint(
+    connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
+    session_id: SessionId,
+    queue_item_id: QueueItemId,
+) -> Result<Option<StoredCheckpoint>, SupersededTurnsReadError> {
+    let checkpoint = connection
+        .prepare_cached(&SENT_MESSAGE_CHECKPOINT_SQL)?
+        .query_row(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@correlationId": queue_item_id.to_string(),
+            },
+            stored_checkpoint_of,
+        )
+        .optional()?;
+    Ok(kept_of(
+        connection,
+        read_damaged_from_sequence,
+        session_id,
+        checkpoint.into_iter().collect(),
+    )?
+    .pop())
 }
 
 /// The checkpoints of `run_ids` in `session_id` from the prompt at `from_sequence` on, oldest
