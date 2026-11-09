@@ -515,8 +515,10 @@ interface WorkflowRunEventPayload {
   workflowVersionId: string;
 }
 // workflow.run.started — how the run was started and by whom, the trigger node that started it, its
-// place in its chain, the node a node run targets and the input its trigger step starts on, so the
-// run row rebuilds from events. A payload with neither `inputRef` nor `nodeRun` is refused.
+// place in its chain, the node a node run targets, the run a retry retries and the input its
+// trigger step starts on, so the run row rebuilds from events. A payload with none of `inputRef`,
+// `nodeRun` and `retriedWorkflowRunId` is refused, and so is one whose `retriedWorkflowRunId` is
+// present on a run whose mode is not `retry` or absent on one whose mode is.
 interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   mode: WorkflowRunMode;
   startedBy: WorkflowStartedBy;
@@ -524,7 +526,8 @@ interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   chain: WorkflowRunChainPlace;
   provider?: ProviderId; // the provider the run's command steps use; absent when the workflow names none
   nodeRun?: WorkflowNodeRun; // the node a node run (workflow.node.execute) targets; absent on a whole run
-  inputRef?: WorkflowPayloadRef; // absent exactly on a node run that reuses its trigger's step, which writes no trigger row
+  retriedWorkflowRunId?: WorkflowRunId; // the run a retry (workflow.run.retry) retries; present exactly in `retry` mode
+  inputRef?: WorkflowPayloadRef; // absent exactly on a node run or a retry that reuses its trigger's step, which writes no trigger row
 }
 // The node a node run targets and what it covers, as its started event and its run row name it.
 type WorkflowNodeRun = { nodeId: WorkflowNodeId; scope: "node" | "fromHere" };
@@ -749,7 +752,7 @@ Daemon JSON-RPC; the `workflow` root, each name following the wire-name grammar,
 | `workflow.version.list` | `query` | `WorkflowVersionListRequest` → `WorkflowVersionListResponse` | The chain one run's pinned version belongs to, addressed by that version id |
 | `workflow.step.read` | `query` | `WorkflowStepReadRequest` → `WorkflowStepReadResponse` | One step's input, output or log by ref, paged and redacted |
 | `workflow.step.tabArtifact.create` | `mutation` | `WorkflowStepTabArtifactCreateRequest` → `WorkflowStepTabArtifactCreateResponse` | Stores what one step-panel tab holds — an inline payload, the step's cost or its error — as an artifact through `ArtifactPublish`, answering its id |
-| `workflow.run.retry` | `mutation` | `WorkflowRunRetryRequest` → `WorkflowRunRetryResponse` | Re-runs from a named step with the prior run's data pinned upstream; mints a new run in `retry` mode; refuses `workflow.run.stillRunning` or `workflow.invalidTransition` |
+| `workflow.run.retry` | `mutation` | `WorkflowRunRetryRequest` → `WorkflowRunRetryResponse` | Re-runs from a named step with the prior run's data pinned upstream; mints a new run in `retry` mode, its started event naming the retried run; refuses `workflow.run.stillRunning` or `workflow.invalidTransition` |
 | `workflow.run.rerun` | `mutation` | `WorkflowRunRerunRequest` → `WorkflowRunStartResponse` | Starts a new run of the named run's own pinned version with the input and mode it was started with, in its session; emits `workflow.run.started`; the person's own start, judged by no policy, offered in every state of the source run |
 | `workflow.node.execute` | `mutation` | `WorkflowNodeExecuteRequest` → `WorkflowNodeExecuteResponse` | Executes one node, or it and its ancestors, against pinned or prior input, in the trigger's `Repository`, or, on a `chat` or `subWorkflow` trigger, the one `projectId` names; the daemon computes the filtered run. Keyed by `clientIdempotencyKey`, as `workflow.run.start` is; `input` carries the trigger's items, absent to reuse the trigger's earlier data; emits `workflow.run.started` naming the node run. Refuses what the start refuses (`workflow.version.notFound`, `workflow.run.startDenied`, `workflow.run.repositoryRequired`, `workflow.run.inputRequired`, `workflow.run.idempotencyConflict` and the rest) and `workflow.node.notFound` for a node its version lacks |
 | `workflow.results.post` | `mutation` | `WorkflowResultsPostRequest` → `WorkflowResultsPostResponse` | Posts a run's results into the session the verb was typed in, which the daemon checks is the caller's own; the agent's tool takes no session, the daemon deriving it from the invoking turn; refuses `workflow.invalidTransition` for an unfinished run |

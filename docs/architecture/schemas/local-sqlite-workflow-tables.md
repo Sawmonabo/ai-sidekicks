@@ -128,6 +128,8 @@ CREATE TABLE workflow_runs (
                             CHECK(json_valid(trigger_json)),
   node_run_json             TEXT                       -- JSON: the node a node run (`Run this node`, `Run from here`) targets and its scope, `{nodeId, scope}`; NULL on a whole run. A node run that reuses its trigger's step writes no trigger row
                             CHECK(node_run_json IS NULL OR json_valid(node_run_json)),
+  retried_run_id            TEXT                       -- the run a retry (`workflow.run.retry`) retries, from its `workflow.run.started`; its trigger kind and whether it posts its results are read from that run. NULL on every run that is not a retry; run ids are event-sourced, so no foreign key
+                            CHECK((mode = 'retry') = (retried_run_id IS NOT NULL)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
                             CHECK(json_valid(started_by)),
   started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.run.started`; the run reads `new` from then until the engine admits it

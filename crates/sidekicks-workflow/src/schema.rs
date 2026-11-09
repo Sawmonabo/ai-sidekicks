@@ -52,6 +52,7 @@ fn workflow_schema_sql() -> String {
     let waiting_run = <&'static str>::from(WorkflowRunStatus::Waiting);
     let going_run_statuses = &*GOING_RUN_STATUSES_SQL;
     let run_modes = sql_list_of_every::<WorkflowRunMode>();
+    let retry_mode = <&'static str>::from(WorkflowRunMode::Retry);
     let gate_kinds = sql_list_of_every::<WorkflowGateKind>();
     let human_approval = <&'static str>::from(WorkflowGateKind::HumanApproval);
     let approval_categories = sql_list_of_every::<WorkflowGateApprovalCategory>();
@@ -197,6 +198,10 @@ CREATE TABLE workflow_runs (
   -- JSON: the node a node run targets and what it covers; NULL on a whole run.
   node_run_json             TEXT
                             CHECK(node_run_json IS NULL OR json_valid(node_run_json)),
+  -- The run a retry retries, which its trigger kind and whether it posts its results are read
+  -- from; NULL on every run that is not a retry. Run ids are event-sourced, so no foreign key.
+  retried_run_id            TEXT
+                            CHECK((mode = '{retry_mode}') = (retried_run_id IS NOT NULL)),
   -- JSON: who or what started the run.
   started_by                TEXT NOT NULL
                             CHECK(json_valid(started_by)),

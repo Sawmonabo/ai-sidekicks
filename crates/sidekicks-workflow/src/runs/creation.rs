@@ -9,6 +9,7 @@ use rusqlite::types::Value;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
@@ -62,6 +63,8 @@ pub(crate) struct WorkflowRunCreation {
     pub(crate) trigger_input: Option<WorkflowPayloadRef>,
     /// The node a node run targets and what it covers; `None` on a whole run.
     pub(crate) node_run: Option<WorkflowNodeRun>,
+    /// The run a retry retries; `None` on every run that is not a retry.
+    pub(crate) retried_run_id: Option<WorkflowRunId>,
 }
 
 /// The key of the step the run's trigger runs as: its first attempt, the run's first execution.
@@ -89,12 +92,12 @@ static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO workflow_runs (
     id, workflow_version_id, session_id, provider, status, mode, trigger_json, node_run_json,
-    started_by, chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept,
-    started_at
+    retried_run_id, started_by, chain_root_run_id, chain_from_error, chain_run_count,
+    chain_kept_going, kept, started_at
   ) VALUES (
     @id, @workflow_version_id, @session_id, @provider, '{new_run}', @mode, @trigger_json,
-    @node_run_json, @started_by, @chain_root_run_id, @chain_from_error, @chain_run_count,
-    @chain_kept_going, 0, @started_at
+    @node_run_json, @retried_run_id, @started_by, @chain_root_run_id, @chain_from_error,
+    @chain_run_count, @chain_kept_going, 0, @started_at
   )"
     )
 });
@@ -174,6 +177,7 @@ pub(crate) fn workflow_run_creation_statements(
         .expect("a trigger writes as JSON, holding only text");
     let started_by = serde_json::to_string(&creation.started_by)
         .expect("a run's starter writes as JSON, holding only text and ids");
+    let retried_run_id = creation.retried_run_id.as_ref().map(WorkflowRunId::text);
     let node_run_json = creation.node_run.as_ref().map(|node_run| {
         serde_json::to_string(node_run).expect("a node run writes as JSON, holding only text")
     });
@@ -205,6 +209,10 @@ pub(crate) fn workflow_run_creation_statements(
             text_binding("@mode", <&'static str>::from(creation.mode)),
             text_binding("@trigger_json", &trigger_json),
             nullable_text_binding("@node_run_json", node_run_json.as_deref()),
+            nullable_text_binding(
+                "@retried_run_id",
+                retried_run_id.as_ref().map(UuidText::as_str),
+            ),
             text_binding("@started_by", &started_by),
             text_binding("@chain_root_run_id", chain_root_run_id.as_str()),
             (
@@ -304,6 +312,7 @@ mod tests {
             started_at: WireInstant::try_from(STARTED_AT.to_owned()).expect("an instant"),
             trigger_input: Some(WorkflowPayloadRef::Inline { items: Vec::new() }),
             node_run: None,
+            retried_run_id: None,
         }
     }
 

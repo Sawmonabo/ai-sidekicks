@@ -1,4 +1,5 @@
 mod binding;
+mod retry;
 mod run_owned_workspace;
 mod unstarted;
 

@@ -18,6 +18,7 @@ use crate::definitions::kept_values::WorkflowKeptValueError;
 use crate::definitions::stored_document::StoredDocumentError;
 use crate::definitions::versions::history::WorkflowVersionsError;
 use crate::engine::ports::PortError;
+use crate::runs::step_payload::StepPayloadReadError;
 
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
@@ -25,7 +26,8 @@ pub(crate) enum WorkflowRunStartError {
     /// The start was refused: `workflow.run.startDenied`, `workflow.run.projectOnProjectSession`,
     /// `project.notFound`, `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
     /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable` or
-    /// `workflow.run.handleUndeclared`.
+    /// `workflow.run.handleUndeclared`; a retry also `workflow.run.notFound`,
+    /// `workflow.run.stillRunning`, `workflow.step.notFound` or `workflow.invalidTransition`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -76,6 +78,22 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Folder(#[source] io::Error),
+    /// The run a retry retries, its named node's latest step, its trigger's first input or its
+    /// nodes' steps did not read.
+    #[error("the run the retry retries did not read")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.run.retry handler")
+    )]
+    SourceRun(#[source] rusqlite::Error),
+    /// A step output, or the trigger input, that a retry reuses did not read back or split by its
+    /// stored counts.
+    #[error("an output the retry reuses did not read back")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.run.retry handler")
+    )]
+    ReusedOutput(#[source] StepPayloadReadError),
     /// The trigger step's input does not write as JSON.
     #[error("the trigger step's input does not write as JSON")]
     #[cfg_attr(
@@ -181,6 +199,8 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::ProjectEnvironment(_)
             | WorkflowRunStartError::Binding(RunSetupGateError::Failed(_))
             | WorkflowRunStartError::Folder(_)
+            | WorkflowRunStartError::SourceRun(_)
+            | WorkflowRunStartError::ReusedOutput(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)
             | WorkflowRunStartError::Draft(_)

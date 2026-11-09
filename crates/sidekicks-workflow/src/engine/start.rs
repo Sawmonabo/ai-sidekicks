@@ -8,14 +8,15 @@
 //! `workflow.run.started`, which holds a run joining a chain at its limit.
 mod check;
 mod errors;
+mod folder;
 mod node_run;
+mod retry;
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use jiff::tz::TimeZone;
@@ -26,9 +27,7 @@ use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
@@ -43,7 +42,6 @@ use sidekicks_contracts::workflow::run::trigger::{
     WorkflowTriggerKind,
 };
 use sidekicks_policy::authorizer::Authorizer;
-use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::optional_text_column;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
@@ -78,16 +76,19 @@ use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::errors::WorkflowRunStartError;
+use self::folder::{PreparedStart, RunFolder};
 pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};
+use self::retry::RetriedRun;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
-/// project's environment rows and the session's project.
+/// project's environment rows and the session's project; and a retry's reads of its source run,
+/// the named node's latest step, the trigger's first input and each node's steps.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
-pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 6;
+pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 10;
 
 // The project the session works in, NULL for a chat.
 #[cfg_attr(
@@ -152,9 +153,11 @@ pub(crate) struct StartedRun {
     pub(crate) scope: Arc<RunScope>,
     /// The graph of its pinned version, built once by the start's checks.
     pub(crate) graph: Arc<RunGraph>,
-    /// The input its trigger step starts on; `None` on a node run that reuses its trigger's step.
+    /// The input its trigger step starts on; `None` on a node run or a retry that reuses its
+    /// trigger's step.
     pub(crate) trigger: Option<StartedTrigger>,
-    /// The places a node run covers and the earlier steps it replays; `None` on a whole run.
+    /// The places a node run or a retry covers and the earlier steps it replays; `None` on a whole
+    /// run.
     pub(crate) node_run: Option<StartedNodeRun>,
     /// The sequence of `workflow.run.started`, whose write readied the trigger step where it runs.
     pub(crate) started_sequence: SafeInt<0>,
@@ -239,43 +242,6 @@ struct ScopeReads {
     environment_rows: Vec<EnvironmentRow>,
     project: Option<ProjectId>,
     kept_values: Vec<WorkflowKeptValue>,
-}
-
-/// The folder a run works in: the session's, or its own, which the start made and removes when it
-/// ends without a run.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-enum RunFolder {
-    Session(PathBuf),
-    Own(PathBuf),
-}
-
-impl RunFolder {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    fn path(&self) -> &Path {
-        match self {
-            Self::Session(path) | Self::Own(path) => path,
-        }
-    }
-}
-
-/// What a start prepared once its checks passed: the run's id, its start, its folder and, for a
-/// project session's run, its binding in that session's workspace, or for a named project's run,
-/// in its own.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-struct PreparedStart {
-    workflow_run_id: WorkflowRunId,
-    started_at: WireInstant,
-    folder: RunFolder,
-    binding: Option<RunContextBinding>,
 }
 
 /// What a [`WorkflowRunStarter`] reads, writes and asks through.
@@ -391,6 +357,21 @@ impl WorkflowRunStarter {
         start: WorkflowRunStart,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let checked = self.check(&start).await?;
+        self.start_checked(start, checked, None).await
+    }
+
+    // Starts `start`'s run once its checks passed, as `start` says, retrying `retried` where one
+    // is given.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    async fn start_checked(
+        &self,
+        start: WorkflowRunStart,
+        checked: CheckedStart,
+        retried: Option<&RetriedRun>,
+    ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let workflow_run_id =
             WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let is_run_owned = checked.project_root.is_some();
@@ -408,7 +389,7 @@ impl WorkflowRunStarter {
         };
         let mut stored_input = None;
         let mut ended = self
-            .write(start, checked, &prepared, &mut stored_input)
+            .write(start, checked, &prepared, retried, &mut stored_input)
             .await;
         if matches!(ended, Ok(WorkflowStartOutcome::Started(_))) {
             return ended;
@@ -496,60 +477,6 @@ impl WorkflowRunStarter {
         self.recorder.end_run(run_id);
     }
 
-    // Takes the run's start, binds a project session's run to that session's workspace and a named
-    // project's run in a workspace of its own, whose root the run works in, and makes the run's
-    // own folder where neither binds and the session has none.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    async fn prepare(
-        &self,
-        session_id: SessionId,
-        workflow_run_id: WorkflowRunId,
-        checked: &CheckedStart,
-    ) -> Result<PreparedStart, WorkflowRunStartError> {
-        let started_at = WireInstant::now();
-        let binding = match (&checked.project_root, checked.session.shape) {
-            (Some(root), _) => Some(
-                self.binder
-                    .bind_project_run(session_id, workflow_run_id, root)
-                    .await
-                    .map_err(WorkflowRunStartError::Binding)?,
-            ),
-            // The workflow's name stands for a chat's first message in a new tree's name.
-            (None, SessionShape::Project) => Some(
-                self.binder
-                    .bind_session_run(
-                        session_id,
-                        workflow_run_id.text().as_str(),
-                        checked.workflow_name.as_str(),
-                    )
-                    .await
-                    .map_err(WorkflowRunStartError::Binding)?,
-            ),
-            (None, SessionShape::Chat) => None,
-        };
-        let folder = if let Some(binding) = &binding {
-            RunFolder::Session(binding.execution_root().to_path_buf())
-        } else if let Some(folder) = &checked.session.working_folder {
-            RunFolder::Session(folder.clone())
-        } else {
-            let folder =
-                workflow_run_folder(&self.data_folder, &checked.definition_id, &workflow_run_id);
-            make_own_folder(&folder)
-                .await
-                .map_err(WorkflowRunStartError::Folder)?;
-            RunFolder::Own(folder)
-        };
-        Ok(PreparedStart {
-            workflow_run_id,
-            started_at,
-            folder,
-            binding,
-        })
-    }
-
     // What the run's scope reads beside its version and its workflow's row: the stored pins parsed
     // and hashed for a manual run only, one pooled read of the project's environment rows, by the
     // bound workspace's mount where the run is bound, and the session's project, then the
@@ -608,10 +535,11 @@ impl WorkflowRunStarter {
             })
     }
 
-    // Reads the run's scope and builds the trigger step's input, then commits the run's row, with
-    // its chain's count for a joining run, and its started event, whose instant is the row's start.
-    // The scope is read first, so a failed read leaves no stored input behind; an input it stores
-    // is named in `stored_input`, for the start to delete when no run is made.
+    // Reads the run's scope and builds the trigger step's input, unless `retried` reuses that step,
+    // then commits the run's row, with its chain's count for a joining run and the run it retries
+    // for a retry, and its started event, whose instant is the row's start. The scope is read
+    // first, so a failed read leaves no stored input behind; an input it stores is named in
+    // `stored_input`, for the start to delete when no run is made.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -621,6 +549,7 @@ impl WorkflowRunStarter {
         start: WorkflowRunStart,
         checked: CheckedStart,
         prepared: &PreparedStart,
+        retried: Option<&RetriedRun>,
         stored_input: &mut Option<ArtifactId>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let WorkflowRunStart {
@@ -636,13 +565,19 @@ impl WorkflowRunStarter {
         let scope_reads = self
             .read_scope(session_id, mode, &checked, prepared.binding.as_ref())
             .await?;
-        let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
-        let trigger_input = self
-            .trigger_input(session_id, &trigger_step, &checked.start_items)
-            .await?;
-        if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &trigger_input {
-            *stored_input = Some(*artifact_id);
-        }
+        let trigger_input = if retried.is_some_and(|retried| retried.is_trigger_reused) {
+            None
+        } else {
+            let trigger_step = trigger_step_key(workflow_run_id, &checked.trigger_node);
+            let trigger_input = self
+                .trigger_input(session_id, &trigger_step, &checked.start_items)
+                .await?;
+            if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &trigger_input {
+                *stored_input = Some(*artifact_id);
+            }
+            Some(trigger_input)
+        };
+        let retried_run_id = retried.map(|retried| retried.workflow_run_id);
         // The limit is read at each joining start, so a changed setting holds the next one.
         let chain_ask_after = match chain {
             WorkflowRunChainPlace::Joins { .. } => self.run_limits.chain_ask_after_runs(),
@@ -662,8 +597,9 @@ impl WorkflowRunStarter {
                 .map(|binding| context_statement(binding, &prepared.started_at)),
             provider: checked.provider.clone(),
             started_at: prepared.started_at.clone(),
-            trigger_input: Some(trigger_input.clone()),
+            trigger_input: trigger_input.clone(),
             node_run: None,
+            retried_run_id,
         };
         let draft = SessionEventDraft::of_session(
             session_id,
@@ -678,7 +614,8 @@ impl WorkflowRunStarter {
                 chain: chain.clone(),
                 provider: checked.provider.clone(),
                 node_run: None,
-                input_ref: Some(trigger_input.clone()),
+                retried_workflow_run_id: retried_run_id,
+                input_ref: trigger_input.clone(),
             }),
         )?;
         // The checkout's lock spans the one write of the run's context, as the agent run's does.
@@ -719,7 +656,7 @@ impl WorkflowRunStarter {
                     workflow_version_id,
                     workflow_name: checked.workflow_name,
                     mode,
-                    retried_mode: None,
+                    retried_mode: retried.and_then(|retried| retried.first_mode),
                     trigger: checked.trigger_node,
                     nodes: checked.nodes,
                     node_params: Arc::new(node_params),
@@ -741,8 +678,8 @@ impl WorkflowRunStarter {
                 Ok(WorkflowStartOutcome::Started(StartedRun {
                     scope: Arc::new(scope),
                     graph: checked.graph,
-                    trigger: Some(StartedTrigger {
-                        input_ref: trigger_input,
+                    trigger: trigger_input.map(|input_ref| StartedTrigger {
+                        input_ref,
                         items: checked.start_items,
                     }),
                     node_run: None,
@@ -821,26 +758,4 @@ pub(crate) fn hash_run_pins(
             Ok((node_id, RunPin { items, hash }))
         })
         .collect()
-}
-
-// Makes `folder` new and empty: its parents as needed, then the folder itself, which must not be
-// there yet, so a removal never takes a folder another start made. A run's delete removes the
-// workflow's runs folder once it empties, so a parent gone between the two steps is made again;
-// that single retry is the bound, and a parent gone a second time fails the start.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-async fn make_own_folder(folder: &Path) -> io::Result<()> {
-    let parent = folder
-        .parent()
-        .expect("a run's folder sits in its workflow's runs folder");
-    tokio::fs::create_dir_all(parent).await?;
-    match tokio::fs::create_dir(folder).await {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            tokio::fs::create_dir_all(parent).await?;
-            tokio::fs::create_dir(folder).await
-        }
-        made => made,
-    }
 }

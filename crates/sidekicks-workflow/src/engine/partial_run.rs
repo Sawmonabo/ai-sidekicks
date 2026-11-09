@@ -1,7 +1,8 @@
 //! A partial run's plan: which of the nodes it covers execute and which reuse every settled step
 //! they took in their source run, decided from the difference between the version that computed
 //! each step's data and the target version, from whether each step sits beside the steps that fed
-//! it, from whether its pin changed, and from what executes upstream of it.
+//! it, from whether its pin changed, and from what executes upstream of it; and a retry's, which
+//! reuses its source run's steps outside the retried node and what it feeds.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
@@ -91,8 +92,8 @@ const NODE_STEPS_SQL: &str = "SELECT step.workflow_run_id, step.attempt, step.ex
 pub(crate) struct PartialRunPlan {
     /// The nodes the run executes.
     pub(crate) executed: Vec<WorkflowNodeId>,
-    /// For a run from a node, the nodes whose steps the run reuses, each with every settled step
-    /// it took in its source run, in execution order; empty for a run of one node.
+    /// For a run from a node or a retry, the nodes whose steps the run reuses, each with every
+    /// settled step it took in its source run, in execution order; empty for a run of one node.
     pub(crate) reused: Vec<(WorkflowNodeId, Vec<SettledStep>)>,
     /// For a run of one node, the covered nodes whose steps it reads as its prior input, each with
     /// every settled step it took in its source run, in execution order, used as they are though
@@ -401,21 +402,106 @@ fn covered_places(graph: &RunGraph, target: usize) -> Vec<usize> {
             );
         }
     }
-    // Every ancestor of a covered node is covered, and forward main edges hold no cycle, so some
-    // node left always has no ancestor left.
-    let mut ordered = Vec::with_capacity(covered.count_ones(..));
+    in_execution_order(graph, covered)
+}
+
+/// The places of `places` in execution order: a node after every node of `places` that feeds it
+/// along forward main edges, siblings lowest place first.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
+fn in_execution_order(graph: &RunGraph, mut places: FixedBitSet) -> Vec<usize> {
+    // Forward main edges hold no cycle, so some node left always has no ancestor left.
+    let mut ordered = Vec::with_capacity(places.count_ones(..));
     loop {
-        let next = covered.ones().find(|&place| {
+        let next = places.ones().find(|&place| {
             graph
                 .ancestors(place)
-                .all(|ancestor| !covered.contains(ancestor))
+                .all(|ancestor| !places.contains(ancestor))
         });
         let Some(next) = next else {
             return ordered;
         };
-        covered.set(next, false);
+        places.set(next, false);
         ordered.push(next);
     }
+}
+
+/// The plan of a retry from the node at `target` of `graph`, the graph of the version its source
+/// run `source_run_id` pinned. The target and every node it feeds execute, and so does each node
+/// the source run never reached or whose steps in it did not all settle, or were not fed by the
+/// steps the plan keeps for its feeders, with what [`executing_places`] adds, the walk deciding
+/// whether a node never reached is reached now; every other node reuses its steps in the source
+/// run as they are, since both runs pin one version. Fails with the SQLite error, or
+/// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.run.retry handler")
+)]
+pub(crate) fn plan_retry(
+    connection: &Connection,
+    graph: &RunGraph,
+    source_run_id: WorkflowRunId,
+    target: &WorkflowNodeId,
+) -> rusqlite::Result<PartialRunPlan> {
+    let target_place = graph.place(target);
+    let mut node_steps = connection.prepare_cached(NODE_STEPS_SQL)?;
+    let mut settled = HashMap::new();
+    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
+    needs_execution.insert(target_place);
+    for place in 0..graph.node_count() {
+        if place == target_place
+            || graph
+                .ancestors(place)
+                .any(|ancestor| ancestor == target_place)
+        {
+            continue;
+        }
+        let node_id = &graph.node(place).id;
+        let steps = node_steps
+            .query_map(
+                named_params! {
+                    "@run_id": source_run_id.text().as_str(),
+                    "@node_id": node_id.as_str(),
+                },
+                |row| settled_step_from_row(node_id, row),
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if steps.is_empty() {
+            needs_execution.insert(place);
+            continue;
+        }
+        match settled_steps_of(steps) {
+            Some(steps) => {
+                settled.insert(node_id.clone(), steps);
+            }
+            None => needs_execution.insert(place),
+        }
+    }
+    for (node_id, steps) in &settled {
+        if !is_fed_by_reused_steps(steps, &settled) {
+            needs_execution.insert(graph.place(node_id));
+        }
+    }
+    let mut every_place = FixedBitSet::with_capacity(graph.node_count());
+    every_place.insert_range(..);
+    let places = in_execution_order(graph, every_place);
+    let executing = executing_places(graph, &places, needs_execution);
+    let mut plan = PartialRunPlan {
+        executed: Vec::new(),
+        reused: Vec::new(),
+        inputs: Vec::new(),
+    };
+    for place in places {
+        let node_id = &graph.node(place).id;
+        if executing.contains(place) {
+            plan.executed.push(node_id.clone());
+        } else if let Some(steps) = settled.remove(node_id) {
+            plan.reused.push((node_id.clone(), steps));
+        }
+    }
+    Ok(plan)
 }
 
 /// Whether every step of `steps`, one node's settled steps, was fed by the very steps `settled`

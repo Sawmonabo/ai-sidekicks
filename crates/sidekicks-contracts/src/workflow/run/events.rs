@@ -54,17 +54,30 @@ pub struct WorkflowNodeRun {
 
 workflow_run_event! {
     /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
-    /// it, its place in its chain, the node a node run targets and the input its trigger step
-    /// starts on, so the run row rebuilds from events. `inputRef` is absent exactly on a node run
-    /// that reuses its trigger's step, which writes no trigger row.
+    /// it, its place in its chain, the node a node run targets, the run a retry retries and the
+    /// input its trigger step starts on, so the run row rebuilds from events. `inputRef` is absent
+    /// exactly on a node run or a retry that reuses its trigger's step, which writes no trigger
+    /// row, and `retriedWorkflowRunId` is present exactly on a retry.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
-    #[garde(custom(|payload: &Self, (): &()| leaves_its_input_only_on_a_node_run(payload)))]
-    #[schemars(extend("anyOf" = [
-        { "required": ["inputRef"], "properties": { "inputRef": true } },
-        { "required": ["nodeRun"], "properties": { "nodeRun": true } },
-    ]))]
+    #[garde(custom(|payload: &Self, (): &()| names_its_input_and_retried_run(payload)))]
+    #[schemars(extend(
+        "anyOf" = [
+            { "required": ["inputRef"], "properties": { "inputRef": true } },
+            { "required": ["nodeRun"], "properties": { "nodeRun": true } },
+            {
+                "required": ["retriedWorkflowRunId"],
+                "properties": { "retriedWorkflowRunId": true }
+            },
+        ],
+        "if" = { "properties": { "mode": { "const": "retry" } }, "required": ["mode"] },
+        "then" = {
+            "properties": { "retriedWorkflowRunId": true },
+            "required": ["retriedWorkflowRunId"]
+        },
+        "else" = { "not": { "required": ["retriedWorkflowRunId"] } },
+    ))]
     pub struct WorkflowRunStartedPayload {
         /// How it was started.
         pub mode: WorkflowRunMode,
@@ -90,8 +103,16 @@ workflow_run_event! {
         )]
         #[schemars(with = "WorkflowNodeRun")]
         pub node_run: Option<WorkflowNodeRun>,
-        /// The input its trigger step starts on; absent on a node run that reuses its trigger's
-        /// step.
+        /// The run a retry retries; present exactly on a retry.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowRunId")]
+        pub retried_workflow_run_id: Option<WorkflowRunId>,
+        /// The input its trigger step starts on; absent on a node run or a retry that reuses its
+        /// trigger's step.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -103,14 +124,22 @@ workflow_run_event! {
     }
 }
 
-/// Refuses a started payload that leaves its trigger's input out unless it starts a node run,
-/// the one run that may reuse its trigger's step.
-fn leaves_its_input_only_on_a_node_run(payload: &WorkflowRunStartedPayload) -> garde::Result {
-    if payload.input_ref.is_some() || payload.node_run.is_some() {
+/// Refuses a started payload that leaves its trigger's input out unless it starts a node run or a
+/// retry, the runs that may reuse their trigger's step, and one that names a retried run on a run
+/// that is no retry or none on a retry.
+fn names_its_input_and_retried_run(payload: &WorkflowRunStartedPayload) -> garde::Result {
+    let is_retry = payload.mode == WorkflowRunMode::Retry;
+    if is_retry != payload.retried_workflow_run_id.is_some() {
+        return Err(garde::Error::new(
+            "a retry's start names the run it retries, and no other run's start names one",
+        ));
+    }
+    if payload.input_ref.is_some() || payload.node_run.is_some() || is_retry {
         Ok(())
     } else {
         Err(garde::Error::new(
-            "a run's start names its trigger's input unless a node run reuses its trigger's step",
+            "a run's start names its trigger's input unless a node run or a retry reuses its \
+             trigger's step",
         ))
     }
 }
@@ -408,17 +437,26 @@ mod tests {
         assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
     }
 
-    /// A run's start names its trigger's input unless it is a node run, which may reuse its
-    /// trigger's step. Mutation: drop the garde check on `WorkflowRunStartedPayload`, which lets
-    /// the start naming neither through.
+    /// A run's start names its trigger's input unless it is a node run or a retry, which may reuse
+    /// its trigger's step, and a retry's start, and only a retry's, names the run it retries.
+    /// Mutations: drop the garde check on `WorkflowRunStartedPayload`, which lets the start naming
+    /// neither through; drop its retried-run comparison, which lets a manual start naming a
+    /// retried run and a retry naming none through; drop `is_retry` from the input check, which
+    /// refuses the retry reusing its trigger.
     #[rstest]
-    #[case::whole_run(true, false, true)]
-    #[case::node_run_reusing_its_trigger(false, true, true)]
-    #[case::node_run_given_items(true, true, true)]
-    #[case::neither(false, false, false)]
-    fn a_runs_start_leaves_its_input_out_only_on_a_node_run(
+    #[case::whole_run("manual", true, false, false, true)]
+    #[case::node_run_reusing_its_trigger("manual", false, true, false, true)]
+    #[case::node_run_given_items("manual", true, true, false, true)]
+    #[case::neither("manual", false, false, false, false)]
+    #[case::retry_reusing_its_trigger("retry", false, false, true, true)]
+    #[case::retry_running_its_trigger("retry", true, false, true, true)]
+    #[case::retry_naming_no_retried_run("retry", true, false, false, false)]
+    #[case::manual_naming_a_retried_run("manual", true, false, true, false)]
+    fn a_runs_start_leaves_its_input_out_only_on_a_node_run_or_a_retry(
+        #[case] mode: &str,
         #[case] has_input: bool,
         #[case] is_node_run: bool,
+        #[case] names_retried_run: bool,
         #[case] is_accepted: bool,
     ) {
         let mut wire = json!({
@@ -426,7 +464,7 @@ mod tests {
             "workflowRunId": "018f0000-0000-7000-8000-000000000004",
             "definitionId": "018f0000-0000-7000-8000-000000000005",
             "workflowVersionId": "018f0000-0000-7000-8000-000000000006",
-            "mode": "manual",
+            "mode": mode,
             "startedBy": {"kind": "schedule"},
             "trigger": {"kind": "trigger.manual", "nodeId": "start"},
             "chain": {"kind": "starts"},
@@ -439,6 +477,12 @@ mod tests {
                 members.insert(
                     "nodeRun".into(),
                     json!({"nodeId": "ask", "scope": "fromHere"}),
+                );
+            }
+            if names_retried_run {
+                members.insert(
+                    "retriedWorkflowRunId".into(),
+                    json!("018f0000-0000-7000-8000-000000000007"),
                 );
             }
         }

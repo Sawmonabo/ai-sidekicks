@@ -25,7 +25,7 @@ use sidekicks_contracts::workflow::run::control::{
     WorkflowRunProviderRequiredDetails, WorkflowRunRepositoryRequiredDetails,
     fill_workflow_trigger_inputs,
 };
-use sidekicks_contracts::workflow::run::trigger::WorkflowRunTrigger;
+use sidekicks_contracts::workflow::run::trigger::{WorkflowRunMode, WorkflowRunTrigger};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::authorizer::PolicyDecision;
 use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
@@ -54,9 +54,9 @@ const DEFINITION_SCOPE_SQL: &str =
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
     // rule, the version, the session, a project named beside a project session, a named project
-    // with no attached folder, the trigger's declared inputs, a project's repository for the steps
-    // that need one, the workflow's provider for the steps that run in its sandbox, then the run's
-    // graph.
+    // with no attached folder, the trigger's declared inputs but on a retry, which reuses its
+    // source run's, a project's repository for the steps that need one, the workflow's provider
+    // for the steps that run in its sandbox, then the run's graph.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -131,26 +131,33 @@ impl WorkflowRunStarter {
             .inputs
             .as_ref()
             .map_or(&[][..], UniqueList::as_slice);
-        let filled = fill_workflow_trigger_inputs(declared, &start.input).map_err(|details| {
-            DomainError::new(
-                "The start leaves an input unfilled, or gives one a value that does not fit it.",
-                RefusalCode::WorkflowRunInputRequired,
-            )
-            .with_detail(details)
-        })?;
         // A trigger that declares inputs starts on one item of their values; any other on the
-        // items it was given.
-        let start_items = if declared.is_empty() {
+        // items it was given. A retry's trigger, where it runs again, starts on the items its
+        // source run's did, so nothing is filled anew.
+        let start_items = if start.mode == WorkflowRunMode::Retry {
             start.input.clone()
         } else {
-            vec![WorkflowItem {
-                json: AnyValue(
-                    serde_json::to_value(&filled).expect("input values write as a JSON object"),
-                ),
-                binary: None,
-                paired_item: None,
-                error: None,
-            }]
+            let filled =
+                fill_workflow_trigger_inputs(declared, &start.input).map_err(|details| {
+                    DomainError::new(
+                    "The start leaves an input unfilled, or gives one a value that does not fit \
+                     it.",
+                    RefusalCode::WorkflowRunInputRequired,
+                )
+                .with_detail(details)
+                })?;
+            if declared.is_empty() {
+                start.input.clone()
+            } else {
+                vec![WorkflowItem {
+                    json: AnyValue(
+                        serde_json::to_value(&filled).expect("input values write as a JSON object"),
+                    ),
+                    binary: None,
+                    paired_item: None,
+                    error: None,
+                }]
+            }
         };
         let trigger_node = WorkflowNode::from(&body.trigger);
         // A step that needs a repository runs only in a project's: a project session's, whose

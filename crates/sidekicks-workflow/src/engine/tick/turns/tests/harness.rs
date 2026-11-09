@@ -615,6 +615,7 @@ impl Harness {
             started_at: started_at.clone(),
             trigger_input: trigger_input.clone(),
             node_run: node_run_record.clone(),
+            retried_run_id: None,
         };
         let draft = SessionEventDraft::of_session(
             base.session_id,
@@ -629,6 +630,7 @@ impl Harness {
                 chain: WorkflowRunChainPlace::Starts {},
                 provider: None,
                 node_run: node_run_record,
+                retried_workflow_run_id: None,
                 input_ref: trigger_input,
             }),
         )
