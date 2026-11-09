@@ -30,16 +30,14 @@ use std::sync::{Arc, LazyLock};
 use futures::future::BoxFuture;
 use notify::{RecommendedWatcher, Watcher};
 use rusqlite::{Connection, OptionalExtension, named_params};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::folders::{
     RepoMountReattachResponse, RepoMountRequest, RepoMountRootResolutionReason,
 };
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, WorkspaceId};
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+use sidekicks_contracts::worktree::lifecycle::{RunningHolder, WorktreeId};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 #[cfg(test)]
@@ -87,22 +85,22 @@ static SELECT_LIVE_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Why the agent of a running run could not be read; the implementation's own failure is the
+/// Why a running run could not be read as its holder; the implementation's own failure is the
 /// cause.
 #[derive(Debug, thiserror::Error)]
-#[error("the agent of a run in the project could not be read")]
-pub struct RunAgentLookupError(#[source] pub Box<dyn Error + Send + Sync>);
+#[error("a run in the project could not be read")]
+pub struct RunningHolderLookupError(#[source] pub Box<dyn Error + Send + Sync>);
 
-/// Where the re-attach reads the agent a running run is for, so its conflict can name who holds
-/// the folder.
-pub trait RunAgentLookup: Send + Sync {
-    /// The agent `run_id` in `session_id` is for. Fails when the read fails or the session's log
-    /// names none.
-    fn read_run_agent<'a>(
+/// Where the re-attach reads what a running run is, an agent's run with its agent or a workflow
+/// run, so its conflict can name who holds the folder.
+pub trait RunningHolderLookup: Send + Sync {
+    /// The run `run_id`, an agent run's or a workflow run's id, of `session_id`. Fails when the
+    /// read fails or an agent run's session log names no agent for it.
+    fn read_running_holder<'a>(
         &'a self,
         session_id: &'a SessionId,
-        run_id: &'a RunId,
-    ) -> BoxFuture<'a, Result<AgentId, RunAgentLookupError>>;
+        run_id: &'a str,
+    ) -> BoxFuture<'a, Result<RunningHolder, RunningHolderLookupError>>;
 }
 
 /// One thing a committed re-attach owed after its write that did not happen.
@@ -154,9 +152,9 @@ pub enum RepoMountReattachError {
     /// A tree's folder could not be resolved to compare it with the ones git lists.
     #[error("a worktree's folder could not be resolved to compare it with git's list")]
     Folder(#[source] io::Error),
-    /// The agent of the run that holds the folder could not be read.
+    /// The run that holds the folder could not be read.
     #[error(transparent)]
-    Agent(#[from] RunAgentLookupError),
+    Holder(#[from] RunningHolderLookupError),
     /// The re-attach committed, but something it owed after the write did not happen; the rows
     /// are the truth and a moved workspace is admitted again at its next run.
     #[error(
@@ -206,7 +204,7 @@ impl From<RepoMountReattachError> for HandlerError {
             | RepoMountReattachError::Write(_)
             | RepoMountReattachError::HealthProjection(_)
             | RepoMountReattachError::Folder(_)
-            | RepoMountReattachError::Agent(_)
+            | RepoMountReattachError::Holder(_)
             | RepoMountReattachError::FollowUpIncomplete { .. }) => Self::Internal(Box::new(fault)),
         }
     }
@@ -228,8 +226,8 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     pub worktree_events: Arc<WorktreeEventEmitter>,
     /// Resolves the folder again exactly as attach resolves a path.
     pub resolver: RepoRootResolver,
-    /// Reads the agent a running run is for.
-    pub agents: Arc<dyn RunAgentLookup>,
+    /// Reads what a running run is.
+    pub holders: Arc<dyn RunningHolderLookup>,
 }
 
 /// Re-attaches a mount whose folder holds another repository now, keeping the project's sessions
@@ -242,7 +240,7 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     events: Arc<WorkspaceEventEmitter>,
     worktree_events: Arc<WorktreeEventEmitter>,
     resolver: RepoRootResolver,
-    agents: Arc<dyn RunAgentLookup>,
+    holders: Arc<dyn RunningHolderLookup>,
     /// Where a test holds a re-attach between its checks and its write.
     #[cfg(test)]
     pub(crate) write_pause: PausePoint,
@@ -259,7 +257,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             events: deps.events,
             worktree_events: deps.worktree_events,
             resolver: deps.resolver,
-            agents: deps.agents,
+            holders: deps.holders,
             #[cfg(test)]
             write_pause: PausePoint::default(),
         }
@@ -270,10 +268,11 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     /// `repoMount.managed` for a chat's managed workspace, `repoMount.reattachRefused` when the
     /// mount does not read `identityMismatch`, `repoMount.rootResolutionFailed` when the folder is
     /// no repository (`notARepository`), resolves to another root (`rootMismatch`) or git cannot
-    /// answer for it, `repoMount.reattachConflict` naming the session and agent while an agent runs
-    /// anywhere in the project, and `repoMount.alreadyAttached` when another attached mount holds
-    /// the folder's repository. Fails with [`RepoMountReattachError::FollowUpIncomplete`] when it
-    /// committed but an event or a moved workspace's admission did not follow.
+    /// answer for it, `repoMount.reattachConflict` naming the session and the run while a run, an
+    /// agent's or a workflow's, is live anywhere in the project, and `repoMount.alreadyAttached`
+    /// when another attached mount holds the folder's repository. Fails with
+    /// [`RepoMountReattachError::FollowUpIncomplete`] when it committed but an event or a moved
+    /// workspace's admission did not follow.
     pub async fn reattach(
         &self,
         request: &RepoMountRequest,
@@ -465,7 +464,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         Ok(serde_json::Value::from(listed_ids).to_string())
     }
 
-    // Refuses `reattachConflict` naming the session and agent of the oldest run in the project.
+    // Refuses `reattachConflict` naming the session and the oldest run in the project.
     async fn refuse_running_run(
         &self,
         repo_mount_id: RepoMountId,
@@ -479,13 +478,13 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         let Some(running) = running else {
             return Ok(());
         };
-        let running_agent_id = self
-            .agents
-            .read_run_agent(&running.session_id, &running.run_id)
+        let running_holder = self
+            .holders
+            .read_running_holder(&running.session_id, &running.run_id)
             .await?;
         Err(RepoRefusal::ReattachConflict {
             running_session_id: running.session_id,
-            running_agent_id,
+            running_holder,
         }
         .into())
     }

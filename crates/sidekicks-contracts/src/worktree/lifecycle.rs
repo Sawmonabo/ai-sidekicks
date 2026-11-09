@@ -2,6 +2,8 @@
 //! `workspace.executionRoot.prepare`, `worktree.retire` with the details of its refusals, and
 //! `worktree.status.read`.
 
+use std::fmt;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
@@ -20,6 +22,7 @@ use crate::wire::integer::SafeInt;
 use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 use crate::wire::{NullableSchema, nullable};
+use crate::workflow::run::id::WorkflowRunId;
 
 branded_uuid_id! {
     /// The daemon-minted id of a worktree row.
@@ -276,8 +279,39 @@ literal! {
     pub enum CarryCheckoutRunningReason = "carryCheckoutRunning";
 }
 
+/// The run live in a folder another act would take from under it: an agent's run, named by its
+/// agent, or a workflow run, by `kind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum RunningHolder {
+    /// An agent's run.
+    Agent {
+        /// The agent the run is for.
+        agent_id: AgentId,
+    },
+    /// A workflow run.
+    WorkflowRun {
+        /// The run.
+        run_id: WorkflowRunId,
+    },
+}
+
+impl fmt::Display for RunningHolder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Agent { agent_id } => write!(formatter, "agent {agent_id}"),
+            Self::WorkflowRun { run_id } => write!(formatter, "workflow run {run_id}"),
+        }
+    }
+}
+
 /// The details of a `worktree.createFailed` refusal with reason `carryCheckoutRunning`: the
-/// session whose run is live in the checkout the work would be carried from, and that run's agent.
+/// session whose run is live in the checkout the work would be carried from, and that run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorktreeCarryCheckoutRunningDetails {
@@ -285,8 +319,8 @@ pub struct WorktreeCarryCheckoutRunningDetails {
     pub reason: CarryCheckoutRunningReason,
     /// The session running there.
     pub running_session_id: SessionId,
-    /// Its agent.
-    pub running_agent_id: AgentId,
+    /// Its run.
+    pub running_holder: RunningHolder,
 }
 
 /// Declares [`WorktreeStatusRecord`]: each arm's own members, then the members every arm repeats.
@@ -476,6 +510,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorktreeRemovalRisks>(),
         Definition::read::<WorktreeRetireConflictDetails>(),
         Definition::read::<WorktreeRetireIncompleteDetails>(),
+        Definition::read::<RunningHolder>(),
         Definition::read::<WorktreeCarryCheckoutRunningDetails>(),
         Definition::read::<WorktreeStatusRecord>(),
         Definition::read::<WorktreeStatusReadRequest>().checked(),

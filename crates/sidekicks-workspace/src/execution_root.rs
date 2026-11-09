@@ -395,13 +395,14 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
         })
     }
 
-    /// The run setup gate's prepare of the held workspace for `run_id`: a non-blank `tail` makes a
-    /// worktree named from it, taking the first free ordinal; none prepares the stored mode. Fails
-    /// as [`ExecutionRootService::prepare_held`] does.
+    /// The run setup gate's prepare of the held workspace for a run: a non-blank `tail` makes a
+    /// worktree named from it, taking the first free ordinal, which records `agent_run_id` as its
+    /// creator where the run is an agent's; none prepares the stored mode. Fails as
+    /// [`ExecutionRootService::prepare_held`] does.
     pub(crate) async fn prepare_for_run_held(
         &self,
         hold: &WorkspacePreparationHold<'_>,
-        run_id: RunId,
+        agent_run_id: Option<RunId>,
         tail: Option<String>,
     ) -> Result<PreparedExecutionRoot, ExecutionRootError> {
         let name = tail
@@ -417,7 +418,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
             RootRequest {
                 name,
                 base_ref: None,
-                run_id: Some(run_id),
+                run_id: agent_run_id,
                 carry_uncommitted: false,
             },
         )
