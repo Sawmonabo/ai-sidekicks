@@ -61,16 +61,7 @@ pub(crate) async fn capture_provider_base_environment(
     stop: &CancellationToken,
 ) -> std::io::Result<Vec<(String, String)>> {
     let (account_name, shell, temporary_folder) = match base_environment_source()? {
-        BaseEnvironmentSource::ServiceEnvironment => {
-            return Ok(std::env::vars_os()
-                .map(|(name, value)| {
-                    (
-                        name.to_string_lossy().into_owned(),
-                        value.to_string_lossy().into_owned(),
-                    )
-                })
-                .collect());
-        }
+        BaseEnvironmentSource::ServiceEnvironment => return Ok(service_environment()),
         BaseEnvironmentSource::LoginShell {
             account_name,
             shell,
@@ -93,6 +84,19 @@ pub(crate) async fn capture_provider_base_environment(
         return Ok(account.pairs());
     };
     Ok(capture_login_shell_environment(spawner, &shell, LOGIN_SHELL_DEADLINE, stop, account).await)
+}
+
+/// The service's own environment as name-value pairs, each read lossily as Unicode: the base of
+/// every provider's process where the system has no login shell or the start is told to take it.
+pub(crate) fn service_environment() -> Vec<(String, String)> {
+    std::env::vars_os()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect()
 }
 
 // Runs the capture with `shell` and answers what it printed, the search path without the Windows

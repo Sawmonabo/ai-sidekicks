@@ -15,9 +15,7 @@ use sidekicks_contracts::daemon::lifecycle::DaemonStop;
 use sidekicks_contracts::daemon::service_status::{DaemonCannotStart, ServiceStatusFile};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_daemon::daemon::schema::schema_parts;
-use sidekicks_platforms::{
-    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, create_missing_private_folders, physical_memory,
-};
+use sidekicks_platforms::{create_missing_private_folders, physical_memory};
 use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
@@ -809,11 +807,6 @@ fn session_ids(database: &Path) -> Vec<String> {
 // service then ends at `daemon.stop`. Killed by the repaired file served without the copy aside.
 #[tokio::test]
 async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_copy_aside() {
-    // A full run writes the machine's keys into the credential store, which only on Linux is a file
-    // in the test's home; elsewhere it is the person's own keychain or Credential Manager.
-    if !CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER {
-        return;
-    }
     let sessions = [
         "019a2f00-0000-7000-8000-000000000001",
         "019a2f00-0000-7000-8000-000000000002",

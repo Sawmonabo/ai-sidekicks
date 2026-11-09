@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use alacritty_terminal::event::EventListener;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_READY_LINE;
+use sidekicks_daemon::program::ISOLATED_SERVICE_MODE;
 use sidekicks_platforms::{DaemonRunFolder, PathRules, Spawner};
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_terminal::{OutputFilter, ScreenListener};
@@ -64,11 +65,13 @@ pub(crate) fn short_home() -> tempfile::TempDir {
         .expect("a temporary home")
 }
 
-/// Starts the daemon's program as the service on `home`, its data and run folders there, its
-/// standard output and standard error piped; the process is killed when the child is dropped.
-/// Panics when the program does not start.
+/// Starts the daemon's program as the service on `home`, its data and run folders there, apart
+/// from the account: it runs no login shell and keeps its secrets in the plain items file there,
+/// never the account's keychain. Its standard output and standard error are piped; the process is
+/// killed when the child is dropped. Panics when the program does not start.
 pub(crate) fn start_service(home: &Path) -> Child {
     tokio::process::Command::new(DAEMON_PROGRAM)
+        .arg(ISOLATED_SERVICE_MODE)
         .env(PathRules::NATIVE.home_environment_name(), home)
         .env_remove("XDG_RUNTIME_DIR")
         .stdin(Stdio::null())

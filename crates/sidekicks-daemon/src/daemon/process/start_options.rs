@@ -15,6 +15,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::service_log::ServiceLogFiles;
 
+/// The program's argument that starts the service apart from the account it runs as: providers
+/// start from the service's own environment, never the login shell's, and the secrets stay in the
+/// plain items file in the data folder, never the account's keychain. A test of the program on a
+/// temporary home starts it so; an argument, unlike the environment, is never inherited.
+pub const ISOLATED_SERVICE_MODE: &str = "isolated-service";
+
 /// What the daemon's start runs with.
 pub(crate) struct DaemonStartOptions {
     /// The person's home, which holds the data folder.
@@ -35,8 +41,9 @@ pub(crate) struct DaemonStartOptions {
     pub(crate) stop: CancellationToken,
     /// Where the providers' base environment comes from.
     pub(crate) base_environment: ProviderBaseEnvironment,
-    /// The store the secret items and this machine's keys are kept in: the system's, or in a test
-    /// an in-memory one, so no test writes the person's keychain.
+    /// The store the secret items and this machine's keys are kept in: the system's, or for a start
+    /// on a temporary home an in-memory one or the plain items file, so no test writes the person's
+    /// keychain.
     pub(crate) credential_store: Arc<dyn CredentialStoreAccess>,
     /// Whether this is the Mac's system service, which runs while the person is logged out and
     /// keeps the secrets in files.
@@ -48,18 +55,11 @@ pub(crate) struct DaemonStartOptions {
     pub(crate) provider_registrations: &'static [ProviderRegistration],
 }
 
-/// Where the providers' base environment comes from: the real login-shell capture, or, in a test
-/// on a temporary home, the environment given (the capture would read the person's own dotfiles).
+/// Where the providers' base environment comes from: the real login-shell capture, or, for a start
+/// on a temporary home, the environment given (the capture would run the account's login shell).
 pub(crate) enum ProviderBaseEnvironment {
     /// The login shell's environment, captured once at the start.
     Capture,
     /// These name-value pairs, as they are.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a test starts the daemon on a temporary home with it"
-        )
-    )]
     Given(Arc<[(String, String)]>),
 }

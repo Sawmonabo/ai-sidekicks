@@ -23,8 +23,8 @@ use sidekicks_contracts::terminal::{
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_daemon::daemon::schema::schema_parts;
 use sidekicks_platforms::{
-    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, DaemonRunFolder, PinnedProcess,
-    create_missing_private_folders, default_shell, pin_running_process, run_test_as_own_root,
+    DaemonRunFolder, PinnedProcess, create_missing_private_folders, default_shell,
+    pin_running_process, run_test_as_own_root,
 };
 use sidekicks_shell::mode::SHELL_MODE;
 use sidekicks_store::data_folder::data_folder;
@@ -88,8 +88,10 @@ impl ServiceWithShell {
 }
 
 // Stores a project session working in `folder`: its directory row, a mount of the folder the
-// session holds, and a ready workspace rooted there, which is what a shell's open reads.
+// session holds, and a ready workspace rooted there, which is what a shell's open reads. The mount
+// and the workspace take minted ids, as the read of the working folder parses them.
 fn seed_session_in(connection: &Connection, session_id: &str, folder: &Path) {
+    let mount_id = mint_uuid_v7().to_string();
     connection
         .execute(
             "INSERT INTO sessions (id, shape, state, created_at, updated_at, last_activity_at)
@@ -102,14 +104,16 @@ fn seed_session_in(connection: &Connection, session_id: &str, folder: &Path) {
             ],
         )
         .expect("the session is stored");
-    insert_held_managed_mount(connection, "mount", folder, session_id);
+    insert_held_managed_mount(connection, &mount_id, folder, session_id);
     connection
         .execute(
             "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
                created_at, updated_at)
-             VALUES ('workspace', ?1, 'mount', ?2, ?3, ?4, ?5, ?5)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
             params![
+                mint_uuid_v7().to_string(),
                 session_id,
+                mount_id,
                 <&'static str>::from(ExecutionMode::BoundRoot),
                 folder.to_string_lossy(),
                 <&'static str>::from(WorkspaceState::Ready),
@@ -262,11 +266,6 @@ fn stop_ignoring_shell(folder: &Path) -> SpawnRequest {
 // terminals' drain all of its remaining time: the shell then lives until about 4 s after the ask.
 #[tokio::test]
 async fn a_shell_that_ignores_its_stop_is_killed_at_the_terminal_drain_bound() {
-    // A full run writes the machine's keys into the credential store, which only on Linux is a file
-    // in the test's home; elsewhere it is the person's own keychain or Credential Manager.
-    if !CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER {
-        return;
-    }
     let running = start_service_with_shell().await;
 
     let asked = Instant::now();
@@ -368,10 +367,6 @@ fn a_spawn_once_the_drain_began_is_refused() {
 // a drain begun when the last client leaves: no client's leaving reaches the terminals' drain.
 #[tokio::test]
 async fn a_client_that_leaves_drains_nothing() {
-    // As above: a full run writes the machine's keys where only Linux keeps them in the home.
-    if !CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER {
-        return;
-    }
     let ServiceWithShell {
         _home: home,
         service,

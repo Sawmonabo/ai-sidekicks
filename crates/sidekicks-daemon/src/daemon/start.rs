@@ -15,10 +15,10 @@ use std::time::Instant;
 
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
-    CodeSignatureError, ProgramLinkError, StopRequest, contain_daemon_descendants,
-    create_missing_private_folders, daemon_run_folder, install_tree_sitter_allocator, link_program,
-    process_identity, restrict_library_search, secret_store_offer, stable_working_folder,
-    turn_off_transparent_huge_pages,
+    CodeSignatureError, CredentialSeal, ProgramLinkError, SecretStoreOffer, StopRequest,
+    contain_daemon_descendants, create_missing_private_folders, daemon_run_folder,
+    install_tree_sitter_allocator, link_program, process_identity, restrict_library_search,
+    secret_store_offer, stable_working_folder, turn_off_transparent_huge_pages,
 };
 use sidekicks_provider::command::askpass::command_askpass_program_path;
 use sidekicks_provider::command::wrapper::command_wrapper_program_path;
@@ -34,6 +34,7 @@ use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::already_running_error::DaemonAlreadyRunningError;
+use crate::daemon::login_shell_environment::service_environment;
 use crate::daemon::own_root::become_own_root;
 use crate::daemon::panic_hook::install_panic_hook;
 use crate::daemon::process::start_error::DaemonStartError;
@@ -45,6 +46,10 @@ use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
 
 // The runtime's worker threads.
 const RUNTIME_WORKER_THREADS: usize = 2;
+
+// The socket in the data folder the isolated start names as systemd's credential service, where
+// nothing listens, so its secrets take the plain items file and no call reaches a keychain.
+const ISOLATED_SEAL_SOCKET_NAME: &str = "isolated-seal.sock";
 
 /// Why the service could not start or stop cleanly.
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +136,9 @@ pub(crate) enum ServiceStart {
     /// As the Mac's system service, which runs while the person is logged out and so cannot reach
     /// the login keychain.
     SystemService,
+    /// Apart from the account it runs as, as a test of the program on a temporary home starts it:
+    /// on the service's own environment, its secrets in the plain items file.
+    Isolated,
 }
 
 /// Runs the service started as `start`: makes it its own responsible process, prepares the
@@ -225,6 +233,17 @@ fn run_daemon(
     )?;
     let caller_process_reader =
         Arc::new(ProcessTableReader::for_this_program().map_err(ServiceStartError::CallerReader)?);
+    let (base_environment, offer) = match start {
+        ServiceStart::LoginSession | ServiceStart::SystemService => {
+            (ProviderBaseEnvironment::Capture, secret_store_offer())
+        }
+        ServiceStart::Isolated => (
+            ProviderBaseEnvironment::Given(Arc::from(service_environment())),
+            SecretStoreOffer::SealService(CredentialSeal::at(
+                data_folder(&home_folder).join(ISOLATED_SEAL_SOCKET_NAME),
+            )),
+        ),
+    };
     let (exit_code, drain_started) = runtime.block_on(async {
         let mut stop_request = match StopRequest::listen() {
             Ok(stop_request) => stop_request,
@@ -250,10 +269,8 @@ fn run_daemon(
             version: this_build_release_version(),
             caller_process_reader,
             stop,
-            base_environment: ProviderBaseEnvironment::Capture,
-            credential_store: Arc::new(SystemCredentialStore {
-                offer: secret_store_offer(),
-            }),
+            base_environment,
+            credential_store: Arc::new(SystemCredentialStore { offer }),
             runs_while_logged_out: start == ServiceStart::SystemService,
             service_log_files,
             provider_registrations: PROVIDER_REGISTRATIONS,

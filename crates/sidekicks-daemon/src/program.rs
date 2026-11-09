@@ -4,9 +4,10 @@
 //! choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console input <pid>`, `environment
 //! <marker>`, `index`, `minidump <socket>`, `database copy`, `database restore <backup folder>`,
 //! `data erase`, `secrets move files|keychain`, `secrets check keychain` or `database shell`; with
-//! no words it is the service in the person's login session, and with `system-service` it is the
-//! Mac's system service, which runs while the person is logged out. The `hook`, `wsl` and `banners`
-//! modes are their own features' to add here.
+//! no words it is the service in the person's login session, with `system-service` it is the Mac's
+//! system service, which runs while the person is logged out, and with `isolated-service` it is the
+//! service apart from the account it runs as, as a test on a temporary home starts it. The `hook`,
+//! `wsl` and `banners` modes are their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io;
@@ -38,6 +39,8 @@ use crate::daemon::start::{ServiceStart, run_service};
 use crate::data_acts::erase::mode::run_data_erase_mode;
 use crate::data_acts::secrets_move::{run_keychain_check_mode, run_secrets_move_mode};
 
+pub use crate::daemon::process::start_options::ISOLATED_SERVICE_MODE;
+
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.
 pub type SqliteShell = fn(&[CString]) -> c_int;
@@ -67,6 +70,7 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
     match words.as_slice() {
         [] => run_service(ServiceStart::LoginSession),
         [SYSTEM_SERVICE_MODE] => run_service(ServiceStart::SystemService),
+        [ISOLATED_SERVICE_MODE] => run_service(ServiceStart::Isolated),
         [SHELL_MODE, daemon_pid] => run_shell_mode(daemon_pid),
         [CONSOLE_MODE, rest @ ..] => run_console_mode(rest),
         [ENVIRONMENT_MODE, marker] => run_environment_mode(marker),
