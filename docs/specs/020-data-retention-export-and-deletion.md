@@ -47,7 +47,7 @@ This spec covers:
 
 - The session lifecycle must include one additional state beyond `archived`: `purgeRequested`.
 - `purgeRequested`: the person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the purge deletes the files only this session names. The purge then deletes the row (§Ordering And Atomicity), so no state follows `purgeRequested`: no row survives to hold one.
-- Allowed transitions: `archived -> purgeRequested` and `closed -> purgeRequested`. Both `archived` and `closed` sessions may be purged, and a session already `purgeRequested` is marked again when a purge that failed before its transaction is retried. `Delete session` on a session whose history is damaged ([Spec-013 §Required Behavior](013-persistence-and-recovery.md#required-behavior)) marks it from any state but `provisioning`, since a damaged session takes no close. Purge is irreversible.
+- Allowed transitions: `archived -> purgeRequested` and `closed -> purgeRequested`. Both `archived` and `closed` sessions may be purged, and a session already `purgeRequested` is marked again when a purge that failed before its transaction is retried. `Delete session` on a session whose history is damaged ([Spec-013 §Required Behavior](013-persistence-and-recovery.md#required-behavior)) marks it from any state but `provisioning`, and on a session whose create never finished ([Spec-001 §Required Behavior](001-session-core.md#required-behavior)) from `provisioning`, `archived`, `closed` or the `purgeRequested` a failed delete left only while it was never activated, so a finish that lands first refuses the mark, which answers `session.recovery.refused` `notDamaged`. Purge is irreversible.
 
 ### Retention Policy
 
@@ -100,7 +100,7 @@ This spec covers:
 ## Default Behavior
 
 - `Keep sessions for` is 90 days and `Keep diagnostic logs for` 7 days. A session becomes eligible for deletion once `Keep sessions for` has passed since it was archived or closed.
-- No session is purged except by the person's `Delete old data`. The diagnostic logs are the only data the service drops on its own, past their bound.
+- No session is purged except by the person's `Delete old data` or `Delete session`. The diagnostic logs are the only data the service drops on its own, past their bound.
 - Backups are off until the person turns on `Back up automatically` ([Spec-013 §Backup Policy](013-persistence-and-recovery.md#backup-policy)).
 
 ## Fallback Behavior

@@ -580,4 +580,89 @@ mod tests {
             (0, 2, superseded_at)
         );
     }
+
+    // The run starts turns 1 to 3, rolls back to turn 1, then starts two more turns, which stand at
+    // turns 2 and 3 of the next epoch. Every stretch of the log, read by a fresh attribution,
+    // stamps each event as the whole log does. Killed by a seed that stands the run at its start
+    // rather than reading the log, by the seed counting the turns started before the last rollback,
+    // and by the seed leaving out the turns the log's rollbacks superseded, which leaves turns 2
+    // and 3 of the first epoch unmarked in a stretch that ends before the rollback.
+    #[test]
+    fn a_run_first_met_partway_is_stamped_as_the_whole_log_stamps_it() {
+        let log = SessionTestLog::new(schema_parts());
+        let session_id = log.session_id;
+        let run_id = log.run_id;
+        let turn_started = |run_version: u64, turn_number: u64| {
+            log.write(
+                json!({
+                    "type": "agent.turn.started",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "runVersion": run_version,
+                        "turnNumber": turn_number,
+                    },
+                }),
+                None,
+            );
+        };
+        for turn_number in 1..=3 {
+            turn_started(1, turn_number);
+        }
+        log.write(
+            json!({
+                "type": "agent.run.rolledBack",
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "runVersion": 2,
+                    "targetPosition": 1,
+                },
+            }),
+            None,
+        );
+        // A turn's number is unique within its run; its place comes from where the run stands.
+        turn_started(2, 4);
+        turn_started(2, 5);
+        // Each event's epoch, turn and superseded mark, in log order.
+        let expected: [(u64, u64, Option<u64>); 6] = [
+            (0, 1, None),
+            (0, 2, Some(1)),
+            (0, 3, Some(1)),
+            (0, 1, None),
+            (1, 2, None),
+            (1, 3, None),
+        ];
+
+        let reader = log.reader();
+        let no_damage = |_: &SessionId| None;
+        let events = SessionEventReads::new(&reader, no_damage)
+            .read_after(&session_id, -1, -1, SessionEventFilter::default())
+            .expect("the run's events read");
+        assert_eq!(events.len(), expected.len());
+        let reads = RunTurnReads::new(&reader, no_damage);
+        for first in 0..events.len() {
+            for end in first + 1..=events.len() {
+                let mut attribution = SessionTurnAttribution::new(session_id);
+                let stamps: Vec<_> = events[first..end]
+                    .iter()
+                    .map(|event| {
+                        let stamp = attribution
+                            .attribute(&reads, event)
+                            .expect("each event is attributed")
+                            .expect("each event is the run's")
+                            .stamp;
+                        (
+                            stamp.epoch.0.get(),
+                            stamp.position.0.get(),
+                            stamp
+                                .superseded
+                                .map(|marker| marker.target_position.0.get()),
+                        )
+                    })
+                    .collect();
+                assert_eq!(stamps, expected[first..end], "the stretch {first}..{end}");
+            }
+        }
+    }
 }

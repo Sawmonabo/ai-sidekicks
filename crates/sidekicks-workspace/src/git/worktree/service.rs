@@ -56,9 +56,9 @@ use crate::git::worktree::rows::{
 use crate::repo::errors::RepoRefusal;
 use crate::trust_envelope::is_contained_within;
 
-// The `worktrees` columns [`worktree_row_of`] reads, in its order, for a query naming the table
-// `wt`.
-const WORKTREE_ROW_COLUMNS: &str = "wt.id, wt.repo_mount_id, wt.created_by_session_id, \
+/// The `worktrees` columns [`worktree_row_of`] reads, in its order, for a query naming the table
+/// `wt`.
+pub(crate) const WORKTREE_ROW_COLUMNS: &str = "wt.id, wt.repo_mount_id, wt.created_by_session_id, \
      wt.branch_name, wt.base_ref, wt.fs_root, wt.state";
 
 // A worktree's row and the place its mount's project is at.
@@ -729,8 +729,9 @@ fn retire_refusal(worktree_id: WorktreeId, write: WriteError) -> WorktreeRowRefu
     }
 }
 
-// The row [`WORKTREE_ROW_COLUMNS`] reads, from its first seven columns.
-fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
+/// The row [`WORKTREE_ROW_COLUMNS`] reads, from its first seven columns. Fails when a column does
+/// not read as its type.
+pub(crate) fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
     Ok(WorktreeRow {
         id: text_column(row, 0, |text| WorktreeId::new(&text))?,
         repo_mount_id: text_column(row, 1, |text| RepoMountId::new(&text))?,

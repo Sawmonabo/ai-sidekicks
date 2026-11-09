@@ -21,7 +21,8 @@ use crate::git::worktree::kept_copy::folder_move::{
 use crate::git::worktree::kept_copy::saved_state::{RepositoryStoreSettings, SavedStateError};
 use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::reads::{
-    BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME, common_folder_of_record, read_ref_heads,
+    BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME, UpstreamDistanceRead, common_folder_of_record,
+    read_ref_heads,
 };
 use crate::git::worktree::stale_record::{
     StaleRecordError, is_record_named_by, is_same_git_file, read_named_git_file,
@@ -229,6 +230,7 @@ async fn delete_own_branch(
         tools.place(),
         common_folder,
         &[branch_ref.as_str()],
+        UpstreamDistanceRead::Skipped,
     )
     .await
     .map_err(PutBackUndoError::Branch)?;

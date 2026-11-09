@@ -22,7 +22,7 @@ use sidekicks_std::outbound_http::KeptOutboundClient;
 use crate::attention::delivery::web_address::signature::{UnreadableSigningSecret, sign_message};
 
 /// How long an attempt waits for the address's answer, from the connection's start.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The idle connections kept to the address: the one a sequential sender reuses.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;

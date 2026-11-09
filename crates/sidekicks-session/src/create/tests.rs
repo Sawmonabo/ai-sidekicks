@@ -102,6 +102,8 @@ pub(super) struct Fixture {
     pub(super) database: TestDatabase,
     /// Writes rows straight to the database, as a service outside the creation does.
     pub(super) writer: Arc<DatabaseWriter>,
+    /// The log the creation appends through, which the session changes append through too.
+    event_log: Arc<EventLogService>,
     _scratch: TempDir,
     _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceReport>,
     settings: Arc<StoredSettings>,
@@ -216,7 +218,7 @@ impl Fixture {
         let creation = Arc::new(SessionCreation::new(SessionCreationDeps {
             reads,
             appender: Arc::new(SessionEventAppender::new(
-                event_log,
+                Arc::clone(&event_log),
                 SESSION_EVENT_VERSION.clone(),
             )),
             providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
@@ -227,6 +229,7 @@ impl Fixture {
         Self {
             database,
             writer,
+            event_log,
             _scratch: scratch,
             _writes: writes,
             settings,
@@ -751,3 +754,5 @@ async fn a_create_whose_caller_stops_waiting_still_activates_its_session() {
         Some("active".to_owned())
     );
 }
+
+mod unfinished;

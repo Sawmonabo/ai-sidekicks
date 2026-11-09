@@ -154,8 +154,8 @@ fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() 
 #[test]
 fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
     let log = SessionTestLog::new(schema_parts());
-    let (reply, _) = log.reply("m1", Some(0), "Hello, ");
-    log.reply("m1", Some(0), "world.");
+    let (reply, _) = log.reply("m1", Some((0, 1)), "Hello, ");
+    log.reply("m1", Some((0, 1)), "world.");
     let files = json!([
         { "path": "/repo/a.rs", "unavailable": "absent" },
         { "path": "/repo/b.rs", "unavailable": "absent" },

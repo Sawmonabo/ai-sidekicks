@@ -17,6 +17,14 @@
       "fault": null
     },
     {
+      "address": "https://app@evil.test/looks-like-app",
+      "fault": null
+    },
+    {
+      "address": "https://example.com/a?b",
+      "fault": null
+    },
+    {
       "address": "ftp://example.com/file",
       "fault": "scheme"
     },

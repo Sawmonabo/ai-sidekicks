@@ -230,7 +230,7 @@ interface SessionRecord {
   // revision, and the whole staged set, so every device opens the same half-written message. The
   // revision is what a save carries back as `expectedRevision`: 0 before any save, and one more at
   // each save and at each message a Stop or an interrupt puts back into it.
-  draft: HeldSessionDraft;
+  heldDraft: HeldSessionDraft;
   attachments: SessionAttachmentSummary[];
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
@@ -403,7 +403,7 @@ interface SessionDraft {
 interface SessionDraftUpdateRequest {
   sessionId: SessionId;
   draft: SessionDraft; // the whole draft; an empty one, no words and no extras, clears it
-  expectedRevision: number; // the draft's `revision` the save was typed over
+  expectedRevision: number; // the held draft's `revision` the save was typed over
 }
 interface SessionDraftUpdateResponse {
   sessionId: SessionId;
@@ -864,7 +864,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.tag.remove` | `mutation` | `SessionTagRequest` | `EmptyPayload` |
 | `session.tag.list` | `query` | `EmptyPayload` | `SessionTagListResponse` |
 
-`session.recovery.continue` (`Continue from here`) and `session.recovery.delete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
+`session.recovery.continue` (`Continue from here`) acts only on a session whose history is damaged, and `session.recovery.delete` (`Delete session`) on one whose history is damaged or whose create never finished; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
 
 `session.goal.update` and `session.goal.clear` are registered in orchestration-payloads.md §Plan-013's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
 

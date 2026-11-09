@@ -380,6 +380,7 @@ describe("the recovery pass at a restart", () => {
           runsFailedDeterministically: 2,
           runsHaltedForReconciliation: 0,
           runsInterrupted: 1,
+          runsStopped: 0,
           completedAt: OCCURRED_AT,
         },
       },

@@ -1,6 +1,7 @@
 //! Answers to a provider's choice over a test database holding one run waiting on a choice, bound
 //! to the table's first provider, whose driver is a stand-in: an answer the provider got with no
-//! reply back, settled by the provider's word and held again when its settle fails, the order an
+//! reply back, settled by the provider's word, kept past a report that the run still waits,
+//! dropped when the provider ended the run and held again when its settle fails, the order an
 //! answer is refused in, and the one settlement of each choice a run's end lets go, a taken held
 //! answer's among them, or an answer ends the run with.
 
@@ -347,6 +348,58 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
     assert_eq!(
         (fixture.state(), fixture.settlements()),
         ("running".to_owned(), 1)
+    );
+}
+
+// A held answer outlasts a report that its run still waits on input and settles at the next
+// report of the run running, and a report that the provider ended the run drops it, so no later
+// report settles it. Killed by settling at the waiting report (the provider may be asking a new
+// choice, which the earlier answer's settlement would then read as settled), by dropping the
+// answer there instead of holding it again (the `running` report settles nothing), and by
+// settling at the ended report (a `consent` settlement for an answer the provider never took).
+#[rstest]
+#[case::still_waiting(RunState::WaitingForInput, true, "running", 1)]
+#[case::ended(RunState::Failed, false, "waitingForInput", 0)]
+#[tokio::test]
+async fn a_held_answer_outlasts_a_waiting_report_and_is_dropped_when_the_run_ended(
+    #[case] first_report: RunState,
+    #[case] is_settled_by_the_running_report: bool,
+    #[case] state: &str,
+    #[case] settlements: i64,
+) {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
+    let answered = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    assert!(
+        matches!(
+            answered,
+            Err(ProviderChoiceError::Driver(DriverError::Unanswered(_)))
+        ),
+        "{answered:?}"
+    );
+
+    let first = fixture
+        .resolver
+        .settle_held_answer(fixture.run_id, first_report)
+        .await;
+    let after_first = (fixture.state(), fixture.settlements());
+    let running = fixture
+        .resolver
+        .settle_held_answer(fixture.run_id, RunState::Running)
+        .await;
+
+    assert!(matches!(first, Ok(false)), "{first:?}");
+    assert_eq!(after_first, ("waitingForInput".to_owned(), 0));
+    assert!(
+        matches!(running, Ok(wrote) if wrote == is_settled_by_the_running_report),
+        "{running:?}"
+    );
+    assert_eq!(
+        (fixture.state(), fixture.settlements()),
+        (state.to_owned(), settlements)
     );
 }
 
