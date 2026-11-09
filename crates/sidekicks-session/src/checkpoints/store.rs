@@ -1,18 +1,15 @@
 //! The checkpoint rows' writes, each a statement built from plain values for the caller's own
-//! write, and the reads an undo, its dry run, the command windows and the edits take: a checkpoint
-//! by the point a request names, a session's checkpoints and its newest, the paths one checkpoint
-//! holds and whether it holds one, per path the version an undo puts back, the commands no capture
-//! covered and the edits whose copy failed, the windows a stop left open, and a saved undo outcome
-//! by its key. The shadow rows of files over 10 MiB are in [`shadows`].
-//! A checkpoint whose turn a later undo cut away stands in history that no longer exists, so the
-//! list leaves it out and a read of it refuses.
+//! write, and the reads an undo, its dry run, the command windows and the edits take: a session's
+//! newest checkpoint, the paths one checkpoint holds and whether it holds one, per path the version
+//! an undo puts back, the commands no capture covered and the edits whose copy failed, the windows
+//! a stop left open, and a saved undo outcome by its key. The reads that leave out a checkpoint a
+//! later undo cut away are in [`kept`]; the shadow rows of files over 10 MiB are in [`shadows`].
 //!
 //! A point is a place in the session's log: an undo goes back to before the event at
 //! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
 
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
@@ -23,16 +20,10 @@ use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::event_cursor::{
-    SessionEventCursorUnresolvable, decode_event_cursor,
-};
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::restore::{
-    SessionRestoreOutcome, SessionRestoreTarget, SnapshotId,
-};
-use sidekicks_contracts::transcript::turn_attribution::{
-    EpochPosition, SupersededTurns, transcript_run_stamp_at,
-};
+use sidekicks_contracts::session::restore::{SessionRestoreOutcome, SnapshotId};
+use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::id::{ClientUuid, IdError, UuidText, UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -47,18 +38,28 @@ use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
 use crate::checkpoints::store::shadows::ShadowId;
-use crate::run::superseded::{
-    StoredRollbackMismatchError, SupersededTurnsReadError, read_superseded_turns,
-};
 
-// A prompt already kept keeps its first checkpoint: a second turn its message opens writes nothing.
+// A prompt already kept keeps its first checkpoint: a steer that lands again writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_checkpoints
-  (checkpoint_id, session_id, message_sequence, run_id, epoch, position, created_at)
-  VALUES (@checkpointId, @sessionId, @messageSequence, @runId, @epoch, @position,
+  (checkpoint_id, session_id, message_sequence, run_id, turn_number, epoch, position, created_at)
+  VALUES (@checkpointId, @sessionId, @messageSequence, @runId, @turnNumber, @epoch, @position,
           {DATABASE_NOW_SQL})
   ON CONFLICT (session_id, message_sequence) DO NOTHING"
+    )
+});
+
+// The checkpoint at the sequence the session's log gives its next event, which is the turn start
+// whose append's prelude this statement rides: that append writes no event before the start.
+static INSERT_TURN_START_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO session_checkpoints
+  (checkpoint_id, session_id, message_sequence, run_id, turn_number, turn_opening_id, epoch,
+   position, created_at)
+  VALUES (@checkpointId, @sessionId,
+          COALESCE((SELECT MAX(sequence) FROM session_events WHERE session_id = @sessionId) + 1, 0),
+          @runId, @turnNumber, @turnOpeningId, @epoch, @position, {DATABASE_NOW_SQL})"
     )
 });
 
@@ -105,24 +106,20 @@ static INSERT_RESTORE_SQL: LazyLock<String> = LazyLock::new(|| {
 macro_rules! select_checkpoints {
     ($tail:literal) => {
         concat!(
-            "SELECT checkpoint_id, session_id, message_sequence, run_id, epoch, position, created_at
+            "SELECT checkpoint_id, session_id, message_sequence, run_id, turn_number, epoch, position,
+       created_at, turn_opening_id
   FROM session_checkpoints ",
             $tail
         )
     };
 }
 
-const CHECKPOINT_BY_ID_SQL: &str =
-    select_checkpoints!("WHERE checkpoint_id = @checkpointId AND session_id = @sessionId");
-
-const CHECKPOINT_BY_MESSAGE_SQL: &str =
-    select_checkpoints!("WHERE session_id = @sessionId AND message_sequence = @messageSequence");
-
-const CHECKPOINTS_OF_SESSION_SQL: &str =
-    select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence");
-
 const NEWEST_CHECKPOINT_SQL: &str =
     select_checkpoints!("WHERE session_id = @sessionId ORDER BY message_sequence DESC LIMIT 1");
+
+// One probe of the checkpoints' prompt index.
+const PROMPT_KEPT_SQL: &str = "SELECT EXISTS (SELECT 1 FROM session_checkpoints
+  WHERE session_id = @sessionId AND message_sequence = @messageSequence)";
 
 const RECORDED_PATHS_SQL: &str =
     "SELECT DISTINCT path FROM checkpoint_versions WHERE checkpoint_id = @checkpointId";
@@ -206,17 +203,20 @@ impl CommandWindowId {
 }
 
 /// A checkpoint as a turn's start or a steer's landing records it: the point before one of the
-/// person's prompts.
+/// person's prompts, or before a turn no new message of the person's opened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checkpoint {
     /// The checkpoint, by the snapshot id a client names it with.
     pub checkpoint_id: SnapshotId,
     /// Its session.
     pub session_id: SessionId,
-    /// The prompt's sequence in the session's log.
+    /// The prompt's sequence in the session's log, or the turn start's own for a turn no new
+    /// message of the person's opened.
     pub message_sequence: SafeInt<0>,
     /// The run the prompt opened or steered a turn of.
     pub run_id: RunId,
+    /// That turn's number on the run, which never repeats.
+    pub turn_number: SafeInt<1>,
     /// The run's execution epoch and the prompt's run position in it.
     pub turn: EpochPosition,
 }
@@ -228,6 +228,10 @@ pub struct StoredCheckpoint {
     pub checkpoint: Checkpoint,
     /// When it was recorded.
     pub created_at: WireInstant,
+    /// The queue item the start of a turn no new message of the person's opened was opened with:
+    /// a review, or a message an earlier turn already sent. `None` on a prompt's checkpoint, whose
+    /// own sent message names its queue item, and on a turn no queue item opened.
+    pub turn_opening_id: Option<QueueItemId>,
 }
 
 /// One change a turn recorded to a path: which leg saw it and what was kept of the path before.
@@ -322,36 +326,6 @@ pub struct FailedEdit {
     pub tool_call_id: ToolCallId,
 }
 
-/// Why a checkpoint could not be read for an undo's target.
-#[derive(Debug, thiserror::Error)]
-pub enum CheckpointReadError {
-    /// The target's message cursor names no place in the session's log.
-    #[error(transparent)]
-    CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
-    /// A later undo cut the conversation back past the checkpoint's turn, so the history it
-    /// stands in no longer exists.
-    #[error("checkpoint {} lies in history a later undo cut away", .checkpoint_id.as_str())]
-    Superseded {
-        /// The checkpoint.
-        checkpoint_id: SnapshotId,
-    },
-    /// SQLite failed the read, or a stored column did not read as its type.
-    #[error("the checkpoint could not be read")]
-    Database(#[from] rusqlite::Error),
-    /// A stored rollback of the checkpoint's run does not match its contract.
-    #[error(transparent)]
-    Rollback(#[from] StoredRollbackMismatchError),
-}
-
-impl From<SupersededTurnsReadError> for CheckpointReadError {
-    fn from(error: SupersededTurnsReadError) -> Self {
-        match error {
-            SupersededTurnsReadError::Database(error) => Self::Database(error),
-            SupersededTurnsReadError::Rollback(error) => Self::Rollback(error),
-        }
-    }
-}
-
 /// A stored checkpoint member that does not read as its type; it names the member only.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored checkpoint's {0} does not read")]
@@ -360,18 +334,65 @@ struct StoredCheckpointMemberInvalid(&'static str);
 /// The checkpoint row `checkpoint` writes at its turn's start or its steer's landing. A prompt
 /// already kept writes nothing; an id already kept is refused by SQLite.
 pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
+    let mut bindings = checkpoint_bindings(
+        &checkpoint.checkpoint_id,
+        checkpoint.session_id,
+        checkpoint.run_id,
+        checkpoint.turn_number,
+        checkpoint.turn,
+    );
+    bindings.push(integer_binding(
+        "@messageSequence",
+        checkpoint.message_sequence,
+    ));
     WriteStatement {
         sql: Cow::Borrowed(INSERT_CHECKPOINT_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![
-            text_binding("@checkpointId", checkpoint.checkpoint_id.as_str()),
-            text_binding("@sessionId", checkpoint.session_id.text().as_str()),
-            integer_binding("@messageSequence", checkpoint.message_sequence),
-            text_binding("@runId", checkpoint.run_id.text().as_str()),
-            integer_binding("@epoch", checkpoint.turn.epoch.0),
-            integer_binding("@position", checkpoint.turn.position.0),
-        ]),
+        bindings: StatementBindings::Named(bindings),
         expected_row_count: None,
     }
+}
+
+/// The checkpoint row the start of `turn_number` of `run_id`, standing at `turn` and opened with
+/// the queue item `opening` where one opened it, writes in its own append's prelude where no new
+/// message of the person's opened the turn, at the start's own sequence. Only that prelude may
+/// carry it: an event written before the start in the same append would take the sequence it
+/// names.
+pub(crate) fn insert_turn_start_checkpoint_statement(
+    checkpoint_id: &SnapshotId,
+    session_id: SessionId,
+    run_id: RunId,
+    turn_number: SafeInt<1>,
+    turn: EpochPosition,
+    opening: Option<QueueItemId>,
+) -> WriteStatement {
+    let mut bindings = checkpoint_bindings(checkpoint_id, session_id, run_id, turn_number, turn);
+    bindings.push(nullable_text_binding(
+        "@turnOpeningId",
+        opening.map(|opening| opening.to_string()).as_deref(),
+    ));
+    WriteStatement {
+        sql: Cow::Borrowed(INSERT_TURN_START_CHECKPOINT_SQL.as_str()),
+        bindings: StatementBindings::Named(bindings),
+        expected_row_count: Some(1),
+    }
+}
+
+// The bindings every checkpoint row's insert takes but its prompt's sequence.
+fn checkpoint_bindings(
+    checkpoint_id: &SnapshotId,
+    session_id: SessionId,
+    run_id: RunId,
+    turn_number: SafeInt<1>,
+    turn: EpochPosition,
+) -> Vec<(Cow<'static, str>, SqlValue)> {
+    vec![
+        text_binding("@checkpointId", checkpoint_id.as_str()),
+        text_binding("@sessionId", session_id.text().as_str()),
+        text_binding("@runId", run_id.text().as_str()),
+        integer_binding("@turnNumber", turn_number),
+        integer_binding("@epoch", turn.epoch.0),
+        integer_binding("@position", turn.position.0),
+    ]
 }
 
 /// The row of `version`, recorded in `checkpoint_id` after every version it already holds.
@@ -509,109 +530,6 @@ pub fn insert_restore_statement(
     }
 }
 
-/// The checkpoint of `session_id` that `target` names: the one before the message its cursor
-/// places, or the snapshot it names. `None` when the session holds no such checkpoint. The undos
-/// that superseded it are read from the log as far as `read_damaged_from_sequence` lets it read.
-/// Fails with [`CheckpointReadError::CursorUnresolvable`] for a cursor that names no place in the
-/// log, [`CheckpointReadError::Superseded`] for a checkpoint a later undo cut away, and as SQLite
-/// does or when a stored column or rollback does not read.
-pub fn read_checkpoint(
-    connection: &Connection,
-    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
-    session_id: SessionId,
-    target: &SessionRestoreTarget,
-) -> Result<Option<StoredCheckpoint>, CheckpointReadError> {
-    let session = session_id.text();
-    let checkpoint = match target {
-        SessionRestoreTarget::Message { anchor_cursor } => {
-            // The start of the log is no message, so no checkpoint stands there.
-            let Ok(sequence) = u64::try_from(decode_event_cursor(anchor_cursor)?) else {
-                return Ok(None);
-            };
-            let sequence =
-                SafeInt::<0>::new(sequence).expect("a decoded cursor's position is a safe integer");
-            connection
-                .prepare_cached(CHECKPOINT_BY_MESSAGE_SQL)?
-                .query_row(
-                    named_params! {
-                        "@sessionId": session.as_str(),
-                        "@messageSequence": i64::from(sequence),
-                    },
-                    stored_checkpoint_of,
-                )
-                .optional()?
-        }
-        SessionRestoreTarget::Snapshot { snapshot_id } => connection
-            .prepare_cached(CHECKPOINT_BY_ID_SQL)?
-            .query_row(
-                named_params! {
-                    "@checkpointId": snapshot_id.as_str(),
-                    "@sessionId": session.as_str(),
-                },
-                stored_checkpoint_of,
-            )
-            .optional()?,
-    };
-    if let Some(stored) = &checkpoint {
-        let turns = read_superseded_turns(
-            connection,
-            read_damaged_from_sequence,
-            &session_id,
-            &stored.checkpoint.run_id,
-        )?;
-        if is_superseded(&turns, &stored.checkpoint) {
-            return Err(CheckpointReadError::Superseded {
-                checkpoint_id: stored.checkpoint.checkpoint_id.clone(),
-            });
-        }
-    }
-    Ok(checkpoint)
-}
-
-/// `session_id`'s checkpoints, oldest prompt first, but those a later undo cut away, read from the
-/// log as far as `read_damaged_from_sequence` lets it read. Fails with the rollbacks' read error,
-/// which also carries this list's own: [`SupersededTurnsReadError::Database`] when SQLite refuses
-/// the checkpoints' read or a run's rollbacks' read, or a stored column does not read, and
-/// [`SupersededTurnsReadError::Rollback`] when a stored rollback does not.
-pub fn list_checkpoints(
-    connection: &Connection,
-    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
-    session_id: SessionId,
-) -> Result<Vec<StoredCheckpoint>, SupersededTurnsReadError> {
-    let checkpoints = connection
-        .prepare_cached(CHECKPOINTS_OF_SESSION_SQL)?
-        .query_map(
-            named_params! { "@sessionId": session_id.text().as_str() },
-            stored_checkpoint_of,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut turns_by_run: HashMap<RunId, SupersededTurns> = HashMap::new();
-    let mut kept = Vec::with_capacity(checkpoints.len());
-    for stored in checkpoints {
-        let run_id = stored.checkpoint.run_id;
-        let turns = match turns_by_run.entry(run_id) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(read_superseded_turns(
-                connection,
-                &read_damaged_from_sequence,
-                &session_id,
-                &run_id,
-            )?),
-        };
-        if !is_superseded(turns, &stored.checkpoint) {
-            kept.push(stored);
-        }
-    }
-    Ok(kept)
-}
-
-// Whether a rollback of the checkpoint's run cut its turn away.
-fn is_superseded(turns: &SupersededTurns, checkpoint: &Checkpoint) -> bool {
-    transcript_run_stamp_at(turns, checkpoint.turn)
-        .superseded
-        .is_some()
-}
-
 /// Per path, the version an undo of `session_id` to before the log event at `before_sequence`
 /// puts back: the earliest of the checkpoints at or past that point, a version that kept no copy
 /// returned as such so the undo names its skip. Ordered by path. Fails as SQLite does, or when a
@@ -700,6 +618,22 @@ pub fn newest_checkpoint(
         .optional()
 }
 
+/// Whether a checkpoint of `session_id`, standing or cut away, holds the prompt at
+/// `message_sequence`. Fails as SQLite does.
+pub(crate) fn is_prompt_kept(
+    connection: &Connection,
+    session_id: SessionId,
+    message_sequence: SafeInt<0>,
+) -> rusqlite::Result<bool> {
+    connection.prepare_cached(PROMPT_KEPT_SQL)?.query_row(
+        named_params! {
+            "@sessionId": session_id.text().as_str(),
+            "@messageSequence": i64::from(message_sequence),
+        },
+        |row| row.get(0),
+    )
+}
+
 /// Every path a version of `checkpoint_id` names. Fails as SQLite does, or when a stored path does
 /// not read.
 pub fn recorded_paths(
@@ -765,7 +699,10 @@ pub fn read_restore(
         .optional()
 }
 
-fn integer_binding(name: &'static str, value: SafeInt<0>) -> (Cow<'static, str>, SqlValue) {
+fn integer_binding<const MIN: u64>(
+    name: &'static str,
+    value: SafeInt<MIN>,
+) -> (Cow<'static, str>, SqlValue) {
     (Cow::Borrowed(name), SqlValue::Integer(i64::from(value)))
 }
 
@@ -781,12 +718,14 @@ fn stored_checkpoint_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpoint> {
             session_id: text_column(row, 1, |text| SessionId::new(&text))?,
             message_sequence: safe_int_column(row, 2)?,
             run_id: text_column(row, 3, |text| RunId::new(&text))?,
+            turn_number: safe_int_column(row, 4)?,
             turn: EpochPosition {
-                epoch: SourceEpoch(safe_int_column(row, 4)?),
-                position: SourcePosition(safe_int_column(row, 5)?),
+                epoch: SourceEpoch(safe_int_column(row, 5)?),
+                position: SourcePosition(safe_int_column(row, 6)?),
             },
         },
-        created_at: text_column(row, 6, WireInstant::try_from)?,
+        created_at: text_column(row, 7, WireInstant::try_from)?,
+        turn_opening_id: optional_text_column(row, 8, |text| QueueItemId::new(&text))?,
     })
 }
 
@@ -824,6 +763,7 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
     })
 }
 
+pub mod kept;
 pub mod shadows;
 #[cfg(test)]
 pub(crate) mod tests;

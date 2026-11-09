@@ -1,5 +1,5 @@
 //! The checkpoint row a turn's start or a steer's landing writes in its own write, before the
-//! person's message that opened the turn or steered it.
+//! person's message that opened the turn or steered it, or before a start no new message opened.
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::checkpoints::schema::schema_parts;
-use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
+use crate::checkpoints::store::kept::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{end_run_aside, insert_run, test_engine};
 use crate::run::engine::tests::{minted_item, send, stored_events, turn};
@@ -60,13 +60,34 @@ fn epoch_position(epoch: u64, position: u64) -> EpochPosition {
     }
 }
 
+// The sequence of the start of turn `turn_number` of `run_id`.
+fn start_sequence(database: &TestDatabase, run_id: RunId, turn_number: u64) -> SafeInt<0> {
+    let sequence: i64 = database
+        .reader()
+        .query_row(
+            "SELECT sequence FROM session_events
+              WHERE run_id = ?1 AND type = 'agent.turn.started'
+                AND json_extract(payload, '$.turnNumber') = ?2",
+            rusqlite::params![
+                run_id.text().as_str(),
+                i64::try_from(turn_number).expect("a small turn number")
+            ],
+            |row| row.get(0),
+        )
+        .expect("the test reads the turn's start");
+    u64::try_from(sequence)
+        .ok()
+        .and_then(SafeInt::new)
+        .expect("a stored sequence is a safe integer")
+}
+
 // Lists the session's checkpoints, asserting each reads back by its snapshot and by its message,
-// and answers each one's message sequence and turn.
+// and answers each one's message sequence, turn number and turn.
 fn check_listed_checkpoints(
     database: &TestDatabase,
     session_id: SessionId,
     run_id: RunId,
-) -> Vec<(SafeInt<0>, EpochPosition)> {
+) -> Vec<(SafeInt<0>, u64, EpochPosition)> {
     let reader = database.reader();
     let stored = list_checkpoints(&reader, |_| None, session_id).expect("the checkpoints read");
     for row in &stored {
@@ -90,18 +111,27 @@ fn check_listed_checkpoints(
     }
     stored
         .iter()
-        .map(|row| (row.checkpoint.message_sequence, row.checkpoint.turn))
+        .map(|row| {
+            (
+                row.checkpoint.message_sequence,
+                row.checkpoint.turn_number.get(),
+                row.checkpoint.turn,
+            )
+        })
         .collect()
 }
 
-// Killed by a row keyed on the turn's number or the start's own sequence, by the standing read
-// without this start applied (every position one short), by the epoch not read (the row after
-// the rollback in epoch 0), by a second row for P2 or a plain insert refusing the start that names
-// it again, by a row for a turn with no opening, and by a row written apart from its start (one
-// for the ended run's start). The rollback cuts the epoch's first rows away, so the list reads
-// them before it and only the new epoch's row after.
+// Every turn start writes one row: before its opening message, and before the start itself for a
+// turn no message opened and for one whose message a row already holds, as a faster model's
+// retry opens again. Killed by a row keyed on the start's own sequence where a new message opened
+// it, by the standing read without this start applied (every position one short), by the epoch
+// not read (the row after the rollback in epoch 0), by the turn's number not written, by no row
+// for a turn with no opening, by the opening's row tried again for a message already kept (the
+// conflict swallows the retry's row), and by a row written apart from its start (one for the
+// ended run's start). The rollback cuts the epoch's first rows away, so the list reads them before
+// it and only the new epoch's row after.
 #[tokio::test]
-async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_start() {
+async fn each_turn_start_writes_one_checkpoint_with_its_start() {
     let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
@@ -132,8 +162,18 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     assert_eq!(
         check_listed_checkpoints(&database, session_id, run_id),
         vec![
-            (first_sequence, epoch_position(0, 1)),
-            (second_sequence, epoch_position(0, 2)),
+            (first_sequence, 1, epoch_position(0, 1)),
+            (second_sequence, 2, epoch_position(0, 2)),
+            (
+                start_sequence(&database, run_id, 3),
+                3,
+                epoch_position(0, 3)
+            ),
+            (
+                start_sequence(&database, run_id, 4),
+                4,
+                epoch_position(0, 4)
+            ),
         ]
     );
     let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
@@ -158,7 +198,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
 
     assert_eq!(
         check_listed_checkpoints(&database, session_id, run_id),
-        vec![(third_sequence, epoch_position(1, 1))]
+        vec![(third_sequence, 5, epoch_position(1, 1))]
     );
 }
 
@@ -194,8 +234,8 @@ async fn a_steers_write_records_its_checkpoint_at_its_position() {
         .expect("the steer is written");
     assert!(matches!(written, SteerRecord::Written(_)), "{written:?}");
     let recorded = vec![
-        (opening_sequence, epoch_position(0, 1)),
-        (steer_sequence, epoch_position(0, 2)),
+        (opening_sequence, 1, epoch_position(0, 1)),
+        (steer_sequence, 1, epoch_position(0, 2)),
     ];
     assert_eq!(
         check_listed_checkpoints(&database, session_id, run_id),

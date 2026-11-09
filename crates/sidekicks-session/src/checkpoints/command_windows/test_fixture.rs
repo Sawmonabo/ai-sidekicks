@@ -160,6 +160,7 @@ impl Fixture {
             session_id: self.session_id,
             message_sequence: SafeInt::ZERO,
             run_id,
+            turn_number: SafeInt::new(1).expect("a turn number"),
             turn: EpochPosition {
                 epoch: SourceEpoch(SafeInt::ZERO),
                 position: SourcePosition(SafeInt::ZERO),

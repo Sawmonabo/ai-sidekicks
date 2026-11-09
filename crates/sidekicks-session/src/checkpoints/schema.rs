@@ -124,18 +124,25 @@ fn checkpoint_schema_sql() -> String {
     let not_kept_reasons = sql_list_of_every::<NotKeptReason>();
     format!(
         "
--- One row per prompt that opened or steered a turn: the point an undo goes back to, before that
--- message.
+-- One row per prompt that opened or steered a turn, and per turn start no new prompt opened: the
+-- point an undo goes back to, before that message or that turn.
 CREATE TABLE session_checkpoints (
   checkpoint_id     TEXT PRIMARY KEY,           -- the snapshot id a client names it by
   session_id        TEXT NOT NULL,
   message_sequence  INTEGER NOT NULL CHECK(message_sequence >= 0), -- the prompt's place in the log
   run_id            TEXT NOT NULL,
+  turn_number       INTEGER NOT NULL CHECK(turn_number >= 1),  -- the turn it opened or steered
+  -- The queue item a turn's start was opened with where no message of its own stands at the row:
+  -- a review, or a message an earlier turn sent; NULL on a prompt's row and a provider's turn.
+  turn_opening_id   TEXT,
   epoch             INTEGER NOT NULL CHECK(epoch >= 0),     -- the run's execution epoch
   position          INTEGER NOT NULL CHECK(position >= 0),  -- the prompt's run position
   created_at        TEXT NOT NULL,
   UNIQUE (session_id, message_sequence)
 ) STRICT;
+
+-- A turn's checkpoints, its start's first, which an undo to a steer reads its turn's start by.
+CREATE INDEX idx_session_checkpoints_turn ON session_checkpoints(run_id, turn_number, position);
 
 -- One row per command window: the captures before and after a command the agent ran, and
 -- whether its before-capture was taken before it ran.

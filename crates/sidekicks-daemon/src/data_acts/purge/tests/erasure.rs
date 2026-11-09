@@ -240,8 +240,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     reader
         .execute_batch(&format!(
             "INSERT INTO session_checkpoints (checkpoint_id, session_id, message_sequence, run_id,
-               epoch, position, created_at)
-             VALUES ('{checkpoint_id}', '{session}', 1, '{lead_run}', 0, 1, '{at}');
+               turn_number, epoch, position, created_at)
+             VALUES ('{checkpoint_id}', '{session}', 1, '{lead_run}', 1, 0, 1, '{at}');
              INSERT INTO checkpoint_commands (window_id, checkpoint_id, command, started_at)
              VALUES ('{window_id}', '{checkpoint_id}', '{MARKER}', '{at}');
              INSERT INTO checkpoint_shadows (shadow_id, session_id, path, not_kept_reason,

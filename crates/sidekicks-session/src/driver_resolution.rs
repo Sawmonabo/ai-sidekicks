@@ -52,7 +52,7 @@ impl From<LiveRunDriverError> for HandlerError {
 /// The driver of the provider `bound` names, which the caller read from the run's binding once it
 /// found the run live. Fails with [`LiveRunDriverError::Unbound`] for `None` and
 /// [`LiveRunDriverError::ProviderNotFound`] for a provider no driver answers.
-pub(crate) fn resolve_live_run_driver(
+pub fn resolve_live_run_driver(
     providers: &ProviderRegistry,
     run_id: RunId,
     bound: Option<ProviderId>,

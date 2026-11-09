@@ -2,10 +2,8 @@
 //! refused before the provider is asked, an applied one lands with its companions and keeps the
 //! hold, a fork moves the session to its binding and records it with the conversation it left, a
 //! fork the daemon cannot record is closed and fails the cut, every later run rolls back in the
-//! same write, no cut is asked of the provider while a turn is open, a turn the provider opens
-//! once it answered opens after the write, and an undo to a steer lands at the steer where the
-//! provider cuts inside a turn and at its turn's opening where it cuts only at turns, its files
-//! alone exact on both and its resend carrying the turn's messages.
+//! same write, no cut is asked of the provider while a turn is open, and a turn the provider opens
+//! once it answered opens after the write. The undo to a steer is in `steer`.
 
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
@@ -20,10 +18,8 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::{AgentRunRecoveryResolvedPayload, RunRecoveryChoice};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::restore::{
-    SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
-};
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_contracts::session::restore::SessionRestoreTarget;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::{ForkedBinding, RewindConversationResult};
 use sidekicks_provider::driver::session_control::SessionCloseCause;
@@ -33,8 +29,7 @@ use sidekicks_provider::run::turn_end::StartedTurn;
 use sidekicks_provider::runtime_binding::store::{mint_runtime_binding_id, read_binding};
 use sidekicks_provider::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
-use sidekicks_session::checkpoints::store::list_checkpoints;
-use sidekicks_session::queue_store::QueueItemReader;
+use sidekicks_session::checkpoints::store::kept::list_checkpoints;
 use sidekicks_session::run::binding_cursors::RunBindingCursorError;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
@@ -50,14 +45,13 @@ use tokio::time::timeout;
 
 use super::super::{HELD_WATCH, WAIT, client_key};
 use super::{
-    OPENING_EDIT, OPENING_WORDS, ProcessClose, RewindAnswer, STEER_EDIT, STEER_POSITION,
-    STEER_WORDS, Scene, TARGET_POSITION, applied_in_place, device, epoch_position, position, scene,
-    steer_scene,
+    OPENING_WORDS, ProcessClose, RewindAnswer, STEER_POSITION, Scene, TARGET_POSITION,
+    TARGET_TURN_NUMBER, applied_in_place, cut_words, epoch_position, position, scene, steer_scene,
 };
 use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
-use crate::service::undo::reach::UndoReach;
 use crate::service::undo::{ConversationCut, ConversationCutError};
+use crate::test_items::Form;
 
 /// The companions recovery passes when it undoes to where both sides agree: its resolution, and a
 /// guard that holds only while `run_id` stands at `run_version` once the rollback moved it, with
@@ -279,12 +273,13 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .await
         .expect("the cut applies");
     let (_, message_sequence) = fixture
-        .insert_sent_message(scene.run_id, OPENING_WORDS)
+        .insert_sent_message(scene.run_id, Form::Words(OPENING_WORDS))
         .await;
     let reopened = fixture
         .insert_checkpoint(
             scene.run_id,
             message_sequence,
+            TARGET_TURN_NUMBER + 1,
             epoch_position(1, TARGET_POSITION),
         )
         .await;
@@ -338,9 +333,13 @@ fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> Rewind
 #[tokio::test]
 async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fork_binding_id = mint_runtime_binding_id();
-    let scene = steer_scene(applied_on_fork(&fork_binding_id, "fork-conversation"), true)
-        .await
-        .scene;
+    let scene = steer_scene(
+        applied_on_fork(&fork_binding_id, "fork-conversation"),
+        true,
+        Form::Words(OPENING_WORDS),
+    )
+    .await
+    .scene;
     let fixture = &scene.fixture;
     let binding_cursors = fixture.queue.provider_sessions.binding_cursors();
     let source_binding_id = binding_cursors
@@ -515,7 +514,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
     let scene = scene(applied_in_place()).await;
     let fixture = &scene.fixture;
     fixture
-        .append_turn_event(scene.run_id, "agent.turn.started")
+        .append_turn_event(scene.run_id, "agent.turn.started", TARGET_TURN_NUMBER)
         .await;
     fixture.set_run_state(scene.run_id, "interrupted");
     let hold = fixture
@@ -530,7 +529,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
     let version_while_open = fixture.run_version(scene.run_id);
     fixture
-        .append_turn_event(scene.run_id, "agent.turn.completed")
+        .append_turn_event(scene.run_id, "agent.turn.completed", TARGET_TURN_NUMBER)
         .await;
     let applied = fixture
         .queue
@@ -640,169 +639,5 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         ]),
         "{:?}",
         fixture.event_types()
-    );
-}
-
-/// The words of each message `reach` takes back, in its order.
-fn cut_words(reach: &UndoReach) -> Vec<&str> {
-    reach
-        .cut_messages
-        .iter()
-        .map(|message| message.body.content.as_str())
-        .collect()
-}
-
-/// Cuts the scene's conversation to its target with no companions, under a fresh hold, and
-/// answers the rollbacks' run positions and the reach.
-async fn cut_to_target(scene: &Scene) -> (Vec<SourcePosition>, UndoReach) {
-    let fixture = &scene.fixture;
-    let hold = fixture
-        .queue
-        .hold_for_undo(fixture.session_id, client_key())
-        .await;
-    let cut = fixture
-        .queue
-        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
-        .await
-        .expect("the cut applies");
-    let ConversationCut::Applied { rollbacks, reach } = cut else {
-        panic!("the provider applied the cut");
-    };
-    let positions = rollbacks
-        .iter()
-        .map(|rollback| rollback.event.target_position)
-        .collect();
-    (positions, reach)
-}
-
-// On a provider whose cut lands inside a turn, an undo to a steer asks the cut before the steer
-// itself, rolls the run back to the position before the steer's, leaves the opening's checkpoint
-// listed and the steer's cut away, puts back only the edit made after the steer and takes back
-// the steer's words alone. Killed by the reach read as the turn's opening for the steer.
-#[tokio::test]
-async fn an_undo_on_a_steer_cuts_and_restores_at_the_steer() {
-    let steer = steer_scene(applied_in_place(), true).await;
-    let scene = &steer.scene;
-    let fixture = &scene.fixture;
-
-    let (positions, reach) = cut_to_target(scene).await;
-
-    assert_eq!(
-        *scene.rewound_message_ids.lock().expect("unpoisoned"),
-        [scene.target_message_id.to_string()]
-    );
-    assert_eq!(positions, [position(STEER_POSITION - 1)]);
-    let listed: Vec<SessionRestoreTarget> =
-        list_checkpoints(&fixture.database.reader(), |_| None, fixture.session_id)
-            .expect("the session's checkpoints read")
-            .into_iter()
-            .map(|stored| SessionRestoreTarget::Snapshot {
-                snapshot_id: stored.checkpoint.checkpoint_id,
-            })
-            .collect();
-    assert_eq!(listed, std::slice::from_ref(&steer.opening));
-    assert!(reach.is_pressed_message());
-    assert_eq!(
-        fixture.restored_paths(reach.checkpoint.message_sequence),
-        [STEER_EDIT]
-    );
-    assert_eq!(cut_words(&reach), [STEER_WORDS]);
-}
-
-// On a provider whose cut lands only at turns, an undo to a steer asks the cut before its turn's
-// opening, rolls the run back to the position before the opening's, puts back both edits of the
-// turn and takes back the opening's words, then the steer's. Killed by the driver's description
-// ignored, where the cut lands at the steer.
-#[tokio::test]
-async fn an_undo_on_a_steer_reaches_its_turns_opening_where_the_cut_lands_only_at_turns() {
-    let steer = steer_scene(applied_in_place(), false).await;
-    let scene = &steer.scene;
-
-    let (positions, reach) = cut_to_target(scene).await;
-
-    assert_eq!(
-        *scene.rewound_message_ids.lock().expect("unpoisoned"),
-        [steer.opening_message_id.to_string()]
-    );
-    assert_eq!(positions, [position(TARGET_POSITION - 1)]);
-    assert!(!reach.is_pressed_message());
-    assert_eq!(
-        scene
-            .fixture
-            .restored_paths(reach.checkpoint.message_sequence),
-        [OPENING_EDIT, STEER_EDIT]
-    );
-    assert_eq!(cut_words(&reach), [OPENING_WORDS, STEER_WORDS]);
-}
-
-// With the files alone in scope, an undo to a steer on a provider whose cut lands only at turns
-// goes back to the steer's own point, putting back only the edit made after it, and asks the
-// provider nothing. Killed by the opening's reach applied to the files alone.
-#[tokio::test]
-async fn restoring_files_on_a_steer_is_exact_where_the_cut_lands_only_at_turns() {
-    let steer = steer_scene(applied_in_place(), false).await;
-    let scene = &steer.scene;
-    let fixture = &scene.fixture;
-
-    let reach = fixture
-        .queue
-        .read_undo_reach(
-            fixture.session_id,
-            &scene.target,
-            SessionRestoreScope::Files,
-        )
-        .await
-        .expect("the reach reads");
-
-    assert_eq!(reach.message_id, scene.target_message_id);
-    assert_eq!(
-        fixture.restored_paths(reach.checkpoint.message_sequence),
-        [STEER_EDIT]
-    );
-    assert_eq!(scene.rewinds.load(Ordering::SeqCst), 0);
-}
-
-// The resend of an edited steer on a provider whose cut lands only at turns is one message: the
-// opening's words, then the edit in the steer's place, and the release sends it so. Killed by the
-// edited steer sent alone.
-#[tokio::test]
-async fn a_resend_of_an_edited_steer_is_one_message_of_its_turn() {
-    let steer = steer_scene(applied_in_place(), false).await;
-    let fixture = &steer.scene.fixture;
-    let key = client_key();
-    let hold = fixture
-        .queue
-        .hold_for_undo(fixture.session_id, key.clone())
-        .await;
-    let cut = fixture
-        .queue
-        .cut_conversation(&hold, &steer.scene.target, RollbackCompanions::default())
-        .await
-        .expect("the cut applies");
-    let ConversationCut::Applied { reach, .. } = cut else {
-        panic!("the provider applied the cut");
-    };
-    let resend = reach.resend_with(SessionRestoreResend {
-        content: FreeFormText::new("Then the tests, with coverage".to_owned())
-            .expect("a test message"),
-        attachments: None,
-    });
-
-    fixture
-        .queue
-        .release_undo_hold(hold, Some(resend), device())
-        .await
-        .expect("the release sends the resend");
-
-    let resent = QueueItemReader::new(&fixture.database.reader())
-        .get_by_idempotency_key(&fixture.session_id, &key)
-        .expect("the test reads the resend")
-        .expect("the resend is stored");
-    assert_eq!(
-        resent
-            .body
-            .as_message()
-            .map(|message| message.content.as_str()),
-        Some("Look again\n\nThen the tests, with coverage")
     );
 }

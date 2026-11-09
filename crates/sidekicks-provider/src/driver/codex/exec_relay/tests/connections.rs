@@ -9,6 +9,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use super::executor_end::ended_answer;
 use super::{
     ListeningRelay, admitted_socket, assert_quiet, initialize, initialized_executor,
     listening_relay, next_forwarded, next_line, next_text, relay_for, send_text,
@@ -149,13 +150,6 @@ async fn the_executors_end_answers_every_connection_its_own_requests_and_stays_o
 
     drop(fake);
 
-    let ended_answer = |id: u64| {
-        json!({ "id": id, "error": {
-            "code": -32603,
-            "message": "The Codex executor running this service's commands ended; the service \
-                        starts a new one.",
-        }})
-    };
     for socket in &mut sockets {
         assert_eq!(next_text(socket).await, ended_answer(2));
     }

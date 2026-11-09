@@ -36,6 +36,8 @@ fn resend_of(text: &str) -> SessionRestoreResend {
     SessionRestoreResend {
         content: FreeFormText::new(text.to_owned()).expect("a test message"),
         attachments: None,
+        skills: None,
+        output_speed_for_turn: None,
     }
 }
 

@@ -182,8 +182,8 @@ async fn an_ended_executor_ends_each_streamed_body_and_fires_each_kept_watch() {
     assert_eq!(next_line(&mut received).await, ended_answer(6));
 }
 
-// The answer to the request `id` once the executor ended.
-fn ended_answer(id: u64) -> Value {
+/// The answer to the request `id` once the executor ended.
+pub(super) fn ended_answer(id: u64) -> Value {
     json!({ "id": id, "error": { "code": -32603, "message": EXECUTOR_ENDED_MESSAGE } })
 }
 

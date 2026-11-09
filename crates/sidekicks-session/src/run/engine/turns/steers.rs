@@ -97,6 +97,7 @@ impl RunEngine {
                         session_id,
                         message_sequence,
                         run_id,
+                        turn_number,
                         turn: EpochPosition {
                             epoch: standing.epoch,
                             position,

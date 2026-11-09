@@ -144,16 +144,17 @@ pub enum ConversationCutError {
         #[source]
         source: Option<SessionEventCursorUnresolvable>,
     },
-    /// A later undo cut the conversation back past the checkpoint's turn, so there is nothing of
-    /// it to cut.
+    /// A later undo cut the conversation back past the checkpoint's message, so there is nothing
+    /// of it to cut.
     #[error("the undo's point lies in history a later undo cut away")]
     Superseded,
     /// A stored rollback of the checkpoint's run does not match its contract.
     #[error(transparent)]
     Rollback(StoredRollbackMismatchError),
-    /// The person's message the cut goes back to, at the checkpoint or at the opening of the turn
-    /// it steered into, or one it takes back, does not read as one sent through the queue, so the
-    /// provider knows no id for it and no queue item holds its words.
+    /// The person's message the cut goes back to, or one it takes back, does not read as one sent
+    /// through the queue, so the provider knows no id for it and no queue item holds its words;
+    /// or the turn a steer joined holds no checkpoint of its start where the cut lands only at
+    /// turns.
     #[error("the message the undo goes back to was not sent through the queue")]
     MessageNotQueued,
     /// A run the cut reaches holds a turn with no end; the turn must end before the cut.
@@ -436,10 +437,10 @@ impl RunQueue {
                 client_idempotency_key: undo_key.clone(),
                 content: resend.content,
                 attachments: resend.attachments,
-                skills: None,
+                skills: resend.skills,
                 replaces_queue_item_id: None,
                 answers_question_id: None,
-                output_speed_for_turn: None,
+                output_speed_for_turn: resend.output_speed_for_turn,
             };
             if let Err(error) = self.create(request, device_id).await {
                 first_failure = Some(error);
