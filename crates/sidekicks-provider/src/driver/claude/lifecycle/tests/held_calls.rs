@@ -19,8 +19,10 @@ use tokio::sync::oneshot;
 
 use crate::bounded_poll::poll_until;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::lifecycle::held_calls::HELD_TASK_STOP_BOUND;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::driver::claude::session::process::ClaudeStreamFrame;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
@@ -34,6 +36,7 @@ use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
+use crate::driver::claude::session::transport::inbound::ClaudeControlFrameReader;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
@@ -775,10 +778,12 @@ fn call_a_stopped() -> (String, Ending, Option<String>) {
 
 // Fails when a person's close of a session no process runs leaves a surviving task running on its
 // server, resumes anything but the session's own conversation, starts a process with no task to
-// stop, or settles the stopped call before reading Claude Code's ending. Mutations: the person's
-// gate at rest passed as `false` (the close ends with no process resumed); `Unkept` in place of
-// `Resume` (the start's conversation); the recorded filter dropped (a start for the unkept call);
-// the read after the process closed dropped (call-A reads `processExit`).
+// stop, settles the stopped call before reading Claude Code's ending, or leaves a request the
+// process sends while it closes unanswered. Mutations: the person's gate at rest passed as `false`
+// (the close ends with no process resumed); `Unkept` in place of `Resume` (the start's
+// conversation); the recorded filter dropped (a start for the unkept call); the read after the
+// process closed dropped (call-A reads `processExit`); `close_answering` replaced by a plain
+// `channel.close()` (the ask sent while closing gets no answer).
 #[rstest]
 #[case::recorded(RestingCall::Recorded)]
 #[case::unkept(RestingCall::Unkept)]
@@ -807,9 +812,32 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
                 start = fixture.next_start() => start,
                 _ = &mut close => panic!("the close ended with no process resumed"),
             };
-            let stopped =
-                stop_task_a_in_the_resumed_process(&fixture, &start, &channel, release_stop);
-            let (closed, ()) = tokio::join!(&mut close, stopped);
+            let release_close = channel.hold_next_close();
+            let asked_while_closing = async {
+                stop_task_a_in_the_resumed_process(&fixture, &start, &channel, release_stop).await;
+                poll_until(
+                    || channel.writes(),
+                    |w| w.contains(&ScriptedWrite::Terminate),
+                )
+                .await;
+                let ask = json!({ "subtype": "can_use_tool", "tool_name": "Bash", "input": {} });
+                let ask = json!({ "type": "control_request", "request_id": "ask", "request": ask });
+                let mut reader = ClaudeControlFrameReader::new(
+                    ClaudeProcessAccount::default(),
+                    STORED_CONVERSATION.to_owned(),
+                );
+                let ask = reader
+                    .read_request(&ask.to_string())
+                    .expect("the ask reads");
+                start.listener.take_request(ask);
+                let answer = tokio::time::timeout(HELD_TASK_STOP_BOUND, channel.answer_to("ask"))
+                    .await
+                    .expect("the close answers an ask the process sends while it closes");
+                release_close.send(()).expect("the close is held");
+                answer
+            };
+            let (closed, answer) = tokio::join!(&mut close, asked_while_closing);
+            assert_eq!(answer["behavior"], "deny");
             closed
         }
         RestingCall::Unkept => close.await,

@@ -51,8 +51,8 @@ impl KeychainService {
         }
     }
 
-    /// Whether a move carries the service's items: the probe's item belongs to one start's check and
-    /// an erase sweeps any left behind.
+    /// Whether a move carries the service's items: the probe's item belongs to one start's check
+    /// and an erase sweeps any left behind.
     pub(crate) const fn is_moved(self) -> bool {
         match self {
             Self::WorkflowSecrets

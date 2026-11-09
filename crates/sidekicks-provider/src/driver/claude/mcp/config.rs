@@ -5,7 +5,8 @@
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
 //! once sent. Beside the read sit the observe, compose, guarded edit and write of one server's
-//! entry in the person's own config, which keep values only in memory.
+//! entry in the person's own config, which keep values only in memory, and the clear of a server
+//! from a project's own switch-off list.
 
 mod compose;
 mod edit;
@@ -17,6 +18,7 @@ mod policy;
 mod write;
 
 pub(crate) use self::compose::compose_claude_mcp_entry;
+pub(crate) use self::edit::switch_on_in_claude_project;
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
@@ -71,6 +73,10 @@ pub(crate) const MCP_SERVERS_MEMBER: &str = "mcpServers";
 
 /// The member of the person's config that holds each project's own settings, by its root.
 pub(crate) const PROJECTS_MEMBER: &str = "projects";
+
+/// The member of a project's entry in the person's config listing the servers Claude Code's own
+/// `/mcp` switched off there.
+pub(crate) const DISABLED_MCP_SERVERS_MEMBER: &str = "disabledMcpServers";
 
 /// The member of a server entry naming the address an `http` or `sse` entry reaches.
 pub(crate) const URL_MEMBER: &str = "url";

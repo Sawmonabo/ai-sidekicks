@@ -209,6 +209,58 @@ async fn an_idle_switch_answers_as_its_fork_ends(
     assert_eq!(switched.expect("the stored set is written"), answered);
 }
 
+// An idle session's `on` for a server Codex's own config switches off moves the session onto a
+// fork whose table switches the server on by name over that `enabled = false`. Killed by the
+// switch forking no conversation onto the set, and by a server the session switches on sent with
+// Codex's own switch-off.
+#[tokio::test]
+async fn on_moves_an_idle_session_past_codexs_own_switch_off() {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        run_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::idle().await;
+    let tracker_on = SessionToolServer {
+        binding: McpServerBindingRef::User {
+            provider: DESCRIPTOR.provider_id(),
+            server_name: McpServerName::new("tracker".to_owned()).expect("a server name"),
+        },
+        is_enabled: true,
+    };
+    let switching = driver.switch_session_mcp_servers(session_id, run_id, vec![tracker_on]);
+    let forking = async {
+        let read = scripted.next_request("config/read").await;
+        scripted.script.answer(
+            &read,
+            &json!({
+                "config": {"mcp_servers": {"tracker": {"command": "tracker", "enabled": false}}},
+                "origins": {},
+            }),
+        );
+        let forked = scripted.next_request("thread/fork").await;
+        let tracker = forked["params"]["config"]["mcp_servers"]["tracker"].clone();
+        scripted.script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": forked["id"],
+            "error": {"code": -32603, "message": "the fork failed"},
+        }));
+        tracker
+    };
+
+    let (switched, tracker) =
+        tokio::time::timeout(SETTLE_BOUND, async { tokio::join!(switching, forking) })
+            .await
+            .expect("the switch settles");
+
+    assert_eq!(
+        switched.expect("the stored set is written"),
+        McpSessionSwitch::AtNextTurn
+    );
+    assert_eq!(tracker, json!({"enabled": true}));
+}
+
 /// What brings a live session back while a settle waits.
 #[derive(Clone, Copy, Debug)]
 enum ComingBack {

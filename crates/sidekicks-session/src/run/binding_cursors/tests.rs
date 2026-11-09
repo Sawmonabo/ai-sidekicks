@@ -2,7 +2,9 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
+use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -13,15 +15,19 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::account::observer::AccountLiveTurns as _;
+use sidekicks_provider::driver::test_registry::first_provider;
 use sidekicks_provider::run::delivery::DeliveryOperation;
-use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
+use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, read_binding};
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
 use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter as _;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::run_statement;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::events::content::codec::BodyEncoder;
 use sidekicks_store::events::session::followers::CommittedEvent;
@@ -30,6 +36,7 @@ use sidekicks_store::events::session::insert::{
 };
 
 use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursorError, RunBindingCursors};
+use crate::agent_tree::store::{NewAgentTreeNode, insert_node};
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::insert_run;
 use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, ExecutionEpochs};
@@ -43,7 +50,8 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
-        let database = TestDatabase::new(schema_parts());
+        let database =
+            TestDatabase::new(schema_parts().with_parts(crate::agent_tree::schema::schema_parts()));
         let store = open_store(&database).await;
         let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
             NonZeroUsize::new(8).expect("the cap is not zero"),
@@ -67,9 +75,68 @@ impl Harness {
 
     // A running run of the session.
     fn run(&self) -> RunId {
+        self.run_in("running")
+    }
+
+    // A run of the session in `state`.
+    fn run_in(&self, state: &str) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_run(&self.database, self.session_id, run_id, "running");
+        insert_run(&self.database, self.session_id, run_id, state);
         run_id
+    }
+
+    // The provider's helper `subagent_id`, running under `parent`, with its node in the tree.
+    fn running_helper(&self, parent: RunId, subagent_id: &str) {
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let reader = self.database.reader();
+        reader
+            .execute(
+                "INSERT INTO runs
+                   (run_id, session_id, parent_run_id, reached_by, state, run_version)
+                 VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+                params![
+                    run_id.text().as_str(),
+                    self.session_id.text().as_str(),
+                    parent.text().as_str(),
+                ],
+            )
+            .expect("the test writes the helper's run");
+        let node = NewAgentTreeNode {
+            child_handle: ChildHandle::new(format!("handle-{subagent_id}"))
+                .expect("a child handle"),
+            session_id: self.session_id,
+            provider_name: first_provider(),
+            subagent_id: subagent_id.to_owned(),
+            parent_subagent_id: None,
+            parent_child_handle: None,
+            name: None,
+            role: None,
+            provider_path: None,
+            model_id: None,
+            effort: None,
+            start_call_id: None,
+            own_run_id: run_id,
+            started_at: WireInstant::now(),
+        };
+        run_statement(&reader, &insert_node(&node)).expect("the test writes the helper's node");
+    }
+
+    // The account binding `binding_id`'s row names.
+    fn stored_account(&self, binding_id: &RuntimeBindingId) -> ProviderAccountId {
+        read_binding(&self.database.reader(), binding_id)
+            .expect("the binding reads")
+            .expect("the binding has a row")
+            .spawn_config
+            .provider_account_id
+    }
+
+    // The account a delivery on `binding_id` is charged to now, by its open cursor.
+    fn charged_account(&self, binding_id: &RuntimeBindingId) -> ProviderAccountId {
+        lock(&self.epochs)
+            .binding(binding_id)
+            .expect("the binding's cursor is open")
+            .provider_account_id
+            .clone()
     }
 
     // Records a binding of `run_id` through the cursors.
@@ -505,4 +572,42 @@ async fn a_binding_moved_onto_another_account_holds_a_live_turn_there() {
 
     assert_eq!(live_on(&moved_to), [harness.session_id]);
     assert_eq!(live_on(&left), Vec::new());
+}
+
+// A lead's binding a driver moves onto another account carries, in the same write, the binding of
+// each run a live helper of its session runs under: the binding of an earlier lead run a helper
+// it left running still rides reads the new account in its row, and a usage frame on it is charged
+// to the new account the moment the lead's move returns, with no write of its own after; an ended
+// lead run's binding no helper rides stays. A helper charged to the old account between the two
+// writes spends the limit its lead left. Killed by the helpers' bindings moved in a later write or
+// not at all (both read the old account), by a helper's own run read in place of the run it runs
+// under (it has no binding, so nothing rides), by the cursors left on the old account, and by
+// every binding of the session moved (the ended one moves).
+#[tokio::test]
+async fn a_moved_binding_carries_the_bindings_its_helpers_ride_in_the_same_write() {
+    let harness = Harness::new().await;
+    let (old, to) = (
+        test_provider_account_id(),
+        ProviderAccountId::new("account-2".to_owned()).expect("the test's account id is valid"),
+    );
+    let ended = harness.bind(harness.run_in("completed")).await;
+    let earlier = harness.run_in("completed");
+    let left_running_on = harness.bind(earlier).await;
+    let current = harness.run();
+    let current_binding = harness.bind(current).await;
+    harness.running_helper(earlier, "helper-left-running");
+    harness.running_helper(current, "helper-current");
+
+    harness
+        .cursors
+        .move_account(current_binding.clone(), to.clone())
+        .await
+        .expect("the binding moves");
+
+    assert_eq!(harness.charged_account(&left_running_on), to);
+    assert_eq!(harness.charged_account(&current_binding), to);
+    assert_eq!(harness.stored_account(&left_running_on), to);
+    assert_eq!(harness.stored_account(&current_binding), to);
+    assert_eq!(harness.stored_account(&ended), old);
+    assert_eq!(harness.charged_account(&ended), old);
 }

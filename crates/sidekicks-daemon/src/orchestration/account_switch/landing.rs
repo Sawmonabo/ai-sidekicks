@@ -1,6 +1,6 @@
-//! A moved lead's landing on its new account: the bindings its helpers ride moved with it, its
-//! `agent.providerBinding.changed` or `changeFailed` settlement, its level moved where the new
-//! account cannot run it, and the watch of its first request there, which records a hand-back.
+//! A moved lead's landing on its new account: its `agent.providerBinding.changed` or
+//! `changeFailed` settlement, its level moved where the new account cannot run it, and the watch of
+//! its first request there, which records a hand-back.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -27,9 +27,9 @@ use super::{AccountSwitch, LandingLead};
 use crate::orchestration::binding_switch::{account_state_of, mint_switch_id};
 
 impl AccountSwitch {
-    // A lead whose move landed on `to`, a switch's or one a driver reported: the bindings its
-    // helpers ride moved onto `to`, its settlement by `actor`, then its level moved where `to`
-    // cannot run it; answers the watch of its first request there, which records a hand-back.
+    // A lead whose move landed on `to`, a switch's or one a driver reported: its settlement by
+    // `actor`, then its level moved where `to` cannot run it; answers the watch of its first
+    // request there, which records a hand-back.
     pub(super) async fn land(
         self: &Arc<Self>,
         lead: LandingLead,
@@ -37,7 +37,6 @@ impl AccountSwitch {
         actor: DeviceId,
         first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
     ) -> BoxFuture<'static, ()> {
-        self.move_child_bindings(&lead, &to).await;
         self.record_changed(&lead, &to, &actor).await;
         self.move_level_where_unavailable(&lead, &to).await;
         Arc::clone(self).watch_first_request(lead, to, actor, first_request)

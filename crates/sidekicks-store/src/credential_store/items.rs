@@ -44,8 +44,8 @@
 //! it, and `unavailable` from either file. A settle of the place keeps each step's own time: the
 //! operating system's store counts its calls' time from their turn there, and the probe and the
 //! open check take their share of a call's, so a call or a settle waiting behind another call's
-//! prompt is delayed, never refused. A sealed write that runs out of time may still land; the items file
-//! holds the item from its seal through the file write, so a retry waits for it and is never
+//! prompt is delayed, never refused. A sealed write that runs out of time may still land; the items
+//! file holds the item from its seal through the file write, so a retry waits for it and is never
 //! overwritten by it.
 
 mod erase;

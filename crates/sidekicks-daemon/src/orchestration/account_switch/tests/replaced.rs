@@ -31,21 +31,24 @@ type HeldLanding = oneshot::Sender<(ProviderAccountId, HashSet<SessionId>)>;
 
 // Switch legs that hold a switch as a driver holds one until a turn ends, telling the daemon at
 // once that its moves wait; a second switch joins it, and both land on the second's account, each
-// session the second names too answered to the first as replaced.
+// session the second names too answered to the first as replaced. Each call's account left is
+// recorded, the one a driver hands back after a refused login.
 #[derive(Default)]
 struct HoldingSwitchLegs {
     held: Mutex<Option<HeldLanding>>,
+    left: Mutex<Vec<ProviderAccountId>>,
 }
 
 impl ProviderSwitchLegs for HoldingSwitchLegs {
     fn move_sessions(
         &self,
-        _from: ProviderAccountId,
+        from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
         _actor: DeviceId,
         accepted: SwitchMovesAccepted,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
+        lock(&self.left).push(from);
         accepted
             .send(())
             .expect("the daemon waits for the moves to be held");
@@ -138,12 +141,16 @@ async fn two_switches_during_held_moves_record_each_landing_once_on_the_newest_a
 
 // A switch back onto the account the sessions still run on, asked while the driver holds their
 // move away from it, names them and lands them back: each records one `changed` onto the account
-// it never left. Killed by the switch back reading each session by its binding alone, which skips
-// them, so the held move never joins and lands nowhere.
+// it never left, and both switches name that account as the one the session leaves, so a refused
+// login on the switch back hands the session the account it runs on, never the held move's. Killed
+// by the switch back reading each session by its binding alone, which skips them, so the held move
+// never joins and lands nowhere, and by the held move's account named as the one left (a refused
+// login then sends the session to the account switched away from).
 #[tokio::test]
 async fn a_switch_back_during_held_moves_lands_each_session_on_the_account_it_ran_on() {
     let legs = Arc::new(HoldingSwitchLegs::default());
-    let fixture = fixture_switching_through(Some(legs as Arc<dyn ProviderSwitchLegs>)).await;
+    let fixture =
+        fixture_switching_through(Some(Arc::clone(&legs) as Arc<dyn ProviderSwitchLegs>)).await;
     let ran_on = fixture
         .register(ProviderAccountHealthState::Authenticated)
         .await;
@@ -176,4 +183,5 @@ async fn a_switch_back_during_held_moves_lands_each_session_on_the_account_it_ra
     let kinds: Vec<&str> = events.iter().map(|(kind, _)| kind.as_str()).collect();
     assert_eq!(kinds, ["agent.providerBinding.changed"], "{events:?}");
     assert_eq!(events[0].1["landedProviderAccountId"], ran_on.as_str());
+    assert_eq!(*lock(&legs.left), [ran_on.clone(), ran_on]);
 }

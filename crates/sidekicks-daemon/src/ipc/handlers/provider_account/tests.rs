@@ -73,9 +73,7 @@ use sidekicks_provider::driver::contract::account::{
     ProviderTokenStatusLegs,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::test_registry::{
-    NothingServed, first_provider, registry_of_first_provider,
-};
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
 use sidekicks_provider::driver::{ProviderAccountFolders, ProviderAccountReader};
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
@@ -471,7 +469,6 @@ impl MethodInputs {
             switch_legs: HashMap::new(),
             providers: Arc::clone(&providers),
             level_moves: Arc::new(NoSessions),
-            bindings: Arc::new(NothingServed),
             appender: Arc::new(SessionEventAppender::new(
                 Arc::clone(&log.service),
                 SESSION_EVENT_VERSION.clone(),

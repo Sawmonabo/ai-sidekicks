@@ -267,7 +267,6 @@ async fn fixture_switching_through(switch_legs: Option<Arc<dyn ProviderSwitchLeg
         )]),
         providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
         level_moves: Arc::clone(&level_moves) as Arc<dyn SessionLevelMoves>,
-        bindings: Arc::clone(&bindings) as _,
         appender,
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None::<i64>),

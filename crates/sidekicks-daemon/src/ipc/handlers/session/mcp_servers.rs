@@ -342,9 +342,9 @@ async fn read_session_tool_servers(
 
 /// The session's list: one row per server of its stored set, its status folded over the legs
 /// that report it by severity, `unknown` where none does; off where the session's switch is off
-/// or every live leg reporting it switched it off; and waiting while the driver's last answer left the
-/// switch for a next turn or start and the legs still disagree with it. Fails as the stored leg's
-/// read fails.
+/// or every live leg reporting it switched it off; and waiting while the driver's last answer left
+/// the switch for a next turn or start and the legs still disagree with it. Fails as the stored
+/// leg's read fails.
 async fn compose_session_servers(
     methods: &McpServerMethods,
     switches: &SessionMcpSwitches,
@@ -404,8 +404,8 @@ fn is_shown_enabled(tool_server: &SessionToolServer, legs: &[McpServerReading]) 
 // Switches `server_name` on or off for the session alone: refused `session.notFound` for a
 // session the daemon does not hold and `mcp.server.notRunning` for a server its stored set does
 // not hold, the switch only narrowing that set; the state the row shows changes nothing; another
-// goes to the driver with the whole set and the stored leg's run, and the session's feeds send
-// again.
+// goes to the driver with the whole set and the stored leg's run, an `on` naming the server so
+// the provider's own switch-off goes too, and the session's feeds send again.
 async fn switch_session_server(
     methods: &McpServerMethods,
     switches: &SessionMcpSwitches,
@@ -435,7 +435,12 @@ async fn switch_session_server(
     if is_shown_enabled(switched, &legs) != enabled {
         switched.is_enabled = enabled;
         let answer = driver
-            .switch_session_mcp_servers(session_id, run_id, tool_servers)
+            .switch_session_mcp_servers(
+                session_id,
+                run_id,
+                tool_servers,
+                enabled.then(|| server_name.clone()),
+            )
             .await;
         // A failed apply may follow a stored write, so the feeds read the set again either way.
         switches.note_switched(session_id, answer.as_ref().ok().copied());

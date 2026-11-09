@@ -35,8 +35,9 @@ pub trait RuntimeBindingWriter: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Moves binding `binding_id` onto `provider_account_id`'s account, so every usage recorded
-    /// on it after the move and a resume of it are that account's. Fails when nothing was
-    /// recorded.
+    /// on it after the move and a resume of it are that account's; the daemon's writer moves every
+    /// binding a live or interrupted helper or bridged run of its session rides in the same write.
+    /// Fails when nothing was recorded.
     fn move_account(
         &self,
         binding_id: RuntimeBindingId,
@@ -107,7 +108,9 @@ impl RuntimeBindingWriter for RuntimeBindingStore {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            if RuntimeBindingStore::move_account(self, &binding_id, &provider_account_id).await? {
+            if RuntimeBindingStore::move_account(self, &binding_id, &[], &provider_account_id)
+                .await?
+            {
                 Ok(())
             } else {
                 Err(RuntimeBindingStoreError::NoRowToWrite { binding_id }.into())

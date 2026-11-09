@@ -635,23 +635,29 @@ impl RuntimeBindingStore {
         Ok(())
     }
 
-    /// Moves binding `id` onto `provider_account_id`'s account, so the usage recorded on it from
-    /// then on and a resume of it are that account's; returns whether it had a row. A move onto
-    /// the account it already names writes the same record. Fails when the write fails.
+    /// Moves each of `riders`, then binding `id`, onto `provider_account_id`'s account in one
+    /// write, so the usage recorded on any of them from then on and a resume of them are that
+    /// account's; returns whether `id` had a row. A move onto the account a binding already names
+    /// writes the same record. Fails when the write fails, nothing moved.
     pub async fn move_account(
         &self,
         id: &RuntimeBindingId,
+        riders: &[RuntimeBindingId],
         provider_account_id: &ProviderAccountId,
     ) -> Result<bool, RuntimeBindingStoreError> {
-        let results = self
-            .writer
-            .write(vec![set_spawn_config_member(
-                id,
-                PROVIDER_ACCOUNT_MEMBER,
-                provider_account_id.as_str(),
-            )])
-            .await?;
-        Ok(results.first().is_some_and(|result| result.row_count > 0))
+        let statements = riders
+            .iter()
+            .chain([id])
+            .map(|moved| {
+                set_spawn_config_member(
+                    moved,
+                    PROVIDER_ACCOUNT_MEMBER,
+                    provider_account_id.as_str(),
+                )
+            })
+            .collect();
+        let results = self.writer.write(statements).await?;
+        Ok(results.last().is_some_and(|result| result.row_count > 0))
     }
 
     /// Replaces the tool servers stored on run `run_id`'s newest resumable binding with

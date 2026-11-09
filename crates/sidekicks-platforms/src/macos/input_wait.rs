@@ -167,9 +167,9 @@ unsafe extern "C" {
 /// off, with `sample` and `ps` started on `spawner`'s thread, about a tenth of a second per process
 /// holding the terminal for reading; when `sample` fails and runs again, its two retries add about
 /// three tenths of a second per process when it fails fast, and up to about 10 s when each run
-/// fails just inside its 5 s time limit; a read on a blocking character device other than the terminal, or on a
-/// descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`, `PSHM`, `PSEM`),
-/// still reads as a wait on it.
+/// fails just inside its 5 s time limit; a read on a blocking character device other than the
+/// terminal, or on a descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`,
+/// `PSHM`, `PSEM`), still reads as a wait on it.
 /// Fails with the system's error when a read is refused for a process this user may read, with
 /// `sample`'s or `ps`'s own error text when either fails on a process still there, `sample` run
 /// three times about 50 ms apart before its failure surfaces, `TimedOut` when either runs past its

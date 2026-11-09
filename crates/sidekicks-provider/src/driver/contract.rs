@@ -454,7 +454,9 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Switches `session_id`'s tool servers to `tool_servers`, the whole set with each server's
     /// switch: written first to the stored set of run `run_id`'s leg, which a relaunch reads, then
-    /// carried to the live conversation, answering when the provider takes it. Fails only as the
+    /// carried to the live conversation, answering when the provider takes it. `switched_on` names
+    /// the server the person switched on, whose switch-off in the provider's own config no longer
+    /// holds for the session once the switch answers. Fails as clearing that switch-off or the
     /// stored write fails, with nothing applied; once the set is stored, a live apply that cannot
     /// land now answers that the switch waits for the next turn, or the next start once closed.
     fn switch_session_mcp_servers(
@@ -462,6 +464,7 @@ pub trait ProviderDriver: Send + Sync {
         session_id: SessionId,
         run_id: RunId,
         tool_servers: Vec<SessionToolServer>,
+        switched_on: Option<McpServerName>,
     ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on

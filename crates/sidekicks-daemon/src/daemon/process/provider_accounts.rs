@@ -249,7 +249,6 @@ pub(crate) async fn build_provider_account_plane(
         switch_legs,
         providers: Arc::clone(&providers),
         level_moves: provider_sessions,
-        bindings: binding_cursors,
         appender,
         reads: Arc::clone(&reads),
         read_damaged_from_sequence,

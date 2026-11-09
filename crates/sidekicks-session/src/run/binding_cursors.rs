@@ -9,7 +9,7 @@
 //! written is forgotten, and an open whose session closes while it reads opens none. An undo's
 //! confirmed cut is fenced here, where a fork's binding joins its run's cursors. The drivers write
 //! their bindings through the cursors, so a binding moved onto another account moves its cursor
-//! too.
+//! too, with the bindings its session's helpers ride in the same write.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -32,7 +32,7 @@ use sidekicks_provider::account::observer::AccountLiveTurns;
 use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRebind, RuntimeBindingRelaunch,
-    RuntimeBindingStore, RuntimeBindingStoreError,
+    RuntimeBindingStore, RuntimeBindingStoreError, read_binding, read_bindings_of_runs,
 };
 use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -43,6 +43,10 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::followers::CommittedEvent;
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
+use crate::agent_tree::read::AgentTreeReadError;
+use crate::agent_tree::sweep::{
+    AGENT_TREE_SWEEP_STATEMENT_CAPACITY, DescendantStop, SweepRoot, read_descendants,
+};
 use crate::run::epochs::{ConfirmedCut, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::stored_leg::read_session_leg;
@@ -50,8 +54,10 @@ use crate::run::stored_state_change::read_stored_run_state_change;
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the cursors prepare on a pooled connection: a run's row, a session's run ids and
-/// their bindings for its leg, and the run's rollbacks and turn starts its standing is read from.
-pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 3 + 2;
+/// their bindings for its leg, the run's rollbacks and turn starts its standing is read from, and a
+/// moved binding's row with the session's agents and the bindings they ride.
+pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize =
+    3 + 2 + 2 + AGENT_TREE_SWEEP_STATEMENT_CAPACITY;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open
 /// is not recorded, and one whose row was not written keeps no cursor.
@@ -78,6 +84,9 @@ pub enum RunBindingCursorError {
     /// Where the run stands could not be read from its log.
     #[error("where the run stands could not be read from its log")]
     Standing(#[from] TurnAttributionError),
+    /// The agents of a moved binding's session could not be read.
+    #[error("the agents of a moved binding's session could not be read")]
+    AgentTree(#[from] AgentTreeReadError),
     /// The session closed while the open read, so no cursor opens for it.
     #[error("session {session_id} closed while its cursor opened, so none opens")]
     SessionClosed {
@@ -526,6 +535,55 @@ impl RunBindingCursors {
         Ok(held)
     }
 
+    // The bindings of `binding_id`'s provider that a live or interrupted agent below its session's
+    // lead rides, other than `binding_id` and those already on `to`: a helper the binding of the
+    // run it runs under, which an earlier lead run may have left it on, and a bridged or workflow
+    // run its own. None for a binding with no row or a run no session holds.
+    async fn read_riders(
+        &self,
+        binding_id: RuntimeBindingId,
+        to: ProviderAccountId,
+    ) -> Result<Vec<RuntimeBindingId>, RunBindingCursorError> {
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        self.pool
+            .read(ReadLength::Long, move |reader| {
+                let Some(moved) = read_binding(reader, &binding_id)? else {
+                    return Ok::<_, RunBindingCursorError>(Vec::new());
+                };
+                let Some(run) = RunStateReader::new(reader).read_run(&moved.run_id)? else {
+                    return Ok(Vec::new());
+                };
+                let read_bound =
+                    session_read_bound(&*read_damaged_from_sequence, &run.session_id, None);
+                let ridden: HashSet<RunId> = read_descendants(
+                    reader,
+                    &run.session_id,
+                    &SweepRoot::Session,
+                    None,
+                    read_bound,
+                )?
+                .into_iter()
+                .map(|descendant| match descendant.stop {
+                    DescendantStop::Run { run_id } => run_id,
+                    DescendantStop::Helper {
+                        carrying_run_id, ..
+                    } => carrying_run_id,
+                })
+                .collect();
+                let ridden: Vec<RunId> = ridden.into_iter().collect();
+                Ok(read_bindings_of_runs(reader, &ridden)?
+                    .into_iter()
+                    .filter(|rider| {
+                        rider.id != binding_id
+                            && rider.provider_name == moved.provider_name
+                            && rider.spawn_config.provider_account_id != to
+                    })
+                    .map(|rider| rider.id)
+                    .collect())
+            })
+            .await
+    }
+
     // Opens `binding`'s cursor at `standing`, where its run stands, in `session_id`'s cursors,
     // first dropping the cursors of the session's runs that have ended; refused for a session that
     // closed meanwhile.
@@ -577,8 +635,9 @@ impl AccountLiveTurns for RunBindingCursors {
     }
 }
 
-/// The store's writes, the account move also moving the binding's open cursor, so the sessions
-/// with a live turn on an account are the ones running on it now.
+/// The store's writes, the account move also moving the bindings its session's helpers ride and
+/// every moved binding's open cursor, so the sessions with a live turn on an account are the ones
+/// running on it now.
 impl RuntimeBindingWriter for RunBindingCursors {
     fn rebind(
         &self,
@@ -595,20 +654,30 @@ impl RuntimeBindingWriter for RunBindingCursors {
         self.store.keep_recovery_data(binding_id, runtime_metadata)
     }
 
-    /// Fails as the store's move fails, the cursor then left on the account it was on.
+    /// Moves the binding and the bindings its session's helpers ride in one write, then their
+    /// cursors under one hold, so no usage is charged to the account the binding left between the
+    /// two. Fails with [`RuntimeBindingStoreError::NoRowToWrite`] when the binding has no row, and
+    /// as the helpers' read or the store's move fails, every cursor then left where it was.
     fn move_account(
         &self,
         binding_id: RuntimeBindingId,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            RuntimeBindingWriter::move_account(
-                &*self.store,
-                binding_id.clone(),
-                provider_account_id.clone(),
-            )
-            .await?;
-            lock(&self.epochs).move_account(&binding_id, provider_account_id);
+            let riders = self
+                .read_riders(binding_id.clone(), provider_account_id.clone())
+                .await?;
+            if !self
+                .store
+                .move_account(&binding_id, &riders, &provider_account_id)
+                .await?
+            {
+                return Err(RuntimeBindingStoreError::NoRowToWrite { binding_id }.into());
+            }
+            let mut epochs = lock(&self.epochs);
+            for moved in riders.iter().chain([&binding_id]) {
+                epochs.move_account(moved, provider_account_id.clone());
+            }
             Ok(())
         }
         .boxed()

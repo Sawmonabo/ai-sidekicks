@@ -324,10 +324,10 @@ mod tests {
     // Killed by the last close's rule reversed or dropped (`call-3` and `call-4` answered), by
     // daemon-settled calls left out (`call-2` missing), by the background row's time read for the
     // opening's (`call-1` at 09:01), by a sessions list that counts a closed call (`B` listed) or a
-    // daemon-settled one (`D` listed), or reads no session's own close (`C` open), by the binding read without its run or its lineage's origin
-    // (`binding-a2`, the newest of all, answered for `call-1` and `call-9`), by its order reversed
-    // (`binding-a-older` answered), and by the lineage left unclimbed (the helper's `call-9` reads
-    // no binding and fails the read).
+    // daemon-settled one (`D` listed), or reads no session's own close (`C` open), by the binding
+    // read without its run or its lineage's origin (`binding-a2`, the newest of all, answered for
+    // `call-1` and `call-9`), by its order reversed (`binding-a-older` answered), and by the
+    // lineage left unclimbed (the helper's `call-9` reads no binding and fails the read).
     #[test]
     fn the_held_call_read_keeps_open_and_daemon_settled_calls() {
         let database = TestDatabase::new(schema_parts());

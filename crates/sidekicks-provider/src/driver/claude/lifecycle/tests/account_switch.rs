@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::pin::pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::poll;
 
@@ -420,6 +421,45 @@ async fn a_move_asked_before_the_relaunch_reads_its_account_joins_that_relaunch(
         "one relaunch"
     );
     assert_eq!(switch.admitted(), newest);
+}
+
+// A switch asked as the session's turn settles, once the turn's `result` let the turn go and
+// before the session's task has settled it, lands at that settle: the process starts again once,
+// on the switch's account, and the move is answered as its own landing. Killed by the ask's own
+// start dropped (the move reads as relaunching and nothing takes it, so it never lands) and by the
+// settle starting a relaunch beside the one the ask started.
+#[tokio::test(start_paused = true)]
+async fn a_switch_asked_as_the_turn_settles_lands_at_that_settle() {
+    let switch = SwitchFixture::new(None).await;
+    switch.start_turn().await;
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    // The `result` lets the turn go at once; the session's task settles it only once polled.
+    switch.fixture.end_turn(&switch.start, switch.session_id);
+    let landing = switch.ask_move(&switch.to, ClaudeAccountMoveAsker::Person);
+    let (relaunched, landed) = tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::join!(switch.fixture.next_start(), landing)
+    })
+    .await
+    .expect("the move relaunches the process and lands");
+    let landed = landed
+        .expect("the move is answered")
+        .expect("the move lands");
+    settle().await;
+
+    assert!(!landed.is_replaced && landed.provider_account_id == switch.to);
+    assert_eq!(
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
+        Some(switch.store("to").as_str())
+    );
+    assert!(
+        switch.fixture.starts.take_started().is_empty(),
+        "one relaunch"
+    );
+    assert_eq!(switch.admitted(), switch.to);
 }
 
 // The driver's own relaunch, as a hand-back asks it, asked while the person's switch waits for

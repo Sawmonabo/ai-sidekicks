@@ -262,7 +262,10 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
     false
 )]
 #[case::overloaded_quoting_a_key(
-    json!({ "code": -32001, "message": "Overloaded for sk-qqqqqqqqqqqqqqqqqqqqqqqq; retry later." }),
+    json!({
+        "code": -32001,
+        "message": "Overloaded for sk-qqqqqqqqqqqqqqqqqqqqqqqq; retry later.",
+    }),
     Some("retry later."),
     false
 )]

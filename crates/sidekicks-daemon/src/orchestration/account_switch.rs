@@ -7,8 +7,9 @@
 //! - A switch runs under its provider's lock from the refusals until the driver has every move
 //!   landed or waiting for a turn to end, so a second switch on that provider waits until then;
 //!   one asked while the first's moves wait joins them in the driver, which lands the newest. It
-//!   reads a session whose move waits by the account that move heads for, so a switch back onto
-//!   the account the session still runs on names it too.
+//!   decides whether a session whose move waits moves by the account that move heads for, so a
+//!   switch back onto the account the session still runs on names it too, and names the account
+//!   its binding stands on as the one it leaves, which a refused login hands back.
 //! - A dead target refuses before the mark moves or any session is sent anything: an account not
 //!   registered or being removed, a home that is gone, or a sign-in its stored reading says is
 //!   gone; so does an account with a sign-in or a reset in flight, whose home it is using. The
@@ -17,12 +18,13 @@
 //!   onto the same account shares that hold.
 //! - A lead lands between its turns, when its process starts on the new account on Claude Code and
 //!   when the held login lands on Codex, with one `agent.providerBinding.changed` onto the account
-//!   the driver says it landed on, each binding a live or interrupted helper or bridged run of its
-//!   session rides moved onto the same account first, so no helper spends the account the lead
-//!   left; or with `agent.providerBinding.changeFailed` where the move failed. A move a newer
-//!   switch replaced records nothing, since that switch records the landing. A first request the
-//!   provider then refuses for the new account's login hands the previous account back, recorded
-//!   by one `changeFailed`, which also records a hand-back that could not be made.
+//!   the driver says it landed on, the driver's move of the lead's binding carrying each binding a
+//!   live or interrupted helper or bridged run of its session rides in the same write, so no helper
+//!   spends the account the lead left; or with `agent.providerBinding.changeFailed` where the move
+//!   failed. A move a newer switch replaced records nothing, since that switch records the landing.
+//!   A first request the provider then refuses for the new account's login hands the previous
+//!   account back, recorded by one `changeFailed`, which also records a hand-back that could not
+//!   be made.
 //! - The leads to move are read against each session's own binding, so a switch to the account
 //!   already current still moves a session a failed move left on another; a session whose lead
 //!   cannot be read is skipped and logged, and the rest move.
@@ -68,9 +70,7 @@ use sidekicks_provider::driver::contract::params_and_results::ListModesParams;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
 use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
-use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
 use sidekicks_queue::provider_session::ProviderSessions;
-use sidekicks_session::agent_tree::read::AgentTreeReadError;
 use sidekicks_session::permission_level::read_session_permission_level;
 use sidekicks_session::run::agent::{SessionLead, read_provider_session_leads, read_session_lead};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -128,8 +128,6 @@ pub(crate) struct AccountSwitchDeps {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The level control's own move.
     pub(crate) level_moves: Arc<dyn SessionLevelMoves>,
-    /// The binding writer, which moves the bindings a moved lead's helpers ride.
-    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// Where each settlement and notice is appended.
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The daemon's read connections.
@@ -146,7 +144,7 @@ pub(crate) struct AccountSwitch {
     // until the last one's moves land.
     in_flight_holds: Mutex<HashMap<ProviderAccountId, Weak<InFlightGuard>>>,
     // Each session whose move a switch handed its driver and has not seen settle, with the account
-    // it moves to, so a later switch reads where the session is heading rather than where its
+    // it moves to, so a later switch decides by where the session is heading rather than where its
     // lead's binding still stands.
     held_moves: Mutex<HeldMoves>,
 }
@@ -185,7 +183,8 @@ struct LandingLead {
 }
 
 // One lead the switch moves: the lead as it lands, the conversation that moves with it and the
-// account that conversation runs on.
+// account that conversation's binding stands on, which the driver hands back after a refused
+// login.
 struct LeadToMove {
     landing: LandingLead,
     binding_id: RuntimeBindingId,
@@ -374,7 +373,8 @@ impl AccountSwitch {
 
     // The leads on `provider` that follow its current account and whose conversation runs, or
     // is being moved by a switch held in its driver, on an account other than `to`, each with its
-    // level; a session whose lead or level cannot be read is logged and left where it is.
+    // level and the account its binding stands on; a session whose lead or level cannot be read is
+    // logged and left where it is.
     async fn read_leads_off(
         &self,
         provider: ProviderId,
@@ -405,11 +405,8 @@ impl AccountSwitch {
                         let Some(conversation) = standing.conversation else {
                             continue;
                         };
-                        let from = heading
-                            .get(&standing.session_id)
-                            .cloned()
-                            .unwrap_or(conversation.spawn_config.provider_account_id);
-                        if from == to {
+                        let from = conversation.spawn_config.provider_account_id;
+                        if heading.get(&standing.session_id).unwrap_or(&from) == &to {
                             continue;
                         }
                         let level =
@@ -748,15 +745,13 @@ impl SessionAccountMoveRecorder for SessionAccountMoveRecord {
     }
 }
 
-// Why the leads, or the bindings a lead's helpers ride, could not be read.
+// Why the leads could not be read.
 #[derive(Debug, thiserror::Error)]
 enum SessionLeadsReadError {
     #[error("no connection could read the sessions")]
     Read(#[from] DatabaseReadError),
     #[error("the sessions could not be read")]
     Query(#[from] rusqlite::Error),
-    #[error("the session's agent tree could not be read")]
-    Tree(#[from] AgentTreeReadError),
 }
 
 // Logs a session the switch skips because `error` kept its lead or level from reading.
@@ -773,7 +768,6 @@ fn skip_unreadable(session_id: SessionId, error: &(dyn Error + 'static)) {
 #[error("the account switch ended before it answered")]
 struct SwitchEnded;
 
-mod helper_bindings;
 mod landing;
 
 #[cfg(test)]
