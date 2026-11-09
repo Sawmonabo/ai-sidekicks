@@ -21,7 +21,7 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::driver::codex::hooks::server::CodexHookDispatch;
+use crate::driver::codex::hooks::tools::CodexHookTools;
 use crate::driver::codex::mcp::live_switch::report_codex_servers_switched_off;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::output_speed::{
@@ -91,7 +91,7 @@ pub(crate) struct CodexForkDependencies {
     /// The callback-tool host each fork installs its own registry on, beside the route.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// Answers the calls each fork's hook rows make on its hooks entry.
-    pub(crate) hook_dispatch: Arc<CodexHookDispatch>,
+    pub(crate) hook_tools: Arc<CodexHookTools>,
     /// The reviewer's denials, whose held presses on a binding the fork retires are released.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
@@ -534,7 +534,7 @@ fn open_fork_tool_servers(
     CodexDaemonToolServers::open(
         &dependencies.tool_server_route,
         &dependencies.callback_tool_host,
-        &dependencies.hook_dispatch,
+        &dependencies.hook_tools,
         record.session_id,
         record.callback_tools(),
     )

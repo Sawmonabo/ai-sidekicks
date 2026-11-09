@@ -2,11 +2,11 @@
 //! the tool call Codex makes for a hook row on the daemon's hooks entry, one dispatch point where
 //! each answerer in turn may answer or let the next one, and the answer written as the hook output
 //! Codex reads. A held call ends by an answer or by its cancellation, never by a timer.
+//! Which calls reach the dispatch point, the hooks entry's table decides.
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
-use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -18,12 +18,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::bound_failure_detail;
-use crate::port::hook_tool_server::{HookTool, HookToolAnswer, HookToolCall, HookToolServer};
+use crate::port::hook_tool_server::HookTool;
 use crate::record_readers::filter_non_empty;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
 /// It never quotes the input, which holds the tool's arguments.
-const HOOK_INPUT_UNREADABLE_REASON: &str =
+pub(super) const HOOK_INPUT_UNREADABLE_REASON: &str =
     "The daemon could not read this tool call's hook input, so the call was not run.";
 
 /// Stands in for an answerer's failure that carries no usable words.
@@ -69,10 +69,18 @@ impl CodexHookEvent {
             Self::PostToolUse => &CODEX_HOOK_TOOLS[1],
         }
     }
+
+    /// The event whose row calls the hooks entry's tool `tool_name`, `None` for a name no row
+    /// calls.
+    pub(super) fn of_hook_tool(tool_name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|event| event.hook_tool().name == tool_name)
+    }
 }
 
 /// The tools on the daemon's hooks entry, one per event, in [`CodexHookEvent::ALL`]'s order.
-const CODEX_HOOK_TOOLS: [HookTool; 2] = [
+pub(super) const CODEX_HOOK_TOOLS: [HookTool; 2] = [
     HookTool {
         name: "pre_tool_use",
         description: "Answers the daemon's hook before a tool call runs.",
@@ -240,41 +248,9 @@ impl CodexHookDispatch {
     }
 }
 
-impl HookToolServer for CodexHookDispatch {
-    fn tools(&self) -> &'static [HookTool] {
-        &CODEX_HOOK_TOOLS
-    }
-
-    /// Answers the call of the event whose tool it names, its `_meta.threadId` naming the
-    /// conversation, with the dispatch point's answer as Codex's hook output.
-    fn answer<'a>(
-        &'a self,
-        call: HookToolCall,
-        token: &'a CancellationToken,
-    ) -> BoxFuture<'a, HookToolAnswer> {
-        let Some(event) = CodexHookEvent::ALL
-            .into_iter()
-            .find(|event| event.hook_tool().name == call.tool_name)
-        else {
-            return async { HookToolAnswer::NoSuchTool }.boxed();
-        };
-        let call = CodexHookCall {
-            arguments: call.arguments,
-            meta: call.meta,
-        };
-        async move {
-            match CodexHookDispatch::answer(self, event, call, token).await {
-                Some(answer) => HookToolAnswer::Answered(answer.to_hook_output(event)),
-                None => HookToolAnswer::Canceled,
-            }
-        }
-        .boxed()
-    }
-}
-
-// What a call gets when it could not be answered: a pre-tool call is denied with `reason`, since
-// a call let through unchecked could run what a check would refuse; a post-tool call passes.
-fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
+/// What a call gets when it could not be answered: a pre-tool call is denied with `reason`, since
+/// a call let through unchecked could run what a check would refuse; a post-tool call passes.
+pub(super) fn failure_answer(event: CodexHookEvent, reason: String) -> CodexHookAnswer {
     match event {
         CodexHookEvent::PreToolUse => CodexHookAnswer::Deny { reason },
         CodexHookEvent::PostToolUse => CodexHookAnswer::Pass,
@@ -294,7 +270,7 @@ pub(crate) struct CodexHookCall {
 
 /// Why a hook call could not be read as a tool hook input.
 #[derive(Debug, thiserror::Error)]
-enum HookInputError {
+pub(super) enum HookInputError {
     /// The call's arguments are not a JSON object of the template's members.
     #[error("the Codex hook call's arguments are not a hook input")]
     Malformed(#[source] serde_json::Error),
@@ -338,6 +314,14 @@ struct HookCallMeta {
     thread_id: Option<String>,
 }
 
+/// Reads the conversation a hook call's `_meta` names; fails when it names none or names it with
+/// something other than text.
+pub(super) fn read_hook_thread_id(meta: Map<String, Value>) -> Result<String, HookInputError> {
+    let meta: HookCallMeta =
+        serde_json::from_value(Value::Object(meta)).map_err(HookInputError::MalformedMeta)?;
+    filter_non_empty(meta.thread_id).ok_or(HookInputError::NoConversation)
+}
+
 // Reads the tool call Codex made for `event`'s hook row.
 fn read_hook_input(
     event: CodexHookEvent,
@@ -345,8 +329,7 @@ fn read_hook_input(
 ) -> Result<CodexHookInput, HookInputError> {
     let arguments: HookCallArguments =
         serde_json::from_value(Value::Object(call.arguments)).map_err(HookInputError::Malformed)?;
-    let meta: HookCallMeta =
-        serde_json::from_value(Value::Object(call.meta)).map_err(HookInputError::MalformedMeta)?;
+    let thread_id = read_hook_thread_id(call.meta)?;
     let named_event = CodexHookEvent::ALL
         .into_iter()
         .find(|named| named.config_name() == arguments.hook_event_name);
@@ -355,7 +338,6 @@ fn read_hook_input(
             named: arguments.hook_event_name,
         });
     }
-    let thread_id = filter_non_empty(meta.thread_id).ok_or(HookInputError::NoConversation)?;
     Ok(CodexHookInput {
         event,
         thread_id,

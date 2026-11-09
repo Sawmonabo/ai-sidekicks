@@ -39,7 +39,7 @@ use crate::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
-use crate::driver::codex::hooks::server::CodexHookDispatch;
+use crate::driver::codex::hooks::tools::CodexHookTools;
 use crate::driver::codex::lifecycle::intake::observe_codex_session_frame;
 use crate::driver::codex::lifecycle::intake::routed_frames::{
     CodexRoutedFramesIntake, apply_codex_routed_frames,
@@ -251,7 +251,7 @@ impl TestCodexSession {
                 services: CodexServiceRegistry::holding(&scripted),
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
-                hook_dispatch: Arc::new(CodexHookDispatch::new(Vec::new())),
+                hook_tools: Arc::new(CodexHookTools::new(Vec::new(), Arc::default())),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
                 session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
@@ -374,7 +374,7 @@ impl TestCodexSession {
             helper_roles_folder: folder.join("roles"),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
-            hook_dispatch: Arc::new(CodexHookDispatch::new(Vec::new())),
+            hook_tools: Arc::new(CodexHookTools::new(Vec::new(), Arc::default())),
             delivery: Arc::clone(&self.task.calls.forks.delivery),
             run_routes: Arc::clone(&self.task.run_routes),
             pending_compactions: self.task.calls.forks.pending_compactions.clone(),

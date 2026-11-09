@@ -375,7 +375,6 @@ mod tests {
     use crate::driver::hook_pauses::PausedRole;
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::agent_tree_lookup::AgentTreeLookup;
-    use crate::port::hook_tool_server::{HookToolAnswer, HookToolCall, HookToolServer};
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";
@@ -593,7 +592,7 @@ mod tests {
 
     // Each daemon row's tool call reaches the pauses and answers the text Codex reads as that
     // hook's output: a paused lead's pre-tool call denied, a continued helper's post-tool call
-    // given its words. Killed by the dispatch not answering the row's tool, by an answer as empty
+    // given its words. Killed by the row's tool naming no event, by an answer as empty
     // text, and by output naming another event than the row's.
     #[tokio::test(start_paused = true)]
     async fn a_rows_tool_call_reaches_the_pauses_and_answers_codexs_hook_output() {
@@ -613,11 +612,11 @@ mod tests {
                 }
             };
             let dispatch = CodexHookDispatch::new(vec![pauses]);
-            let call = HookToolCall {
-                tool_name: row.handler["tool"]
-                    .as_str()
-                    .expect("a row names its tool")
-                    .to_owned(),
+            let event = CodexHookEvent::of_hook_tool(
+                row.handler["tool"].as_str().expect("a row names its tool"),
+            )
+            .expect("a row's tool is one of the hooks entry's");
+            let call = CodexHookCall {
                 arguments: Map::from_iter([(
                     "hook_event_name".to_owned(),
                     Value::from(row.event.config_name()),
@@ -626,13 +625,12 @@ mod tests {
             };
             let answer = tokio::time::timeout(
                 Duration::from_secs(1),
-                HookToolServer::answer(&dispatch, call, &CancellationToken::new()),
+                dispatch.answer(event, call, &CancellationToken::new()),
             )
             .await
-            .expect("the call is answered");
-            let HookToolAnswer::Answered(text) = answer else {
-                panic!("the row's call is answered, not {answer:?}");
-            };
+            .expect("the call is answered")
+            .expect("the call was not canceled");
+            let text = answer.to_hook_output(event);
             outputs.push(serde_json::from_str::<Value>(&text).expect("the output is JSON"));
         }
 

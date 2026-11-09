@@ -125,7 +125,7 @@ impl CodexSessionEstablishment {
             CodexDaemonToolServers::adopt(
                 &self.dependencies.tool_server_route,
                 &self.dependencies.callback_tool_host,
-                &self.dependencies.hook_dispatch,
+                &self.dependencies.hook_tools,
                 session_id,
                 callback_tools,
             )?

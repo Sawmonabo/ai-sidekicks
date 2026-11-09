@@ -34,7 +34,7 @@ use crate::driver::codex::auth_status::classify_codex_resume_recovery_condition;
 use crate::driver::codex::capabilities::{find_codex_model_row, read_codex_service_model_catalog};
 use crate::driver::codex::commands::CodexProviderCommandCache;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::driver::codex::hooks::server::CodexHookDispatch;
+use crate::driver::codex::hooks::tools::CodexHookTools;
 use crate::driver::codex::model_windows::read_codex_larger_window;
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::output_speed::{
@@ -114,7 +114,7 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     /// The callback-tool host each spawn installs its own registry on, beside the route.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// Answers the calls each spawn's hook rows make on its hooks entry.
-    pub(crate) hook_dispatch: Arc<CodexHookDispatch>,
+    pub(crate) hook_tools: Arc<CodexHookTools>,
     /// The frame delivery, which the frames that waited for a conversation go to.
     pub(crate) delivery: Arc<CodexFrameDelivery>,
     /// The driver's run routes, which an adopted conversation's live turns are bound on again.
@@ -581,7 +581,7 @@ impl CodexSessionEstablishment {
         CodexDaemonToolServers::open(
             &self.dependencies.tool_server_route,
             &self.dependencies.callback_tool_host,
-            &self.dependencies.hook_dispatch,
+            &self.dependencies.hook_tools,
             session_id,
             callback_tools,
         )
