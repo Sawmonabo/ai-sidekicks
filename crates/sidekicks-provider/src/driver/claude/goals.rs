@@ -5,23 +5,29 @@
 //! the command's run opens the session's process first, and the command is written only where that
 //! process lists it. The goal is applied once Claude
 //! Code started the command (`command_lifecycle` `started` under its message's uuid) and answered
-//! it: its command output, or a `result` that reports no error. One command waits per session; a
-//! second replaces the first, which then reads unanswered.
+//! it: its command output, or a `result` that reports no error. A command started with no answer
+//! in time is settled by a bare `/goal`, which prints the goal Claude Code holds. One command waits
+//! per session; a second replaces the first, which then reads unanswered.
 
 pub(crate) mod endings;
 pub(crate) mod file;
 pub(crate) mod records;
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::io;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
+use self::endings::{ClaudeGoalEndings, GOAL_ACTIVE_PREFIX, NO_GOAL_SET_PREFIX, is_goal_line};
+use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::system::{
     ClaudeCommandLifecycle, read_claude_command_lifecycle,
 };
@@ -34,6 +40,7 @@ use crate::driver::claude::session::errors::{
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::contract::error::DriverError;
+use crate::driver::error_causes::{RequestUnanswered, provider_failure_refusal};
 use crate::driver::session_control::DriverGoalResult;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -41,10 +48,11 @@ use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 // Bare, as `system/init` lists `slash_commands`.
 const CLAUDE_GOAL_COMMAND_NAME: &str = "goal";
 
-// How Claude Code answered one goal command.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// How Claude Code answered one goal command: with the text it printed, where it printed any, or
+// refused.
+#[derive(Debug)]
 enum ClaudeGoalReply {
-    Applied,
+    Answered { output: Option<String> },
     Refused,
 }
 
@@ -52,9 +60,17 @@ enum ClaudeGoalReply {
 struct ResultFrame {
     #[serde(default, deserialize_with = "read_lenient")]
     is_error: Option<bool>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    result: Option<String>,
 }
 
-lenient_object!(ResultFrame);
+#[derive(Default, Deserialize)]
+struct LocalCommandOutputFrame {
+    #[serde(default, deserialize_with = "read_lenient")]
+    content: Option<String>,
+}
+
+lenient_object!(ResultFrame, LocalCommandOutputFrame);
 
 // The goal command a session waits on: its message's uuid, the signal its start sends, taken once
 // Claude Code started it, and its answer.
@@ -65,21 +81,32 @@ struct WaitingGoalCommand {
 }
 
 /// Sends goal commands and reads each one's answer off the session's own stream.
-#[derive(Default)]
 pub(crate) struct ClaudeGoalCommands {
     waiting_by_session: Mutex<HashMap<SessionId, WaitingGoalCommand>>,
+    // Each session's goal as its stream last showed it, which a read-back tells the set's from.
+    endings: Arc<ClaudeGoalEndings>,
 }
 
 impl ClaudeGoalCommands {
+    /// Goal commands whose read-backs tell a set from the goal `endings` held before it.
+    pub(crate) fn new(endings: Arc<ClaudeGoalEndings>) -> Self {
+        Self {
+            waiting_by_session: Mutex::default(),
+            endings,
+        }
+    }
+
     /// Sends `/goal <goal_text>`, or `/goal clear` for `None`, on `session_id`, whose live process
     /// is `live`: as the session's own run while nothing holds its turn, written onto the lead's
     /// run while that run works, which Claude Code runs when its turn ends, and after a command's
     /// turn is released. With no live process the command's own run opens the session's process and
     /// writes it there. Answers `Applied` once Claude Code started the command and answered it,
-    /// and `Degraded` when Claude Code dropped it, reported an error or no answer within the
-    /// request deadline of its start, a command's turn outlasted that deadline, or the process's
-    /// handshake lists no `goal` command, in which case nothing is sent; fails as the write or the
-    /// run's start fails.
+    /// and `Degraded` when Claude Code dropped it, reported an error, a command's turn outlasted
+    /// the request deadline, or the process's handshake lists no `goal` command, in which case
+    /// nothing is sent. A started command with no answer within that deadline is read back with a
+    /// bare `/goal`: `Applied` when it shows the goal asked for, `Degraded` when it shows the goal
+    /// as it was before. Fails as the write or the run's start fails, and when the read-back is
+    /// unanswered within the deadline or shows neither goal.
     pub(crate) async fn send(
         &self,
         session_id: SessionId,
@@ -105,19 +132,10 @@ impl ClaudeGoalCommands {
                 return Ok(degraded());
             }
         }
+        // Read before the write, since the command's own line moves it once Claude Code runs it.
+        let goal_before = self.endings.active_condition(session_id);
         let message_uuid = mint_uuid_v7().to_string();
-        let (started_sender, started) = oneshot::channel();
-        let (reply_sender, reply) = oneshot::channel();
-        // Waiting before the write, since Claude Code may start the command before it returns; a
-        // command already waiting reads unanswered once it is replaced.
-        self.lock().insert(
-            session_id,
-            WaitingGoalCommand {
-                message_uuid: message_uuid.clone(),
-                started: Some(started_sender),
-                reply: reply_sender,
-            },
-        );
+        let (started, reply) = self.wait_for(session_id, &message_uuid);
         let text = || OutboundText {
             text: format!(
                 "/{CLAUDE_GOAL_COMMAND_NAME} {}",
@@ -144,13 +162,7 @@ impl ClaudeGoalCommands {
                 .map(drop)
         };
         if let Err(error) = written {
-            let mut waiting_by_session = self.lock();
-            if waiting_by_session
-                .get(&session_id)
-                .is_some_and(|waiting| waiting.message_uuid == message_uuid)
-            {
-                waiting_by_session.remove(&session_id);
-            }
+            self.let_go(session_id, &message_uuid);
             // The process the run opened lists no `goal`, so nothing was written.
             if is_unavailable_for(&error, CommandAbsent) {
                 return Ok(degraded());
@@ -161,17 +173,88 @@ impl ClaudeGoalCommands {
         // answer is bounded. A command dropped, replaced or let go before it started has its
         // answer, or none, waiting already.
         started.await.unwrap_or(());
-        Ok(
-            match tokio::time::timeout(CLAUDE_REQUEST_DEADLINE, reply).await {
-                Ok(Ok(ClaudeGoalReply::Applied)) => DriverGoalResult::Applied {},
-                Ok(Ok(ClaudeGoalReply::Refused) | Err(_)) | Err(_) => degraded(),
-            },
-        )
+        match tokio::time::timeout(CLAUDE_REQUEST_DEADLINE, reply).await {
+            Ok(Ok(ClaudeGoalReply::Answered { .. })) => Ok(DriverGoalResult::Applied {}),
+            Ok(Ok(ClaudeGoalReply::Refused) | Err(_)) => Ok(degraded()),
+            // Claude Code may have set the goal without a word, so the goal it holds decides.
+            Err(_elapsed) => {
+                self.read_back(
+                    session_id,
+                    controls,
+                    goal_text.map(str::trim),
+                    goal_before.as_deref(),
+                )
+                .await
+            }
+        }
+    }
+
+    // Writes a bare `/goal` onto the session's lead and answers by the goal it prints: `Applied`
+    // for `goal_asked` (`None` for no goal), `Degraded` for `goal_before`. Its start is bounded
+    // with its answer, since it waits behind the process that left the set unanswered.
+    async fn read_back(
+        &self,
+        session_id: SessionId,
+        controls: &ClaudeRunControls,
+        goal_asked: Option<&str>,
+        goal_before: Option<&str>,
+    ) -> Result<DriverGoalResult, DriverError> {
+        let message_uuid = mint_uuid_v7().to_string();
+        let (started, reply) = self.wait_for(session_id, &message_uuid);
+        let text = OutboundText {
+            text: format!("/{CLAUDE_GOAL_COMMAND_NAME}"),
+            origin: OutboundTextOrigin::HumanText,
+        };
+        if let Err(error) = controls
+            .write_to_lead(session_id, text, message_uuid.clone())
+            .await
+        {
+            self.let_go(session_id, &message_uuid);
+            return Err(error);
+        }
+        let answered = tokio::time::timeout(CLAUDE_REQUEST_DEADLINE, async {
+            started.await.unwrap_or(());
+            reply.await
+        })
+        .await;
+        let output = match answered {
+            Ok(Ok(ClaudeGoalReply::Answered {
+                output: Some(output),
+            })) => output,
+            Ok(answer) => {
+                return Err(read_back_failure(
+                    "Claude Code answered the goal's read-back with no goal",
+                    RefusalCode::ProviderUnavailable,
+                    format!("`/goal` was answered {answer:?}"),
+                ));
+            }
+            Err(_elapsed) => {
+                self.let_go(session_id, &message_uuid);
+                return Err(read_back_failure(
+                    "The Claude Code process did not answer the goal's read-back in time",
+                    RefusalCode::ProviderTimeout,
+                    "`/goal` was not answered within the request deadline".to_owned(),
+                ));
+            }
+        };
+        let output = output.trim();
+        if shows_goal(output, goal_asked) {
+            Ok(DriverGoalResult::Applied {})
+        } else if shows_goal(output, goal_before) {
+            Ok(degraded())
+        } else {
+            Err(read_back_failure(
+                "Claude Code's goal read-back shows neither the goal set nor the one before it",
+                RefusalCode::ProviderUnavailable,
+                format!("`/goal` printed {output:?}"),
+            ))
+        }
     }
 
     /// Reads one frame of a session's own thread for the goal command it waits on: the command's
     /// own `command_lifecycle` starts or drops it, and only a started command takes the command
-    /// output or `result` that follows as its answer, so the lead turn's own end answers none.
+    /// output, goal line or `result` that follows as its answer, so the lead turn's own end
+    /// answers none.
     pub(crate) fn observe_lead_frame(&self, session_id: SessionId, frame_kind: &str, text: &str) {
         let Some(kind) = ClaudeWireFrameKind::read(frame_kind) else {
             return;
@@ -181,13 +264,31 @@ impl ClaudeGoalCommands {
             return;
         }
         let reply = if kind == ClaudeWireFrameKind::SystemLocalCommandOutput {
-            ClaudeGoalReply::Applied
+            let frame = serde_json::from_str::<LocalCommandOutputFrame>(text).unwrap_or_default();
+            ClaudeGoalReply::Answered {
+                output: frame.content,
+            }
+        } else if kind == ClaudeWireFrameKind::Assistant {
+            // A command's goal line may come as the lead's own message, as the stream reads it.
+            let frame = serde_json::from_str::<ClaudeMessageFrame>(text).ok();
+            let Some(line) = frame
+                .as_ref()
+                .and_then(ClaudeMessageFrame::text)
+                .filter(|line| is_goal_line(line))
+            else {
+                return;
+            };
+            ClaudeGoalReply::Answered {
+                output: Some(line.to_owned()),
+            }
         } else if kind.is_result() {
             let frame = serde_json::from_str::<ResultFrame>(text).unwrap_or_default();
             if frame.is_error == Some(true) {
                 ClaudeGoalReply::Refused
             } else {
-                ClaudeGoalReply::Applied
+                ClaudeGoalReply::Answered {
+                    output: frame.result,
+                }
             }
         } else {
             return;
@@ -234,6 +335,38 @@ impl ClaudeGoalCommands {
         self.lock().remove(&session_id);
     }
 
+    // Makes `message_uuid` the command the session waits on, answering its start and its answer.
+    // Waiting comes before the write, since Claude Code may start the command before it returns;
+    // a command already waiting reads unanswered once it is replaced.
+    fn wait_for(
+        &self,
+        session_id: SessionId,
+        message_uuid: &str,
+    ) -> (oneshot::Receiver<()>, oneshot::Receiver<ClaudeGoalReply>) {
+        let (started_sender, started) = oneshot::channel();
+        let (reply_sender, reply) = oneshot::channel();
+        self.lock().insert(
+            session_id,
+            WaitingGoalCommand {
+                message_uuid: message_uuid.to_owned(),
+                started: Some(started_sender),
+                reply: reply_sender,
+            },
+        );
+        (started, reply)
+    }
+
+    // Stops waiting on `message_uuid`, where the session still waits on it.
+    fn let_go(&self, session_id: SessionId, message_uuid: &str) {
+        let mut waiting_by_session = self.lock();
+        if waiting_by_session
+            .get(&session_id)
+            .is_some_and(|waiting| waiting.message_uuid == message_uuid)
+        {
+            waiting_by_session.remove(&session_id);
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, WaitingGoalCommand>> {
         lock(&self.waiting_by_session)
     }
@@ -243,6 +376,47 @@ fn degraded() -> DriverGoalResult {
     DriverGoalResult::Degraded {
         fallback_action: None,
     }
+}
+
+// Whether a bare `/goal`'s `output` shows `goal`: `No goal set…` for none, else
+// `Goal active: <condition> (<checks>)`, the checks `not yet evaluated` or `<n> turn(s)`, and the
+// last check's reason on a line of its own after it.
+fn shows_goal(output: &str, goal: Option<&str>) -> bool {
+    let Some(condition) = goal else {
+        return output.starts_with(NO_GOAL_SET_PREFIX);
+    };
+    let Some(checks) = output
+        .strip_prefix(GOAL_ACTIVE_PREFIX)
+        .and_then(|rest| rest.strip_prefix(condition))
+        .and_then(|rest| rest.strip_prefix(" ("))
+    else {
+        return false;
+    };
+    let checks = checks
+        .split_once('\n')
+        .map_or(checks, |(line, _reason)| line);
+    let Some(checks) = checks.strip_suffix(')') else {
+        return false;
+    };
+    checks == "not yet evaluated"
+        || checks
+            .strip_suffix(" turns")
+            .or_else(|| checks.strip_suffix(" turn"))
+            .is_some_and(|count| {
+                !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit())
+            })
+}
+
+// A set whose read-back did not settle it: the set may stand in Claude Code, as `message` says.
+fn read_back_failure(message: &str, code: RefusalCode, detail: String) -> DriverError {
+    DriverError::from(RequestUnanswered {
+        refusal: provider_failure_refusal(
+            &DESCRIPTOR.provider_id(),
+            message,
+            code,
+            io::Error::other(detail),
+        ),
+    })
 }
 
 #[cfg(test)]
@@ -262,6 +436,7 @@ mod tests {
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, hand_scripted_frame, settle,
     };
+    use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
     use crate::driver::claude::session::transport::declarations::{
         ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
     };
@@ -338,13 +513,47 @@ mod tests {
     }
 
     fn turn_result() -> Value {
+        result("done")
+    }
+
+    fn result(text: &str) -> Value {
         json!({
             "type": "result",
             "subtype": "success",
             "is_error": false,
-            "result": "done",
+            "result": text,
             "session_id": SCRIPTED_PROVIDER_SESSION_ID,
         })
+    }
+
+    fn local_command_output(content: &str) -> Value {
+        json!({
+            "type": "system",
+            "subtype": "local_command_output",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "content": content,
+        })
+    }
+
+    // Sets `ship it` while the lead works and lets Claude Code start it, give no answer within
+    // the request deadline, then start the bare `/goal` written after it; answers the set's task.
+    async fn set_goal_unanswered(
+        session: &Arc<ScriptedSession>,
+    ) -> JoinHandle<Result<DriverGoalResult, DriverError>> {
+        session.hold_lead_turn("lead");
+        let setting = set_goal(session);
+        settle().await;
+        let message_uuid = written_goal(session);
+        session.frame(&command_lifecycle(&message_uuid, "started"));
+        tokio::time::sleep(CLAUDE_REQUEST_DEADLINE + Duration::from_secs(1)).await;
+        let frames = session.channel.user_frames();
+        assert_eq!(frames.len(), 2, "the goal is read back: {frames:?}");
+        assert_eq!(frames[1]["message"]["content"], "/goal");
+        let read_back_uuid = frames[1]["uuid"]
+            .as_str()
+            .expect("the read-back carries its uuid");
+        session.frame(&command_lifecycle(read_back_uuid, "started"));
+        setting
     }
 
     // Killed by refusing the set while the lead's run holds the turn, by taking the command as
@@ -366,12 +575,7 @@ mod tests {
             "the lead turn's own end answers no goal"
         );
         session.frame(&command_lifecycle(&message_uuid, "started"));
-        session.frame(&json!({
-            "type": "system",
-            "subtype": "local_command_output",
-            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-            "content": "Goal set: ship it",
-        }));
+        session.frame(&local_command_output("Goal set: ship it"));
 
         assert_eq!(answer(setting).await, DriverGoalResult::Applied {});
         assert_eq!(session.ports.taken(), [(message_uuid, run_id)]);
@@ -390,6 +594,59 @@ mod tests {
         session.frame(&command_lifecycle(&message_uuid, "cancelled"));
 
         assert_eq!(answer(setting).await, degraded());
+    }
+
+    // Killed by answering `Degraded` on every set left unanswered: the read-back shows the goal
+    // set.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_goal_the_read_back_shows_set_is_applied() {
+        let session = goal_session().await;
+        let setting = set_goal_unanswered(&session).await;
+
+        session.frame(&local_command_output(
+            "Goal active: ship it (not yet evaluated)",
+        ));
+
+        assert_eq!(answer(setting).await, DriverGoalResult::Applied {});
+    }
+
+    // Killed by taking the goal before the set as none, and by answering `Applied` on any
+    // read-back showing a goal active: the read-back shows the goal the set would have replaced.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_goal_the_read_back_shows_as_before_is_not_applied() {
+        let session = goal_session().await;
+        session
+            .parts
+            .establishment
+            .task_services
+            .goal_endings
+            .seed(session.session_id, Some("keep going".to_owned()));
+        let setting = set_goal_unanswered(&session).await;
+
+        session.frame(&local_command_output(
+            "Goal active: keep going (2 turns)\nLast check: the tests still fail",
+        ));
+
+        assert_eq!(answer(setting).await, degraded());
+    }
+
+    // Killed by answering `Degraded` on a read-back that shows neither goal: Claude Code's answer
+    // names no goal, so the set may stand and fails instead.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_goal_whose_read_back_shows_neither_goal_fails() {
+        let session = goal_session().await;
+        let setting = set_goal_unanswered(&session).await;
+
+        session.frame(&result("Unknown command: /goal"));
+
+        let answered = tokio::time::timeout(Duration::from_secs(600), setting)
+            .await
+            .expect("the set answers")
+            .expect("the set's task ends");
+        assert!(
+            matches!(answered, Err(DriverError::Unanswered(_))),
+            "{answered:?}"
+        );
     }
 
     // Killed by taking the command as started before Claude Code started it: the stray `result`

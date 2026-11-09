@@ -29,8 +29,11 @@ const GOAL_SET_PREFIX: &str = "Goal set: ";
 // after an unrecoverable error (`Goal cleared after an unrecoverable error`).
 const GOAL_CLEARED_PREFIX: &str = "Goal cleared";
 
-// The lead's line for `/goal` or `/goal clear` with no goal set.
-const NO_GOAL_SET_PREFIX: &str = "No goal set";
+/// The lead's line for `/goal` or `/goal clear` with no goal set.
+pub(crate) const NO_GOAL_SET_PREFIX: &str = "No goal set";
+
+/// The line a bare `/goal` prints while a goal is active, `Goal active: <condition> (<checks>)`.
+pub(crate) const GOAL_ACTIVE_PREFIX: &str = "Goal active: ";
 
 /// The kind a `goal_status` record of the conversation file is named by, in a log line or on its
 /// delivery.
@@ -307,9 +310,14 @@ fn classify_turn_end(
 
 /// Whether `text` reads as one of Claude Code's goal lines.
 pub(crate) fn is_goal_line(text: &str) -> bool {
-    [GOAL_SET_PREFIX, GOAL_CLEARED_PREFIX, NO_GOAL_SET_PREFIX]
-        .iter()
-        .any(|prefix| text.starts_with(prefix))
+    [
+        GOAL_SET_PREFIX,
+        GOAL_CLEARED_PREFIX,
+        NO_GOAL_SET_PREFIX,
+        GOAL_ACTIVE_PREFIX,
+    ]
+    .iter()
+    .any(|prefix| text.starts_with(prefix))
 }
 
 /// Every session's goal while its process runs: the condition of each active goal, by session.
@@ -331,6 +339,11 @@ impl ClaudeGoalEndings {
                 active.remove(&session_id);
             }
         }
+    }
+
+    /// The condition of the goal active on `session_id`, `None` while none is.
+    pub(crate) fn active_condition(&self, session_id: SessionId) -> Option<String> {
+        lock(&self.active_by_session).get(&session_id).cloned()
     }
 
     /// Classifies `input` against the goal of `session_id`, whose lead is `agent_id`.

@@ -394,7 +394,7 @@ impl ClaudeDriver {
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
         }));
-        let goals = Arc::new(ClaudeGoalCommands::default());
+        let goals = Arc::new(ClaudeGoalCommands::new(Arc::clone(&goal_endings)));
         let cuts = Arc::new(ClaudeConversationCuts {
             routes: Arc::clone(&routes),
             prompts: Arc::clone(&prompts),
