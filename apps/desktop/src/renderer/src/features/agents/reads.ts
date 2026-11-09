@@ -10,29 +10,39 @@ import type {
   AgentChildRunLinkListResponse,
 } from "@ai-sidekicks/contracts/orchestration";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { RUN_STATE_EVENT_TYPES } from "@ai-sidekicks/contracts/transcript/operations";
 import type { Clock } from "#renderer/lib/clock.js";
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
-import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import type { SessionAgentListState } from "#renderer/store/agents/list.js";
 
 /**
- * The two kinds that move the session's child links: a run queued for a new child, and
- * `agent.run.rejected`, the only record of a refused create (no link row is left).
+ * The kinds that move the session's child links: every run state change (a child queued, started,
+ * waiting, finished), a provider's helper starting or ending, and `agent.run.rejected`, the only
+ * record of a refused create (no link row is left).
  */
 const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
-  RUN_QUEUED_EVENT_KIND,
+  ...RUN_STATE_EVENT_TYPES,
+  "agent.subagent.started",
+  "agent.subagent.completed",
+  "agent.subagent.stopped",
   "agent.run.rejected",
 ];
 
 /** Names the child-run links read in a refusal. */
 export const CHILD_RUN_LINKS_ORIGIN = "child-run-links";
 
-/** Reads the session's child-run tree, its counts and its refused creates. */
+/**
+ * Reads the session's child-run tree, its counts and its refused creates over `bridge`, stopping
+ * when `signal` aborts; a refusal rejects.
+ */
 export type ReadChildRunLinks = (
+  bridge: PlatformBridge,
   request: AgentChildRunLinkListRequest,
+  signal: AbortSignal,
 ) => Promise<AgentChildRunLinkListResponse>;
 
 /** Lists the saved agent definitions. */
@@ -67,6 +77,7 @@ export function listAgents(
  * A burst of queued children costs one read: the shared scheduler coalesces them.
  */
 export function createChildRunLinks(
+  bridge: PlatformBridge,
   sessionStore: SessionStore,
   clock: Clock,
   readChildRunLinks: ReadChildRunLinks,
@@ -74,8 +85,12 @@ export function createChildRunLinks(
   return new PushDrivenRead<AgentChildRunLinkListResponse>({
     clock,
     origin: CHILD_RUN_LINKS_ORIGIN,
-    read: async () =>
-      await readChildRunLinks({ sessionId: heldIdAsWireId(sessionStore.sessionId) }),
+    read: async (signal) =>
+      await readChildRunLinks(
+        bridge,
+        { sessionId: heldIdAsWireId(sessionStore.sessionId) },
+        signal,
+      ),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINK_EVENT_KINDS, onChangeSignal),
   });

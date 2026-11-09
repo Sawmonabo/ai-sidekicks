@@ -54,6 +54,7 @@ import {
 } from "../data/opening-entries.js";
 import { sessionReadReply } from "../data/session-record.js";
 import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
+import { NO_CHILD_RUN_LINKS_REPLY } from "../data/child-run-links.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are this scenario's start instant.
@@ -481,6 +482,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
       beats,
       replies: [
         PROVIDER_LIST_REPLY,
+        NO_CHILD_RUN_LINKS_REPLY,
         // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
         // need no scripted entries (a run this reply does not name gets the fixture's refusal),
         // while the entries are what no beat in this session produces.

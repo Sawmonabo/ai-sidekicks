@@ -21,7 +21,7 @@ import type { SessionStore } from "#renderer/store/session/store.js";
 import { createChildRunLinks, listAgents } from "./reads.js";
 import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
-import { REJECTING_AGENTS_PANE_CALLS } from "./reads.test-support.js";
+import { REJECTING_AGENTS_PANE_CALLS, unscriptedBridge } from "./reads.test-support.js";
 
 const SESSION_ID = "019b7b30-0280-7c3d-8110-cca0117a0160" as SessionId;
 const LEAD_ID = "019b7b30-0280-7c3d-8110-cca0117a0161";
@@ -79,6 +79,7 @@ function startedChildRunLinks(
   clock: ManualClock,
 ): ReturnType<typeof createChildRunLinks> {
   const read = createChildRunLinks(
+    unscriptedBridge("agent-child-run-links-signal").bridge,
     sessionStore,
     clock,
     REJECTING_AGENTS_PANE_CALLS.readChildRunLinks,
@@ -98,20 +99,25 @@ async function settleReads(clock: ManualClock): Promise<void> {
 }
 
 describe("the Agents pane's models — what re-reads the session's child links", () => {
-  it("re-reads once when a run is queued, and once when a create is refused", async () => {
+  it("re-reads once for each run state change, helper start or end, and refused create", async () => {
     const sessionStore = initializedStore("session-signal");
     const clock = new ManualClock();
     const read = startedChildRunLinks(sessionStore, clock);
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, RUN_QUEUED_EVENT_KIND, 1));
-    await settleReads(clock);
-    expect(read.readCount).toBe(afterFirstRead + 1);
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "agent.run.rejected", 2));
-    await settleReads(clock);
-    expect(read.readCount).toBe(afterFirstRead + 2);
+    const kinds = [
+      RUN_QUEUED_EVENT_KIND,
+      "agent.run.completed",
+      "agent.subagent.started",
+      "agent.subagent.stopped",
+      "agent.run.rejected",
+    ] as const;
+    for (const [index, kind] of kinds.entries()) {
+      sessionStore.apply(eventOfKind(sessionStore.sessionId, kind, index + 1));
+      await settleReads(clock);
+      expect(read.readCount).toBe(afterFirstRead + index + 1);
+    }
   });
 
   it("re-reads nothing for a kind the child-run links read does not watch", async () => {

@@ -49,6 +49,10 @@ import {
   type McpMethodDescriptors,
 } from "@ai-sidekicks/contracts/mcp/governance";
 import {
+  ORCHESTRATION_METHOD_DESCRIPTORS,
+  type OrchestrationMethodDescriptors,
+} from "@ai-sidekicks/contracts/orchestration";
+import {
   PRESENCE_METHOD_DESCRIPTORS,
   type PresenceMethodDescriptors,
 } from "@ai-sidekicks/contracts/presence";
@@ -143,6 +147,7 @@ type WindowMethodTables = AgentMethodDescriptors &
   MachineSettingsMethodDescriptors &
   McpEventMethodDescriptors &
   McpMethodDescriptors &
+  OrchestrationMethodDescriptors &
   PresenceMethodDescriptors &
   ProviderAccountMethodDescriptors &
   ProviderDriverMethodDescriptors &
@@ -236,6 +241,7 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
     ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
     ...MCP_EVENT_METHOD_DESCRIPTORS,
     ...MCP_METHOD_DESCRIPTORS,
+    ...ORCHESTRATION_METHOD_DESCRIPTORS,
     ...PRESENCE_METHOD_DESCRIPTORS,
     ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
     ...PROVIDER_DRIVER_METHOD_DESCRIPTORS,

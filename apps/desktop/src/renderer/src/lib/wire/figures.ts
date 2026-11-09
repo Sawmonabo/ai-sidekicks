@@ -486,6 +486,14 @@ export function formatMoney(amount: number): string {
   return dollarFormatFor(fractionDigits).format(amount);
 }
 
+/** A spend the wire counts in millionths of a dollar, in the one money format. */
+export function formatUsdMicros(usdMicros: number): string {
+  return formatMoney(usdMicros / MICROS_PER_DOLLAR);
+}
+
+/** How many micro-dollars make a dollar. */
+const MICROS_PER_DOLLAR = 1_000_000;
+
 function formatDescriptorMember(value: unknown): string {
   if (value === undefined) {
     return UNSET_DESCRIPTOR_MEMBER_TEXT;

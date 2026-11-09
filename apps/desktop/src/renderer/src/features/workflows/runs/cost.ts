@@ -9,11 +9,8 @@ import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings"
 import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
-import { formatMoney } from "#renderer/lib/wire/figures.js";
+import { formatUsdMicros } from "#renderer/lib/wire/figures.js";
 import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
-
-/** How many micro-dollars make a dollar. */
-const MICROS_PER_DOLLAR = 1_000_000;
 
 /**
  * What the account registry says about the account a cost was paid from: not read yet, read
@@ -28,7 +25,7 @@ export type PayerReading =
 
 /** The cost alone, `$0.1865` or `$7.30`; a plain `$0.00` where nothing was spent. */
 export function costFigure(cost: WorkflowCost | undefined): FigureSentencePart {
-  const amount = formatMoney((cost?.usdMicros ?? 0) / MICROS_PER_DOLLAR);
+  const amount = formatUsdMicros(cost?.usdMicros ?? 0);
   return cost === undefined ? amount : { wire: amount };
 }
 

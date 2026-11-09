@@ -44,3 +44,51 @@
   text-transform: uppercase;
   color: var(--meridian-text-faint);
 }
+
+/* The dispatched children as one tree: each level indents one step, with a 1px connector beside
+ * the nested rows; a finished row dims where it stands. */
+.meridian-child-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-child-runs__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-inline-start: calc(var(--meridian-child-run-depth) * var(--meridian-space-5));
+  min-width: 0;
+}
+
+.meridian-child-runs__row--nested {
+  border-inline-start: 1px solid var(--meridian-edge);
+  padding-inline-start: var(--meridian-space-2);
+}
+
+.meridian-child-runs__row--settled {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-child-runs__line,
+.meridian-child-runs__failed,
+.meridian-child-runs__foot {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-child-runs__via,
+.meridian-child-runs__foot {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-child-runs__foot {
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-child-runs__failed {
+  color: var(--meridian-red-text);
+}

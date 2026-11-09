@@ -15,6 +15,7 @@ import { composeScenarioInstant, composeScriptBeats } from "../data/script-entri
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import { sessionReadReply } from "../data/session-record.js";
 import { PROVIDER_LIST_REPLY } from "../data/provider-list.js";
+import { NO_CHILD_RUN_LINKS_REPLY } from "../data/child-run-links.js";
 
 /** The id of the first-run scenario. */
 export const FIRST_RUN_SCENARIO_ID = "first-run";
@@ -70,6 +71,7 @@ export const FIRST_RUN_SCENARIO: Scenario = defineScenario(
       beats,
       replies: [
         PROVIDER_LIST_REPLY,
+        NO_CHILD_RUN_LINKS_REPLY,
         // `provisioning` is what a session being created reads as before it is admitted.
         sessionReadReply({
           sessionId: SESSION_ID,
