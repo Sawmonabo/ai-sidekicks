@@ -10,6 +10,7 @@
 //! files, and a rule holds at every level that asks.
 
 pub mod events;
+pub mod holder;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,6 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::free_form_string::FILE_PATH_MAX_LEN;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
-use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -83,7 +83,8 @@ pub enum ApprovalCategory {
 }
 
 /// Where an ask stands. There is no expired state: an ask waits until it is answered, and the only
-/// ends besides an answer cancel it with its run.
+/// ends besides an answer cancel it with its run, its session or its provider process, or a
+/// workflow wait's card with its wait.
 #[derive(
     Clone,
     Copy,
@@ -494,8 +495,8 @@ macro_rules! approval_projection_row {
             $arm {
                 /// The ask.
                 id: ApprovalRequestId,
-                /// Its run.
-                run_id: RunId,
+                /// What holds it open: an agent run or a workflow wait.
+                holder: holder::ApprovalHolder,
                 /// Who asked.
                 requested_by: NonEmptyText,
                 /// What it is about.
@@ -778,6 +779,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ApprovalRequestId>().checked(),
         Definition::read::<RememberedRuleId>().checked(),
         Definition::read::<ReviewerDenialId>().checked(),
+        Definition::read::<holder::ApprovalHolder>().checked(),
         Definition::read::<ApprovalCategory>().checked(),
         Definition::read::<ApprovalState>().checked(),
         Definition::read::<ApprovalDecision>().checked(),

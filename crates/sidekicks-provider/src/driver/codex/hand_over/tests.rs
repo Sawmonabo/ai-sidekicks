@@ -9,7 +9,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::summarize_on_copy;
+use crate::driver::codex::pricing::CodexRecorderPricing;
 use crate::driver::codex::service::supervisor::test_service::{bind_test_listener, send_on_socket};
+use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
 use crate::driver::codex::session::side_questions::test_copies::{
     COPY_THREAD, COPY_TURN, STORED_THREAD, open_copy, read_only_profile, resting_session,
 };
@@ -61,13 +63,16 @@ async fn a_hand_over_summary_forks_an_ephemeral_copy_that_answers_the_template()
         (fork, turn, profile)
     });
 
-    let exported = summarize_on_copy(
-        &establishment,
-        &params,
-        &Arc::new(PortRegistration::new("usage")),
-    )
-    .await
-    .expect("the copy answers the template");
+    let filing = SessionUsageFiling {
+        usage: Arc::new(PortRegistration::new("usage")),
+        session_id,
+        binding_id: params.binding_id.clone(),
+        provider_account_id: params.resume.provider_account_id.clone(),
+        pricing: CodexRecorderPricing::new(Arc::clone(&session.task.pricing)),
+    };
+    let exported = summarize_on_copy(&establishment, &params, filing)
+        .await
+        .expect("the copy answers the template");
     let (fork, turn, profile) = tokio::time::timeout(SERVE_WAIT, served)
         .await
         .expect("the daemon lets the copy's connection go once it answered")

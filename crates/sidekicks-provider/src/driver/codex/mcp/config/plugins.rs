@@ -161,7 +161,7 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
                         superseded_in: Vec::new(),
                         disabled_in: Vec::new(),
                         is_read_only: true,
-                        sign_in_client: declared.sign_in_client,
+                        sign_in_settings: declared.sign_in_settings,
                         is_switch_kept_by_daemon: true,
                         tool_defaults: declared.tool_defaults,
                         organization_managed: None,

@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -15,6 +14,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::exec_turn::{ExecTurnEnd, read_exec_turn};
 use crate::driver::codex::lifecycle::naming::lockdown::{
     compose_lockdown_overrides, write_exec_overrides,
 };
@@ -29,7 +29,7 @@ use crate::driver::codex::service::supervisor::start::compose_codex_native_launc
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer};
 use crate::driver::contract::error::DriverError;
-use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
+use crate::usage_delta_accountant::compose_one_turn_spend;
 
 /// The one line the turn sends.
 const CODEX_WINDOW_TURN_LINE: &str = "ok";
@@ -82,16 +82,12 @@ async fn start_codex_window(
     )
     .await?;
     let mut overrides = compose_lockdown_overrides(&server_names);
-    overrides.extend([
-        (
-            MODEL_KEY.to_owned(),
-            Value::String(CODEX_SMALL_MODEL.to_owned()),
-        ),
-        (
-            REASONING_EFFORT_KEY.to_owned(),
-            Value::String(CODEX_SMALL_MODEL_EFFORT.to_owned()),
-        ),
-    ]);
+    let small_model = [
+        (MODEL_KEY, CODEX_SMALL_MODEL),
+        (REASONING_EFFORT_KEY, CODEX_SMALL_MODEL_EFFORT),
+    ];
+    overrides
+        .extend(small_model.map(|(key, value)| (key.to_owned(), Value::String(value.to_owned()))));
     let mut arguments = home_exec_switches(&home.kind);
     arguments.extend(write_exec_overrides(overrides));
     arguments.extend(CODEX_WINDOW_TURN_ARGUMENTS.map(str::to_owned));
@@ -109,78 +105,21 @@ async fn start_codex_window(
             detail: "Codex's window-start turn did not run.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    read_exec_turn(&printed)
-}
-
-// One event line `codex exec --json` writes.
-#[derive(Deserialize)]
-struct ExecEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    #[serde(default)]
-    usage: Option<ExecUsage>,
-}
-
-// A turn's counts as `codex exec` writes them, its input holding the cached input.
-#[derive(Deserialize)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each count is named as Codex names it"
-)]
-struct ExecUsage {
-    input_tokens: Option<u64>,
-    cached_input_tokens: Option<u64>,
-    cache_write_input_tokens: Option<u64>,
-    output_tokens: Option<u64>,
-    reasoning_output_tokens: Option<u64>,
-}
-
-impl From<ExecUsage> for UsageAxisCounts {
-    // Codex totals a turn as its input and output, the cache inside the input.
-    fn from(usage: ExecUsage) -> Self {
-        Self {
-            input: usage.input_tokens,
-            cached_input: usage.cached_input_tokens,
-            cache_write_input: usage.cache_write_input_tokens,
-            output: usage.output_tokens,
-            reasoning_output: usage.reasoning_output_tokens,
-            total: usage
-                .input_tokens
-                .zip(usage.output_tokens)
-                .and_then(|(input, output)| input.checked_add(output)),
+    match read_exec_turn(&printed) {
+        Some(ExecTurnEnd::Completed { counts, .. }) => {
+            let model_id = FreeFormText::new(CODEX_SMALL_MODEL.to_owned()).ok();
+            let past_range = "Codex's window-start counts are past the wire's range";
+            compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, counts)
+                .map(WindowTurnAnswer::Spent)
+                .ok_or_else(|| DriverError::Internal(past_range.into()))
         }
-    }
-}
-
-// The turn's end in what `codex exec --json` printed: `turn.completed`'s counts as the spend, or
-// `turn.failed` as a refusal. A line that is no event is passed over. Fails when it printed no
-// turn's end, or counts past the wire's range.
-fn read_exec_turn(printed: &str) -> Result<WindowTurnAnswer, DriverError> {
-    for line in printed.lines() {
-        let Ok(event) = serde_json::from_str::<ExecEvent>(line) else {
-            continue;
-        };
-        match event.event_type.as_str() {
-            "turn.completed" => {
-                let model_id = FreeFormText::new(CODEX_SMALL_MODEL.to_owned()).ok();
-                let counts = event.usage.map(UsageAxisCounts::from).unwrap_or_default();
-                return compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, counts)
-                    .map(WindowTurnAnswer::Spent)
-                    .ok_or_else(|| {
-                        DriverError::Internal(
-                            "Codex's window-start counts are past the wire's range".into(),
-                        )
-                    });
-            }
-            "turn.failed" => return Ok(WindowTurnAnswer::Refused),
-            _ => {}
+        Some(ExecTurnEnd::Failed) => Ok(WindowTurnAnswer::Refused),
+        None => Err(CodexError::Transport {
+            detail: "Codex's window-start turn reported no end.".to_owned(),
+            cause: None,
         }
+        .into()),
     }
-    Err(CodexError::Transport {
-        detail: "Codex's window-start turn reported no end.".to_owned(),
-        cause: None,
-    }
-    .into())
 }
 
 #[cfg(test)]

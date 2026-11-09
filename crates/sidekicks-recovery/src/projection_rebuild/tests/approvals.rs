@@ -57,7 +57,7 @@ fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<Write
         vec![insert_request_statement(&InsertedApprovalRequest {
             approval_request_id: requested.approval_request_id,
             session_id: requested.session_id,
-            run_id: requested.run_id,
+            holder: requested.holder.clone(),
             requested_by: requested.requested_by.clone(),
             category: requested.category,
             scope: requested.scope.clone(),
@@ -90,17 +90,36 @@ fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<Write
     }
 }
 
-// One ask's events: its request and what became of it.
+// One ask's events: its request and what became of it, under what holds it: an agent run, whose
+// rule's record names it, or a workflow wait, whose card is a gate scoped to its session.
 struct Ask {
     id: String,
     run_id: String,
+    holder: serde_json::Value,
+    is_gate: bool,
 }
 
 impl Ask {
     fn new() -> Self {
+        let run_id = mint_uuid_v7().to_string();
         Self {
             id: mint_uuid_v7().to_string(),
-            run_id: mint_uuid_v7().to_string(),
+            holder: json!({ "kind": "run", "runId": run_id }),
+            run_id,
+            is_gate: false,
+        }
+    }
+
+    fn held_by_a_wait() -> Self {
+        Self {
+            holder: json!({
+                "kind": "wait",
+                "workflowRunId": mint_uuid_v7().to_string(),
+                "waitId": mint_uuid_v7().to_string(),
+                "nodeId": "approve",
+            }),
+            is_gate: true,
+            ..Self::new()
         }
     }
 
@@ -110,14 +129,23 @@ impl Ask {
         event_type: &str,
         extra: &serde_json::Value,
     ) -> SessionEvent {
+        let (category, scope) = if self.is_gate {
+            ("gate", json!(session_id))
+        } else {
+            ("toolExecution", json!("npm run build"))
+        };
         let mut payload = json!({
             "sessionId": session_id,
-            "runId": self.run_id,
             "approvalRequestId": self.id,
-            "category": "toolExecution",
-            "scope": "npm run build",
+            "category": category,
+            "scope": scope,
         });
         let members = payload.as_object_mut().expect("the payload is an object");
+        if event_type == "approval.rule.remembered" {
+            members.insert("runId".to_owned(), json!(self.run_id));
+        } else {
+            members.insert("holder".to_owned(), self.holder.clone());
+        }
         for (name, value) in extra.as_object().expect("the extra members are an object") {
             members.insert(name.clone(), value.clone());
         }
@@ -168,7 +196,8 @@ enum GateNamedSkip {
 }
 
 // The rows the live writes wrote are the rows a rebuild writes: an approval with its
-// correction, a decline with its words, a cancellation, and an ask a workflow gate's answer
+// correction, a decline with its words, a cancellation, a workflow wait's pending card, whose
+// holder a rebuild writing the run's column alone loses, and an ask a workflow gate's answer
 // names, with the rule it asked for and made, which the clear keeps with its answer. Rebuilt
 // whole, the gate-named ask's answer is written over the kept one; where the session skipped
 // that answer as damaged, the ask settles as the gate's row says; where it skipped only the
@@ -195,6 +224,7 @@ async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] skip: GateNamed
     let rejected = Ask::new();
     let canceled = Ask::new();
     let gate_named = Ask::new();
+    let waiting = Ask::held_by_a_wait();
     let requested = |ask: &Ask, ask_id: Option<&str>| {
         let mut descriptor = json!({
             "subject": "npm run",
@@ -267,6 +297,20 @@ async fn a_rebuild_writes_the_rows_the_live_writes_wrote(#[case] skip: GateNamed
         ),
         requested(&canceled, None),
         canceled.event(session_id, "approval.canceled", &json!({})),
+        waiting.event(
+            session_id,
+            "approval.requested",
+            &json!({
+                "requestedBy": "Release notes",
+                "resourceDescriptor": {
+                    "subject": "Release notes",
+                    "standingAllowOffered": false,
+                    "projectScopeOffered": false,
+                    "editable": false,
+                    "prompt": "Publish the notes?",
+                },
+            }),
+        ),
         requested(&gate_named, Some("ask-3")),
         answer(&gate_named, "approval.approved", None),
         remembered(&gate_named),

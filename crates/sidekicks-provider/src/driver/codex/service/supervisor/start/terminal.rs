@@ -38,10 +38,13 @@ use crate::driver::codex::service::supervisor::own_record::{
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
+use crate::driver::codex::service::supervisor::start::lasting_launch::{
+    LaunchedLastingService, connect, launch_lasting_service, name_lasting_log_file,
+    read_physical_socket,
+};
 use crate::driver::codex::service::supervisor::start::{
-    CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
-    connect, launch_lasting_service, name_lasting_log_file, read_codex_loaded_threads,
-    read_physical_socket, read_service_version, start_failed, take_start_lock,
+    CodexServiceProcess, StartFailure, StartedService, compose_launch, read_codex_loaded_threads,
+    read_service_version, start_failed, take_start_lock,
 };
 use crate::driver::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
 use crate::driver::codex::session::errors::CodexError;

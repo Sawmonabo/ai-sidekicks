@@ -32,6 +32,7 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
@@ -49,6 +50,7 @@ use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::service_events::CodexDriverServiceEvents;
 use crate::driver::codex::lifecycle::views::CodexSessionViews;
 use crate::driver::codex::model_windows::CodexModelWindowCache;
+use crate::driver::codex::pricing::CodexRequestPricer;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::rules::CodexProjectRuleFiles;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
@@ -84,11 +86,13 @@ use crate::driver::codex::session::rewind::CodexConversationRewind;
 use crate::driver::codex::session::side_questions::CodexSideQuestions;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::shells::read_codex_shells;
+use crate::driver::codex::telemetry::exports::CodexExports;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::run_host::RunHost;
+use crate::pricing::live::LivePricing;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -144,7 +148,14 @@ pub(crate) struct CodexDriver {
     // runs in.
     capability_read: tokio::sync::Mutex<()>,
     tasks: TaskTracker,
+    // The export drain and its launches' work, apart from `tasks` so the shutdown stops them first.
+    export_tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
+    /// Codex's live pricing, which every session's recorder and every copy price through and a
+    /// reroute marks its model in use on.
+    pricing: Arc<LivePricing>,
+    /// The register of the driver's launches' exports, which the receiver hands each export to.
+    pub(super) exports: Arc<CodexExports>,
     parts: OnceLock<Arc<CodexDriverParts>>,
 }
 
@@ -215,11 +226,15 @@ pub(crate) struct CodexDriverParts {
     pub(crate) model_windows: Arc<CodexModelWindowCache>,
     /// The binding store, which keeps each binding's recovery data.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
+    /// Codex's live pricing, which every session's recorder and every copy price through and a
+    /// reroute marks its model in use on.
+    pub(crate) pricing: Arc<LivePricing>,
 }
 
 impl CodexDriver {
     /// The driver over the shared services: its homes, services and slots are built now, with no
-    /// I/O and no process started; must be called within the daemon's runtime.
+    /// I/O and no process started, and its export drain spawned on its own tasks; must be called
+    /// within the daemon's runtime.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let tasks = TaskTracker::new();
         let homes = Arc::new(CodexHomes::new(
@@ -243,6 +258,13 @@ impl CodexDriver {
             askpass_program: command_askpass_program_path(&link_folder),
             tasks: tasks.clone(),
         });
+        let exports = Arc::new(CodexExports::new(Arc::clone(&services.scheduler)));
+        // One drain takes every service's exported responses to their sessions.
+        let drain = exports
+            .take_drain()
+            .expect("a new register's drain is untaken");
+        let export_tasks = TaskTracker::new();
+        export_tasks.spawn(drain.run(export_tasks.clone()));
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
             provider_services: Arc::clone(&services.provider_services),
@@ -270,6 +292,8 @@ impl CodexDriver {
                 &services.ports.provider_accounts,
             ))),
             provider_accounts: Arc::clone(&services.ports.provider_accounts),
+            telemetry_target: Arc::clone(&services.ports.telemetry_target),
+            exports: Arc::clone(&exports),
             raw_messages: Arc::clone(&services.ports.raw_provider_messages),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
@@ -337,7 +361,14 @@ impl CodexDriver {
             account_legs,
             capability_read: tokio::sync::Mutex::default(),
             tasks,
+            export_tasks,
             link,
+            pricing: Arc::new(LivePricing::new(
+                DESCRIPTOR.provider_id(),
+                Arc::new(CodexRequestPricer),
+                &services.ports,
+            )),
+            exports,
             parts: OnceLock::new(),
         }
     }
@@ -378,6 +409,7 @@ impl CodexDriver {
             stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
             provider_accounts: Arc::clone(&ports.provider_accounts),
+            pricing: Arc::clone(&self.pricing),
             tool_traces: Arc::clone(&ports.tool_traces),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
@@ -532,6 +564,7 @@ impl CodexDriver {
             retries,
             adoptions,
             tasks: self.tasks.clone(),
+            pricing: Arc::clone(&self.pricing),
         })
     }
 

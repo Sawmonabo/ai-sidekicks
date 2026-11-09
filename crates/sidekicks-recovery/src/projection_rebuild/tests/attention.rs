@@ -95,6 +95,7 @@ async fn a_rebuild_writes_the_entries_the_live_writes_kept_and_keeps_their_deliv
             "attempt": 1, "executionIndex": 0,
             "outputRef": {"kind": "inline", "items": []},
             "logRef": {"kind": "inline", "items": []},
+            "readied": [], "outputItemCounts": [],
         }}),
         SessionEventLinkage {
             transactional_prelude: notify,

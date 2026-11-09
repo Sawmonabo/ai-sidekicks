@@ -31,19 +31,10 @@ pub(crate) struct ClaudeSessionListing {
     pub(crate) agents: Vec<ProviderAgent>,
 }
 
-/// The whole `--settings` document of the read: every hook off, so a `SessionStart` hook of the
-/// person's never runs on a palette read.
-const CLAUDE_HOOKS_OFF_SETTINGS: &str = r#"{"disableAllHooks":true}"#;
-
-// The read's command line: a process that keeps nothing, its hooks off, loading no MCP file of the
-// person's unless an administrator's MCP file is present, under which the flag makes Claude Code
-// exit at start.
+// The read's command line: a process that keeps nothing, loading no MCP file of the person's unless
+// an administrator's MCP file is present, under which the flag makes Claude Code exit at start.
 fn compose_claude_command_read_arguments(has_managed_mcp_file: bool) -> Vec<String> {
     let mut arguments = compose_claude_control_only_arguments(None);
-    arguments.extend([
-        "--settings".to_owned(),
-        CLAUDE_HOOKS_OFF_SETTINGS.to_owned(),
-    ]);
     if !has_managed_mcp_file {
         arguments.push(CLAUDE_NO_MCP_SERVERS.to_owned());
     }
@@ -52,7 +43,8 @@ fn compose_claude_command_read_arguments(has_managed_mcp_file: bool) -> Vec<Stri
 
 /// Reads the commands and agents a session in `working_directory` on `provider_account_id`'s
 /// account lists, from a process that keeps nothing sent `initialize` alone, offering
-/// `definitions` as its agents, and then closed. Fails as the start or `initialize` does.
+/// `definitions` as its agents, and then closed. Every hook of the person's is off, so a
+/// `SessionStart` hook never runs on a palette read. Fails as the start or `initialize` does.
 pub(crate) async fn read_claude_session_listing(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
@@ -68,6 +60,7 @@ pub(crate) async fn read_claude_session_listing(
         working_directory,
         Some(provider_account_id),
         None,
+        true,
     )
     .await?;
     // Sent first and alone, so its wait for the command load is cut short by no other request.
@@ -90,8 +83,7 @@ mod tests {
     use sidekicks_std::file::atomic_write::write_file_atomically;
 
     use super::{
-        CLAUDE_HOOKS_OFF_SETTINGS, ClaudeSessionListing, compose_claude_command_read_arguments,
-        read_claude_session_listing,
+        ClaudeSessionListing, compose_claude_command_read_arguments, read_claude_session_listing,
     };
     use crate::driver::CurrentProviderAccount;
     use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
@@ -114,22 +106,14 @@ printf '{"type":"control_response","response":{"subtype":"success","request_id":
 while read -r line; do :; done
 "#;
 
-    // Killed by a read that loads the person's hooks or MCP files, and by one passing the strict
-    // flag under an administrator's MCP file, which makes Claude Code exit at start.
+    // Killed by a read that loads the person's MCP files, and by one passing the strict flag under
+    // an administrator's MCP file, which makes Claude Code exit at start.
     #[rstest]
     #[case::no_managed_file(false)]
     #[case::managed_file(true)]
-    fn the_read_turns_hooks_off_and_loads_no_mcp_file_of_the_persons(
-        #[case] has_managed_mcp_file: bool,
-    ) {
+    fn the_read_loads_no_mcp_file_of_the_persons(#[case] has_managed_mcp_file: bool) {
         let arguments = compose_claude_command_read_arguments(has_managed_mcp_file);
 
-        assert!(
-            arguments
-                .windows(2)
-                .any(|pair| pair == ["--settings", CLAUDE_HOOKS_OFF_SETTINGS]),
-            "the hooks-off document follows --settings"
-        );
         assert_eq!(
             arguments
                 .iter()
@@ -155,6 +139,7 @@ while read -r line; do :; done
             Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+            Arc::clone(&services.ports.telemetry_target),
             Arc::clone(&services.ports.raw_provider_messages),
             folder.path(),
         );

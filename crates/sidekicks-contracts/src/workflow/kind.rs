@@ -18,10 +18,11 @@ use crate::wire::handle_id::handle_id;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::literal;
-use crate::wire::record::Record;
+use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::NonEmptyText;
 use crate::wire::{AnyValue, named_scalar};
 use crate::workflow::definition::document::WorkflowNodeKindId;
+use crate::workflow::definition::params::is_condition_met;
 
 /// The key of a workflow's Notify step's kind.
 pub const NOTIFY_KIND: &str = "output.notify";
@@ -400,8 +401,9 @@ pub enum WorkflowNodeSideEffects {
     External,
 }
 
-/// What a kind's run can do: be canceled, resume after a restart, and what it can change.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// What a kind's run can do: be canceled, resume after a restart, what it can change, whether it
+/// needs a project's repository, and when it runs in its provider's sandbox.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowNodeCapabilities {
     /// Whether a run of the kind can be canceled.
@@ -410,6 +412,18 @@ pub struct WorkflowNodeCapabilities {
     pub resumable: bool,
     /// What a run of the kind can change.
     pub side_effects: WorkflowNodeSideEffects,
+    /// Whether a run of the kind needs the run to work in a project's repository.
+    pub repository: bool,
+    /// When a run of the kind starts a process in its provider's sandbox: absent for never, an
+    /// empty record for always, otherwise when each named param's value is one of its listed
+    /// values, as a param's `showWhen` reads.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Record<String, Vec<AnyValue>>")]
+    pub sandbox: Option<Record<String, Vec<AnyValue>>>,
 }
 
 /// One kind as the catalog serializes it. `version` is the implementation a newly placed node
@@ -465,6 +479,42 @@ pub struct WorkflowNodeKindSpec {
     )]
     #[schemars(with = "WorkflowNodeCapabilities")]
     pub capabilities: Option<WorkflowNodeCapabilities>,
+}
+
+impl WorkflowNodeKindSpec {
+    /// Whether a run of the kind needs a project's repository; false for a kind with no
+    /// capabilities.
+    pub fn needs_repository(&self) -> bool {
+        self.capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.repository)
+    }
+
+    /// Whether a node of the kind holding `params` runs in its provider's sandbox, read as a
+    /// param's `showWhen` is, the kind's defaults standing in for a param the node leaves out.
+    pub fn runs_in_sandbox(&self, params: &JsonRecord) -> bool {
+        self.capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.sandbox.as_ref())
+            .is_some_and(|sandbox| {
+                is_condition_met(
+                    sandbox,
+                    |param_id| params.as_map().get(param_id).map(|value| &value.0),
+                    &self.params,
+                )
+            })
+    }
+
+    /// The id of the kind's first top-level `project` leaf, which on a trigger kind is its
+    /// `Repository`.
+    pub fn repository_param(&self) -> Option<&WorkflowParamId> {
+        self.params.iter().find_map(|param| match param {
+            WorkflowParamSpec::Leaf(leaf) if leaf.param_type == WorkflowParamType::Project => {
+                Some(&leaf.id)
+            }
+            WorkflowParamSpec::Leaf(_) | WorkflowParamSpec::Collection(_) => None,
+        })
+    }
 }
 
 /// The `workflow.kind.list` result: every kind the daemon runs.
@@ -536,5 +586,70 @@ impl ListKey for WorkflowOutputHandleSpec {
 
     // A handle carries no rule its read does not hold.
     fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::WorkflowNodeKindSpec;
+    use crate::wire::record::JsonRecord;
+
+    // A local kind's capabilities with `sandbox` as given.
+    fn capabilities_with(sandbox: &Value) -> Value {
+        json!({
+            "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
+            "sandbox": sandbox,
+        })
+    }
+
+    #[rstest]
+    #[case::no_capabilities(None, json!({ "tier": "full" }), false)]
+    #[case::no_sandbox(
+        Some(json!({
+            "cancelable": true, "resumable": false, "sideEffects": "local", "repository": false,
+        })),
+        json!({ "tier": "full" }),
+        false
+    )]
+    #[case::always(Some(capabilities_with(&json!({}))), json!({ "tier": "quick" }), true)]
+    #[case::listed_value(
+        Some(capabilities_with(&json!({ "tier": ["full"] }))),
+        json!({ "tier": "full" }),
+        true
+    )]
+    #[case::unlisted_value(
+        Some(capabilities_with(&json!({ "tier": ["full"] }))),
+        json!({ "tier": "quick" }),
+        false
+    )]
+    #[case::default_value(Some(capabilities_with(&json!({ "tier": ["full"] }))), json!({}), true)]
+    fn a_kinds_sandbox_need_reads_like_show_when(
+        #[case] capabilities: Option<Value>,
+        #[case] node_params: Value,
+        #[case] runs_in_sandbox: bool,
+    ) {
+        let mut spec = json!({
+            "kind": "developer.code", "version": 1, "category": "developer",
+            "displayName": "Code", "description": "A program in the provider's sandbox.",
+            "icon": "code", "inputs": [], "outputs": [], "outputsDeriveFromParams": false,
+            "params": [{
+                "id": "tier", "label": "Tier", "type": "select", "default": "full",
+                "options": [
+                    { "value": "quick", "label": "Quick" },
+                    { "value": "full", "label": "Full" },
+                ],
+            }],
+        });
+        if let Some(capabilities) = capabilities {
+            spec["capabilities"] = capabilities;
+        }
+        let spec: WorkflowNodeKindSpec = serde_json::from_value(spec).expect("the spec reads");
+        let node_params: JsonRecord =
+            serde_json::from_value(node_params).expect("the node's params read");
+
+        assert_eq!(spec.runs_in_sandbox(&node_params), runs_in_sandbox);
     }
 }

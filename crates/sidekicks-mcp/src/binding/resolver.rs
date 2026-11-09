@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, Weak};
 
@@ -17,7 +18,7 @@ use sidekicks_provider::driver::mcp_server::read::{
     McpServerDeclaration, ProviderMcpServersReading,
 };
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_workspace::project::records::AttachedProjectRoot;
+use sidekicks_workspace::project::records::{AttachedProjectRoot, DetachedProjectRoot};
 use tokio::sync::Notify;
 
 use crate::binding::store::{McpBindingKey, McpStoredBinding, McpStoredBindings};
@@ -164,9 +165,20 @@ fn is_local_of(
 /// it is in, none on Windows itself or outside Windows. Fails with the path's [`TextError`] when
 /// the stored root is empty, holds a NUL or passes the path cap.
 pub(crate) fn attached_root_path(root: &AttachedProjectRoot) -> Result<PlacedPath, TextError> {
+    placed_root_path(&root.canonical_root, root.place.as_ref())
+}
+
+/// A detached project's root as a driver's read takes it, as [`attached_root_path`] reads an
+/// attached one. Fails with the path's [`TextError`] as that read fails.
+pub(crate) fn detached_root_path(root: &DetachedProjectRoot) -> Result<PlacedPath, TextError> {
+    placed_root_path(&root.canonical_root, root.place.as_ref())
+}
+
+// A project root at `canonical_root`, in `place`, as a driver's read takes it.
+fn placed_root_path(canonical_root: &Path, place: Option<&Place>) -> Result<PlacedPath, TextError> {
     Ok(PlacedPath {
-        path: FilesystemPath::new(root.canonical_root.to_string_lossy().into_owned())?,
-        place: match &root.place {
+        path: FilesystemPath::new(canonical_root.to_string_lossy().into_owned())?,
+        place: match place {
             Some(Place::Wsl(place)) => Some(place.clone()),
             Some(Place::Windows(_)) | None => None,
         },
@@ -515,7 +527,7 @@ mod tests {
             superseded_in: Vec::new(),
             disabled_in: Vec::new(),
             is_read_only: false,
-            sign_in_client: None,
+            sign_in_settings: None,
             is_switch_kept_by_daemon: false,
             tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
             organization_managed: None,

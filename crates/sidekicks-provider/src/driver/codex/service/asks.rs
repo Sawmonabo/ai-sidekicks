@@ -39,16 +39,13 @@ impl CodexServiceAsks {
             return;
         };
         let mut by_session: HashMap<SessionId, Vec<CodexForgottenRequest>> = HashMap::new();
-        {
-            let threads = service.lock_threads();
-            for request in dropped {
-                if let Some(session_id) = request
-                    .thread_id
-                    .as_deref()
-                    .and_then(|thread_id| threads.session_for(thread_id))
-                {
-                    by_session.entry(*session_id).or_default().push(request);
-                }
+        for request in dropped {
+            if let Some(session_id) = request
+                .thread_id
+                .as_deref()
+                .and_then(|thread_id| service.session_of_thread(thread_id))
+            {
+                by_session.entry(session_id).or_default().push(request);
             }
         }
         for (session_id, dropped) in by_session {
@@ -73,7 +70,7 @@ impl CodexServerRequestResponder for CodexServiceAsks {
         let thread_id = read_codex_ask_thread_id(&request.params);
         let session_id = thread_id
             .as_deref()
-            .and_then(|thread_id| service.lock_threads().session_for(thread_id).copied());
+            .and_then(|thread_id| service.session_of_thread(thread_id));
         let Some(session_id) = session_id else {
             CodexTransportDiagnostic::RoutedAskThreadUnresolved {
                 method: method.to_owned(),

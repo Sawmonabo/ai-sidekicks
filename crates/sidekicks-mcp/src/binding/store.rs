@@ -1,5 +1,6 @@
 //! The binding store: each MCP server binding's governance row, keyed by the binding's whole
-//! identity, written when a binding is first observed and read with its switch and tool overrides.
+//! identity, written when a binding is first observed and read with its switch and tool overrides,
+//! and the canonical address its whole address last read as.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -26,8 +27,10 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
+use crate::sign_in::address_digest::ServerAddressDigest;
+
 /// The distinct statements the binding store keeps prepared on each read connection.
-pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 3;
+pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
 
 /// The scopes of a server the provider brings itself, a connector and an organization's server,
 /// whose per-project switch the daemon keeps in `mcp_project_server_switches`.
@@ -195,11 +198,11 @@ impl McpBindingKey {
     }
 }
 
-/// Why the binding store did not record a binding's first observation or answer a read.
+/// Why the binding store did not write a binding's row or answer a read.
 #[derive(Debug, thiserror::Error)]
 pub enum McpBindingStoreError {
     /// The row's write failed.
-    #[error("the MCP binding's first observation could not be recorded")]
+    #[error("the MCP binding's row could not be written")]
     Write(#[source] WriteError),
     /// SQLite refused the read, or a stored column does not read as its type.
     #[error("the MCP binding rows could not be read")]
@@ -265,6 +268,11 @@ static PROVIDER_BINDINGS_SQL: &str =
   WHERE provider = @provider
   ORDER BY scope, scope_ref, scope_place, server_name";
 
+static PROVIDER_LAST_DECLARED_DIGESTS_SQL: &str =
+    "SELECT scope, scope_ref, scope_place, server_name, last_declared_address_digest
+  FROM mcp_server_bindings
+  WHERE provider = @provider AND last_declared_address_digest IS NOT NULL";
+
 static PROVIDER_TOOL_OVERRIDES_SQL: &str =
     "SELECT scope, scope_ref, scope_place, server_name, tool_name, enabled, approval_mode,
     idempotency_class
@@ -306,6 +314,19 @@ static ENABLED_OVERRIDE_SQL: LazyLock<String> = LazyLock::new(|| {
     {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
   ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
     SET enabled_override = excluded.enabled_override, updated_at = excluded.updated_at"
+    )
+});
+
+static LAST_DECLARED_DIGEST_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO mcp_server_bindings
+  (provider, scope, scope_ref, scope_place, server_name, last_declared_address_digest,
+    first_observed_at, updated_at)
+  VALUES (@provider, @scope, @scope_ref, @scope_place, @server_name, @digest,
+    {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})
+  ON CONFLICT (provider, scope, scope_ref, scope_place, server_name) DO UPDATE
+    SET last_declared_address_digest = excluded.last_declared_address_digest,
+      updated_at = excluded.updated_at"
     )
 });
 
@@ -404,6 +425,51 @@ impl McpBindingStore {
                 Ok(stored)
             })
             .await
+    }
+
+    /// The digest of the address each of `provider`'s bindings last read as, for each binding one
+    /// has read for, in one short read. Fails with [`McpBindingStoreError::Database`] or
+    /// [`McpBindingStoreError::Pool`] as the read fails.
+    pub(crate) async fn read_last_declared_digests(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<HashMap<McpBindingKey, ServerAddressDigest>, McpBindingStoreError> {
+        let provider = provider.clone();
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                let mut digests = HashMap::new();
+                let mut statement =
+                    connection.prepare_cached(PROVIDER_LAST_DECLARED_DIGESTS_SQL)?;
+                let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
+                while let Some(row) = rows.next()? {
+                    digests.insert(
+                        read_key(&provider, row)?,
+                        ServerAddressDigest::from_stored(row.get(4)?),
+                    );
+                }
+                Ok(digests)
+            })
+            .await
+    }
+
+    /// Records `digest` as the digest of the address `binding` last read as, writing the binding's
+    /// row where it has none. Fails with [`McpBindingStoreError::Write`] as the write fails.
+    pub(crate) async fn record_last_declared_digest(
+        &self,
+        binding: &McpServerBindingRef,
+        digest: &ServerAddressDigest,
+    ) -> Result<(), McpBindingStoreError> {
+        let mut bindings = key_bindings(&McpBindingKey::of(binding));
+        bindings.push(text_binding("@digest", digest.as_str()));
+        self.writer
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(LAST_DECLARED_DIGEST_SQL.as_str()),
+                bindings: StatementBindings::Named(bindings),
+                expected_row_count: Some(1),
+            }])
+            .await
+            .map_err(McpBindingStoreError::Write)?;
+        Ok(())
     }
 
     /// Records `binding`'s row the first time it is observed; a binding that already has a row

@@ -37,7 +37,7 @@ use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
-use crate::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailable};
+use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
@@ -51,7 +51,6 @@ use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
 };
-use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The capability a build declares when its interrupt can drop the messages it holds and list them.
 const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY: &str = "interrupt_cancel_queued_v1";
@@ -234,27 +233,6 @@ impl ClaudeInterventions {
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,
     ) {
         lock(&self.routing_bands).insert(session_id, band);
-    }
-
-    /// The cumulative usage `live`'s own thread was last metered at, the whole conversation's
-    /// spend so far. Fails `NoLiveSession` once the session is forgotten.
-    pub(crate) fn session_thread_cumulative(
-        &self,
-        live: &LiveClaudeSession,
-    ) -> Result<UsageAxisCounts, ClaudeSessionError> {
-        let band = lock(&self.routing_bands).get(&live.session_id).cloned();
-        band.and_then(|band| {
-            lock(&band)
-                .accountant
-                .base_registers(&live.provider_session_id)
-        })
-        .ok_or_else(|| {
-            claude_session_unavailable(
-                ClaudeSessionUnavailableReason::NoLiveSession,
-                live.session_id,
-                None,
-            )
-        })
     }
 
     /// Forgets a session whose process is gone: its held steers are dropped unwritten, the queue

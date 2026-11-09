@@ -76,7 +76,8 @@ branded_uuid_id! {
 }
 
 named_scalar! {
-    /// A definition's content hash: BLAKE3 over the RFC 8785 canonical JSON of its hashed body.
+    /// A content hash: BLAKE3 over RFC 8785 canonical JSON, of a document's hashed body or of the
+    /// items pinned onto a node.
     WorkflowContentHash(NonEmptyText)
 }
 

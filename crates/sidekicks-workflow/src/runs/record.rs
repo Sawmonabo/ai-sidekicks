@@ -1,16 +1,17 @@
 //! A run and its steps as their rows store them, and the mapping from those rows. A run's read and
 //! the runs list share the run's mapping; the run read alone carries the steps.
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use rusqlite::Row;
+use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
 };
@@ -26,6 +27,9 @@ use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind,
 };
 use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
@@ -60,6 +64,8 @@ pub(crate) struct StoredWorkflowRun {
     pub(crate) finished_at: Option<WireInstant>,
     /// Why it ended failed, canceled or crashed.
     pub(crate) error: Option<WorkflowStepError>,
+    /// Its one summary line; absent until a `Write a summary` step writes one.
+    pub(crate) summary: Option<NonEmptyText>,
 }
 
 /// One step as its row stores it. The wait members are present only while the step is `waiting`,
@@ -124,6 +130,126 @@ pub(crate) fn parked_failed_run_condition(alias: &str) -> String {
     format!("({alias}.status = '{failed}' AND {alias}.finished_at IS NULL)")
 }
 
+/// The SQL condition on the runs table read as `alias` that holds for a finished run: one neither
+/// going nor parked on its failed step, so it can no longer be resumed or canceled.
+pub fn finished_run_condition(alias: &str) -> String {
+    format!(
+        "({alias}.status NOT IN ({going}) AND NOT {parked})",
+        going = *GOING_RUN_STATUSES_SQL,
+        parked = parked_failed_run_condition(alias),
+    )
+}
+
+/// The SQL condition that holds while the question of the chain whose first run's id is the SQL
+/// expression `root` waits: a run of that chain holds a step waiting on the chain.
+pub fn chain_question_waiting_condition(root: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM workflow_runs AS chain_run
+    JOIN workflow_steps AS chain_step ON chain_step.workflow_run_id = chain_run.id
+    WHERE chain_run.chain_root_run_id = {root}
+      AND chain_step.status = '{waiting}' AND chain_step.wait_cause = '{chain}')",
+        waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
+        chain = <&'static str>::from(WorkflowWaitCause::Chain),
+    )
+}
+
+// Ends a run not yet finished: its status, end and error, and its open wait on people closed by
+// adding the whole milliseconds from that wait's start to the end, never fewer than 0. The stored
+// instants carry whole milliseconds, so the rounded difference is exact.
+static END_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE workflow_runs AS run
+  SET status = @status, finished_at = @finished_at, error_json = @error_json,
+      person_wait_ms = person_wait_ms + COALESCE(MAX(0, CAST(ROUND(
+        (unixepoch(@finished_at, 'subsec') - unixepoch(person_wait_since, 'subsec')) * 1000
+      ) AS INTEGER)), 0),
+      person_wait_since = NULL
+  WHERE run.id = @workflow_run_id AND NOT {finished}",
+        finished = finished_run_condition("run"),
+    )
+});
+
+/// The one statement that ends run `workflow_run_id`'s row: `status`, ended at `finished_at` with
+/// `error`, its open wait on people closed into its total. It expects one row, so the write is
+/// refused, changing nothing, for a run that has already finished or that no row answers to.
+pub(crate) fn end_run_row(
+    workflow_run_id: WorkflowRunId,
+    status: WorkflowRunStatus,
+    finished_at: &WireInstant,
+    error: Option<&WorkflowStepError>,
+) -> WriteStatement {
+    let error_json = error.map(|error| {
+        serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
+    });
+    WriteStatement {
+        sql: Cow::Borrowed(END_RUN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@status", <&'static str>::from(status)),
+            text_binding("@finished_at", finished_at.as_str()),
+            nullable_text_binding("@error_json", error_json.as_deref()),
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// How far a run has come: still going, a failed run parked on its failed step, or finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunProgress {
+    /// New, running or waiting.
+    Going,
+    /// Failed and parked on its failed step, waiting on Resume; it has not ended.
+    ParkedOnFailedStep,
+    /// Ended, so it can no longer be resumed or canceled.
+    Finished,
+}
+
+/// A run's status and end as its row stores them, read to tell how far it has come.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StoredRunProgress {
+    /// Where it stands.
+    pub(crate) status: WorkflowRunStatus,
+    /// When it ended; absent while it has not.
+    pub(crate) finished_at: Option<WireInstant>,
+}
+
+impl StoredRunProgress {
+    /// How far the run has come, as [`finished_run_condition`] and
+    /// [`parked_failed_run_condition`] tell it in SQL.
+    pub(crate) fn progress(&self) -> RunProgress {
+        if GOING_RUN_STATUSES.contains(&self.status) {
+            RunProgress::Going
+        } else if self.status == WorkflowRunStatus::Failed && self.finished_at.is_none() {
+            RunProgress::ParkedOnFailedStep
+        } else {
+            RunProgress::Finished
+        }
+    }
+}
+
+const RUN_PROGRESS_SQL: &str =
+    "SELECT status, finished_at FROM workflow_runs WHERE id = @workflow_run_id";
+
+/// The progress of run `workflow_run_id`, `None` where no row answers to it. Fails with
+/// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read as its type.
+pub(crate) fn read_run_progress(
+    connection: &Connection,
+    workflow_run_id: WorkflowRunId,
+) -> rusqlite::Result<Option<StoredRunProgress>> {
+    connection
+        .prepare_cached(RUN_PROGRESS_SQL)?
+        .query_row(
+            named_params! { "@workflow_run_id": workflow_run_id.text().as_str() },
+            |row| {
+                Ok(StoredRunProgress {
+                    status: text_column(row, 0, closed_word)?,
+                    finished_at: optional_text_column(row, 1, WireInstant::try_from)?,
+                })
+            },
+        )
+        .optional()
+}
+
 /// Where a request's instant falls among the stored instants, which compare as text in their one
 /// stored form: before every one, at a stored-form text, or after every one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,7 +311,7 @@ pub(crate) const RUN_COLUMNS: &str = "run.id AS run_id, run.session_id AS run_se
   run.status AS run_status, run.mode AS run_mode,
   json_extract(run.trigger_json, '$.kind') AS run_trigger_kind, run.started_by AS run_started_by,
   run.started_at AS run_started_at, run.finished_at AS run_finished_at,
-  run.error_json AS run_error_json, run.kept AS run_kept";
+  run.error_json AS run_error_json, run.summary AS run_summary, run.kept AS run_kept";
 
 /// The run [`RUN_COLUMNS`] read on `row`. Fails with
 /// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read as its type.
@@ -215,6 +341,7 @@ pub(crate) fn stored_run_from_row(row: &Row<'_>) -> rusqlite::Result<StoredWorkf
             WireInstant::try_from,
         )?,
         error: optional_json_column(row, "run_error_json")?,
+        summary: optional_text_column(row, column(row, "run_summary")?, closed_word)?,
     })
 }
 

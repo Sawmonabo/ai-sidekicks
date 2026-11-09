@@ -10,6 +10,7 @@ use rstest::rstest;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalListRequest, ApprovalResolutionInvalidReason,
     ApprovalResolveRequest, ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope,
@@ -34,6 +35,7 @@ use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{stored_run_state, test_engine};
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
@@ -90,16 +92,23 @@ pub(crate) struct ApprovalFixture {
 impl ApprovalFixture {
     /// The fixture, its run `running` at version 1.
     pub(crate) async fn new() -> Self {
-        Self::build(true).await
+        Self::build(true, crate::schema::schema_parts()).await
     }
 
     /// The fixture with holds that reach no engine, so no reconcile moves its run.
     pub(crate) async fn without_holds() -> Self {
-        Self::build(false).await
+        Self::build(false, crate::schema::schema_parts()).await
     }
 
-    async fn build(is_engine_reached: bool) -> Self {
-        let database = TestDatabase::new(crate::schema::schema_parts());
+    /// The fixture over the workflow tables too, which a workflow gate's card reads.
+    pub(crate) async fn with_workflow_tables() -> Self {
+        let schema =
+            crate::schema::schema_parts().with_parts(sidekicks_workflow::schema::schema_parts());
+        Self::build(true, schema).await
+    }
+
+    async fn build(is_engine_reached: bool, schema: SchemaParts) -> Self {
+        let database = TestDatabase::new(schema);
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await
@@ -287,13 +296,16 @@ fn client_id() -> String {
     mint_uuid_v7().to_string()
 }
 
-fn refusal(error: ApprovalServiceError) -> DomainError {
+/// The refusal `error` carries; a test that expects a refusal fails on any fault.
+pub(crate) fn refusal(error: ApprovalServiceError) -> DomainError {
     match error {
         ApprovalServiceError::Refused(refusal) => refusal,
         other @ (ApprovalServiceError::Read(_)
         | ApprovalServiceError::Pool(_)
         | ApprovalServiceError::Draft(_)
-        | ApprovalServiceError::Cancel(_)) => {
+        | ApprovalServiceError::Cancel(_)
+        | ApprovalServiceError::WaitsUnregistered(_)
+        | ApprovalServiceError::Wait(_)) => {
             panic!("the call failed rather than refused: {other}")
         }
     }
@@ -601,7 +613,9 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     let stored = StoredApprovalRequest {
         approval_request_id: from_json(json!(mint_uuid_v7())),
         session_id: test_session_id(),
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        holder: ApprovalHolder::Run {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        },
         requested_by: from_json(json!("agent")),
         category: fit.category,
         scope: scope.clone(),

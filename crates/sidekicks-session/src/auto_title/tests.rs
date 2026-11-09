@@ -7,6 +7,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
@@ -108,8 +109,12 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
 
 /// Stores an unnamed session whose first message was `first_message` and whose lead run,
 /// bound to the table's first provider, completed while nothing followed the log, after a
-/// subagent run beneath it, bound to no provider, completed first.
-fn insert_completed_session(database: &TestDatabase, session_id: SessionId, first_message: &str) {
+/// subagent run beneath it, bound to no provider, completed first; answers the lead run's binding.
+fn insert_completed_session(
+    database: &TestDatabase,
+    session_id: SessionId,
+    first_message: &str,
+) -> RuntimeBindingId {
     let connection = database.reader();
     let session = session_id.text();
     insert_session_row(&connection, session.as_str(), None, None);
@@ -148,7 +153,7 @@ fn insert_completed_session(database: &TestDatabase, session_id: SessionId, firs
             )
             .expect("the test stores the completion");
     }
-    bind_run_to_first_provider(database, run_id);
+    bind_run_to_first_provider(database, run_id)
 }
 
 /// The session's stored renames, oldest first: each name and its origin.
@@ -318,16 +323,21 @@ async fn auto_title_cancels_a_pending_pass_when_the_session_is_renamed() {
 }
 
 // Killed by a clear leaving the session unnamed, by the clear's pass skipped for a session that
-// was named before, and by the fresh name not told to the provider.
+// was named before, by the fresh name not told to the provider, and by a pass handed a binding
+// other than the lead run's (a fresh one, or the subagent run's, which has none and runs no pass).
 #[tokio::test]
-async fn auto_title_names_a_cleared_session_again_and_tells_the_provider() {
+async fn auto_title_names_a_cleared_session_again_on_its_run_s_binding_and_tells_the_provider() {
     static PUSHED: Notify = Notify::const_new();
+    static PASS_BINDINGS: Mutex<Vec<RuntimeBindingId>> = Mutex::new(Vec::new());
     fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
         let mut driver = MockProviderDriver::new();
-        driver
-            .expect_name_session()
-            .times(1)
-            .returning(|_| async { Ok(Some("Fix the login bug".to_owned())) }.boxed());
+        driver.expect_name_session().times(1).returning(|params| {
+            PASS_BINDINGS
+                .lock()
+                .expect("the bindings lock")
+                .push(params.binding_id);
+            async { Ok(Some("Fix the login bug".to_owned())) }.boxed()
+        });
         driver
             .expect_tell_session_name()
             .times(1)
@@ -340,7 +350,8 @@ async fn auto_title_names_a_cleared_session_again_and_tells_the_provider() {
     }
     let harness = harness(build).await;
     let session_id = test_session_id();
-    insert_completed_session(&harness.database, session_id, "the login page throws");
+    let lead_binding_id =
+        insert_completed_session(&harness.database, session_id, "the login page throws");
     harness
         .database
         .reader()
@@ -370,6 +381,10 @@ async fn auto_title_names_a_cleared_session_again_and_tells_the_provider() {
             (Value::Null, Value::from("user")),
             (Value::from("Fix the login bug"), Value::from("auto")),
         ]
+    );
+    assert_eq!(
+        *PASS_BINDINGS.lock().expect("the bindings lock"),
+        [lead_binding_id]
     );
 }
 

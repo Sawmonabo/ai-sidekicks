@@ -395,9 +395,7 @@ fn replace_store(
             .none_if_missing()
             .map_err(at(&companion))?;
     }
-    remove_tree(index_folder)
-        .none_if_missing()
-        .map_err(at(index_folder))?;
+    remove_tree(index_folder).map_err(at(index_folder))?;
     rename_replacing(&restoring, store).map_err(at(store))?;
     let folder = store.parent().expect("the store's path names its folder");
     flush_folder(folder).map_err(at(folder))

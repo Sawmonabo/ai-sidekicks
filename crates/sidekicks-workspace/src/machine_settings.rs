@@ -14,3 +14,16 @@ pub trait MachineSettingsReader: Send + Sync {
         &self,
     ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>>;
 }
+
+/// A reader that answers the settings it holds, for tests that read the machine's settings.
+#[cfg(any(test, feature = "test-support"))]
+pub struct FixedMachineSettings(pub MachineSettings);
+
+#[cfg(any(test, feature = "test-support"))]
+impl MachineSettingsReader for FixedMachineSettings {
+    fn read_machine_settings(
+        &self,
+    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
+    }
+}

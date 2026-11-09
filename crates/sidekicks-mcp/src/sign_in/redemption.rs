@@ -4,6 +4,9 @@
 //!   is not the server's, or that leaves `iss` out where the server says it always sends one, is
 //!   refused with 400 and the attempt keeps waiting, so a forged return cannot end the real one and
 //!   no token request is sent for it.
+//! - **No scope, once.** The first error a callback that passes carries, where the daemon picked
+//!   the scopes, sends the browser on to a new page asking for no scope; the attempt keeps waiting
+//!   on that page's `state`.
 //! - **Settling.** A callback that passes takes the attempt out of the server's open attempts, so
 //!   a new launch no longer ends it. An error settles it as a failure the daemon's own client did
 //!   not finish, so the next press goes to a provider's flow; a code is exchanged through the
@@ -11,15 +14,6 @@
 //!   server signed in. Either way the attempt appends its one completion event and the browser is
 //!   sent to its result page; the attempt, and with it the listener, goes once that page has been
 //!   served.
-
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in service whose launch hands the receiver \
-                  its owner"
-    )
-)]
 
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -31,6 +25,7 @@ use sidekicks_std::mutex_lock::lock;
 use crate::oauth::redirect_receiver::{
     AuthorizationResponse, CallbackAnswer, RedirectCallback, RedirectCallbackOwner, ResultPage,
 };
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::completion_event::{SignInFailureReason, append_sign_in_completed};
 use crate::sign_in::service::{SignInAttempt, SignInService};
 
@@ -71,7 +66,7 @@ impl ExpectedIssuer {
 /// on the first one that passes.
 pub(crate) struct AttemptRedemption {
     service: Weak<SignInService>,
-    canonical_address: String,
+    digest: ServerAddressDigest,
     attempt_id: u64,
     expected_issuer: ExpectedIssuer,
     // The settled attempt, kept until the receiver is done with its result page: dropping the
@@ -80,21 +75,56 @@ pub(crate) struct AttemptRedemption {
 }
 
 impl AttemptRedemption {
-    /// The owner of attempt `attempt_id`, kept by `service` under `canonical_address`, whose
+    /// The owner of attempt `attempt_id`, kept by `service` under `digest`, whose
     /// callbacks must name `expected_issuer`.
     pub(crate) fn new(
         service: Weak<SignInService>,
-        canonical_address: String,
+        digest: ServerAddressDigest,
         attempt_id: u64,
         expected_issuer: ExpectedIssuer,
     ) -> Self {
         Self {
             service,
-            canonical_address,
+            digest,
             attempt_id,
             expected_issuer,
             settled: Mutex::new(None),
         }
+    }
+}
+
+impl AttemptRedemption {
+    // Opens the attempt's one more page asking for no scope, where it keeps one, and waits on
+    // that page's `state`: `None` where it keeps none, or where the page could not be opened,
+    // which settles the return as the failure it carried.
+    async fn restart_without_scopes(&self, service: &SignInService) -> Option<CallbackAnswer> {
+        let (manager, retry) =
+            service.change_attempt(&self.digest, self.attempt_id, |attempt| {
+                Some((Arc::clone(&attempt.manager), attempt.scope_retry.take()?))
+            })?;
+        let page = match retry.open_page(&manager).await {
+            Ok(page) => page,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "an MCP sign-in's page asking for no scope did not open"
+                );
+                return None;
+            }
+        };
+        let expected_state = page.expected_state.clone();
+        service.change_attempt(&self.digest, self.attempt_id, |attempt| {
+            attempt.expected_state = expected_state;
+            Some(())
+        })?;
+        tracing::info!(
+            "the authorization server sent an MCP sign-in back with an error for the scopes the \
+             daemon picked, so it asks again for none"
+        );
+        Some(CallbackAnswer::Restart {
+            browser_url: page.browser_url,
+            expected_state: page.expected_state,
+        })
     }
 }
 
@@ -110,9 +140,12 @@ impl RedirectCallbackOwner for AttemptRedemption {
             let Some(service) = self.service.upgrade() else {
                 return CallbackAnswer::Reject;
             };
-            let Some(attempt) =
-                service.take_attempt(&self.canonical_address, Some(self.attempt_id))
-            else {
+            if matches!(callback.response, AuthorizationResponse::Error { .. })
+                && let Some(answer) = self.restart_without_scopes(&service).await
+            {
+                return answer;
+            }
+            let Some(attempt) = service.take_attempt(&self.digest, Some(self.attempt_id)) else {
                 return CallbackAnswer::Reject;
             };
             // Settled on a task of its own, so a browser that leaves mid-exchange still gets its
@@ -149,7 +182,7 @@ async fn settle(
                 error_code = error.as_str(),
                 "the authorization server sent an MCP sign-in back with an error"
             );
-            service.mark_unfinished_logged(attempt.address()).await;
+            service.mark_unfinished_logged(&attempt.digest).await;
             Some(SignInFailureReason::CallbackCarriedError)
         }
         AuthorizationResponse::Code(code) => redeem(&attempt, &code, callback.issuer.as_deref())
@@ -218,10 +251,10 @@ mod tests {
     use tokio::net::TcpStream;
 
     use super::SignInFailureReason;
-    use crate::sign_in::canonical_server_address;
+    use crate::sign_in::service::{AddressedServer, ProviderAccounts, SignInServer, SignInTarget};
     use crate::sign_in::test_service::{
-        FakeServerAnswers, REFUSED_CODE_DESCRIPTION, REGISTERED_CLIENT_SECRET, addressed_target,
-        harness, launch_to_browser, serve_authorization_server,
+        FakeServerAnswers, NAMED_METADATA_PATH, REFUSED_CODE_DESCRIPTION, REGISTERED_CLIENT_SECRET,
+        addressed_target, harness, launch_to_browser, serve_authorization_server,
     };
 
     const FORGED_ISSUER: &str = "http://attacker.example";
@@ -297,7 +330,7 @@ mod tests {
         .await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
-        let signed_in = harness.service.custody.signed_in_addresses();
+        let signed_in = harness.service.custody.signed_in_servers();
 
         let (status, _) = return_to(&browser_url, forged).await;
 
@@ -325,12 +358,13 @@ mod tests {
         assert!(
             signed_in
                 .borrow()
-                .contains(&canonical_server_address(&address))
+                .contains(&harness.service.custody.test_digest(&address).await)
         );
         let held = harness
             .service
             .custody
-            .credential_store(&address)
+            .test_held_store(&address)
+            .await
             .held()
             .await
             .expect("the keychain answers")
@@ -400,7 +434,7 @@ mod tests {
             harness
                 .service
                 .custody
-                .signed_in_addresses()
+                .signed_in_servers()
                 .borrow()
                 .is_empty()
         );
@@ -408,11 +442,94 @@ mod tests {
         assert_eq!(
             harness
                 .admitted_clients
-                .read(&address)
+                .read(&harness.service.custody.test_digest(&address).await)
                 .await
                 .expect("the admitted client reads")
                 .is_some_and(|admitted| admitted.is_own_client_unfinished),
             is_marked_unfinished
+        );
+    }
+
+    /// A server that sends the browser back with an error for the scopes the daemon picked from
+    /// the metadata the entry names gets one more page asking for no scope, and its return signs
+    /// in; a second error, or the first where the entry pins its scopes, settles as the failure.
+    /// Killed by no retry (the first error settles), by a retry that still asks for the scopes, by
+    /// a receiver or an exchange left on the first page's `state` (the second return is refused
+    /// or its code not redeemed), by a retry with no bound (the second error opens a third page),
+    /// and by a retry of pinned scopes.
+    #[rstest]
+    #[case::then_a_code(&[], &[("code", "test-code")], Some("/signed-in"))]
+    #[case::then_an_error_again(&[], &[("error", "invalid_scope")], Some("/sign-in-failed"))]
+    #[case::pinned_scopes(&["read"], &[], None)]
+    #[tokio::test]
+    async fn a_refused_pick_of_scopes_asks_once_more_for_none(
+        #[case] entry_scopes: &[&str],
+        #[case] second_return: &[(&str, &str)],
+        #[case] second_location: Option<&str>,
+    ) {
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
+        let harness = harness().await;
+        let metadata_address =
+            Url::parse(&format!("{}{NAMED_METADATA_PATH}", server.base)).expect("a URL");
+        let target = SignInTarget {
+            server: SignInServer::Address(Box::new(AddressedServer::new(
+                McpServerAddress::new(&server.base).expect("a server address"),
+                None,
+                None,
+                Some(metadata_address),
+                false,
+            ))),
+            ..addressed_target(&server.base)
+        };
+        let entry_scopes: Vec<String> =
+            entry_scopes.iter().map(|&scope| scope.to_owned()).collect();
+        let browser_url = match harness
+            .service
+            .launch(&target, &entry_scopes, &ProviderAccounts::new())
+            .await
+        {
+            Ok(browser_url) => Url::parse(browser_url.as_str()).expect("a web address parses"),
+            Err(error) => panic!("the sign-in opens the browser: {error:?}"),
+        };
+        assert_ne!(parameter(&browser_url, "scope"), "");
+
+        let (status, location) = return_to(&browser_url, &[("error", "invalid_scope")]).await;
+
+        assert_eq!(status, "303");
+        let Some(second_location) = second_location else {
+            assert_eq!(location.as_deref(), Some("/sign-in-failed"));
+            return;
+        };
+        let retried = Url::parse(&location.expect("the browser is sent on")).expect("a URL");
+        assert!(
+            !retried.query_pairs().any(|(name, _)| name == "scope"),
+            "{retried}"
+        );
+        assert_ne!(
+            parameter(&retried, "state"),
+            parameter(&browser_url, "state")
+        );
+        assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
+
+        let (status, location) = return_to(&retried, second_return).await;
+
+        assert_eq!(status, "303");
+        assert_eq!(location.as_deref(), Some(second_location));
+        let completions = harness.completions();
+        assert_eq!(completions.len(), 1);
+        let is_signed_in = second_location == "/signed-in";
+        assert_eq!(
+            completions[0]["outcome"],
+            if is_signed_in { "success" } else { "failure" }
+        );
+        assert_eq!(
+            !harness
+                .service
+                .custody
+                .signed_in_servers()
+                .borrow()
+                .is_empty(),
+            is_signed_in
         );
     }
 }

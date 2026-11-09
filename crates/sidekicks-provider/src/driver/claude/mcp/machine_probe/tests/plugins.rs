@@ -116,6 +116,7 @@ async fn probe_plugins(
             plugin_home: &plugins.plugin_home,
             plugin_roots: &plugins.reading.plugin_roots,
             attached_roots: &[],
+            managed_mcp_servers: None,
             organization_entries: &BTreeMap::new(),
         },
         &plugins.targets,

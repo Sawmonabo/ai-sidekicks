@@ -22,6 +22,7 @@ use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStream
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::file::ClaudeProcessGoal;
+use crate::driver::claude::pricing::ClaudeResultPricing;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -76,6 +77,9 @@ pub(crate) struct ClaudeSessionStream {
     first_request: Mutex<Option<oneshot::Sender<ClaudeFirstRequest>>>,
     // Where the process keeps its tool servers' background calls.
     kept_calls: ClaudeKeptCallsSource,
+    // The rows the process recorded that wait for their price, behind a lock never held across an
+    // await.
+    pub(super) result_pricing: Mutex<ClaudeResultPricing>,
     // The arguments of the process's calls awaiting their results, kept for their traces.
     pub(super) tool_call_arguments: ToolCallArgumentStore,
     // The file-tool calls the lead and the helpers opened on a path, each until the chat versions
@@ -121,6 +125,7 @@ impl ClaudeSessionStream {
             unnumbered_turns: AtomicU64::new(0),
             first_request: Mutex::new(None),
             kept_calls,
+            result_pricing: Mutex::default(),
             tool_call_arguments,
             file_tool_writes,
         }

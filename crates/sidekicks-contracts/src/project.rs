@@ -211,6 +211,7 @@ pub struct ProjectEnvironmentUpdateRequest {
     /// The project.
     pub project_id: ProjectId,
     /// Its rows.
+    #[garde(dive)]
     pub environment_rows: Vec<EnvironmentRow>,
 }
 
