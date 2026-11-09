@@ -32,8 +32,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
-    askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
-    replace_file_atomically,
+    askpass_socket_path, check_socket_path, create_missing_private_folders, pin_running_process,
+    process_identity, replace_file_atomically,
 };
 use sidekicks_provider::account::credential_home::HomesSignOut;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
@@ -79,6 +79,13 @@ const ERASE_WAIT: Duration = Duration::from_secs(30);
 // caller's wait for the service to exit.
 const STOP_WAIT: Duration = Duration::from_secs(10);
 
+// The longest a test waits for a start, or for the watch to reach its crash monitor, whose start
+// the daemon's does not wait for: short of the test runner's two-minute end of a hung test.
+const MONITOR_WAIT: Duration = Duration::from_secs(60);
+
+// The longest a test waits for the watch to spawn a monitor, which it does at once.
+const SPAWN_WAIT: Duration = Duration::from_secs(5);
+
 // The crash monitor the daemon starts in these tests: this test binary, run through a script as
 // the daemon's own program, serving the socket the mode's argument names; the script fails every
 // other mode, the search index's build among them. Run only that way.
@@ -119,19 +126,14 @@ impl TestHome {
             .expect("the module path names its crate");
         let program = std::env::current_exe().expect("the test program names itself");
         let daemon_program = home.path().join("daemon-program");
-        let script = format!(
-            "#!/bin/sh\n[ \"$1\" = {CRASH_MONITOR_MODE} ] || exit 1\n\
-             {MONITOR_SOCKET_VARIABLE}=\"$2\" exec '{}' --exact \
-             {test_path}::crash_monitor_stand_in --include-ignored >/dev/null\n",
-            program.display()
-        );
-        replace_file_atomically(
+        write_daemon_program(
             &daemon_program,
-            script.as_bytes(),
-            0o755,
-            LeftoverSweep::Unswept,
-        )
-        .expect("the stand-in's script is written");
+            &format!(
+                "{MONITOR_SOCKET_VARIABLE}=\"$2\" exec '{}' --exact \
+                 {test_path}::crash_monitor_stand_in --include-ignored >/dev/null",
+                program.display()
+            ),
+        );
         Self {
             home,
             run_folder: DaemonRunFolder {
@@ -143,6 +145,12 @@ impl TestHome {
             daemon_program,
             provider_environment: Arc::from([]),
         }
+    }
+
+    // This home with a crash monitor that runs and never answers.
+    fn with_unanswering_crash_monitor(self) -> Self {
+        write_daemon_program(&self.daemon_program, "exec sleep 600");
+        self
     }
 
     // This home with its providers started in `environment` in place of none.
@@ -192,6 +200,74 @@ impl TestHome {
     }
 }
 
+// Writes the script run as the daemon's own program at `path`: it runs `monitor_command` for the
+// crash monitor's mode and fails every other mode.
+fn write_daemon_program(path: &Path, monitor_command: &str) {
+    let script =
+        format!("#!/bin/sh\n[ \"$1\" = {CRASH_MONITOR_MODE} ] || exit 1\n{monitor_command}\n");
+    replace_file_atomically(path, script.as_bytes(), 0o755, LeftoverSweep::Unswept)
+        .expect("the daemon program's script is written");
+}
+
+// Waits until the started daemon's watch has reached its crash monitor.
+async fn wait_for_crash_monitor(process: &DaemonProcess) {
+    let mut progress = process
+        .crash_monitor
+        .as_ref()
+        .expect("the start keeps its crash monitor")
+        .progress();
+    tokio::time::timeout(
+        MONITOR_WAIT,
+        progress.wait_for(|progress| progress.connected >= 1),
+    )
+    .await
+    .expect("the crash monitor answers")
+    .expect("the watch counts it");
+}
+
+// A start whose crash monitor runs and never answers is ready all the same, and its stop ends
+// that still-starting monitor and fails nothing. Killed by a start that waits for the monitor's
+// first connect, which fails at a bound or never returns, and by an end that never ends the
+// watch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_whose_crash_monitor_never_answers_is_ready_and_its_stop_ends_it() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new().with_unanswering_crash_monitor();
+
+    let process = tokio::time::timeout(MONITOR_WAIT, home.start(CancellationToken::new()))
+        .await
+        .expect("the start does not wait for its crash monitor")
+        .expect("the daemon starts");
+    let mut progress = process
+        .crash_monitor
+        .as_ref()
+        .expect("the start keeps its crash monitor")
+        .progress();
+    let starting_id = tokio::time::timeout(
+        SPAWN_WAIT,
+        progress.wait_for(|progress| progress.newest_child_id.is_some()),
+    )
+    .await
+    .expect("the watch starts a monitor")
+    .expect("the watch runs")
+    .newest_child_id
+    .expect("the monitor runs");
+    let starting = pin_running_process(starting_id)
+        .expect("the monitor reads")
+        .expect("the monitor runs");
+
+    tokio::time::timeout(STOP_WAIT, process.stop(DaemonStopReason::Stop))
+        .await
+        .expect("the stop ends")
+        .expect("the stop fails nothing");
+    tokio::time::timeout(Duration::from_secs(1), starting.wait_for_end())
+        .await
+        .expect("the stop ended the starting monitor")
+        .expect("the wait for its end reads");
+}
+
 // An erase over a started daemon runs the stop's two steps on the task that owns the process: the
 // socket and the crash monitor's socket are gone and the data folder deleted once the erase ends
 // the process, and the stop that follows finds nothing left and fails nothing. Killed by an erase
@@ -207,6 +283,7 @@ async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothi
         .start(CancellationToken::new())
         .await
         .expect("the daemon starts");
+    wait_for_crash_monitor(&process).await;
     assert!(home.run_folder.socket_path.exists() && home.monitor_socket_path().exists());
     let end_process = process.accept_stop();
     let erase = Arc::new(DataErase::new(DataEraseDeps {
@@ -258,8 +335,8 @@ async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothi
 // A run folder whose longest socket path is one byte past the system's bound fails the start
 // before any step: no folder is made and no monitor started. One byte shorter starts, removing
 // the socket an ended service's monitor left, and its stop leaves neither socket. Killed by the
-// path check removed, where the start fails later at the crash monitor after making the folder,
-// and by the ended service's socket kept.
+// path check removed, where the start either succeeds or makes the folder first, and by the ended
+// service's socket kept.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_run_folder_too_long_for_its_sockets_fails_the_start_before_any_step() {
     let Err(SocketPathRefused::TooLong { limit, .. }) =
@@ -324,6 +401,7 @@ async fn a_run_folder_too_long_for_its_sockets_fails_the_start_before_any_step()
         !left_socket.exists(),
         "the ended service's socket is removed"
     );
+    wait_for_crash_monitor(&process).await;
     assert!(started.monitor_socket_path().exists());
     process
         .stop(DaemonStopReason::Stop)

@@ -1,13 +1,14 @@
 //! The crash monitor: the `minidump <socket>` mode, a child of the service that writes a dump of
 //! the service when it crashes, since a crashed process cannot write its own. The service connects
-//! to it at its start and attaches the crash handler, which asks the monitor for the dump on a
-//! crash; a panic first sends its message and place, which the monitor keeps beside the dump. A
-//! dump is written under a temporary name, held locked until it is renamed once whole, so the
-//! report builder never reads one half written nor takes it for a leftover. The monitor ends once
-//! it has written a dump or its service has gone, or once no service has said it is connected
-//! within the monitor's wait: the service says so after the channel's own handshake, since on
-//! macOS the monitor's socket accepts a connection before its port is named, and a service that
-//! reaches it in between is dropped by the handshake and tries again.
+//! to it in the background, however long its start takes, and attaches the crash handler, which
+//! asks the monitor for the dump on a crash; a panic first sends its message and place, which the
+//! monitor keeps beside the dump. A dump is written under a temporary name, held locked until it is
+//! renamed once whole, so the report builder never reads one half written nor takes it for a
+//! leftover. The monitor ends once it has written a dump or its service has gone, or once no
+//! service has said it is connected within the monitor's wait: the service says so after the
+//! channel's own handshake, since on macOS the monitor's socket accepts a connection before its
+//! port is named, and a service that reaches it in between is dropped by the handshake and tries
+//! again.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -19,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crash_handler::{CrashContext, CrashEventResult, CrashHandler, make_crash_event};
 use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, SocketName};
@@ -35,6 +36,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
 use sidekicks_store::data_folder::data_folder;
+use tokio_util::sync::CancellationToken;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
 /// follows it.
@@ -79,15 +81,13 @@ pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
         .is_some_and(|stem| stem.ends_with('.'))
 }
 
-/// How long the service tries to reach a monitor that is still starting.
-pub(crate) const CONNECT_BOUND: Duration = Duration::from_secs(10);
-
 // How often the service tries to reach a monitor that is still starting.
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 
-// How long the monitor waits for a service to say it is connected before it ends on its own:
-// past the service's whole connect bound, so a service still trying never finds it gone.
-const SERVICE_WAIT_BOUND: Duration = CONNECT_BOUND.saturating_mul(2);
+// How long the monitor waits for a service to say it is connected before it ends on its own, so
+// a monitor whose service was killed between the monitor's bind and its connect does not keep
+// running.
+const SERVICE_WAIT_BOUND: Duration = Duration::from_secs(20);
 
 // A dump or panic record readable by the person alone.
 const CRASH_FILE_MODE: u32 = 0o600;
@@ -135,9 +135,12 @@ pub(crate) enum CrashMonitorError {
         #[source]
         source: io::Error,
     },
-    /// The monitor's server failed, or the service could not reach it in time.
+    /// The monitor's server failed, or the service's message to it failed.
     #[error("the crash monitor's channel failed")]
     Channel(#[source] minidumper::Error),
+    /// The connect was given up before a monitor answered.
+    #[error("the connect to the crash monitor was given up before a monitor answered")]
+    ConnectStopped,
     /// The thread that ends a monitor no service connects to could not start.
     #[error("the crash monitor's wait for its service could not start")]
     ServiceWait(#[source] io::Error),
@@ -305,22 +308,24 @@ fn end_unless_a_service_connects(
         .map(drop)
 }
 
-/// Connects the service to its monitor at `socket_path`, trying for up to ten seconds while the
-/// monitor starts, and tells the monitor it is connected. Blocking. Fails when the path cannot be
-/// used or no monitor answers in time.
-pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashMonitorError> {
+/// Connects the service to its monitor at `socket_path`, trying again while the monitor starts
+/// until `stop` is canceled, and tells the monitor it is connected. Blocking. Fails when the path
+/// cannot be used, when `stop` is canceled before a monitor answers, or when the message fails.
+pub(crate) fn connect_crash_monitor(
+    socket_path: &Path,
+    stop: &CancellationToken,
+) -> Result<Client, CrashMonitorError> {
     let name = socket_name(socket_path)?;
-    let give_up_at = Instant::now() + CONNECT_BOUND;
     loop {
+        if stop.is_cancelled() {
+            return Err(CrashMonitorError::ConnectStopped);
+        }
         match Client::with_name(SocketName::path(name)) {
             Ok(client) => {
                 client
                     .send_message(SERVICE_CONNECTED_MESSAGE_KIND, [])
                     .map_err(CrashMonitorError::Channel)?;
                 return Ok(client);
-            }
-            Err(failure) if Instant::now() >= give_up_at => {
-                return Err(CrashMonitorError::Channel(failure));
             }
             Err(_not_yet) => thread::sleep(CONNECT_RETRY_INTERVAL),
         }
@@ -594,10 +599,12 @@ mod tests {
     use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
     use rstest::rstest;
     use sidekicks_platforms::{entry_identity, open_file_identity};
+    use tokio_util::sync::CancellationToken;
 
     use super::{
-        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError,
-        SERVICE_CONNECTED_MESSAGE_KIND, panic_record_bytes, send_within,
+        CrashMonitorError, DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError,
+        SERVICE_CONNECTED_MESSAGE_KIND, connect_crash_monitor, crash_monitor_socket_path,
+        panic_record_bytes, send_within,
     };
 
     // A writer no service has reached yet.
@@ -733,5 +740,33 @@ mod tests {
             "{sent:?}"
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    // A connect with no monitor to reach keeps trying until its stop is canceled, then gives up.
+    // Killed by a loop that ignores the stop, which with no ceiling of its own never returns.
+    #[test]
+    fn a_connect_with_no_monitor_gives_up_once_its_stop_is_canceled() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let socket_path = crash_monitor_socket_path(scratch.path(), std::process::id());
+        let stop = CancellationToken::new();
+        let connect_stop = stop.clone();
+        let (outcome_sender, outcome) = sync_channel(1);
+        thread::spawn(move || {
+            outcome_sender
+                .send(connect_crash_monitor(&socket_path, &connect_stop))
+                .expect("the test waits for the outcome");
+        });
+
+        thread::sleep(Duration::from_millis(100));
+        stop.cancel();
+        let connected = outcome
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the connect gives up once its stop is canceled");
+
+        assert!(
+            matches!(connected, Err(CrashMonitorError::ConnectStopped)),
+            "{:?}",
+            connected.as_ref().err()
+        );
     }
 }

@@ -20,7 +20,6 @@ use tokio::task::JoinError;
 use crate::bootstrap::SecureDefaultsError;
 use crate::daemon::artifact_methods::ArtifactMethodsError;
 use crate::daemon::configuration::ConfigurationError;
-use crate::daemon::crash::monitor::CrashMonitorError;
 use crate::daemon::machine_settings::file::MachineSettingsFileError;
 use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::daemon::process::jobs::JobScheduleError;
@@ -53,18 +52,6 @@ pub(crate) enum DaemonStartError {
     /// The session token could not be minted.
     #[error("the session token could not be minted")]
     SessionToken(#[source] getrandom::Error),
-    /// The crash monitor could not start.
-    #[error("the crash monitor could not start")]
-    CrashMonitorStart(#[source] std::io::Error),
-    /// The crash monitor could not be reached.
-    #[error(transparent)]
-    CrashMonitorConnect(#[from] CrashMonitorError),
-    /// The connect to the crash monitor ended before it finished.
-    #[error("the connect to the crash monitor ended before it finished")]
-    CrashMonitorConnectEnded(#[source] tokio::task::JoinError),
-    /// The system refused the crash handler.
-    #[error("the crash handler could not be attached")]
-    CrashHandler(#[source] crash_handler::Error),
     /// The system's bound on a program's arguments could not be read.
     #[error("the system's bound on a program's arguments could not be read")]
     CommandArgumentLimit(#[source] std::io::Error),

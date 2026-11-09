@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use rstest::rstest;
 use sidekicks_contracts::machine::settings::MachineSettingsChange;
@@ -37,6 +39,9 @@ const PLANTED_API_KEY: &str = "sk-plantedkey0123456789";
 const PLANTED_BEARER_TOKEN: &str = "x.y.z";
 const PLANTED_QUERY_TOKEN: &str = "plantedquery0123456789";
 
+// The longest the crashing child tries to reach its monitor before it gives up.
+const CHILD_CONNECT_WAIT: Duration = Duration::from_secs(30);
+
 // Runs as the crashing child: connects to the monitor, attaches the crash handler and crashes
 // as asked, a panic through the service's own hook or a bad read.
 #[expect(
@@ -51,7 +56,14 @@ fn crash_as_the_child(crash: &str) -> ! {
     let mut held = [0_u8; PLANTED_TOKEN.len()];
     held.copy_from_slice(PLANTED_TOKEN.as_bytes());
     std::hint::black_box(&mut held);
-    let client = Arc::new(connect_crash_monitor(&socket).expect("the monitor answers"));
+    let connect_stop = CancellationToken::new();
+    let give_up = connect_stop.clone();
+    thread::spawn(move || {
+        thread::sleep(CHILD_CONNECT_WAIT);
+        give_up.cancel();
+    });
+    let client =
+        Arc::new(connect_crash_monitor(&socket, &connect_stop).expect("the monitor answers"));
     let _handler = attach_crash_handler(Arc::clone(&client)).expect("the handler attaches");
     if crash == "panic" {
         install_panic_hook(&data_folder, None);

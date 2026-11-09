@@ -354,10 +354,11 @@ impl DaemonProcess {
         prepare_run_folder(run_folder).await?;
         remove_dead_monitor_sockets(&run_folder.folder_path).await;
         let session_token = mint_session_token().map_err(DaemonStartError::SessionToken)?;
-        self.crash_monitor
-            .insert(CrashMonitor::spawn(&self.spawner, daemon_program, monitor_socket_path).await?)
-            .connect()
-            .await?;
+        self.crash_monitor = Some(CrashMonitor::start(
+            &self.spawner,
+            daemon_program,
+            monitor_socket_path,
+        ));
         let shell_lines = Arc::new(ShellLineReadingBound::new(
             read_command_argument_limit().map_err(DaemonStartError::CommandArgumentLimit)?,
         ));

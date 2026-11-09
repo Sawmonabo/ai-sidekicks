@@ -42,6 +42,12 @@ pub(crate) fn send_panics_to_monitor(client: Arc<minidumper::Client>) {
     *lock(&CRASH_MONITOR) = Some(client);
 }
 
+/// The crash monitor's client each later panic's record is sent to, once one is named.
+#[cfg(test)]
+pub(crate) fn panic_monitor() -> Option<Arc<minidumper::Client>> {
+    lock(&CRASH_MONITOR).clone()
+}
+
 /// Installs the hook every panic runs before it unwinds: it logs the panic, its place, its thread
 /// and its backtrace, writes them to a new record in `data_folder`'s crash reports folder, flushes
 /// `log_file` and aborts the process, the one place the service ends itself.
