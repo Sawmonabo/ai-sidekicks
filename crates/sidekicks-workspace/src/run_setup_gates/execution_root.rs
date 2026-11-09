@@ -80,8 +80,9 @@ use crate::service::{WorkspaceService, root_mismatch};
 use crate::trust_envelope::components_equal;
 
 /// The statements the gate's reads keep prepared on each read connection: the run's workspace,
-/// the session's title, the root's ids and a helper's parent's context.
-pub const EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY: usize = 4;
+/// the session's newest workspace of any state, the session's title, the root's ids and a
+/// helper's parent's context.
+pub const EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY: usize = 5;
 
 // The session's live workspace the run names, else its newest, when a detach left an older one
 // archived; with its mount's anchor, place and whether the mount is a chat's own.
@@ -100,6 +101,11 @@ static SELECT_RUN_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
         archived = <&'static str>::from(WorkspaceState::Archived),
     )
 });
+
+// The session's newest workspace, archived ones included, which a start finding none live names.
+const SELECT_NEWEST_WORKSPACE_SQL: &str = "SELECT id FROM workspaces WHERE session_id = @session_id
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1";
 
 const SELECT_SESSION_TITLE_SQL: &str =
     "SELECT name, first_message_preview FROM sessions WHERE id = @session_id";
@@ -229,6 +235,9 @@ enum RunWorkspaceAbsence {
     /// The session works in a chat's own folder, whose runs take no context.
     #[error("session {0} works in a chat's own folder, which takes no run context")]
     Managed(SessionId),
+    /// A run started outside the run engine found the session holding no live workspace.
+    #[error("session {0} holds no live workspace")]
+    NoLiveWorkspace(SessionId),
 }
 
 /// The run a binding places: the id its context row is written under, the agent run that is a
@@ -570,6 +579,38 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
             .map_err(failed)
     }
 
+    // Why a run started outside the run engine finds `session_id` holding no live workspace: the
+    // cause `workspace.notFound` naming its newest workspace, or a fault for a session that never
+    // held one.
+    async fn refuse_no_live_workspace(&self, session_id: SessionId) -> RunSetupGateError {
+        let newest = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, RunBindingReadError>(
+                    connection
+                        .prepare_cached(SELECT_NEWEST_WORKSPACE_SQL)?
+                        .query_row(
+                            named_params! { "@session_id": session_id.text().as_str() },
+                            |row| text_column(row, 0, |text| WorkspaceId::new(&text)),
+                        )
+                        .optional()?,
+                )
+            })
+            .await;
+        let absence = RunWorkspaceAbsence::NoLiveWorkspace(session_id);
+        match newest {
+            Ok(Some(workspace_id)) => unresolved(
+                workspace_id,
+                RunSetupGateError::Refused(
+                    DomainError::from(WorkspaceRefusal::NotFound { workspace_id })
+                        .with_source(absence),
+                ),
+            ),
+            Ok(None) => failed(absence),
+            Err(error) => failed(error),
+        }
+    }
+
     async fn require_workspace(
         &self,
         run: &RunToBind<'_>,
@@ -684,7 +725,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetup
                 workspace_id: None,
             };
             let Some(before) = self.read_workspace(session_id, None).await? else {
-                return Err(failed(RunWorkspaceAbsence::Lost(session_id)));
+                return Err(self.refuse_no_live_workspace(session_id).await);
             };
             self.bind_run(&run, &before)
                 .await
@@ -700,6 +741,10 @@ impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetup
         binding: &'a RunContextBinding,
     ) -> BoxFuture<'a, KeyHold<'a, PathBuf>> {
         Box::pin(self.lock_checkout(binding))
+    }
+
+    fn note_context_changed(&self, session_id: SessionId) {
+        self.list_feed.refresh_sessions(&[session_id]);
     }
 }
 

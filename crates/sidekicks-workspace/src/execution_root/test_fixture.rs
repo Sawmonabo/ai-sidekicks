@@ -16,13 +16,14 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceId};
 use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_contracts::worktree::lifecycle::WorkspaceExecutionRootPrepareRequest;
 use sidekicks_platforms::real_path;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -46,10 +47,10 @@ use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::git::worktree::setup::test_runner::test_setup_runner;
 use crate::project::list_feed::ProjectListFeed;
-use crate::project::records::ProjectRecords;
-use crate::project::test_doubles::NoSessions;
+use crate::project::records::{ProjectRecords, ProjectSessionActivity};
 use crate::repo::mount::reattach::{
-    RepoMountReattachService, RepoMountReattachServiceDeps, RunAgentLookup, RunAgentLookupError,
+    RepoMountReattachService, RepoMountReattachServiceDeps, RunningHolderLookup,
+    RunningHolderLookupError,
 };
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::run_setup_gates::execution_root::{
@@ -65,8 +66,8 @@ pub const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 
 const READ_STATEMENT_CAPACITY: usize = 32;
 
-// The agent every run reads as; no test re-attaches a run's mount, so none asks.
-const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea1";
+/// The agent every agent run reads as.
+pub const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea1";
 
 /// The execution roots over a test database holding the session `SESSION_ID` and the attached
 /// mount `MOUNT_ID` of the repository `app` on `main`, every path resolved.
@@ -268,11 +269,13 @@ impl ExecutionRootFixture {
         })
     }
 
-    /// The run setup gate over these execution roots, driving `moves`, its mount recording the
-    /// repository's common folder as its anchor.
+    /// The run setup gate over these execution roots, driving `moves`, its projects list counting
+    /// each project's sessions through `sessions`, its mount recording the repository's common
+    /// folder as its anchor.
     pub fn setup_gate(
         &self,
         moves: Arc<dyn SessionFolderMoves>,
+        sessions: Arc<dyn ProjectSessionActivity>,
     ) -> ExecutionRootSetupGate<NullWatcher> {
         self.rows
             .execute(
@@ -290,13 +293,12 @@ impl ExecutionRootFixture {
                 events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&self.log.service))),
                 worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&self.log.service))),
                 resolver: RepoRootResolver::new(test_git_runner()),
-                agents: Arc::new(AnyRunAgent),
+                holders: Arc::new(RunsTableHolders {
+                    reads: Arc::clone(&self.reads),
+                }),
             },
         ));
-        let records = Arc::new(ProjectRecords::new(
-            Arc::clone(&self.reads),
-            Arc::new(NoSessions),
-        ));
+        let records = Arc::new(ProjectRecords::new(Arc::clone(&self.reads), sessions));
         ExecutionRootSetupGate::new(ExecutionRootSetupGateDeps {
             writer: Arc::clone(&self.log.writer),
             reads: Arc::clone(&self.reads),
@@ -319,6 +321,31 @@ impl ExecutionRootFixture {
         let hold = self.service.hold_preparation(workspace_id).await;
         self.service.move_to_folder_held(&hold, folder, None).await
     }
+
+    /// Puts a new repository in the mount's folder, its git folder kept beside it, so the mount
+    /// reads `identityMismatch`, and answers that git folder. One made in place at the same path
+    /// would hold the anchor's own common folder and read as the same repository.
+    pub async fn replace_repository(&self) -> PathBuf {
+        std::fs::remove_dir_all(&self.repository).expect("the old repository goes");
+        let parent = self
+            .repository
+            .parent()
+            .expect("the repository sits in the scratch folder");
+        let repository = make_test_repository(&self.git, parent, "app").await;
+        let common_folder = parent.join("app-replacement.git");
+        git_in(
+            &self.git,
+            &repository,
+            &[
+                "init",
+                "--quiet",
+                "--separate-git-dir",
+                &common_folder.to_string_lossy(),
+            ],
+        )
+        .await;
+        common_folder
+    }
 }
 
 /// A workspace's row as a test reads it back.
@@ -334,16 +361,48 @@ pub struct StoredWorkspace {
     pub bound_root: Option<String>,
 }
 
-/// Answers every run's agent; no test re-attaches a mount, so it is never asked.
-struct AnyRunAgent;
+/// Reads a run in the session crate's `runs` table as an agent's run for [`RUNNING_AGENT_ID`],
+/// and any other as a workflow run, as the session crate's lookup tells them apart; only a test
+/// whose schema holds `runs` re-attaches through it.
+struct RunsTableHolders {
+    reads: Arc<DatabaseReadPool>,
+}
 
-impl RunAgentLookup for AnyRunAgent {
-    fn read_run_agent<'a>(
+impl RunningHolderLookup for RunsTableHolders {
+    fn read_running_holder<'a>(
         &'a self,
         _session_id: &'a SessionId,
-        _run_id: &'a RunId,
-    ) -> BoxFuture<'a, Result<AgentId, RunAgentLookupError>> {
-        async { Ok(AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID")) }.boxed()
+        run_id: &'a str,
+    ) -> BoxFuture<'a, Result<RunningHolder, RunningHolderLookupError>> {
+        let run_id = run_id.to_owned();
+        async move {
+            let is_agent_run = self
+                .reads
+                .read(ReadLength::Short, {
+                    let run_id = run_id.clone();
+                    move |connection| {
+                        connection
+                            .query_row(
+                                "SELECT EXISTS (SELECT 1 FROM runs WHERE run_id = ?1)",
+                                [&run_id],
+                                |row| row.get::<_, bool>(0),
+                            )
+                            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+                    }
+                })
+                .await
+                .map_err(RunningHolderLookupError)?;
+            Ok(if is_agent_run {
+                RunningHolder::Agent {
+                    agent_id: AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID"),
+                }
+            } else {
+                RunningHolder::WorkflowRun {
+                    run_id: WorkflowRunId::new(&run_id).expect("a workflow run's id is a UUID"),
+                }
+            })
+        }
+        .boxed()
     }
 }
 

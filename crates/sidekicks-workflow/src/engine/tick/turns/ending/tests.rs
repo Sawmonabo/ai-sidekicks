@@ -112,11 +112,11 @@ fn run_events(harness: &Harness) -> Vec<(String, Value)> {
 
 /// A run whose steps all succeed reads `succeeded`, ended at the instant of its last event,
 /// with one `workflow.run.completed` in that write, its execution context released at that
-/// instant, and leaves the live set; a chat's run posts its results into its session once, as the
-/// write's last event after the ending, and a manual run posts none. Mutations: write nothing for
-/// a run whose steps all settled, which leaves it `running`; stamp the end with a fresh clock
-/// read; drop the context's release from the run's end; post outside the ending's write; post for
-/// every mode.
+/// instant and its session's binder told once, and leaves the live set; a chat's run posts its
+/// results into its session once, as the write's last event after the ending, and a manual run
+/// posts none. Mutations: write nothing for a run whose steps all settled, which leaves it
+/// `running`; stamp the end with a fresh clock read; drop the context's release from the run's
+/// end, or the binder's notice after it; post outside the ending's write; post for every mode.
 #[rstest]
 #[case::manual(WorkflowRunMode::Manual, false)]
 #[case::chat(WorkflowRunMode::Chat, true)]
@@ -167,6 +167,7 @@ async fn a_run_whose_steps_all_succeed_ends_succeeded(
         execution_context_released_at(&harness.rows, harness.scope.run_id.text().as_str()),
         Some(completed_at.clone())
     );
+    assert_eq!(harness.notices.sessions(), vec![harness.scope.session_id]);
     assert_eq!(
         run_row(&harness.rows),
         ("succeeded".to_owned(), Some(completed_at), None)

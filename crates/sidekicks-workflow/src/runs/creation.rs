@@ -148,8 +148,8 @@ pub(crate) fn execution_context_statement_index(chain: &WorkflowRunChainPlace) -
 /// the chain's first run is not a stored first run, then its count on that row at
 /// [`CHAIN_COUNT_STATEMENT_INDEX`], which refuses it once the chain has started `chain_ask_after`
 /// runs and the person has not answered Keep going, `None` never; its execution context's row
-/// where it has one, at [`execution_context_statement_index`]; and, last, its trigger step's `pending` row on its trigger input, at the run's
-/// start. A first run's own row counts itself.
+/// where it has one, at [`execution_context_statement_index`]; and, last, its trigger step's
+/// `pending` row on its trigger input, at the run's start. A first run's own row counts itself.
 #[cfg_attr(
     not(test),
     expect(

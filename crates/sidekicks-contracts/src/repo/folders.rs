@@ -9,7 +9,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::definition::AgentId;
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::machine::id::MachineId;
 use crate::place::{Place, WslPlace};
@@ -22,7 +21,7 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, NullableSchema, True, nullable};
-use crate::worktree::lifecycle::WorktreeId;
+use crate::worktree::lifecycle::{RunningHolder, WorktreeId};
 
 ts_constants! {
     /// The longest system reason a `repoMount.rootResolutionFailed` refusal carries, in code
@@ -531,14 +530,15 @@ pub struct RepoMountReattachRefusedDetails {
     pub reason: RepoMountReattachRefusedReason,
 }
 
-/// The details of a `repoMount.reattachConflict` refusal: the running agent and its session.
+/// The details of a `repoMount.reattachConflict` refusal: the run live in the project and its
+/// session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepoMountReattachConflictDetails {
     /// The session running there.
     pub running_session_id: SessionId,
-    /// The agent running.
-    pub running_agent_id: AgentId,
+    /// The run.
+    pub running_holder: RunningHolder,
 }
 
 /// The TypeScript module of the folders the service can reach.

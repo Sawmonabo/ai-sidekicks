@@ -88,11 +88,12 @@ const RUN_RESULTS_POST_SQL: &str =
 /// when no row has the run. Its statements end the run's row `canceled` through
 /// [`end_run_statements`], its open wait on people closed and its execution context released,
 /// every step still running, waiting or held by the memory gate reads `canceled` with the same
-/// end, and no step of the run keeps a wait cause, wait start,
-/// resume instant, deadline, wait id or spent account; the write is refused, changing nothing,
-/// unless the run is still going or parked on a failed step. A run whose mode posts its results
-/// posts them as its ending in the tick would; a retry's retried mode is not on its row, so a
-/// retry posts none here. Fails as the read does.
+/// end, and no step of the run keeps a wait cause, wait start, resume instant, deadline, wait id
+/// or spent account; the write is refused, changing nothing, unless the run is still going or
+/// parked on a failed step. Its writer tells the session's binder once the write commits, as the
+/// tick's ending does. A run whose mode posts its results posts them as its ending in the tick
+/// would; a retry's retried mode is not on its row, so a retry posts none here. Fails as the read
+/// does.
 #[cfg_attr(
     not(test),
     expect(

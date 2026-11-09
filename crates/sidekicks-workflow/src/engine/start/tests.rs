@@ -1,3 +1,4 @@
+mod binding;
 mod unstarted;
 
 use std::path::{Path, PathBuf};
@@ -41,8 +42,11 @@ use sidekicks_workspace::execution_root::test_fixture::{
     ExecutionRootFixture, MOUNT_ID as REPOSITORY_MOUNT_ID,
 };
 use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::project::test_doubles::NoSessions;
+use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use sidekicks_workspace::test_rows::project_and_mount_rows;
 
+use self::binding::TestBinder;
 use super::{
     StartedRun, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart, WorkflowRunStartError,
     WorkflowRunStarter, WorkflowRunStarterDependencies, WorkflowStartArrival, WorkflowStartOutcome,
@@ -72,26 +76,29 @@ fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the test's provider id")
 }
 
-/// The session a start names: none stored; a chat with no working folder, or working in a folder
-/// of its own; or a project session on the fixture's real repository, its workspace `ready`,
-/// still `preparing`, or not bound yet.
+/// The session a start names: none stored; a chat with no working folder, or one working on a
+/// project's mount in a folder of its own; or a project session on the fixture's real repository,
+/// its workspace `ready`, still `preparing` in the mode given, archived by its project's detach, or
+/// never bound.
 #[derive(Clone, Copy, Debug)]
 enum TestSession {
     Unknown,
     WithoutFolder,
     WithFolder,
     Project,
-    PreparingProject,
+    PreparingProject(ExecutionMode),
+    DetachedProject,
     ProjectWithoutWorkspace,
 }
 
 /// The starter over the execution roots' fixture, its database holding the store's, workspace and
-/// workflow tables, binding through the real setup gate: the workflow's version 1 with `body` and
+/// workflow tables, binding through the real setup gate behind the test's binder: the workflow's version 1 with `body` and
 /// no provider picked, the payloads it stored, the git kind, which needs a project's repository,
 /// and the command kind, which runs in its provider's sandbox.
 struct Fixture {
     roots: ExecutionRootFixture,
     rows: Connection,
+    binder: Arc<TestBinder>,
     starter: WorkflowRunStarter,
     payloads: Arc<KeptPayloads>,
     records: Arc<KeptEngineRecords>,
@@ -132,6 +139,10 @@ impl Fixture {
             },
         ));
         let records = Arc::new(KeptEngineRecords::default());
+        let binder = Arc::new(TestBinder::new(
+            roots.setup_gate(roots.stand_in_moves(), Arc::new(NoSessions)),
+            Arc::clone(&roots.log.writer),
+        ));
         let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
             event_log,
@@ -170,7 +181,7 @@ impl Fixture {
                 ])
                 .expect("the kinds build"),
             ),
-            binder: Arc::new(roots.setup_gate(roots.stand_in_moves())),
+            binder: Arc::clone(&binder) as Arc<dyn SessionRunBinder>,
             data_folder: test_folder(database).join("data"),
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
@@ -181,6 +192,7 @@ impl Fixture {
         let fixture = Self {
             roots,
             rows,
+            binder,
             starter,
             payloads,
             records,
@@ -205,14 +217,24 @@ impl Fixture {
                 insert_session_row(&self.rows, TEST_SESSION_ID, None, None);
                 store_chat_folder(&self.rows, &session_folder(&self.roots.database));
             }
-            TestSession::Project | TestSession::PreparingProject => {
+            TestSession::PreparingProject(execution_mode) => {
                 self.store_project_session();
-                let workspace_id = self.bind_repository().await;
-                if let TestSession::Project = session {
-                    self.roots
-                        .prepare(workspace_id, None)
-                        .await
-                        .expect("the bound folder is prepared");
+                self.bind_repository(execution_mode).await;
+            }
+            TestSession::Project | TestSession::DetachedProject => {
+                self.store_project_session();
+                let workspace_id = self.bind_repository(ExecutionMode::BoundRoot).await;
+                self.roots
+                    .prepare(workspace_id, None)
+                    .await
+                    .expect("the bound folder is prepared");
+                if let TestSession::DetachedProject = session {
+                    self.rows
+                        .execute_batch(
+                            "UPDATE workspaces SET state = 'archived'; \
+                             UPDATE repo_mounts SET state = 'detached';",
+                        )
+                        .expect("the project is detached");
                 }
             }
             TestSession::ProjectWithoutWorkspace => self.store_project_session(),
@@ -229,15 +251,14 @@ impl Fixture {
             .expect("the session is a project session");
     }
 
-    // Binds the session to the fixture's repository as a `boundRoot` checkout, which lands
-    // `preparing`.
-    async fn bind_repository(&self) -> WorkspaceId {
+    // Binds the session to the fixture's repository in `execution_mode`, which lands `preparing`.
+    async fn bind_repository(&self, execution_mode: ExecutionMode) -> WorkspaceId {
         self.roots
             .workspaces
             .bind(&WorkspaceBindRequest {
                 session_id: session_id(),
                 repo_mount_id: RepoMountId::new(REPOSITORY_MOUNT_ID).expect("the id is a UUID"),
-                execution_mode: ExecutionMode::BoundRoot,
+                execution_mode,
                 directory: None,
             })
             .await
@@ -672,11 +693,11 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
 }
 
 /// The run works in a chat's folder. Mutations: pins taken for a trigger run, or dropped for a
-/// manual one; a chat's run bound and given an execution context; the trigger left out of the
-/// nodes or the version's nodes dropped; the scope's start read from the clock apart from the
-/// event's instant; the provider read from anywhere but the workflow, or the run's row or started
-/// event left without it; a start with no provider refused though no step runs in a sandbox; kept
-/// values not read.
+/// manual one; a chat's run bound and given an execution context, or made a folder of its own
+/// beside the one its session records; the trigger left out of the nodes or the version's nodes
+/// dropped; the scope's start read from the clock apart from the event's instant; the provider
+/// read from anywhere but the workflow, or the run's row or started event left without it; a start
+/// with no provider refused though no step runs in a sandbox; kept values not read.
 #[rstest]
 #[case::a_manual_run(WorkflowStartArrival::Person, true, Some("test-provider"))]
 #[case::a_trigger_run(WorkflowStartArrival::Trigger, false, None)]
@@ -719,7 +740,13 @@ async fn the_start_scope_holds_the_pinned_version_and_its_pins(
     );
 
     let scope = &run.scope;
-    // A chat's folder is no project's checkout, so the run records no execution context.
+    // A chat session is never bound, so the run works in the folder the session records and
+    // writes no execution context.
+    assert_eq!(
+        scope.working_folder,
+        session_folder(&fixture.roots.database)
+    );
+    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     assert_eq!(fixture.execution_context(scope.run_id), None);
     let mut node_ids: Vec<&str> = scope.nodes.keys().map(WorkflowNodeId::as_str).collect();
     node_ids.sort_unstable();
@@ -806,50 +833,4 @@ async fn a_failed_scope_read_writes_no_run() {
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     assert_eq!(fixture.payloads.writes(), Vec::new());
-}
-
-/// A project session whose workspace is still `preparing` reads no working folder, so the start's
-/// binding makes its root, the run works there and records it, and its steps take the project's
-/// own environment rows. Mutations: the folder read from the session before the binding (the run
-/// works in its own folder); the rows read from the session's folder, which names no repository
-/// yet (none are taken); the context left out of the creation write.
-#[tokio::test]
-async fn a_project_sessions_start_binds_its_preparing_workspace() {
-    let fixture = Fixture::new(
-        &body(None, &json!([git_node()])),
-        TestSession::PreparingProject,
-        None,
-    )
-    .await;
-    fixture
-        .rows
-        .execute(
-            "UPDATE projects SET environment_rows = '[{\"name\":\"REGION\",\"value\":\"eu\"}]' \
-             WHERE id = ?1",
-            [REPOSITORY_MOUNT_ID],
-        )
-        .expect("the test sets the project's environment rows");
-
-    let run = started(
-        fixture
-            .starter
-            .start(start(
-                WorkflowStartArrival::Person,
-                WorkflowRunChainPlace::Starts {},
-                Vec::new(),
-            ))
-            .await,
-    );
-
-    let repository = fixture.roots.repository.to_string_lossy().into_owned();
-    assert_eq!(run.scope.working_folder, fixture.roots.repository);
-    assert_eq!(
-        serde_json::to_value(&*run.scope.environment_rows).expect("rows write as JSON"),
-        json!([{ "name": "REGION", "value": "eu" }])
-    );
-    let (_, root, _, released_at) = fixture
-        .execution_context(run.scope.run_id)
-        .expect("the run records its execution context");
-    assert_eq!((root, released_at), (repository, None));
-    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
 }

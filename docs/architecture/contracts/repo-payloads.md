@@ -99,8 +99,9 @@ interface RepoMountDetachResponse {
 // Refused with repoMount.reattachRefused (reason identityMatches), repoMount.rootResolutionFailed
 // (reason notARepository), repoMount.alreadyAttached (conflictingRepoMountId, and
 // conflictingProjectId, null when a chat's own workspace holds the repository), or
-// repoMount.reattachConflict (runningSessionId and runningAgentId) while an agent runs anywhere in
-// the project. Its `RepoMountRequest` names the mount reading identityMismatch.
+// repoMount.reattachConflict (runningSessionId, and runningHolder: { kind: 'agent', agentId } for
+// an agent's run or { kind: 'workflowRun', runId } for a workflow run) while a run is live anywhere
+// in the project. Its `RepoMountRequest` names the mount reading identityMismatch.
 interface RepoMountReattachResponse {
   repoMountId: RepoMountId; // the new mount
 }

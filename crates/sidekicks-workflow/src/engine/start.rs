@@ -279,7 +279,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
     /// The kinds a start reads its steps' needs from.
     pub(crate) kinds: Arc<NodeKindTable>,
-    /// Binds a project session's run to that session's workspace.
+    /// Binds a project session's run to that session's workspace, and is told once the run's
+    /// write holding its context commits.
     pub(crate) binder: Arc<dyn SessionRunBinder>,
     /// The data folder a run's own folder is made in.
     pub(crate) data_folder: PathBuf,
@@ -628,6 +629,9 @@ impl WorkflowRunStarter {
         let context_index = execution_context_statement_index(&chain);
         match (appended, chain) {
             (Ok(receipt), _) => {
+                if prepared.binding.is_some() {
+                    self.binder.note_context_changed(session_id);
+                }
                 let node_params = checked
                     .nodes
                     .iter()

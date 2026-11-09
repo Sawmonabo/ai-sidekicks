@@ -1,8 +1,9 @@
 //! A project session's working folder: moving it into any tree its repository has, at once while no
 //! agent run of the session is live, or as a pending move on the session's own row that the run's
-//! next boundary applies; a workflow run holds no move, its steps staying on its recorded root. The row holds at most one, so a later request replaces it, and a request for
-//! the folder the session already works in clears it. A removed tree's sessions are swept back to
-//! the repository's own checkout; one whose run is still bound there keeps its folder until that
+//! next boundary applies; a workflow run holds no move, its steps staying on its recorded root.
+//! The row holds at most one, so a later request replaces it, and a request for the folder the
+//! session already works in clears it. A removed tree's sessions are swept back to the
+//! repository's own checkout; one whose agent run is still bound there keeps its folder until that
 //! run is released, and is swept at that run's end.
 //!
 //! - Each move takes one workspace's preparation hold at a time, and a move at a run's boundary

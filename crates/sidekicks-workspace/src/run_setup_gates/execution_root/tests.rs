@@ -22,6 +22,7 @@ use crate::execution_root::test_fixture::{
     ExecutionRootFixture, MOUNT_ID, SESSION_ID, StandInMoves,
 };
 use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::project::test_doubles::NoSessions;
 use crate::run_setup_gates::{
     ParentRun, RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
@@ -50,7 +51,7 @@ impl GateFixture {
     async fn new() -> Self {
         let roots = ExecutionRootFixture::new().await;
         let moves = roots.stand_in_moves();
-        let gate = roots.setup_gate(Arc::clone(&moves) as _);
+        let gate = roots.setup_gate(Arc::clone(&moves) as _, Arc::new(NoSessions));
         Self { roots, moves, gate }
     }
 

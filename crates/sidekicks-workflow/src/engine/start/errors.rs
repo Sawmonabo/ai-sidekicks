@@ -58,8 +58,9 @@ pub(crate) enum WorkflowRunStartError {
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
     /// A project session's run could not be bound to the session's working folder: refused
-    /// `workspace.executionRoot.unresolved` wrapping why, the write of its context included, or a
-    /// failure in the daemon, such as a session holding no live workspace.
+    /// `workspace.executionRoot.unresolved` wrapping why, a session holding no live workspace and
+    /// the write of its context included, or a failure in the daemon, such as a session that never
+    /// held a workspace.
     #[error(transparent)]
     #[cfg_attr(
         not(test),

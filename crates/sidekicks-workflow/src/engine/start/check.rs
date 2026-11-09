@@ -52,8 +52,8 @@ const DEFINITION_SCOPE_SQL: &str =
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
     // rule, the version, the session, a project named beside a project session, the trigger's
-    // declared inputs, a project's repository for the steps that need one, the workflow's provider for the steps that run in its sandbox, then
-    // the run's graph.
+    // declared inputs, a project's repository for the steps that need one, the workflow's
+    // provider for the steps that run in its sandbox, then the run's graph.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")

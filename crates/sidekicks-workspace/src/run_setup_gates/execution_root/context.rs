@@ -67,7 +67,8 @@ pub trait SessionRunBinder: Send + Sync {
     /// Binds run `run_id` of `session_id` as an agent run's setup does, a worktree's first root
     /// named from the session's title or else `opening_words`, and answers its context row's
     /// facts, writing nothing of the row. Refuses `workspace.executionRoot.unresolved` wrapping why
-    /// the workspace could not be bound; fails when the session holds no live workspace or works
+    /// the workspace could not be bound, the cause `workspace.notFound` naming the session's newest
+    /// workspace when it holds none live; fails when the session never held a workspace or works
     /// in a chat's own folder, which takes no context.
     fn bind_session_run<'a>(
         &'a self,
@@ -82,11 +83,15 @@ pub trait SessionRunBinder: Send + Sync {
         &'a self,
         binding: &'a RunContextBinding,
     ) -> BoxFuture<'a, KeyHold<'a, PathBuf>>;
+
+    /// Tells the projects list that a write holding a context row of `session_id`'s run, or its
+    /// release, committed, so the session's live-run figure is read again.
+    fn note_context_changed(&self, session_id: SessionId);
 }
 
 /// A run bound in its workspace: the facts its context row is written from, and the canonical
 /// checkout whose lock that write holds.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RunContextBinding {
     /// The run's id, an agent run's or a workflow run's, which the row is keyed by.
     pub(super) run_id: String,
