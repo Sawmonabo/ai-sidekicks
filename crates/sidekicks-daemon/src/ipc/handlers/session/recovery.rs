@@ -1,5 +1,6 @@
 //! A damaged session's two recovery actions: `session.recovery.continue`, `Continue from here`,
-//! and `session.recovery.delete`, `Delete session`.
+//! and `session.recovery.delete`, `Delete session`, which also deletes a session whose create
+//! never finished.
 
 use std::sync::Arc;
 
@@ -35,9 +36,7 @@ pub(crate) fn register_session_recovery_methods(
         move |request: SessionTargetRequest, _context: HandlerContext| {
             let damaged_history = Arc::clone(&damaged_history);
             async move {
-                damaged_history
-                    .delete_damaged_session(request.session_id)
-                    .await?;
+                damaged_history.delete_session(request.session_id).await?;
                 Ok(EmptyPayload {})
             }
             .boxed()

@@ -7,6 +7,7 @@ use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::Notify;
 
 use super::scripted_service::{ScriptedService, connect_scripted_service};
@@ -115,6 +116,7 @@ fn connect(
             events: Arc::clone(&events) as Arc<dyn CodexConnectionEvents>,
             responder,
             token_refresher: None,
+            raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
         },
     );
     (connection, service, events)

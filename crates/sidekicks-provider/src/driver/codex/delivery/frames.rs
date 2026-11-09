@@ -47,6 +47,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::question::ProviderQuestion;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
+use crate::port::tool_traces::ToolTraces;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -102,6 +103,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
     /// The accounts, whose credential generation a spent allowance is filed under.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Where each finished tool call's trace goes once registered.
+    pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
 
 /// One of the person's messages Codex took into a turn, by the id it was sent under.
@@ -154,9 +157,6 @@ pub(crate) struct CodexTurnMove {
 /// What one frame told the rest of the driver.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexFrameDispatch {
-    /// The ask Codex resolved itself, by its request id, which the driver's request-resolved
-    /// signal names.
-    pub(crate) resolved_request_id: Option<String>,
     /// The person's messages Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
     /// The `userPromptSubmit` hook runs the frame reported.
@@ -283,9 +283,7 @@ impl CodexFrameDelivery {
                 self.deliver_reviewer_frame(record, method, &members).await;
             }
             "hook/completed" => turns::read_prompt_hook_run(&members, &mut dispatch),
-            "serverRequest/resolved" => {
-                dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
-            }
+            "serverRequest/resolved" => self.forget_resolved_request(record, &members),
             "turn/plan/updated" => deliver_codex_plan_update(record, &members, &mut dispatch),
             "model/safetyBuffering/updated" => {
                 self.deliver_safety_buffering(record, &members).await;

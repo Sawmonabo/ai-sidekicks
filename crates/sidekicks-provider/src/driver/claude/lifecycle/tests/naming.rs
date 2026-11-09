@@ -85,6 +85,7 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
     fixture.starts.script_one_turn(ClaudeOneTurnReply {
         text: "Login page fix".to_owned(),
         provider_message_id: None,
+        provider_block: None,
         refusal: None,
         usage: None,
         compaction_summary: None,

@@ -152,7 +152,7 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 async fn an_export_holds_every_part_decoded_and_no_credential() {
     let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     let long_body = "\u{e9}".repeat(1_500);
-    log.session_log.reply("m1", Some(0), &long_body);
+    log.session_log.reply("m1", Some((0, 1)), &long_body);
     let homes = tempfile::tempdir().expect("the homes folder is made");
     let home = plant_secrets(&log, homes.path());
     seed_rows(&log, &home);
@@ -317,7 +317,7 @@ async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
         &body[first_cut..second_cut],
         &body[second_cut..],
     ] {
-        log.session_log.reply("m1", Some(0), piece);
+        log.session_log.reply("m1", Some((0, 1)), piece);
     }
 
     let lines = export_session_lines(&log).await;
@@ -367,7 +367,7 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
     }
     for _ in 0..36 {
         log.session_log
-            .reply("m64", Some(0), &"z".repeat(reply_bytes));
+            .reply("m64", Some((0, 1)), &"z".repeat(reply_bytes));
     }
 
     let folder = tempfile::tempdir().expect("the test's folder is made");

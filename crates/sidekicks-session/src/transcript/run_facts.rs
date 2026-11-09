@@ -210,3 +210,115 @@ impl StoredBeat {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::events::test_log::{AT, SessionTestLog};
+
+    use super::{FoldedThroughSequence, TranscriptRunFactsReader};
+    use crate::questions::schema::schema_parts;
+
+    // Writes the lead run's row of `event_type` at `sequence`, naming `actor`, with `payload`
+    // beside its session and run. Raw, so the case sets each row's actor.
+    fn write_row(
+        log: &SessionTestLog,
+        sequence: i64,
+        event_type: &str,
+        actor: Option<&str>,
+        mut payload: Value,
+    ) {
+        payload["sessionId"] = json!(log.session_id);
+        payload["runId"] = json!(log.run_id);
+        let category = SessionEventType::from_wire_name(event_type)
+            .expect("the case writes a known type")
+            .category();
+        log.writer
+            .execute(
+                "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
+                   category, type, actor, payload, run_id)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    mint_uuid_v7().to_string(),
+                    log.session_id.text().as_str(),
+                    sequence,
+                    AT,
+                    category.as_str(),
+                    event_type,
+                    actor,
+                    payload.to_string(),
+                    log.run_id.text().as_str(),
+                ],
+            )
+            .expect("the test writes the run's row");
+    }
+
+    // The run is created under an account, a person's message steers it before its own first
+    // actor, it starts and runs, and a rollback follows the newer state. Killed by the creation
+    // seek dropped (no account), by the actor seek taking a person's message, which the fold
+    // skips (no actor), by the state seek read oldest first, which stops at the creation's
+    // `queued`, and by the rollback left out of the state seek (not rewound).
+    #[test]
+    fn a_runs_facts_read_its_creation_its_own_first_actor_and_its_newest_state() {
+        let log = SessionTestLog::new(schema_parts());
+        write_row(
+            &log,
+            0,
+            "agent.run.queued",
+            None,
+            json!({
+                "runVersion": 0,
+                "newState": "queued",
+                "admittedProviderAccountId": "account-1"
+            }),
+        );
+        write_row(&log, 1, "user.message.sent", Some("person-1"), json!({}));
+        write_row(&log, 2, "agent.message.sent", Some("agent-1"), json!({}));
+        write_row(
+            &log,
+            3,
+            "agent.run.starting",
+            None,
+            json!({ "newState": "starting" }),
+        );
+        write_row(
+            &log,
+            4,
+            "agent.run.running",
+            None,
+            json!({ "newState": "running" }),
+        );
+        write_row(
+            &log,
+            5,
+            "agent.run.rolledBack",
+            None,
+            json!({ "runVersion": 2, "targetPosition": 0 }),
+        );
+
+        let reader = log.reader();
+        let facts = TranscriptRunFactsReader::new(&reader, |_: &SessionId| None)
+            .read(
+                &log.session_id,
+                &[log.run_id],
+                FoldedThroughSequence::new(5).expect("a log position"),
+            )
+            .expect("the run's facts read");
+
+        assert_eq!(
+            serde_json::to_value(&facts).expect("the facts serialize"),
+            json!([{
+                "runId": log.run_id,
+                "actor": "agent-1",
+                "admittedProviderAccountId": "account-1",
+                "stateEventType": "agent.run.running",
+                "isRewound": true,
+                "foldedThroughSequence": 5,
+            }])
+        );
+    }
+}

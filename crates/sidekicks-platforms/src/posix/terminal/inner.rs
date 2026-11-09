@@ -129,6 +129,10 @@ pub(crate) fn read_until_marker(
     Ok(String::from_utf8_lossy(&output).into_owned())
 }
 
+/// How long [`end_inner_terminal`] reads the killed command's output away before it gives up.
+#[cfg(test)]
+pub(crate) const TEARDOWN_READ_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Ends the command `terminal` started and its group as a test's teardown, closing the terminal's
 /// own handle on the program side and reading what the command still prints until that side
 /// closes, since a process's exit waits for its terminal's output to drain. A group already gone
@@ -153,12 +157,12 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
         Err(Errno::ESRCH) => return,
         Err(errno) => panic!("the command's group is not killed: {errno}"),
     }
-    // Closed first, so the read below ends at the command's close rather than its 10 s bound.
+    // Closed first, so the read below ends at the command's close rather than at its bound.
     drop(program_side);
     let started = Instant::now();
     let mut master = pty.file();
     let mut buffer = [0_u8; 4_096];
-    while started.elapsed() < Duration::from_secs(10) {
+    while started.elapsed() < TEARDOWN_READ_BOUND {
         match master.read(&mut buffer) {
             Ok(0) => break,
             Ok(_) => {}

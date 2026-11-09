@@ -356,15 +356,11 @@ impl ProviderChoiceResolver {
         self.answer(driver.as_ref(), &run, answer).await
     }
 
-    /// Settles the answer the provider got with no reply back on `run_id`, once the provider
-    /// reports the run in `reported`: called before that report is applied, so the answer's
-    /// settlement and move are written first and the report, a move the run already made, is
-    /// refused. A report that the run still waits on input keeps the answer held, and a run the
-    /// provider ended drops an answer that would have returned it to `running`. An answer whose
-    /// run a report already moved settles at any report as its event alone, the provider having
-    /// shown it took it. A driver's own signal that the provider resolved the choice settles the
-    /// held answer the same way. Answers whether it wrote the settlement; fails as the
-    /// settlement's write fails, the answer held again for the next report or answer to settle.
+    /// Settles the answer on `run_id` that got no reply back, at the driver's report `reported`
+    /// of the run once the provider shows it took the answer, called before the report is applied:
+    /// a report that the run still waits keeps the answer held, and one that the provider ended
+    /// the run drops it. Answers `Ok(true)` when it wrote the settlement and `Ok(false)` when
+    /// nothing was held, kept or left to record; fails as the write fails, the answer held again.
     pub(crate) async fn settle_held_answer(
         &self,
         run_id: RunId,

@@ -477,9 +477,9 @@ mod tests {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let session_log = &log.session_log;
         let child = log.child_run(session_log.run_id, "completed");
-        session_log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
+        session_log.piece("agent.message.sent", child, "m1", Some((0, 1)), "One ", AT);
         let (skipped, _) =
-            session_log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
+            session_log.piece("agent.message.sent", child, "m1", Some((0, 1)), "row.", AT);
         let patch = "@@ -1 +1 @@\n-old\n+new\n";
         let body = json!({
             "files": [{ "path": "/w/a.rs", "patch": patch, "additions": 1, "deletions": 1 }],
@@ -512,7 +512,14 @@ mod tests {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let session_log = &log.session_log;
         let child = log.child_run(session_log.run_id, "completed");
-        session_log.piece("agent.message.sent", child, "m1", Some(0), "One row.", AT);
+        session_log.piece(
+            "agent.message.sent",
+            child,
+            "m1",
+            Some((0, 1)),
+            "One row.",
+            AT,
+        );
         let request = serde_json::from_value(json!({ "sessionId": session_log.session_id }))
             .expect("the test's request reads");
         // Only the child counts call `count`, and in a session's window only the children's reads
@@ -580,13 +587,13 @@ mod tests {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let session_log = &log.session_log;
         let child = log.child_run(session_log.run_id, "completed");
-        session_log.reply("lead", Some(0), "The lead's own row.");
+        session_log.reply("lead", Some((0, 1)), "The lead's own row.");
         for index in 0..TRANSCRIPT_READ_LIMIT_MAX {
             session_log.piece(
                 "agent.message.sent",
                 child,
                 &format!("m{index}"),
-                Some(0),
+                Some((0, 1)),
                 "A child row.",
                 AT,
             );

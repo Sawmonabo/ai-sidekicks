@@ -98,10 +98,11 @@ tracing-subscriber.workspace = true
 # Helpers other crates' tests use: the run engine built over a test database and its restart pause,
 # the live count's test log, the attention entries' test log and counting windowless starter, the
 # transcript's test log, the questions service's fixtures, the list feed's test build, the follow
-# count, the search index's test services, the queue items tests queue, and the agents projection's
-# test events, statements and log rows.
+# count, the search index's test services, the queue items tests queue, the agents projection's
+# test events, statements and log rows, and a test's follow of a session's draft.
 test-support = [
   "dep:tempfile",
+  "sidekicks-ipc/test-support",
   "sidekicks-provider/test-support",
   "sidekicks-std/test-support",
   "sidekicks-store/test-support",

@@ -2,13 +2,13 @@
 //! says and keeps what it received.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use axum::Router;
 use axum::body::Bytes;
 use axum::http::header::LOCATION;
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse as _, Response};
+use tokio::sync::Notify;
 
 /// One request the double received.
 #[derive(Clone, Debug)]
@@ -22,7 +22,7 @@ pub(crate) struct Received {
 }
 
 /// How the double answers one request.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Answer {
     /// This status with no body.
     Status(StatusCode),
@@ -30,30 +30,36 @@ pub(crate) enum Answer {
     Redirect,
     /// No answer, ever.
     Hang,
-    /// This status once the wait has passed.
-    After(Duration, StatusCode),
+    /// This status once the test releases it with `notify_one`.
+    Released(Arc<Notify>, StatusCode),
 }
 
-/// What the double received, in order.
-pub(crate) type ReceivedRequests = Arc<Mutex<Vec<Received>>>;
+/// What the double received, in order, and the signal raised as each request is recorded.
+#[derive(Debug, Default)]
+pub(crate) struct ReceivedRequests {
+    /// The requests, in order.
+    pub(crate) requests: Mutex<Vec<Received>>,
+    /// Raised to every waiter once each request is recorded.
+    pub(crate) arrived: Notify,
+}
 
 /// A double answering every request with `status`, its port and what it receives.
-pub(crate) async fn serve(status: StatusCode) -> (u16, ReceivedRequests) {
+pub(crate) async fn serve(status: StatusCode) -> (u16, Arc<ReceivedRequests>) {
     serve_answers(vec![Answer::Status(status)]).await
 }
 
 /// A double answering its requests with `answers` in turn, the last one for every request past
 /// them, its port and what it receives.
-pub(crate) async fn serve_answers(answers: Vec<Answer>) -> (u16, ReceivedRequests) {
-    let received = ReceivedRequests::default();
+pub(crate) async fn serve_answers(answers: Vec<Answer>) -> (u16, Arc<ReceivedRequests>) {
+    let received = Arc::new(ReceivedRequests::default());
     let kept = Arc::clone(&received);
     let router = Router::new().fallback(move |uri: Uri, headers: HeaderMap, body: Bytes| {
         let kept = Arc::clone(&kept);
         let answers = answers.clone();
         async move {
             let answer = {
-                let mut kept = kept.lock().expect("the double's record");
-                kept.push(Received {
+                let mut requests = kept.requests.lock().expect("the double's record");
+                requests.push(Received {
                     path_and_query: uri
                         .path_and_query()
                         .map(ToString::to_string)
@@ -62,11 +68,12 @@ pub(crate) async fn serve_answers(answers: Vec<Answer>) -> (u16, ReceivedRequest
                     body,
                 });
                 answers
-                    .get(kept.len() - 1)
+                    .get(requests.len() - 1)
                     .or_else(|| answers.last())
-                    .copied()
+                    .cloned()
                     .expect("the test gives an answer")
             };
+            kept.arrived.notify_waiters();
             answer_with(answer).await
         }
     });
@@ -91,8 +98,8 @@ async fn answer_with(answer: Answer) -> Response {
         Answer::Status(status) => status.into_response(),
         Answer::Redirect => (StatusCode::FOUND, [(LOCATION, "/elsewhere")]).into_response(),
         Answer::Hang => std::future::pending().await,
-        Answer::After(wait, status) => {
-            tokio::time::sleep(wait).await;
+        Answer::Released(release, status) => {
+            release.notified().await;
             status.into_response()
         }
     }

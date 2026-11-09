@@ -15,7 +15,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
-use crate::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_STATUS_CHANGED_METHOD,
 };
@@ -25,7 +24,7 @@ use crate::driver::codex::session::background_terminals::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
-use crate::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
+use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::thread::settings::compose_codex_bare_thread_resume_params;
 use crate::driver::codex::thread::view::THREAD_RESUME_METHOD;
 use crate::driver::codex::transport::connection::read_codex_object;
@@ -95,14 +94,6 @@ fn read_member_type(member: Option<TypedMember>) -> Option<String> {
         .and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
 }
 
-// The members of a `thread/unsubscribe` reply the release reads; any of its three statuses
-// counts as let go.
-#[derive(Deserialize)]
-struct UnsubscribeReply {
-    #[serde(rename = "status")]
-    _status: Option<Box<RawValue>>,
-}
-
 /// Holds each conversation a session moved off until no command of it runs, then lets it go.
 #[derive(Default)]
 pub(crate) struct CodexConversationRelease {
@@ -140,10 +131,10 @@ impl CodexConversationRelease {
             state.publish_count(service.id());
             generation
         };
-        service.register_thread(thread_id.clone(), session_id);
         // A session whose task ended has no frames left to admit.
-        let _unheard = service.push_session_item(
-            &session_id,
+        let _unheard = service.register_thread_and_queue(
+            thread_id.clone(),
+            session_id,
             CodexSessionInbound::HeldThread {
                 thread_id: thread_id.clone(),
                 is_held: true,
@@ -316,39 +307,17 @@ impl CodexConversationRelease {
             return;
         };
         if let Some(service) = &service {
-            service.release_thread(&thread_id);
+            // Forgotten as the marker is queued, so no frame of it reaches the session after.
             // A session whose task ended has no frames left to admit.
-            let _unheard = service.push_session_item(
+            let _unheard = service.release_thread_and_queue(
+                &thread_id,
                 &held.session_id,
                 CodexSessionInbound::HeldThread {
                     thread_id: thread_id.clone(),
                     is_held: false,
                 },
             );
-        }
-        if let Some(connection) = connection {
-            let unsubscribed = connection
-                .request(
-                    THREAD_UNSUBSCRIBE_METHOD,
-                    &ThreadUnsubscribeParams {
-                        thread_id: thread_id.clone(),
-                    },
-                )
-                .await
-                .and_then(|reply| {
-                    read_codex_object::<UnsubscribeReply>(reply.get())
-                        .map(drop)
-                        .ok_or_else(|| CodexError::Transport {
-                            detail: format!(
-                                "The Codex service's \"{THREAD_UNSUBSCRIBE_METHOD}\" reply is \
-                                 unreadable."
-                            ),
-                            cause: None,
-                        })
-                });
-            if let Err(error) = unsubscribed {
-                report_step_failed(CodexTeardownStep::ThreadUnsubscribe, error);
-            }
+            let_go_codex_thread(service, &thread_id).await;
         }
         self.lock().publish_count(held.service_id);
     }
@@ -380,9 +349,10 @@ impl CodexConversationRelease {
             return;
         };
         if let Some(service) = held.service.upgrade() {
-            service.release_thread(thread_id);
-            // A session whose task ended has no frames left to admit.
-            let _unheard = service.push_session_item(
+            // Forgotten as the marker is queued; a session whose task ended has no frames left to
+            // admit.
+            let _unheard = service.release_thread_and_queue(
+                thread_id,
                 &held.session_id,
                 CodexSessionInbound::HeldThread {
                     thread_id: thread_id.to_owned(),

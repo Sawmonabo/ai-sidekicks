@@ -64,6 +64,8 @@ CREATE TABLE sessions (
 CREATE INDEX idx_sessions_group ON sessions(group_id);
 -- The list's shape grouping and the chats count.
 CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
+-- A purge's unlinking of the purged session's forks.
+CREATE INDEX idx_sessions_parent ON sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
 
 -- One row per pair of sessions and kind. The daemon writes or bumps a row when the event that makes it
 -- is recorded, never by a rescan. Rows name sessions by id, so a rename changes none. Only a 'related'
@@ -192,10 +194,21 @@ It is **configuration, not session history**: it is not events-canonical and is 
 ```sql
 -- Owner: Plan-001
 -- One row per session, so a half-typed message survives a restart and reaches the person's other
--- devices. An empty draft is no row: Send deletes it.
+-- devices. Send clears it to no words and no extras, and the row stays so its revision keeps
+-- counting. A lead message a Stop or an interrupt's return to the draft takes back joins the row
+-- whole: its words on their own line ahead of the held words, its files and skill picks after the
+-- held ones, and its turn speed and repository only where the held draft names none.
 CREATE TABLE session_drafts (
   session_id  TEXT PRIMARY KEY,
   text        TEXT NOT NULL,
+  extras      TEXT,                             -- JSON of what rides with the words, the members a
+                                                -- send carries: attachments, skills (the person's
+                                                -- picks), outputSpeedForTurn, workspaceId; NULL
+                                                -- when none ride
+  revision    INTEGER NOT NULL
+              CHECK (revision >= 1),            -- one more at each save and each returned message;
+                                                -- a save carrying another refuses
+                                                -- `session.draft.revisionStale`
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
 

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, read_socket_link};
@@ -17,12 +18,14 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
 use crate::driver::codex::service::home::{CodexConversationHome, CodexHomeKind};
 use crate::driver::codex::service::registry::{home_socket_path, switching_home};
-use crate::driver::codex::service::supervisor::CodexServiceDependencies;
 use crate::driver::codex::service::supervisor::test_service::read_tree;
+use crate::driver::codex::service::supervisor::{
+    CodexService, CodexServiceDependencies, CodexServiceId,
+};
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
-use crate::driver::codex::session::purge::purge_codex_conversations;
+use crate::driver::codex::session::purge::{CodexServiceRestarts, purge_codex_conversations};
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
@@ -36,6 +39,19 @@ const SWITCHING_THREAD: &str = "switching-thread-1";
 
 /// The `ChatGPT` workspace the test's account signs in to.
 const TEST_WORKSPACE: &str = "workspace-of-the-test-account";
+
+/// A purge's restarts where every delete is answered, so none is restarting or restarted.
+struct NoRestarts;
+
+impl CodexServiceRestarts for NoRestarts {
+    fn is_restarting(&self, _service_id: CodexServiceId) -> bool {
+        false
+    }
+
+    fn restart(&self, _service: &Arc<CodexService>) {
+        panic!("an answered delete restarts no service");
+    }
+}
 
 // Signs the test's account in within its own home and has `dependencies`' switching service find
 // it there as the current account, so each of its starts hands that account's tokens.
@@ -168,6 +184,7 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
 
     let purged = purge_codex_conversations(
         &registry,
+        &NoRestarts,
         &services.folder.path().join("roles"),
         startup_timeout,
         &params,

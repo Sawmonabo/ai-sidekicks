@@ -1,10 +1,11 @@
 //! The steps a session takes from `provisioning` to `active`: the bind in the folder its create
 //! recorded, or at its mount's root once that folder is no longer a live tree of the mount, the
 //! level and mode its provider starts it at, and `session.activated`. A create runs them at once;
-//! a project's clone runs them for the sessions made while it cloned; the daemon's start runs them
-//! for every session a stop left provisioning, after removing the workspace of each chat whose
-//! create stopped before the chat was born. Both then hand each hand-off whose seed no run has
-//! taken, the clone only its project's, to the seeding port. A session a hand-off names is
+//! a project's clone runs them for the sessions made while it cloned; the person's unarchive runs
+//! them for a session archived before its create finished; the daemon's start runs them for every
+//! session a stop left provisioning, after removing the workspace of each chat whose create
+//! stopped before the chat was born. The clone and the start then hand each hand-off whose seed no
+//! run has taken, the clone only its project's, to the seeding port. A session a hand-off names is
 //! finished only by its hand-off's finish, which shares the bind and the activation.
 
 use std::borrow::Cow;
@@ -44,6 +45,7 @@ use sidekicks_workspace::clone::service::CloneAttachedListener;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::WorkspaceServiceError;
 
+use crate::changes::UnarchivedCreateListener;
 use crate::console_state::session_mode_change_statement;
 use crate::create::hand_off::HandOffStepFailure;
 use crate::create::{SessionCreateError, SessionCreation, project_folder_not_attached};
@@ -132,6 +134,9 @@ static SELECT_UNBORN_CHATS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 static SELECT_SESSION_NEVER_BORN_SQL: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {}", never_born_sql("@sessionId")));
+
+const SELECT_CREATE_KEY_SQL: &str =
+    "SELECT client_idempotency_key FROM session_create_requests WHERE session_id = @sessionId";
 
 /// A session a create made, with what its finish binds and starts it on.
 pub(crate) struct SessionToFinish {
@@ -435,6 +440,24 @@ impl SessionCreation {
         Ok(())
     }
 
+    // The key the session's create was recorded under, `None` for a session no create recorded.
+    async fn read_create_key(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<ClientUuid>, SessionCreateError> {
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_CREATE_KEY_SQL)?
+                    .query_row(
+                        named_params! { "@sessionId": session_id.text().as_str() },
+                        |row| text_column(row, 0, ClientUuid::new),
+                    )
+                    .optional()?)
+            })
+            .await
+    }
+
     async fn read_provisioning_creates(
         &self,
         project_id: Option<ProjectId>,
@@ -539,6 +562,24 @@ impl CloneAttachedListener for SessionCreation {
                 outcomes,
                 "finishing the sessions made while the project cloned",
             )?;
+            Ok(())
+        }
+        .boxed()
+    }
+}
+
+impl UnarchivedCreateListener for SessionCreation {
+    /// Finishes the session as a retry of its create would, under its create's key, while it
+    /// still reads `provisioning`; one a hand-off names is left for its hand-off's finish. Fails
+    /// as [`SessionCreation::finish`] fails.
+    fn create_unarchived(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            if let Some(key) = self.read_create_key(session_id).await? {
+                self.finish_recorded_key(key).await?;
+            }
             Ok(())
         }
         .boxed()

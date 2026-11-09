@@ -273,15 +273,101 @@ fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use rusqlite::params;
     use serde_json::{Value, json};
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::MAX_SAFE_SIGNED_INTEGER;
 
+    use super::{SessionEventInsertError, insert_session_event};
     use crate::database::schema::schema_parts;
+    use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
+    use crate::events::content::codec::BodyEncoder;
     use crate::events::session::read::SessionEventReads;
     use crate::events::test_log::{AT, SessionTestLog};
     use crate::transcript::rejoin::RowReads;
+
+    // The row each of `sequences` joins, `None` for an anchor.
+    fn joins_of(reader: &rusqlite::Connection, sequences: &[i64]) -> Vec<Option<i64>> {
+        sequences
+            .iter()
+            .map(|sequence| {
+                reader
+                    .query_row(
+                        "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
+                        [sequence],
+                        |row| row.get(0),
+                    )
+                    .expect("the test reads the stamp")
+            })
+            .collect()
+    }
+
+    // Killed by a join key without the piece's block: a later block of the message, such as its
+    // text after a tool call, or a retried response's block under the same message id, joining
+    // the first block's row.
+    #[test]
+    fn a_piece_joins_only_its_own_block_of_its_own_response() {
+        let log = SessionTestLog::new(schema_parts());
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "First ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "block.");
+        let (later_block, _) = log.reply("m1", Some((2, 1)), "After the tool call.");
+        let (retried, _) = log.reply("m1", Some((0, 2)), "Retried.");
+
+        let joins = joins_of(&log.reader(), &[anchor, joined, later_block, retried]);
+
+        assert_eq!(joins, [None, Some(anchor), None, None]);
+    }
+
+    // Killed by the guard checking the head rather than its successor, which fails the write on
+    // the log's unique sequence as a database error, and by a sequence past the safe integers
+    // being written.
+    #[test]
+    fn a_session_at_the_highest_safe_sequence_refuses_the_next_event_and_writes_nothing() {
+        let database = TestDatabase::new(schema_parts());
+        let connection = database.opener()().expect("the test creates its database");
+        let session_id = test_session_id();
+        connection
+            .execute(
+                "INSERT INTO session_events
+                   (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+                 VALUES (?1, ?2, ?3, ?4, 0, 'sessionLifecycle', 'session.created', '{}')",
+                params![
+                    mint_uuid_v7().to_string(),
+                    session_id.text().as_str(),
+                    MAX_SAFE_SIGNED_INTEGER,
+                    WireInstant::now().as_str(),
+                ],
+            )
+            .expect("the test writes the session's head");
+
+        let refusal = insert_session_event(
+            &connection,
+            &mut BodyEncoder::new(),
+            &session_event_row(&session_id),
+        )
+        .expect_err("no sequence follows the highest safe one");
+
+        assert!(
+            matches!(
+                refusal,
+                SessionEventInsertError::NoNextSequence { session_id: refused, head }
+                    if refused == session_id && head == MAX_SAFE_SIGNED_INTEGER
+            ),
+            "{refusal:?}"
+        );
+        let (rows, cursors): (i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM session_events WHERE session_id = ?1),
+                        (SELECT count(*) FROM projection_cursors WHERE session_id = ?1)",
+                [session_id.text().as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the test reads what was written");
+        assert_eq!((rows, cursors), (1, 0));
+    }
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
     // that row still listed as taking pieces, by the run's end closing a row, by a read that does
@@ -310,13 +396,13 @@ mod tests {
     ) {
         let log = SessionTestLog::new(schema_parts());
         let other_run = RunId::try_from(mint_uuid_v7()).expect("a run id");
-        let (anchor, _) = log.reply("m1", Some(0), "Before ");
-        let (joined, _) = log.reply("m1", Some(0), "the end.");
+        let (anchor, _) = log.reply("m1", Some((0, 1)), "Before ");
+        let (joined, _) = log.reply("m1", Some((0, 1)), "the end.");
         let (other, _) = log.piece(
             "agent.message.sent",
             other_run,
             "m1",
-            Some(0),
+            Some((0, 1)),
             "Elsewhere.",
             AT,
         );
@@ -326,21 +412,10 @@ mod tests {
             json!({ "type": ending_type, "payload": ending_payload }),
             None,
         );
-        let (after, _) = log.reply("m1", Some(0), "After the end.");
+        let (after, _) = log.reply("m1", Some((0, 1)), "After the end.");
 
         let reader = log.reader();
-        let joins: Vec<Option<i64>> = [anchor, joined, other, after]
-            .iter()
-            .map(|sequence| {
-                reader
-                    .query_row(
-                        "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
-                        [sequence],
-                        |row| row.get(0),
-                    )
-                    .expect("the test reads the stamp")
-            })
-            .collect();
+        let joins = joins_of(&reader, &[anchor, joined, other, after]);
         let after_joins = (!is_row_ending).then_some(anchor);
         assert_eq!(joins, [None, Some(anchor), None, after_joins]);
         let reads = SessionEventReads::new(&reader, &|_: &SessionId| None);

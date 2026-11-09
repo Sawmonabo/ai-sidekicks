@@ -26,6 +26,7 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::control_only::{
     CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess,
 };
+use crate::driver::ports::DriverPorts;
 use crate::driver::test_registry::registered_test_accounts;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -61,6 +62,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
         Arc::new(UnrecordedChildren),
         Arc::new(ProviderProcessRegistry::default()),
         registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+        DriverPorts::new().raw_provider_messages,
         folder.path(),
     );
     let mut environment: Vec<(String, String)> = std::env::vars()

@@ -61,5 +61,9 @@ tempfile.workspace = true
 # The paused clock the recovery stall watch's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
+[features]
+# Helpers other crates' tests use: the projection rebuild of one session.
+test-support = []
+
 [lints]
 workspace = true

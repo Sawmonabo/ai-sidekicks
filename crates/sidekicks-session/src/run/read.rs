@@ -1,5 +1,5 @@
 //! Reads a run's current state and version from its `runs` row, or its session, parent and state;
-//! the runs not yet ended across
+//! the workspace its execution context bound it in; the runs not yet ended across
 //! every session or in one, those of one session with the agent each runs for, and those of one
 //! session as a resume names them to the provider, with their open turns; the ended runs
 //! that hold a turn with no end, across every session or in one; the provider subagents beneath
@@ -16,6 +16,7 @@ use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
@@ -105,6 +106,9 @@ impl LiveRun {
 }
 
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
+
+const SELECT_RUN_BOUND_WORKSPACE_SQL: &str =
+    "SELECT workspace_id FROM run_execution_contexts WHERE run_id = ?";
 
 const SELECT_RUN_PARENTAGE_SQL: &str =
     "SELECT session_id, parent_run_id, state FROM runs WHERE run_id = ?";
@@ -364,6 +368,20 @@ impl<'connection> RunStateReader<'connection> {
                     parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
                     state: text_column(row, 2, closed_word)?,
                 })
+            })
+            .optional()
+    }
+
+    /// The workspace the run's execution context bound it in, or `None` for a run bound in none: a
+    /// chat's run, and one whose setup never bound it.
+    pub fn read_run_bound_workspace(
+        &self,
+        run_id: &RunId,
+    ) -> rusqlite::Result<Option<WorkspaceId>> {
+        self.reader
+            .prepare_cached(SELECT_RUN_BOUND_WORKSPACE_SQL)?
+            .query_row([run_id.text().as_str()], |row| {
+                text_column(row, 0, |text| WorkspaceId::new(&text))
             })
             .optional()
     }

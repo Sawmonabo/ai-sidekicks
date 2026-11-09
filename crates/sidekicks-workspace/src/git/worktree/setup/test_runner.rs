@@ -8,6 +8,7 @@ use notify::NullWatcher;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 use super::{WorktreeSetupRunner, WorktreeSetupRunnerDeps, WorktreeSetupSources};
 use crate::git::process::GitRunner;
@@ -18,11 +19,12 @@ use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps
 // The watch's slow tick, far beyond any test.
 const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
-/// A runner over `git`, `reads` and `events` reading its steps from `sources`. Panics when the
+/// A runner over `git`, `reads`, `writer` and `events` reading its steps from `sources`. Panics when the
 /// spawner thread or the timer cannot be had.
 pub fn test_setup_runner(
     git: GitRunner,
     reads: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
     events: Arc<WorktreeEventEmitter>,
     sources: Arc<dyn WorktreeSetupSources>,
 ) -> WorktreeSetupRunner<NullWatcher> {
@@ -31,6 +33,7 @@ pub fn test_setup_runner(
             git: git.clone(),
             reads: Arc::clone(&reads),
             occupancy: MountOccupancyReader::new(reads),
+            writer,
             events,
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),

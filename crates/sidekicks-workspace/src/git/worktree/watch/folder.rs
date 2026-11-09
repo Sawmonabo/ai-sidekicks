@@ -1,7 +1,10 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
-//! one at a time, sends one change per burst, and writes a changed branch back. The folder-change
-//! receivers hear each change, the watch's start and each fall to the slow tick, with the mode.
+//! one at a time, sends one change per burst, writes a changed branch back and moves the folder's
+//! worktree `-> dirty` or back to `ready` before the change goes out and `-> merged` or back from
+//! it after. The
+//! folder-change receivers hear each change, the watch's start and each fall to the slow tick, with
+//! the mode.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -23,7 +26,9 @@ use super::ignored_paths::{
     IGNORE_FILE_NAME, IgnoredPaths, TreeCoverage, count_git_folder_watches, count_kept_folders,
     git_folder_roots, is_git_pointer, may_move_head, read_ignored_paths,
 };
+use super::merged::MergedCheck;
 use super::slow_tick::{StatusEntry, read_status_digest};
+use super::tree_state::{CleanTree, StandingTree, check_merged_back, check_uncommitted_work};
 use super::{
     FolderKey, FolderSignals, FolderStartError, FolderWatchChangeKind, StartOutcome, WatchTarget,
     WatcherShared, WatcherState,
@@ -56,6 +61,8 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         mode: WorkingTreeChangeMode::Watch,
         branch: BranchWriteBack::default(),
         is_raise_pending: false,
+        merged: MergedCheck::default(),
+        is_merged_check_due: false,
         ignored_read: None,
         is_ignored_read_due: false,
     };
@@ -64,6 +71,10 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         () = close.cancelled() => return,
         outcome = watched.start() => outcome,
     };
+    let (outcome, clean) = match outcome {
+        Ok(clean) => (Ok(()), clean),
+        Err(error) => (Err(error), None),
+    };
     let has_started = outcome.is_ok();
     started.send_replace(Some(outcome.map_err(Arc::new)));
     if has_started {
@@ -71,7 +82,7 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
         tokio::select! {
             biased;
             () = close.cancelled() => {}
-            () = watched.watch() => {}
+            () = watched.watch(clean) => {}
         }
     }
     watched.stop_tick();
@@ -98,6 +109,9 @@ struct WatchedFolder<W> {
     branch: BranchWriteBack,
     // A change waits to be sent once no notice is ready.
     is_raise_pending: bool,
+    // What the merged checks keep, and whether the git folder changed since the last one.
+    merged: MergedCheck,
+    is_merged_check_due: bool,
     // Reads of what git ignores run one at a time; one more is due when a change asked meanwhile.
     ignored_read: Option<IgnoredRead>,
     is_ignored_read_due: bool,
@@ -130,8 +144,10 @@ enum WatchTake {
 
 impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     // Reads the git folders and what git ignores, watches the git folders, then the tree or the
-    // slow tick, then checks the branch once, since it may have changed while nothing watched.
-    async fn start(&mut self) -> Result<(), FolderStartError> {
+    // slow tick, then checks the branch and the tree's uncommitted work once, since either may have
+    // changed while nothing watched; answers the tree when it reads clean, `ready` or `merged`,
+    // whose merged check waits until the start is answered.
+    async fn start(&mut self) -> Result<Option<CleanTree>, FolderStartError> {
         let git = &self.shared.deps.git;
         let place = self.target.place.as_ref();
         let key = self.folder.key.clone();
@@ -178,19 +194,24 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         self.branch
             .check(&self.shared, &self.folder.key, &self.target)
             .await;
-        Ok(())
+        Ok(self.check_uncommitted_work().await)
     }
 
-    // Reads the watches, ticks and raises one at a time until the folder is closed; a change is
-    // sent only once no notice is ready, so a burst reaches each subscriber once.
-    async fn watch(&mut self) {
+    // Checks the merged state of the clean tree the start read, then reads the watches,
+    // ticks and raises one at a time until the folder is closed; a change is sent only once no
+    // notice is ready, so a burst reaches each subscriber once.
+    async fn watch(&mut self, clean: Option<CleanTree>) {
+        if let Some(clean) = clean {
+            self.check_merged_back(&clean.tree).await;
+        }
         loop {
             let event = tokio::select! {
                 biased;
                 notice = next_notice(&mut self.tree_watch) => FolderEvent::Tree(notice),
                 notice = next_notice(&mut self.git_watch) => FolderEvent::GitFolder(notice),
                 () = self.signals.raise.notified() => FolderEvent::Raise,
-                () = tick_due(self.tick.as_ref()) => FolderEvent::Tick,
+                // A pending change goes out before the next tick is taken; its wake-up waits.
+                () = tick_due(self.tick.as_ref()), if !self.is_raise_pending => FolderEvent::Tick,
                 read = ignored_read_done(&mut self.ignored_read) => FolderEvent::IgnoredRead(read),
                 () = std::future::ready(()), if self.is_raise_pending => FolderEvent::Flush,
             };
@@ -200,7 +221,17 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 FolderEvent::Raise => self.is_raise_pending = true,
                 FolderEvent::Tick => self.take_tick().await,
                 FolderEvent::IgnoredRead(read) => self.take_ignored_read(read).await,
-                FolderEvent::Flush => self.send_change(),
+                FolderEvent::Flush => {
+                    let clean = self.check_uncommitted_work().await;
+                    self.send_change();
+                    // A tree clean again may have merged back while it was dirty.
+                    let is_merged_check_due = std::mem::take(&mut self.is_merged_check_due);
+                    if let Some(clean) = clean
+                        && (is_merged_check_due || clean.is_cleaned)
+                    {
+                        self.check_merged_back(&clean.tree).await;
+                    }
+                }
             }
         }
     }
@@ -283,6 +314,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                         .await;
                 }
                 self.is_raise_pending |= !paths.is_empty();
+                self.is_merged_check_due |= !paths.is_empty();
             }
             Some(FileWatchNotice::Incomplete) => tracing::warn!(
                 "the machine's watch limit refused a working folder's git folder watch; it is \
@@ -312,9 +344,10 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
             &self.folder.key,
         )
         .await;
-        let Some(tick) = self.tick.as_mut() else {
-            return;
-        };
+        let tick = self
+            .tick
+            .as_mut()
+            .expect("a tick is taken only while the folder has its slow tick");
         match digest {
             Ok(digest) => {
                 let has_changed = tick
@@ -329,6 +362,11 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 "a working folder on the slow tick could not be read; the next tick reads it again"
             ),
         }
+        #[cfg(test)]
+        self.shared
+            .lock_state()
+            .slow_ticks_ended
+            .send_modify(|ended| *ended += 1);
     }
 
     // A changed set restarts a running tree watch, which on a machine that watches one folder at a
@@ -542,6 +580,22 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         if let Some(job) = self.tick.take().and_then(|tick| tick.job) {
             job.cancel();
         }
+    }
+
+    // Takes the folder exclusively, since what it keeps is not shared across threads.
+    async fn check_uncommitted_work(&mut self) -> Option<CleanTree> {
+        check_uncommitted_work(&self.shared, &self.folder.key, &self.target).await
+    }
+
+    async fn check_merged_back(&mut self, tree: &StandingTree) {
+        check_merged_back(
+            &self.shared,
+            &self.folder.key,
+            &self.target,
+            &mut self.merged,
+            tree,
+        )
+        .await;
     }
 
     // Sends one change to each subscriber on the folder and to the folder-change receivers.

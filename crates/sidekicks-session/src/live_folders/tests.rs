@@ -177,6 +177,7 @@ async fn a_moved_session_holds_its_new_folder_first_and_an_archived_one_lets_bot
             git: git.clone(),
             reads: Arc::clone(&reads),
             occupancy: MountOccupancyReader::new(Arc::clone(&reads)),
+            writer: Arc::clone(&log.writer),
             events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
             scheduler: Arc::clone(&scheduler),
             read_watch_ceiling: no_ceiling,

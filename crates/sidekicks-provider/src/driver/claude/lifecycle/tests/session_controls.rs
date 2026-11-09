@@ -55,6 +55,7 @@ pub(super) fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> Clau
     ClaudeOneTurnReply {
         text: text.to_owned(),
         provider_message_id: None,
+        provider_block: None,
         refusal: None,
         usage: usage.map(|cumulative| ClaudeCumulativeUsageObservation {
             named_turn_id: None,

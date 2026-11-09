@@ -58,19 +58,21 @@ A session is the durable container that holds:
 | `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
-| `purgeRequested` | The person has pressed `Delete old data` and the session is among those it removes. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purgeRequested`, to be retried. Purge is irreversible. |
+| `purgeRequested` | The person has pressed `Delete old data` and the session is among those it removes, or `Delete session` on it. The session row is locked against further modification while the files only this session names are deleted. The purge then deletes the row, with SQLite's `secure_delete` on, so the freed pages hold nothing readable, checkpoints the write-ahead log with `TRUNCATE` once the delete commits, and unlinks the artifact payloads no surviving manifest names after that commit; no state follows, because no row survives to hold one. A failure before that deletion leaves the row `purgeRequested`, to be retried. Purge is irreversible. |
 
 Allowed transitions:
 
 - `provisioning -> active`
-- `provisioning -> archived`, when the project's repository is detached before the session's create finished, so the session has nowhere left to run and its create is never finished, or when the person archives a plan hand-off's fresh session before its create finished, which ends the hand-off
+- `provisioning -> archived`, when the person archives a session whose create has not finished, a plan hand-off's fresh session among them, which ends the hand-off, or when the project's repository is detached before the session's create finished, so the session has nowhere left to run and its create is never finished
+- `provisioning -> closed`, when the person closes a session whose create has not finished; it has no provider leg to end
+- `provisioning -> purgeRequested`, when the person presses `Delete session` on a session whose create has not finished
 - `active -> archived`
 - `active -> closed`
 - `archived -> active`
-- `archived -> provisioning`, when the person unarchives a session archived before its create finished: it returns to the state it left, and its create's finish then takes it on to `active`
+- `archived -> provisioning`, when the person unarchives a session archived before its create finished: it returns to the state it left, and its create's finish runs again at once and takes it on to `active`
 - `archived -> closed`
-- `closed -> purgeRequested`
-- `archived -> purgeRequested`
+- `closed -> purgeRequested`, also when the person presses `Delete session` on a session closed before its create finished
+- `archived -> purgeRequested`, also when the person presses `Delete session` on a session archived before its create finished
 
 ## Session Identity And Local-Only Continuity
 

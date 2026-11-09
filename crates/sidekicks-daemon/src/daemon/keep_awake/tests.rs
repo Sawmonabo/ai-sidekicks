@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::{KeepAwakeDeps, keep_machine_awake};
 
-const WAIT: Duration = Duration::from_secs(10);
+/// How long a wait runs before it fails naming what never came: short of nextest's two-minute
+/// kill, so a hang names itself, and no passing test comes near it.
+const WAIT: Duration = Duration::from_secs(110);
 
 // What the system's stand-in saw: a guard asked for, granted or refused, and a guard dropped.
 #[derive(Debug, PartialEq)]
@@ -45,11 +47,13 @@ struct KeepAwake {
 }
 
 impl KeepAwake {
-    async fn next_event(&mut self) -> GuardEvent {
-        tokio::time::timeout(WAIT, self.events.recv())
+    // Waits for the hold's next move and asserts it is `expected`, naming it if it never comes.
+    async fn assert_next_event(&mut self, expected: GuardEvent) {
+        let event = tokio::time::timeout(WAIT, self.events.recv())
             .await
-            .expect("the hold is moved")
-            .expect("the hold's thread keeps its guard taker")
+            .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for {expected:?}"))
+            .expect("the hold's thread keeps its guard taker");
+        assert_eq!(event, expected);
     }
 
     // Lets keep-awake read every change sent so far, so changes the test sends one by one are not
@@ -68,20 +72,21 @@ impl KeepAwake {
     }
 }
 
-// Keep-awake over a hold whose stand-in system refuses as many asks as `refusals` holds.
+// Keep-awake over a hold whose stand-in system refuses as many asks as `refusals` holds. Each ask
+// is told once its answer is decided, so a refusal the test sets on seeing an ask meets the next.
 fn keep_awake() -> KeepAwake {
     let (sender, events) = mpsc::unbounded_channel();
     let refusals = Arc::new(AtomicUsize::new(0));
     let refused = Arc::clone(&refusals);
     let hold = KeepAwakeHold::with_guard_taker(move |purpose| {
-        sender
-            .send(GuardEvent::Asked(purpose))
-            .expect("the test reads every event");
         let is_refused = refused
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();
+        sender
+            .send(GuardEvent::Asked(purpose))
+            .expect("the test reads every event");
         if is_refused {
             Err(KeepAwakeRefused::stand_in(purpose))
         } else {
@@ -124,66 +129,56 @@ async fn the_hold_follows_the_switches_the_live_runs_and_the_power_source() {
     let mut keep_awake = keep_awake();
     keep_awake.switch(true, false);
     keep_awake.live_runs.send_replace(1);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.live_runs.send_replace(2);
     keep_awake.let_read().await;
     keep_awake.live_runs.send_replace(1);
     keep_awake.let_read().await;
     keep_awake.live_runs.send_replace(0);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::AgentWorks))
+        .await;
 
     keep_awake.live_runs.send_replace(1);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.switch(false, false);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::AgentWorks))
+        .await;
 
     keep_awake.switch(true, true);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.is_on_power.send_replace(true);
     keep_awake.let_read().await;
     keep_awake.live_runs.send_replace(0);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::OtherDevices)
-    );
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::OtherDevices))
+        .await;
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.is_on_power.send_replace(false);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::OtherDevices)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::OtherDevices))
+        .await;
 
     keep_awake.live_runs.send_replace(1);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.stop.cancel();
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::AgentWorks))
+        .await;
     tokio::time::timeout(WAIT, keep_awake.running)
         .await
-        .expect("keep-awake ends at the stop")
+        .unwrap_or_else(|_elapsed| panic!("waited {WAIT:?} for keep-awake to end at the stop"))
         .expect("keep-awake ends without a panic");
 }
 
@@ -195,23 +190,19 @@ async fn a_refused_hold_keeps_the_old_one_and_is_asked_again_at_the_next_change(
     let mut keep_awake = keep_awake();
     keep_awake.switch(true, true);
     keep_awake.is_on_power.send_replace(true);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::OtherDevices)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::OtherDevices))
+        .await;
     keep_awake.refusals.store(1, Ordering::SeqCst);
     keep_awake.live_runs.send_replace(1);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
     keep_awake.live_runs.send_replace(2);
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Asked(KeepAwakePurpose::AgentWorks)
-    );
-    assert_eq!(
-        keep_awake.next_event().await,
-        GuardEvent::Dropped(KeepAwakePurpose::OtherDevices)
-    );
+    keep_awake
+        .assert_next_event(GuardEvent::Asked(KeepAwakePurpose::AgentWorks))
+        .await;
+    keep_awake
+        .assert_next_event(GuardEvent::Dropped(KeepAwakePurpose::OtherDevices))
+        .await;
 }
