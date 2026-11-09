@@ -228,9 +228,9 @@ where
 pub(crate) async fn commit_refusal(
     receipts: &McpMutationReceipts,
     idempotency_key: &ClientUuid,
-    refusal: McpRefusal,
+    refusal: impl Into<DomainError>,
 ) -> Result<Value, DomainError> {
-    let refusal = DomainError::from(refusal);
+    let refusal = refusal.into();
     receipts
         .commit(
             idempotency_key,

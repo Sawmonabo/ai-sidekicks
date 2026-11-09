@@ -43,7 +43,7 @@ use crate::schema::{CloneOutcome, MountOrigin};
 
 /// The distinct statements the records keep prepared on each read connection; the session
 /// activity port counts its own.
-pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 13;
+pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 14;
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
@@ -95,6 +95,16 @@ pub struct AttachedProjectRoot {
     pub project_id: ProjectId,
     /// Its attached mount.
     pub repo_mount_id: RepoMountId,
+    /// The mount's resolved root, as stored.
+    pub canonical_root: PathBuf,
+    /// Where the root is; `None` on macOS and Linux.
+    pub place: Option<Place>,
+}
+
+/// A detached project's folder as its mount kept it: a detach only marks the mount, so the folder
+/// and its files stay where they were.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DetachedProjectRoot {
     /// The mount's resolved root, as stored.
     pub canonical_root: PathBuf,
     /// Where the root is; `None` on macOS and Linux.
@@ -298,6 +308,23 @@ static ATTACHED_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
  ORDER BY mount.attached_at DESC, mount.id DESC",
         <&'static str>::from(RepoMountState::Attached),
         <&'static str>::from(MountOrigin::Attached)
+    )
+});
+
+// The detached projects' folders no attached project holds, each once, in path order.
+static DETACHED_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT DISTINCT mount.canonical_root, mount.place
+  FROM repo_mounts AS mount
+ WHERE mount.state = '{detached}' AND mount.origin = '{origin}'
+   AND NOT EXISTS (
+     SELECT 1 FROM repo_mounts AS held
+      WHERE held.state = '{attached}' AND held.origin = '{origin}'
+        AND held.canonical_root = mount.canonical_root AND held.place IS mount.place)
+ ORDER BY mount.canonical_root, mount.place",
+        detached = <&'static str>::from(RepoMountState::Detached),
+        attached = <&'static str>::from(RepoMountState::Attached),
+        origin = <&'static str>::from(MountOrigin::Attached)
     )
 });
 
@@ -561,6 +588,24 @@ impl ProjectRecords {
     /// fails.
     pub async fn read_attached_roots(&self) -> Result<Vec<AttachedProjectRoot>, ProjectReadError> {
         self.read_roots(None).await
+    }
+
+    /// Every detached project's folder that no attached project holds, each once. Fails as the
+    /// read fails.
+    pub async fn read_detached_roots(&self) -> Result<Vec<DetachedProjectRoot>, ProjectReadError> {
+        self.reads
+            .read(ReadLength::Short, |connection| {
+                Ok(connection
+                    .prepare_cached(&DETACHED_ROOTS_SQL)?
+                    .query_map([], |row| {
+                        Ok(DetachedProjectRoot {
+                            canonical_root: PathBuf::from(row.get::<_, String>(0)?),
+                            place: optional_text_column(row, 1, stored_json)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .await
     }
 
     /// The folder of the project `project_id`, or `None` while it has no attached mount: unknown,

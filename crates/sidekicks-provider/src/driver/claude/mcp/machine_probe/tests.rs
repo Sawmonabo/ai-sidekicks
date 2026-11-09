@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::{
     McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
@@ -30,7 +30,6 @@ use crate::driver::claude::session::rules::{
 };
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::starts::ScriptedStarts;
-use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
@@ -74,7 +73,7 @@ async fn probe(
     environment: Vec<(String, String)>,
     has_managed_mcp_file: bool,
     targets: &[McpProbeTarget],
-    organization_entries: &BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    organization_entries: &BTreeMap<McpServerName, Map<String, Value>>,
 ) -> Result<Vec<McpProbeReading>, DriverError> {
     probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
@@ -86,6 +85,7 @@ async fn probe(
             plugin_home: home,
             plugin_roots: &[],
             attached_roots: &[],
+            managed_mcp_servers: None,
             organization_entries,
         },
         targets,
@@ -476,6 +476,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
             plugin_home: &plugin_home,
             plugin_roots: &[],
             attached_roots: std::slice::from_ref(&root),
+            managed_mcp_servers: None,
             organization_entries: &BTreeMap::new(),
         },
         &targets,

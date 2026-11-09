@@ -10,6 +10,9 @@
 //! - Any other 401 is put to the authorizer, which may renew the refused token or present one
 //!   another request already renewed; the request is then sent again. A request is sent again at
 //!   most once, whatever the reason, so a second 401 reaches rmcp as the sign-in it asks for.
+//! - A 429 or 5xx answer is rmcp's typed `HttpStatus` error, its status and first `Retry-After`
+//!   value, as rmcp's own client answers it; only a 5xx in JSON has its body read, so its JSON-RPC
+//!   error is answered as the reply.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
 //!   reconnects on any other; so a stream cut past the bound after an event id is marked, and
 //!   rmcp's resume of it is refused here rather than fetching the same event again, within a
@@ -29,7 +32,8 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use reqwest::header::{
-    ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, WWW_AUTHENTICATE,
+    ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, RETRY_AFTER,
+    WWW_AUTHENTICATE,
 };
 use reqwest::{Method, StatusCode};
 use rmcp::model::{ClientJsonRpcMessage, ClientRequest, ErrorData, ServerJsonRpcMessage};
@@ -39,7 +43,7 @@ use rmcp::transport::common::http_header::{
     EVENT_STREAM_MIME_TYPE, HEADER_LAST_EVENT_ID, HEADER_SESSION_ID, JSON_MIME_TYPE,
 };
 use rmcp::transport::streamable_http_client::{
-    AuthRequiredError, InsufficientScopeError, SseError, StreamableHttpClient,
+    AuthRequiredError, HttpStatusError, InsufficientScopeError, SseError, StreamableHttpClient,
     StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
 use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_NONCE_HEADER_NAME};
@@ -519,6 +523,15 @@ impl StreamableHttpClient for McpHttpClient {
             .map(str::to_owned);
         let is_reply_awaited = matches!(message, ClientJsonRpcMessage::Request(_));
         if !status.is_success() {
+            // A 429 or a 5xx not in JSON is answered unread; a JSON 5xx may hold a JSON-RPC error.
+            let is_body_read = status != StatusCode::TOO_MANY_REQUESTS
+                && content_type
+                    .as_deref()
+                    .is_some_and(|kind| kind.starts_with(JSON_MIME_TYPE));
+            let status_error = http_status_error(status, response.headers());
+            if !is_body_read && let Some(error) = status_error {
+                return Err(error.into());
+            }
             let body = read_capped_body(response, max_sse_event_size)
                 .await
                 .map_err(body_error)?;
@@ -534,6 +547,9 @@ impl StreamableHttpClient for McpHttpClient {
             }) {
                 self.raw.keep_text(&text);
                 return Ok(StreamableHttpPostResponse::Json(error, new_session_id));
+            }
+            if let Some(error) = status_error {
+                return Err(error.into());
             }
             return Err(StreamableHttpError::UnexpectedServerResponse(Cow::Owned(
                 format!("HTTP {status}"),
@@ -654,6 +670,9 @@ impl StreamableHttpClient for McpHttpClient {
         if let Some(challenge) = auth_challenge(&response) {
             return Err(challenge);
         }
+        if let Some(error) = http_status_error(response.status(), response.headers()) {
+            return Err(error.into());
+        }
         let response = response.error_for_status().map_err(http_error)?;
         let content_type = response
             .headers()
@@ -667,6 +686,19 @@ impl StreamableHttpClient for McpHttpClient {
         }
         Ok(self.events(response, max_sse_event_size, session_id, last_event_id))
     }
+}
+
+/// The typed failure of a 429 or 5xx answer: its status and its first `Retry-After` value read as
+/// UTF-8, which `HttpStatusError::new` drops past 128 bytes; `None` for any other status.
+fn http_status_error(status: StatusCode, headers: &HeaderMap) -> Option<HttpStatusError> {
+    if status != StatusCode::TOO_MANY_REQUESTS && !status.is_server_error() {
+        return None;
+    }
+    let retry_after = headers
+        .get(RETRY_AFTER)
+        .and_then(|value| std::str::from_utf8(value.as_bytes()).ok())
+        .map(str::to_owned);
+    Some(HttpStatusError::new(status.as_u16(), retry_after))
 }
 
 /// A server's JSON-RPC message, read from the repaired text of a body it sent.

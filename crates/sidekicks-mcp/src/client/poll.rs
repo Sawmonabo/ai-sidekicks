@@ -436,7 +436,9 @@ mod tests {
     use rmcp::service::ServiceError;
     use rmcp::transport::DynamicTransportError;
     use rmcp::transport::auth::AuthError;
-    use rmcp::transport::streamable_http_client::{AuthRequiredError, StreamableHttpError};
+    use rmcp::transport::streamable_http_client::{
+        AuthRequiredError, HttpStatusError, StreamableHttpError,
+    };
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use tokio::sync::{Notify, watch};
@@ -538,11 +540,9 @@ mod tests {
                     Some(json!({ "taskId": "task-1" })),
                 ),
             ))),
-            Unavailable => Err(transport_failure(
-                StreamableHttpError::UnexpectedServerResponse(
-                    "HTTP 503 Service Unavailable".into(),
-                ),
-            )),
+            Unavailable => Err(transport_failure(StreamableHttpError::HttpStatus(
+                HttpStatusError::new(503, None),
+            ))),
             SignInRefused => Err(transport_failure(StreamableHttpError::AuthRequired(
                 AuthRequiredError::new(r#"Bearer error="invalid_token""#.to_owned()),
             ))),

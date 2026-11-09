@@ -42,6 +42,7 @@ use rmcp::transport::auth::{
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_provider::driver::mcp_server::address::fold_server_address;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::oauth::address::normalized_host;
@@ -51,7 +52,6 @@ use crate::oauth::dpop_proof::{
 use crate::oauth::pushed_authorization::{
     AuthorizationRequestEndpoints, DpopSigning, PushedAuthorizationError, browser_authorization_url,
 };
-use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 use crate::sign_in::oauth_http_client::address_policy::{
     AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name,
@@ -80,39 +80,17 @@ const PROXY_VARIABLES: [&str; 6] = [
 
 /// The three filtered pools every sign-in's OAuth calls share, one per reach a server's address
 /// allows, each resolving names through the filter and following no redirect itself.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the one set the sign-ins share"
-    )
-)]
 #[derive(Clone)]
-pub(crate) struct OAuthHttpPools {
+pub struct OAuthHttpPools {
     public: reqwest::Client,
     loopback: reqwest::Client,
     private: reqwest::Client,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the pools and the sign-in's launch takes a client \
-                  from them for each manager"
-    )
-)]
 impl OAuthHttpPools {
     /// The pools over the system's resolver, leaving the hosts of the environment's proxies
     /// unfiltered. Fails when reqwest cannot build a pool.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one set the sign-ins share"
-        )
-    )]
-    pub(crate) fn new() -> Result<Self, reqwest::Error> {
+    pub fn new() -> Result<Self, reqwest::Error> {
         let proxy_hosts: Arc<[String]> = PROXY_VARIABLES
             .iter()
             .filter_map(|variable| std::env::var(variable).ok())
@@ -146,10 +124,10 @@ impl OAuthHttpPools {
     }
 
     /// A new client for one authorization manager of the server at `address`, judged by the
-    /// server's canonical address, with an empty key slot and nonce slot.
+    /// server's folded address, with an empty key slot and nonce slot.
     pub(crate) fn server_client(&self, address: &McpServerAddress) -> ServerOAuthHttpClient {
-        let server = Url::parse(&canonical_server_address(address))
-            .expect("a canonical server address parses as a web address");
+        let server = Url::parse(&fold_server_address(address))
+            .expect("a folded server address parses as a web address");
         let policy = AddressPolicy::of_server(&server);
         let http = match policy.reach {
             ServerReach::Public => &self.public,
@@ -229,8 +207,12 @@ pub(crate) enum BrowserAddressError {
 /// Why an OAuth call got no response.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OAuthCallError {
-    /// The call's literal address, or a redirect's, is not one this server may reach.
-    #[error("an OAuth call to `{0}` was refused: the address is not allowed for this server")]
+    /// The call's literal address, or a redirect's, is not one this server may reach; only its
+    /// origin prints, as its path and query may carry a credential.
+    #[error(
+        "an OAuth call to `{}` was refused: the address is not allowed for this server",
+        .0.origin().ascii_serialization()
+    )]
     AddressRefused(Url),
     /// Every address the host resolved to is one this server may not reach.
     #[error("an OAuth call to `{0}` was refused: no address it resolves to is allowed")]
@@ -250,14 +232,6 @@ pub(crate) enum OAuthCallError {
     Send(#[from] DpopSendError),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch fills the key slot and sends the pushed authorization \
-                  request"
-    )
-)]
 impl ServerOAuthHttpClient {
     /// Signs the server's token, pushed authorization and revocation requests with `dpop_key` from
     /// now on, or none of them for a bearer sign-in.
@@ -399,7 +373,7 @@ impl ServerOAuthHttpClient {
         };
         let Some(dpop_key) = dpop_key else {
             let request = finish(self.http.request(call.method.clone(), call.url.clone()));
-            let response = request.send().await.map_err(DpopSendError::Http)?;
+            let response = request.send().await.map_err(DpopSendError::from)?;
             return Ok(read_response(response).await?);
         };
         let key = DpopKey::from_scalar(dpop_key.expose_secret())?;
@@ -538,19 +512,16 @@ mod tests {
     use axum::Router;
     use axum::http::{HeaderMap as AxumHeaderMap, StatusCode as AxumStatusCode, Uri};
     use axum::routing::post;
-    use base64::Engine as _;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use jwt_simple::prelude::ES256PublicKey;
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
     use reqwest::{Method, Url};
     use secrecy::SecretBox;
-    use serde_json::Value;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_std::mutex_lock::lock;
 
     use super::{AddressPolicy, OAuthCall, OAuthCallError, OAuthHttpPools};
     use crate::oauth::dpop_proof::DpopKey;
+    use crate::oauth::dpop_proof::tests::proof_thumbprint;
 
     // Answers each name it knows with its addresses, and any other name with none.
     struct StaticLookup(HashMap<&'static str, Vec<IpAddr>>);
@@ -682,21 +653,6 @@ mod tests {
         );
     }
 
-    // The thumbprint of the key that signed the proof in `headers`.
-    fn proof_thumbprint(headers: &AxumHeaderMap) -> String {
-        let proof = headers
-            .get("dpop")
-            .and_then(|proof| proof.to_str().ok())
-            .expect("a token request carries a proof");
-        let header = proof.split('.').next().expect("a proof has a header");
-        let header: Value =
-            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(header).expect("a base64url header"))
-                .expect("a JSON header");
-        ES256PublicKey::from_jwk(&header["jwk"].to_string())
-            .expect("a public P-256 JWK")
-            .jwk_thumbprint()
-    }
-
     // Mutation: keep one key slot for every server's client; the second server's token request
     // then carries the first server's key.
     #[tokio::test]
@@ -706,7 +662,11 @@ mod tests {
         let router = Router::new().route(
             "/token",
             post(move |headers: AxumHeaderMap| async move {
-                lock(&recorded).push(proof_thumbprint(&headers));
+                let proof = headers
+                    .get("dpop")
+                    .and_then(|proof| proof.to_str().ok())
+                    .expect("a token request carries a proof");
+                lock(&recorded).push(proof_thumbprint(proof));
                 AxumStatusCode::OK
             }),
         );

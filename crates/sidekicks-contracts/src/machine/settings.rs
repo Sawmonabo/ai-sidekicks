@@ -199,6 +199,21 @@ pub struct EnvironmentRow {
     pub value: NulFreeText<ENVIRONMENT_ROW_MAX_LEN>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
+impl EnvironmentRow {
+    /// A test's rows, one per name and value pair, in order. Panics on a name or value no row
+    /// may hold.
+    pub fn test_rows(entries: &[(&str, &str)]) -> Vec<Self> {
+        entries
+            .iter()
+            .map(|(name, value)| Self {
+                name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
+                value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
+            })
+            .collect()
+    }
+}
+
 /// The four kinds of moment a notification or a delivery can be about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -196,7 +196,10 @@ impl Drop for McpLegStatusProducer {
 
 /// The daemon's own sign-in state of the MCP servers it signs in to: a provider reports the sign-in
 /// of a server the daemon signed in for it as unknown, so the daemon's state decides `needsAuth`.
-#[expect(dead_code, reason = "the daemon's own MCP sign-ins feed it")]
+#[expect(
+    dead_code,
+    reason = "the fronted route reads servers under the daemon's sign-ins"
+)]
 pub(crate) trait McpSignInStateReader: Send + Sync {
     /// Whether the daemon holds `binding`'s sign-in and has none it can use.
     fn lacks_sign_in(&self, binding: &McpServerBindingRef) -> bool;
@@ -205,7 +208,10 @@ pub(crate) trait McpSignInStateReader: Send + Sync {
 /// `reading` of the server `binding` serves as the daemon's sign-in state reads it: an observed
 /// status reads `needsAuth` where the daemon holds the server's sign-in and lacks it; a switch-off
 /// stands.
-#[expect(dead_code, reason = "the daemon's own MCP sign-ins feed it")]
+#[expect(
+    dead_code,
+    reason = "the fronted route reads servers under the daemon's sign-ins"
+)]
 pub(crate) fn read_under_sign_in_state(
     reading: McpServerReading,
     binding: &McpServerBindingRef,

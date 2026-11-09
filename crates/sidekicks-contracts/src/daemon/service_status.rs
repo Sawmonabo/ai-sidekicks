@@ -88,6 +88,9 @@ pub enum DaemonStopStep {
     /// The MCP binding edits' settle pass ending, dropped past the bound and run again at the next
     /// start.
     McpSettle,
+    /// The MCP server sign-ins ending: every attempt and its listener closing, every provider's
+    /// flow and revocation canceled.
+    McpSignIns,
     /// The providers' services ending, each told why the service stops.
     Providers,
     /// The person's Stop ending the runs still live.
@@ -123,6 +126,7 @@ impl DaemonStopStep {
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
             Self::McpSettle => "finishing the MCP server changes",
+            Self::McpSignIns => "ending the MCP server sign-ins under way",
             Self::Providers => "stopping the sidekicks",
             Self::LiveRunsDrain => "ending the turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",

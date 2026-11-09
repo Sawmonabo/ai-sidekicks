@@ -1,7 +1,7 @@
 //! The HTTP side: a server entry's reserved header, a `DPoP` challenge's parameters, and against
 //! axum fakes on a loopback port an event past the size bound before and after an event id, a
 //! server that refuses a request with a 401, asking for a proof bound to its nonce or for a token
-//! renewed, and one that asks for a wider scope.
+//! renewed, one that asks for a wider scope, and one that answers with a failed status.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -19,7 +19,9 @@ use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::service::ClientInitializeError;
-use rmcp::transport::streamable_http_client::{AuthRequiredError, InsufficientScopeError};
+use rmcp::transport::streamable_http_client::{
+    AuthRequiredError, InsufficientScopeError, StreamableHttpError,
+};
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -28,8 +30,8 @@ use tokio::time::timeout;
 
 use crate::client::connection::{McpConnectionError, McpServerConnection};
 use crate::client::http::{
-    AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
-    RefusalAnswer, is_dpop_nonce_challenge,
+    AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpHttpError, McpRequestAuthorizer,
+    NoAuthorization, RefusalAnswer, is_dpop_nonce_challenge,
 };
 use crate::client::requests::RequestWait;
 use crate::client::test_server::{test_client, test_scope};
@@ -461,6 +463,113 @@ async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
         insufficient.required_scope.as_deref(),
         Some("tracker:write")
     );
+}
+
+/// A server at an address that answers every request with `status` and `retry_after`, its body a
+/// JSON-RPC error answering the request in JSON where `is_json_rpc_error` holds, else plain text.
+async fn serve_failed_status(
+    status: StatusCode,
+    retry_after: Option<&'static str>,
+    is_json_rpc_error: bool,
+) -> McpServerAddress {
+    let router = Router::new().route(
+        "/mcp",
+        post(move |body: String| async move {
+            let mut response = Response::builder().status(status);
+            if let Some(retry_after) = retry_after {
+                response = response.header(header::RETRY_AFTER, retry_after);
+            }
+            let body = if is_json_rpc_error {
+                let request: Value = serde_json::from_str(&body).expect("the client posts JSON");
+                response = response.header(header::CONTENT_TYPE, "application/json");
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "error": { "code": -32000, "message": "slow down" },
+                })
+                .to_string()
+            } else {
+                response = response.header(header::CONTENT_TYPE, "text/plain");
+                "the server is down".to_owned()
+            };
+            response.body(Body::from(body)).expect("a failed answer")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port");
+    let address = listener.local_addr().expect("the port's address");
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    McpServerAddress::new(&format!("http://{address}/mcp")).expect("a loopback address")
+}
+
+// Mutations: in `post_message_with_max_sse_event_size`, keep the text fallback for a 5xx in place
+// of `status_error` (503); drop the `Retry-After` value in `http_status_error` (503); read a 429's
+// body and answer its JSON-RPC error as the reply (429); or type a 404 (404).
+#[rstest]
+#[case::unavailable(StatusCode::SERVICE_UNAVAILABLE, Some("7"), false, Some((503, Some("7"))))]
+#[case::too_many_requests(StatusCode::TOO_MANY_REQUESTS, None, true, Some((429, None)))]
+#[case::not_found(StatusCode::NOT_FOUND, None, false, None)]
+#[tokio::test]
+async fn a_429_or_5xx_answer_fails_the_start_with_its_typed_status(
+    #[case] status: StatusCode,
+    #[case] retry_after: Option<&'static str>,
+    #[case] is_json_rpc_error: bool,
+    #[case] expected: Option<(u16, Option<&str>)>,
+) {
+    let (client, _card) = test_client();
+    let address = serve_failed_status(status, retry_after, is_json_rpc_error).await;
+
+    let opened = McpServerConnection::connect_http(
+        &address,
+        HashMap::new(),
+        Arc::new(NoAuthorization),
+        None,
+        test_scope(&client),
+    )
+    .await;
+
+    let Err(McpConnectionError::Initialize(error)) = opened else {
+        panic!("the start fails");
+    };
+    // A 404 to `server/discover`, a refusal with no typed status, falls back to `initialize`,
+    // whose failure is the one read; a 429 or a 5xx fails the start at once.
+    let error = if let ClientInitializeError::LegacyFallbackFailed { fallback, .. } = *error {
+        assert!(
+            expected.is_none(),
+            "a 429 or a 5xx falls back to initialize"
+        );
+        *fallback
+    } else {
+        assert!(expected.is_some(), "a 404 does not fall back to initialize");
+        *error
+    };
+    let ClientInitializeError::TransportError { error, .. } = error else {
+        panic!("the transport fails the start, not {error}");
+    };
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&*error.error);
+    let http = loop {
+        let current = cause.expect("the chain carries the HTTP error");
+        if let Some(http) = current.downcast_ref::<StreamableHttpError<McpHttpError>>() {
+            break http;
+        }
+        cause = current.source();
+    };
+    match expected {
+        Some((expected_status, expected_retry_after)) => assert!(
+            matches!(
+                http,
+                StreamableHttpError::HttpStatus(failure)
+                    if failure.status == expected_status
+                        && failure.retry_after.as_deref() == expected_retry_after
+            ),
+            "{http:?}"
+        ),
+        None => assert!(
+            matches!(http, StreamableHttpError::UnexpectedServerResponse(_)),
+            "{http:?}"
+        ),
+    }
 }
 
 // Mutation: in `read_auth_param`, match the parameter's name with case, read only a quoted value,

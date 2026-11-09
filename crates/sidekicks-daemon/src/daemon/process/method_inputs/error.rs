@@ -26,6 +26,9 @@ pub(crate) enum MethodInputsError {
     /// The tool servers' client could not be built.
     #[error(transparent)]
     McpClient(#[from] McpClientError),
+    /// The filtered HTTP pools the MCP server sign-ins' OAuth calls go through could not be built.
+    #[error("the MCP server sign-ins' HTTP pools could not be built")]
+    McpSignInPools(#[source] reqwest::Error),
     /// A method was registered twice.
     #[error(transparent)]
     Registration(#[from] RegistrationError),

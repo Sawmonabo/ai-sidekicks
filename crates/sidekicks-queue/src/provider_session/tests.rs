@@ -43,7 +43,9 @@ use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
     SessionToolServer, answer_every_run_gone,
 };
-use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::driver::test_registry::{
+    first_provider, new_run_id, registry_of_first_provider,
+};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
@@ -72,7 +74,7 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::test_opening::{
-    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
     record_first_provider_capabilities, test_execution_postures, test_opening_composer,
 };
 use super::{

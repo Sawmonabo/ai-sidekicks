@@ -30,6 +30,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
+use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -47,7 +48,10 @@ use crate::driver::contract::params_and_results::{
 use crate::driver::contract::plan_verdict::{
     AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
 };
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
+};
 use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -744,5 +748,13 @@ impl ProviderDriver for CodexDriver {
 
     fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
         Some(Arc::clone(&self.exports) as _)
+    }
+
+    fn read_mcp_server_addresses(
+        &self,
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
+        read_codex_server_addresses(&self.registry, &self.project_rules.home_folder, requests)
+            .boxed()
     }
 }
