@@ -24,7 +24,9 @@ interface RunRowInput {
 
 function runRow(input: RunRowInput): ProjectedSessionEvent {
   return {
-    ...eventOfKind(SESSION_ID, "run.running", input.sequence, { runId: input.runId ?? "run-a" }),
+    ...eventOfKind(SESSION_ID, "agent.run.running", input.sequence, {
+      runId: input.runId ?? "run-a",
+    }),
     runStamp: {
       position: input.position,
       epoch: input.epoch ?? 0,
@@ -35,10 +37,10 @@ function runRow(input: RunRowInput): ProjectedSessionEvent {
   };
 }
 
-/** The `run.rolled_back` boundary that rewound `epoch` of run-a to `targetPosition`. */
+/** The `agent.run.rolledBack` boundary that rewound `epoch` of run-a to `targetPosition`. */
 function rollback(sequence: number, epoch: number, targetPosition: number): ProjectedSessionEvent {
   return {
-    ...eventOfKind(SESSION_ID, "run.rolled_back", sequence, {
+    ...eventOfKind(SESSION_ID, "agent.run.rolledBack", sequence, {
       sessionId: SESSION_ID,
       runId: "run-a",
       runVersion: sequence,
@@ -64,7 +66,7 @@ function marksOf(store: SessionStore): string[] {
     if (row.runStamp === undefined) {
       return [];
     }
-    const name = row.kind === "run.rolled_back" ? "rollback" : String(row.payload?.["runId"]);
+    const name = row.kind === "agent.run.rolledBack" ? "rollback" : String(row.payload?.["runId"]);
     const cut = row.runStamp.superseded?.targetPosition;
     return [
       `${name} ${String(row.runStamp.epoch)}:${String(row.runStamp.position)} ` +

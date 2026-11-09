@@ -9,7 +9,7 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type {
   ReasoningEntry,
-  ReasoningSurfaceReadResponse,
+  TranscriptReasoningReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { type PublishedText } from "#renderer/lib/text/published.js";
@@ -97,7 +97,7 @@ function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
 }
 
 /** One arm of the closed availability discriminant, rendered as itself. */
-function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.ReactNode {
+function renderAvailabilityArm(response: TranscriptReasoningReadResponse): React.ReactNode {
   if (response.availability === "available" && response.reasoningEntries.length > 0) {
     return (
       <>

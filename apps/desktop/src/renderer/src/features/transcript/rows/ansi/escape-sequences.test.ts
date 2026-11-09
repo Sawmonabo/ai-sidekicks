@@ -54,10 +54,14 @@ describe("the residue a span parse leaves behind", () => {
     expect(withoutResidualEscapes(`before${ESCAPE}[2Jafter`)).toBe("beforeafter");
   });
 
-  it("removes a lone introducer at the end of a truncated body", () => {
-    // A body is cut at a codepoint boundary, so the tail can be half a sequence.
-    expect(withoutResidualEscapes(`built${ESCAPE}`)).toBe("built");
-    expect(withoutResidualEscapes(`built${ESCAPE}]0;a title`)).toBe("built");
+  it("takes an astral character ending a malformed sequence whole, as the daemon's cut does", () => {
+    // The daemon's block cut strips this text to the same drawn text; a scan by code unit would
+    // keep the emoji's second half and every start after it would sit one unit off.
+    const text =
+      `First.${ESCAPE}[1;31m\n\n` +
+      `${ESCAPE}]8;;https://a.example${BELL}Second.${ESCAPE}P1$r${C1_STRING_TERMINATOR}\n\n` +
+      `${ESCAPE}\u{1f600}Third.\n`;
+    expect(withoutResidualEscapes(text)).toBe("First.\n\nSecond.\n\nThird.\n");
   });
 
   it("takes no ordinary character with it", () => {

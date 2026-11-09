@@ -22,7 +22,7 @@ function renderToolCard(
   } = {},
 ): HTMLElement {
   const row = sampleRunRow({
-    type: overrides.type ?? "tool.invoked",
+    type: overrides.type ?? "agent.toolCall.invoked",
     ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
     ...(overrides.body === undefined
       ? {}
@@ -50,7 +50,7 @@ describe("a collapsed tool row", () => {
   it("still carries the error mark on the header", () => {
     // The rule this card exists to keep: a failure is visible to a reader scanning a
     // log of forty tool calls without opening any of them.
-    const container = renderToolCard({ type: "tool.error", density: "collapsed" });
+    const container = renderToolCard({ type: "agent.toolCall.failed", density: "collapsed" });
     expect(container.textContent).toContain("Error");
     expect(container.querySelector(".meridian-chip--failure")).not.toBeNull();
   });
@@ -62,7 +62,7 @@ describe("an opened tool row", () => {
     // output, never a markdown heading.
     const body = "# build\n  step **one** done";
     const container = renderToolCard({
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       density: "expanded",
       payload: { toolName: "bash", contentLength: body.length },
       body,
@@ -79,7 +79,7 @@ function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
   const [density, setDensity] = useState<"collapsed" | "expanded">("expanded");
   const [row] = useState(() =>
     sampleRunRow({
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       payload: { toolName: "bash", contentLength: props.body.length },
       content: { status: "available", body: props.body },
     }),
@@ -124,7 +124,7 @@ describe("a call's chevron", () => {
 
   it("is absent from a call with no body, leaving no tab stop", () => {
     const container = renderToolCard({
-      type: "tool.invoked",
+      type: "agent.toolCall.invoked",
       density: "expanded",
       payload: { toolName: "bash" },
       onDensityToggle: () => undefined,

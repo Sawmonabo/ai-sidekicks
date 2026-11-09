@@ -25,6 +25,7 @@ import {
   SystemMessageClassifier,
   type SystemMessageReading,
 } from "../system-messages/classifier.js";
+import { type ProviderNameOf } from "../system-messages/kinds.js";
 import { type ViewportRow } from "../viewport/snapshot.js";
 import { PublishedKeyedList } from "./published-keyed-list.js";
 import { ReplyIndex } from "./reply-rows.js";
@@ -104,11 +105,13 @@ export class TranscriptWindowDerivation {
 
   /**
    * The window of `transcript`, which may be any log: grown, rewritten or another altogether, its
-   * run groups reading `runEntities`, the store's run entities.
+   * run groups reading `runEntities`, the store's run entities, and its system messages naming a
+   * provider through `providerNameOf`.
    */
   public derive(
     transcript: readonly ProjectedSessionEvent[],
     runEntities: RunEntitiesByRunId,
+    providerNameOf: ProviderNameOf,
   ): TranscriptWindowModel {
     const held = this.#held;
     const isSameRunEntities = runEntities === this.#runEntities;
@@ -122,11 +125,19 @@ export class TranscriptWindowDerivation {
     this.#transcript = transcript;
     if (held === undefined || appended === undefined) {
       const accumulation = new WindowAccumulation(this.#rowByEvent, runEntities);
-      this.#held = { model: accumulation.admitWholeLog(transcript, held?.model), accumulation };
+      this.#held = {
+        model: accumulation.admitWholeLog(transcript, held?.model, providerNameOf),
+        accumulation,
+      };
       return this.#held.model;
     }
     if (appended.length > 0) {
-      held.model = held.accumulation.admitStretch(appended, runEntities, held.model);
+      held.model = held.accumulation.admitStretch(
+        appended,
+        runEntities,
+        held.model,
+        providerNameOf,
+      );
     } else if (!isSameRunEntities) {
       held.model = held.accumulation.admitRunEntities(runEntities, held.model);
     }
@@ -138,8 +149,9 @@ export class TranscriptWindowDerivation {
 export function deriveTranscriptWindow(
   transcript: readonly ProjectedSessionEvent[],
   runEntities: RunEntitiesByRunId,
+  providerNameOf: ProviderNameOf,
 ): TranscriptWindowModel {
-  return new TranscriptWindowDerivation().derive(transcript, runEntities);
+  return new TranscriptWindowDerivation().derive(transcript, runEntities, providerNameOf);
 }
 
 /**
@@ -192,6 +204,7 @@ class WindowAccumulation {
   public admitWholeLog(
     transcript: readonly ProjectedSessionEvent[],
     previous: TranscriptWindowModel | undefined,
+    providerNameOf: ProviderNameOf,
   ): TranscriptWindowModel {
     const previousIdentityByKey = new Map(
       (previous?.viewportRows ?? []).map((identity) => [identity.key, identity]),
@@ -207,7 +220,7 @@ class WindowAccumulation {
       this.#runGroupIndex.followPrevious(previous);
     }
     for (const row of this.#projector.project(transcript, retain).rows) {
-      this.#admitRow(row);
+      this.#admitRow(row, providerNameOf);
       admittedRows.push(row);
     }
     if (previous !== undefined) {
@@ -235,6 +248,7 @@ class WindowAccumulation {
     events: readonly ProjectedSessionEvent[],
     runEntities: RunEntitiesByRunId,
     previous: TranscriptWindowModel,
+    providerNameOf: ProviderNameOf,
   ): TranscriptWindowModel {
     // Read first, so a run the stretch first names takes its facts as they stand now.
     this.#runGroupIndex.admitRunEntities(runEntities);
@@ -252,7 +266,7 @@ class WindowAccumulation {
     }
     for (const row of batch.rows) {
       this.#viewportRows ??= [...previous.viewportRows];
-      this.#viewportRows.push(identityOf(row, this.#admitRow(row), undefined));
+      this.#viewportRows.push(identityOf(row, this.#admitRow(row, providerNameOf), undefined));
     }
     return this.#publish(previous);
   }
@@ -269,8 +283,8 @@ class WindowAccumulation {
   }
 
   /** Join `row` to every index, answering the key of the run group it joined, if any. */
-  #admitRow(row: ProjectedTranscriptRow): string | undefined {
-    const systemMessage = this.#classifier.classify(row);
+  #admitRow(row: ProjectedTranscriptRow, providerNameOf: ProviderNameOf): string | undefined {
+    const systemMessage = this.#classifier.classify(row, providerNameOf);
     // The group is decided here, before anything is drawn, so every stage and the window cap read
     // one membership.
     const parentKey = this.#runGroupIndex.admit(row, systemMessage !== undefined);

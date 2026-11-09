@@ -36,6 +36,7 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/tr
 import { PreparedRowGate, type FeedRowSources } from "./prepared-rows.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /** The gate never reads these: the stand-in preparation below decides every row itself. */
 const SOURCES: FeedRowSources = {
@@ -103,7 +104,7 @@ function toolRow(body?: string): ProjectedTranscriptRow {
   return row.kind === "general"
     ? {
         ...row,
-        type: "tool.result",
+        type: "agent.toolCall.completed",
         content: projectedContentOf(
           body === undefined ? row.content : { status: "available", body },
         ),
@@ -114,7 +115,11 @@ function toolRow(body?: string): ProjectedTranscriptRow {
 /** The store's window of its first row alone, standing as `row`. */
 function windowOf(row: ProjectedTranscriptRow): TranscriptWindowModel {
   const snapshot = openPagedSessionStore(0, 0).snapshot();
-  const model = deriveTranscriptWindow(snapshot.transcript, snapshot.partitions.run);
+  const model = deriveTranscriptWindow(
+    snapshot.transcript,
+    snapshot.partitions.run,
+    fixtureProviderNameOf,
+  );
   expect(keysOf(model.viewportRows)).toEqual([row.id]);
   return { ...model, rows: [row] };
 }
@@ -141,6 +146,7 @@ describe("PreparedRowGate", () => {
     const model = deriveTranscriptWindow(
       store.snapshot().transcript,
       store.snapshot().partitions.run,
+      fixtureProviderNameOf,
     );
     const heldRowId = transcriptFixtureEventId(2);
     const preparations = new HeldPreparations([heldRowId]);
@@ -191,14 +197,22 @@ describe("PreparedRowGate", () => {
   it("holds a page read back above the list with its last held row, so that row joins at the head", () => {
     const gate = new PreparedRowGate();
     const tailSnapshot = openPagedSessionStore(6, 9).snapshot();
-    const tail = deriveTranscriptWindow(tailSnapshot.transcript, tailSnapshot.partitions.run);
+    const tail = deriveTranscriptWindow(
+      tailSnapshot.transcript,
+      tailSnapshot.partitions.run,
+      fixtureProviderNameOf,
+    );
     const heldRowId = transcriptFixtureEventId(2);
     const preparations = new HeldPreparations([heldRowId]);
     gate.filter(tail, preparations.prepareRow, SOURCES);
 
     // The page of rows 0 to 5 arrives above the listed rows; row 2 still waits on its work.
     const pagedSnapshot = openPagedSessionStore(0, 9).snapshot();
-    const withPage = deriveTranscriptWindow(pagedSnapshot.transcript, pagedSnapshot.partitions.run);
+    const withPage = deriveTranscriptWindow(
+      pagedSnapshot.transcript,
+      pagedSnapshot.partitions.run,
+      fixtureProviderNameOf,
+    );
     const held = gate.filter(withPage, preparations.prepareRow, SOURCES);
     expect(keysOf(held.preparingRows)).toEqual(
       [0, 1, 2].map((index) => transcriptFixtureEventId(index)),
@@ -218,6 +232,7 @@ describe("PreparedRowGate", () => {
     const model = deriveTranscriptWindow(
       store.snapshot().transcript,
       store.snapshot().partitions.run,
+      fixtureProviderNameOf,
     );
     const heldRowId = transcriptFixtureEventId(1);
     const preparations = new HeldPreparations([heldRowId]);
@@ -242,6 +257,7 @@ describe("PreparedRowGate", () => {
     const unfurledWindow = deriveTranscriptWindow(
       store.snapshot().transcript,
       store.snapshot().partitions.run,
+      fixtureProviderNameOf,
     );
     const heldPage = [0, 1, 2].map((index) => transcriptFixtureEventId(index));
     const prepared = new PreparedRowGate().filter(

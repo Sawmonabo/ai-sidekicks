@@ -147,7 +147,7 @@ function costUpdateEntry(
 ): ScriptEntry {
   return {
     atMs: input.atMs,
-    kind: "usage.cost_update",
+    kind: "usage.cost.updated",
     payload: {
       sessionId,
       runId: input.runId,
@@ -315,62 +315,62 @@ export function composeConcurrentStreamingLanes(
     // than grouping by lane, since the overlap is what is measured.
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(1_050),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "msg_implementer_1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 0),
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(1_100),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "item-reviewer-reasoning-1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 1),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_150),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "item-scout-reasoning-1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 2),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_200),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "msg_architect_1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 3),
     }),
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(1_250),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "msg_implementer_1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 4), blockAt(BODY_BLOCKS, 12)]),
     }),
     lane.tool(RUN_REVIEWER, {
       atMs: at(1_300),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       toolName: "run_tests",
       toolCallId: "call-reviewer-1",
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_350),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "item-scout-message-1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 5), blockAt(BODY_BLOCKS, 15)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_400),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "msg_architect_1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
     }),
     lane.tool(RUN_IMPLEMENTER, {
       atMs: at(1_450),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       toolName: "edit_file",
       toolCallId: "call-implementer-1",
     }),
@@ -381,7 +381,7 @@ export function composeConcurrentStreamingLanes(
     }),
     lane.tool(RUN_REVIEWER, {
       atMs: at(1_550),
-      kind: "tool.result",
+      kind: "agent.toolCall.completed",
       toolName: "run_tests",
       toolCallId: "call-reviewer-1",
       durationMs: 180,
@@ -407,21 +407,21 @@ export function composeConcurrentStreamingLanes(
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(1_650),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "item-reviewer-message-1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 8), blockAt(BODY_BLOCKS, 24)]),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_700),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "item-scout-reasoning-2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 9),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_750),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "msg_architect_2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 10),
@@ -450,7 +450,7 @@ export function composeConcurrentStreamingLanes(
     }),
     lane.tool(RUN_IMPLEMENTER, {
       atMs: at(1_900),
-      kind: "tool.result",
+      kind: "agent.toolCall.completed",
       toolName: "edit_file",
       toolCallId: "call-implementer-1",
       durationMs: 140,
@@ -460,7 +460,7 @@ export function composeConcurrentStreamingLanes(
     // All four still going; the meter moves on two more lanes.
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_950),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "msg_architect_2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 12), blockAt(BODY_BLOCKS, 36)]),
@@ -468,27 +468,27 @@ export function composeConcurrentStreamingLanes(
     costUpdateEntry(input.sessionId, { atMs: at(2_000), runId: RUN_SCOUT, costUsdMicros: 90_000 }),
     lane.output(RUN_REVIEWER, {
       atMs: at(2_050),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "item-reviewer-reasoning-2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 13),
     }),
     lane.tool(RUN_SCOUT, {
       atMs: at(2_100),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       toolName: "read_file",
       toolCallId: "call-scout-1",
     }),
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(2_150),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "msg_implementer_2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 14), blockAt(BODY_BLOCKS, 42)]),
     }),
     lane.tool(RUN_SCOUT, {
       atMs: at(2_200),
-      kind: "tool.result",
+      kind: "agent.toolCall.completed",
       toolName: "read_file",
       toolCallId: "call-scout-1",
       durationMs: 62,
@@ -499,7 +499,7 @@ export function composeConcurrentStreamingLanes(
     // one run's. The countdown comes from `resetsAt`.
     {
       atMs: at(2_225),
-      kind: "usage.rate_limit_update",
+      kind: "usage.rateLimit.updated",
       payload: {
         sessionId: input.sessionId,
         provider: "claude",
@@ -524,14 +524,14 @@ export function composeConcurrentStreamingLanes(
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(2_300),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "item-reviewer-message-2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 16), blockAt(BODY_BLOCKS, 48)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(2_350),
-      kind: "assistant.thinking_update",
+      kind: "agent.thinking.updated",
       providerMessageId: "msg_architect_3",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 17),

@@ -11,7 +11,7 @@
 import { createContext, type Context } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";

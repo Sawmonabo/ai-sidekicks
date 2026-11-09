@@ -1,21 +1,25 @@
-// Narrows `usage.context_window_update` and `usage.context_compacted` rows into a per-run
-// context-window reading. Neither payload has a registered schema, so this is the one place an
-// unknown record becomes a figure; a payload missing a member yields no reading, never a
-// partial one. Pure fold over the rows it is given: no bridge, clock or store. The store keeps the
+// Narrows `usage.contextWindow.updated` and `agent.run.context.compacted` rows into a per-run
+// context-window reading. Both payloads reach the store as open records, so this is the one place
+// one becomes a figure; a payload missing a member yields no reading, never a partial one. Pure fold over the rows it is given: no bridge, clock or store. The store keeps the
 // rows it folds among its standing events, which measure the window by the same reader.
 
 import {
   CONTEXT_WINDOW_SOURCES,
   type ContextWindowSource,
 } from "@ai-sidekicks/contracts/context-window";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
 /** Event type of a context-window update row. */
-export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
+export const CONTEXT_WINDOW_EVENT_KIND: Extract<SessionEventType, "usage.contextWindow.updated"> =
+  "usage.contextWindow.updated";
 
 /** Event type of a compaction row, the only evidence that a compaction happened. */
-export const CONTEXT_COMPACTED_EVENT_KIND = "usage.context_compacted";
+export const CONTEXT_COMPACTED_EVENT_KIND: Extract<
+  SessionEventType,
+  "agent.run.context.compacted"
+> = "agent.run.context.compacted";
 
 /** How full one run's conversation is, as the daemon last reported it. */
 export interface ContextWindowReading {

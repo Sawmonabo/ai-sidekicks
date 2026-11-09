@@ -3,10 +3,9 @@
 // is read behind it, since a list read with no stream up is stale on arrival. Rows change only
 // when the daemon says so (a cancel or retry only confirms the request); canceled and replaced
 // rows stay in the feed.
-// A frame marked dropped means the daemon left changes out, so the list is read again.
 
 import type {
-  QueueItemCreateRequest,
+  AgentQueueItemCreateRequest,
   QueueItemSummary,
   RunQueueStreamFrame,
 } from "@ai-sidekicks/contracts/run/queue";
@@ -40,10 +39,10 @@ export type QueueTailCall = (
 ) => () => void;
 
 /**
- * Sends a not-delivered message again through `run.queueCreate`, the request replacing it in its
+ * Sends a not-delivered message again through `agent.queueItem.create`, the request replacing it in its
  * own words. Rejects where the daemon refuses or cannot be reached.
  */
-export type QueueRetryCall = (request: QueueItemCreateRequest) => Promise<void>;
+export type QueueRetryCall = (request: AgentQueueItemCreateRequest) => Promise<void>;
 
 /** The calls one queue reading makes. */
 export interface QueueCalls {
@@ -78,7 +77,7 @@ export interface QueueFeed extends WireReadState {
 export class SessionQueueReading implements ReadTriggerTarget {
   /**
    * Empty: the tail carries every row change, so no session event makes this list stale. Only
-   * the window returning, a repaired connection or a dropped frame does.
+   * the window returning or a repaired connection does.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #sessionId: string;
@@ -166,17 +165,11 @@ export class SessionQueueReading implements ReadTriggerTarget {
       return;
     }
     this.#closeTail = this.#calls.tail(this.#sessionId, (frame) => {
-      if (frame.changes.length > 0) {
-        for (const change of frame.changes) {
-          this.#order.merge(change.item);
-        }
-        this.#items = this.#order.items();
-        this.#publish();
+      for (const change of frame.changes) {
+        this.#order.merge(change.item);
       }
-      if (frame.dropped === true) {
-        // The changes that did not fit are gone from the stream; only a fresh list has them.
-        this.#refresh.request("gap-repull");
-      }
+      this.#items = this.#order.items();
+      this.#publish();
     });
     // Taken now rather than behind the scheduler's window: the tail is already up, and the
     // fold accounts for the rows it delivers before the snapshot lands.
@@ -210,12 +203,12 @@ export class SessionQueueReading implements ReadTriggerTarget {
     });
   }
 
-  // Replaces the row's item with its own words, keyed by its id, so a second press answers as the
-  // first did.
+  // Replaces the row's message with its own words, keyed by its id, so a second press answers as
+  // the first did. Only a message carries words to send again.
   async #retry(queueItemId: string): Promise<void> {
     const item = this.#items.find((held) => held.id === queueItemId);
     const request =
-      item === undefined
+      item?.kind !== "message"
         ? undefined
         : readQueueItemCreateRequest({
             sessionId: this.#sessionId,

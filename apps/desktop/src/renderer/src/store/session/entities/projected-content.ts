@@ -2,7 +2,7 @@
 // once, so the string the wire brought is let go with the reply that carried it.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/row";
 
 import { PackedText } from "#renderer/lib/text/packed.js";
 import type { ProjectedFullBody, ProjectedRowContent } from "./vocabulary.js";

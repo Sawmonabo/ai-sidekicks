@@ -13,6 +13,7 @@ import { RunCallWindows, rowBesideRunWindowEdge, type RunWindowMeasure } from ".
 import { longRunEvents, onlyRunGroupOf } from "./call-window.test-support.js";
 import { type RunGroup } from "./groups.js";
 import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 const SCREEN_HEIGHT_PX = 100;
 
@@ -24,7 +25,9 @@ function measureOf(rowHeightPx: number): RunWindowMeasure {
 /** The long run of `eventCount` events, as one group. */
 function longRun(eventCount: number): RunGroup {
   const events = longRunEvents(eventCount);
-  return onlyRunGroupOf(deriveTranscriptWindow(events, runEntitiesOf(events)));
+  return onlyRunGroupOf(
+    deriveTranscriptWindow(events, runEntitiesOf(events), fixtureProviderNameOf),
+  );
 }
 
 /** How many screens the calls from `firstCallIndex` up to `endCallIndex` fill at `rowHeightPx`. */
@@ -77,7 +80,9 @@ describe("a long run's window", () => {
   it("holds the run's newest calls again once a later stretch reaches them", () => {
     const events = longRunEvents(460);
     const derivation = new TranscriptWindowDerivation();
-    const runGroup = onlyRunGroupOf(derivation.derive(events.slice(0, 400), runEntitiesOf(events)));
+    const runGroup = onlyRunGroupOf(
+      derivation.derive(events.slice(0, 400), runEntitiesOf(events), fixtureProviderNameOf),
+    );
     const measure = measureOf(10);
     const windows = new RunCallWindows();
     windows.windowOf(runGroup, measure);
@@ -85,7 +90,9 @@ describe("a long run's window", () => {
     expect(windows.windowOf(runGroup, measure).laterCount).toBeGreaterThan(0);
 
     windows.openStretch(runGroup, "later", measure);
-    const grown = onlyRunGroupOf(derivation.derive(events, runEntitiesOf(events)));
+    const grown = onlyRunGroupOf(
+      derivation.derive(events, runEntitiesOf(events), fixtureProviderNameOf),
+    );
     const window = windows.windowOf(grown, measure);
 
     expect(window.laterCount).toBe(0);

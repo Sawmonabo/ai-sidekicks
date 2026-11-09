@@ -6,7 +6,7 @@
 // and in each stretch it let go between, as a long run's calls cut from its window. The store keeps
 // only the rows its window holds, so a long selection costs memory only while its copy is read.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 
 import { RefusalError } from "#renderer/lib/refusal/contract.js";

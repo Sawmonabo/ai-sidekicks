@@ -2,7 +2,7 @@
 // cards it hosts, and what its receipt leaves out.
 
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/row";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -61,7 +61,7 @@ function renderMessageCard(
   overrides: {
     readonly id?: string;
     readonly type?: string;
-    /** A person's message: the card is then a `user.message` row whose payload carries it. */
+    /** A person's message: the card is then a `user.message.sent` row whose payload carries it. */
     readonly message?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly content?: TranscriptRowContent;
@@ -76,7 +76,7 @@ function renderMessageCard(
     overrides.message === undefined
       ? sampleRunRow({
           ...(overrides.id === undefined ? {} : { id: overrides.id }),
-          type: overrides.type ?? "assistant.message",
+          type: overrides.type ?? "agent.message.sent",
           ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
           ...(overrides.content === undefined ? {} : { content: overrides.content }),
         })
@@ -186,17 +186,17 @@ describe("a message's Copy", () => {
 
   it("takes the whole turn's text from the reply's foot, and leaves the tool row out", async () => {
     const turn = [
-      sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
-      sampleRunRow({ id: "tool-between", type: "tool.result" }),
-      sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
+      sampleRunRow({ id: "reply-opening", type: "agent.message.sent" }),
+      sampleRunRow({ id: "tool-between", type: "agent.toolCall.completed" }),
+      sampleRunRow({ id: "reply-closing", type: "agent.message.sent" }),
     ];
     const replyRows = replyRowIdsByFootRowId(turn);
     // Only the reply's last row carries its foot, and the person's next message starts a new turn.
     expect(replyRows.get("reply-opening")).toBeUndefined();
     const nextTurn = replyRowIdsByFootRowId([
       ...turn,
-      sampleRunRow({ id: "person-asks", type: "user.message" }),
-      sampleRunRow({ id: "reply-next", type: "assistant.message" }),
+      sampleRunRow({ id: "person-asks", type: "user.message.sent" }),
+      sampleRunRow({ id: "reply-next", type: "agent.message.sent" }),
     ]);
     expect(nextTurn.get("reply-next")).toStrictEqual(["reply-next"]);
     // The last row is declared plain text, but an earlier row is drawn as prose, so the whole
@@ -306,7 +306,7 @@ describe("a reply's foot", () => {
       id: "reply-waiting",
       liveText: "First *words* in.",
       replyRowIds: replyRowIdsByFootRowId([
-        sampleRunRow({ id: "reply-waiting", type: "assistant.message" }),
+        sampleRunRow({ id: "reply-waiting", type: "agent.message.sent" }),
       ]).get("reply-waiting"),
     });
     expect(replying.querySelector(".meridian-markdown")?.textContent).toBe("");
@@ -322,8 +322,8 @@ describe("a reply's foot", () => {
 
   it("stands on the reply's last row alone once it has text, and keeps it when dropped", async () => {
     const replyRows = replyRowIdsByFootRowId([
-      sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
-      sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
+      sampleRunRow({ id: "reply-opening", type: "agent.message.sent" }),
+      sampleRunRow({ id: "reply-closing", type: "agent.message.sent" }),
     ]);
     const timesIn = (container: HTMLElement) =>
       container.querySelectorAll(SAMPLE_RUN_ROW_TIME_SELECTOR);
@@ -434,8 +434,8 @@ describe("a reply's foot", () => {
 
   it("keeps the foot on a new empty last row when the earlier row holds only a stored body", () => {
     const replyRows = replyRowIdsByFootRowId([
-      sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
-      sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
+      sampleRunRow({ id: "reply-opening", type: "agent.message.sent" }),
+      sampleRunRow({ id: "reply-closing", type: "agent.message.sent" }),
     ]);
     const channel = channelDrawing(new Map());
     // The new last row arrives with nothing to read, before the earlier row has drawn.

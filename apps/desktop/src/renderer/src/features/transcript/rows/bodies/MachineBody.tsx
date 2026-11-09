@@ -1,7 +1,6 @@
 // The one body a machine-authored row draws, in its four states: not read (a streamed row), large
-// (its row carries its size alone, and its control reads it in full), unavailable, available. A
-// truncated body renders its prefix and says so; an unreadable one keeps the turn at its position
-// with the unavailable marker, because an empty body or a dropped row would misreport the turn.
+// (its row carries its size alone, and its control reads it in full), unavailable, available. An
+// unreadable one keeps the turn at its position with the unavailable marker, because an empty body or a dropped row would misreport the turn.
 // `MessageContent` and `ToolOutput` differ only in how a body's shape is read and in that a
 // call's output is cut at a share of the visible flow until opened, a large one opened by the
 // press that reads it, so it draws whole once read. A live body is read through its lane's
@@ -24,7 +23,6 @@ import { FullOutputControl } from "./FullOutputControl.js";
 import { PreparedMarkdown } from "./PreparedMarkdown.js";
 import { type OutputOpening } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
-import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
 import { useLiveOutputByteLength } from "./hooks/useLiveOutputByteLength.js";
 import { type ProjectedRowContent } from "#renderer/store/session/entities/vocabulary.js";
@@ -35,8 +33,7 @@ export interface MachineBodyProps {
   readonly content: ProjectedRowContent | undefined;
   /**
    * Text the reveal engine is publishing while the body streams, as the lane's handle. It takes
-   * precedence over `content`, because a live body has no stored copy yet and nothing has been
-   * truncated.
+   * precedence over `content`, because a live body has no stored copy yet.
    */
   readonly liveText?: PublishedText | undefined;
   /** The renderer one body's bytes take. */
@@ -92,17 +89,7 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   if (props.liveText !== undefined || props.content?.status !== "available") {
     return renderBodyText(props, kind, liveByteLength);
   }
-  return (
-    <div className="meridian-machine-body">
-      {renderBodyText(props, kind, undefined)}
-      {props.content.contentTruncated === true ? (
-        <TruncationNotice
-          storedByteLength={props.content.body.byteLength}
-          preTruncationLength={props.content.contentLength}
-        />
-      ) : null}
-    </div>
-  );
+  return <div className="meridian-machine-body">{renderBodyText(props, kind, undefined)}</div>;
 }
 
 /** What a large body's control reads and asks through. */

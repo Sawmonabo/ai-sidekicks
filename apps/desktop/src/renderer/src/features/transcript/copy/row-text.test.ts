@@ -48,13 +48,13 @@ function sourcesHolding(
 
 describe("a whole row's copied text", () => {
   it("copies nothing for a reasoning row that draws no text, as the screen shows none", () => {
-    const row = sampleRunRow({ id: "event-01", type: "assistant.thinking_update" });
+    const row = sampleRunRow({ id: "event-01", type: "agent.thinking.updated" });
     expect(readRowText(row.id, sourcesHolding(row))).toBeUndefined();
   });
 
   it("copies the body the log stores for a row, or the sentence it draws for none", async () => {
     const reply = {
-      ...sampleRunRow({ id: "event-02", type: "assistant.message" }),
+      ...sampleRunRow({ id: "event-02", type: "agent.message.sent" }),
       content: projectedContentOf({ status: "available", body: "The **stored** reply." }),
     } as const;
     expect(readRowText(reply.id, sourcesHolding(reply))).toStrictEqual({
@@ -65,21 +65,17 @@ describe("a whole row's copied text", () => {
     const toolRow = {
       ...sampleRunRow({
         id: "event-03",
-        type: "tool.result",
+        type: "agent.toolCall.completed",
         payload: { toolName: "read_file", [CONTENT_LENGTH_PAYLOAD_KEY]: 12 },
       }),
-      content: projectedContentOf({
-        status: "available",
-        body: "stored lines",
-        contentTruncated: true,
-      }),
+      content: { status: "unavailable", reason: "absent" },
     } as const;
     // The heading reads its result from the stored body, as the card's does.
     expect((await readRowText(toolRow.id, sourcesHolding(toolRow, "expanded")))?.text).toMatch(
-      /\nread_file Truncated\nstored lines$/,
+      /\nread_file Body unavailable\n/,
     );
     const emptyReply = {
-      ...sampleRunRow({ id: "event-04", type: "assistant.message" }),
+      ...sampleRunRow({ id: "event-04", type: "agent.message.sent" }),
       content: { status: "unavailable", reason: "absent" },
     } as const;
     expect((await readRowText(emptyReply.id, sourcesHolding(emptyReply)))?.text).toBe(
@@ -90,7 +86,7 @@ describe("a whole row's copied text", () => {
   it("copies a long colored output stripped of its escapes, in pieces", async () => {
     const toolRow = sampleRunRow({
       id: "event-05",
-      type: "tool.invoked",
+      type: "agent.toolCall.invoked",
       payload: { toolName: "run_tests" },
     });
     // Sequences of several kinds, so some straddle the cuts between the output's pieces.

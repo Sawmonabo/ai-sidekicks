@@ -8,7 +8,7 @@
 // changes nothing. The projector is pure, because the apply path rebuilds from prefixes; a run
 // event naming no `runId` yields no mutation rather than a throw.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionLiveRun } from "@ai-sidekicks/contracts/session/methods";
 import { transcriptOwnRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 import { isMisstatedStateChange } from "@ai-sidekicks/contracts/transcript/run-facts";
@@ -25,7 +25,7 @@ import { runEntityOfFacts } from "./facts.js";
 
 /** The event kinds this projector claims, derived from the shipped event-type taxonomy. */
 export const RUN_LIFECYCLE_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CATEGORY_BY_TYPE]
-  .filter(([, category]) => category === "run_lifecycle")
+  .filter(([, category]) => category === "runLifecycle")
   .map(([eventType]) => eventType);
 
 /**
@@ -80,10 +80,8 @@ export function projectLiveRun(run: SessionLiveRun, readThroughSequence: number)
   return {
     ...runEntityOfFacts(run.runId, {
       ...(run.actor === undefined ? {} : { actor: run.actor }),
-      ...(run.admittedProviderAccountId === undefined
-        ? {}
-        : { admittedProviderAccountId: run.admittedProviderAccountId }),
-      stateEventType: `run.${run.state}`,
+      admittedProviderAccountId: run.admittedProviderAccountId,
+      stateEventType: `agent.run.${run.state}`,
       isRewound: false,
       foldedThroughSequence: readThroughSequence,
     }),
@@ -91,7 +89,6 @@ export function projectLiveRun(run: SessionLiveRun, readThroughSequence: number)
     body: {
       runVersion: run.runVersion,
       ...(run.parentRunId === undefined ? {} : { parentRunId: run.parentRunId }),
-      ...(run.isApart === true ? { isApart: true } : {}),
       agentId: run.agentId,
     },
   };

@@ -1,6 +1,6 @@
 // Reading one member off a projected payload, without claiming to have parsed it.
 //
-// `ProjectedTranscriptRow.payload` is an open `Record<string, unknown>` on three of its four arms:
+// `ProjectedTranscriptRow.payload` is an open `Record<string, unknown>` on two of its three arms:
 // a transcript row is a read projection that carries the event's payload through unvalidated.
 // Parsing it here with the contract's schema would revalidate what the daemon already validated,
 // and would fail closed on a row whose payload grew a member this build has not seen.
@@ -17,12 +17,12 @@ const NO_PAYLOAD: Readonly<Record<string, unknown>> = Object.freeze({});
 /**
  * The open projected payload of a row, whatever its arm.
  *
- * `rollback_boundary` carries the typed `run.rolled_back` event instead, so the rewind cutoff is
+ * `rollbackBoundary` carries the typed `agent.run.rolledBack` event instead, so the rewind cutoff is
  * never read through a cast. A reader narrows on `kind` for that arm; here it reads as the
  * empty record.
  */
 export function projectedPayload(row: ProjectedTranscriptRow): Readonly<Record<string, unknown>> {
-  return row.kind === "rollback_boundary" ? NO_PAYLOAD : row.payload;
+  return row.kind === "rollbackBoundary" ? NO_PAYLOAD : row.payload;
 }
 
 /**

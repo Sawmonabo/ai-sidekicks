@@ -16,7 +16,7 @@ const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 const OTHER_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
 const REASONING_READ = "transcript.reasoningSurfaceRead";
 
-/** One `ReasoningSurfaceReadResponse` on the arm that carries no entries. */
+/** One `TranscriptReasoningReadResponse` on the arm that carries no entries. */
 const UNAVAILABLE_REASONING: Record<string, unknown> = { availability: "unavailable" };
 
 describe("useReasoningRead — a refusal is retryable and an answer is not", () => {

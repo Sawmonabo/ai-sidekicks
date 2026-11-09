@@ -32,7 +32,7 @@ function anchorsOver(rows: readonly ReturnType<typeof runRow>[]): SubagentAnchor
 
 describe("the identity — read from three members, never inferred", () => {
   it("keys on the run, the provider and the subagent together", () => {
-    const identity = subagentIdentityOf(subagentRow("r1", 1, "subagent.started"));
+    const identity = subagentIdentityOf(subagentRow("r1", 1, "agent.subagent.started"));
     expect(identity).toEqual({ runId: "run-a", provider: "claude", subagentId: "sub-1" });
     expect(subagentIdentityKey(identity!)).toBe("run-a claude sub-1");
   });
@@ -43,7 +43,7 @@ describe("the identity — read from three members, never inferred", () => {
         runRow({
           id: "r1",
           sequence: 1,
-          type: "subagent.started",
+          type: "agent.subagent.started",
           runId: "run-a",
           position: 1,
           payload: { subagentId: "sub-1" },
@@ -55,7 +55,12 @@ describe("the identity — read from three members, never inferred", () => {
   it("refuses a row that carries no run attribution at all", () => {
     expect(
       subagentIdentityOf(
-        generalRow({ id: "g1", sequence: 1, type: "subagent.started", payload: { ...SUBAGENT } }),
+        generalRow({
+          id: "g1",
+          sequence: 1,
+          type: "agent.subagent.started",
+          payload: { ...SUBAGENT },
+        }),
       ),
     ).toBeUndefined();
   });
@@ -64,9 +69,9 @@ describe("the identity — read from three members, never inferred", () => {
 describe("the anchor — first-wins, and every later row of the identity joins it", () => {
   it("does not re-anchor on a completion", () => {
     const anchors = anchorsOver([
-      subagentRow("start", 1, "subagent.started"),
-      subagentRow("done", 2, "subagent.completed"),
-      subagentRow("done-again", 3, "subagent.completed"),
+      subagentRow("start", 1, "agent.subagent.started"),
+      subagentRow("done", 2, "agent.subagent.completed"),
+      subagentRow("done-again", 3, "agent.subagent.completed"),
     ]);
     const anchor = anchors.anchorForRowId("done-again");
     expect(anchor?.anchorRowId).toBe("start");
@@ -75,11 +80,11 @@ describe("the anchor — first-wins, and every later row of the identity joins i
 
   it("keeps two subagents of one provider apart", () => {
     const anchors = anchorsOver([
-      subagentRow("first", 1, "subagent.started"),
+      subagentRow("first", 1, "agent.subagent.started"),
       runRow({
         id: "second",
         sequence: 2,
-        type: "subagent.started",
+        type: "agent.subagent.started",
         runId: "run-a",
         position: 2,
         payload: { provider: "claude", subagentId: "sub-2" },
@@ -93,9 +98,9 @@ describe("the anchor — first-wins, and every later row of the identity joins i
 
   it("answers the per-row question the feed asks", () => {
     const index = anchorsOver([
-      subagentRow("start", 1, "subagent.started"),
-      subagentRow("done", 2, "subagent.completed"),
-      runRow({ id: "plain", sequence: 3, type: "user.message", runId: "run-a", position: 3 }),
+      subagentRow("start", 1, "agent.subagent.started"),
+      subagentRow("done", 2, "agent.subagent.completed"),
+      runRow({ id: "plain", sequence: 3, type: "user.message.sent", runId: "run-a", position: 3 }),
     ]);
     expect(index.isAnchoredElsewhere("start")).toBe(false);
     expect(index.isAnchoredElsewhere("done")).toBe(true);

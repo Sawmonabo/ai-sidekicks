@@ -94,7 +94,7 @@ function replyRow(content?: ProjectedTranscriptRow["content"]): ProjectedTranscr
   return message.kind === "general"
     ? {
         ...message,
-        type: "assistant.message",
+        type: "agent.message.sent",
         content: content ?? projectedContentOf(message.content),
       }
     : expect.fail("a message row is a general row");

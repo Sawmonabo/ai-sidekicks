@@ -28,7 +28,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 0,
       cursor: transcriptFixtureStreamCursor(0),
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
@@ -38,7 +38,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 1,
       cursor: transcriptFixtureStreamCursor(1),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       occurredAt: transcriptFixtureStampAt(1),
       payload: {
         sessionId: SESSION_ID,
@@ -52,7 +52,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 2,
       cursor: transcriptFixtureStreamCursor(2),
-      kind: "run.paused",
+      kind: "agent.run.paused",
       occurredAt: transcriptFixtureStampAt(2),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "paused" },
       runStamp: { position: 2, epoch: 0 },
@@ -62,7 +62,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 3,
       cursor: transcriptFixtureStreamCursor(3),
-      kind: "run.completed",
+      kind: "agent.run.completed",
       occurredAt: transcriptFixtureStampAt(3),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "completed" },
       runStamp: { position: 3, epoch: 0 },
@@ -72,7 +72,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 4,
       cursor: transcriptFixtureStreamCursor(4),
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: transcriptFixtureStampAt(4),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
@@ -82,7 +82,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 5,
       cursor: transcriptFixtureStreamCursor(5),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       occurredAt: transcriptFixtureStampAt(5),
       payload: {
         sessionId: SESSION_ID,
@@ -105,7 +105,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 0,
       cursor: transcriptFixtureStreamCursor(0),
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
@@ -115,7 +115,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 1,
       cursor: transcriptFixtureStreamCursor(1),
-      kind: "usage.context_compacted",
+      kind: "agent.run.context.compacted",
       occurredAt: transcriptFixtureStampAt(1),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
       runStamp: { position: 1, epoch: 0 },
@@ -125,7 +125,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       sessionId: SESSION_ID,
       sequence: 2,
       cursor: transcriptFixtureStreamCursor(2),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       occurredAt: transcriptFixtureStampAt(2),
       payload: {
         sessionId: SESSION_ID,
@@ -191,10 +191,10 @@ function openSessionStoreWithRunsAt(positions: RunPositions): SessionStore {
           TERMINAL_RUN_ID,
           position,
           position === 0
-            ? "run.running"
+            ? "agent.run.running"
             : index === positions.endedRunLast
-              ? "run.completed"
-              : "assistant.message",
+              ? "agent.run.completed"
+              : "agent.message.sent",
         );
       }
       if (index >= positions.liveRunFirst && index <= positions.liveRunLast) {
@@ -203,7 +203,7 @@ function openSessionStoreWithRunsAt(positions: RunPositions): SessionStore {
           index,
           LIVE_RUN_ID,
           position,
-          position === 0 ? "run.running" : "assistant.message",
+          position === 0 ? "agent.run.running" : "agent.message.sent",
         );
       }
       return {
@@ -211,7 +211,7 @@ function openSessionStoreWithRunsAt(positions: RunPositions): SessionStore {
         sessionId: SESSION_ID,
         sequence: index,
         cursor: transcriptFixtureStreamCursor(index),
-        kind: "user.message",
+        kind: "user.message.sent",
         occurredAt: transcriptFixtureStampAt(index),
         payload: { sessionId: SESSION_ID, actor: "user", message: `Message ${String(index)}` },
       };
@@ -235,8 +235,8 @@ function runEventAt(
     kind,
     occurredAt: transcriptFixtureStampAt(index),
     // A state change names the state its kind announces, as the daemon's always does.
-    payload: kind.startsWith("run.")
-      ? { sessionId: SESSION_ID, runId, newState: kind.slice("run.".length) }
+    payload: kind.startsWith("agent.run.")
+      ? { sessionId: SESSION_ID, runId, newState: kind.slice("agent.run.".length) }
       : { sessionId: SESSION_ID, runId },
     runStamp: { position, epoch: 0 },
   };

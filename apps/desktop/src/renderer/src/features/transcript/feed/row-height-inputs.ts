@@ -2,11 +2,7 @@
 // kind it draws as and the length of its body. Read for the list the feed holds, for a page of
 // history the feed has not drawn yet, and for the calls a long run's window is cut in.
 
-import {
-  CONTENT_LENGTH_PAYLOAD_KEY,
-  CONTENT_PAYLOAD_PLAINTEXT_MAX,
-  CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event/declared-variants";
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { readRunWindowEdgeKey, type RunWindowMeasure } from "../runs/call-window.js";
@@ -123,8 +119,7 @@ export function rowHeightKindOf(
 /**
  * The UTF-8 byte length of the body a key of the feed's list draws, or `undefined` for a row that
  * reports none. A row `isRevealing` names reports none: it pairs its whole body's length with
- * the height of the part drawn so far. A truncated body draws only its stored prefix, which the
- * stored ceiling bounds.
+ * the height of the part drawn so far.
  */
 export function rowBodyLengthOf(
   transcriptWindow: TranscriptWindowModel,
@@ -135,11 +130,7 @@ export function rowBodyLengthOf(
   if (row === undefined || isRevealing(row.id)) {
     return undefined;
   }
-  const payload = projectedPayload(row);
-  const contentLength = readWireCount(payload, CONTENT_LENGTH_PAYLOAD_KEY);
-  return contentLength !== undefined && payload[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
-    ? Math.min(contentLength, CONTENT_PAYLOAD_PLAINTEXT_MAX)
-    : contentLength;
+  return readWireCount(projectedPayload(row), CONTENT_LENGTH_PAYLOAD_KEY);
 }
 
 /** The height, in pixels, the viewport's table estimates a key of `transcriptWindow` at. */

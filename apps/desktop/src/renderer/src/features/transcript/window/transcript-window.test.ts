@@ -46,6 +46,7 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "./transcript-window.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /**
  * The run the script streams long past its window, rewinds, and folds. It is a child run, so each
@@ -70,7 +71,7 @@ const FIND_QUERIES = ["read", "4 ms"] as const;
 
 /** A stand-in renderer that draws nothing for two wire types, one of them a system message. */
 function drawsBody(row: ProjectedTranscriptRow): boolean {
-  return row.type !== "run.starting" && row.type !== "usage.context_compacted";
+  return row.type !== "agent.run.starting" && row.type !== "agent.run.context.compacted";
 }
 
 /** Every window the feed derives from one log, the rows still changing in it, and each find. */
@@ -113,7 +114,7 @@ class HeldWindows {
     foldedRunIds: ReadonlySet<string>,
     waitingOnPerson: WaitingOnPersonRecords,
   ): Windows {
-    const unfurled = this.#derivation.derive(transcript, runEntities);
+    const unfurled = this.#derivation.derive(transcript, runEntities, fixtureProviderNameOf);
     // A person folds every group of a run, as `Fold every run` does, so a run's new stretch is
     // folded too.
     const foldedRunGroupKeys = [...unfurled.runGroupByHeaderKey.values()]
@@ -435,6 +436,7 @@ function expectStretchesAsInWholeLog(
   const whole = new TranscriptWindowDerivation().derive(
     wholeLog.toSorted((left, right) => left.sequence - right.sequence),
     runEntities,
+    fixtureProviderNameOf,
   );
   const stretchOf = (model: TranscriptWindowModel, rowId: string) => {
     const runGroupKey = model.runGroupKeyByRowId.get(rowId);
@@ -621,13 +623,13 @@ function longRunScript(): readonly ScriptEntry[] {
   const toolPair = (runId: string, callId: string): ScriptEntry[] => [
     lane.tool(runId, {
       atMs: nextAtMs(),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       toolName: "read",
       toolCallId: callId,
     }),
     lane.tool(runId, {
       atMs: nextAtMs(),
-      kind: "tool.result",
+      kind: "agent.toolCall.completed",
       toolName: "read",
       toolCallId: callId,
       durationMs: 4,
@@ -636,25 +638,25 @@ function longRunScript(): readonly ScriptEntry[] {
   ];
   const turnStarted = (): ScriptEntry => ({
     atMs: nextAtMs(),
-    kind: "run.turn_started",
+    kind: "agent.turn.started",
     payload: { sessionId: SESSION_ID, runId: LONG_RUN },
   });
   const reply = (runId: string): ScriptEntry =>
     lane.output(runId, {
       atMs: nextAtMs(),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: `msg_${runId}`,
       contentType: "text/markdown",
       body: "The reply.",
     });
   const compacted = (runId: string): ScriptEntry => ({
     atMs: nextAtMs(),
-    kind: "usage.context_compacted",
+    kind: "agent.run.context.compacted",
     payload: { sessionId: SESSION_ID, runId },
   });
   const personSays = (message: string): ScriptEntry => ({
     atMs: nextAtMs(),
-    kind: "user.message",
+    kind: "user.message.sent",
     actorId: PERSON,
     payload: { sessionId: SESSION_ID, actor: PERSON, message },
   });
@@ -718,7 +720,7 @@ function longRunScript(): readonly ScriptEntry[] {
   entries.push(
     {
       atMs: nextAtMs(),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       payload: { sessionId: SESSION_ID, runId: LONG_RUN, toolName: "shell" },
     },
     lane.transition(LONG_RUN_CHILD, {
@@ -726,11 +728,10 @@ function longRunScript(): readonly ScriptEntry[] {
       runVersion: 2,
       previousState: "queued",
       newState: "completed",
-      completionKind: "turn",
     }),
     {
       atMs: nextAtMs(),
-      kind: "run.rolled_back",
+      kind: "agent.run.rolledBack",
       actorId: PERSON,
       payload: {
         sessionId: SESSION_ID,
@@ -750,7 +751,7 @@ function longRunScript(): readonly ScriptEntry[] {
     reply(RUN_ARCHITECT_CHILD),
     lane.tool(LONG_RUN, {
       atMs: nextAtMs(),
-      kind: "tool.invoked",
+      kind: "agent.toolCall.invoked",
       toolName: "write",
       toolCallId: "call-last",
     }),

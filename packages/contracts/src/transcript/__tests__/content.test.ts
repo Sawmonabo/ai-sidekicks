@@ -5,7 +5,11 @@ import { z } from "zod";
 
 import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import { PAGE_MAX_BYTES } from "../../generated/jsonrpc/page.js";
-import { storedBodyContentOf, transcriptRowContentOf } from "../content.js";
+import {
+  BodyReadOffsetRefusedError,
+  storedBodyContentOf,
+  transcriptRowContentOf,
+} from "../content.js";
 
 const count = z.int().nonnegative();
 const available = z
@@ -48,18 +52,97 @@ describe("reading a stored body", () => {
       ),
     ).toStrictEqual(rowContent);
   });
+});
 
-  // Each control character takes six JSON bytes, so this body spans two pages; the first part ends
-  // at the page and names where the second starts, in UTF-8 bytes.
-  it("answers a body over one page by its first part", () => {
+/** Reads `body` part by part from `offset` until a part names no next one: the parts joined, and how many. */
+function readFrom(
+  body: string,
+  offset: number,
+): { readonly joined: string; readonly partCount: number } {
+  let joined = "";
+  let partCount = 0;
+  let next: number | null = offset;
+  while (next !== null) {
+    const part = storedBodyContentOf(undefined, body, next);
+    if (part.status !== "available") {
+      throw new Error("a stored body is available");
+    }
+    joined += part.body;
+    partCount += 1;
+    next = part.nextOffset;
+  }
+  return { joined, partCount };
+}
+
+// The daemon's own reader runs these same cases.
+describe("a body read in parts joins back whole from any character boundary", () => {
+  // Each control character takes six JSON bytes, so 200,000 of them span two pages.
+  it.each([
+    { note: "over one page", body: "\u0001".repeat(200_000), offset: 0, rest: 0, partCount: 2 },
+    { note: "from a later offset", body: "a\u00e9b", offset: 3, rest: 2, partCount: 1 },
+    { note: "at the end", body: "ab", offset: 2, rest: 2, partCount: 1 },
+  ])("$note", ({ body, offset, rest, partCount }) => {
+    expect(readFrom(body, offset)).toStrictEqual({ joined: body.slice(rest), partCount });
+  });
+
+  // The first part ends at the page and names where the second starts, in UTF-8 bytes.
+  it("ends a part over one page at the page", () => {
     const body = `${"\u0001".repeat(200_000)}é`;
-    const part = storedBodyContentOf(undefined, body);
     const firstLength = Math.floor((PAGE_MAX_BYTES - 2) / 6);
-    expect(part).toStrictEqual({
+    expect(storedBodyContentOf(undefined, body)).toStrictEqual({
       status: "available",
       body: body.slice(0, firstLength),
       offset: 0,
       nextOffset: firstLength,
+    });
+  });
+
+  it.each([
+    { note: "inside a character", body: "a\u00e9b", offset: 2, bodyLength: 4 },
+    { note: "past the end", body: "ab", offset: 3, bodyLength: 2 },
+  ])("refuses an offset $note", ({ body, offset, bodyLength }) => {
+    expect(() => storedBodyContentOf(undefined, body, offset)).toThrow(
+      expect.objectContaining({
+        constructor: BodyReadOffsetRefusedError,
+        code: "transcript.body.offsetInvalid",
+        offset,
+        bodyLength,
+      }),
+    );
+  });
+});
+
+describe("a part's block starts", () => {
+  // The first start falls before the part, so a part from offset 3 carries the second alone, as its
+  // drawn offset in four little-endian bytes.
+  it("carries the starts that fall in it", () => {
+    const part = storedBodyContentOf(undefined, "a\u00e9b\n\nc", 3, {
+      kind: "starts",
+      starts: [
+        { storedOffset: 0, drawnOffset: 0 },
+        { storedOffset: 6, drawnOffset: 5 },
+      ],
+    });
+    expect(part).toStrictEqual({
+      status: "available",
+      body: "b\n\nc",
+      offset: 3,
+      nextOffset: null,
+      blockStarts: new Uint8Array([5, 0, 0, 0]),
+    });
+  });
+
+  it("says on every part that the cut failed", () => {
+    const body = "\u0001".repeat(200_000);
+    const failed = { kind: "failed", failure: "stalled" } as const;
+    const first = storedBodyContentOf(undefined, body, 0, failed);
+    expect(first).toMatchObject({ blockCutFailure: "stalled" });
+    if (first.status !== "available" || first.nextOffset === null) {
+      throw new Error("the body spans two parts");
+    }
+    expect(storedBodyContentOf(undefined, body, first.nextOffset, failed)).toMatchObject({
+      blockCutFailure: "stalled",
+      nextOffset: null,
     });
   });
 });

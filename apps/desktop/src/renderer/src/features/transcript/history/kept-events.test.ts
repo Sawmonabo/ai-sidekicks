@@ -13,6 +13,7 @@ import { longRunEvents, onlyRunGroupOf } from "../runs/call-window.test-support.
 import { runGroupHeadingOf } from "../runs/heading.js";
 import { TranscriptWindowDerivation } from "../window/transcript-window.js";
 import { keptEventCursors } from "./kept-events.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /** The run's own events, between the person's two messages. */
 const RUN_EVENT_COUNT = 400;
@@ -32,7 +33,7 @@ function messageOf(event: ProjectedSessionEvent): ProjectedSessionEvent {
     sessionId: event.sessionId,
     sequence: event.sequence,
     cursor: event.cursor,
-    kind: "user.message",
+    kind: "user.message.sent",
     occurredAt: event.occurredAt,
     payload: { message: "user.message" },
   };
@@ -53,7 +54,11 @@ describe("letting go of the calls a long run's window leaves out", () => {
     const derivation = new TranscriptWindowDerivation();
     const windows = new RunCallWindows();
     const derive = () =>
-      derivation.derive(store.snapshot().transcript, store.snapshot().partitions.run);
+      derivation.derive(
+        store.snapshot().transcript,
+        store.snapshot().partitions.run,
+        fixtureProviderNameOf,
+      );
     const figures = () => {
       const runGroup = onlyRunGroupOf(derive());
       const window = windows.windowOf(runGroup, MEASURE);
@@ -131,7 +136,7 @@ describe("letting go of the calls a long run's window leaves out", () => {
     // Five calls, a notice that the context was compacted, four more calls.
     const runEvents = runBetweenMessages(10).map((event) =>
       event.sequence === 6
-        ? { ...event, kind: "usage.context_compacted", payload: { ...event.payload } }
+        ? { ...event, kind: "agent.run.context.compacted", payload: { ...event.payload } }
         : event,
     );
     const [message, ...rest] = runEvents;
@@ -140,7 +145,11 @@ describe("letting go of the calls a long run's window leaves out", () => {
     const derivation = new TranscriptWindowDerivation();
     const windows = new RunCallWindows();
     const drawnKeys = () => {
-      const model = derivation.derive(store.snapshot().transcript, store.snapshot().partitions.run);
+      const model = derivation.derive(
+        store.snapshot().transcript,
+        store.snapshot().partitions.run,
+        fixtureProviderNameOf,
+      );
       const runGroup = onlyRunGroupOf(model);
       const drawn = new RunGroupFold().fold(model, new Set(), {
         windows,

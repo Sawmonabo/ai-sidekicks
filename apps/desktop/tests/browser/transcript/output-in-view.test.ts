@@ -6,8 +6,6 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
-
 import {
   openPagedSessionStore,
   pagedSessionEventAt,
@@ -22,6 +20,8 @@ import { unfilledHeightPx } from "./unfilled-box.js";
 
 /** The log: a call with a long colored output at every position but the last two messages. */
 const LOG_ROW_COUNT = 40;
+/** How long each call's colored output is: a quarter of a mebibyte of text. */
+const OUTPUT_LENGTH = 262_144;
 /** The write that moves the offset toward the head by half a screen. */
 const OFFSET_MOVE_PX = FEED_HEIGHT_PX / 2;
 /** The frames watched after the write, past the band's parses landing. */
@@ -36,7 +36,7 @@ interface OutputFrame {
 /** The log's event at `index`: a call's long colored output, or one of the two last messages. */
 function eventAt(index: number): ProjectedSessionEvent {
   return index < LOG_ROW_COUNT - 2
-    ? coloredOutputEventAt(index, CONTENT_PAYLOAD_PLAINTEXT_MAX)
+    ? coloredOutputEventAt(index, OUTPUT_LENGTH)
     : pagedSessionEventAt(index);
 }
 

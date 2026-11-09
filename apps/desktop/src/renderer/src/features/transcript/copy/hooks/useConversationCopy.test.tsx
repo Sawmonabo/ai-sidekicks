@@ -34,6 +34,7 @@ import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import { type SelectedPart } from "../conversation-selection.js";
 import { useConversationCopy } from "./useConversationCopy.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 const USER_MESSAGE = "please rename the reader";
 const REPLY = "Here is **the plan**:\n\n- rename the reader\n- keep its callers";
@@ -43,7 +44,7 @@ const ROWS = [
   sampleUserMessageRow({ id: "event-01", message: USER_MESSAGE }),
   sampleRunRow({
     id: "event-02",
-    type: "assistant.message",
+    type: "agent.message.sent",
     content: { status: "available", body: REPLY },
   }),
 ];
@@ -62,7 +63,7 @@ const LONG_ROWS = [
   ROWS[0] ?? expect.fail("the person's message is a row"),
   sampleRunRow({
     id: "event-03",
-    type: "assistant.message",
+    type: "agent.message.sent",
     content: { status: "available", body: LONG_REPLY },
   }),
   sampleUserMessageRow({ id: "event-04", message: CLOSING_MESSAGE }),
@@ -88,7 +89,7 @@ const MIDDLE_ROW_PARTS: ReadonlyMap<string, SelectedPart> = new Map([
 ]);
 
 /** No log behind the rows: the store holds both, so nothing is read back. */
-const NO_WINDOW = deriveTranscriptWindow([], {});
+const NO_WINDOW = deriveTranscriptWindow([], {}, fixtureProviderNameOf);
 
 function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element {
   const rowKeys = props.rows.map((row) => row.id);

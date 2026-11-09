@@ -36,14 +36,19 @@ const STRING_CONTROL_INTRODUCERS: readonly string[] = ["P", "X", "^", "_"];
 export class EscapeSequenceStripper {
   #state: ScanState = "text";
 
-  /** The runs of `chunk` that lie outside every escape sequence, in order, none of them empty. */
+  /**
+   * The runs of `chunk` that lie outside every escape sequence, in order, none of them empty.
+   * `chunk` never ends between the two halves of a surrogate pair.
+   */
   public strip(chunk: string): string[] {
     const kept: string[] = [];
     let cursor = 0;
     while (cursor < chunk.length) {
       if (this.#state !== "text") {
-        this.#state = stateAfter(this.#state, chunk.charAt(cursor));
-        cursor += 1;
+        // A whole code point, so an astral character ending a sequence takes both its halves.
+        const character = String.fromCodePoint(chunk.codePointAt(cursor) ?? 0);
+        this.#state = stateAfter(this.#state, character);
+        cursor += character.length;
         continue;
       }
       const escapeAt = chunk.indexOf(ESCAPE, cursor);
@@ -134,7 +139,7 @@ export function carriesAnsiEscapes(source: PublishedText): boolean {
  *
  * `anser` consumes CSI sequences but leaves OSC and the two-byte escapes inside a chunk's
  * content, so the residue is stripped after the parse; a pre-pass would take the styling with
- * it. A truncated body can end mid-sequence: the end of the text ends the sequence.
+ * it.
  */
 export function withoutResidualEscapes(text: string): string {
   return text.includes(ESCAPE) ? joinPieces(new EscapeSequenceStripper().strip(text)) : text;

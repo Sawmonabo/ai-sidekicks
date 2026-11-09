@@ -18,8 +18,8 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 /** The one state a queue item can still be taken back from. */
 const CANCELABLE_STATE: QueueItemSummary["state"] = "queued";
 
-/** The one state a queue item can be sent again from. */
-const RETRYABLE_STATE: QueueItemSummary["state"] = "not_delivered";
+/** The one state a message can be sent again from. */
+const RETRYABLE_STATE: QueueItemSummary["state"] = "notDelivered";
 
 /**
  * The tone each of the five states takes. A failed delivery is red; a replaced or canceled message
@@ -31,12 +31,12 @@ const QUEUE_STATE_TONES: Readonly<Record<QueueItemSummary["state"], ChipTone>> =
   admitted: "neutral",
   superseded: "neutral",
   canceled: "neutral",
-  not_delivered: "failure",
+  notDelivered: "failure",
 };
 
 /**
  * One queued item: its state, its figures, `Remove`, which cancels it, where cancel applies, and
- * `Retry`, which sends it again in its own words, where it was not delivered.
+ * `Retry`, which sends a message again in its own words, where it was not delivered.
  */
 export function QueueRow(props: {
   readonly item: QueueItemSummary;
@@ -84,7 +84,7 @@ export function QueueRow(props: {
           onPress={() => props.onCancel(item.id)}
         />
       ) : null}
-      {item.state === RETRYABLE_STATE ? (
+      {item.kind === "message" && item.state === RETRYABLE_STATE ? (
         <QueueRowAction
           word="Retry"
           className="meridian-queue__retry"

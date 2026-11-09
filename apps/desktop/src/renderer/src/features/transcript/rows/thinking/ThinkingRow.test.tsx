@@ -1,6 +1,6 @@
 // The availability arms, the tail, and the one control — each rendered as itself.
 
-import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptReasoningReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -38,12 +38,13 @@ function renderThinkingRow(
 }
 
 /** An `available` reply with entries and no continuation. */
-function availableReply(bodies: readonly string[]): ReasoningSurfaceReadResponse {
+function availableReply(bodies: readonly string[]): TranscriptReasoningReadResponse {
   return {
     availability: "available",
     hasMore: false,
     reasoningEntries: bodies.map((content, index) => ({
       sequence: index,
+      rowId: "thinking-row",
       content,
       timestamp: "2026-09-02T10:00:00.000Z",
     })),

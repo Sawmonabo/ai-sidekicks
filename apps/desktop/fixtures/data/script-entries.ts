@@ -15,8 +15,7 @@
 // `assistant.*`, `tool.*` and `subagent.*` have `.strict()` variants in `@ai-sidekicks/contracts`,
 // so an extra member is rejected on the wire.
 
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
-import type { RunCompletionKind } from "@ai-sidekicks/contracts/run/control";
+import type { ResolvedAgent } from "@ai-sidekicks/contracts/run/queued";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioBeat } from "../scenario.js";
@@ -61,18 +60,16 @@ interface RunTransitionInput {
   /** Absent only on the birth transition, which has no prior state. */
   readonly previousState?: string;
   readonly newState: string;
-  /** Whether a completed run ended its turn or its whole task. Carried on `run.completed` only. */
-  readonly completionKind?: RunCompletionKind;
   /** The agent the run belongs to. Carried on the birth transition. */
   readonly agentId?: string;
   readonly actorId?: string;
   /**
-   * The run that created this one. It rides the birth beat (`run.queued`) only; the builder
+   * The run that created this one. It rides the birth beat (`agent.run.queued`) only; the builder
    * throws on any other transition rather than emit a beat the daemon does not send.
    */
   readonly parentRunId?: string;
   /** The agent this run's creation starts from its saved definition, as the agent list names it. */
-  readonly resolvedAgent?: AgentListEntry;
+  readonly resolvedAgent?: ResolvedAgent;
 }
 
 /** The ISO instant `atMs` after the scenario's start. */
@@ -216,10 +213,10 @@ interface RunEntryBuilders {
 }
 
 /**
- * One run-state transition, as `run.<state>`.
+ * One run-state transition, as `agent.run.<state>`.
  *
  * The kind is composed from `newState` so the two cannot disagree; nothing downstream would
- * catch a `run.paused` beat carrying `newState: "running"`. Throws when the run linkage or
+ * catch an `agent.run.paused` beat carrying `newState: "running"`. Throws when the run linkage or
  * resolved agent is set on any transition but the birth one.
  */
 export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
@@ -228,13 +225,13 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
     throw new RangeError(
       `a run's linkage and resolved agent ride its birth beat, ` +
         `and this entry moves ${input.runId} into "${input.newState}". ` +
-        `They ride \`run.${RUN_BIRTH_STATE}\` alone, ` +
+        `They ride \`agent.run.${RUN_BIRTH_STATE}\` alone, ` +
         "so a second beat carrying them would be a second record of one fact.",
     );
   }
   return {
     atMs: input.atMs,
-    kind: `run.${input.newState}`,
+    kind: `agent.run.${input.newState}`,
     ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
     payload: {
       sessionId: input.sessionId,
@@ -242,7 +239,6 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
       runVersion: input.runVersion,
       ...(input.previousState === undefined ? {} : { previousState: input.previousState }),
       newState: input.newState,
-      ...(input.completionKind === undefined ? {} : { completionKind: input.completionKind }),
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
       ...creation,
     },

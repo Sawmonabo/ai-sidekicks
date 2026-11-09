@@ -100,7 +100,7 @@ function composeTableTurn(): readonly ScriptEntry[] {
   return [
     {
       atMs: TABLE_AT_MS,
-      kind: "user.message",
+      kind: "user.message.sent",
       // The payload's actor repeats the envelope's.
       actorId: USER_YOU,
       payload: { sessionId: SESSION_ID, actor: USER_YOU, message: LONG_TABLE_REQUEST },
@@ -126,7 +126,7 @@ function composeTableTurn(): readonly ScriptEntry[] {
     }),
     lane.output(TABLE_RUN_ID, {
       atMs: TABLE_AT_MS,
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       providerMessageId: "msg_long_table_1",
       contentType: "text/markdown",
       body: tableBody(),
@@ -136,7 +136,6 @@ function composeTableTurn(): readonly ScriptEntry[] {
       runVersion: 4,
       previousState: "running",
       newState: "completed",
-      completionKind: "turn",
     }),
   ];
 }

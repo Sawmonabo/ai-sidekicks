@@ -57,6 +57,7 @@ import {
 import { BudgetRegistry } from "../../helpers/budget/registry.js";
 import { evaluateBudget } from "../../helpers/budget/evaluation.js";
 import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /**
  * The length of log this tier measures the transcript at.
@@ -119,7 +120,11 @@ function enduranceTranscript(rowCount: number): readonly ProjectedSessionEvent[]
  */
 function foldCpuMilliseconds(transcript: readonly ProjectedSessionEvent[]): number {
   const before = process.threadCpuUsage();
-  const transcriptWindow = deriveTranscriptWindow(transcript, runEntitiesOf(transcript));
+  const transcriptWindow = deriveTranscriptWindow(
+    transcript,
+    runEntitiesOf(transcript),
+    fixtureProviderNameOf,
+  );
   const spent = process.threadCpuUsage(before);
   if (transcriptWindow.rows.length === 0) {
     throw new Error("the fold produced no rows, so its timing describes nothing");
@@ -134,7 +139,11 @@ describe("endurance — the transcript's fold over a long session", () => {
     const transcript = enduranceTranscript(ENDURANCE_ROW_COUNT);
     expect(transcript).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const transcriptWindow = deriveTranscriptWindow(transcript, runEntitiesOf(transcript));
+    const transcriptWindow = deriveTranscriptWindow(
+      transcript,
+      runEntitiesOf(transcript),
+      fixtureProviderNameOf,
+    );
 
     // Every event the generator scripts is a registered kind the projection places, so every one
     // becomes a row; a window that dropped an event category would otherwise still read complete.
@@ -256,7 +265,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     // Without this the walk above could pass over a fold that never cut the run: such a fold costs
     // a press about as little as a cut one, so only the rows it lists tell the two apart.
     const events = longRunEvents(LONG_RUN_EVENT_COUNT);
-    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+    const model = deriveTranscriptWindow(events, runEntitiesOf(events), fixtureProviderNameOf);
     const listRowBound = mostListRowsUnderLetGo(model.viewportRows.length, onlyRunGroupOf(model));
 
     const stage = new RunGroupFold().fold(model, new Set(), wholeRunWindowInputs());
@@ -325,7 +334,7 @@ async function walkRunWindow(
   const heapSampler = new HeapSampler();
   expect(heapSampler.isCollectorAvailable, "this runtime gives no collector").toBe(true);
   const events = longRunEvents(LONG_RUN_EVENT_COUNT);
-  const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+  const model = deriveTranscriptWindow(events, runEntitiesOf(events), fixtureProviderNameOf);
   const runGroup = onlyRunGroupOf(model);
   const inputs = measuredRunWindowInputs(RUN_WINDOW_MEASURE);
   const fold = new RunGroupFold();
@@ -430,7 +439,11 @@ function mostListRowsUnderLetGo(unfoldedRowCount: number, runGroup: RunGroup): n
  * length is read so the fold cannot be eliminated as dead.
  */
 function dropFoldOf(transcript: readonly ProjectedSessionEvent[]): void {
-  const rowCount = deriveTranscriptWindow(transcript, runEntitiesOf(transcript)).rows.length;
+  const rowCount = deriveTranscriptWindow(
+    transcript,
+    runEntitiesOf(transcript),
+    fixtureProviderNameOf,
+  ).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

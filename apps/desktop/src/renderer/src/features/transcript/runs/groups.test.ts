@@ -11,6 +11,7 @@ import { findRunGroup, mixedWindow } from "./groups.test-support.js";
 import { runGroupHeadingOf } from "./heading.js";
 import { generalRow, runRow } from "../event-rows.test-support.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /** A call and its result of `runId`, the `call`th pair in the log from `sequence`. */
 function callPair(runId: string, sequence: number): readonly ProjectedTranscriptRow[] {
@@ -18,14 +19,14 @@ function callPair(runId: string, sequence: number): readonly ProjectedTranscript
     runRow({
       id: `${runId}-call-${String(sequence)}`,
       sequence,
-      type: "tool.invoked",
+      type: "agent.toolCall.invoked",
       runId,
       position: sequence,
     }),
     runRow({
       id: `${runId}-result-${String(sequence + 1)}`,
       sequence: sequence + 1,
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       runId,
       position: sequence + 1,
     }),
@@ -63,7 +64,7 @@ describe("run groups — rows join a run group by runId and by nothing else", ()
   it("groups each run's rows and leaves an unattributed row out of every run group", () => {
     // The session row draws no card and run b replies after run a's last card, so no run is
     // broken.
-    const runGroups = groupRowsByRun(mixedWindow(), NO_RUN_ENTITIES);
+    const runGroups = groupRowsByRun(mixedWindow(), NO_RUN_ENTITIES, fixtureProviderNameOf);
     expect(runGroups.map((runGroup) => runGroup.runId)).toStrictEqual(["run-a", "run-b"]);
     expect(findRunGroup(runGroups, "run-a").rowIds).toStrictEqual(["a1", "a2", "a3"]);
   });
@@ -71,10 +72,11 @@ describe("run groups — rows join a run group by runId and by nothing else", ()
   it("keeps each run group's rows in the order the log delivered them", () => {
     const runGroups = groupRowsByRun(
       [
-        runRow({ id: "a2", sequence: 9, type: "assistant.message", runId: "run-a", position: 2 }),
-        runRow({ id: "a1", sequence: 4, type: "run.queued", runId: "run-a", position: 1 }),
+        runRow({ id: "a2", sequence: 9, type: "agent.message.sent", runId: "run-a", position: 2 }),
+        runRow({ id: "a1", sequence: 4, type: "agent.run.queued", runId: "run-a", position: 1 }),
       ],
       NO_RUN_ENTITIES,
+      fixtureProviderNameOf,
     );
     // Delivery order, not sequence order: the fold partitions and leaves the ordering to
     // whatever handed it the window.
@@ -86,19 +88,26 @@ describe("run groups — one unbroken stretch of a run under each header", () =>
   it("goes on under a new header after another agent's reply, each counting its drawn rows", () => {
     const runGroups = groupRowsByRun(
       [
-        runRow({ id: "a-running", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
+        runRow({
+          id: "a-running",
+          sequence: 1,
+          type: "agent.run.running",
+          runId: "run-a",
+          position: 1,
+        }),
         ...callPair("run-a", 2),
         runRow({
           id: "b-reply",
           sequence: 4,
-          type: "assistant.message",
+          type: "agent.message.sent",
           runId: "run-b",
           position: 1,
         }),
         ...callPair("run-a", 5),
         ...callPair("run-a", 7),
       ],
-      runEntitiesHolding({ "run-a": { stateEventType: "run.running" } }),
+      runEntitiesHolding({ "run-a": { stateEventType: "agent.run.running" } }),
+      fixtureProviderNameOf,
     );
 
     // The running row draws nothing, so the first header counts only its call and result.
@@ -113,7 +122,7 @@ describe("run groups — one unbroken stretch of a run under each header", () =>
     expect(runGroups.map((runGroup) => runGroup.runStateEventType)).toStrictEqual([
       undefined,
       undefined,
-      "run.running",
+      "agent.run.running",
     ]);
   });
 
@@ -121,7 +130,7 @@ describe("run groups — one unbroken stretch of a run under each header", () =>
     const steer = runRow({
       id: "steer",
       sequence: 3,
-      type: "user.message",
+      type: "user.message.sent",
       runId: "run-a",
       position: 3,
     });
@@ -139,20 +148,21 @@ describe("run groups — one unbroken stretch of a run under each header", () =>
     const runGroups = groupRowsByRun(
       [
         // Before the run has a call, so it stands on its own.
-        generalRow({ id: "early-notice", sequence: 1, type: "usage.context_compacted" }),
+        generalRow({ id: "early-notice", sequence: 1, type: "agent.run.context.compacted" }),
         ...callPair("run-a", 2),
-        generalRow({ id: "session-notice", sequence: 4, type: "usage.context_compacted" }),
+        generalRow({ id: "session-notice", sequence: 4, type: "agent.run.context.compacted" }),
         // Another run's notification is not run a's, so it neither joins nor breaks run a.
         runRow({
           id: "b-notice",
           sequence: 5,
-          type: "usage.context_compacted",
+          type: "agent.run.context.compacted",
           runId: "run-b",
           position: 1,
         }),
         ...callPair("run-a", 6),
       ],
       NO_RUN_ENTITIES,
+      fixtureProviderNameOf,
     );
 
     expect(runGroups.map((runGroup) => runGroup.rowIds)).toStrictEqual([
@@ -163,15 +173,33 @@ describe("run groups — one unbroken stretch of a run under each header", () =>
   it("draws no header for a run with no card, and stands one at the card that arrives", () => {
     // Two runs start together: a header above run b's first row would stand over run a's call.
     const rows = [
-      runRow({ id: "a-queued", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
-      runRow({ id: "b-queued", sequence: 2, type: "run.queued", runId: "run-b", position: 1 }),
+      runRow({
+        id: "a-queued",
+        sequence: 1,
+        type: "agent.run.queued",
+        runId: "run-a",
+        position: 1,
+      }),
+      runRow({
+        id: "b-queued",
+        sequence: 2,
+        type: "agent.run.queued",
+        runId: "run-b",
+        position: 1,
+      }),
       ...callPair("run-a", 3),
     ];
-    expect(groupRowsByRun(rows, NO_RUN_ENTITIES).map((runGroup) => runGroup.runId)).toStrictEqual([
-      "run-a",
-    ]);
+    expect(
+      groupRowsByRun(rows, NO_RUN_ENTITIES, fixtureProviderNameOf).map(
+        (runGroup) => runGroup.runId,
+      ),
+    ).toStrictEqual(["run-a"]);
 
-    const runGroups = groupRowsByRun([...rows, ...callPair("run-b", 5)], NO_RUN_ENTITIES);
+    const runGroups = groupRowsByRun(
+      [...rows, ...callPair("run-b", 5)],
+      NO_RUN_ENTITIES,
+      fixtureProviderNameOf,
+    );
     expect(runGroups.map((runGroup) => [runGroup.key, runGroup.headerRowId])).toStrictEqual([
       ["run-a:a-queued", "run-a-call-3"],
       ["run-b:b-queued", "run-b-call-5"],
@@ -187,16 +215,16 @@ describe("run groups — what a header says of its run, from the store's facts",
         "run-a": {
           actor: "agent-from-facts",
           admittedProviderAccountId: "acct-7" as ProviderAccountId,
-          stateEventType: "run.running",
+          stateEventType: "agent.run.running",
         },
-        "run-b": { stateEventType: "run.completed" },
+        "run-b": { stateEventType: "agent.run.completed" },
       }),
     );
     const runA = findRunGroup(runGroupIndex.runGroups(), "run-a");
     expect([runA.actorId, runA.payingAccountId, runA.runStateEventType]).toStrictEqual([
       "agent-from-facts",
       "acct-7",
-      "run.running",
+      "agent.run.running",
     ]);
     expect([...runGroupIndex.liveRunIds()]).toStrictEqual(["run-a"]);
     // A run the store holds no facts for has not been seen to end, and neither has a completion
@@ -206,7 +234,7 @@ describe("run groups — what a header says of its run, from the store's facts",
       "run-b",
     ]);
     const rewound = runEntitiesHolding({
-      "run-b": { stateEventType: "run.completed", isRewound: true },
+      "run-b": { stateEventType: "agent.run.completed", isRewound: true },
     });
     expect([...indexOf(mixedWindow(), rewound).liveRunIds()]).toContain("run-b");
   });
@@ -217,14 +245,14 @@ describe("run groups — what a header says of its run, from the store's facts",
       runRow({
         id: "b-reply",
         sequence: 3,
-        type: "assistant.message",
+        type: "agent.message.sent",
         runId: "run-b",
         position: 1,
       }),
       ...callPair("run-a", 4),
     ];
     const running = runEntitiesHolding({
-      "run-a": { actor: "agent-one", stateEventType: "run.running" },
+      "run-a": { actor: "agent-one", stateEventType: "agent.run.running" },
     });
     const runGroupIndex = indexOf(rows, running);
     runGroupIndex.sealTouched();
@@ -237,17 +265,17 @@ describe("run groups — what a header says of its run, from the store's facts",
 
     // A new state moves only the newest header, and an ending takes the run out of the live set.
     const completed = runEntitiesHolding({
-      "run-a": { actor: "agent-one", stateEventType: "run.completed" },
+      "run-a": { actor: "agent-one", stateEventType: "agent.run.completed" },
     });
     expect(runGroupIndex.admitRunEntities(completed)).toBe(true);
     const resealed = runGroupIndex.sealTouched();
     expect(keysOf(resealed)).toStrictEqual(["run-a:run-a-call-4"]);
-    expect(resealed[0]?.runStateEventType).toBe("run.completed");
+    expect(resealed[0]?.runStateEventType).toBe("agent.run.completed");
     expect([...runGroupIndex.liveRunIds()]).toStrictEqual(["run-b"]);
 
     // Every header of the run names its actor, so a new actor seals each of them again.
     const renamed = runEntitiesHolding({
-      "run-a": { actor: "agent-two", stateEventType: "run.completed" },
+      "run-a": { actor: "agent-two", stateEventType: "agent.run.completed" },
     });
     expect(runGroupIndex.admitRunEntities(renamed)).toBe(true);
     expect(keysOf(runGroupIndex.sealTouched())).toStrictEqual([

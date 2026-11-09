@@ -65,12 +65,11 @@ export function toolRowHeadingText(heading: ToolRowHeading): string {
 const RESULT_STATE_CHIPS: Readonly<
   Record<ToolResultState, { label: string; tone: ChipTone } | undefined>
 > = {
-  // Red means a failure, amber means a person is needed; truncated and unreadable bodies are
-  // neither, so they take the neutral chip. `ToolOutput` renders the one red body case, a stored
+  // Red means a failure, amber means a person is needed; an unreadable body is neither, so it
+  // takes the neutral chip. `ToolOutput` renders the one red body case, a stored
   // body that does not match its signature.
   running: { label: "Running", tone: "neutral" },
   ok: undefined,
   error: { label: "Error", tone: "failure" },
-  truncated: { label: "Truncated", tone: "neutral" },
   "body-unavailable": { label: "Body unavailable", tone: "neutral" },
 };

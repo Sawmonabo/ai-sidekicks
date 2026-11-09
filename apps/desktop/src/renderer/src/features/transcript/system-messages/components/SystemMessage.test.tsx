@@ -13,6 +13,7 @@ import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 const CLAUDE_BINDING = {
   driverName: "claude",
@@ -35,7 +36,7 @@ function failedSwitch(attempted: Record<string, unknown>): Record<string, unknow
 }
 
 function renderSystemMessage(row: ProjectedTranscriptRow): HTMLElement {
-  const systemMessage = new SystemMessageClassifier().classify(row);
+  const systemMessage = new SystemMessageClassifier().classify(row, fixtureProviderNameOf);
   if (systemMessage === undefined) {
     throw new Error(`expected ${row.type} to classify as a system message`);
   }

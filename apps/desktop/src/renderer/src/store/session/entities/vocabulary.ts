@@ -7,9 +7,9 @@
 //     cannot heal.
 //   - Projections never persist. `persistence/` holds UI state only, and every entity here is
 //     re-derived from the daemon on reconnect.
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type {
-  TranscriptEventRow,
+  TranscriptReadRow,
+  TranscriptRowContent,
   TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { TranscriptRunFactsFold } from "@ai-sidekicks/contracts/transcript/run-facts";
@@ -83,7 +83,7 @@ export interface ProjectedSessionEvent {
    * a backward `transcript.read` page with each row.
    */
   readonly cursor: string;
-  /** Wire-verbatim event type, e.g. `run.queued`. Rendered as received. */
+  /** Wire-verbatim event type, e.g. `agent.run.queued`. Rendered as received. */
   readonly kind: string;
   /** ISO-8601, wire-verbatim. Formatted at render time, never re-parsed into a store. */
   readonly occurredAt: string;
@@ -124,10 +124,12 @@ export type ProjectedFullBody = Exclude<ProjectedRowContent, { readonly status: 
 
 /**
  * A transcript row as the console consumes it: the contract's row, discriminated on `kind`, with
- * its body held as {@link ProjectedRowContent}. The contract's own row is read only at the wire.
+ * its body optional and held as {@link ProjectedRowContent}. A row projected from a stream change
+ * carries no body, so a stand-in would claim one it never lacked. The contract's own row is read
+ * only at the wire.
  */
-export type ProjectedTranscriptRow = TranscriptEventRow extends infer Row
-  ? Row extends TranscriptEventRow
+export type ProjectedTranscriptRow = TranscriptReadRow extends infer Row
+  ? Row extends TranscriptReadRow
     ? Omit<Row, "content"> & { readonly content?: ProjectedRowContent }
     : never
   : never;

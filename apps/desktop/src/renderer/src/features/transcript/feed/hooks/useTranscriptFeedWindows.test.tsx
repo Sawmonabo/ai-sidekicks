@@ -34,7 +34,7 @@ function openSessionStoreWithReplies(bodyLengths: readonly number[]): SessionSto
       sessionId: SESSION_ID,
       sequence: index,
       cursor: transcriptFixtureStreamCursor(index),
-      kind: "assistant.message",
+      kind: "agent.message.sent",
       occurredAt: transcriptFixtureStampAt(index),
       payload: { sessionId: SESSION_ID, contentLength },
     })),

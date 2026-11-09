@@ -69,7 +69,10 @@ describe("a copy built a slice at a time", () => {
       rowsReading(
         async (rowId) => {
           reads.push(rowId);
-          return { status: "served", value: { status: "available", body: LARGE_BODY } };
+          return {
+            status: "served",
+            value: { status: "available", body: LARGE_BODY, offset: 0, nextOffset: null },
+          };
         },
         {
           html: async (markdown, pieces) => {
@@ -133,7 +136,10 @@ describe("a copy built a slice at a time", () => {
     const failure = new Error("The markdown worker stopped: out of memory");
     const build = new ConversationCopyBuild(
       rowsReading(
-        async () => ({ status: "served", value: { status: "available", body: LARGE_BODY } }),
+        async () => ({
+          status: "served",
+          value: { status: "available", body: LARGE_BODY, offset: 0, nextOffset: null },
+        }),
         { html: async () => Promise.reject(failure) },
       ),
     );

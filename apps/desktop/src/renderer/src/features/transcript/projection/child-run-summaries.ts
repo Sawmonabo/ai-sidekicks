@@ -1,5 +1,5 @@
 // The child runs this window's log names, summarized: the row projection's half of the seam
-// `dispatches/child-run-entries.ts` reads. A run whose `run.queued` creation row names a
+// `dispatches/child-run-entries.ts` reads. A run whose `agent.run.queued` creation row names a
 // parent is a child run, said by the daemon; the summary is stamped on that one row per
 // child, the only row naming both.
 

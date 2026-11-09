@@ -4,10 +4,13 @@
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
-import { EventCursorSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
-  TranscriptReadResponseSchema,
+  validateEventCursor,
+  type EventCursor,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
+import {
+  validateTranscriptReadResponse,
   type TranscriptReadRequest,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
@@ -20,6 +23,7 @@ import {
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
+import { checkedValue } from "#test/helpers/checked-value.js";
 import { runFactsOpenedWith, runFactsServedFor } from "#test/helpers/transcript/run-facts.js";
 
 /** The paged session's whole log as the daemon holds it, and every read it was asked. */
@@ -60,7 +64,7 @@ export function transcriptFixtureEventId(sequence: number): string {
  * to that message names. Not the row id, so a lookup that confused the two would find nothing.
  */
 export function transcriptFixtureStreamCursor(sequence: number): EventCursor {
-  return EventCursorSchema.parse(`stream-position-${String(sequence)}`);
+  return checkedValue(validateEventCursor, `stream-position-${String(sequence)}`);
 }
 
 /** The length a tool row's unread body is counted at. */
@@ -82,7 +86,7 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
       sessionId: SESSION_ID,
       sequence: index,
       cursor: transcriptFixtureStreamCursor(index),
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: transcriptFixtureStampAt(index),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
       runStamp: { position: index, epoch: 0 },
@@ -110,7 +114,7 @@ export function toolRowEventAt(index: number): ProjectedSessionEvent {
     sessionId: SESSION_ID,
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index),
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     occurredAt: transcriptFixtureStampAt(index),
     payload: {
       sessionId: SESSION_ID,
@@ -134,7 +138,7 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
       sessionId: SESSION_ID,
       sequence: index,
       cursor: transcriptFixtureStreamCursor(index),
-      kind: "user.message",
+      kind: "user.message.sent",
       occurredAt: transcriptFixtureStampAt(index),
       payload: { message: "user.message" },
     })),
@@ -150,8 +154,8 @@ export function transcriptReadRowAt(index: number): TranscriptReadRow {
     sessionId: PAGED_SESSION_ID as SessionId,
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index) as EventCursor,
-    category: "interactive_request",
-    type: "user.message",
+    category: "interactiveRequest",
+    type: "user.message.sent",
     timestamp: transcriptFixtureStampAt(index),
     payload: { message: "user.message" },
     content: { status: "unavailable", reason: "absent" },
@@ -177,7 +181,7 @@ export function pagedSessionEventAt(index: number): ProjectedSessionEvent {
     sessionId: PAGED_SESSION_ID,
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index),
-    kind: "user.message",
+    kind: "user.message.sent",
     occurredAt: transcriptFixtureStampAt(index),
     payload: { message: "user.message" },
   };
@@ -261,10 +265,15 @@ export function scriptedTranscriptLog(
       beforeIndex === undefined
         ? transcriptFixtureStreamCursor(lastIndex)
         : transcriptFixtureStreamCursor(firstIndex - 1);
+    // A row is one event here, so the page joined its pieces through its newest row.
+    const joinedThrough = transcriptFixtureStreamCursor(lastIndex);
     return Promise.resolve({
       status: "served",
-      value: TranscriptReadResponseSchema.parse(
-        hasMore ? { entries, runs, hasMore, nextCursor } : { entries, runs, hasMore },
+      value: checkedValue(
+        validateTranscriptReadResponse,
+        hasMore
+          ? { entries, runs, hasMore, nextCursor, joinedThrough }
+          : { entries, runs, hasMore, ...(entries.length === 0 ? {} : { joinedThrough }) },
       ),
     });
   };

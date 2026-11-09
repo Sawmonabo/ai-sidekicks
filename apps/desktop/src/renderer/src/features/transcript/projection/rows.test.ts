@@ -29,14 +29,18 @@ function event(
     id: `${EVENT_ID_STEM}${String(overrides.sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
     cursor: `cursor-at-${String(overrides.sequence)}`,
-    kind: "run.running",
+    kind: "agent.run.running",
     occurredAt: `2026-01-01T11:0${String(overrides.sequence % 10)}:00.000Z`,
     ...overrides,
   };
 }
 
 /** An event of a run, stamped by the daemon at the turn position its sequence names. */
-function runEvent(sequence: number, runId: string, kind = "run.running"): ProjectedSessionEvent {
+function runEvent(
+  sequence: number,
+  runId: string,
+  kind = "agent.run.running",
+): ProjectedSessionEvent {
   return event({
     sequence,
     kind,
@@ -59,7 +63,7 @@ describe("the log-derived row projection", () => {
       }),
       { ...runEvent(2, RUN_ONE), content: { status: "large", contentLength: 40_000 } },
       {
-        ...runEvent(3, RUN_ONE, "assistant.message"),
+        ...runEvent(3, RUN_ONE, "agent.message.sent"),
         content: projectedContentOf({ status: "available", body: wireBody, contentLength: 9 }),
       },
     ]);
@@ -90,7 +94,7 @@ describe("the log-derived row projection", () => {
   it("draws nothing for an event type with no registered category", () => {
     const rows = rowsOf([
       runEvent(1, RUN_ONE),
-      event({ sequence: 2, kind: "run.definitely_not_registered" }),
+      event({ sequence: 2, kind: "agent.run.definitelyNotRegistered" }),
     ]);
 
     expect(rows).toHaveLength(1);
@@ -100,7 +104,7 @@ describe("the log-derived row projection", () => {
     const rows = rowsOf([
       event({
         sequence: 1,
-        kind: "run.rolled_back",
+        kind: "agent.run.rolledBack",
         // `targetPosition` is missing, so the boundary's cutoff is unknowable.
         payload: { sessionId: SESSION_ID, runId: RUN_ONE, runVersion: 6 },
         runStamp: { position: 1, epoch: 0 },
@@ -128,7 +132,7 @@ describe("which payload member names a row's run", () => {
   function interventionEvent(sequence: number, targetRunId: string): ProjectedSessionEvent {
     return event({
       sequence,
-      kind: "intervention.applied",
+      kind: "agent.intervention.applied",
       actorId: USER,
       payload: {
         sessionId: SESSION_ID,
@@ -147,7 +151,7 @@ describe("which payload member names a row's run", () => {
     const rows = rowsOf([
       runEvent(1, RUN_ONE),
       interventionEvent(2, RUN_ONE),
-      runEvent(3, RUN_ONE, "run.completed"),
+      runEvent(3, RUN_ONE, "agent.run.completed"),
     ]);
 
     expect(rows.map((row) => row.kind)).toStrictEqual(["run", "run", "run"]);
@@ -159,13 +163,13 @@ describe("which payload member names a row's run", () => {
   });
 
   it("attributes a child run to itself and never to the parent it names", () => {
-    // `run.queued` carries `parentRunId` beside its own `runId`; reading any run-naming member
+    // `agent.run.queued` carries `parentRunId` beside its own `runId`; reading any run-naming member
     // would file the child's rows in the parent's group. The contract's attributing list, which
     // omits that spelling, is what keeps it out at runtime.
     const rows = rowsOf([
       event({
         sequence: 1,
-        kind: "run.queued",
+        kind: "agent.run.queued",
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_TWO,

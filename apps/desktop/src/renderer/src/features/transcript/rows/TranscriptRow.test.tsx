@@ -64,7 +64,7 @@ function MountedInAList(props: { readonly row: TranscriptRowProps["row"] }): Rea
 describe("routing a row to its card", () => {
   it("gives a reasoning row the reasoning body rather than the machine body", () => {
     const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "assistant.thinking_update" })} />,
+      <MountedInAList row={sampleRunRow({ type: "agent.thinking.updated" })} />,
       { wrapper: LiveAnnouncerProvider },
     );
     expect(container.querySelector(".meridian-reasoning-surface")).not.toBeNull();

@@ -154,7 +154,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
   const entries: ScriptEntry[] = [
     {
       atMs: nextAtMs(),
-      kind: "user.message",
+      kind: "user.message.sent",
       // The payload's actor repeats the envelope's.
       actorId: USER_YOU,
       payload: {
@@ -200,7 +200,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
       }),
       lane.output(runId, {
         atMs: nextAtMs(),
-        kind: "assistant.thinking_update",
+        kind: "agent.thinking.updated",
         // The first reply's message, which Claude Code's thinking belongs to.
         providerMessageId: providerMessageIdOf(runId, 0),
         contentType: "text/plain",
@@ -215,7 +215,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
       entries.push(
         lane.output(runId, {
           atMs: nextAtMs(),
-          kind: "assistant.message",
+          kind: "agent.message.sent",
           providerMessageId: providerMessageIdOf(runId, replyIndex),
           contentType: "text/markdown",
           body: bodyOf(replyBlocks(turnIndex, agentIndex, replyIndex)),
@@ -229,10 +229,15 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
           `call-${String(turnIndex)}-${String(agentIndex)}-` +
           `${String(replyIndex)}-${String(toolIndex)}`;
         entries.push(
-          lane.tool(runId, { atMs: nextAtMs(), kind: "tool.invoked", toolName, toolCallId }),
           lane.tool(runId, {
             atMs: nextAtMs(),
-            kind: "tool.result",
+            kind: "agent.toolCall.invoked",
+            toolName,
+            toolCallId,
+          }),
+          lane.tool(runId, {
+            atMs: nextAtMs(),
+            kind: "agent.toolCall.completed",
             toolName,
             toolCallId,
             durationMs: 40 + ((seed * 37) % 900),
@@ -249,7 +254,6 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
           runVersion: 4,
           previousState: "running",
           newState: "completed",
-          completionKind: "turn",
         }),
       );
     }

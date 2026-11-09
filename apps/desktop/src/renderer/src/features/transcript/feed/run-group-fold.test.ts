@@ -20,6 +20,7 @@ import {
   type TranscriptWindowModel,
 } from "../window/transcript-window.js";
 import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 const SESSION_ID = "session-run-group-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -31,7 +32,7 @@ const RUN_GROUP_KEY = "run-group-folded-by-the-reader";
 function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
   return runLog(
     Array.from({ length: memberCount }, (_unused, index) =>
-      index === memberCount - 1 ? "run.completed" : "assistant.message",
+      index === memberCount - 1 ? "agent.run.completed" : "agent.message.sent",
     ),
   );
 }
@@ -74,7 +75,7 @@ describe("a long run's window in the outer list", () => {
 
   it("puts the window's rows in the outer list between its two edge lines", () => {
     const events = longRunEvents(120);
-    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
+    const model = deriveTranscriptWindow(events, runEntitiesOf(events), fixtureProviderNameOf);
     const runGroup = onlyRunGroupOf(model);
     const inputs = measuredRunWindowInputs(MEASURE);
     const fold = new RunGroupFold();
@@ -110,9 +111,13 @@ describe("a long run's window in the outer list", () => {
     const derivation = new TranscriptWindowDerivation();
     const inputs = measuredRunWindowInputs(MEASURE);
     const fold = new RunGroupFold();
-    fold.fold(derivation.derive(events.slice(0, 120), runEntitiesOf(events)), new Set(), inputs);
+    fold.fold(
+      derivation.derive(events.slice(0, 120), runEntitiesOf(events), fixtureProviderNameOf),
+      new Set(),
+      inputs,
+    );
 
-    const grownModel = derivation.derive(events, runEntitiesOf(events));
+    const grownModel = derivation.derive(events, runEntitiesOf(events), fixtureProviderNameOf);
     const grown = fold.fold(grownModel, new Set(), inputs);
     const whole = new RunGroupFold().fold(grownModel, new Set(), inputs);
 
@@ -147,20 +152,34 @@ describe("a person's fold stays with its stretch as the window around it moves",
     const log = oneRunLog(STRETCH_ROW_COUNT);
     const derivation = new TranscriptWindowDerivation();
     const folded = new Set([
-      onlyRunGroupKey(derivation.derive(log.slice(ROWS_OUTSIDE_THE_WINDOW), runEntitiesOf(log))),
+      onlyRunGroupKey(
+        derivation.derive(
+          log.slice(ROWS_OUTSIDE_THE_WINDOW),
+          runEntitiesOf(log),
+          fixtureProviderNameOf,
+        ),
+      ),
     ]);
 
-    expect(isFoldedAway(derivation.derive(log, runEntitiesOf(log)), folded)).toBe(true);
+    expect(
+      isFoldedAway(derivation.derive(log, runEntitiesOf(log), fixtureProviderNameOf), folded),
+    ).toBe(true);
   });
 
   it("stays folded when the stretch's first rows are let go", () => {
     const log = oneRunLog(STRETCH_ROW_COUNT);
     const derivation = new TranscriptWindowDerivation();
-    const folded = new Set([onlyRunGroupKey(derivation.derive(log, runEntitiesOf(log)))]);
+    const folded = new Set([
+      onlyRunGroupKey(derivation.derive(log, runEntitiesOf(log), fixtureProviderNameOf)),
+    ]);
 
     expect(
       isFoldedAway(
-        derivation.derive(log.slice(ROWS_OUTSIDE_THE_WINDOW), runEntitiesOf(log)),
+        derivation.derive(
+          log.slice(ROWS_OUTSIDE_THE_WINDOW),
+          runEntitiesOf(log),
+          fixtureProviderNameOf,
+        ),
         folded,
       ),
     ).toBe(true);
@@ -169,11 +188,11 @@ describe("a person's fold stays with its stretch as the window around it moves",
   // The run's reply, its running row that draws nothing, another agent's reply, then two more of
   // the run's replies: two stretches of the run, which the running row may sit in either of.
   const twoStretchLog = eventsOf([
-    { id: "reply-1", kind: "assistant.message", runId: RUN_ID },
-    { id: "running", kind: "run.running", runId: RUN_ID },
-    { id: "other-reply", kind: "assistant.message", runId: OTHER_RUN_ID },
-    { id: "reply-2", kind: "assistant.message", runId: RUN_ID },
-    { id: "reply-3", kind: "assistant.message", runId: RUN_ID },
+    { id: "reply-1", kind: "agent.message.sent", runId: RUN_ID },
+    { id: "running", kind: "agent.run.running", runId: RUN_ID },
+    { id: "other-reply", kind: "agent.message.sent", runId: OTHER_RUN_ID },
+    { id: "reply-2", kind: "agent.message.sent", runId: RUN_ID },
+    { id: "reply-3", kind: "agent.message.sent", runId: RUN_ID },
   ]);
 
   /** The key of the stretch `rowId` sits in, or throws where it sits in none. */
@@ -197,17 +216,20 @@ describe("a person's fold stays with its stretch as the window around it moves",
 
   it("keeps two stretches apart when pages land through a row that draws nothing", () => {
     const log = eventsOf([
-      { id: "reply-1", kind: "assistant.message", runId: RUN_ID },
-      { id: "other-reply", kind: "assistant.message", runId: OTHER_RUN_ID },
-      { id: "running", kind: "run.running", runId: RUN_ID },
-      { id: "reply-2", kind: "assistant.message", runId: RUN_ID },
+      { id: "reply-1", kind: "agent.message.sent", runId: RUN_ID },
+      { id: "other-reply", kind: "agent.message.sent", runId: OTHER_RUN_ID },
+      { id: "running", kind: "agent.run.running", runId: RUN_ID },
+      { id: "reply-2", kind: "agent.message.sent", runId: RUN_ID },
     ]);
     const derivation = new TranscriptWindowDerivation();
     const folded = new Set([
-      stretchKeyOf(derivation.derive(log.slice(3), runEntitiesOf(log)), "reply-2"),
+      stretchKeyOf(
+        derivation.derive(log.slice(3), runEntitiesOf(log), fixtureProviderNameOf),
+        "reply-2",
+      ),
     ]);
-    derivation.derive(log.slice(2), runEntitiesOf(log));
-    const model = derivation.derive(log, runEntitiesOf(log));
+    derivation.derive(log.slice(2), runEntitiesOf(log), fixtureProviderNameOf);
+    const model = derivation.derive(log, runEntitiesOf(log), fixtureProviderNameOf);
 
     // Both of the run's stretches and the other agent's reply each stand under a header.
     expect(model.runGroupByHeaderKey.size).toBe(3);
@@ -216,10 +238,18 @@ describe("a person's fold stays with its stretch as the window around it moves",
 
   it("keeps a fold on its stretch when an earlier stretch of the run is let go", () => {
     const derivation = new TranscriptWindowDerivation();
-    const whole = derivation.derive(twoStretchLog, runEntitiesOf(twoStretchLog));
+    const whole = derivation.derive(
+      twoStretchLog,
+      runEntitiesOf(twoStretchLog),
+      fixtureProviderNameOf,
+    );
     const foldedEarlier = new Set([stretchKeyOf(whole, "reply-1")]);
     const foldedLater = new Set([stretchKeyOf(whole, "reply-2")]);
-    const released = derivation.derive(twoStretchLog.slice(1), runEntitiesOf(twoStretchLog));
+    const released = derivation.derive(
+      twoStretchLog.slice(1),
+      runEntitiesOf(twoStretchLog),
+      fixtureProviderNameOf,
+    );
 
     expect(foldedAwayRowIds(released, foldedLater)).toStrictEqual([
       "running",
@@ -233,28 +263,44 @@ describe("a person's fold stays with its stretch as the window around it moves",
     const derivation = new TranscriptWindowDerivation();
     const folded = new Set([
       stretchKeyOf(
-        derivation.derive(twoStretchLog.slice(1), runEntitiesOf(twoStretchLog)),
+        derivation.derive(
+          twoStretchLog.slice(1),
+          runEntitiesOf(twoStretchLog),
+          fixtureProviderNameOf,
+        ),
         "reply-2",
       ),
     ]);
 
     expect(
-      foldedAwayRowIds(derivation.derive(twoStretchLog, runEntitiesOf(twoStretchLog)), folded),
+      foldedAwayRowIds(
+        derivation.derive(twoStretchLog, runEntitiesOf(twoStretchLog), fixtureProviderNameOf),
+        folded,
+      ),
     ).toStrictEqual(["reply-2", "reply-3"]);
   });
 });
 
 describe("a run with nothing drawn has no header", () => {
   it("stands no header over a run until its first card, then one above that card", () => {
-    const log = runLog(["run.queued", "run.running", "assistant.message", "run.completed"]);
+    const log = runLog([
+      "agent.run.queued",
+      "agent.run.running",
+      "agent.message.sent",
+      "agent.run.completed",
+    ]);
 
-    const started = deriveTranscriptWindow(log.slice(0, 2), runEntitiesOf(log));
+    const started = deriveTranscriptWindow(
+      log.slice(0, 2),
+      runEntitiesOf(log),
+      fixtureProviderNameOf,
+    );
     expect(started.runGroupByHeaderKey.size).toBe(0);
     expect(
       new RunGroupFold().fold(started, new Set(), wholeRunWindowInputs()).window.viewportRows,
     ).toStrictEqual(started.viewportRows);
 
-    const replied = deriveTranscriptWindow(log, runEntitiesOf(log));
+    const replied = deriveTranscriptWindow(log, runEntitiesOf(log), fixtureProviderNameOf);
     const keys = new RunGroupFold()
       .fold(replied, new Set(), wholeRunWindowInputs())
       .window.viewportRows.map((row) => row.key);

@@ -8,8 +8,7 @@ import {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The one session every fixture row belongs to. */
@@ -38,7 +37,7 @@ export function runRow(
 }
 
 /**
- * A person's message on the `general` arm, its payload the `user.message` shape the row's body
+ * A person's message on the `general` arm, its payload the `user.message.sent` shape the row's body
  * and Find read the message from.
  */
 export function userMessageRow(input: {
@@ -49,13 +48,13 @@ export function userMessageRow(input: {
   return generalRow({
     id: input.id,
     sequence: input.sequence,
-    type: "user.message",
-    category: "interactive_request",
+    type: "user.message.sent",
+    category: "interactiveRequest",
     payload: { sessionId: FIXTURE_SESSION_ID, actor: "user", message: input.message },
   });
 }
 
-/** The `rollback_boundary` arm, whose payload is the typed `RunRolledBackEvent`. */
+/** The `rollbackBoundary` arm, whose payload is the typed `AgentRunRolledBackEvent`. */
 export function rollbackBoundaryRow(
   input: Omit<FixtureRowInput, "type" | "category"> & {
     readonly runId: string;
@@ -72,7 +71,7 @@ export function rollbackBoundaryRow(
     ...commonFields({ ...input, type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE }),
     category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
     type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
-    kind: "rollback_boundary",
+    kind: "rollbackBoundary",
     runId: input.runId as RunId,
     position: input.position,
     epoch: 0,
@@ -111,7 +110,7 @@ function commonFields(input: FixtureRowInput): {
   readonly cursor: EventCursor;
   readonly category: EventCategory;
   readonly type: string;
-  readonly actor: string | undefined;
+  readonly actor?: string;
   readonly timestamp: string;
 } {
   return {
@@ -119,9 +118,9 @@ function commonFields(input: FixtureRowInput): {
     sessionId: FIXTURE_SESSION_ID,
     sequence: input.sequence,
     cursor: `cursor-at-${String(input.sequence)}` as EventCursor,
-    category: input.category ?? "run_lifecycle",
+    category: input.category ?? "runLifecycle",
     type: input.type,
-    actor: input.actor,
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
     timestamp: input.timestamp ?? fixtureTimestamp(input.sequence),
   };
 }

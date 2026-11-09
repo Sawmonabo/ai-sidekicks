@@ -77,7 +77,7 @@ export function openSessionStoreWithPaneLog(): SessionStore {
       sessionId: TRANSCRIPT_PANE_SESSION_ID,
       sequence: 1,
       cursor: "cursor-at-1",
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: "2026-01-01T11:05:01.000Z",
       payload: {
         sessionId: TRANSCRIPT_PANE_SESSION_ID,

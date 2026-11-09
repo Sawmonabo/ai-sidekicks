@@ -19,6 +19,7 @@ import {
   transcriptFixtureStreamCursor,
 } from "../../logs.test-support.js";
 import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /** Long enough to walk past a shorter window, short enough to enumerate. */
 const LOG_EVENT_COUNT = 10;
@@ -32,7 +33,7 @@ function syntheticEventLog(count: number): readonly ProjectedSessionEvent[] {
     sessionId: "session-find",
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index),
-    kind: "user.message",
+    kind: "user.message.sent",
     occurredAt: transcriptFixtureStampAt(index),
     payload: {
       sessionId: "session-find",
@@ -197,5 +198,5 @@ describe("the find field's own open act", () => {
 // The window of a synthetic log of `count` events, its run groups reading the log's own facts.
 function windowOfSyntheticLog(count: number): TranscriptWindowModel {
   const events = syntheticEventLog(count);
-  return deriveTranscriptWindow(events, runEntitiesOf(events));
+  return deriveTranscriptWindow(events, runEntitiesOf(events), fixtureProviderNameOf);
 }

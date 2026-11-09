@@ -150,7 +150,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   {
     atMs: 280,
-    kind: "user.message",
+    kind: "user.message.sent",
     // The payload's actor repeats the envelope's.
     actorId: USER_YOU,
     payload: {
@@ -186,27 +186,27 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 520,
-    kind: "assistant.thinking_update",
+    kind: "agent.thinking.updated",
     providerMessageId: "msg_implementer_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 0),
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
-    kind: "assistant.message",
+    kind: "agent.message.sent",
     providerMessageId: "msg_implementer_1",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 1), blockAt(BODY_BLOCKS, 3)]),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 760,
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 900,
-    kind: "tool.result",
+    kind: "agent.toolCall.completed",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
     durationMs: 140,
@@ -239,14 +239,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   lane.output(RUN_REVIEWER, {
     atMs: 1_180,
-    kind: "assistant.message",
+    kind: "agent.message.sent",
     providerMessageId: "item-reviewer-message-1",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 3), blockAt(BODY_BLOCKS, 9)]),
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_240,
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     toolName: "run_tests",
     toolCallId: REVIEWER_TOOL_CALL_ID,
   }),
@@ -257,21 +257,21 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   // so one beat could not show that.
   lane.subagent(RUN_REVIEWER, {
     atMs: 1_300,
-    kind: "subagent.started",
+    kind: "agent.subagent.started",
     provider: REVIEWER_PROVIDER,
     subagentId: SUBAGENT_REVIEWER,
     parentToolCallId: REVIEWER_TOOL_CALL_ID,
   }),
   lane.subagent(RUN_REVIEWER, {
     atMs: 1_380,
-    kind: "subagent.completed",
+    kind: "agent.subagent.completed",
     provider: REVIEWER_PROVIDER,
     subagentId: SUBAGENT_REVIEWER,
     parentToolCallId: REVIEWER_TOOL_CALL_ID,
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_420,
-    kind: "tool.error",
+    kind: "agent.toolCall.failed",
     toolName: "run_tests",
     toolCallId: REVIEWER_TOOL_CALL_ID,
     durationMs: 180,
@@ -294,7 +294,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   {
     atMs: 2_100,
-    kind: "usage.context_compacted",
+    kind: "agent.run.context.compacted",
     // The compaction seam. `usage.context_compacted` has no strict payload variant in
     // `packages/contracts`, so the beat carries only the two members every run-scoped payload
     // has, and the seam's boundary position is not here.
@@ -331,7 +331,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   lane.output(RUN_ARCHITECT, {
     atMs: 2_540,
-    kind: "assistant.thinking_update",
+    kind: "agent.thinking.updated",
     providerMessageId: "msg_architect_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 5),
@@ -349,7 +349,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   {
     atMs: 2_600,
-    kind: "run.rolled_back",
+    kind: "agent.run.rolledBack",
     // `RunRolledBackEvent`'s members (`packages/contracts/src/run/control.ts`): the
     // post-rollback progression value and the turn boundary the run landed at, which the
     // superseded turns above it are measured against.
@@ -375,21 +375,21 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 2_700,
-    kind: "assistant.message",
+    kind: "agent.message.sent",
     providerMessageId: "msg_implementer_2",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
   }),
   lane.output(RUN_ARCHITECT_CHILD, {
     atMs: 2_740,
-    kind: "assistant.thinking_update",
+    kind: "agent.thinking.updated",
     providerMessageId: "msg_architect_child_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 7),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_820,
-    kind: "tool.invoked",
+    kind: "agent.toolCall.invoked",
     toolName: "read_file",
     toolCallId: "call-implementer-2",
   }),
@@ -397,12 +397,12 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 2_860,
     // The compaction inside the child folds the provider's context, not the session's log, so
     // the child's summary stays whole across it.
-    kind: "usage.context_compacted",
+    kind: "agent.run.context.compacted",
     payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD },
   },
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_900,
-    kind: "tool.result",
+    kind: "agent.toolCall.completed",
     toolName: "read_file",
     toolCallId: "call-implementer-2",
     durationMs: 62,
@@ -413,18 +413,16 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "completed",
-    completionKind: "turn",
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 2_980,
     runVersion: 7,
     previousState: "running",
     newState: "completed",
-    completionKind: "turn",
   }),
   lane.output(RUN_ARCHITECT, {
     atMs: 3_060,
-    kind: "assistant.message",
+    kind: "agent.message.sent",
     providerMessageId: "msg_architect_2",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 9), blockAt(BODY_BLOCKS, 27)]),

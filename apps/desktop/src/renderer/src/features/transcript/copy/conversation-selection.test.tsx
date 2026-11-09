@@ -189,7 +189,7 @@ describe("a selection across the conversation", () => {
     }
     const ran = sampleRunRow({
       id: "ran",
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       actor: "Claude",
       payload: { toolName: "bash", contentLength: "first line\n  second line".length },
       content: { status: "available", body: "first line\n  second line" },
@@ -238,7 +238,7 @@ describe("a selection across the conversation", () => {
     const output = "first line\n  second line";
     const ran = sampleRunRow({
       id: "ran",
-      type: "tool.result",
+      type: "agent.toolCall.completed",
       actor: "Claude",
       payload: { toolName: "bash", contentLength: LARGE_OUTPUT_BYTES },
       content: { status: "large", contentLength: LARGE_OUTPUT_BYTES },
@@ -289,7 +289,7 @@ describe("a selection across the conversation", () => {
     giveEverySliceTime();
     const reply = sampleRunRow({
       id: "replies",
-      type: "assistant.message",
+      type: "agent.message.sent",
       content: { status: "available", body: "Run it:\n\n```ts\nconst a = 1;\n```\n" },
     });
     const replyKind = classifyTranscriptRow(reply);

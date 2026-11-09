@@ -2,7 +2,6 @@
 // ranks.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-import type { TranscriptLargeBody } from "@ai-sidekicks/contracts/transcript/content";
 import { describe, expect, it } from "vitest";
 
 import { classifyTranscriptRow, toolResultState } from "./kind.js";
@@ -10,18 +9,6 @@ import { sampleGeneralRow, sampleRunRow } from "#test/helpers/transcript/event-r
 import { projectedContentOf } from "#renderer/store/session/entities/projected-content.js";
 
 const AVAILABLE_BODY = projectedContentOf({ status: "available", body: "done" });
-const TRUNCATED_BODY = projectedContentOf({
-  status: "available",
-  body: "don",
-  contentLength: 4096,
-  contentTruncated: true,
-});
-/** A cut output too large to travel with its row, as almost every cut one is. */
-const LARGE_TRUNCATED_BODY: TranscriptLargeBody = {
-  status: "large",
-  contentLength: 400_000,
-  contentTruncated: true,
-};
 const ABSENT_BODY: HydratedSessionEventContent = {
   status: "unavailable",
   reason: "absent",
@@ -30,24 +17,20 @@ const ABSENT_BODY: HydratedSessionEventContent = {
 describe("the row kind classifier", () => {
   it("gives every other event type no row kind", () => {
     expect(classifyTranscriptRow(sampleGeneralRow({ type: "session.created" }))).toBeUndefined();
-    expect(classifyTranscriptRow(sampleRunRow({ type: "run.queued" }))).toBeUndefined();
+    expect(classifyTranscriptRow(sampleRunRow({ type: "agent.run.queued" }))).toBeUndefined();
   });
 });
 
 describe("the tool result state", () => {
   it("ranks a tool error above every body condition", () => {
-    // A truncated error is still an error, and a collapsed row may not hide one.
-    expect(toolResultState("tool.error", TRUNCATED_BODY)).toBe("error");
-    expect(toolResultState("tool.error", ABSENT_BODY)).toBe("error");
-    expect(toolResultState("tool.error", undefined)).toBe("error");
+    // A collapsed row may not hide an error, whatever its body.
+    expect(toolResultState("agent.toolCall.failed", AVAILABLE_BODY)).toBe("error");
+    expect(toolResultState("agent.toolCall.failed", ABSENT_BODY)).toBe("error");
+    expect(toolResultState("agent.toolCall.failed", undefined)).toBe("error");
   });
 
   it("tells an unreadable body from a successful one", () => {
-    expect(toolResultState("tool.result", ABSENT_BODY)).toBe("body-unavailable");
-    expect(toolResultState("tool.result", AVAILABLE_BODY)).toBe("ok");
-  });
-
-  it("says a cut output was cut when its row carries only the output's size", () => {
-    expect(toolResultState("tool.result", LARGE_TRUNCATED_BODY)).toBe("truncated");
+    expect(toolResultState("agent.toolCall.completed", ABSENT_BODY)).toBe("body-unavailable");
+    expect(toolResultState("agent.toolCall.completed", AVAILABLE_BODY)).toBe("ok");
   });
 });

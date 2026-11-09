@@ -10,11 +10,11 @@ import { subscribeToSessionEventKinds } from "./signal.js";
 const SESSION_ID = "session-signal";
 
 function runRowAt(sequence: number): ReturnType<typeof eventOfKind> {
-  return eventOfKind(SESSION_ID, "run.starting", sequence);
+  return eventOfKind(SESSION_ID, "agent.run.starting", sequence);
 }
 
 function watchedRowAt(sequence: number): ReturnType<typeof eventOfKind> {
-  return eventOfKind(SESSION_ID, "workspace.ready", sequence);
+  return eventOfKind(SESSION_ID, "workspace.prepared", sequence);
 }
 
 describe("subscribeToSessionEventKinds", () => {
@@ -41,7 +41,7 @@ describe("subscribeToSessionEventKinds", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ shape: "project", cursor: 5, entities: [] });
     let signals = 0;
-    const unsubscribe = subscribeToSessionEventKinds(store, ["workspace.ready"], () => {
+    const unsubscribe = subscribeToSessionEventKinds(store, ["workspace.prepared"], () => {
       signals += 1;
     });
     store.applyBatch([runRowAt(6), runRowAt(8)]);

@@ -10,7 +10,7 @@
 // edge. A failed read toward the tail or inside the window stands on the session's catch-up line,
 // whose `Try again` sends it again.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import type { Unsubscribe } from "#shared/preload-api.js";

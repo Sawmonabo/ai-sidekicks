@@ -3,24 +3,30 @@
 // decides which run a beat mutates; this changes when the wire's members do. It imports nothing
 // of the session store or the event envelope.
 
-import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
+import type { AgentRunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type {
-  RunProviderInitializedPayload,
-  RunTurnStartedPayload,
-  RunWorkerShutdownPayload,
+  AgentRunProviderInitializedPayload,
+  AgentRunWorkerShuttingDownPayload,
+  AgentTurnStartedPayload,
 } from "@ai-sidekicks/contracts/run/events";
-import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
+import type {
+  AgentRunRolledBackEvent,
+  RunStateChangeEvent,
+} from "@ai-sidekicks/contracts/run/control";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { readWireNumber, readWireString } from "#renderer/lib/wire/strings.js";
 import { RUN_QUEUED_EVENT_KIND } from "./state-kinds.js";
 
+/** Every member any arm of a payload union names, where `keyof` alone keeps only the shared ones. */
+type MemberNameOf<TPayload> = TPayload extends unknown ? keyof TPayload : never;
+
 /** Every member either registered run shape names. */
-type RegisteredRunMemberName = keyof RunStateChangeEvent | keyof RunRolledBackEvent;
+type RegisteredRunMemberName = MemberNameOf<RunStateChangeEvent> | keyof AgentRunRolledBackEvent;
 
 /**
- * Every member the durable `run_lifecycle` payload carries: the registered keys minus `runId`
+ * Every member the durable `runLifecycle` payload carries: the registered keys minus `runId`
  * (the entity's id), `sessionId` and `timestamp` (envelope), plus `agentId`.
  */
 type DurableRunMemberName =
@@ -38,13 +44,13 @@ type WireMemberReaderName = "string" | "number" | "boolean" | "object";
 const RUN_BODY_MEMBER_READERS = {
   /** The run aggregate's progression counter. */
   runVersion: "number",
-  /** The state the run left, absent on `run.queued` and on the non-state kinds. */
+  /** The state the run left, absent on `agent.run.queued` and on the non-state kinds. */
   previousState: "string",
   /** The state the run entered. Absent on the four forward, non-state kinds. */
   newState: "string",
-  /** The agent the run was created for, carried by `run.queued`. */
+  /** The agent the run was created for, carried by `agent.run.queued`. */
   agentId: "string",
-  /** The turn-boundary anchor a rollback landed at, off `run.rolled_back`. */
+  /** The turn-boundary anchor a rollback landed at, off `agent.run.rolledBack`. */
   targetPosition: "number",
   failureCategory: "string",
   /** Why a provider refused the run, carried whole on a failed run's beat. */
@@ -53,21 +59,20 @@ const RUN_BODY_MEMBER_READERS = {
   providerFailureDetail: "string",
   /** How a provider process that ended on its own exited, carried whole on a failed run's beat. */
   processExit: "object",
-  completionKind: "string",
   intendedClose: "boolean",
-  /** Stamped on `run.running`, where the resolved root and posture are final. */
+  /** Stamped on `agent.run.running`, where the resolved root and posture are final. */
   executionPosture: "object",
   /** The stop reason that ended the run, such as a step or spend limit. */
   trigger: "string",
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 
 /**
- * The members `run.queued` declares beyond the two stream shapes. `resolvedAgent` is the
+ * The members `agent.run.queued` declares beyond the two stream shapes. `resolvedAgent` is the
  * agent's record, not the run's; only its id reaches the body, as `agentId`. The admitted account
  * is one of the run's facts, which `facts.ts` keeps.
  */
 type RunQueuedOwnMemberName = Exclude<
-  keyof RunQueuedPayload,
+  MemberNameOf<AgentRunQueuedPayload>,
   RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent" | "admittedProviderAccountId"
 >;
 
@@ -83,7 +88,10 @@ type RunMarkerOwnMemberName<TPayload> = Exclude<
  */
 type RunKindWithPerTypeMembers = Extract<
   SessionEventType,
-  "run.queued" | "run.provider_initialized" | "run.turn_started" | "run.worker_shutdown"
+  | "agent.run.queued"
+  | "agent.run.providerInitialized"
+  | "agent.turn.started"
+  | "agent.run.workerShuttingDown"
 >;
 
 /**
@@ -92,31 +100,41 @@ type RunKindWithPerTypeMembers = Extract<
  *
  * Per type rather than merged into the table above: each row has its own payload shape, so a
  * flat table would read `provider` or `position` off any run beat that spelled it. A member
- * either `run.subscribeState` shape declares belongs in the derived table.
+ * either `agent.run.subscribe` shape declares belongs in the derived table.
  */
 const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
   Record<RunKindWithPerTypeMembers, Readonly<Record<string, WireMemberReaderName>>>
 > = Object.freeze({
-  "run.queued": Object.freeze({
+  "agent.run.queued": Object.freeze({
     parentRunId: "string",
-    isApart: "boolean",
+    // A provider's own helper the run starts, carried whole as its creation names it.
+    providerChild: "object",
     admittedModelFamily: "string",
     reachedBy: "string",
     effectiveRunConfig: "object",
   } satisfies Record<RunQueuedOwnMemberName, WireMemberReaderName>),
   // The provider's initialization report, which names the provider and model the run uses.
-  "run.provider_initialized": Object.freeze({
+  "agent.run.providerInitialized": Object.freeze({
     provider: "string",
     model: "string",
-  } satisfies Record<RunMarkerOwnMemberName<RunProviderInitializedPayload>, WireMemberReaderName>),
-  // The normalized session position, absent where the provider wire supplies none.
-  "run.turn_started": Object.freeze({
+  } satisfies Record<
+    RunMarkerOwnMemberName<AgentRunProviderInitializedPayload>,
+    WireMemberReaderName
+  >),
+  // The turn's number, its normalized session position, absent where the provider wire supplies
+  // none, and the provider's own id for the turn.
+  "agent.turn.started": Object.freeze({
+    turnNumber: "number",
     position: "number",
-  } satisfies Record<RunMarkerOwnMemberName<RunTurnStartedPayload>, WireMemberReaderName>),
+    providerTurnId: "string",
+  } satisfies Record<RunMarkerOwnMemberName<AgentTurnStartedPayload>, WireMemberReaderName>),
   // The sanitized shutdown reason a mid-run worker signal carries.
-  "run.worker_shutdown": Object.freeze({
+  "agent.run.workerShuttingDown": Object.freeze({
     reason: "string",
-  } satisfies Record<RunMarkerOwnMemberName<RunWorkerShutdownPayload>, WireMemberReaderName>),
+  } satisfies Record<
+    RunMarkerOwnMemberName<AgentRunWorkerShuttingDownPayload>,
+    WireMemberReaderName
+  >),
 });
 
 /** The reader table for a kind that registers no members of its own. */

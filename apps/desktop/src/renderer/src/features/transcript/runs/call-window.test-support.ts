@@ -28,8 +28,8 @@ export function longRunEvents(eventCount: number): readonly ProjectedSessionEven
     cursor: transcriptFixtureStreamCursor(index),
     kind:
       index % LONG_RUN_UNDRAWN_INTERVAL === LONG_RUN_UNDRAWN_INTERVAL - 1
-        ? "run.running"
-        : "tool.invoked",
+        ? "agent.run.running"
+        : "agent.toolCall.invoked",
     occurredAt: transcriptFixtureStampAt(index),
     payload: {
       sessionId: SESSION_ID,
@@ -43,7 +43,7 @@ export function longRunEvents(eventCount: number): readonly ProjectedSessionEven
 
 /** The ids of the tool calls among `events`: the run's drawn calls, in order. */
 export function longRunCallIds(events: readonly ProjectedSessionEvent[]): readonly string[] {
-  return events.filter((event) => event.kind === "tool.invoked").map((event) => event.id);
+  return events.filter((event) => event.kind === "agent.toolCall.invoked").map((event) => event.id);
 }
 
 /** A store holding the first `eventCount` events of the long run. */

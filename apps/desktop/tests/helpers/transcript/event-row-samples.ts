@@ -4,9 +4,8 @@
 // all-or-none; a literal could write a row the projector never emits.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/row";
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
@@ -70,7 +69,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): ProjectedTrans
     sessionId: SAMPLE_SESSION_ID,
     sequence: 1,
     cursor: "cursor-at-1" as EventCursor,
-    category: "run_lifecycle",
+    category: "runLifecycle",
     type: overrides.type ?? "assistant.message",
     timestamp: overrides.timestamp ?? SAMPLE_RUN_ROW_TIMESTAMP,
     payload: { ...overrides.payload },
@@ -101,7 +100,7 @@ export function sampleGeneralRow(overrides: SampleRowOverrides = {}): ProjectedT
     sessionId: SAMPLE_SESSION_ID,
     sequence: 2,
     cursor: "cursor-at-2" as EventCursor,
-    category: "session_lifecycle",
+    category: "sessionLifecycle",
     type: overrides.type ?? "session.created",
     timestamp: overrides.timestamp ?? "2026-09-02T10:00:01.000Z",
     payload: { ...overrides.payload },

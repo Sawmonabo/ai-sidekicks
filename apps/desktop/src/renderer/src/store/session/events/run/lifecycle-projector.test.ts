@@ -1,13 +1,15 @@
 // The `run` partition, driven by the real scenarios through the real store. Every scenario's run
 // beats reach the partition through the shipped apply path with no degradation; the fold keeps
-// what an earlier event named (`run.queued` alone carries `agentId`, so a wholesale replace would
+// what an earlier event named (`agent.run.queued` alone carries `agentId`, so a wholesale replace would
 // lose the agent on the next transition); and a beat whose state or session disagrees with its
 // envelope writes nothing. The body's members are covered in
 // `lifecycle-projector.body.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
-import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
+import { validateAgentRunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
+
+import { checkedValue } from "#test/helpers/checked-value.js";
 
 import { SCENARIOS } from "#fixtures/index.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
@@ -84,15 +86,15 @@ describe("the concurrent-streaming scenario's run, folded", () => {
   const concurrentStreaming = CONCURRENT_STREAMING_SCENARIO;
 
   it("keeps the agent the queued beat named across the next transition", () => {
-    const queued = firstBeatOfKind(concurrentStreaming, "run.queued");
+    const queued = firstBeatOfKind(concurrentStreaming, "agent.run.queued");
     const runId = queued.payload?.["runId"];
     expect(typeof runId).toBe("string");
 
     // The last transition of that run, read from the script: the scenario streams for many
-    // beats after `run.starting`, so naming that kind would test the script's length.
+    // beats after `agent.run.starting`, so naming that kind would test the script's length.
     const lastTransition = concurrentStreaming.beats
       .map((beat) => beat.event)
-      .filter((event) => event.payload?.["runId"] === runId && event.kind.startsWith("run."))
+      .filter((event) => event.payload?.["runId"] === runId && event.kind.startsWith("agent.run."))
       .at(-1);
     expect(lastTransition).toBeDefined();
     if (lastTransition === undefined) {
@@ -104,7 +106,7 @@ describe("the concurrent-streaming scenario's run, folded", () => {
 
     // The body keeps the agent only the first beat named; that beat names an agent already in
     // the session or one it starts from a definition.
-    const creation = RunQueuedPayloadSchema.parse(queued.payload);
+    const creation = checkedValue(validateAgentRunQueuedPayload, queued.payload);
     const queuedAgentId = creation.agentId ?? creation.resolvedAgent?.agentId;
     expect(queuedAgentId).toBeDefined();
     expect(run?.state).toBe(lastTransition.payload?.["newState"]);
@@ -154,17 +156,17 @@ describe("the projector on a payload that does not carry its kind's state", () =
   it("answers with no mutation when the payload names a state the kind does not", () => {
     // Nothing above the fold rejects a beat reporting two states. Storing the payload's reading
     // would show a failed run under a kind the transcript renders as running.
-    expect(projectRunLifecycleEvent(runBeat("run.running", payloadNaming("failed")))).toStrictEqual(
-      [],
-    );
+    expect(
+      projectRunLifecycleEvent(runBeat("agent.run.running", payloadNaming("failed"))),
+    ).toStrictEqual([]);
   });
 
   it("leaves the run exactly as it was for a transition beat naming no state", () => {
-    // Upserting a stateless `run.running` would advance `touchedAt` and land its body members
+    // Upserting a stateless `agent.run.running` would advance `touchedAt` and land its body members
     // while the state stayed `starting`; the beat must contribute nothing.
-    const starting = runBeat("run.starting", payloadNaming("starting"));
+    const starting = runBeat("agent.run.starting", payloadNaming("starting"));
     const statelessRunning: ProjectedSessionEvent = {
-      ...runBeat("run.running", {
+      ...runBeat("agent.run.running", {
         sessionId: SYNTHETIC_SESSION_ID,
         runId: "run-1",
         runVersion: 6,
@@ -192,7 +194,7 @@ describe("the projector on a payload that names another session", () => {
     // subscription arrives well-formed and would write B's run into A's partition.
     expect(
       projectRunLifecycleEvent(
-        runBeat("run.running", {
+        runBeat("agent.run.running", {
           sessionId: OTHER_SESSION_ID,
           runId: "run-1",
           runVersion: 5,

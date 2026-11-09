@@ -1,12 +1,15 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   useSessionPartition,
   useSessionStore,
 } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
+import { providerNameOf } from "#renderer/store/providers/name.js";
 import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type RunEntitiesByRunId } from "../../runs/groups.js";
+import { type ProviderNameOf } from "../../system-messages/kinds.js";
 import { TranscriptWindowDerivation, type TranscriptWindowModel } from "../transcript-window.js";
 
 /** One session's unfurled window, and the derivation that keeps it across the store's revisions. */
@@ -19,6 +22,8 @@ export interface TranscriptProjection {
    * transcript derived before the feed's render is not derived again in it.
    */
   readonly derivation: TranscriptWindowDerivation;
+  /** A provider's name from the served provider list, which the window's system messages read. */
+  readonly providerNameOf: ProviderNameOf;
 }
 
 /**
@@ -31,13 +36,19 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptP
   const transcript = useSessionStore(sessionStore, selectTranscript);
   const runEntities = useSessionPartition(sessionStore, "run");
   const heldDerivation = derivationOf(sessionStore);
+  const providerSections = useProviderSections();
+  const nameOfProvider = useCallback<ProviderNameOf>(
+    (providerId) => providerNameOf(providerSections, providerId),
+    [providerSections],
+  );
   return useMemo(
     () => ({
-      unfurledWindow: heldDerivation.derive(transcript, runEntities),
+      unfurledWindow: heldDerivation.derive(transcript, runEntities, nameOfProvider),
       runEntities,
       derivation: heldDerivation,
+      providerNameOf: nameOfProvider,
     }),
-    [transcript, runEntities, heldDerivation],
+    [transcript, runEntities, heldDerivation, nameOfProvider],
   );
 }
 

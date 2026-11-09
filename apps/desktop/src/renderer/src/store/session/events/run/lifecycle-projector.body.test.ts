@@ -57,7 +57,7 @@ describe("the registered payload members the body carries", () => {
     // Carried whole and unparsed.
     expect(
       bodyOf(
-        runEvent("run.running", {
+        runEvent("agent.run.running", {
           runId: "run-1",
           runVersion: 3,
           previousState: "starting",
@@ -77,7 +77,7 @@ describe("the registered payload members the body carries", () => {
     // The row names its agent inside `resolvedAgent`; reading only `agentId` leaves it unbound.
     expect(
       bodyOf(
-        runEvent("run.queued", {
+        runEvent("agent.run.queued", {
           runId: "run-1",
           runVersion: 1,
           newState: "queued",
@@ -90,7 +90,7 @@ describe("the registered payload members the body carries", () => {
   it("reads a wrong-shaped member as absent rather than carrying it", () => {
     // The store merges by spread, so a present `undefined` would erase earlier state.
     const body = bodyOf(
-      runEvent("run.queued", {
+      runEvent("agent.run.queued", {
         runId: "run-1",
         newState: "queued",
         executionPosture: ["not", "an", "object"],

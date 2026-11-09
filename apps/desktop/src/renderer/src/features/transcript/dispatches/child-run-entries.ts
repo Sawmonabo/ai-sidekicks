@@ -7,7 +7,7 @@ import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-r
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
-// The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
+// The one open-payload reader; it answers the `rollbackBoundary` arm's typed payload with an
 // empty record.
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
@@ -19,7 +19,10 @@ import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vo
  * wire union so a member the contract does not register fails to compile rather than match no
  * row.
  */
-const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = ["subagent.started", "subagent.completed"];
+const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = [
+  "agent.subagent.started",
+  "agent.subagent.completed",
+];
 
 /** One row that carries a summarized child run. */
 export interface ChildRunEntry {
@@ -147,8 +150,8 @@ export class ChildRunIndex {
   }
 
   // A row qualifies on its `type` alone: one carrying handoff members under another type is not a
-  // handoff, since the projection decides the set. A `subagent.started` and its
-  // `subagent.completed` are one handoff observed twice; the anchor index picks the row it is
+  // handoff, since the projection decides the set. An `agent.subagent.started` and its
+  // `agent.subagent.completed` are one handoff observed twice; the anchor index picks the row it is
   // drawn at, and a row naming no subagent draws its own entry.
   #admitHandoff(row: ProjectedTranscriptRow): void {
     // `some` rather than `includes`: `type` is the free-form contract string, the table is the

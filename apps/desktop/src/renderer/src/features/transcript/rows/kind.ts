@@ -4,6 +4,9 @@
 // Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { TOOL_CALL_OPENING_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/row";
+import { USER_MESSAGE_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import type { GlyphName } from "#renderer/styles/glyphs.js";
@@ -69,17 +72,20 @@ const DESCRIPTORS_BY_ROW_KIND: { readonly [TKind in TranscriptRowKind]: Descript
 /**
  * Which row kind each body-bearing event type takes.
  *
- * Keyed by exact type, not prefix: a prefix would silently absorb a later `tool.*` type nobody
- * has looked at.
+ * Keyed by exact type, not prefix: a prefix would silently absorb a later `agent.toolCall.*` type
+ * nobody has looked at.
  */
+/** The type of the event a failed tool call ends in. */
+const TOOL_CALL_FAILED_EVENT_TYPE = "agent.toolCall.failed" satisfies SessionEventType;
+
 const ROW_KIND_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
-  ["user.message", "user-message"],
-  ["assistant.message", "agent-message"],
-  ["assistant.thinking_update", "thinking"],
-  ["tool.invoked", "tool-call"],
-  ["tool.result", "tool-call"],
-  ["tool.error", "tool-call"],
-] satisfies readonly (readonly [string, TranscriptRowKind])[]);
+  [USER_MESSAGE_EVENT_TYPE, "user-message"],
+  ["agent.message.sent", "agent-message"],
+  ["agent.thinking.updated", "thinking"],
+  [TOOL_CALL_OPENING_EVENT_TYPE, "tool-call"],
+  ["agent.toolCall.completed", "tool-call"],
+  [TOOL_CALL_FAILED_EVENT_TYPE, "tool-call"],
+] satisfies readonly (readonly [SessionEventType, TranscriptRowKind])[]);
 
 /**
  * The kind this row belongs to, or `undefined` for a type this table does not name.
@@ -112,13 +118,7 @@ export function isFoldableCall(row: ProjectedTranscriptRow, hasLiveText: boolean
  * The states a tool row reports. Closed; the enumeration lives beside the function that decides
  * between them.
  */
-export const TOOL_RESULT_STATES = [
-  "running",
-  "ok",
-  "error",
-  "truncated",
-  "body-unavailable",
-] as const;
+export const TOOL_RESULT_STATES = ["running", "ok", "error", "body-unavailable"] as const;
 
 /** One tool result state. Derived from the enumeration, never restated. */
 export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
@@ -126,26 +126,19 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
 /**
  * What a tool row's header reports, from its event type and the body its row carries.
  *
- * `tool.error` outranks every body condition: a collapsed row must not hide a failure, and a
- * truncated error is still an error. Below that the body's condition decides, because a body
- * that could not be read is not the same fact as a result that succeeded.
+ * A failed call outranks every body condition: a collapsed row must not hide a failure. Below
+ * that the body's condition decides, because a body that could not be read is not the same fact as
+ * a result that succeeded.
  */
 export function toolResultState(
   eventType: string,
   content: ProjectedRowContent | undefined,
 ): ToolResultState {
-  if (eventType === "tool.error") {
+  if (eventType === TOOL_CALL_FAILED_EVENT_TYPE) {
     return "error";
   }
-  if (eventType === "tool.invoked") {
+  if (eventType === TOOL_CALL_OPENING_EVENT_TYPE) {
     return "running";
   }
-  if (content === undefined) {
-    return "ok";
-  }
-  if (content.status === "unavailable") {
-    return "body-unavailable";
-  }
-  // A cut output is large as often as not, so the mark is read from either arm that carries it.
-  return content.contentTruncated === true ? "truncated" : "ok";
+  return content?.status === "unavailable" ? "body-unavailable" : "ok";
 }

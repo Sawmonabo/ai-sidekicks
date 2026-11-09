@@ -108,7 +108,7 @@ describe("the transcript feed — nothing folds itself", () => {
     withLaidOutViewport();
     const sessionStore = openSessionStoreWithSystemMessage();
     const feed = renderFeed(sessionStore, undefined, RowIdBody);
-    expect(headerButtonOf(feed, "run.running").getAttribute("aria-expanded")).toBe("true");
+    expect(headerButtonOf(feed, "agent.run.running").getAttribute("aria-expanded")).toBe("true");
     expect(isMounted(feed, 2)).toBe(true);
 
     act(() => {
@@ -118,7 +118,7 @@ describe("the transcript feed — nothing folds itself", () => {
           sessionId: SESSION_ID,
           sequence: 3,
           cursor: transcriptFixtureStreamCursor(3),
-          kind: "run.completed",
+          kind: "agent.run.completed",
           occurredAt: transcriptFixtureStampAt(3),
           payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "completed" },
           runStamp: { position: 3, epoch: 0 },
@@ -126,7 +126,7 @@ describe("the transcript feed — nothing folds itself", () => {
       ]);
     });
 
-    expect(headerButtonOf(feed, "run.completed").getAttribute("aria-expanded")).toBe("true");
+    expect(headerButtonOf(feed, "agent.run.completed").getAttribute("aria-expanded")).toBe("true");
     expect(isMounted(feed, 2)).toBe(true);
   });
 });

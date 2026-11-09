@@ -61,7 +61,7 @@ describe("a not-delivered item is retried once", () => {
   // Mutations: a fresh key per press queues the message twice; leaving out the replaced id sends a
   // new message beside the failed one, which stays not delivered.
   it("replaces the row's message in its own words, keyed by its id, for two presses", async () => {
-    const failed = queueRow(QUEUE_ITEM_ID, "not_delivered", "2026-09-02T09:00:00.000Z");
+    const failed = queueRow(QUEUE_ITEM_ID, "notDelivered", "2026-09-02T09:00:00.000Z");
     const { latest, retryRequests } = await openFeed([failed]);
     act(() => {
       void latest().retryItem(QUEUE_ITEM_ID);
@@ -71,7 +71,7 @@ describe("a not-delivered item is retried once", () => {
       {
         sessionId: SESSION_ID,
         clientIdempotencyKey: QUEUE_ITEM_ID,
-        content: failed.content,
+        content: "Also run the linter",
         replacesQueueItemId: QUEUE_ITEM_ID,
       },
     ]);

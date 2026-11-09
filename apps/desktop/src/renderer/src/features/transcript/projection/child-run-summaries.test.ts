@@ -33,7 +33,7 @@ function childBirth(
   sequence: number,
   linkage: Readonly<Record<string, unknown>>,
 ): ProjectedSessionEvent {
-  return event(sequence, "run.queued", {
+  return event(sequence, "agent.run.queued", {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,
     runVersion: 1,
@@ -44,7 +44,7 @@ function childBirth(
 }
 
 function childTransition(sequence: number, newState: string): ProjectedSessionEvent {
-  return event(sequence, `run.${newState}`, {
+  return event(sequence, `agent.run.${newState}`, {
     sessionId: SESSION_ID,
     runId: CHILD_RUN,
     runVersion: sequence,
@@ -96,8 +96,8 @@ describe("the row projection's child-run summaries", () => {
     const summaries = summariesOf([
       birth,
       childTransition(2, "running"),
-      event(3, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
-      event(4, "run.running", { sessionId: SESSION_ID, runId: OTHER_RUN }),
+      event(3, "agent.run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
+      event(4, "agent.run.running", { sessionId: SESSION_ID, runId: OTHER_RUN }),
     ]);
 
     expect(summaries.summaryOf(birth.id)?.eventCount).toBe(2);
@@ -127,7 +127,7 @@ describe("the row projection carrying a child-run summary", () => {
   it("stamps the member on the creation row and on no other row", () => {
     const birth = childBirth(2, { parentRunId: PARENT_RUN });
     const { rows } = new TranscriptRowProjector().project([
-      event(1, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
+      event(1, "agent.run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
       birth,
       childTransition(3, "running"),
     ]);
@@ -142,7 +142,7 @@ describe("the row projection carrying a child-run summary", () => {
     // The retention table compares own keys with `Object.is`, so `childRunSummary: undefined`
     // differs from no key, and every such row would lose its place on each pass.
     const { rows } = new TranscriptRowProjector().project([
-      event(1, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
+      event(1, "agent.run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
       childBirth(2, { parentRunId: PARENT_RUN }),
     ]);
 

@@ -10,24 +10,24 @@ export function mixedWindow(): readonly ProjectedTranscriptRow[] {
     runRow({
       id: "a1",
       sequence: 1,
-      type: "run.queued",
+      type: "agent.run.queued",
       runId: "run-a",
       position: 1,
       actor: "agent-one",
     }),
-    generalRow({ id: "s1", sequence: 2, type: "session.renamed", category: "session_lifecycle" }),
+    generalRow({ id: "s1", sequence: 2, type: "session.renamed", category: "sessionLifecycle" }),
     runRow({
       id: "b1",
       sequence: 3,
-      type: "run.queued",
+      type: "agent.run.queued",
       runId: "run-b",
       position: 1,
       actor: "agent-two",
     }),
-    runRow({ id: "a2", sequence: 4, type: "run.running", runId: "run-a", position: 2 }),
-    runRow({ id: "a3", sequence: 5, type: "assistant.message", runId: "run-a", position: 3 }),
-    runRow({ id: "b2", sequence: 6, type: "assistant.message", runId: "run-b", position: 2 }),
-    runRow({ id: "b3", sequence: 7, type: "run.completed", runId: "run-b", position: 3 }),
+    runRow({ id: "a2", sequence: 4, type: "agent.run.running", runId: "run-a", position: 2 }),
+    runRow({ id: "a3", sequence: 5, type: "agent.message.sent", runId: "run-a", position: 3 }),
+    runRow({ id: "b2", sequence: 6, type: "agent.message.sent", runId: "run-b", position: 2 }),
+    runRow({ id: "b3", sequence: 7, type: "agent.run.completed", runId: "run-b", position: 3 }),
   ];
 }
 

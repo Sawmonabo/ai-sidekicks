@@ -5,17 +5,19 @@
 // register, when the reader comes back.
 
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { TOOL_CALL_OPENING_EVENT_TYPE } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readQuestion } from "#renderer/store/session/events/question-reading.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { type WaitingOnPersonRecords } from "#renderer/store/session/waiting-on-person/register.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
+import { classifyTranscriptRow } from "../rows/kind.js";
 import { rowGrowthOf, sequenceInsertionPosition } from "./row-positions.js";
 import { type TranscriptWindowModel } from "./transcript-window.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The state a live run waits in while its question is open. */
-const WAITING_FOR_INPUT: RunState = "waiting_for_input";
+const WAITING_FOR_INPUT: RunState = "waitingForInput";
 
 /**
  * The tool calls and questions of one session's log, kept across its windows, so a window that
@@ -33,8 +35,8 @@ export class ChangingRowIndex {
    * The ids of the rows still changing, read off the window's rows and the session's register of
    * what waits on a person:
    *
-   * - a `tool.invoked` row of a live run whose call no later `tool.result` or `tool.error` of that
-   *   run has answered; one that names no call cannot be paired, so it counts as running while it
+   * - a call's opening row of a live run whose call no later result or failure of that run has
+   *   answered; one that names no call cannot be paired, so it counts as running while it
    *   is its run's newest tool row;
    * - the row that opened an approval or intervention the register still holds open;
    * - the newest question asked by a live run whose newest state waits on a person.
@@ -107,7 +109,7 @@ export class ChangingRowIndex {
     if (questionRunId !== undefined) {
       this.#newestQuestionRowIdByRunId.set(questionRunId, row.id);
     }
-    if (row.kind !== "run" || !isToolRow(row)) {
+    if (row.kind !== "run" || classifyTranscriptRow(row)?.kind !== "tool-call") {
       return;
     }
     let toolCalls = this.#toolCallsByRunId.get(row.runId);
@@ -118,7 +120,7 @@ export class ChangingRowIndex {
     // Any newer tool row of the run settles the call that named none.
     toolCalls.unpairedRowId = undefined;
     const toolCallId = readWireString(projectedPayload(row)["toolCallId"]);
-    if (row.type !== "tool.invoked") {
+    if (row.type !== TOOL_CALL_OPENING_EVENT_TYPE) {
       if (toolCallId !== undefined) {
         toolCalls.runningRowIdByCallId.delete(toolCallId);
       }
@@ -152,8 +154,4 @@ export class ChangingRowIndex {
 interface RunToolCalls {
   readonly runningRowIdByCallId: Map<string, string>;
   unpairedRowId: string | undefined;
-}
-
-function isToolRow(row: ProjectedTranscriptRow): boolean {
-  return row.type === "tool.invoked" || row.type === "tool.result" || row.type === "tool.error";
 }

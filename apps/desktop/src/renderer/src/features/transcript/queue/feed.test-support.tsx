@@ -3,13 +3,14 @@
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import {
-  QueueItemSummarySchema,
-  type QueueItemCreateRequest,
+  validateQueueItemSummary,
+  type AgentQueueItemCreateRequest,
   type QueueItemSummary,
   type RunQueueStreamFrame,
 } from "@ai-sidekicks/contracts/run/queue";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
+import { checkedValue } from "#test/helpers/checked-value.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { createFixture } from "#test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
@@ -29,19 +30,21 @@ export const QUEUE_ITEM_A = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
 /** The second of two distinct queue items. */
 export const QUEUE_ITEM_B = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
 
-/** One row of the registered shape, at one state, one `updatedAt` and one place in the queue. */
+/** One message row of the registered shape, at one state, one `updatedAt` and one place. */
 export function queueRow(
   id: string,
   state: QueueItemSummary["state"],
   updatedAt: string,
   position = 0,
 ): QueueItemSummary {
-  return QueueItemSummarySchema.parse({
+  return checkedValue(validateQueueItemSummary, {
+    kind: "message",
     id,
     state,
     position,
     content: "Also run the linter",
-    ...(state === "not_delivered" ? { notDeliveredReason: "failed" } : {}),
+    isSentNow: false,
+    ...(state === "notDelivered" ? { notDeliveredReason: { kind: "failed" } } : {}),
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt,
   });
@@ -68,12 +71,12 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   tailedSessionIds: readonly string[];
   listedSessionIds: readonly string[];
   canceledItemIds: readonly string[];
-  retryRequests: readonly QueueItemCreateRequest[];
+  retryRequests: readonly AgentQueueItemCreateRequest[];
 } {
   const tailedSessionIds: string[] = [];
   const listedSessionIds: string[] = [];
   const canceledItemIds: string[] = [];
-  const retryRequests: QueueItemCreateRequest[] = [];
+  const retryRequests: AgentQueueItemCreateRequest[] = [];
   const tails = new Set<(frame: RunQueueStreamFrame) => void>();
   const deliverFrame = (frame: RunQueueStreamFrame): void => {
     for (const onFrame of tails) {
@@ -138,7 +141,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
   deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
   canceledItemIds: readonly string[];
-  retryRequests: readonly QueueItemCreateRequest[];
+  retryRequests: readonly AgentQueueItemCreateRequest[];
 }> {
   const { bridge, clock, queueCalls, deliver, canceledItemIds, retryRequests } =
     queueFeedBridge(snapshot);

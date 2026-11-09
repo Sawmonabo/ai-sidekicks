@@ -29,7 +29,7 @@ describe("the transcript feed — a system message is the transcript's own row",
     const systemMessageLine = feed.querySelector(".meridian-system-message");
     expect(systemMessageLine).not.toBeNull();
     expect(systemMessageLine?.textContent).toContain("Context compacted");
-    expect(rendererRowTypes).not.toContain("usage.context_compacted");
+    expect(rendererRowTypes).not.toContain("agent.run.context.compacted");
   });
 });
 

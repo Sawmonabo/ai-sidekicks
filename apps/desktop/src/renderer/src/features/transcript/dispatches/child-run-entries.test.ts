@@ -30,7 +30,13 @@ function rowCarryingChildRun(
   summary: ChildRunSummary,
 ): ProjectedTranscriptRow {
   return {
-    ...runRow({ id, sequence, type: "run.started", runId: "run-parent", position: sequence }),
+    ...runRow({
+      id,
+      sequence,
+      type: "agent.run.starting",
+      runId: "run-parent",
+      position: sequence,
+    }),
     childRunSummary: summary,
   } as ProjectedTranscriptRow;
 }
@@ -74,7 +80,7 @@ describe("child-run entries — one card per child, at the row that first named 
         state: "completed",
         completeness: {
           state: "incomplete",
-          cause: "detail_fetch_failed",
+          cause: "detailFetchFailed",
           observedAt: OBSERVED_AT,
         },
       }),
@@ -86,7 +92,7 @@ describe("child-run entries — one card per child, at the row that first named 
     expect(entries[0]?.summary.state).toBe("completed");
     expect(entries[0]?.summary.completeness).toEqual({
       state: "incomplete",
-      cause: "detail_fetch_failed",
+      cause: "detailFetchFailed",
       observedAt: OBSERVED_AT,
     });
   });
@@ -119,7 +125,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "h1",
         sequence: 1,
-        type: "subagent.started",
+        type: "agent.subagent.started",
         runId: "run-a",
         position: 1,
         payload: {
@@ -130,7 +136,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       }),
     ]);
     expect(entries[0]).toMatchObject({
-      wireType: "subagent.started",
+      wireType: "agent.subagent.started",
       fromActor: "user-ana",
       toActor: "agent-reviewer",
       reason: "review requested",
@@ -142,7 +148,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "h1",
         sequence: 1,
-        type: "subagent.started",
+        type: "agent.subagent.started",
         runId: "run-a",
         position: 1,
         actor: "agent-reviewer",
@@ -159,7 +165,7 @@ describe("handoff entries — the three members, each read as itself", () => {
         runRow({
           id: "r1",
           sequence: 1,
-          type: "user.message",
+          type: "user.message.sent",
           runId: "run-a",
           position: 1,
           payload: { fromActor: "user-ana", toActor: "agent-reviewer" },
@@ -174,7 +180,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "start",
         sequence: 1,
-        type: "subagent.started",
+        type: "agent.subagent.started",
         runId: "run-a",
         position: 1,
         payload: { ...identity, toActor: "agent-reviewer" },
@@ -182,7 +188,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "done",
         sequence: 2,
-        type: "subagent.completed",
+        type: "agent.subagent.completed",
         runId: "run-a",
         position: 2,
         payload: { ...identity, toActor: "agent-reviewer" },
@@ -196,7 +202,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       ...runRow({
         id: "h1",
         sequence: 1,
-        type: "subagent.started",
+        type: "agent.subagent.started",
         runId: "run-a",
         position: 1,
         payload: { childRunId: "run-from-payload" },

@@ -33,7 +33,7 @@ import type {
 } from "../entities/vocabulary.js";
 
 /**
- * The `approval_flow` events that are not an ask's and carry no `approvalRequestId`. Claiming
+ * The `approval.*` events that are not an ask's and carry no `approvalRequestId`. Claiming
  * one here would take it from the feature that renders it. `Extract`ed from the event-type
  * union, so an upstream rename fails to compile.
  */
@@ -92,12 +92,11 @@ export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
  * Fold one kind's events into the ask each names. The body is the checked payload minus
  * `sessionId` (the envelope has it) and `approvalRequestId` (the entity's id).
  */
-function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
+function approvalFlowProjector({ check, state }: ApprovalEventReading): EntityProjector {
   return (event: ProjectedSessionEvent): readonly EntityMutation[] => {
     if (!payloadNamesSession(event.payload, event.sessionId)) {
       return [];
     }
-    const { check } = reading;
     const payload = event.payload;
     if (!check(payload)) {
       return [];
@@ -112,7 +111,7 @@ function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
         entity: {
           kind: "approval",
           id: approvalRequestId,
-          ...(reading.state === undefined ? {} : { state: reading.state }),
+          ...(state === undefined ? {} : { state }),
           touchedAt: event.occurredAt,
           ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
           body,

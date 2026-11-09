@@ -2,7 +2,12 @@
 // it classifies into (kinds, wire types, labels, the one caution) is in `kinds.ts`. Whether a row
 // is superseded is its own mark, not a classification.
 
-import { SYSTEM_MESSAGE_KINDS, SYSTEM_MESSAGE_BINDINGS, type SystemMessageKind } from "./kinds.js";
+import {
+  SYSTEM_MESSAGE_KINDS,
+  SYSTEM_MESSAGE_BINDINGS,
+  type ProviderNameOf,
+  type SystemMessageKind,
+} from "./kinds.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One system message: the act it names, its words, and the row and moment it stands at. */
@@ -33,14 +38,18 @@ export class SystemMessageClassifier {
 
   /**
    * One row's system message, or `undefined` when the row is not one or its payload is off
-   * contract, in which case the row is drawn as any other event row.
+   * contract, in which case the row is drawn as any other event row. `providerNameOf` names the
+   * provider a failed switch was moving to.
    */
-  public classify(row: ProjectedTranscriptRow): SystemMessageReading | undefined {
-    const kind = row.kind === "rollback_boundary" ? "rollback" : this.#kindByWireType.get(row.type);
+  public classify(
+    row: ProjectedTranscriptRow,
+    providerNameOf: ProviderNameOf,
+  ): SystemMessageReading | undefined {
+    const kind = row.kind === "rollbackBoundary" ? "rollback" : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;
     }
-    const label = SYSTEM_MESSAGE_BINDINGS[kind].labelOf(row);
+    const label = SYSTEM_MESSAGE_BINDINGS[kind].labelOf(row, providerNameOf);
     return label === undefined
       ? undefined
       : { kind, label, rowId: row.id, timestamp: row.timestamp };

@@ -5,15 +5,15 @@
 // event of the run folds onto them. Whichever holds through the later position keeps the state;
 // the actor and the account, which never change once named, are kept from either.
 
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { transcriptOwnRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 import {
   UNFOLDED_TRANSCRIPT_RUN_FACTS,
   foldTranscriptRunFacts,
   transcriptRunStateOf,
-  type TranscriptRunFacts,
   type TranscriptRunFactsFold,
 } from "@ai-sidekicks/contracts/transcript/run-facts";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { payloadNamesSession } from "#renderer/lib/wire/session-attribution.js";
 import { mergeUpsert, type SessionPartitions } from "../../entities/partitions.js";

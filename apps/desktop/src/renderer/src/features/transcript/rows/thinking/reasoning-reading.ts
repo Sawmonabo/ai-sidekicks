@@ -3,13 +3,13 @@
 // compile here instead of rendering blank.
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
-import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptReasoningReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { type PublishedText } from "#renderer/lib/text/published.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One arm of the contract's closed availability discriminant. */
-export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"];
+export type ReasoningAvailability = TranscriptReasoningReadResponse["availability"];
 
 /**
  * How many lines of a streaming turn the tail shows.
@@ -29,7 +29,7 @@ export const REASONING_TAIL_LINE_COUNT = 3;
 export type ReasoningReading =
   | { readonly status: "not-asked" }
   | { readonly status: "reading" }
-  | { readonly status: "read"; readonly response: ReasoningSurfaceReadResponse }
+  | { readonly status: "read"; readonly response: TranscriptReasoningReadResponse }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What one arm says of itself when it carries no entries to show. */

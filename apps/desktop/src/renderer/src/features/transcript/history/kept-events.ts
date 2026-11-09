@@ -6,7 +6,7 @@
 // rows its window holds, and the calls read ahead past an edge line in the drawn band; a folded
 // group's header keeps the rows of its whole stretch the log holds.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";

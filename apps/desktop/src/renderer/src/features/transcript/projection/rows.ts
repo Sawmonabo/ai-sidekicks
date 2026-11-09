@@ -6,7 +6,7 @@
 // opaque one, carried not composed: the hydrated-event read keys on {sessionId, eventId} and a row
 // jump finds a row by it, so a `session:sequence` key would resolve for no caller.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
@@ -15,8 +15,7 @@ import {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 
 import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/rollback-boundary.js";
@@ -50,7 +49,7 @@ const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_
  *
  * A fold in log order, so the same log gives the same rows whether it arrives whole or a stretch
  * at a time. An event kind with no registered category is dropped, since a guessed category would
- * mis-filter every view downstream. An event is a run's when the daemon stamped it; its run is the
+ * filter every view downstream wrongly. An event is a run's when the daemon stamped it; its run is the
  * one its payload names.
  */
 export class TranscriptRowProjector {
@@ -177,7 +176,7 @@ export class TranscriptRowProjector {
  * The boundary arm alone, extracted from the contract's union so this file makes no second
  * claim about what a boundary row carries.
  */
-type RollbackBoundaryRow = Extract<ProjectedTranscriptRow, { readonly kind: "rollback_boundary" }>;
+type RollbackBoundaryRow = Extract<ProjectedTranscriptRow, { readonly kind: "rollbackBoundary" }>;
 
 /**
  * The stamp's members as a row carries them, the superseded marker absent rather than
@@ -241,7 +240,7 @@ function projectRollbackBoundary(
   }
   return {
     ...commonRowFields(event, TRANSCRIPT_RUN_LIFECYCLE_CATEGORY),
-    kind: "rollback_boundary",
+    kind: "rollbackBoundary",
     category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
     type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
     runId: boundary.runId as RunId,

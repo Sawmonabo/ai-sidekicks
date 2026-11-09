@@ -46,7 +46,7 @@ describe("TranscriptPane — the body", () => {
     const rowTypes = [...pane.querySelectorAll("[data-row-type]")].map((row) =>
       row.getAttribute("data-row-type"),
     );
-    expect(rowTypes).toStrictEqual(["session.created", "run.running"]);
+    expect(rowTypes).toStrictEqual(["session.created", "agent.run.running"]);
     expect(pane.textContent).not.toContain("No messages yet. Say what you are after.");
   });
 });

@@ -28,6 +28,7 @@ import {
 } from "#renderer/store/session/entities/vocabulary.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { SystemMessageClassifier } from "../system-messages/classifier.js";
+import { type ProviderNameOf } from "../system-messages/kinds.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
 
 /** The session store's run entities by run id, whose facts each run group reads. */
@@ -472,15 +473,19 @@ export class RunGroupIndex {
   }
 }
 
-/** The run groups of one loaded window, its rows folded in one pass. */
+/**
+ * The run groups of one loaded window, its rows folded in one pass; `providerNameOf` names the
+ * provider a failed switch's system message reads.
+ */
 export function groupRowsByRun(
   rows: readonly ProjectedTranscriptRow[],
   runEntities: RunEntitiesByRunId,
+  providerNameOf: ProviderNameOf,
 ): readonly RunGroup[] {
   const runGroupIndex = new RunGroupIndex(runEntities);
   const classifier = new SystemMessageClassifier();
   for (const row of rows) {
-    runGroupIndex.admit(row, classifier.classify(row) !== undefined);
+    runGroupIndex.admit(row, classifier.classify(row, providerNameOf) !== undefined);
   }
   return runGroupIndex.runGroups();
 }

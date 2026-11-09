@@ -3,7 +3,7 @@
 // reply, and a state change naming another state than it announces moves neither.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import {
   isTranscriptRunEnded,
   runStateOfEventType,
@@ -19,7 +19,7 @@ import { RUN_LIFECYCLE_PROJECTORS } from "./lifecycle-projector.js";
 const SESSION_ID = "session-run-facts";
 const RUN_ID = "11111111-2222-4333-8444-555555555555";
 
-/** One of the run's own events at `sequence`; a `run.<state>` kind names the state it announces. */
+/** One of the run's own events at `sequence`; an `agent.run.<state>` kind names the state it announces. */
 function runEventAt(
   kind: string,
   sequence: number,
@@ -57,7 +57,7 @@ function storeFollowingTheStream(): SessionStore {
     cursor: 9,
     entities: [],
     transcript: [5, 6, 7, 8, 9].map((sequence) =>
-      eventOfKind(SESSION_ID, "assistant.message", sequence),
+      eventOfKind(SESSION_ID, "agent.message.sent", sequence),
     ),
     transcriptHead: { cursor: "cursor-at-4" as EventCursor, hasMore: true },
   });
@@ -67,20 +67,20 @@ function storeFollowingTheStream(): SessionStore {
 describe("a run's facts in the session store", () => {
   it("keeps a live ending against an older window's facts and rows, header and controls alike", () => {
     const store = storeFollowingTheStream();
-    store.applyBatch([runEventAt("run.completed", 10)]);
+    store.applyBatch([runEventAt("agent.run.completed", 10)]);
 
     // The page was read before the run ended: its facts and its rows say the run is running.
     store.prependEarlierEvents({
       events: [
-        runEventAt("run.queued", 1),
-        { ...runEventAt("run.running", 2), actorId: "agent-1" },
+        runEventAt("agent.run.queued", 1),
+        { ...runEventAt("agent.run.running", 2), actorId: "agent-1" },
       ],
       edge: { cursor: undefined, hasMore: false },
       runs: [
         {
           runId: RUN_ID as RunId,
           actor: "agent-1",
-          stateEventType: "run.running",
+          stateEventType: "agent.run.running",
           isRewound: false,
           foldedThroughSequence: 4,
         },
@@ -88,7 +88,7 @@ describe("a run's facts in the session store", () => {
     });
 
     expect(runReadingOf(store)).toStrictEqual({
-      header: "run.completed",
+      header: "agent.run.completed",
       controls: "completed",
       isEnded: true,
     });
@@ -98,43 +98,43 @@ describe("a run's facts in the session store", () => {
 
   it("moves neither the header nor the controls on a state change naming another state", () => {
     const store = storeFollowingTheStream();
-    store.applyBatch([runEventAt("run.waiting_for_approval", 10)]);
-    store.applyBatch([runEventAt("run.running", 11, { newState: "failed" })]);
+    store.applyBatch([runEventAt("agent.run.waitingForApproval", 10)]);
+    store.applyBatch([runEventAt("agent.run.running", 11, { newState: "failed" })]);
 
     expect(runReadingOf(store)).toStrictEqual({
-      header: "run.waiting_for_approval",
-      controls: "waiting_for_approval",
+      header: "agent.run.waitingForApproval",
+      controls: "waitingForApproval",
       isEnded: false,
     });
   });
 
   it("takes the header's word and the controls' state from one event", () => {
     const store = storeFollowingTheStream();
-    store.applyBatch([runEventAt("run.running", 10)]);
+    store.applyBatch([runEventAt("agent.run.running", 10)]);
     // A page read while the stream lagged serves facts through a run event it has not delivered.
     store.prependEarlierEvents({
-      events: [runEventAt("run.queued", 1)],
+      events: [runEventAt("agent.run.queued", 1)],
       edge: { cursor: undefined, hasMore: false },
       runs: [
         {
           runId: RUN_ID as RunId,
-          stateEventType: "run.completed",
+          stateEventType: "agent.run.completed",
           isRewound: false,
           foldedThroughSequence: 12,
         },
       ],
     });
     // The stream catching up delivers an older state: neither the header nor the controls take it.
-    store.applyBatch([runEventAt("run.waiting_for_input", 11)]);
+    store.applyBatch([runEventAt("agent.run.waitingForInput", 11)]);
     expect(runReadingOf(store)).toStrictEqual({
-      header: "run.completed",
+      header: "agent.run.completed",
       controls: "completed",
       isEnded: true,
     });
 
     // A rewind clears the header's word while the controls keep the state it rewound.
-    store.applyBatch([runEventAt("run.completed", 12), runEventAt("run.paused", 13)]);
-    store.applyBatch([runEventAt("run.rolled_back", 14)]);
+    store.applyBatch([runEventAt("agent.run.completed", 12), runEventAt("agent.run.paused", 13)]);
+    store.applyBatch([runEventAt("agent.run.rolledBack", 14)]);
     expect(runReadingOf(store)).toStrictEqual({
       header: undefined,
       controls: "paused",

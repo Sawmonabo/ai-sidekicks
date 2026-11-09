@@ -12,8 +12,6 @@
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
-
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { appMarkdownTrees } from "#renderer/components/Markdown/parse/trees.js";
@@ -257,7 +255,7 @@ describe("a held reply joining the list", () => {
 
 /** The calls whose colored output stands in the box at the log's tail, by index, with lengths. */
 const OPENING_OUTPUT_LENGTHS: ReadonlyMap<number, number> = new Map([
-  [LOG_ROW_COUNT - 4, CONTENT_PAYLOAD_PLAINTEXT_MAX],
+  [LOG_ROW_COUNT - 4, 262_144],
   [LOG_ROW_COUNT - 2, 60_000],
 ]);
 

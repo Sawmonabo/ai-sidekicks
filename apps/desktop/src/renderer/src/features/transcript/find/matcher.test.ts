@@ -1,7 +1,7 @@
 // The find matcher: what each row is searched by, the cap asserted beside the uncapped total so a
 // capped count cannot understate how broad the query is, and what a held search reads again.
 
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -33,17 +33,17 @@ function searchWindow(): readonly ProjectedTranscriptRow[] {
     runRow({
       id: "t1",
       sequence: 2,
-      type: "tool.invoked",
+      type: "agent.toolCall.invoked",
       runId: "run-a",
       position: 2,
       payload: { toolName: "run_checks" },
     }),
-    generalRow({ id: "s1", sequence: 3, type: "run.rolled_back" }),
+    generalRow({ id: "s1", sequence: 3, type: "agent.run.rolledBack" }),
     generalRow({
       id: "g1",
       sequence: 4,
       type: "session.renamed",
-      category: "session_lifecycle",
+      category: "sessionLifecycle",
       payload: { newName: "deploy war room" },
     }),
   ];
@@ -80,7 +80,7 @@ describe("find — what a query matches", () => {
       ...runRow({
         id,
         sequence,
-        type: "tool.result",
+        type: "agent.toolCall.completed",
         runId: "run-a",
         position: sequence,
         payload: { toolName: "read_file" },
@@ -88,14 +88,12 @@ describe("find — what a query matches", () => {
       content: projectedContentOf(content),
     });
     const rows = [
-      resultRow("cut", 1, { status: "available", body: "lines", contentTruncated: true }),
-      resultRow("lost", 2, { status: "unavailable", reason: "absent" }),
-      resultRow("whole", 3, { status: "available", body: "lines" }),
+      resultRow("lost", 1, { status: "unavailable", reason: "absent" }),
+      resultRow("whole", 2, { status: "available", body: "lines" }),
     ];
     const rowIdsMatching = (query: string): readonly string[] =>
       findInTranscript(rows, query, NO_SYSTEM_MESSAGES).matches.map((match) => match.rowId);
 
-    expect(rowIdsMatching("read_file truncated")).toStrictEqual(["cut"]);
     expect(rowIdsMatching("body unavailable")).toStrictEqual(["lost"]);
   });
 
@@ -104,7 +102,7 @@ describe("find — what a query matches", () => {
   });
 
   it("matches no wire type, and no payload a row does not draw", () => {
-    for (const query of ["user.message", "invoked", "run.rolled_back", "war room"]) {
+    for (const query of ["user.message.sent", "invoked", "agent.run.rolledBack", "war room"]) {
       expect(matchedRowIds(query)).toStrictEqual([]);
     }
   });
@@ -191,7 +189,7 @@ describe("find — a held search over a growing log", () => {
     }
     const rowsAt = (count: number): readonly ProjectedTranscriptRow[] =>
       Array.from({ length: count }, (_unused, index) =>
-        generalRow({ id: `s${String(index)}`, sequence: index + 1, type: "run.rolled_back" }),
+        generalRow({ id: `s${String(index)}`, sequence: index + 1, type: "agent.run.rolledBack" }),
       );
     const linesAt = (rows: readonly ProjectedTranscriptRow[]) =>
       new Map(rows.map((row) => [row.id, countedLine(row.id)]));

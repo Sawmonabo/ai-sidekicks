@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../event-rows.test-support.js";
 import { SystemMessageClassifier } from "./classifier.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 describe("system messages — one row's classification", () => {
   it("reads a rollback off the rollback boundary's own arm", () => {
@@ -18,6 +19,7 @@ describe("system messages — one row's classification", () => {
         position: 6,
         targetPosition: 2,
       }),
+      fixtureProviderNameOf,
     );
     expect(systemMessage?.kind).toBe("rollback");
     expect(systemMessage?.rowId).toBe("rb");
@@ -29,11 +31,12 @@ describe("system messages — one row's classification", () => {
       runRow({
         id: "c1",
         sequence: 3,
-        type: "usage.context_compacted",
-        category: "usage_telemetry",
+        type: "agent.run.context.compacted",
+        category: "usageTelemetry",
         runId: "run-a",
         position: 7,
       }),
+      fixtureProviderNameOf,
     );
     const providerSwitch = classifier.classify(
       runRow({
@@ -43,6 +46,7 @@ describe("system messages — one row's classification", () => {
         runId: "run-a",
         position: 5,
       }),
+      fixtureProviderNameOf,
     );
     expect(compaction?.kind).toBe("compaction");
     expect(providerSwitch?.kind).toBe("provider-switch");
@@ -52,7 +56,8 @@ describe("system messages — one row's classification", () => {
     const classifier = new SystemMessageClassifier();
     expect(
       classifier.classify(
-        runRow({ id: "r1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
+        runRow({ id: "r1", sequence: 1, type: "agent.run.running", runId: "run-a", position: 1 }),
+        fixtureProviderNameOf,
       ),
     ).toBeUndefined();
     expect(
@@ -61,8 +66,9 @@ describe("system messages — one row's classification", () => {
           id: "g1",
           sequence: 2,
           type: "session.renamed",
-          category: "session_lifecycle",
+          category: "sessionLifecycle",
         }),
+        fixtureProviderNameOf,
       ),
     ).toBeUndefined();
   });

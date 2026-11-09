@@ -14,6 +14,7 @@ import { longRunCallIds, longRunEvents, onlyRunGroupOf } from "../runs/call-wind
 import { deriveTranscriptWindow } from "../window/transcript-window.js";
 import { readRowText } from "./row-text.js";
 import { rowKeysWithRunWindowCuts } from "./run-window-cuts.js";
+import { fixtureProviderNameOf } from "#renderer/features/transcript/system-messages/provider-names.test-support.js";
 
 /** Ten pixels a row on a hundred-pixel screen: the window draws a few dozen calls of the run. */
 const MEASURE: RunWindowMeasure = { screenHeightPx: () => 100, rowHeightPx: () => 10 };
@@ -28,7 +29,11 @@ describe("a copy over a long run's window", () => {
   it("copies every call the window cut, in reading order, in place of its edge lines", () => {
     const events = longRunEvents(445);
     const callIds = longRunCallIds(events);
-    const unfurledWindow = deriveTranscriptWindow(events, runEntitiesOf(events));
+    const unfurledWindow = deriveTranscriptWindow(
+      events,
+      runEntitiesOf(events),
+      fixtureProviderNameOf,
+    );
     const runGroup = onlyRunGroupOf(unfurledWindow);
     const inputs = measuredRunWindowInputs(MEASURE);
     const fold = new RunGroupFold();
