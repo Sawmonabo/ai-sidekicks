@@ -24,9 +24,11 @@ use crate::plan_holds::PlanHolds;
 /// sessions of the projects named.
 pub const PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY: usize = 2;
 
-// The run states a session reads as waiting on the person, and those it reads as working.
+// The run states a session reads as waiting on the person.
 const WAITING_RUN_STATES: [RunState; 2] = [RunState::WaitingForApproval, RunState::WaitingForInput];
-const WORKING_RUN_STATES: [RunState; 3] =
+
+/// The run states a session reads as working in.
+pub const WORKING_RUN_STATES: [RunState; 3] =
     [RunState::Starting, RunState::Running, RunState::Pausing];
 
 /// How a run event that ends a run's working time leaves its session, read from the event's

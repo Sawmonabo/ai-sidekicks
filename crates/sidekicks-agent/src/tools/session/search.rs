@@ -6,6 +6,7 @@ use std::fmt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::project::{PROJECT_NAME_MAX_LEN, ProjectName};
+use sidekicks_contracts::session::links::SessionLinkKind;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::session::search::SESSION_SEARCH_QUERY_MAX_LEN;
 use sidekicks_contracts::tag::Tag;
@@ -166,6 +167,59 @@ pub enum Relevance {
     Any,
 }
 
+impl Relevance {
+    /// Whether a related session whose strongest link is of `kind` is close enough: `high` takes
+    /// a copy, a start and a link the person made, `medium` messages too, `any` every link.
+    pub fn admits(self, kind: SessionLinkKind) -> bool {
+        match kind {
+            SessionLinkKind::CopiedFrom | SessionLinkKind::Started | SessionLinkKind::Related => {
+                true
+            }
+            SessionLinkKind::Messaged => matches!(self, Self::Medium | Self::Any),
+            SessionLinkKind::Asked | SessionLinkKind::Mentioned => matches!(self, Self::Any),
+        }
+    }
+}
+
+/// Why a session is related to the one a search names, from their strongest link: its `kind`,
+/// whether the named session is the link's source, and on a `messaged` link how many messages
+/// the two traded.
+pub fn relation_words(
+    kind: SessionLinkKind,
+    is_named_source: bool,
+    messages: Option<u64>,
+) -> String {
+    let words = match (kind, is_named_source) {
+        (SessionLinkKind::Started, true) => "started by it",
+        (SessionLinkKind::Started, false) => "started it",
+        (SessionLinkKind::CopiedFrom, true) => "it was copied from this one",
+        (SessionLinkKind::CopiedFrom, false) => "copied from it",
+        (SessionLinkKind::Asked, true) => "asked by it",
+        (SessionLinkKind::Asked, false) => "asked it",
+        (SessionLinkKind::Mentioned, true) => "mentioned by it",
+        (SessionLinkKind::Mentioned, false) => "mentioned it",
+        (SessionLinkKind::Related, _) => "linked on purpose",
+        (SessionLinkKind::Messaged, _) => {
+            return match messages {
+                Some(count) => format!("messaged, {count} messages"),
+                None => "messaged".to_owned(),
+            };
+        }
+    };
+    words.to_owned()
+}
+
+/// The result when no session matches the search.
+pub const NO_MATCHES: &str = "No sessions match.";
+
+/// Where the results place a session that belongs to no project.
+pub const NO_PROJECT: &str = "No project";
+
+/// The refusal for a cursor that continues no search the daemon still holds.
+pub fn cursor_unknown(cursor: &str) -> String {
+    format!("\"{cursor}\" continues no search. Search again without cursor.")
+}
+
 /// One page of search results, grouped project, then session group, then session, each group and
 /// project placed by its best session's score.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,12 +262,20 @@ pub struct GroupHits {
 pub struct SessionHit {
     /// The session, as `session_list` prints it.
     pub line: SessionListLine,
-    /// The hit's id, which `session_read`'s `around` takes.
-    pub hit_id: String,
-    /// The text around the match.
-    pub preview: String,
+    /// The best match of the search's words; `None` for a session found by relation, group or
+    /// tag alone, which matched no text.
+    pub hit: Option<HitPreview>,
     /// For a related result, why it is related, in words.
     pub reason: Option<String>,
+}
+
+/// One match in a session's text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HitPreview {
+    /// The hit's id, which `session_read`'s `around` takes.
+    pub id: String,
+    /// The text around the match.
+    pub preview: String,
 }
 
 impl SessionHit {
@@ -221,10 +283,9 @@ impl SessionHit {
     fn push_lines(&self, lines: &mut Vec<String>, indent: usize) {
         let detail = indent + 2;
         lines.push(format!("{:indent$}{}", "", self.line));
-        lines.push(format!(
-            "{:detail$}hit {}: {}",
-            "", self.hit_id, self.preview
-        ));
+        if let Some(hit) = &self.hit {
+            lines.push(format!("{:detail$}hit {}: {}", "", hit.id, hit.preview));
+        }
         if let Some(reason) = &self.reason {
             lines.push(format!("{:detail$}related: {reason}", ""));
         }
