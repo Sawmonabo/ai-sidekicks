@@ -7,6 +7,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::place::PlacedPath;
+use sidekicks_platforms::make_folder_link;
 
 use super::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
@@ -48,7 +49,8 @@ enum KeptOutSource {
 }
 
 // Killed by one keep-out set for every root: a project's own files keep a server out of that
-// project only, while the user and managed files keep it out of every project.
+// project only, while the user and managed files keep it out of every project; and by the project's
+// entry looked up at its root as given, a link, rather than at the folder the link resolves to.
 #[rstest]
 #[case::user_settings(KeptOutSource::UserSettings, true)]
 #[case::project_settings(KeptOutSource::ProjectSettings, false)]
@@ -63,6 +65,12 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let home = scratch.path().join("home");
     let managed = scratch.path().join("managed");
+    fs::create_dir_all(scratch.path().join("root-a-folder")).expect("the root's folder is made");
+    make_folder_link(
+        &scratch.path().join("root-a-folder"),
+        &scratch.path().join("root-a"),
+    )
+    .expect("the root is a link to its folder");
     let roots = [
         attached_root(&scratch.path().join("root-a")),
         attached_root(&scratch.path().join("root-b")),
@@ -93,9 +101,13 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
             project_entry["disabledMcpjsonServers"] = json!(["kept"]);
         }
     }
+    let project_key = fs::canonicalize(&roots[0].folder)
+        .expect("the root resolves")
+        .to_string_lossy()
+        .into_owned();
     write_json(
         &home.join(".claude.json"),
-        &json!({ "projects": { roots[0].root.path.as_str(): project_entry } }),
+        &json!({ "projects": { project_key: project_entry } }),
     );
 
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {

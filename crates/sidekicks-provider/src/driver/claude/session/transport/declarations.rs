@@ -1,7 +1,7 @@
 //! What a Claude Code process declares about itself, as the stream reader reads it: the
 //! `initialize` reply's models, the one match of a model against them, styles and fast mode, the
-//! `system/init` handshake's commands, capabilities and MCP servers, and the routing facts of each
-//! inbound frame.
+//! `system/init` handshake's commands, capabilities, MCP servers and memory stores, and the routing
+//! facts of each inbound frame.
 
 use std::collections::HashSet;
 
@@ -40,6 +40,10 @@ pub(crate) struct ClaudeHandshakeDeclaration {
     /// The readings of the MCP servers `mcp_servers` lists, with the rows refused; `None` where
     /// the frame carries no list.
     pub(crate) mcp_servers: Option<McpServerStatusIngestResult>,
+    /// The folders of Claude Code's auto-memory and team-memory stores `memory_paths` names, each
+    /// kept where it is an absolute path a filesystem path carries, the auto-memory store first;
+    /// empty where the frame names none, as it does with auto memory off.
+    pub(crate) memory_stores: Vec<FilesystemPath>,
 }
 
 /// One model the `initialize` reply offers.
@@ -55,9 +59,9 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// What the `initialize` reply declared about the session's models, styles, commands and memory:
-/// the models it offers, in its order, which of them run in auto mode, the output styles the
-/// process offers, the commands it lists, and the folders of its memory stores.
+/// What the `initialize` reply declared about the session's models, styles and commands: the
+/// models it offers, in its order, which of them run in auto mode, the output styles the process
+/// offers, and the commands it lists.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeInitializeDeclaration {
     /// The fast mode it reports.
@@ -73,10 +77,6 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_style: Option<String>,
     /// The commands it lists, by name without the `/`, in its order.
     pub(crate) commands: Vec<String>,
-    /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
-    /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
-    /// is kept.
-    pub(crate) memory_stores: Vec<FilesystemPath>,
 }
 
 impl ClaudeInitializeDeclaration {

@@ -31,6 +31,7 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::file::real_location::resolve_real_location;
 
 use self::plugin_manifest::read_plugin_manifest_name;
 use self::policy::read_server_policy;
@@ -91,11 +92,25 @@ pub(crate) const HTTP_TYPE: &str = "http";
 /// The `type` of an entry reached over server-sent events.
 pub(crate) const SSE_TYPE: &str = "sse";
 
+/// The key `.claude.json` files the project rooted at `root` under: the root with every link
+/// resolved, as Claude Code keys the folder it runs in, past any link that leads to it, the names
+/// below its deepest existing folder kept as written. Fails as the resolve does.
+pub(crate) async fn claude_project_key(root: &str) -> Result<String, ClaudeSettingsReadError> {
+    let root = Path::new(root);
+    resolve_real_location(root)
+        .await
+        .map(|key| key.to_string_lossy().into_owned())
+        .map_err(|failure| ClaudeSettingsReadError {
+            path: root.to_path_buf(),
+            failure,
+        })
+}
+
 /// One attached project root and the folder its files are read at on this computer.
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudeMcpRoot {
-    /// The root, with the distribution it is in; its path is the key `.claude.json` files the
-    /// project under.
+    /// The root, with the distribution it is in; its path resolved is the key `.claude.json` files
+    /// the project under.
     pub(crate) root: PlacedPath,
     /// The folder the root's `.mcp.json` and settings files are read at.
     pub(crate) folder: PathBuf,
@@ -289,8 +304,9 @@ pub(crate) async fn read_claude_mcp_config(
     let projects = person_config.projects.read();
     let mut roots = Vec::with_capacity(sources.roots.len());
     for root in sources.roots {
+        let project_key = claude_project_key(root.root.path.as_str()).await?;
         let project_entry = projects
-            .and_then(|projects| projects.get(root.root.path.as_str()))
+            .and_then(|projects| projects.get(&project_key))
             .and_then(Tolerated::read);
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?

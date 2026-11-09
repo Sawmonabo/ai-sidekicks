@@ -9,7 +9,7 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
 use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, MCP_SERVERS_MEMBER, PROJECTS_MEMBER,
-    SERVERS_FILE, read_installed_plugin_roots, read_json_file, value_at,
+    SERVERS_FILE, claude_project_key, read_installed_plugin_roots, read_json_file, value_at,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 
@@ -80,15 +80,18 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 scope_ref,
                 server_name,
                 ..
-            } => Ok(declared(entry_at(
-                self.read_file(&person.person_config).await?,
-                &[
-                    PROJECTS_MEMBER,
-                    scope_ref.as_str(),
-                    MCP_SERVERS_MEMBER,
-                    server_name.as_str(),
-                ],
-            ))),
+            } => {
+                let project_key = claude_project_key(scope_ref.as_str()).await?;
+                Ok(declared(entry_at(
+                    self.read_file(&person.person_config).await?,
+                    &[
+                        PROJECTS_MEMBER,
+                        &project_key,
+                        MCP_SERVERS_MEMBER,
+                        server_name.as_str(),
+                    ],
+                )))
+            }
             McpServerBindingRef::Project {
                 scope_ref,
                 server_name,
