@@ -377,6 +377,27 @@ args = ["--port", "4000"]  # spaced on purpose
 network_access = false
 "#;
 
+    // A project config whose servers sit in one inline table on the line that names them, a
+    // comment after it, between a top comment and a table behind its own comment.
+    const INLINE_SERVERS_CONFIG: &str = r#"# The project's own Codex settings.
+model = "o4"
+mcp_servers = { other = { command = "other-server", args = ["--port", "4000"] } } # per session
+
+# What the sandbox may reach.
+[sandbox_workspace_write]
+network_access = false
+"#;
+
+    // How the line that names the servers in an inline table starts.
+    const SERVERS_LINE_START: &str = "mcp_servers =";
+
+    // `text`'s lines but the one naming the servers inline.
+    fn lines_without_servers(text: &str) -> Vec<&str> {
+        text.lines()
+            .filter(|line| !line.starts_with(SERVERS_LINE_START))
+            .collect()
+    }
+
     fn server_name(name: &str) -> McpServerName {
         McpServerName::new(name.to_owned()).expect("a server name")
     }
@@ -480,6 +501,53 @@ network_access = false
             document["mcp_servers"]["a.b"]["command"].as_str(),
             Some("ab")
         );
+    }
+
+    // An inline servers table takes the new server inside it, keeps the person's other entry, every
+    // other line and the comment after it, and the file still reads as TOML the way Codex reads it.
+    // Killed by the servers looked up as a table only, which refuses an inline one as no table.
+    #[tokio::test]
+    async fn an_inline_servers_table_takes_the_new_server_inside_it() {
+        let root = tempfile::tempdir().expect("a scratch project");
+        let path = config_path(root.path());
+        fs::create_dir(path.parent().expect("the config's folder")).expect("the folder is made");
+        fs::write(&path, INLINE_SERVERS_CONFIG).expect("the config is written");
+
+        let added = edit(root.path(), "github", github_members()).await;
+
+        assert_eq!(added, CodexProjectFileEdit::Written);
+        let text = fs::read_to_string(&path).expect("the config reads back");
+        assert_eq!(
+            lines_without_servers(&text),
+            lines_without_servers(INLINE_SERVERS_CONFIG)
+        );
+        let servers_lines: Vec<&str> = text
+            .lines()
+            .filter(|line| line.starts_with(SERVERS_LINE_START))
+            .collect();
+        assert_eq!(
+            servers_lines.len(),
+            1,
+            "the servers stay on one line: {text}"
+        );
+        let other = r#"other = { command = "other-server", args = ["--port", "4000"] }"#;
+        assert!(servers_lines[0].contains(other), "{text}");
+        assert!(servers_lines[0].ends_with(" # per session"), "{text}");
+        let read: toml::Table = toml::from_str(&text).expect("Codex reads it");
+        let servers = &read["mcp_servers"];
+        assert_eq!(servers["other"]["command"].as_str(), Some("other-server"));
+        let github = &servers["github"];
+        assert_eq!(github["command"].as_str(), Some("npx"));
+        assert_eq!(
+            github["args"]
+                .as_array()
+                .expect("the arguments are an array")
+                .iter()
+                .map(toml::Value::as_str)
+                .collect::<Vec<_>>(),
+            [Some("-y"), Some("@modelcontextprotocol/server-github")]
+        );
+        assert_eq!(github["env"]["LOG_LEVEL"].as_str(), Some("debug"));
     }
 
     // A file another writer changed between the read and the edit keeps that writer's bytes, and
