@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::mcp::server::McpServerStatus::{self, Connected, Failed};
+use sidekicks_contracts::mcp::server::McpServerStatus::{Connected, Failed, Unknown};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -53,7 +53,7 @@ use crate::ipc::handlers::driver::{DRIVER_METHODS_STATEMENT_CAPACITY, DriverMeth
 
 // A session on the first provider over the driver `driver` builds on the session's binding
 // store, whose stored leg holds its `tracker` server on and whose one live leg reads it as
-// `status`; the producer is kept, since dropping it retires the leg.
+// `reading`; the producer is kept, since dropping it retires the leg.
 struct Fixture {
     _database: TestDatabase,
     _leg: McpServerStatusProducer,
@@ -66,7 +66,7 @@ struct Fixture {
 
 async fn session_reading(
     driver: impl FnOnce(Arc<RuntimeBindingStore>) -> MockProviderDriver,
-    status: McpServerStatus,
+    reading: McpServerReading,
 ) -> Fixture {
     let database = TestDatabase::new(schema_parts());
     let schema = database.opener()().expect("the test creates its database");
@@ -114,7 +114,7 @@ async fn session_reading(
     );
     leg.report_status(McpServerStatusEmission::new(
         server_name.clone(),
-        McpServerReading::Observed(status),
+        reading,
         None,
         None,
     ));
@@ -167,7 +167,7 @@ async fn a_server_signed_in_by_its_provider_is_refused_without_a_reach() {
         .expect_list_mcp_resources()
         .times(1)
         .returning(|_, _| Box::pin(async { Ok(McpResourceSource::SignedInByProvider) }));
-    let fixture = session_reading(|_| driver, Connected).await;
+    let fixture = session_reading(|_| driver, McpServerReading::Observed(Connected)).await;
 
     let answer = list_resources(
         &fixture.methods,
@@ -192,7 +192,7 @@ async fn a_server_signed_in_by_its_provider_is_refused_without_a_reach() {
 async fn a_server_the_session_does_not_read_as_working_is_refused_before_the_driver() {
     let mut driver = MockProviderDriver::new();
     driver.expect_list_mcp_resources().never();
-    let fixture = session_reading(|_| driver, Failed).await;
+    let fixture = session_reading(|_| driver, McpServerReading::Observed(Failed)).await;
 
     let answer = list_resources(
         &fixture.methods,
@@ -235,7 +235,7 @@ async fn a_switch_is_kept_with_the_session_and_sent_to_its_feed() {
                 });
             driver
         },
-        Connected,
+        McpServerReading::Observed(Connected),
     )
     .await;
     let switches = SessionMcpSwitches::new(&fixture.methods.followers);
@@ -289,4 +289,47 @@ async fn a_switch_is_kept_with_the_session_and_sent_to_its_feed() {
         .await
         .expect("the same state answers as it stands");
     assert_eq!(lock(&calls).len(), 1, "the same state calls no driver");
+}
+
+// A server the provider switched off for the session's one leg lists off, its status unknown and
+// nothing waiting, both before a switch waits and while one does. Killed by the reader leaving a
+// switched-off server out or the row reading the session's switch alone (it lists on), and by a
+// leg's switch-off read as the server running (it lists waiting once a switch waits).
+#[tokio::test]
+async fn a_server_the_provider_switched_off_lists_off_with_nothing_waiting() {
+    let fixture =
+        session_reading(|_| MockProviderDriver::new(), McpServerReading::SwitchedOff).await;
+    let switches = SessionMcpSwitches::new(&fixture.methods.followers);
+    let mut feed = follow_session_servers(
+        Arc::clone(&fixture.methods),
+        Arc::clone(&switches),
+        fixture.session_id,
+    )
+    .await
+    .expect("the feed opens");
+    let gate = CreditGate::with_credit(1);
+    let off = Some(SessionMcpServerList {
+        session_id: fixture.session_id,
+        servers: vec![SessionMcpServer {
+            server_name: fixture.server_name.clone(),
+            status: Unknown,
+            reason: None,
+            enabled: false,
+            pending_until_next_turn: false,
+        }],
+    });
+
+    let first = feed.next(&gate).await.expect("the feed reads");
+    switches.note_switched(fixture.session_id, Some(McpSessionSwitch::AtNextTurn));
+    // Bounded, so a feed that is not sent again fails here rather than at the runner's limit.
+    let waiting = tokio::time::timeout(Duration::from_secs(5), feed.next(&gate))
+        .await
+        .expect("the feed sends again after the switch")
+        .expect("the feed reads");
+
+    assert_eq!(first, off, "the provider's switch-off lists the server off");
+    assert_eq!(
+        waiting, off,
+        "a waiting switch leaves the server off and not waiting"
+    );
 }

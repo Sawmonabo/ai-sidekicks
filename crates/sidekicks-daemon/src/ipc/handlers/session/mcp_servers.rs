@@ -1,7 +1,7 @@
 //! A session's own tool servers: `session.mcpServer.subscribe`, the live list of the servers the
-//! session was started with, each with its status and the session's switch, sent whole on every
-//! change; `session.mcpServer.enabled.update`, the session's switch of one of them, kept with the
-//! session's stored leg and carried to its live conversation by its driver; and
+//! session was started with, each with its status and whether it is on for the session, sent whole
+//! on every change; `session.mcpServer.enabled.update`, the session's switch of one of them, kept
+//! with the session's stored leg and carried to its live conversation by its driver; and
 //! `mcp.resource.list`, what one working server offers to attach: the list its provider reads for
 //! the daemon, or the daemon's own read over a connection made for the call, a second copy of a
 //! program server or the server at its address. A server the session does not read as working is
@@ -18,7 +18,6 @@ use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, S
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
 use sidekicks_contracts::mcp::governance::McpServerStatusChangedNotice;
 use sidekicks_contracts::mcp::server::McpServerStatus;
-use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     McpResourceList, McpResourceListRequest, McpResourceListResponse, SessionAddressedRequest,
@@ -38,6 +37,7 @@ use sidekicks_mcp::status::notices::McpNoticeFeed;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::mcp_server::resources::{McpResourceSource, not_a_session_server};
 use sidekicks_provider::driver::mcp_server::session_switch::McpSessionSwitch;
+use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_session::run::stored_leg::read_session_leg;
@@ -344,9 +344,10 @@ async fn read_session_tool_servers(
 }
 
 /// The session's list: one row per server of its stored set, its status folded over the legs
-/// that report it by severity, `unknown` where none does, and waiting while the driver's last
-/// answer left the switch for a next turn or start and the legs still disagree with it. Fails as
-/// the stored leg's read fails.
+/// that report it by severity, `unknown` where none does; off where the session's switch is off
+/// or a live leg's provider switched it off; and waiting while the driver's last answer left the
+/// switch for a next turn or start and the legs still disagree with it. Fails as the stored leg's
+/// read fails.
 async fn compose_session_servers(
     methods: &McpServerMethods,
     switches: &SessionMcpSwitches,
@@ -356,27 +357,31 @@ async fn compose_session_servers(
         .await?
         .map(|(_, tool_servers)| tool_servers)
         .unwrap_or_default();
-    let readings = methods.statuses.session_server_statuses(session_id);
+    let readings = methods.statuses.session_server_readings(session_id);
     let is_waiting = switches.is_waiting(session_id);
     let servers: Vec<SessionMcpServer> = tool_servers
         .iter()
         .map(|tool_server| {
             let server_name = tool_server.binding.server_name();
-            let legs: Vec<&McpServerLegStatus> = readings
+            let legs: Vec<McpServerReading> = readings
                 .iter()
                 .filter(|(name, _)| name == server_name)
-                .map(|(_, leg)| leg)
+                .map(|(_, reading)| *reading)
                 .collect();
-            let status = McpServerStatus::most_severe(legs.iter().map(|leg| leg.status))
-                .unwrap_or(McpServerStatus::Unknown);
-            // A leg reports a server only while the server runs on it.
-            let is_running = !legs.is_empty();
+            // A leg reports a status only while the server runs on it.
+            let statuses = legs.iter().filter_map(|reading| match reading {
+                McpServerReading::Observed(status) => Some(*status),
+                McpServerReading::SwitchedOff => None,
+            });
+            let is_running = statuses.clone().next().is_some();
+            let status = McpServerStatus::most_severe(statuses).unwrap_or(McpServerStatus::Unknown);
+            let enabled = tool_server.is_enabled && !legs.contains(&McpServerReading::SwitchedOff);
             SessionMcpServer {
                 server_name: server_name.clone(),
                 status,
                 reason: None,
-                enabled: tool_server.is_enabled,
-                pending_until_next_turn: is_waiting && is_running != tool_server.is_enabled,
+                enabled,
+                pending_until_next_turn: is_waiting && is_running != enabled,
             }
         })
         .collect();
@@ -443,9 +448,12 @@ async fn list_resources(
     let (provider, driver) = sources.resolve_driver(session_id).await?;
     let is_working = methods
         .statuses
-        .session_server_statuses(session_id)
+        .session_server_readings(session_id)
         .iter()
-        .any(|(name, leg)| name == &server_name && leg.status == McpServerStatus::Connected);
+        .any(|(name, reading)| {
+            name == &server_name
+                && *reading == McpServerReading::Observed(McpServerStatus::Connected)
+        });
     if !is_working {
         return Err(DomainError::new(
             format!("{} is not working in this session", server_name.as_str()),

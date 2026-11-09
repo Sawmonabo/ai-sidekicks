@@ -26,7 +26,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueOutlet;
 use sidekicks_provider::driver::mcp_server::status::{
-    McpServerStatusEmission, McpServerStatusUpdate,
+    McpServerReading, McpServerStatusEmission, McpServerStatusUpdate,
 };
 use sidekicks_std::mutex_lock::lock;
 
@@ -158,13 +158,13 @@ impl McpServerStatusTracker {
         lock(&self.legs).reading(binding)
     }
 
-    /// What each live leg of `session_id` last saw of each server it reports, by the server's
-    /// name; a server switched off for a leg, or one it never gave a status, is left out.
-    pub fn session_server_statuses(
+    /// What each live leg of `session_id` last read of each server it reports, by the server's
+    /// name: its status, or that the provider switched the server off for the leg.
+    pub fn session_server_readings(
         &self,
         session_id: SessionId,
-    ) -> Vec<(McpServerName, McpServerLegStatus)> {
-        lock(&self.legs).session_server_statuses(session_id)
+    ) -> Vec<(McpServerName, McpServerReading)> {
+        lock(&self.legs).session_server_readings(session_id)
     }
 
     /// How many legs are remembered, retired ones included.
@@ -334,7 +334,6 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-    use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 
     use super::*;
 

@@ -432,19 +432,23 @@ impl McpLegs {
         }
     }
 
-    /// What each live leg of `session_id` last saw of each server, by name: a retired leg, a
-    /// server switched off for a leg and one with no status yet are left out.
-    pub(super) fn session_server_statuses(
+    /// What each live leg of `session_id` last read of each server, by name: its status, or that
+    /// the provider switched the server off for the leg. A retired leg is left out.
+    pub(super) fn session_server_readings(
         &self,
         session_id: SessionId,
-    ) -> Vec<(McpServerName, McpServerLegStatus)> {
+    ) -> Vec<(McpServerName, McpServerReading)> {
         self.legs
             .iter()
             .filter(|(leg_id, leg)| leg_id.session_id == session_id && !leg.is_retired)
-            .flat_map(|(leg_id, leg)| {
-                leg.servers.iter().filter_map(move |(name, server)| {
-                    let status = server.status.filter(|_| !server.is_switched_off)?;
-                    Some((name.clone(), leg_status(leg_id, server, status)))
+            .flat_map(|(_, leg)| {
+                leg.servers.iter().filter_map(|(name, server)| {
+                    let reading = if server.is_switched_off {
+                        McpServerReading::SwitchedOff
+                    } else {
+                        McpServerReading::Observed(server.status?)
+                    };
+                    Some((name.clone(), reading))
                 })
             })
             .collect()
