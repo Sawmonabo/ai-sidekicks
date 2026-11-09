@@ -3,7 +3,8 @@
 //! conversation cut names the newest as the last one Claude Code saw, and a turn too long for the
 //! context window hands it back to the person.
 //! The earliest signal that Claude Code took a message reports it once, under the run it was
-//! written for; a steer not yet taken keeps its run going into Claude Code's next turn.
+//! written for and saying whether this process wrote it; a steer not yet taken keeps its run going
+//! into Claude Code's next turn.
 
 use std::collections::{HashMap, HashSet};
 
@@ -15,6 +16,16 @@ struct UnreportedPrompt {
     session_id: SessionId,
     run_id: RunId,
     is_steer: bool,
+}
+
+/// A message Claude Code took, reported once: the run to report it under, and whether this process
+/// recorded it at a write, which a message kept from before a restart was not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeTakenPrompt {
+    /// The run it was written for, or the lead run for a message never recorded.
+    pub(crate) run_id: RunId,
+    /// Whether this process recorded it at a write.
+    pub(crate) is_written: bool,
 }
 
 /// Every message written to a live Claude Code process and not yet reported taken, by the uuid
@@ -65,13 +76,14 @@ impl ClaudeSentPrompts {
 
     /// Claude Code took `message_uuid` (its `started` state, a turn's `user_message_uuids` or its
     /// replayed echo): answers the run to report it under, the run recorded at the write or, for a
-    /// message this process never recorded, `lead_run`; `None` once the message is settled.
+    /// message this process never recorded, `lead_run`, with whether it was recorded; `None` once
+    /// the message is settled.
     pub(crate) fn record_taken(
         &mut self,
         session_id: SessionId,
         message_uuid: &str,
         lead_run: Option<RunId>,
-    ) -> Option<RunId> {
+    ) -> Option<ClaudeTakenPrompt> {
         let settled = self.settled_by_session.entry(session_id).or_default();
         if !settled.insert(message_uuid.to_owned()) {
             return None;
@@ -82,10 +94,16 @@ impl ClaudeSentPrompts {
         {
             written.drain(..taken_at);
         }
-        self.unreported
-            .remove(message_uuid)
-            .map(|prompt| prompt.run_id)
-            .or(lead_run)
+        match self.unreported.remove(message_uuid) {
+            Some(prompt) => Some(ClaudeTakenPrompt {
+                run_id: prompt.run_id,
+                is_written: true,
+            }),
+            None => lead_run.map(|run_id| ClaudeTakenPrompt {
+                run_id,
+                is_written: false,
+            }),
+        }
     }
 
     /// Claude Code dropped `message_uuid` before taking it (`discarded`, `refused`, `cancelled`,
@@ -163,7 +181,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-    use super::ClaudeSentPrompts;
+    use super::{ClaudeSentPrompts, ClaudeTakenPrompt};
 
     fn run() -> RunId {
         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
@@ -185,7 +203,10 @@ mod tests {
 
         assert_eq!(
             prompts.record_taken(session_id, "steer", Some(lead_run)),
-            Some(steered_run)
+            Some(ClaudeTakenPrompt {
+                run_id: steered_run,
+                is_written: true,
+            })
         );
         assert!(!prompts.has_untaken_steer(steered_run));
         assert_eq!(
@@ -195,7 +216,7 @@ mod tests {
     }
 
     // Kills: a dropped message still reported later, and a never-recorded message not falling
-    // back to the lead run.
+    // back to the lead run or read as one this process wrote.
     #[test]
     fn a_dropped_message_reports_nothing_and_an_unrecorded_one_takes_the_lead_run() {
         let session_id = session();
@@ -212,7 +233,10 @@ mod tests {
         // A resume's kept message from before a restart reports on its echo under the lead run.
         assert_eq!(
             prompts.record_taken(session_id, "kept", Some(lead_run)),
-            Some(lead_run)
+            Some(ClaudeTakenPrompt {
+                run_id: lead_run,
+                is_written: false,
+            })
         );
     }
 
@@ -248,7 +272,9 @@ mod tests {
         let mut prompts = ClaudeSentPrompts::default();
         prompts.record_written(ended, ended_run, "taken", true);
         assert_eq!(
-            prompts.record_taken(ended, "taken", Some(lead_run)),
+            prompts
+                .record_taken(ended, "taken", Some(lead_run))
+                .map(|taken| taken.run_id),
             Some(ended_run)
         );
         prompts.record_written(ended, ended_run, "pending", true);
@@ -259,7 +285,9 @@ mod tests {
         assert!(!prompts.has_untaken_steer(ended_run));
         assert_eq!(prompts.newest_for(ended), None);
         assert_eq!(
-            prompts.record_taken(ended, "taken", Some(lead_run)),
+            prompts
+                .record_taken(ended, "taken", Some(lead_run))
+                .map(|taken| taken.run_id),
             Some(lead_run)
         );
         assert!(prompts.has_untaken_steer(live_run));

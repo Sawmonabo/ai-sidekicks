@@ -41,6 +41,7 @@ fn label(delivery: &InboundDelivery<'static>) -> String {
             UnstampedRow::ApprovalReviewerFlagged(_) => "otherRow".to_owned(),
         },
         InboundDelivery::TurnBoundary { .. }
+        | InboundDelivery::TurnSteered { .. }
         | InboundDelivery::RunContinued { .. }
         | InboundDelivery::ChildRun { .. }
         | InboundDelivery::ChildRunParentCorrected { .. }

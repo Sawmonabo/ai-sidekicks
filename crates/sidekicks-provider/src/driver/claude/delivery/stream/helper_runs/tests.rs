@@ -557,6 +557,7 @@ fn helper_tool_answer(session: &ScriptedSession, agent_id: &str) -> ClaudePauseA
         &session.session_id,
         Some(agent_id),
         "helper-tool",
+        &mut None,
     )
 }
 

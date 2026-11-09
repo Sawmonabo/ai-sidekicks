@@ -22,6 +22,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::TurnTasksUpdate;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -111,11 +112,12 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
 
-/// One of the person's messages Codex took into a turn, by the id it was sent under.
+/// A steer Codex took into a turn and echoed, landed where its turn has a number, for the queue to
+/// be told of once the frames are delivered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexTakenMessage {
-    /// The id the message was sent under, Codex's `clientId`.
-    pub(crate) client_message_id: String,
+    /// The queue item whose message Codex took.
+    pub(crate) message_id: QueueItemId,
     /// The turn it went into.
     pub(crate) turn_id: String,
 }
@@ -161,7 +163,7 @@ pub(crate) struct CodexTurnMove {
 /// What one frame told the rest of the driver.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexFrameDispatch {
-    /// The person's messages Codex took into a turn.
+    /// The steers Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
     /// The `userPromptSubmit` hook runs the frame reported.
     pub(crate) prompt_hook_runs: Vec<CodexPromptHookRun>,

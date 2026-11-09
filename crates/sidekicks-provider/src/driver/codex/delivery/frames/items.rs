@@ -1,9 +1,12 @@
 //! A turn's items: each tool call's start and end, a command's end even after its turn ended or
 //! the session moved off its conversation, the reply, reasoning and plan streamed as pieces, the
 //! safety hold a reply's first words end, a plan handed on whole, a command's row in the running
-//! commands, and the tool boundary each finished call of the session's own turn is.
+//! commands, the tool boundary each finished call of the session's own turn is, and a steer's
+//! landing at its echo, where it sits among the turn's items.
 
 mod async_questions;
+#[cfg(test)]
+mod tests;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,6 +28,7 @@ use crate::driver::codex::delivery::rows::{
     read_codex_frame_item, read_codex_item_completed_row, read_codex_item_prose,
     read_codex_tool_start_row, read_codex_tool_trace,
 };
+use crate::driver::codex::run::steer::take_echoed_codex_steer;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::diagnostics::{
@@ -142,10 +146,14 @@ impl CodexFrameDelivery {
                 record.answer_steer_by_turn_id.remove(turn_id);
                 record.held_continuation_turn_ids.remove(turn_id);
             }
-            dispatch.taken_messages.push(CodexTakenMessage {
-                client_message_id: client_message_id.to_owned(),
-                turn_id: turn_id.to_owned(),
-            });
+            // Only a registered steer answers, once; a start's own echo names its opening.
+            if let Some(message_id) = take_echoed_codex_steer(record, turn_id, client_message_id) {
+                self.land_steer(record, turn_id, message_id).await;
+                dispatch.taken_messages.push(CodexTakenMessage {
+                    message_id,
+                    turn_id: turn_id.to_owned(),
+                });
+            }
         }
         let command = take_running_command(record, &thread_id, &item_id);
         let completed = match command {
@@ -352,6 +360,29 @@ impl CodexFrameDelivery {
         let row =
             compose_codex_prose_piece(&prose.run, item_id, prose.row_type, piece, prose.method);
         self.admit_row(record, row).await;
+    }
+
+    // Lands a steer Codex echoed on its turn's run, under the number the run engine gave the turn,
+    // before the frames after the echo; a turn whose run ended before it opened has no number and
+    // lands nothing.
+    async fn land_steer(
+        &self,
+        record: &CodexSessionRecord,
+        turn_id: &str,
+        message_id: QueueItemId,
+    ) {
+        let Some(turn_run) = self.turn_run_for(record, turn_id) else {
+            return;
+        };
+        let Some(started) = record.delivery.started_turn_by_turn_id.get(turn_id) else {
+            return;
+        };
+        let steered = InboundDelivery::TurnSteered {
+            binding_id: turn_run.binding.binding_id.clone(),
+            turn_number: started.turn_number,
+            message_id,
+        };
+        self.send(record, steered, "item/completed").await;
     }
 
     async fn admit_row(&self, record: &mut CodexSessionRecord, row: Option<CodexItemRow>) {

@@ -33,7 +33,7 @@ use sidekicks_provider::driver::run_control::{
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, new_run_id, registry_of_first_provider,
 };
-use sidekicks_provider::port::run_pause::ContinuedMessages;
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedRead};
 use sidekicks_provider::process_identity::{
     ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
 };
@@ -266,15 +266,17 @@ async fn hand(fixture: &Fixture) {
         .expect("the waiting messages are handed");
 }
 
-/// The ids of the messages a continue of the fixture's run reads, under the session lock.
+/// The ids of the messages a continue of the fixture's run reads, under the session lock; none
+/// while an undo holds the session.
 async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
     let hold = fixture.session_lock.hold_session(fixture.session_id).await;
-    ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
+    let read = ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
         .await
-        .expect("the continue reads the waiting messages")
-        .iter()
-        .map(|message| message.id)
-        .collect()
+        .expect("the continue reads the waiting messages");
+    match read {
+        ContinuedRead::Messages(messages) => messages.iter().map(|message| message.id).collect(),
+        ContinuedRead::HeldForUndo => Vec::new(),
+    }
 }
 
 async fn settle(fixture: &Fixture) {

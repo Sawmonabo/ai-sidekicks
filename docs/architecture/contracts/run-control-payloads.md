@@ -535,7 +535,9 @@ interface AgentRunResumeRequest {
 }
 // Shared pause/resume ack: echoes the post-transition run state + the advanced `runVersion`, so the
 // caller threads the fresh comparand into its next guarded request without a round-trip to
-// agent.run.subscribe.
+// agent.run.subscribe. A resume while an undo holds the session answers the run's state now,
+// `paused` or `pausing`, and the run resumes when the undo lets the session go, or not at all when
+// the undo interrupted it.
 interface AgentRunControlResponse {
   runId: RunId;
   newState: RunState;

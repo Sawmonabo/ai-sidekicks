@@ -1,8 +1,11 @@
-//! Git: the one runner every git call goes through, the branch-name pattern's check, a
-//! repository's exclude list, turn snapshots and worktrees.
+//! Git: the one runner every git call goes through, the reading of `cat-file`'s batch answers, the
+//! branch-name pattern's check, a repository's exclude list, the objects an index names, turn
+//! snapshots and worktrees.
 
 pub mod branch_name_pattern;
+pub mod cat_file;
 pub mod exclude;
+pub mod index_objects;
 pub mod process;
 pub mod turn_snapshot;
 pub mod worktree;

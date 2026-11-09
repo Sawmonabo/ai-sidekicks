@@ -12,6 +12,7 @@ use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
@@ -64,6 +65,9 @@ pub(crate) struct ClaudeStreamDependencies {
         Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     /// Where each answered tool call's trace goes once registered.
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
+    /// The windows of the commands that run with no wrapper, which a call's tool result, refusal
+    /// or background task's end closes where no post hook did.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
     /// Claude's live pricing, which prices each turn's rows and marks a rerouted model in use.
     pub(crate) pricing: Arc<LivePricing>,
 }

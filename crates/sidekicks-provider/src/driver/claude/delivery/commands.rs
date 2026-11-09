@@ -7,7 +7,6 @@
 //! its own whose commands are rows under that process's one run.
 
 mod apart_run;
-
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io;
@@ -32,7 +31,7 @@ use tokio::task::JoinHandle;
 pub(crate) use self::apart_run::ClaudeApartCommand;
 use self::apart_run::ClaudeApartRunCommands;
 use crate::command::askpass::command_prompt_environment;
-use crate::command::channel::records::follow_channel_records;
+use crate::command::channel::records::{LineCapture, follow_channel_records};
 use crate::command::channel::{CommandChannel, command_channel_root};
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
@@ -41,9 +40,10 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::command_shape::{CLAUDE_SHELL_PREFIX_COMMAND, bash_line_text};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::hooks::command_capture::CLAUDE_MONITOR_TOOL_NAME;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::spawn::settings::CLAUDE_SHELL_TOOL_NAME;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher,
 };
@@ -59,7 +59,7 @@ pub(crate) const CLAUDE_TOOL_SERVER_TASK_TYPE: &str = "mcp_task";
 const CLAUDE_WORKFLOW_TASK_TYPE: &str = "local_workflow";
 
 /// The tools whose calls start a shell or Monitor task, each naming its line in `command`.
-const CLAUDE_COMMAND_TOOLS: [&str; 2] = ["Bash", "Monitor"];
+const CLAUDE_COMMAND_TOOLS: [&str; 2] = [CLAUDE_SHELL_TOOL_NAME, CLAUDE_MONITOR_TOOL_NAME];
 
 /// How many started calls' lines are kept for the task each starts; a call's task follows it at
 /// once, so only the newest few are ever looked up.
@@ -508,14 +508,15 @@ pub(crate) struct ClaudeCommandPrograms {
 /// Every session's command channel, one per session from its first spawn to its close: where
 /// each opens, the programs its commands run under, how a party's place under the provider's
 /// process is read, how a command's wait for input is read, the running commands each channel's
-/// records reach and the capture around each line's command.
+/// records reach and how each line's command is paired and captured.
 pub(crate) struct ClaudeCommandChannels {
     root: PathBuf,
     programs: ClaudeCommandPrograms,
     caller_processes: Arc<dyn CallerProcessReader>,
     input_waits: Arc<dyn InputWaitReader>,
-    command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
-    command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    /// The running commands every channel's records reach, which find a command's wrapper.
+    pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    line_capture: LineCapture,
     sessions: Mutex<HashMap<SessionId, Arc<ClaudeCommandChannel>>>,
     // Each session's channels apart from its own, while their callers hold them.
     apart: Mutex<HashMap<SessionId, Vec<Weak<ClaudeCommandChannel>>>>,
@@ -548,7 +549,7 @@ impl ClaudeCommandChannels {
         caller_processes: Arc<dyn CallerProcessReader>,
         input_waits: Arc<dyn InputWaitReader>,
         command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
-        command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+        line_capture: LineCapture,
     ) -> Self {
         Self {
             root: command_channel_root(data_folder),
@@ -556,7 +557,7 @@ impl ClaudeCommandChannels {
             caller_processes,
             input_waits,
             command_output,
-            command_capture,
+            line_capture,
             sessions: Mutex::default(),
             apart: Mutex::default(),
         }
@@ -698,7 +699,7 @@ impl ClaudeCommandChannels {
                 .map(|run| ClaudeApartRunCommands::new(session_id, run, Arc::clone(&sets))),
             sets,
             input_waits: Arc::clone(&self.input_waits),
-            command_capture: Arc::clone(&self.command_capture),
+            line_capture: self.line_capture.clone(),
             watch: Mutex::new(Some(watch)),
             follower: Mutex::new(None),
         }))
@@ -726,12 +727,18 @@ pub(crate) struct ClaudeCommandChannel {
     apart_run: Option<ClaudeApartRunCommands>,
     sets: Arc<RunningCommandSets>,
     input_waits: Arc<dyn InputWaitReader>,
-    command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    line_capture: LineCapture,
     watch: Mutex<Option<FolderArrivalWatch>>,
     follower: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ClaudeCommandChannel {
+    /// The channel the process's parties write to, which a test writes a party's records on.
+    #[cfg(test)]
+    pub(crate) fn command_channel(&self) -> &CommandChannel {
+        &self.channel
+    }
+
     /// The variables the process's commands carry so they run under the wrapper, which reaches
     /// the channel, and their git and ssh ask through the askpass.
     pub(crate) fn environment(&self) -> &[(String, String)] {
@@ -775,7 +782,7 @@ impl ClaudeCommandChannel {
             watch,
             Arc::clone(&self.sets),
             Arc::clone(&self.input_waits),
-            Arc::clone(&self.command_capture),
+            self.line_capture.clone(),
         );
         *lock(&self.follower) = Some(tokio::spawn(async move {
             // The watch failing ends the following; the commands' rows keep what the provider

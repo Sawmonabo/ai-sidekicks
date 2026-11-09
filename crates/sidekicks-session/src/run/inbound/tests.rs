@@ -35,6 +35,7 @@ use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
+use crate::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
@@ -51,6 +52,7 @@ use crate::transcript::reasoning::read_reasoning;
 
 mod after_run;
 mod parent_correction;
+mod steers;
 
 /// A run-state stream no one reads.
 pub(crate) struct UnreadRunStates;
@@ -73,7 +75,8 @@ struct Harness {
 impl Harness {
     // A run stored in `state`, with its binding's cursor open at the run's start.
     async fn new(state: RunState) -> Self {
-        let database = TestDatabase::new(schema_parts());
+        // The checkpoint table takes the rows a turn's start and a steer's landing write.
+        let database = TestDatabase::new(schema_parts().with_parts(checkpoint_schema_parts()));
         let home = tempfile::tempdir().expect("the test makes a home folder");
         // Opening the writer creates the file with the daemon's schema.
         let log = open_log(&database, None).await;
@@ -141,14 +144,18 @@ impl Harness {
             binding_id: binding_id.clone(),
             point: SourcePosition(SafeInt::new(point).expect("a small turn")),
         };
-        epochs.open_turn(binding_id).expect("the cursor is open");
+        epochs
+            .move_to_next_position(binding_id)
+            .expect("the cursor is open");
         epochs
             .attribute(binding_id, opening("first"))
             .expect("the cursor is open");
         epochs
             .fence_cut(cut(1))
             .expect("the cursor is open and not frozen");
-        epochs.open_turn(binding_id).expect("the cursor is open");
+        epochs
+            .move_to_next_position(binding_id)
+            .expect("the cursor is open");
         epochs
             .attribute(binding_id, opening("second"))
             .expect("the cursor is open");

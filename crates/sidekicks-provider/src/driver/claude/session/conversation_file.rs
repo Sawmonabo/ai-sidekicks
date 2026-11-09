@@ -5,6 +5,7 @@
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
+pub(crate) mod forks;
 pub(crate) mod lines;
 pub(crate) mod peer_replies;
 pub(crate) mod title;
@@ -71,8 +72,18 @@ pub(crate) async fn find_claude_conversation_file(
     provider_session_id: &str,
 ) -> io::Result<Option<PathBuf>> {
     check_session_id(provider_session_id)?;
+    let project_folders = list_project_folders(config_folder).await?;
+    find_conversation_file_in(&project_folders, provider_session_id).await
+}
+
+// The conversation's file in the first of `project_folders` holding it, or `None`; the id is one
+// plain path component already checked. Fails as a file's presence cannot be read.
+async fn find_conversation_file_in(
+    project_folders: &[PathBuf],
+    provider_session_id: &str,
+) -> io::Result<Option<PathBuf>> {
     let file_name = format!("{provider_session_id}.jsonl");
-    for project_folder in list_project_folders(config_folder).await? {
+    for project_folder in project_folders {
         let file = project_folder.join(&file_name);
         if tokio::fs::try_exists(&file).await? {
             return Ok(Some(file));
@@ -354,8 +365,9 @@ async fn read_entries(
     Ok(())
 }
 
-// The members of an entry the outline, the taken read and the purge read, each read leniently: a
-// member of another type reads as absent rather than dropping the line, and nothing else is kept.
+// The members of an entry the outline, the taken read, the purge and the fork reads read, each read
+// leniently: a member of another type reads as absent rather than dropping the line, and nothing
+// else is kept.
 #[derive(Deserialize)]
 struct ConversationEntry {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
@@ -368,6 +380,30 @@ struct ConversationEntry {
     slug: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     message: Option<ConversationMessage>,
+    #[serde(rename = "parentUuid", default, deserialize_with = "read_lenient")]
+    parent_uuid: Option<String>,
+    #[serde(rename = "forkedFrom", default, deserialize_with = "read_lenient")]
+    forked_from: Option<ConversationForkSource>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    attachment: Option<ConversationAttachment>,
+}
+
+// The row a fork copied an entry from, in the conversation it forked.
+#[derive(Deserialize)]
+struct ConversationForkSource {
+    #[serde(rename = "sessionId", default, deserialize_with = "read_lenient")]
+    session_id: Option<String>,
+    #[serde(rename = "messageUuid", default, deserialize_with = "read_lenient")]
+    message_uuid: Option<String>,
+}
+
+// An attachment entry's kind and, for a prompt Claude Code took mid-turn, the id it was sent with.
+#[derive(Deserialize)]
+struct ConversationAttachment {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    attachment_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    source_uuid: Option<String>,
 }
 
 impl ConversationEntry {
@@ -383,6 +419,17 @@ impl ConversationEntry {
                     Some(MessageContent::Blocks { has_tool_result }) => !has_tool_result,
                     None => false,
                 })
+    }
+
+    // The id the person's message was sent with: a prompt taken mid-turn's non-empty
+    // `source_uuid`, else the entry's own `uuid`, as Claude Code's rewind and the SDK's fork match.
+    fn message_id(&self) -> Option<&str> {
+        self.attachment
+            .as_ref()
+            .filter(|attachment| attachment.attachment_type.as_deref() == Some("queued_command"))
+            .and_then(|attachment| attachment.source_uuid.as_deref())
+            .filter(|source_uuid| !source_uuid.is_empty())
+            .or(self.uuid.as_deref())
     }
 }
 
@@ -442,7 +489,13 @@ impl Lenient for MessageContent {
     }
 }
 
-lenient_object!(ConversationEntry, ConversationMessage, ContentBlock);
+lenient_object!(
+    ConversationEntry,
+    ConversationMessage,
+    ContentBlock,
+    ConversationForkSource,
+    ConversationAttachment
+);
 
 /// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
 /// where the home names no folder or holds no such file. Fails as the home cannot be listed.

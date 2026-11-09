@@ -3,6 +3,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[cfg(unix)]
 use crate::posix::stand_in_program::write_stand_in_script;
@@ -27,6 +28,9 @@ pub struct StandInProgram {
     pub answers_by_first_argument: Vec<(String, StandInAnswer)>,
     /// The answer to every other call.
     pub otherwise: StandInAnswer,
+    /// How long the program's first call waits before it answers, its later calls answering at
+    /// once; a file beside the program named `<name>.first-call` marks the first call made.
+    pub first_call_wait: Option<Duration>,
 }
 
 /// Writes `program` in `folder` as a script the system's program search finds for `name`, and
@@ -109,6 +113,7 @@ mod tests {
                     exit_code: 1,
                     argument_record: Some(record.clone()),
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

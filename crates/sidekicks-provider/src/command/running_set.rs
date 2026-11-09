@@ -6,10 +6,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use jiff::Timestamp;
 use serde_json::json;
 use sidekicks_contracts::command::{
     AgentCommandEndedPayload, CommandEnding, CommandId, ExitCode, RunningCommand,
@@ -26,13 +27,15 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::command::channel::PartyId;
+use crate::command::channel::stop::StoppedCommandParties;
+use crate::command::channel::{CommandChannel, PartyId};
 use crate::command::waiting_checks::WaitingState;
 use crate::driver::contract::ProviderDriver;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::running_command_publisher::{
-    CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandParams, RunningCommandPublisher,
-    WriteCommandInputParams, command_act_unsupported,
+    CommandStart, CommandStopCause, ProviderCommandEnd, ReseedScope, RunningCommandParams,
+    RunningCommandPublisher, RunningCommandStart, StopCommandParams, WriteCommandInputParams,
+    command_act_unsupported,
 };
 use crate::run::delivery::{InboundDelivery, LateAppendableRow};
 
@@ -52,7 +55,10 @@ pub(crate) use refusals::takes_no_input;
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 #[cfg(any(test, feature = "test-support"))]
-pub use test_support::{TEST_COMMAND_BINDING, unbound_running_command_sets};
+pub use test_support::{
+    TEST_COMMAND_BINDING, TestCommandStart, test_bound_running_command_sets,
+    unbound_running_command_sets,
+};
 #[cfg(test)]
 mod tests;
 
@@ -162,6 +168,9 @@ struct SessionCommands {
     /// The runs of the session's processes apart from its own, such as a staged review's, whose
     /// rows its own process's whole list and its end leave alone.
     apart_runs: HashSet<RunId>,
+    /// The channel each of the session's processes is followed on, by the run it runs alone, `None`
+    /// for the session's own, which a stop of a wrapper reaches it through.
+    channels: HashMap<Option<RunId>, Weak<CommandChannel>>,
 }
 
 impl Default for SessionCommands {
@@ -172,6 +181,7 @@ impl Default for SessionCommands {
             commands_version: 0,
             changed: watch::Sender::new(()),
             apart_runs: HashSet::new(),
+            channels: HashMap::new(),
         }
     }
 }
@@ -183,12 +193,13 @@ struct CommandRow {
     wrapper: RowWrapper,
     facts: WrapperFacts,
     output: OutputRing,
-    // The person's stop under way or answered, which a later stop answers as.
+    // The stop under way or answered, which a later stop answers as, the parties it reached kept.
     stop_answer: Option<watch::Receiver<Option<StopAnswer>>>,
 }
 
-/// How the provider answered the person's stop: done, or refused with its code and words.
-type StopAnswer = Result<(), (RefusalCode, String)>;
+/// How the provider answered a stop: done, with the parties it reached, or refused with its code
+/// and words.
+type StopAnswer = Result<StoppedCommandParties, (RefusalCode, String)>;
 
 // The wrapper that runs a row's command: none yet, this one, or one that has ended, after which
 // no other pairs with the row.
@@ -232,6 +243,8 @@ struct OpenPrompt {
 
 struct UnpairedWrapper {
     party: PartyId,
+    // When its start reached the set, the record that admitted it.
+    admitted_at: Timestamp,
     // The run its channel's process runs alone; `None` for the session's own process's channel.
     apart_run: Option<RunId>,
     command: WrapperCommand,
@@ -285,23 +298,25 @@ impl RunningCommandSets {
             .is_some_and(|commands| !commands.rows.is_empty() || !commands.unpaired.is_empty())
     }
 
-    /// The person's stop, carried out by the session's `driver`: answered once the provider
-    /// acknowledged it, at once for a command that is not running, and for a command whose stop
-    /// was already sent as that stop is answered. Fails with the provider's refusal, the row then
-    /// drawn as it was.
+    /// A stop for `cause`, carried out by the session's `driver`: answered once the provider
+    /// acknowledged it, with the parties of the command's wrapper it reached; at once and with no
+    /// parties for a command that is not running; and for a command whose stop was already sent
+    /// as that stop is answered, with the parties it reached. Fails with the provider's refusal,
+    /// the row then drawn as it was.
     pub async fn stop(
         &self,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         command_id: &CommandId,
-    ) -> Result<(), HandlerError> {
+        cause: CommandStopCause,
+    ) -> Result<StoppedCommandParties, HandlerError> {
         let sent = {
             let mut sessions = self.lock();
             let Some(commands) = sessions.get_mut(&session_id) else {
-                return Ok(());
+                return Ok(StoppedCommandParties::default());
             };
             let Some(row) = commands.row_mut(command_id) else {
-                return Ok(());
+                return Ok(StoppedCommandParties::default());
             };
             match row.state {
                 RowState::Stopping { .. } => Err(row
@@ -323,15 +338,18 @@ impl RunningCommandSets {
             Err(answered) => return Self::answered_stop(answered, command_id).await,
         };
         let stopped = match self.command_params(session_id, command_id) {
-            Ok(params) => driver
-                .stop_command(params)
+            Ok(command) => driver
+                .stop_command(StopCommandParams { command, cause })
                 .await
                 .map_err(HandlerError::from),
             Err(refusal) => Err(refusal.into()),
         };
-        let Err(error) = stopped else {
-            answer.send_replace(Some(Ok(())));
-            return Ok(());
+        let error = match stopped {
+            Ok(parties) => {
+                answer.send_replace(Some(Ok(parties.clone())));
+                return Ok(parties);
+            }
+            Err(error) => error,
         };
         answer.send_replace(Some(Err(match &error {
             HandlerError::Refused(refusal) => (refusal.code, refusal.message.clone()),
@@ -353,18 +371,19 @@ impl RunningCommandSets {
         Err(error)
     }
 
-    // A later stop of a command whose stop was sent: answered as that stop is, once it is.
+    // A later stop of a command whose stop was sent: answered as that stop is, once it is, with
+    // the parties it reached.
     async fn answered_stop(
         mut answered: watch::Receiver<Option<StopAnswer>>,
         command_id: &CommandId,
-    ) -> Result<(), HandlerError> {
+    ) -> Result<StoppedCommandParties, HandlerError> {
         let answer = answered
             .wait_for(Option::is_some)
             .await
             .ok()
             .and_then(|answer| answer.clone());
         match answer {
-            Some(Ok(())) => Ok(()),
+            Some(Ok(parties)) => Ok(parties),
             Some(Err((code, message))) => Err(DomainError::new(message, code)
                 .with_detail(json!({ "commandId": command_id }))
                 .into()),
@@ -451,6 +470,24 @@ impl RunningCommandSets {
         Ok(())
     }
 
+    /// Every command of `session_id`'s set, one whose stop is under way included, in start order.
+    pub fn running_starts(&self, session_id: SessionId) -> Vec<RunningCommandStart> {
+        self.lock()
+            .get(&session_id)
+            .map_or_else(Vec::new, |commands| {
+                commands
+                    .rows
+                    .iter()
+                    .map(|row| RunningCommandStart {
+                        command_id: row.start.command_id.clone(),
+                        run_id: row.start.run_id,
+                        tool_call_id: row.start.tool_call_id.clone(),
+                        started_at: row.start.started_at.clone(),
+                    })
+                    .collect()
+            })
+    }
+
     /// The binding the session runs on now, which a stop of its commands goes to.
     pub fn binding_now(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
         (self.binding_of)(session_id)
@@ -491,6 +528,7 @@ impl RunningCommandSets {
     pub(crate) fn apart_run_ended(&self, session_id: SessionId, run_id: RunId) {
         if let Some(commands) = self.lock().get_mut(&session_id) {
             commands.apart_runs.remove(&run_id);
+            commands.channels.remove(&Some(run_id));
         }
     }
 
@@ -694,6 +732,13 @@ impl SessionCommands {
         self.rows
             .iter()
             .position(|row| &row.start.command_id == command_id)
+    }
+
+    // The channel of the process that runs `run` apart from the session's own where one does,
+    // else the session's own; `None` while that channel is not followed.
+    fn run_channel(&self, run: Option<RunId>) -> Option<Arc<CommandChannel>> {
+        let apart_run = run.filter(|run| self.apart_runs.contains(run));
+        self.channels.get(&apart_run)?.upgrade()
     }
 
     fn row(&self, command_id: &CommandId) -> Option<&CommandRow> {

@@ -339,7 +339,9 @@ async fn a_fenced_fork_opens_the_new_epoch_on_a_binding_its_run_holds() {
             .epochs
             .lock()
             .expect("no test thread panics holding them");
-        epochs.open_turn(&cut_binding).expect("the cursor is open");
+        epochs
+            .move_to_next_position(&cut_binding)
+            .expect("the cursor is open");
         epochs
             .attribute(&cut_binding, operation(true))
             .expect("the cursor is open");
@@ -452,7 +454,9 @@ async fn a_cursor_opens_where_its_runs_log_stands(#[case] is_relaunch: bool) {
             .epochs
             .lock()
             .expect("no test thread panics holding them");
-        epochs.open_turn(&binding_id).expect("the cursor is open");
+        epochs
+            .move_to_next_position(&binding_id)
+            .expect("the cursor is open");
         epochs
             .attribute(&binding_id, operation(true))
             .expect("the cursor is open");
