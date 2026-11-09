@@ -86,12 +86,12 @@ pub(crate) async fn hand_resupplied_codex_key(
     }
     let switching = registry.service_on(&switching_home(&dependencies.data_folder));
     if let Some(service) = switching
-        && let Some(connection) = connection_once_back(&service).await
+        && connection_once_back(&service).await.is_some()
     {
         settle_closed(
             dependencies
                 .switching
-                .hand_resupplied_key(&connection, provider_account_id, api_key.clone())
+                .hand_resupplied_key(&service, provider_account_id, api_key.clone())
                 .await,
         )?;
     }

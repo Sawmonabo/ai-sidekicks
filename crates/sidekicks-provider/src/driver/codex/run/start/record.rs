@@ -17,6 +17,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 
 use crate::driver::codex::attachments::compose_codex_message_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
@@ -28,7 +29,6 @@ use crate::driver::codex::output_speed::{
 use crate::driver::codex::permission_level::compose_codex_approvals_reviewer;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
-use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::bind_codex_first_run;
@@ -83,8 +83,9 @@ pub(crate) enum CodexTurnBeginAnswer {
     Ready(Box<CodexTurnSend>),
     /// A turn the daemon is stopping, or one Codex started that no run holds, ends first.
     WaitForStoppedTurns,
-    /// The account switch this switching account holds lands first.
-    WaitForAccountSwitch(Arc<CodexSwitchingAccount>),
+    /// The account switch held on the service lands first: the turn goes once this reads
+    /// `false`.
+    WaitForAccountSwitch(watch::Receiver<bool>),
     /// The conversation owes a fork onto a changed config first.
     ForkOwed,
     /// The session cannot take the turn.
@@ -265,9 +266,13 @@ pub(crate) async fn begin_codex_turn_start(
     if task.routing.gate().is_intended_close_signaled() {
         return CodexTurnBeginAnswer::Refused(closing_session_refusal(session_id));
     }
-    let switching = &record.service.dependencies().switching;
-    if switching.holds_turns_on(&record.service) {
-        return CodexTurnBeginAnswer::WaitForAccountSwitch(Arc::clone(switching));
+    if let Some(is_held) = record
+        .service
+        .dependencies()
+        .switching
+        .held_switch_on(&record.service)
+    {
+        return CodexTurnBeginAnswer::WaitForAccountSwitch(is_held);
     }
     // Codex would fold a turn the daemon starts into one in flight, which the queue holds it for.
     if begin.turn.is_none() && record.is_turn_in_flight(None) {

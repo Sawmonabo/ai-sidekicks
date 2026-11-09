@@ -265,28 +265,34 @@ impl CodexSwitchingAccount {
         }
     }
 
-    // Hands `window`'s previous account its `api_key` once this task holds the hand, where the
-    // service still carries the account the window moved onto, so a switch that landed meanwhile
-    // is never undone and the window dropped settles each watch as unobserved. A login that
-    // cannot be sent or is refused fails every watch with its error and moves no session.
+    // Hands `window`'s previous account its `api_key` once this task holds the hand and no turn
+    // runs, as a held switch lands, where the service still carries the account the window moved
+    // onto, so a switch that landed meanwhile is never undone and the window dropped settles each
+    // watch as unobserved. The refused turn ends on the refresh's refusal, so the wait is for the
+    // others. A login that cannot be sent or is refused fails every watch with its error and moves
+    // no session.
     async fn hand_back_key(
         self: Arc<Self>,
         window: HandBackWindow,
         api_key: SecretString,
         bindings: Arc<dyn RuntimeBindingWriter>,
     ) {
-        let _hand = self.hands.lock().await;
-        if self.carried_account().as_ref() != Some(&window.to) {
-            return;
-        }
         let Some(service) = window.service.upgrade() else {
             return;
         };
-        let unlanded = Arc::new(Mutex::new(Some(window)));
-        let Err(error) = self
-            .send_key_back(&service, &unlanded, api_key, bindings)
-            .await
-        else {
+        let hand = self.take_hand_between_turns(&service).await;
+        let sent = if self.carried_account().as_ref() == Some(&window.to) {
+            let unlanded = Arc::new(Mutex::new(Some(window)));
+            let sent = self
+                .send_key_back(&service, &unlanded, api_key, bindings)
+                .await;
+            Some((sent, unlanded))
+        } else {
+            None
+        };
+        self.let_turns_start();
+        drop(hand);
+        let Some((Err(error), unlanded)) = sent else {
             return;
         };
         tracing::warn!(

@@ -10,7 +10,9 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use super::ClaudeAccountLegs;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
-use crate::driver::claude::session::restart::account_move::ClaudeLegBinding;
+use crate::driver::claude::session::restart::account_move::{
+    ClaudeAccountMoveAsker, ClaudeLegBinding,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
@@ -19,7 +21,8 @@ use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Starts again, each on a task of its own, every live session of `legs` whose process runs on
 /// `provider_account_id`'s account, an idle one at once and a busy one once its turn settles,
-/// under its stored leg's binding, so it resumes on the account's token sealed now; answers once
+/// under its stored leg's binding, so it resumes on the account's token sealed now, or, where a
+/// person's switch waits on the session, on that switch's account; answers once
 /// each is set going, never waiting on a turn. A failed start is recorded as the driver's
 /// diagnostic, the relaunch recording it in the session directory too. Fails while the run engine
 /// is not registered.
@@ -87,7 +90,12 @@ async fn relaunch_session(
         binding_id: leg.id,
     };
     restarts
-        .relaunch_on_account(live, provider_account_id, leg)
+        .relaunch_on_account(
+            live,
+            provider_account_id,
+            leg,
+            ClaudeAccountMoveAsker::Driver,
+        )
         .await
         .map(drop)
 }

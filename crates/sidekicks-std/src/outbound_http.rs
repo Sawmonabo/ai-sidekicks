@@ -29,9 +29,13 @@ fn user_agent() -> String {
 pub struct KeptOutboundClient {
     /// The idle connections the client keeps to one host.
     idle_connections_per_host: usize,
-    /// The client, while one is kept.
-    client: Mutex<Option<reqwest::Client>>,
+    /// The client, while one is kept, as a call that clones it: behind `dyn`, a type holding this
+    /// one proves `Send` and `Sync` here rather than through reqwest's connection pool, whose
+    /// depth would otherwise pass the compiler's limit for a large holder.
+    client: Mutex<Option<KeptClientClone>>,
 }
+
+type KeptClientClone = Box<dyn Fn() -> reqwest::Client + Send + Sync>;
 
 impl KeptOutboundClient {
     /// No client yet; the first [`Self::client`] builds one keeping at most
@@ -47,14 +51,15 @@ impl KeptOutboundClient {
     /// address.
     pub fn client(&self) -> Result<reqwest::Client, reqwest::Error> {
         let mut kept = lock(&self.client);
-        if let Some(client) = kept.as_ref() {
-            return Ok(client.clone());
+        if let Some(clone_kept) = kept.as_ref() {
+            return Ok(clone_kept());
         }
         let client = outbound_client_builder(self.idle_connections_per_host)
             .redirect(Policy::none())
             .build()
             .map_err(reqwest::Error::without_url)?;
-        *kept = Some(client.clone());
+        let kept_client = client.clone();
+        *kept = Some(Box::new(move || kept_client.clone()));
         Ok(client)
     }
 

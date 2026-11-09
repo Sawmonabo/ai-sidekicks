@@ -26,7 +26,9 @@ use sidekicks_std::settle_all::settle_all;
 use tokio::sync::SetOnce;
 use tokio_util::task::AbortOnDropHandle;
 
-use self::account_move::ClaudePendingAccountMove;
+use self::account_move::{
+    ClaudeSessionAccountMoves, drop_every_waiting_account_move, drop_waiting_account_move,
+};
 use self::ended_process::{ClaudeEndedConversation, ended_conversation_of};
 use self::relaunch::compose_claude_relaunch;
 use crate::crash_window::{CrashOutcome, CrashWindow};
@@ -64,8 +66,9 @@ struct ClaudeRestartTable {
     restarting: HashMap<SessionId, ClaudeRestartStage>,
     // The build each busy session moves to once its turn settles.
     pending_build_moves: HashMap<SessionId, ProviderBuildChange>,
-    // The account each busy session starts again on once its turn settles.
-    pending_account_moves: HashMap<SessionId, ClaudePendingAccountMove>,
+    // The moves of each session onto another account: its relaunch onto one, and the move that
+    // waits for its turn to settle or for that relaunch to end.
+    pending_account_moves: HashMap<SessionId, ClaudeSessionAccountMoves>,
     // The conversation each session's last ended process wrote, until the session closes.
     ended_conversations: HashMap<SessionId, ClaudeEndedConversation>,
     // Set once the daemon stops: from then on no session is started again.
@@ -185,7 +188,7 @@ impl ClaudeSessionRestarts {
             // The restart resumes on the build installed now, so a move that waited is done; every
             // waiting account move fails, its session no longer running.
             table.pending_build_moves.remove(&session_id);
-            table.pending_account_moves.remove(&session_id);
+            drop_waiting_account_move(&mut table, session_id);
             table
                 .ended_conversations
                 .insert(session_id, ended_conversation_of(&live));
@@ -281,7 +284,7 @@ impl ClaudeSessionRestarts {
         table.restarting.remove(&session_id);
         table.crash_windows.remove(&session_id);
         table.pending_build_moves.remove(&session_id);
-        table.pending_account_moves.remove(&session_id);
+        drop_waiting_account_move(&mut table, session_id);
         table.ended_conversations.remove(&session_id);
     }
 
@@ -337,7 +340,7 @@ impl ClaudeSessionRestarts {
             .restarting
             .retain(|_, stage| matches!(stage, ClaudeRestartStage::Relaunching { .. }));
         table.pending_build_moves.clear();
-        table.pending_account_moves.clear();
+        drop_every_waiting_account_move(&mut table);
     }
 
     /// Whether the daemon stops, so a process ending now was ended by the stop.
@@ -436,28 +439,7 @@ impl ClaudeSessionRestarts {
     /// `live`'s turn settled: an account move or a build move that waited for it goes now, the
     /// account move's relaunch landing on the build installed now too.
     pub(crate) fn turn_settled(self: &Arc<Self>, live: &Arc<LiveClaudeSession>) {
-        let account_move = lock(&self.table)
-            .pending_account_moves
-            .remove(&live.session_id);
-        if let Some(account_move) = account_move {
-            let (restarts, live) = (Arc::clone(self), Arc::clone(live));
-            tokio::spawn(async move {
-                let landed = restarts
-                    .relaunch_now_on_account(
-                        &live,
-                        account_move.provider_account_id,
-                        &account_move.leg,
-                    )
-                    .await
-                    .map_err(Arc::new);
-                for waiting in account_move.landed {
-                    // A move that stopped waiting needs no answer.
-                    let answer = landed
-                        .clone()
-                        .map_err(|failure| DriverError::shared(&failure));
-                    waiting.send(answer).unwrap_or(());
-                }
-            });
+        if self.start_waiting_account_move(live.session_id) {
             return;
         }
         let Some(change) = lock(&self.table)

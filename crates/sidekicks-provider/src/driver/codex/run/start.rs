@@ -299,8 +299,10 @@ impl CodexRunStart {
                 CodexTurnBeginAnswer::WaitForStoppedTurns => {
                     wait_out_stopped_turns(inbound, deadline).await?;
                 }
-                CodexTurnBeginAnswer::WaitForAccountSwitch(switching) => {
-                    switching.wait_for_held_switch().await;
+                CodexTurnBeginAnswer::WaitForAccountSwitch(mut is_held) => {
+                    // The sender lives as long as the switching account, so the wait ends only
+                    // once no switch is held.
+                    drop(is_held.wait_for(|is_held| !*is_held).await);
                 }
                 CodexTurnBeginAnswer::ForkOwed => self.fork_before_turn(inbound, deadline).await?,
                 CodexTurnBeginAnswer::Refused(error) => return Err(error),

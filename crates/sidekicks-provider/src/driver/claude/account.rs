@@ -40,7 +40,7 @@ use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
     ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation, ProviderSwitchLegs,
     ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs, SessionAccountMove,
-    SessionToMove,
+    SessionToMove, SwitchMovesAccepted,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -243,8 +243,9 @@ impl ProviderSwitchLegs for ClaudeAccountLegs {
         sessions: Vec<SessionToMove>,
         // Each session moves on its own process, so every one moved is named and none reported.
         _actor: DeviceId,
+        accepted: SwitchMovesAccepted,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
-        switch::move_claude_sessions(self, from, to, sessions).boxed()
+        switch::move_claude_sessions(self, from, to, sessions, accepted).boxed()
     }
 }
 

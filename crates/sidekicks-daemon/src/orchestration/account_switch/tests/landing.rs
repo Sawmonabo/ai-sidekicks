@@ -169,18 +169,19 @@ async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
         None,
     );
     let person = actor();
-    let handed_back = SessionAccountMove {
-        session_id: reviewed,
-        first_request: futures::future::ready(Ok(FirstRequestAfterMove::HandedBack)).boxed(),
-    };
+    let handed_back = SessionAccountMove::landed(
+        reviewed,
+        to.clone(),
+        futures::future::ready(Ok(FirstRequestAfterMove::HandedBack)).boxed(),
+    );
 
     for (moved, moved_by) in [
         (handed_back, Some(person.clone())),
-        (SessionAccountMove::unobserved(by_machine), None),
+        (SessionAccountMove::unobserved(by_machine, to.clone()), None),
     ] {
         fixture
             .move_record
-            .land(moved, to.clone(), moved_by)
+            .land(moved, moved_by)
             .await
             .expect("the lead reads")
             .await
@@ -188,7 +189,7 @@ async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
     }
     let unled = fixture
         .move_record
-        .land(SessionAccountMove::unobserved(no_lead), to.clone(), None)
+        .land(SessionAccountMove::unobserved(no_lead, to.clone()), None)
         .await;
 
     let events = fixture.appended(reviewed);
@@ -222,7 +223,7 @@ async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
     drop(fixture.switch);
     let unswitched = fixture
         .move_record
-        .land(SessionAccountMove::unobserved(by_machine), to, None)
+        .land(SessionAccountMove::unobserved(by_machine, to), None)
         .await;
     assert!(
         unswitched.is_none(),

@@ -27,6 +27,7 @@ use crate::driver::codex::event_normalizer::{
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
+use crate::driver::codex::service::supervisor::running_turns::CodexRunningTurns;
 use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameRoute};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::connection::read_codex_given_text;
@@ -54,6 +55,8 @@ pub(super) struct CodexServiceRouting {
     pub(super) rate_limits: CodexRateLimitReadings,
     /// The out-of-table methods already reported on the current connection.
     reports: OnceReportedDiagnostics,
+    /// The turns running on the service.
+    pub(super) running_turns: CodexRunningTurns,
 }
 
 impl CodexServiceRouting {
@@ -95,9 +98,10 @@ impl CodexServiceRouting {
         receiver
     }
 
-    /// Settles the waits on one conversation, or on every one when `thread_id` is `None`: the end
-    /// of a connection unloads every conversation on it.
+    /// Settles the waits on one conversation, or on every one when `thread_id` is `None`, and ends
+    /// its running turn: the end of a connection unloads every conversation on it.
     pub(super) fn settle_closed(&mut self, thread_id: Option<&str>) {
+        self.running_turns.end(thread_id);
         let waiters: Vec<oneshot::Sender<()>> = match thread_id {
             Some(thread_id) => self.closed_waiters.remove(thread_id).unwrap_or_default(),
             None => self
@@ -330,6 +334,7 @@ impl CodexService {
         } = read_codex_frame_threads(method, &params);
         let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
+            routing.running_turns.observe(method, &params);
             // Only reported here, once per connection, when the method is outside the table; the
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(

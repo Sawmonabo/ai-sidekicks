@@ -1,10 +1,10 @@
 //! The Codex switch leg: every session following the current account runs on the one switching
-//! service, so a switch is one `account/login/start` there with the new account's tokens, its
-//! answer the acknowledgment for every conversation on the service. At that answer's place among
-//! the service's frames the service carries the new account, its limit readings start afresh, and
-//! each moved session takes its move in its queue, its binding moving once the spend metered
-//! before is recorded. A refused login moves nothing. Each move's first request is watched by the
-//! switching service's hand-back window, which settles it.
+//! service, so a switch is one `account/login/start` there with the new account's tokens, held
+//! until no turn runs on the service. At that login's answer's place among the service's frames
+//! the service carries the new account, its limit readings start afresh, and each moved session
+//! takes its move in its queue, its binding moving once the spend metered before is recorded. A
+//! refused login moves nothing. Each move's first request is watched by the switching service's
+//! hand-back window, which settles it.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -19,20 +19,24 @@ use tokio::sync::oneshot;
 use super::CodexAccountLegs;
 use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::service::switching::CodexNamedMove;
+use crate::driver::codex::service::switching::held::CodexSwitchLanding;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::account::{SessionAccountMove, SessionToMove};
+use crate::driver::contract::account::{SessionAccountMove, SessionToMove, SwitchMovesAccepted};
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Moves each of `sessions` onto `to` through `legs` with one login on the switching service for
-/// `actor`, as [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says. The
-/// account it leaves is the one the service carries. A refused login, or a service that cannot
-/// start, fails every move with that error.
+/// `actor`, telling `accepted` once the switch is held, as
+/// [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says. The account it
+/// leaves is the one the service carries. A refused login, or a service that cannot start, fails
+/// every move with that error; a session a newer switch named too answers where that switch
+/// landed it.
 pub(crate) async fn move_codex_sessions(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
     sessions: Vec<SessionToMove>,
     actor: DeviceId,
+    accepted: SwitchMovesAccepted,
 ) -> Vec<Result<SessionAccountMove, (SessionId, DriverError)>> {
     let (named, landings): (Vec<_>, Vec<_>) = sessions
         .into_iter()
@@ -48,26 +52,45 @@ pub(crate) async fn move_codex_sessions(
             (named, (session, landed, first_request))
         })
         .unzip();
-    if let Err(error) = switch_service(legs, to.clone(), named, actor).await {
-        let error = Arc::new(DriverError::from(error));
-        return landings
-            .into_iter()
-            .map(|(session, _landed, _first_request)| {
-                Err((session.session_id, DriverError::shared(&error)))
-            })
-            .collect();
-    }
+    let CodexSwitchLanding {
+        landed_on,
+        replaced,
+    } = match switch_service(legs, to, named, actor, accepted).await {
+        Ok(landing) => landing,
+        Err(error) => {
+            let error = Arc::new(DriverError::from(error));
+            return landings
+                .into_iter()
+                .map(|(session, _landed, _first_request)| {
+                    Err((session.session_id, DriverError::shared(&error)))
+                })
+                .collect();
+        }
+    };
     join_all(
         landings
             .into_iter()
             .map(|(session, landed, first_request)| {
-                let to = to.clone();
+                let landed_on = landed_on.clone();
+                let is_replaced = replaced.contains(&session.session_id);
                 async move {
                     let session_id = session.session_id;
-                    wait_for_move(landed, &*legs.bindings, session.binding_id, to)
-                        .await
-                        .map_err(|error| (session_id, error))?;
-                    Ok(SessionAccountMove::watched(session_id, first_request))
+                    if is_replaced {
+                        return Ok(SessionAccountMove::replaced(session_id, landed_on));
+                    }
+                    wait_for_move(
+                        landed,
+                        &*legs.bindings,
+                        session.binding_id,
+                        landed_on.clone(),
+                    )
+                    .await
+                    .map_err(|error| (session_id, error))?;
+                    Ok(SessionAccountMove::watched(
+                        session_id,
+                        landed_on,
+                        first_request,
+                    ))
                 }
             }),
     )
@@ -92,15 +115,16 @@ pub(crate) async fn wait_for_move(
     }
 }
 
-// Starts the switching service where it is not up and hands it `to`'s tokens for `actor`; at the
-// answer the service's readings start afresh and each session on it, each of `named` among them,
-// takes its move in its queue.
+// Starts the switching service where it is not up and hands it `to`'s tokens for `actor`, telling
+// `accepted` once the switch is held; at the answer the service's readings start afresh and each
+// session on it, each of `named` among them, takes its move in its queue.
 async fn switch_service(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
     named: Vec<CodexNamedMove>,
     actor: DeviceId,
-) -> Result<(), CodexError> {
+    accepted: SwitchMovesAccepted,
+) -> Result<CodexSwitchLanding, CodexError> {
     let service = legs
         .registry
         .switching_service()
@@ -112,7 +136,7 @@ async fn switch_service(
     service
         .dependencies()
         .switching
-        .hand_switch(&service, to, named, actor)
+        .hand_switch(&service, to, named, actor, accepted)
         .await
 }
 

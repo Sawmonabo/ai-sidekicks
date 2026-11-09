@@ -30,7 +30,9 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove};
+use crate::driver::contract::account::{
+    FirstRequestAfterMove, SessionAccountMove, SessionAccountMoveOutcome,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::SessionToolServer;
 use crate::port::session_account_move::SessionAccountMoveRecorder;
@@ -125,11 +127,17 @@ impl SessionAccountMoveRecorder for RecordedMoves {
     fn record_account_moved(
         &self,
         moved: SessionAccountMove,
-        provider_account_id: ProviderAccountId,
         actor: Option<DeviceId>,
     ) -> BoxFuture<'_, ()> {
+        let SessionAccountMoveOutcome::Landed {
+            provider_account_id,
+            first_request,
+        } = moved.outcome
+        else {
+            panic!("a reported move lands");
+        };
         lock(&self.reported).push((moved.session_id, provider_account_id, actor));
-        lock(&self.first_requests).push(moved.first_request);
+        lock(&self.first_requests).push(first_request);
         async {}.boxed()
     }
 }

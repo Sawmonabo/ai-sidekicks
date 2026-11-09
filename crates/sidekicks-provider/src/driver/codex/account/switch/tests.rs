@@ -237,7 +237,7 @@ async fn answer_check(scripted: &mut ScriptedCodexService) {
 // Settles a move's first request.
 async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
     moved
-        .first_request
+        .into_first_request()
         .await
         .expect("the first request settles")
 }
@@ -274,7 +274,13 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
         login
     };
     let (moved, login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        move_codex_sessions(
+            &fixture.legs,
+            to,
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         script
     );
     let replies = format!(
@@ -370,7 +376,13 @@ async fn a_refused_login_moves_nothing_and_fails_every_move_with_the_refusal() {
         }));
     };
     let (moved, ()) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        move_codex_sessions(
+            &fixture.legs,
+            to,
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         script
     );
 
@@ -411,7 +423,14 @@ async fn a_switch_to_an_account_signed_out_of_its_home_refuses_before_any_login(
 
     let to = fixture.to.clone();
     let sessions = vec![fixture.session.clone()];
-    let moved = move_codex_sessions(&fixture.legs, to, sessions, switching_person()).await;
+    let moved = move_codex_sessions(
+        &fixture.legs,
+        to,
+        sessions,
+        switching_person(),
+        oneshot::channel().0,
+    )
+    .await;
     let sent = fixture.unread_requests();
     fixture.seen_by_the_session().await;
 
@@ -526,7 +545,13 @@ async fn a_renewal_waiting_on_a_switch_hands_nothing_once_the_switch_lands() {
         renewal_login.ok()
     };
     let (moved, renewed, renewal_login) = tokio::join!(
-        move_codex_sessions(legs, to.clone(), sessions, switching_person()),
+        move_codex_sessions(
+            legs,
+            to.clone(),
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         renewal,
         script
     );
@@ -557,7 +582,13 @@ async fn a_switch_login_never_answered_leaves_the_carried_account_unknown() {
     tokio::time::pause();
     let scripted = &mut fixture.scripted;
     let (moved, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        move_codex_sessions(
+            &fixture.legs,
+            to,
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         scripted.next_request(CODEX_LOGIN_START_METHOD)
     );
     tokio::time::resume();
@@ -620,7 +651,13 @@ async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind()
         }));
     };
     let (refused, ()) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to.clone(), sessions, switching_person()),
+        move_codex_sessions(
+            &fixture.legs,
+            to.clone(),
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         refuse
     );
     let (carried, _login) = tokio::join!(
@@ -651,7 +688,13 @@ async fn a_switch_reports_each_session_it_moved_without_naming_it() {
     let to = fixture.to.clone();
     let sessions = vec![fixture.session.clone()];
     let (moved, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to.clone(), sessions, person.clone()),
+        move_codex_sessions(
+            &fixture.legs,
+            to.clone(),
+            sessions,
+            person.clone(),
+            oneshot::channel().0
+        ),
         answer_login(&mut fixture.scripted)
     );
     fixture.queue.wait_until_seen(1).await;
@@ -685,7 +728,13 @@ async fn a_rejoin_carrying_no_account_reports_each_session_it_moved() {
     tokio::time::pause();
     let scripted = &mut fixture.scripted;
     let (unanswered, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        move_codex_sessions(
+            &fixture.legs,
+            to,
+            sessions,
+            switching_person(),
+            oneshot::channel().0
+        ),
         scripted.next_request(CODEX_LOGIN_START_METHOD)
     );
     tokio::time::resume();

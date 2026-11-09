@@ -22,40 +22,68 @@ use crate::driver::claude::session::conversation_home::{
 };
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::restart::account_move::ClaudeLegBinding;
+use crate::driver::claude::session::restart::account_move::{
+    ClaudeAccountLanding, ClaudeAccountMoveAsker, ClaudeLegBinding,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::spawn::environment::claude_config_folder;
-use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
+use crate::driver::contract::account::{
+    FirstRequestAfterMove, SessionAccountMove, SessionToMove, SwitchMovesAccepted,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::session_process_unavailable;
 use crate::runtime_binding::store::{RuntimeBindingStoreError, read_binding};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
-/// Moves each of `sessions` from `from` onto `to` through `legs`, every move at once, as
+/// Moves each of `sessions` from `from` onto `to` through `legs`, every move at once, telling
+/// `accepted` once each has landed or waits, as
 /// [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says.
 pub(super) async fn move_claude_sessions(
     legs: &ClaudeAccountLegs,
     from: ProviderAccountId,
     to: ProviderAccountId,
     sessions: Vec<SessionToMove>,
+    accepted: SwitchMovesAccepted,
 ) -> Vec<Result<SessionAccountMove, (SessionId, DriverError)>> {
-    join_all(sessions.into_iter().map(|session| {
+    let asked = join_all(sessions.into_iter().map(|session| {
         let session_id = session.session_id;
         let (from, to) = (from.clone(), to.clone());
         async move {
-            move_claude_session(legs, from, to, session)
+            ask_claude_move(legs, from, to, session)
                 .await
                 .map_err(|error| (session_id, error))
+        }
+    }))
+    .await;
+    // The daemon may stop waiting for the answer.
+    accepted.send(()).unwrap_or(());
+    join_all(asked.into_iter().map(|asked| async move {
+        match asked {
+            Ok(ClaudeMoveAsked::Landed(moved)) => Ok(moved),
+            Ok(ClaudeMoveAsked::Waiting(waiting)) => {
+                let session_id = waiting.session.session_id;
+                waiting.land().await.map_err(|error| (session_id, error))
+            }
+            Err(failed) => Err(failed),
         }
     }))
     .await
 }
 
-// A switch whose waiting move a later move onto another account replaced before it landed.
-#[derive(Debug, thiserror::Error)]
-#[error("a later move took the session onto account {} instead", .landed_on.as_str())]
-struct ClaudeMoveReplaced {
-    landed_on: ProviderAccountId,
+// A session's move once asked: landed already, or waiting in the restarts for its relaunch.
+enum ClaudeMoveAsked {
+    Landed(SessionAccountMove),
+    Waiting(ClaudeMoveWaiting),
+}
+
+// A move waiting for its relaunch: where its landing is told, and what a login refusal on its
+// first request hands back.
+struct ClaudeMoveWaiting {
+    establishment: Arc<ClaudeSessionEstablishment>,
+    bindings: Arc<dyn RuntimeBindingWriter>,
+    session: SessionToMove,
+    from: ProviderAccountId,
+    landing: oneshot::Receiver<Result<ClaudeAccountLanding, DriverError>>,
 }
 
 // What a moved session hands back on a login refusal: the binding its lead runs on after the
@@ -68,13 +96,14 @@ struct ClaudeHandBack {
     previous: ProviderAccountId,
 }
 
-// Moves one session, answering once the move landed with how its first request goes after.
-async fn move_claude_session(
+// Asks one session's move: a session with no live process moves at once, a live one's relaunch
+// is asked of the restarts.
+async fn ask_claude_move(
     legs: &ClaudeAccountLegs,
     from: ProviderAccountId,
     to: ProviderAccountId,
     session: SessionToMove,
-) -> Result<SessionAccountMove, DriverError> {
+) -> Result<ClaudeMoveAsked, DriverError> {
     let establishment = legs
         .sessions
         .get()
@@ -94,7 +123,10 @@ async fn move_claude_session(
                 })
                 .await?;
                 if is_moved {
-                    return Ok(SessionAccountMove::unobserved(session.session_id));
+                    return Ok(ClaudeMoveAsked::Landed(SessionAccountMove::unobserved(
+                        session.session_id,
+                        to,
+                    )));
                 }
             }
             ClaudeSessionStanding::Settling(settled) => {
@@ -103,7 +135,10 @@ async fn move_claude_session(
             ClaudeSessionStanding::Down => {
                 keep_stored_home(legs, &session).await?;
                 move_binding(&*legs.bindings, &session, &to).await?;
-                return Ok(SessionAccountMove::unobserved(session.session_id));
+                return Ok(ClaudeMoveAsked::Landed(SessionAccountMove::unobserved(
+                    session.session_id,
+                    to,
+                )));
             }
         }
     };
@@ -112,53 +147,73 @@ async fn move_claude_session(
     // the relaunch waited for, so each reading of that turn stays on the account it ran on.
     let leg = ClaudeLegBinding {
         bindings: Arc::clone(&legs.bindings),
-        binding_id: session.binding_id,
+        binding_id: session.binding_id.clone(),
     };
-    let landing = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
-    // A later move replaced this one while it waited, so the session did not land on `to` and no
-    // first request is watched for this switch.
-    if landing.provider_account_id != to {
-        return Err(DriverError::Internal(Box::new(ClaudeMoveReplaced {
-            landed_on: landing.provider_account_id,
-        })));
-    }
-    let (watch, heard) = oneshot::channel();
-    if let Some(stream) = establishment.streams.get(session.session_id) {
-        stream.watch_first_request(watch);
-    }
-    let hand_back = ClaudeHandBack {
-        establishment: Arc::clone(&establishment),
+    let landing =
+        restarts.ask_account_move(session.session_id, to, leg, ClaudeAccountMoveAsker::Person);
+    Ok(ClaudeMoveAsked::Waiting(ClaudeMoveWaiting {
         bindings: Arc::clone(&legs.bindings),
-        session_id: session.session_id,
-        binding_id: landing.binding_id,
-        previous: from,
-    };
-    // Its own task, so the hand-back is made whether or not anyone waits on the answer.
-    let watching = tokio::spawn(async move {
-        match heard.await {
-            Ok(ClaudeFirstRequest::Answered) => Ok(FirstRequestAfterMove::Ran),
-            Ok(ClaudeFirstRequest::LoginRefused) => {
-                hand_back.hand_back().await?;
-                Ok(FirstRequestAfterMove::HandedBack)
+        establishment,
+        session,
+        from,
+        landing,
+    }))
+}
+
+impl ClaudeMoveWaiting {
+    // Answers once the relaunch landed, with how the session's first request goes after; a move a
+    // newer one replaced answers where the session landed, its first request that move's.
+    async fn land(self) -> Result<SessionAccountMove, DriverError> {
+        let session_id = self.session.session_id;
+        let landing = self
+            .landing
+            .await
+            .unwrap_or_else(|_dropped| Err(session_process_unavailable(session_id).into()))?;
+        if landing.is_replaced {
+            return Ok(SessionAccountMove::replaced(
+                session_id,
+                landing.provider_account_id,
+            ));
+        }
+        let (watch, heard) = oneshot::channel();
+        if let Some(stream) = self.establishment.streams.get(session_id) {
+            stream.watch_first_request(watch);
+        }
+        let hand_back = ClaudeHandBack {
+            establishment: self.establishment,
+            bindings: self.bindings,
+            session_id,
+            binding_id: landing.binding_id,
+            previous: self.from,
+        };
+        // Its own task, so the hand-back is made whether or not anyone waits on the answer.
+        let watching = tokio::spawn(async move {
+            match heard.await {
+                Ok(ClaudeFirstRequest::Answered) => Ok(FirstRequestAfterMove::Ran),
+                Ok(ClaudeFirstRequest::LoginRefused) => {
+                    hand_back.hand_back().await?;
+                    Ok(FirstRequestAfterMove::HandedBack)
+                }
+                // The process ended, or a later move took the watch, before a request was answered.
+                Err(_unheard) => Ok(FirstRequestAfterMove::Unobserved),
             }
-            // The process ended, or a later move took the watch, before a request was answered.
-            Err(_unheard) => Ok(FirstRequestAfterMove::Unobserved),
-        }
-    });
-    Ok(SessionAccountMove {
-        session_id: session.session_id,
-        first_request: async move {
-            watching
-                .await
-                .unwrap_or_else(|error| Err(DriverError::Internal(Box::new(error))))
-        }
-        .boxed(),
-    })
+        });
+        Ok(SessionAccountMove::landed(
+            session_id,
+            landing.provider_account_id,
+            async move {
+                watching
+                    .await
+                    .unwrap_or_else(|error| Err(DriverError::Internal(Box::new(error))))
+            }
+            .boxed(),
+        ))
+    }
 }
 
 impl ClaudeHandBack {
     // Moves the session back onto the account it left the way it moved: its process started
-    // again on that account between turns.
+    // again on that account between turns, unless a person's switch waits, which stands.
     async fn hand_back(self) -> Result<(), DriverError> {
         let session_id = self.session_id;
         let restarts = &self.establishment.task_services.restarts;
@@ -171,7 +226,7 @@ impl ClaudeHandBack {
             binding_id: self.binding_id,
         };
         restarts
-            .relaunch_on_account(&live, self.previous, leg)
+            .relaunch_on_account(&live, self.previous, leg, ClaudeAccountMoveAsker::Driver)
             .await
             .map(drop)
     }

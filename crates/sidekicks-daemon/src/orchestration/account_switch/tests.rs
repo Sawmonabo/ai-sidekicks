@@ -38,6 +38,7 @@ use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
+    SwitchMovesAccepted,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
@@ -61,6 +62,7 @@ use super::{AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord, SessionL
 use crate::daemon::schema::schema_parts;
 
 mod landing;
+mod replaced;
 
 // The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 64;
@@ -138,12 +140,15 @@ impl ProviderSwitchLegs for RecordedSwitchLegs {
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
         _actor: DeviceId,
+        accepted: SwitchMovesAccepted,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
         lock(&self.is_target_in_flight).push(self.accounts_in_flight.is_in_flight(&to));
-        lock(&self.calls).push((from, to, sessions.clone()));
+        lock(&self.calls).push((from, to.clone(), sessions.clone()));
         let script = lock(&self.script).clone();
         let gate = lock(&self.gate).take();
         async move {
+            // Told only as the moves land, as a driver whose moves never wait.
+            let _accepted = accepted;
             if let Some(gate) = gate {
                 gate.await.expect("the test opens the gate");
             }
@@ -164,10 +169,11 @@ impl ProviderSwitchLegs for RecordedSwitchLegs {
                             return Err((session.session_id, refused_login()));
                         }
                     };
-                    Ok(SessionAccountMove {
-                        session_id: session.session_id,
+                    Ok(SessionAccountMove::landed(
+                        session.session_id,
+                        to.clone(),
                         first_request,
-                    })
+                    ))
                 })
                 .collect()
         }
@@ -206,6 +212,11 @@ struct Fixture {
 
 // Over a driver whose level list for any account and model leaves out `reviewed`.
 async fn fixture() -> Fixture {
+    fixture_switching_through(None).await
+}
+
+// As `fixture`, the first provider's sessions moved through `switch_legs` where given.
+async fn fixture_switching_through(switch_legs: Option<Arc<dyn ProviderSwitchLegs>>) -> Fixture {
     let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let data_folder = tempfile::tempdir().expect("the test makes a data folder");
@@ -252,7 +263,7 @@ async fn fixture() -> Fixture {
         )),
         switch_legs: HashMap::from([(
             first_provider(),
-            Arc::clone(&legs) as Arc<dyn ProviderSwitchLegs>,
+            switch_legs.unwrap_or_else(|| Arc::clone(&legs) as Arc<dyn ProviderSwitchLegs>),
         )]),
         providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
         level_moves: Arc::clone(&level_moves) as Arc<dyn SessionLevelMoves>,

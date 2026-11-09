@@ -5,10 +5,6 @@
 //! each provider's own driver. It sits over std, store, ipc, workspace and policy and is taken by
 //! mcp, shell, session, approval, queue, artifact, recovery and the program.
 
-// A session call carries the Codex switching account, whose services, telemetry and price list
-// nest deeper than the default limit lets the compiler prove the call `Send`.
-#![recursion_limit = "256"]
-
 pub mod account;
 pub mod background_work;
 pub mod bearer_token;

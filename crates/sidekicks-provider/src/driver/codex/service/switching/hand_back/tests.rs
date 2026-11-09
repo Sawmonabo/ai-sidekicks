@@ -11,6 +11,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::port_registration::PortRegistration;
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 use crate::account::home_lock::AccountHomeLock;
 use crate::driver::codex::account::CodexAccountLegs;
@@ -154,7 +155,13 @@ impl Fixture {
     // answers the named session's move once it landed.
     async fn switch(&mut self, person: DeviceId) -> SessionAccountMove {
         let (moved, _login) = tokio::join!(
-            move_codex_sessions(&self.legs, self.to.clone(), vec![self.lead.clone()], person),
+            move_codex_sessions(
+                &self.legs,
+                self.to.clone(),
+                vec![self.lead.clone()],
+                person,
+                oneshot::channel().0
+            ),
             answer_through_login(&mut self.switching, false)
         );
         let mut moved = moved.into_iter();
@@ -207,7 +214,7 @@ fn signed_in() -> Value {
 
 async fn settle(moved: SessionAccountMove) -> FirstRequestAfterMove {
     moved
-        .first_request
+        .into_first_request()
         .await
         .expect("the first request settles")
 }

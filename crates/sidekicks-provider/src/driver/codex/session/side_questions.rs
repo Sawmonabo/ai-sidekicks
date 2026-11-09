@@ -50,6 +50,7 @@ use crate::driver::codex::permission_level::{codex_repository_root, compose_code
 use crate::driver::codex::pricing::CodexRecorderPricing;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
+use crate::driver::codex::service::supervisor::running_turns::CodexTurnLease;
 use crate::driver::codex::session::detached_conversation::{
     CodexDetachedFrame, CodexDetachedFrames, file_received_usage, read_detached_turn,
     stop_detached_turn,
@@ -118,6 +119,8 @@ struct CodexSideQuestion {
     stop: CancellationToken,
     // The copy's turn, once its start answered.
     turn_id: Option<String>,
+    // The copy's turn counted among its service's running turns, once its start answered.
+    turn_lease: Option<CodexTurnLease>,
 }
 
 /// What one frame of a copy did.
@@ -161,6 +164,7 @@ impl CodexSideQuestion {
             answered,
             stop,
             turn_id: None,
+            turn_lease: None,
         }
     }
 
@@ -283,6 +287,11 @@ impl CodexSideQuestions {
         }
         service.register_side_question_thread(copy_thread_id.clone(), params.session_id);
         drop(claim);
+        let lease = service
+            .dependencies()
+            .switching
+            .lease_copy_turn(&service)
+            .await;
         let started = match assert_active_permission_profile(
             &reply,
             &read_only_profile,
@@ -309,7 +318,7 @@ impl CodexSideQuestions {
                 return Err(error);
             }
         };
-        self.keep_live_turn(&copy_thread_id, turn_id).await;
+        self.keep_live_turn(&copy_thread_id, turn_id, lease).await;
         Ok(answer)
     }
 
@@ -372,6 +381,8 @@ impl CodexSideQuestions {
             &filing,
             &copy.working_directory,
         );
+        let switching = &question.service.dependencies().switching;
+        let lease = switching.lease_copy_turn(&question.service).await;
         let started = {
             let start = start_turn(
                 &copy.connection,
@@ -406,6 +417,7 @@ impl CodexSideQuestions {
             }
         };
         question.turn_id = Some(turn_id.clone());
+        question.turn_lease = Some(lease);
         self.tasks.spawn(answer_at_rest(
             Arc::clone(&self.dispatch),
             filing,
@@ -505,7 +517,7 @@ impl CodexSideQuestions {
 
     // Keeps the live copy's started turn `turn_id` in its entry; where a close or the driver's
     // shutdown stopped the copy while its turn started, stops the turn and lets the copy go.
-    async fn keep_live_turn(&self, copy_thread_id: &str, turn_id: String) {
+    async fn keep_live_turn(&self, copy_thread_id: &str, turn_id: String, lease: CodexTurnLease) {
         let stopped = {
             let mut questions = self.lock();
             // A copy whose turn already ended was let go as it ended.
@@ -513,6 +525,7 @@ impl CodexSideQuestions {
                 return;
             };
             question.turn_id = Some(turn_id);
+            question.turn_lease = Some(lease);
             if !question.stop.is_cancelled() {
                 return;
             }

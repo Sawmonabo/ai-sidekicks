@@ -5,7 +5,8 @@
 //! key over handed tokens; either is held in memory alone. The sign-in is handed
 //! at each start or rejoin of the service, before it answers, so before any resume or admission
 //! there; at a switch, and at any hand onto another account than the one carried, its answer the
-//! acknowledgment that moves every session on the service with it; and when a limits read in the
+//! place among the service's frames where every session on it moves with it, between their turns;
+//! and when a limits read in the
 //! carried account's home finds its access token renewed, and when the API key of the account it
 //! carries on its key is re-supplied. Never on a timer, since each such login refreshes the tool
 //! servers of every conversation loaded there.
@@ -16,13 +17,11 @@
 //! here answers. A switch off another account opens a hand-back window over the sessions it moved,
 //! checked by one `account/read` once the hand is let go: a login refused there hands the previous
 //! account back.
-//! A switch, and a session start's hand onto another account, is held until no session on the
-//! service runs, starts or still ends a turn, because Codex revokes every model request in flight
-//! whenever its sign-in changes owner: the running turns finish on the account they started on,
-//! no turn starts there while the switch is held, and a newer one asked meanwhile takes the held
-//! one's place, so one login lands both.
+//! A switch, a session start's hand onto another account and a re-supplied key's hand are held
+//! until no turn runs on the service, in `held`.
 
 pub(crate) mod hand_back;
+pub(crate) mod held;
 mod refresh;
 /// What a test of the switching service's moves runs its sessions and binding store on.
 #[cfg(test)]
@@ -49,6 +48,8 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{oneshot, watch};
 
+use self::held::{CodexSwitchAsker, CodexSwitchLanding, HeldSwitch};
+
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::read_codex_api_key;
 use crate::driver::codex::account::auth_file::{
@@ -58,13 +59,10 @@ use crate::driver::codex::account::login::{
     CODEX_ACCOUNT_LOGOUT_METHOD, CODEX_LOGIN_START_METHOD, CodexLoginAccountParams,
 };
 use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
-use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
-use crate::driver::codex::service::home::CodexHomeKind;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::switching::hand_back::{
     FirstRequestWatch, HandBackWindows, WatchedSession,
 };
-use crate::driver::codex::session::calls::wait_for_codex_turns;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
     CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
@@ -103,21 +101,11 @@ pub(crate) struct CodexSwitchingAccount {
     renewer: OnceLock<CodexTokenRenewer>,
     // Shared with the hook a switch's answer runs, which opens it, and with its check's task.
     windows: Arc<HandBackWindows>,
-    // The one switch waiting for the service's turns to end; a newer one takes its place.
+    // The one switch waiting for the service's turns to end, which a newer one joins.
     held: Mutex<Option<HeldSwitch>>,
     // `true` from a switch's hold until its login is answered and no other is held, while every
     // turn start on the switching service waits.
     is_switch_held: watch::Sender<bool>,
-}
-
-// A switch held until no session on the switching service runs a turn: the account it moves to,
-// the sessions it names, the person whose switch it is, and the wait of each caller it lands for,
-// those of the switches it took the place of among them.
-struct HeldSwitch {
-    to: ProviderAccountId,
-    named: Vec<CodexNamedMove>,
-    actor: Option<DeviceId>,
-    landings: Vec<oneshot::Sender<Result<(), CodexError>>>,
 }
 
 // The account the service carries and the kind of sign-in last handed for it.
@@ -271,16 +259,17 @@ impl CodexSwitchingAccount {
     }
 
     /// Hands the switching `service` the sign-in of `to`'s account, the switch's one call for
-    /// `actor`, once no session attached to it runs, starts or still ends a turn, every turn start
-    /// there waiting meanwhile; a switch asked while this one is held takes its place, so one login
-    /// onto the newest account lands both. At the login's answer's place among the service's
-    /// frames its readings start afresh, it carries `to`, and every session attached to it is
-    /// queued its move onto `to`, each of `named` with its lead's binding and its switch's wait,
-    /// every other one reported as moved by `actor`; a refused login moves nothing and leaves it
-    /// carrying what it did, or nothing where it was signed out for a key. A switch off another
-    /// account then checks its hand-back window. Answers once the login is answered, and fails as
-    /// [`Self::hand_at_start`] does, before anything is sent where `to` has no sign-in to hand, and
-    /// while the service has no connection; a caller whose switch another took the place of gets a
+    /// `actor`, once no turn runs on it, every turn start there waiting meanwhile, telling
+    /// `accepted` once the switch is held; a person's switch asked while this one is held takes its
+    /// place, so one login onto the newest account lands both. At the login's answer's place among
+    /// the service's frames its readings start afresh, it carries the account landed on, and every
+    /// session attached to it is queued its move there, each of `named` with its lead's binding and
+    /// its switch's wait, every other one reported as moved by `actor`; a refused login moves
+    /// nothing and leaves it carrying what it did, or nothing where it was signed out for a key. A
+    /// switch off another account then checks its hand-back window. Answers where it landed, with
+    /// the sessions of `named` a newer switch named too, once the login is answered, and fails as
+    /// [`Self::hand_at_start`] does, before anything is sent where the account has no sign-in to
+    /// hand, and while the service has no connection; a caller whose switch another joined gets a
     /// copy of the failure.
     pub(crate) async fn hand_switch(
         &self,
@@ -288,15 +277,23 @@ impl CodexSwitchingAccount {
         to: ProviderAccountId,
         named: Vec<CodexNamedMove>,
         actor: DeviceId,
-    ) -> Result<(), CodexError> {
-        self.hold_switch(service, to, named, Some(actor)).await
+        accepted: oneshot::Sender<()>,
+    ) -> Result<CodexSwitchLanding, CodexError> {
+        self.hold_switch(
+            service,
+            to,
+            named,
+            CodexSwitchAsker::Person(actor),
+            Some(accepted),
+        )
+        .await
     }
 
     /// Hands the switching `service` `to`'s sign-in as a switch does, held the same way, where it
     /// carries another account or none, so a session following the current account starts on `to`
     /// though no switch moved the service there, and every session already on it moves with it; a
-    /// service carrying `to` with no switch held is handed nothing. Fails as [`Self::hand_switch`]
-    /// does.
+    /// switch held already is joined as it is, the session opening once it lands. A service
+    /// carrying `to` with no switch held is handed nothing. Fails as [`Self::hand_switch`] does.
     pub(crate) async fn carry_for_session(
         &self,
         service: &Arc<CodexService>,
@@ -305,123 +302,19 @@ impl CodexSwitchingAccount {
         if lock(&self.held).is_none() && self.carried_account().as_ref() == Some(to) {
             return Ok(());
         }
-        self.hold_switch(service, to.clone(), Vec::new(), None)
-            .await
+        self.hold_switch(
+            service,
+            to.clone(),
+            Vec::new(),
+            CodexSwitchAsker::SessionStart,
+            None,
+        )
+        .await
+        .map(drop)
     }
 
-    /// Whether a turn start on `service` waits for a held switch to land: one is held, and
-    /// `service` is the switching one, the only service whose sign-in a switch changes.
-    pub(crate) fn holds_turns_on(&self, service: &CodexService) -> bool {
-        service.home().kind == CodexHomeKind::Switching && *self.is_switch_held.borrow()
-    }
-
-    /// Waits until no switch is held: the held one's login answered, and none asked since.
-    pub(crate) async fn wait_for_held_switch(&self) {
-        let mut is_held = self.is_switch_held.subscribe();
-        // The sender lives as long as `self`, so the wait ends only once no switch is held.
-        drop(is_held.wait_for(|is_held| !*is_held).await);
-    }
-
-    // Holds the switch onto `to` in place of any held already, whose sessions and callers it
-    // takes on, the person of the newest that names one kept; the first hold starts the task that
-    // lands it. Answers as its login does.
-    async fn hold_switch(
-        &self,
-        service: &Arc<CodexService>,
-        to: ProviderAccountId,
-        named: Vec<CodexNamedMove>,
-        actor: Option<DeviceId>,
-    ) -> Result<(), CodexError> {
-        let (landing, landed) = oneshot::channel();
-        let is_first_hold = {
-            let mut held = lock(&self.held);
-            if let Some(waiting) = held.as_mut() {
-                waiting.to = to;
-                waiting.named.extend(named);
-                waiting.actor = actor.or_else(|| waiting.actor.take());
-                waiting.landings.push(landing);
-                false
-            } else {
-                *held = Some(HeldSwitch {
-                    to,
-                    named,
-                    actor,
-                    landings: vec![landing],
-                });
-                self.is_switch_held.send_replace(true);
-                true
-            }
-        };
-        if is_first_hold {
-            // On a task of its own, so a caller that stops waiting never leaves the switch held.
-            let landing_service = Arc::clone(service);
-            service.dependencies().tasks.spawn(async move {
-                let switching = Arc::clone(&landing_service.dependencies().switching);
-                switching.land_held_switch(&landing_service).await;
-            });
-        }
-        landed.await.unwrap_or_else(|_dropped| {
-            Err(CodexError::Transport {
-                detail: "The Codex switching service stopped before its held switch landed."
-                    .to_owned(),
-                cause: None,
-            })
-        })
-    }
-
-    // Lands the held switch once no session attached to `service` runs, starts or still ends a
-    // turn: its one login under the hand, then, with the hand let go, the check of the hand-back
-    // window it opened, whose refresh is answered under the hand. A switch asking only to carry
-    // the account the service carries sends nothing. The turn starts go on once the login is
-    // answered and no newer switch is held, and every caller is answered.
-    async fn land_held_switch(&self, service: &Arc<CodexService>) {
-        for session in service.attached_sessions() {
-            // Answered once the session runs no turn: idle, or its record let go or closed.
-            let _no_turn_runs = wait_for_codex_turns(&session, CodexTurnWait::Idle, None).await;
-        }
-        let hand = self.hands.lock().await;
-        let HeldSwitch {
-            to,
-            named,
-            actor,
-            landings,
-        } = lock(&self.held)
-            .take()
-            .expect("a held switch is taken once, by the task its hold started");
-        let is_carried =
-            named.is_empty() && actor.is_none() && self.carried_account().as_ref() == Some(&to);
-        let landed = if is_carried {
-            Ok(None)
-        } else {
-            match service.connection() {
-                Ok(connection) => {
-                    let opened = self
-                        .hand_switch_holding(&hand, service, &connection, to, named, actor)
-                        .await;
-                    opened.map(|opened| opened.map(|window| (connection, window)))
-                }
-                Err(error) => Err(error),
-            }
-        };
-        {
-            // Under the hand, so no newer switch's login is sent before turn starts are told.
-            let held = lock(&self.held);
-            self.is_switch_held.send_replace(held.is_some());
-        }
-        drop(hand);
-        let landed = match landed {
-            Ok(Some((connection, window))) => {
-                self.check_window(service, connection, window);
-                Ok(())
-            }
-            Ok(None) => Ok(()),
-            Err(error) => Err(error),
-        };
-        answer_held_switch(landings, landed);
-    }
-
-    // The switch's login, sent on `connection` under `_hand`, its answer the acknowledgment that
-    // moves the service and every session attached to it onto `to`, those `named` not reported as
+    // The switch's login, sent on `connection` under `_hand`, its answer the place among the
+    // service's frames that moves the service and every session attached to it onto `to`, those `named` not reported as
     // moved by `actor`, the person whose switch it is, or else by no one; a key's sign-out before
     // it moves nothing. A switch off another account opens the hand-back window over every session
     // it moved, whose serial it answers.
@@ -505,32 +398,31 @@ impl CodexSwitchingAccount {
         Ok(true)
     }
 
-    /// Hands the switching service on `connection` `api_key`, just re-supplied for
-    /// `provider_account_id`'s account, where it carries that account on its key, so its running
-    /// conversations take the new key; carrying another account or that one on tokens, it is
-    /// handed nothing, its next hand reading the sealed key. The carried account is checked under
-    /// the hand and stays as it was. Fails with Codex's refusal of the login.
+    /// Hands the switching `service` `api_key`, just re-supplied for `provider_account_id`'s
+    /// account, where it carries that account on its key, so its
+    /// conversations take the new key, held as a switch is until no turn runs there, since the
+    /// login cuts every request in flight; a switch held already is joined as it is. Carrying
+    /// another account or that one on tokens, it is handed nothing, its next hand reading the
+    /// sealed key. Fails with Codex's refusal of the login.
     pub(crate) async fn hand_resupplied_key(
         &self,
-        connection: &CodexAppServerConnection,
+        service: &Arc<CodexService>,
         provider_account_id: &ProviderAccountId,
         api_key: SecretString,
     ) -> Result<(), CodexError> {
-        let _hand = self.hands.lock().await;
-        if !matches!(self.carried_token(), Some((carried, None)) if carried == *provider_account_id)
+        if lock(&self.held).is_none()
+            && !matches!(self.carried_token(), Some((carried, None)) if carried == *provider_account_id)
         {
             return Ok(());
         }
-        let prepared = self
-            .prepare_login(connection, CodexHandedLogin::ApiKey(api_key))
-            .await?;
-        self.windows.close();
-        self.settle_handed_login(
-            connection
-                .request(CODEX_LOGIN_START_METHOD, &prepared.params)
-                .await,
-            prepared.is_signed_out,
+        self.hold_switch(
+            service,
+            provider_account_id.clone(),
+            Vec::new(),
+            CodexSwitchAsker::KeyResupply(api_key),
+            None,
         )
+        .await
         .map(drop)
     }
 
@@ -685,34 +577,6 @@ impl CodexSwitchingAccount {
             .await
             .map_err(|error| CodexError::Driver(error.into()))?;
         Ok(folders.configuration_folder)
-    }
-}
-
-// Answers each caller of a landed switch with its one login's outcome: a failure as it is where
-// one caller waits, and a copy to each where several do.
-fn answer_held_switch(
-    landings: Vec<oneshot::Sender<Result<(), CodexError>>>,
-    landed: Result<(), CodexError>,
-) {
-    let mut landings = landings.into_iter();
-    let failure = match landed {
-        Ok(()) => None,
-        Err(error) if landings.len() == 1 => {
-            if let Some(landing) = landings.next() {
-                // A caller that stopped waiting needs no answer.
-                let _unheard = landing.send(Err(error));
-            }
-            return;
-        }
-        Err(error) => Some(Arc::new(DriverError::from(error))),
-    };
-    for landing in landings {
-        let answer = match &failure {
-            Some(shared) => Err(CodexError::Driver(DriverError::shared(shared))),
-            None => Ok(()),
-        };
-        // A caller that stopped waiting needs no answer.
-        let _unheard = landing.send(answer);
     }
 }
 

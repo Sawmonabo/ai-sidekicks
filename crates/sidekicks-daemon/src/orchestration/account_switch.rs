@@ -4,20 +4,23 @@
 //! session pinned to an account, or one that has not run, is left: its next run opens on the
 //! account it names or on the current one.
 //!
-//! - Everything a switch does runs under its provider's lock, from the refusals until every move
-//!   has landed, so a second switch on that provider waits for the first.
+//! - A switch runs under its provider's lock from the refusals until the driver has every move
+//!   landed or waiting for a turn to end, so a second switch on that provider waits until then;
+//!   one asked while the first's moves wait joins them in the driver, which lands the newest.
 //! - A dead target refuses before the mark moves or any session is sent anything: an account not
 //!   registered or being removed, a home that is gone, or a sign-in its stored reading says is
 //!   gone; so does an account with a sign-in or a reset in flight, whose home it is using. The
 //!   switch puts the account in flight in the same step that finds it free and holds it there until
-//!   every move has landed, letting it go with the provider's lock, so no sign-in or reset starts
-//!   in the home meanwhile and a second switch onto it, waiting on that lock, finds it free.
-//! - A lead lands at the provider's acknowledgment of its move with `agent.providerBinding.changed`
-//!   in place, each binding a live or interrupted helper or bridged run of its session rides moved
-//!   onto the same account first, so no helper spends the account the lead left; or with
-//!   `agent.providerBinding.changeFailed` where the move failed; a first request the provider then
-//!   refuses for the new account's login hands the previous account back, recorded by one
-//!   `changeFailed`, which also records a hand-back that could not be made.
+//!   every move has landed, so no sign-in or reset starts in the home meanwhile; a second switch
+//!   onto the same account shares that hold.
+//! - A lead lands between its turns, when its process starts on the new account on Claude Code and
+//!   when the held login lands on Codex, with one `agent.providerBinding.changed` onto the account
+//!   the driver says it landed on, each binding a live or interrupted helper or bridged run of its
+//!   session rides moved onto the same account first, so no helper spends the account the lead
+//!   left; or with `agent.providerBinding.changeFailed` where the move failed. A move a newer
+//!   switch replaced records nothing, since that switch records the landing. A first request the
+//!   provider then refuses for the new account's login hands the previous account back, recorded
+//!   by one `changeFailed`, which also records a hand-back that could not be made.
 //! - The leads to move are read against each session's own binding, so a switch to the account
 //!   already current still moves a session a failed move left on another; a session whose lead
 //!   cannot be read is skipped and logged, and the rest move.
@@ -35,7 +38,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, join_all};
@@ -61,7 +64,8 @@ use sidekicks_provider::account::readiness::derive_account_readiness;
 use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use sidekicks_provider::account::sign_in::{AccountsInFlight, InFlightGuard, ProviderSignInError};
 use sidekicks_provider::driver::contract::account::{
-    FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
+    FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionAccountMoveOutcome,
+    SessionToMove,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::ListModesParams;
@@ -74,6 +78,7 @@ use sidekicks_session::agent_tree::read::AgentTreeReadError;
 use sidekicks_session::permission_level::read_session_permission_level;
 use sidekicks_session::run::agent::{SessionLead, read_provider_session_leads, read_session_lead};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -143,6 +148,9 @@ pub(crate) struct AccountSwitchDeps {
 pub(crate) struct AccountSwitch {
     deps: AccountSwitchDeps,
     locks: KeyedLock<ProviderId>,
+    // The in-flight hold of each account a switch moves onto, shared by every switch onto it
+    // until the last one's moves land.
+    in_flight_holds: Mutex<HashMap<ProviderAccountId, Weak<InFlightGuard>>>,
 }
 
 /// A switch that made its account current: the account as it now reads, whether the mark moved
@@ -202,6 +210,7 @@ impl AccountSwitch {
         Self {
             deps,
             locks: KeyedLock::new(),
+            in_flight_holds: Mutex::default(),
         }
     }
 
@@ -282,7 +291,7 @@ impl AccountSwitch {
         &self,
         provider: ProviderId,
         account_id: ProviderAccountId,
-    ) -> Result<(SwitchPlan, MarkPlaced, InFlightGuard), HandlerError> {
+    ) -> Result<(SwitchPlan, MarkPlaced, Arc<InFlightGuard>), HandlerError> {
         let account = self.deps.accounts.read(account_id.clone()).await?;
         self.deps
             .account_reader
@@ -298,11 +307,7 @@ impl AccountSwitch {
             .with_detail(ProviderAccountNotAuthenticatedDetails { remedy })
             .into());
         }
-        let in_flight_guard = self
-            .deps
-            .accounts_in_flight
-            .begin(account_id.clone())
-            .ok_or(ProviderSignInError::InFlight)?;
+        let in_flight_guard = self.hold_in_flight(&account_id)?;
         // An account already current keeps the mark, and its sessions still on another move.
         let is_moved = !account.is_default;
         let (account, left) = if account.is_default {
@@ -417,15 +422,44 @@ impl AccountSwitch {
         Ok(leads)
     }
 
-    // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling
-    // each at its acknowledgment, then lets the target's `in_flight_guard` go and frees the
-    // provider's lock, in that order, and answers the watch of each moved lead's first request on
-    // the new account, which ends once every one has settled.
+    // Puts `account_id` in flight for a switch onto it, sharing the hold of a switch onto it
+    // whose moves have not landed. Fails where a sign-in or a reset holds it.
+    fn hold_in_flight(
+        &self,
+        account_id: &ProviderAccountId,
+    ) -> Result<Arc<InFlightGuard>, ProviderSignInError> {
+        let mut holds = lock(&self.in_flight_holds);
+        if let Some(guard) = holds.get(account_id).and_then(Weak::upgrade) {
+            return Ok(guard);
+        }
+        let guard = Arc::new(
+            self.deps
+                .accounts_in_flight
+                .begin(account_id.clone())
+                .ok_or(ProviderSignInError::InFlight)?,
+        );
+        holds.insert(account_id.clone(), Arc::downgrade(&guard));
+        Ok(guard)
+    }
+
+    // Lets a switch's in-flight hold go, under the lock a later switch shares holds through, so
+    // that switch finds either the hold or the account free.
+    fn let_go_in_flight(&self, guard: Option<Arc<InFlightGuard>>) {
+        let mut holds = lock(&self.in_flight_holds);
+        drop(guard);
+        holds.retain(|_, guard| guard.strong_count() > 0);
+    }
+
+    // Moves every lead of `plan` onto its account, grouped by the account each leaves, every group
+    // at once, freeing the provider's lock once the driver has each move landed or waiting and the
+    // target's `in_flight_guard` once every move landed, then settling each where the driver says
+    // it landed, and answers the watch of each moved lead's first request on the new account,
+    // which ends once every one has settled.
     async fn carry_out(
         self: &Arc<Self>,
         plan: SwitchPlan,
         actor: DeviceId,
-        in_flight_guard: Option<InFlightGuard>,
+        in_flight_guard: Option<Arc<InFlightGuard>>,
         hold: KeyHold<'_, ProviderId>,
     ) -> BoxFuture<'static, ()> {
         let SwitchPlan {
@@ -440,8 +474,8 @@ impl AccountSwitch {
                     "the provider moves no session between accounts, so its sessions stay"
                 );
             }
-            drop(in_flight_guard);
             drop(hold);
+            self.let_go_in_flight(in_flight_guard);
             return futures::future::ready(()).boxed();
         };
         let mut by_account: HashMap<ProviderAccountId, HashMap<SessionId, LeadToMove>> =
@@ -452,8 +486,9 @@ impl AccountSwitch {
                 .or_default()
                 .insert(lead.landing.session_id, lead);
         }
-        let mut first_requests = Vec::new();
-        for (from, mut leads) in by_account {
+        let mut acceptances = Vec::new();
+        let mut moving = Vec::new();
+        for (from, leads) in by_account {
             let sessions = leads
                 .values()
                 .map(|lead| SessionToMove {
@@ -461,26 +496,56 @@ impl AccountSwitch {
                     binding_id: lead.binding_id.clone(),
                 })
                 .collect();
-            for moved in legs
-                .move_sessions(from, to.clone(), sessions, actor.clone())
-                .await
-            {
+            let (accepted, is_accepted) = oneshot::channel();
+            acceptances.push(is_accepted);
+            let moves = legs.move_sessions(from, to.clone(), sessions, actor.clone(), accepted);
+            moving.push(async move { (leads, moves.await) });
+        }
+        // Every move landed: the target is let go before the lock where both end together, so a
+        // second switch onto it, waiting on that lock, finds it free.
+        let landed = async {
+            let moved = join_all(moving).await;
+            self.let_go_in_flight(in_flight_guard);
+            moved
+        };
+        // A second switch on the provider may begin once the driver holds every move.
+        let let_go_lock = async move {
+            join_all(acceptances).await;
+            drop(hold);
+        };
+        // Polled in this order, so the moves' end lets the target go first.
+        let (moved, ()) = futures::join!(landed, let_go_lock);
+        let mut first_requests = Vec::new();
+        for (mut leads, moves) in moved {
+            for moved in moves {
                 let (session_id, landing) = match moved {
-                    Ok(SessionAccountMove {
-                        session_id,
-                        first_request,
-                    }) => (session_id, Ok(first_request)),
+                    Ok(moved) => (moved.session_id, Ok(moved.outcome)),
                     Err((session_id, error)) => (session_id, Err(error)),
                 };
                 let Some(lead) = leads.remove(&session_id) else {
                     continue;
                 };
                 match landing {
-                    Ok(first_request) => {
+                    Ok(SessionAccountMoveOutcome::Landed {
+                        provider_account_id,
+                        first_request,
+                    }) => {
                         let watch = self
-                            .land(lead.landing, to.clone(), actor.clone(), first_request)
+                            .land(
+                                lead.landing,
+                                provider_account_id,
+                                actor.clone(),
+                                first_request,
+                            )
                             .await;
                         first_requests.push(watch);
+                    }
+                    Ok(SessionAccountMoveOutcome::Replaced { landed_on }) => {
+                        tracing::debug!(
+                            %session_id,
+                            landed_on = landed_on.as_str(),
+                            "a newer switch replaced a session's move and records its landing"
+                        );
                     }
                     Err(error) => {
                         self.record_failed(&lead.landing, &to, &actor, &error).await;
@@ -488,10 +553,6 @@ impl AccountSwitch {
                 }
             }
         }
-        // Let go before the lock, so a second switch onto the account waiting on it finds the
-        // account free.
-        drop(in_flight_guard);
-        drop(hold);
         join_all(first_requests).map(drop).boxed()
     }
 
@@ -684,17 +745,23 @@ impl SessionAccountMoveRecord {
         }
     }
 
-    /// Reads `moved`'s session's lead and level, then lands it on `to` on a task of its own, by
-    /// `actor` or else this machine's own device, answering that task; `None`, logged, where the
-    /// switch is gone, as while the daemon stops, the lead or level cannot be read or the log
-    /// names no lead.
+    /// Reads `moved`'s session's lead and level, then lands it on the account its move names on a
+    /// task of its own, by `actor` or else this machine's own device, answering that task; `None`
+    /// for a move a newer one replaced, which that one records, and, logged, where the switch is
+    /// gone, as while the daemon stops, the lead or level cannot be read or the log names no lead.
     pub(crate) async fn land(
         &self,
         moved: SessionAccountMove,
-        to: ProviderAccountId,
         actor: Option<DeviceId>,
     ) -> Option<JoinHandle<()>> {
         let session_id = moved.session_id;
+        let SessionAccountMoveOutcome::Landed {
+            provider_account_id: to,
+            first_request,
+        } = moved.outcome
+        else {
+            return None;
+        };
         let Some(switch) = self.switch.upgrade() else {
             tracing::warn!(
                 %session_id,
@@ -738,7 +805,7 @@ impl SessionAccountMoveRecord {
         };
         let actor = actor.unwrap_or_else(|| self.machine_device_id.clone());
         Some(tokio::spawn(async move {
-            let watch = switch.land(lead, to, actor, moved.first_request).await;
+            let watch = switch.land(lead, to, actor, first_request).await;
             watch.await;
         }))
     }
@@ -749,17 +816,16 @@ impl SessionAccountMoveRecorder for SessionAccountMoveRecord {
     fn record_account_moved(
         &self,
         moved: SessionAccountMove,
-        provider_account_id: ProviderAccountId,
         actor: Option<DeviceId>,
     ) -> BoxFuture<'_, ()> {
         async move {
-            drop(self.land(moved, provider_account_id, actor).await);
+            drop(self.land(moved, actor).await);
         }
         .boxed()
     }
 }
 
-// `agent.providerBinding.changed` for `session_id`'s `lead`, landed on `to` in place, by `actor`.
+// `agent.providerBinding.changed` for `session_id`'s `lead`, landed on `to` by `actor`.
 fn binding_changed(
     session_id: SessionId,
     lead: &SessionLead,

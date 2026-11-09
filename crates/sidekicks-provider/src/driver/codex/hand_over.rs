@@ -63,6 +63,12 @@ async fn summarize_on_copy(
         &filing,
         &copy.working_directory,
     );
+    // Counted among the service's running turns until the copy's read ends.
+    let _turn = service
+        .dependencies()
+        .switching
+        .lease_copy_turn(&service)
+        .await;
     start_turn(
         &copy.connection,
         &copy.thread_id,

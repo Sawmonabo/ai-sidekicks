@@ -50,7 +50,7 @@ use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
     ProviderObserveLegs, ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation,
     ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
-    SessionAccountMove, SessionToMove,
+    SessionAccountMove, SessionToMove, SwitchMovesAccepted,
 };
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -345,8 +345,9 @@ impl ProviderSwitchLegs for CodexAccountLegs {
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
         actor: DeviceId,
+        accepted: SwitchMovesAccepted,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
-        switch::move_codex_sessions(self, to, sessions, actor).boxed()
+        switch::move_codex_sessions(self, to, sessions, actor, accepted).boxed()
     }
 }
 

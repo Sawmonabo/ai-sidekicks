@@ -475,50 +475,116 @@ pub enum FirstRequestAfterMove {
 pub struct SessionAccountMove {
     /// The session.
     pub session_id: SessionId,
-    /// Settles once the session's first request after the move is answered, refused for its
-    /// login or no longer to come; fails with the driver's error where a hand-back could not be
-    /// made, the session then left on the account it moved to.
-    pub first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
+    /// How the move ended for the switch that asked it.
+    pub outcome: SessionAccountMoveOutcome,
+}
+
+/// How one session's move ended for the switch that asked it: landed by it, or replaced by a
+/// newer move asked while it waited, whose own answer records the landing.
+pub enum SessionAccountMoveOutcome {
+    /// The session runs on `provider_account_id`'s account by this move.
+    Landed {
+        /// The account the session landed on.
+        provider_account_id: ProviderAccountId,
+        /// Settles once the session's first request after the move is answered, refused for its
+        /// login or no longer to come; fails with the driver's error where a hand-back could not
+        /// be made, the session then left on the account it moved to.
+        first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
+    },
+    /// A newer move took this one's place while it waited, and the session landed on
+    /// `landed_on`'s account by that move, which reports the landing itself.
+    Replaced {
+        /// The account the session landed on.
+        landed_on: ProviderAccountId,
+    },
 }
 
 impl SessionAccountMove {
-    /// `session_id`'s move whose first request the driver does not watch, which settles at once as
-    /// [`FirstRequestAfterMove::Unobserved`].
-    pub fn unobserved(session_id: SessionId) -> Self {
-        Self {
-            session_id,
-            first_request: futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed(),
-        }
-    }
-
-    /// `session_id`'s move whose first request settles as `first_request` answers, a dropped
-    /// sender settling it as [`FirstRequestAfterMove::Unobserved`].
-    pub fn watched(
+    /// `session_id`'s move onto `provider_account_id`'s account whose first request settles as
+    /// `first_request` does.
+    pub fn landed(
         session_id: SessionId,
-        first_request: oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>,
+        provider_account_id: ProviderAccountId,
+        first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
     ) -> Self {
         Self {
             session_id,
-            first_request: first_request
+            outcome: SessionAccountMoveOutcome::Landed {
+                provider_account_id,
+                first_request,
+            },
+        }
+    }
+
+    /// `session_id`'s move onto `provider_account_id`'s account whose first request the driver
+    /// does not watch, which settles at once as [`FirstRequestAfterMove::Unobserved`].
+    pub fn unobserved(session_id: SessionId, provider_account_id: ProviderAccountId) -> Self {
+        Self::landed(
+            session_id,
+            provider_account_id,
+            futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed(),
+        )
+    }
+
+    /// `session_id`'s move onto `provider_account_id`'s account whose first request settles as
+    /// `first_request` answers, a dropped sender settling it as
+    /// [`FirstRequestAfterMove::Unobserved`].
+    pub fn watched(
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+        first_request: oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>,
+    ) -> Self {
+        Self::landed(
+            session_id,
+            provider_account_id,
+            first_request
                 .map(|answer| answer.unwrap_or(Ok(FirstRequestAfterMove::Unobserved)))
                 .boxed(),
+        )
+    }
+
+    /// `session_id`'s move a newer one replaced, the session landing on `landed_on`'s account.
+    pub fn replaced(session_id: SessionId, landed_on: ProviderAccountId) -> Self {
+        Self {
+            session_id,
+            outcome: SessionAccountMoveOutcome::Replaced { landed_on },
         }
     }
 }
 
-/// A provider's move of its running sessions from one account to another, each in place where
-/// the provider can and else between turns, its bindings moving with it.
+#[cfg(test)]
+impl SessionAccountMove {
+    /// The landed move's first request; a test of a move it knows landed reads it.
+    pub(crate) fn into_first_request(
+        self,
+    ) -> BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>> {
+        let SessionAccountMoveOutcome::Landed { first_request, .. } = self.outcome else {
+            panic!("the move was replaced by a newer one");
+        };
+        first_request
+    }
+}
+
+/// Told once every move a switch asked has landed or waits in the driver for a turn to end, where
+/// a newer switch asked meanwhile replaces it; dropped unsent, it says the same.
+pub type SwitchMovesAccepted = oneshot::Sender<()>;
+
+/// A provider's move of its running sessions from one account to another between their turns,
+/// its bindings moving with it.
 pub trait ProviderSwitchLegs: Send + Sync {
-    /// Moves each of `sessions` from account `from` onto `to` for `actor`, answering once every
-    /// move landed: at the provider's acknowledgment, at a restart between turns, or at once for a
-    /// session running no process. A session's move fails with the driver's error, leaving it on
-    /// `from`, where the provider refused it or the session could not be moved; the other moves go
-    /// on. A session the switch moves without naming it is reported as moved by `actor`.
+    /// Moves each of `sessions` from account `from` onto `to` for `actor`, telling `accepted` once
+    /// every move has landed or waits for a turn to end, and answering once every move landed: when
+    /// the session runs on `to`, at once for a session running no process. A move a newer switch
+    /// replaced while it waited answers where the session landed by that switch. A session's move
+    /// fails with the driver's error, leaving it on `from`, where the provider refused it or the
+    /// session could not be moved; the other moves go on. A session the switch moves without
+    /// naming it is reported as moved by `actor`.
     fn move_sessions(
         &self,
         from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
         actor: DeviceId,
+        accepted: SwitchMovesAccepted,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>>;
 }

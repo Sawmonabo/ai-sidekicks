@@ -13,6 +13,7 @@ use sidekicks_contracts::provider::account::record::{ProviderAccountId, Provider
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use tokio::sync::oneshot;
 
 use super::start_params;
 use crate::driver::ProviderAccountFolders;
@@ -22,6 +23,9 @@ use crate::driver::claude::account::credentials::{
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
+use crate::driver::claude::session::restart::account_move::{
+    ClaudeAccountLanding, ClaudeAccountMoveAsker, ClaudeLegBinding,
+};
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
@@ -30,7 +34,8 @@ use crate::driver::claude::session::scripted::{
 };
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::account::{
-    FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
+    FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionAccountMoveOutcome,
+    SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_run_id;
@@ -38,6 +43,7 @@ use crate::runtime_binding::store::CreateRuntimeBindingInput;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 // A driver with one session open on the default account's store, the account `to` registered as
 // `to_mode` says, the rows of the session's resting binding and its lead run's binding, each
@@ -123,10 +129,42 @@ impl SwitchFixture {
                     binding_id: binding_id("resting"),
                 }],
                 switching_person(),
+                oneshot::channel().0,
             )
             .await;
         assert_eq!(moves.len(), 1);
         moves.remove(0).map_err(|(_, error)| error)
+    }
+
+    // Registers a third account, `account-newest`, on its own store.
+    fn register_newest(&self) -> ProviderAccountId {
+        let newest =
+            ProviderAccountId::new("account-newest".to_owned()).expect("an account id fits");
+        self.fixture.accounts.register(
+            newest.clone(),
+            folders(self.fixture.folder.path(), "newest"),
+            None,
+        );
+        newest
+    }
+
+    // Asks the session's restarts its move onto `to` for `asker` under the resting leg's binding,
+    // answering where its landing is told.
+    fn ask_move(
+        &self,
+        to: &ProviderAccountId,
+        asker: ClaudeAccountMoveAsker,
+    ) -> oneshot::Receiver<Result<ClaudeAccountLanding, DriverError>> {
+        let parts = self.fixture.driver.composed_parts().expect("composed");
+        parts.restarts.ask_account_move(
+            self.session_id,
+            to.clone(),
+            ClaudeLegBinding {
+                bindings: Arc::clone(&self.fixture.bindings) as Arc<dyn RuntimeBindingWriter>,
+                binding_id: binding_id("resting"),
+            },
+            asker,
+        )
     }
 
     fn admitted(&self) -> ProviderAccountId {
@@ -280,19 +318,16 @@ async fn a_switch_relaunches_between_turns_and_resumes_by_id(
 }
 
 // A second switch asked while the session's turn is held replaces the one waiting: once the turn
-// settles the process starts again once, on the second switch's account, and the first switch is
-// answered with that account rather than told the provider is unavailable. Killed by the waiting
-// move's answer dropped when a later move replaces it, by a relaunch for each switch, and by a
-// relaunch on the first switch's account.
+// settles the process starts again once, on the second switch's account, the second switch is
+// answered with its landing and the first with that landing as replaced, so only the second's
+// is recorded. Killed by the waiting move's answer dropped when a later move replaces it, by the
+// replaced switch answered with an error (recorded as a failed switch) or as a landing of its own
+// (recorded a second time), by a relaunch for each switch, and by a relaunch on the first
+// switch's account.
 #[tokio::test(start_paused = true)]
 async fn a_second_switch_during_a_held_turn_replaces_the_waiting_one() {
     let switch = SwitchFixture::new(None).await;
-    let newest = ProviderAccountId::new("account-newest".to_owned()).expect("an account id fits");
-    switch.fixture.accounts.register(
-        newest.clone(),
-        folders(switch.fixture.folder.path(), "newest"),
-        None,
-    );
+    let newest = switch.register_newest();
     switch.start_turn().await;
     switch
         .fixture
@@ -322,15 +357,14 @@ async fn a_second_switch_during_a_held_turn_replaces_the_waiting_one() {
     let (replaced, newer) = tokio::join!(replaced, newer);
     settle().await;
 
-    drop(newer.expect("the newer move lands"));
-    let Err(replaced) = replaced else {
-        panic!("the replaced move reports a landing on its own account");
-    };
-    assert!(
-        std::error::Error::source(&replaced)
-            .is_some_and(|cause| cause.to_string().contains(newest.as_str())),
-        "the replaced move names the account the session landed on: {replaced:?}"
-    );
+    assert!(matches!(
+        newer.expect("the newer move lands").outcome,
+        SessionAccountMoveOutcome::Landed { provider_account_id, .. } if provider_account_id == newest
+    ));
+    assert!(matches!(
+        replaced.expect("the replaced move is answered with the landing").outcome,
+        SessionAccountMoveOutcome::Replaced { landed_on } if landed_on == newest
+    ));
     assert_eq!(
         environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
         Some(switch.store("newest").as_str())
@@ -344,6 +378,86 @@ async fn a_second_switch_during_a_held_turn_replaces_the_waiting_one() {
         switch.fixture.bindings.moves(),
         [(binding_id("resting"), newest.clone())]
     );
+}
+
+// A move asked once a relaunch is set going but before it has read its account joins it: the
+// process starts again once, on the newer move's account, and the first move is answered with
+// that landing as replaced. Killed by a second relaunch beside the first, by the relaunch on the
+// first move's account, and by the first move answered as a landing of its own.
+#[tokio::test(start_paused = true)]
+async fn a_move_asked_before_the_relaunch_reads_its_account_joins_that_relaunch() {
+    let switch = SwitchFixture::new(None).await;
+    let newest = switch.register_newest();
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    let first = switch.ask_move(&switch.to, ClaudeAccountMoveAsker::Person);
+    let newer = switch.ask_move(&newest, ClaudeAccountMoveAsker::Person);
+    let relaunched = switch.fixture.next_start().await;
+    let (first, newer) = tokio::join!(first, newer);
+    settle().await;
+
+    let first = first
+        .expect("the move is answered")
+        .expect("the move lands");
+    let newer = newer
+        .expect("the move is answered")
+        .expect("the move lands");
+    assert!(first.is_replaced && first.provider_account_id == newest);
+    assert!(!newer.is_replaced && newer.provider_account_id == newest);
+    assert_eq!(
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
+        Some(switch.store("newest").as_str())
+    );
+    assert!(
+        switch.fixture.starts.take_started().is_empty(),
+        "one relaunch"
+    );
+    assert_eq!(switch.admitted(), newest);
+}
+
+// The driver's own relaunch, as a hand-back asks it, asked while the person's switch waits for
+// the session's turn leaves the person's account standing: once the turn settles the process
+// starts again once, on the person's account, and the hand-back is answered with that landing as
+// replaced. Killed by the newest move winning over the person's switch (a relaunch on the account
+// handed back).
+#[tokio::test(start_paused = true)]
+async fn a_hand_back_asked_while_a_switch_waits_leaves_the_persons_account() {
+    let switch = SwitchFixture::new(None).await;
+    switch.start_turn().await;
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    let persons = switch.ask_move(&switch.to, ClaudeAccountMoveAsker::Person);
+    let handed_back = switch.ask_move(&test_provider_account_id(), ClaudeAccountMoveAsker::Driver);
+    settle().await;
+    assert!(switch.fixture.starts.take_started().is_empty());
+    switch.fixture.end_turn(&switch.start, switch.session_id);
+    let relaunched = switch.fixture.next_start().await;
+    let (persons, handed_back) = tokio::join!(persons, handed_back);
+    settle().await;
+
+    let persons = persons
+        .expect("the move is answered")
+        .expect("the move lands");
+    let handed_back = handed_back
+        .expect("the move is answered")
+        .expect("the move lands");
+    assert!(!persons.is_replaced && persons.provider_account_id == switch.to);
+    assert!(handed_back.is_replaced && handed_back.provider_account_id == switch.to);
+    assert_eq!(
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
+        Some(switch.store("to").as_str())
+    );
+    assert!(
+        switch.fixture.starts.take_started().is_empty(),
+        "one relaunch"
+    );
+    assert_eq!(switch.admitted(), switch.to);
 }
 
 // A login refusal on the first request of the process a store switch started again moves the
@@ -384,7 +498,10 @@ async fn a_login_refusal_after_the_move_hands_the_previous_account_back() {
     let handed_back = switch.fixture.next_start().await;
 
     assert_eq!(
-        moved.first_request.await.expect("the hand-back is made"),
+        moved
+            .into_first_request()
+            .await
+            .expect("the hand-back is made"),
         FirstRequestAfterMove::HandedBack
     );
     assert_eq!(
@@ -453,6 +570,7 @@ async fn a_held_restart_whose_binding_cannot_move_stays_on_the_old_account() {
                 binding_id: binding_id("resting"),
             }],
             switching_person(),
+            oneshot::channel().0,
         )
         .await;
 

@@ -9,6 +9,7 @@ use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::run::routes::CodexRunBinding;
@@ -163,7 +164,13 @@ async fn a_switch_onto_an_api_key_account_hands_the_key() {
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let to = fixture.key_account.clone();
     let (switched, answered) = tokio::join!(
-        switching.hand_switch(&service, to.clone(), Vec::new(), switching_person()),
+        switching.hand_switch(
+            &service,
+            to.clone(),
+            Vec::new(),
+            switching_person(),
+            oneshot::channel().0
+        ),
         answer_through_login(&mut fixture.scripted, false)
     );
     switched.expect("the key's login is answered");
@@ -211,7 +218,8 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
             &service,
             fixture.key_account.clone(),
             Vec::new(),
-            switching_person()
+            switching_person(),
+            oneshot::channel().0
         ),
         answer_through_login(&mut fixture.scripted, true)
     );
@@ -267,7 +275,8 @@ async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
             &service,
             fixture.key_account.clone(),
             Vec::new(),
-            switching_person()
+            switching_person(),
+            oneshot::channel().0
         ),
         answer_through_login(&mut fixture.scripted, false)
     );
@@ -316,19 +325,12 @@ async fn a_key_account_carried_never_takes_its_homes_tokens() {
 async fn a_resupplied_key_reaches_the_switching_service_only_while_it_carries_the_account() {
     let mut on_the_key = Fixture::new(true);
     on_the_key.hand_the_key_at_start().await;
-    let connection = on_the_key
-        .scripted
-        .service
-        .connection()
-        .expect("the service is up");
     let switching = Arc::clone(&on_the_key.scripted.dependencies.switching);
+    let service = Arc::clone(&on_the_key.scripted.service);
+    let key_account = on_the_key.key_account.clone();
 
     let (handed, answered) = tokio::join!(
-        switching.hand_resupplied_key(
-            &connection,
-            &on_the_key.key_account,
-            SecretString::from(NEW_KEY)
-        ),
+        switching.hand_resupplied_key(&service, &key_account, SecretString::from(NEW_KEY)),
         answer_through_login(&mut on_the_key.scripted, false)
     );
 
@@ -346,17 +348,12 @@ async fn a_resupplied_key_reaches_the_switching_service_only_while_it_carries_th
 
     let mut on_another = Fixture::new(false);
     on_another.carry_the_account_left().await;
-    let connection = on_another
-        .scripted
-        .service
-        .connection()
-        .expect("the service is up");
     let switching = Arc::clone(&on_another.scripted.dependencies.switching);
 
     tokio::time::timeout(
         Duration::from_secs(5),
         switching.hand_resupplied_key(
-            &connection,
+            &on_another.scripted.service,
             &on_another.key_account,
             SecretString::from(NEW_KEY),
         ),
@@ -367,6 +364,51 @@ async fn a_resupplied_key_reaches_the_switching_service_only_while_it_carries_th
 
     assert_eq!(switching.carried_account(), Some(on_another.left.clone()));
     assert_eq!(on_another.unread_requests(), Vec::<Value>::new());
+}
+
+// A key re-supplied while a turn runs on the service waits for that turn to end before its login,
+// which would cut the turn's requests. Killed by the re-supplied key's login sent mid-turn.
+#[tokio::test]
+async fn a_resupplied_key_during_a_turn_waits_for_its_end() {
+    let mut fixture = Fixture::new(true);
+    fixture.hand_the_key_at_start().await;
+    let service = Arc::clone(&fixture.scripted.service);
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+    fixture.scripted.script.send(&turn_started("turn-1"));
+    while !service.is_turn_running() {
+        tokio::task::yield_now().await;
+    }
+
+    let key_account = fixture.key_account.clone();
+    let scripted = &mut fixture.scripted;
+    let (handed, (sent_mid_turn, answered)) =
+        tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                switching.hand_resupplied_key(&service, &key_account, SecretString::from(NEW_KEY)),
+                async {
+                    let sent_mid_turn = scripted.script.next_sent_within(NOTHING_SENT_WAIT).await;
+                    scripted
+                        .script
+                        .send(&turn_completed(TEST_THREAD, "turn-1", "completed"));
+                    (
+                        sent_mid_turn,
+                        answer_through_login(&mut *scripted, false).await,
+                    )
+                }
+            )
+        })
+        .await
+        .expect("the key's login goes once the turn ended");
+
+    assert_eq!(
+        sent_mid_turn, None,
+        "the key's login went while the turn ran"
+    );
+    handed.expect("the new key's login is answered");
+    assert_eq!(
+        answered.login["params"],
+        json!({"type": "apiKey", "apiKey": NEW_KEY})
+    );
 }
 
 /// The `ChatGPT` workspaces of the two accounts the turn tests switch to, in order.
@@ -529,7 +571,13 @@ async fn a_switch_asked_mid_turn_lands_at_the_turns_end_before_the_next_turn() {
     let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
     let service = Arc::clone(&fixture.session.scripted.service);
     let to = fixture.to[0].clone();
-    let switch = switching.hand_switch(&service, to.clone(), Vec::new(), switching_person());
+    let switch = switching.hand_switch(
+        &service,
+        to.clone(),
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
     let mut switch = std::pin::pin!(switch);
     assert!(futures::poll!(switch.as_mut()).is_pending());
 
@@ -575,11 +623,22 @@ async fn two_switches_asked_mid_turn_land_as_one_login_onto_the_newest() {
     let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
     let service = Arc::clone(&fixture.session.scripted.service);
     let [first, second] = fixture.to.clone();
-    let first_switch = switching.hand_switch(&service, first, Vec::new(), switching_person());
+    let first_switch = switching.hand_switch(
+        &service,
+        first,
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
     let mut first_switch = std::pin::pin!(first_switch);
     assert!(futures::poll!(first_switch.as_mut()).is_pending());
-    let second_switch =
-        switching.hand_switch(&service, second.clone(), Vec::new(), switching_person());
+    let second_switch = switching.hand_switch(
+        &service,
+        second.clone(),
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
     let mut second_switch = std::pin::pin!(second_switch);
     assert!(futures::poll!(second_switch.as_mut()).is_pending());
 
@@ -613,7 +672,13 @@ async fn a_switch_on_an_idle_session_lands_at_once() {
     let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
     let service = Arc::clone(&fixture.session.scripted.service);
     let to = fixture.to[0].clone();
-    let switch = switching.hand_switch(&service, to.clone(), Vec::new(), switching_person());
+    let switch = switching.hand_switch(
+        &service,
+        to.clone(),
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
 
     let script = &mut fixture.session.scripted.script;
     let flow = async {
@@ -631,4 +696,65 @@ async fn a_switch_on_an_idle_session_lands_at_once() {
         compose_access_token(WORKSPACES_TO[0])
     );
     assert_eq!(service.provider_account_id(), Some(to));
+}
+
+// A turn running on the service that no session's record holds, as a side question's copy runs
+// one, holds a switch's login until it ends, since the login cuts its requests too. Killed by the
+// hold waiting only for the sessions' own turns, which lets the login go while the copy runs.
+#[tokio::test]
+async fn a_copy_turn_running_alone_holds_the_switch_until_it_ends() {
+    let mut fixture = TurnFixture::new().await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    fixture
+        .session
+        .scripted
+        .script
+        .send(&copy_turn_frame("turn/started"));
+    while !service.is_turn_running() {
+        tokio::task::yield_now().await;
+    }
+    let to = fixture.to[0].clone();
+    let switch = switching.hand_switch(
+        &service,
+        to.clone(),
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(switch, async {
+            let sent_mid_turn = script.next_sent_within(NOTHING_SENT_WAIT).await;
+            script.send(&copy_turn_frame("turn/completed"));
+            let sent = answer_until(script, &[CODEX_LOGIN_START_METHOD, "account/read"]).await;
+            (sent_mid_turn, sent)
+        })
+    };
+    let (switched, (sent_mid_turn, sent)) = drive(&mut fixture.session.task, flow).await;
+
+    assert_eq!(
+        sent_mid_turn, None,
+        "the login went while the copy's turn ran"
+    );
+    switched.expect("the switch lands");
+    let login_at = position_of(&sent, CODEX_LOGIN_START_METHOD).expect("a login was sent");
+    assert_eq!(
+        sent[login_at]["params"]["accessToken"],
+        compose_access_token(WORKSPACES_TO[0])
+    );
+    assert_eq!(service.provider_account_id(), Some(to));
+}
+
+// A copy's turn frame of `method`, on a thread no session holds.
+fn copy_turn_frame(method: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": {
+            "threadId": "copy-of-the-session",
+            "turn": {"id": "copy-turn", "items": [], "status": "inProgress"},
+        },
+    })
 }

@@ -105,12 +105,15 @@ impl CodexBindingMove {
             );
             return;
         };
+        let landed_on = account_move.provider_account_id;
         let moved = match account_move.first_request {
-            Some(first_request) => SessionAccountMove::watched(session_id, first_request),
-            None => SessionAccountMove::unobserved(session_id),
+            Some(first_request) => {
+                SessionAccountMove::watched(session_id, landed_on, first_request)
+            }
+            None => SessionAccountMove::unobserved(session_id, landed_on),
         };
         recorder
-            .record_account_moved(moved, account_move.provider_account_id, account_move.actor)
+            .record_account_moved(moved, account_move.actor)
             .await;
     }
 }
