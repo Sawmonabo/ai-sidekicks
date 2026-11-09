@@ -69,10 +69,10 @@ impl HookToolServer for CodexSessionHookTools {
     }
 
     /// Answers the call of the event whose tool it names. A call whose `_meta.threadId` names a
-    /// conversation the service records as another session's is refused as unreadable before a
-    /// tool and passes after one; one naming a conversation no session holds yet waits until it is
-    /// registered, the call's `token` bounding the wait; any other gets the dispatch point's answer
-    /// as Codex's hook output.
+    /// conversation the service records as another session's, or one it released, is refused as
+    /// unreadable before a tool and passes after one; one naming a conversation no session holds
+    /// yet waits until it is registered, the call's `token` bounding the wait; any other gets the
+    /// dispatch point's answer as Codex's hook output.
     fn answer<'a>(
         &'a self,
         call: HookToolCall,
@@ -84,20 +84,26 @@ impl HookToolServer for CodexSessionHookTools {
         async move {
             // A `_meta` naming no conversation is left to the dispatch point, which refuses it.
             if let Ok(thread_id) = read_hook_thread_id(call.meta.clone()) {
-                // A helper's call can come ahead of its spawn item, and a restarted daemon's
-                // first calls ahead of the adoption's registration.
-                let Some(owner) = self
-                    .service
-                    .await_session_of_thread(&thread_id, token)
-                    .await
-                else {
-                    return HookToolAnswer::Canceled;
+                // A conversation the service released holds no session, and no registration
+                // ends a wait on it. A helper's call can come ahead of its spawn item, and a
+                // restarted daemon's first calls ahead of the adoption's registration.
+                let owner = if self.service.former_session_of_thread(&thread_id).is_some() {
+                    None
+                } else {
+                    let Some(owner) = self
+                        .service
+                        .await_session_of_thread(&thread_id, token)
+                        .await
+                    else {
+                        return HookToolAnswer::Canceled;
+                    };
+                    Some(owner)
                 };
-                if owner != self.session_id {
+                if owner != Some(self.session_id) {
                     tracing::warn!(
                         session_id = %self.session_id,
                         thread_id,
-                        "a Codex hook call named another session's conversation"
+                        "a Codex hook call named another session's or a released conversation"
                     );
                     let answer = failure_answer(event, HOOK_INPUT_UNREADABLE_REASON.to_owned());
                     return HookToolAnswer::Answered(answer.to_hook_output(event));
@@ -226,8 +232,9 @@ mod tests {
         assert_eq!(other_tool, passed());
     }
 
-    // Killed by answering an unregistered conversation at once (it no longer waits), and by
-    // dropping the owner check (another session's call passes).
+    // Killed by answering an unregistered conversation at once (it no longer waits), by dropping
+    // the owner check (another session's call passes), and by a released conversation's call
+    // waiting on a registration instead of being refused at once.
     #[tokio::test]
     async fn a_hook_call_on_another_sessions_conversation_is_refused_and_an_unregistered_one_waits()
     {
@@ -263,6 +270,15 @@ mod tests {
             session.task.record.session_id,
         );
         let registered_late = early.await;
+        service.register_thread(
+            "thread-of-a-stopped-helper".to_owned(),
+            session.task.record.session_id,
+        );
+        service.release_thread("thread-of-a-stopped-helper");
+        let released = futures::poll!(entry.answer(
+            hook_call("PreToolUse", "Bash", "thread-of-a-stopped-helper"),
+            &token,
+        ));
         let abandoned = CancellationToken::new();
         let never_registered = entry.answer(
             hook_call("PreToolUse", "Bash", "thread-nobody-holds"),
@@ -278,6 +294,11 @@ mod tests {
             "a call on an unregistered conversation waits for it"
         );
         assert_eq!(registered_late, passed());
+        assert_eq!(
+            released,
+            std::task::Poll::Ready(denied(HOOK_INPUT_UNREADABLE_REASON)),
+            "a released conversation's call is refused at once"
+        );
         assert_eq!(never_registered.await, HookToolAnswer::Canceled);
     }
 

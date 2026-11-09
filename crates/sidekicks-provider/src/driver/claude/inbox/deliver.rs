@@ -89,11 +89,8 @@ pub(crate) struct ClaudeInboxSent {
 pub(crate) enum ClaudeInboxDeliveryError {
     /// The terminal receiver is gone: the registry no longer lists it, or its row names no
     /// inbox.
-    #[error("the terminal session {provider_session_id} is gone")]
-    Gone {
-        /// The receiver's id, as the provider names it.
-        provider_session_id: String,
-    },
+    #[error("the terminal session is gone")]
+    Gone,
     /// The receiver's reply could not be awaited, so nothing was written.
     #[error("the session's reply could not be awaited: {0}")]
     ReplyUnawaited(#[source] io::Error),
@@ -162,9 +159,7 @@ pub(crate) async fn deliver_claude_session_message(
                     )
                     .await
                 }
-                None => Err(ClaudeInboxDeliveryError::Gone {
-                    provider_session_id: provider_session_id.clone(),
-                }),
+                None => Err(ClaudeInboxDeliveryError::Gone),
             }
         }
     };
@@ -175,11 +170,13 @@ pub(crate) async fn deliver_claude_session_message(
             }
             Ok(SessionMessageSent::Sent)
         }
-        // A session that is gone is named as no session, in the words a lookup uses.
-        Err(ClaudeInboxDeliveryError::Gone {
-            provider_session_id,
-        }) => Ok(SessionMessageSent::Refused {
-            words: no_session_named(&provider_session_id),
+        // A session that is gone is named as no session, in the words a lookup uses, by the id
+        // the message was sent to.
+        Err(ClaudeInboxDeliveryError::Gone) => Ok(SessionMessageSent::Refused {
+            words: no_session_named(&match &delivery.target {
+                SessionMessageTarget::Hosted(session_id) => session_id.to_string(),
+                SessionMessageTarget::Terminal(provider_session_id) => provider_session_id.clone(),
+            }),
         }),
         Err(refusal @ ClaudeInboxDeliveryError::Refused(_)) => Ok(SessionMessageSent::Refused {
             words: refusal.to_string(),
@@ -208,13 +205,10 @@ pub(crate) async fn deliver_claude_peer_message(
             Ok(ClaudeInboxSent { reply_wait: None })
         }
         ClaudeInboxReceiver::Terminal(session) => {
-            let inbox =
-                session
-                    .socket
-                    .as_deref()
-                    .ok_or_else(|| ClaudeInboxDeliveryError::Gone {
-                        provider_session_id: session.session_id.clone().unwrap_or_default(),
-                    })?;
+            let inbox = session
+                .socket
+                .as_deref()
+                .ok_or(ClaudeInboxDeliveryError::Gone)?;
             let notice_id = mint_uuid_v7();
             let reply_wait = peer_replies
                 .await_reply(

@@ -355,6 +355,8 @@ fn connection_closed(error: mpsc::SendError) -> InProcessToolServerError {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
@@ -372,7 +374,7 @@ mod tests {
 
     use super::InProcessAgentToolServers;
     use crate::tools::server::tests::{CLAUDE_SESSION, fixture};
-    use crate::tools::session::list;
+    use crate::tools::session::{list, wait};
 
     /// The provider's channel, which takes every message the server sends of its own.
     struct Channel;
@@ -422,6 +424,62 @@ mod tests {
 
     fn list_tools(id: u64) -> Value {
         json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"})
+    }
+
+    // A held call the provider cancels with `notifications/cancelled` alone, its call still
+    // awaited, ends with an error and its work dropped. Killed by leaving the canceled request
+    // waiting, since the server writes no answer for a canceled request.
+    #[tokio::test]
+    async fn a_cancel_notice_alone_ends_a_held_in_process_call() {
+        let mut fixture = fixture();
+        drop(fixture.spawns[0].1.take());
+        let servers =
+            InProcessAgentToolServers::new(Arc::clone(&fixture.entries), (fixture.server)());
+        let session_id = SessionId::new(CLAUDE_SESSION).expect("the text is a UUID");
+        let spawn = servers
+            .open(ToolServerSpawn {
+                session_id,
+                conversation: ToolServerConversation::of_session(session_id),
+                provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                dispatcher: Arc::clone(fixture.spawns[0].0.dispatcher()),
+                hook_tools: None,
+            })
+            .expect("the system's random source reads");
+        connect(&spawn).await;
+        let call = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {"name": wait::DESCRIPTION.name, "arguments": {}},
+        });
+        let raw = RawValue::from_string(call.to_string()).expect("the call is JSON");
+        let held = spawn.handle(DAEMON_TOOL_SERVER_NAME.to_owned(), raw, Arc::new(Channel));
+        tokio::pin!(held);
+        tokio::select! {
+            () = fixture.ports.wait_started.notified() => {}
+            answered = &mut held => panic!("the held call answered: {answered:?}"),
+        }
+
+        let cancel = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": 7},
+        });
+        assert_eq!(send(&spawn, &cancel).await, Value::Null);
+        let ended = tokio::time::timeout(Duration::from_secs(10), held)
+            .await
+            .expect("the canceled call ends");
+
+        // The server drops the call's work on its own task once it reads the notice.
+        let is_dropped = tokio::time::timeout(Duration::from_secs(10), async {
+            while !fixture.ports.is_wait_dropped.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+
+        assert!(ended.is_err(), "the canceled call ends with an error");
+        assert!(is_dropped.is_ok(), "the canceled call's work is dropped");
     }
 
     // A Claude Code connection lists and calls the daemon's tools in process, a second handshake

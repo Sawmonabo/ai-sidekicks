@@ -64,6 +64,7 @@ struct ListedHook {
     key: Option<String>,
     current_hash: Option<String>,
     trust_status: Option<String>,
+    enabled: Option<bool>,
 }
 
 // One of the daemon's hooks as the service lists it.
@@ -155,9 +156,10 @@ fn hook_event_name(listed: &str) -> String {
 }
 
 /// Confirms the conversation `thread_id` lists each of the daemon's hook rows its config sent,
-/// from its session flags and trusted, before its first turn: Codex skips an unlisted or untrusted
-/// row without a word, so its hook would never run. Fails with `CodexError::Transport` naming the
-/// row and carrying Codex's own warnings and load errors, and as the connection's request does.
+/// from its session flags, trusted and not disabled, before its first turn: Codex skips an
+/// unlisted, untrusted or disabled row without a word, so its hook would never run. Fails with
+/// `CodexError::Transport` naming the row and carrying Codex's own warnings and load errors, and
+/// as the connection's request does.
 pub(crate) async fn confirm_codex_daemon_hook_rows(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -171,7 +173,11 @@ pub(crate) async fn confirm_codex_daemon_hook_rows(
                 hook.source.as_deref() == Some(SESSION_FLAGS_HOOK_SOURCE)
                     && hook.key.as_deref() == Some(key.as_str())
             })
-            .map(|hook| hook.trust_status.as_deref().unwrap_or_default());
+            // A row the person's hook state switched off reads as disabled whatever its trust.
+            .map(|hook| match hook.enabled {
+                Some(false) => "disabled",
+                Some(true) | None => hook.trust_status.as_deref().unwrap_or_default(),
+            });
         if matches!(status, Some("trusted" | "managed")) {
             continue;
         }
@@ -296,13 +302,21 @@ mod tests {
             "handlerType": "mcpTool",
             "source": "sessionFlags",
             "trustStatus": trust,
+            "enabled": true,
         })
+    }
+
+    // The daemon's row on `event`, trusted, that the person's hook state switched off.
+    fn disabled_row(event: &str) -> Value {
+        let mut row = listed_row(event, "trusted");
+        row["enabled"] = json!(false);
+        row
     }
 
     // A conversation starts only when it lists every row its config sent as trusted, and a start
     // that fails says which row and carries Codex's own words. Killed by the check skipped, by a
-    // listing of the service's hooks in place of the conversation's, and by an untrusted row
-    // counted as listed.
+    // listing of the service's hooks in place of the conversation's, by an untrusted row counted
+    // as listed, and by a trusted row that is switched off counted as listed.
     #[rstest]
     #[case::every_row_trusted(
         vec![listed_row("pre_tool_use", "trusted"), listed_row("post_tool_use", "trusted")],
@@ -315,6 +329,10 @@ mod tests {
     #[case::a_row_untrusted(
         vec![listed_row("pre_tool_use", "untrusted"), listed_row("post_tool_use", "trusted")],
         Some("lists it as \"untrusted\" for the hook row \"/<session-flags>/config.toml:pre_tool")
+    )]
+    #[case::a_row_disabled(
+        vec![listed_row("pre_tool_use", "trusted"), disabled_row("post_tool_use")],
+        Some("lists it as \"disabled\" for the hook row \"/<session-flags>/config.toml:post_tool")
     )]
     #[tokio::test]
     async fn a_conversation_starts_only_with_every_sent_hook_row_listed_and_trusted(

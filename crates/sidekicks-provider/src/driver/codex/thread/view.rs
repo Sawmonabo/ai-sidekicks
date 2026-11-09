@@ -284,8 +284,8 @@ pub(crate) const THREAD_RESUME_METHOD: &str = "thread/resume";
 /// The request that starts a turn on a thread.
 pub(crate) const TURN_START_METHOD: &str = "turn/start";
 
-/// Codex's request that reads one conversation.
-pub(crate) const THREAD_READ_METHOD: &str = "thread/read";
+// The request that reads a thread.
+const THREAD_READ_METHOD: &str = "thread/read";
 
 // The source of a thread a person started with the `codex` command in a terminal.
 const THREAD_TERMINAL_SOURCE: &str = "cli";

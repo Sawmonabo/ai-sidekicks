@@ -78,9 +78,9 @@ pub(crate) struct CodexDaemonToolServers {
 
 impl CodexDaemonToolServers {
     /// Opens the daemon's entries for a new spawn of `session_id`'s conversation on `service`, its
-    /// hook rows' calls answered by `hook_tools`, and installs `callback_tools` for it, replacing the
-    /// earlier spawn's installation; the earlier spawn's entries stay admitted until its hold is
-    /// let go. None until the route's owner registered it. Fails when the callback-tool host is
+    /// hook rows' calls answered by `hook_tools`, and installs `callback_tools` for it, replacing
+    /// the earlier spawn's installation; the earlier spawn's entries stay admitted until its hold
+    /// is let go. None until the route's owner registered it. Fails when the callback-tool host is
     /// not registered beside the route.
     pub(crate) fn open(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,

@@ -11,6 +11,7 @@ use crate::driver::codex::app_server_protocol::{
     ThreadTurnsListParams, TurnItemsView,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::side_questions::copy_turn::CODEX_AGENT_MESSAGE_ITEM_TYPE;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 
 /// The largest page `thread/turns/list` returns.
@@ -77,7 +78,7 @@ pub(crate) async fn read_codex_turns(
     let mut cursor = None;
     loop {
         let Some(page) =
-            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT).await?
+            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT, None).await?
         else {
             return Ok(Vec::new());
         };
@@ -98,23 +99,102 @@ pub(crate) async fn read_codex_newest_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
 ) -> Result<Option<CodexListedTurn>, CodexError> {
-    let Some(page) = read_turns_page(connection, thread_id, None, 1).await? else {
+    let Some(page) = read_turns_page(connection, thread_id, None, 1, None).await? else {
         return Ok(None);
     };
     Ok(page.data.into_iter().find_map(read_listed_turn))
 }
 
-// One page of `thread_id`'s turns, newest first, from `cursor`; `None` for a conversation no
-// message has reached yet.
+/// The turn `turn_id` of `thread_id`, its items not loaded, found by paging the turns newest
+/// first; `None` where the conversation holds no such turn. Fails as [`read_codex_turns`] does.
+pub(crate) async fn read_codex_turn(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<Option<CodexListedTurn>, CodexError> {
+    let mut cursor = None;
+    loop {
+        let items_view = Some(TurnItemsView::NotLoaded);
+        let Some(page) = read_turns_page(
+            connection,
+            thread_id,
+            cursor,
+            CODEX_TURNS_PAGE_LIMIT,
+            items_view,
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        let mut turns = page.data.into_iter().filter_map(read_listed_turn);
+        if let Some(turn) = turns.find(|turn| turn.id == turn_id) {
+            return Ok(Some(turn));
+        }
+        cursor = page.next_cursor.filter(|next| !next.is_empty());
+        if cursor.is_none() {
+            return Ok(None);
+        }
+    }
+}
+
+/// The last reply the turn `turn_id` of `thread_id` wrote, read from its items newest first;
+/// `None` where it wrote none. Fails as the connection's request does, and with
+/// `CodexError::Transport` for a reply that is not a page.
+pub(crate) async fn read_codex_turn_reply(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<Option<String>, CodexError> {
+    #[derive(Deserialize)]
+    struct ListedAgentMessage {
+        #[serde(rename = "type")]
+        item_type: Option<String>,
+        text: Option<String>,
+    }
+    let mut cursor = None;
+    loop {
+        let params = ThreadItemsListParams {
+            cursor,
+            limit: None,
+            sort_direction: Some(SortDirection::Desc),
+            thread_id: thread_id.to_owned(),
+            turn_id: Some(turn_id.to_owned()),
+        };
+        let reply = connection
+            .request(THREAD_ITEMS_LIST_METHOD, &params)
+            .await?;
+        let page = read_page(THREAD_ITEMS_LIST_METHOD, &reply, "items")?;
+        let newest_reply = page.data.iter().find_map(|entry| {
+            let item = read_codex_object::<ListedItemEntry>(entry.get())?.item?;
+            read_codex_object::<ListedAgentMessage>(item.get())
+                .filter(|item| item.item_type.as_deref() == Some(CODEX_AGENT_MESSAGE_ITEM_TYPE))?
+                .text
+        });
+        if newest_reply.is_some() {
+            return Ok(newest_reply);
+        }
+        cursor = page
+            .next_cursor
+            .filter(|next| !next.is_empty())
+            .map(CodexItemsCursor);
+        if cursor.is_none() {
+            return Ok(None);
+        }
+    }
+}
+
+// One page of `thread_id`'s turns, newest first, from `cursor`, each turn's items as `items_view`
+// asks, Codex's summary where it is `None`; `None` for a conversation no message has reached yet.
 async fn read_turns_page(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     cursor: Option<String>,
     limit: u32,
+    items_view: Option<TurnItemsView>,
 ) -> Result<Option<CodexPage>, CodexError> {
     let params = ThreadTurnsListParams {
         cursor,
-        items_view: None,
+        items_view,
         limit: Some(limit),
         sort_direction: None,
         thread_id: thread_id.to_owned(),

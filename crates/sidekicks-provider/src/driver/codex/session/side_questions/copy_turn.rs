@@ -33,8 +33,8 @@ use crate::usage_delta_accountant::{
     UsageDeltaAccountant, UsageRequestFacts,
 };
 
-/// The item type of the copy's reply.
-const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
+/// The item type of an agent's reply, a copy's among them.
+pub(crate) const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
 
 /// Why a copy's turn gave no answer when Codex named no error.
 const NO_ANSWER_DETAIL: &str = "The copy's turn ended with no answer.";

@@ -49,8 +49,8 @@ const CODEX_SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abce";
 #[derive(Default)]
 pub(in crate::tools) struct Ports {
     pub(in crate::tools) executed: AtomicUsize,
-    wait_started: Notify,
-    is_wait_dropped: Arc<AtomicBool>,
+    pub(in crate::tools) wait_started: Notify,
+    pub(in crate::tools) is_wait_dropped: Arc<AtomicBool>,
 }
 
 impl CallbackToolApprovalSeam for Ports {

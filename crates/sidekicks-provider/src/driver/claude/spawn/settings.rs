@@ -518,8 +518,9 @@ mod tests {
     }
 
     // Killed by `crossSessionInbound` left out of the settings of either pre-approval, a session's
-    // own or a locked-down copy's: a message the daemon delivers to a session that bypasses permission prompts is then held for an approval no one
-    // gives, or dropped once a headless hold expires.
+    // own or a locked-down copy's: a message the daemon delivers to a session that bypasses
+    // permission prompts is then held for an approval no one gives, or dropped once a headless
+    // hold expires.
     #[test]
     fn every_process_lets_in_messages_from_other_sessions() {
         let request = ClaudePermissionsRequest {

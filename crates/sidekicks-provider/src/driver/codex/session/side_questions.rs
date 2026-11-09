@@ -30,6 +30,7 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::sync::oneshot;
@@ -481,13 +482,20 @@ async fn request_copy_fork(
     thread_id: &str,
     is_project_untrusted: bool,
 ) -> Result<Box<RawValue>, CodexError> {
+    // Codex falls back to the folder as written where it cannot resolve, and so does its mark.
+    let canonical_folder = if is_project_untrusted {
+        let folder = &settings.working_directory;
+        Some(
+            resolve_real_location(folder)
+                .await
+                .unwrap_or_else(|_unresolved| folder.clone()),
+        )
+    } else {
+        None
+    };
+    let canonical_folder = canonical_folder.as_deref();
     send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
-        let fork = compose_copy_fork(
-            settings,
-            thread_id.to_owned(),
-            &loaded,
-            is_project_untrusted,
-        );
+        let fork = compose_copy_fork(settings, thread_id.to_owned(), &loaded, canonical_folder);
         async move { connection.request(THREAD_FORK_METHOD, &fork).await }
     })
     .await
@@ -496,13 +504,14 @@ async fn request_copy_fork(
 // The fork of `thread_id` a side question's copy runs on: ephemeral, its turns left out, asking
 // nothing, under the read-only profile. A fork keeps none of the thread's inline profiles, so the
 // copy carries the settings again; every server `loaded`, the fork's own read, names is switched
-// off and no other is sent, so it reaches no tool server. Where `is_project_untrusted`, the copy's
-// folder is marked untrusted, so Codex loads none of its project rules, hooks or config.
+// off and no other is sent, so it reaches no tool server. Where `canonical_folder` names the
+// copy's folder's canonical spelling, that folder is marked untrusted, so Codex loads none of its
+// project rules, hooks or config.
 fn compose_copy_fork(
     settings: &CodexThreadSettings,
     thread_id: String,
     loaded: &CodexLoadedServers,
-    is_project_untrusted: bool,
+    canonical_folder: Option<&Path>,
 ) -> ThreadForkParams {
     let mcp_servers = compose_codex_session_table(CodexSessionTableInput {
         tool_servers: &settings.tool_servers,
@@ -522,15 +531,12 @@ fn compose_copy_fork(
         &settings.profile_folders,
     ));
     fork.approval_policy = Some(AskForApproval::Never);
-    if is_project_untrusted {
+    if let Some(canonical_folder) = canonical_folder {
         // Codex looks a folder's trust up under its canonical path first and then as written, so
         // a folder reached through a link is marked under both, the person's mark on either never
-        // winning; Codex falls back to the written spelling alone when the path cannot resolve.
+        // winning.
         let written = settings.working_directory.to_string_lossy().into_owned();
-        let canonical = std::fs::canonicalize(&settings.working_directory).map_or_else(
-            |_| written.clone(),
-            |path| path.to_string_lossy().into_owned(),
-        );
+        let canonical = canonical_folder.to_string_lossy().into_owned();
         let untrusted = json!({ "trust_level": "untrusted" });
         fork.config.get_or_insert_default().insert(
             "projects".to_owned(),

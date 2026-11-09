@@ -103,9 +103,9 @@ impl CodexSessionEstablishment {
     // Moves the record onto the resumed conversation: its service, binding, status sink, turns,
     // tier and effort, its hold on the daemon's tool servers, its mode sent again, and its routing
     // band rebound on the sum already metered; the binding it retires lets go of its held presses
-    // and ends its leg's status, once, where its process's end has not. The record changes only once every step that can fail is
-    // done; a failure releases the conversation's registration on `service` when the resume made
-    // it.
+    // and ends its leg's status, once, where its process's end has not. The record changes only
+    // once every step that can fail is done; a failure releases the conversation's registration
+    // on `service` when the resume made it.
     async fn adopt_resumed_thread(
         &self,
         task: &mut CodexSessionTask<'_>,

@@ -23,8 +23,8 @@ use super::listing::{
     read_strict_settings, read_string_list, resolve_home_settings, rule_text,
 };
 
-// The deny rules Claude Code checks a path against; every other tool's rule names no path.
-const PATH_RULE_TOOLS: [&str; 2] = ["Read", "Edit"];
+/// The tools whose rules Claude Code checks a path against; every other tool's rule names no path.
+pub(super) const PATH_RULE_TOOLS: [&str; 2] = ["Read", "Edit"];
 
 // The sandbox's own lists of paths its commands may not read or write, under `sandbox.filesystem`.
 const SANDBOX_FILESYSTEM: [&str; 2] = ["sandbox", "filesystem"];

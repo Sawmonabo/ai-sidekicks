@@ -1,8 +1,9 @@
 //! What the daemon knows of the conversations a person typed in a terminal on one terminal
 //! service between its reads of them: the ones its last listing named, each moved by the frames
 //! of it since, so a listing while the service is away still names them, and the ones a seat of
-//! the daemon's holds, so no conversation takes a second seat and one a seat keeps for a running
-//! command reads as working.
+//! the daemon's holds, so a turn end's watch takes no second seat on a conversation and one a
+//! seat keeps for a running command reads as working. An exchange's seat sits beside a held one,
+//! and the exchanges with one conversation write to it one at a time.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -13,6 +14,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::session::controls::methods::{
     TerminalProviderSession, TerminalProviderSessionState,
 };
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 
 use super::TERMINAL_RECONNECT_WINDOW;
@@ -26,8 +28,8 @@ use crate::driver::codex::transport::connection::read_codex_object;
 #[derive(Default)]
 pub(crate) struct CodexTerminalConversations {
     seen: Mutex<SeenConversations>,
-    // Held while one exchange resumes a conversation and writes its message.
-    writing: tokio::sync::Mutex<()>,
+    // Held per conversation while one exchange resumes it and writes its message.
+    writing: KeyedLock<String>,
 }
 
 #[derive(Default)]
@@ -127,10 +129,11 @@ impl CodexTerminalConversations {
         }
     }
 
-    /// Waits for the service's exchanges to be free to resume a conversation and write a message,
-    /// holding them until the guard drops; one exchange writes at a time.
-    pub(crate) async fn write_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.writing.lock().await
+    /// Waits for `thread_id`'s exchanges to be free to resume it and write a message, holding
+    /// them until the hold drops; one exchange writes to a conversation at a time, and exchanges
+    /// with other conversations never wait on it.
+    pub(crate) async fn write_turn(&self, thread_id: &str) -> KeyHold<'_, String> {
+        self.writing.acquire(thread_id.to_owned()).await
     }
 
     /// Claims a seat on `thread_id` until the claim drops; `None` while another seat holds it.

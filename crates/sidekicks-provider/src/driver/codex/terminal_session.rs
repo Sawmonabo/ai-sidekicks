@@ -5,11 +5,14 @@
 pub(crate) mod conversations;
 pub(super) mod exchanges;
 pub(super) mod seat;
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use self::exchanges::{
@@ -172,34 +175,50 @@ async fn deliver_and_publish(
         },
     );
     if let CodexTerminalDelivery::Started { turn_id, ended } = delivered {
-        let readings = Arc::clone(readings);
-        let service = Arc::clone(service);
-        let thread_id = thread_id.to_owned();
-        tasks.spawn(async move {
-            let end = match ended.await {
-                Ok(end) => Some(end),
-                // A seat whose connection ended before the turn did leaves the turn's end unread.
-                Err(_unread) => await_turn_end_again(&service, &thread_id, &turn_id).await,
-            };
-            let reading = match end {
-                Some(CodexTerminalTurnEnd::Answered { reply }) => SessionMessageReading::Answered {
-                    // The message opened the turn, so its id names the turn's record.
-                    turn_record: message_id.clone(),
-                    message_id,
-                    answer: reply,
-                },
-                Some(CodexTerminalTurnEnd::Failed { notice }) => {
-                    SessionMessageReading::Failed { message_id, notice }
-                }
-                None => SessionMessageReading::NotReachable {
-                    message_id,
-                    reopen: CodexTerminalExchangeError::GivenUp { thread_id }.to_string(),
-                },
-            };
-            publish_terminal_reading(&readings, reading);
-        });
+        tasks.spawn(publish_turn_end(
+            Arc::clone(service),
+            thread_id.to_owned(),
+            turn_id,
+            message_id,
+            ended,
+            Arc::clone(readings),
+        ));
     }
     Ok(SessionMessageSent::Sent)
+}
+
+// Publishes to `readings` how the turn `turn_id` of `thread_id` on `service`, which the message
+// `message_id` opened, ended: as `ended` hands it back, else, where the seat's connection ended
+// first, as it is read again, or not reachable once it cannot be.
+async fn publish_turn_end(
+    service: Arc<CodexService>,
+    thread_id: String,
+    turn_id: String,
+    message_id: String,
+    ended: oneshot::Receiver<CodexTerminalTurnEnd>,
+    readings: TerminalReadings,
+) {
+    let end = match ended.await {
+        Ok(end) => Some(end),
+        // A seat whose connection ended before the turn did leaves the turn's end unread.
+        Err(_unread) => await_turn_end_again(&service, &thread_id, &turn_id).await,
+    };
+    let reading = match end {
+        Some(CodexTerminalTurnEnd::Answered { reply }) => SessionMessageReading::Answered {
+            // The message opened the turn, so its id names the turn's record.
+            turn_record: message_id.clone(),
+            message_id,
+            answer: reply,
+        },
+        Some(CodexTerminalTurnEnd::Failed { notice }) => {
+            SessionMessageReading::Failed { message_id, notice }
+        }
+        None => SessionMessageReading::NotReachable {
+            message_id,
+            reopen: CodexTerminalExchangeError::GivenUp { thread_id }.to_string(),
+        },
+    };
+    publish_terminal_reading(&readings, reading);
 }
 
 // The end of the turn `turn_id` of `thread_id` on `service`, read again after the seat's connection

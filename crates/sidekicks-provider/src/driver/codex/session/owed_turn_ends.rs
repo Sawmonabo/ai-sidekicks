@@ -93,7 +93,7 @@ pub(crate) struct CodexListedTurnState {
     /// Its status; `None` for a word Codex does not send or a turn that reads as no object.
     pub(crate) status: Option<CodexTurnStatus>,
     /// Whether it carries `completedAt`: a turn a cold load marked interrupted carries none.
-    pub(super) has_completed_at: bool,
+    pub(crate) has_completed_at: bool,
     /// The first turn of the chain of work that led to it; `None` where Codex names none.
     pub(super) root_turn_id: Option<String>,
 }

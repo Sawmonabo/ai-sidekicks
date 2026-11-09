@@ -507,7 +507,8 @@ impl CodexSessionEstablishment {
     // holds, its output speed rebuilt from the record and its tool servers against the resume's own
     // read, the daemon's on the entries `tool_servers` opened for the resume, and the reply. Fails
     // as the reads or the request do, when the reply names another conversation or runs it under
-    // another profile, and when the conversation does not list the daemon's hook rows trusted.
+    // another profile, and when the conversation does not list the daemon's hook rows trusted,
+    // which lets go of a conversation the session did not hold before.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
@@ -547,8 +548,18 @@ impl CodexSessionEstablishment {
             })
             .await?;
         assert_codex_thread_profile(&reply, settings, THREAD_RESUME_METHOD)?;
-        if sends_codex_daemon_hook_rows(route) {
-            confirm_codex_daemon_hook_rows(connection, thread_id).await?;
+        if sends_codex_daemon_hook_rows(route)
+            && let Err(error) = confirm_codex_daemon_hook_rows(connection, thread_id).await
+        {
+            // A conversation whose hook rows would not run is let go, as a start's is, unless the
+            // session held it before this resume.
+            if !service
+                .threads_of(&record.session_id)
+                .contains(&record.thread_id)
+            {
+                let_go_codex_thread(service, thread_id).await;
+            }
+            return Err(error);
         }
         Ok(reply)
     }
