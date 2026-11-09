@@ -259,3 +259,32 @@ impl JsonSchema for LineRange {
         })
     }
 }
+
+/// The refusal for a session a person typed in a terminal, whose record its provider keeps and
+/// this computer's daemon does not.
+pub fn typed_in_terminal(session: &str) -> String {
+    format!("{session} runs in a terminal, so its record cannot be read here.")
+}
+
+/// The refusal for an output id the read session holds no output under.
+pub fn output_not_found(output: &str, session: &str) -> String {
+    format!(
+        "{session} has no output {output}. Read it with include [\"outputs\"] to see its output \
+         ids."
+    )
+}
+
+/// The refusal for an `around` hit or a `cursor` that names no place in the read session.
+pub fn position_unknown(position: &str, session: &str) -> String {
+    format!("\"{position}\" names no hit or next_cursor in {session}. Read it again without it.")
+}
+
+/// The result of reading a session whose record holds nothing yet.
+pub fn nothing_yet(session: &str) -> String {
+    format!("{session} has no messages yet.")
+}
+
+/// The result of reading an output's lines when none is in the range or matches the search.
+pub fn no_matching_lines(output: &str) -> String {
+    format!("No lines of output {output} match.")
+}

@@ -103,10 +103,10 @@ pub struct SessionListLine {
     pub id: String,
     /// The provider's name as the person reads it.
     pub provider: String,
-    /// The model's name as the person reads it.
-    pub model: String,
-    /// The session's project.
-    pub project: String,
+    /// The model's name as the person reads it; `None` where the provider does not say.
+    pub model: Option<String>,
+    /// The session's project; `None` for a chat and a session typed in a terminal.
+    pub project: Option<String>,
     /// The computer the session runs on.
     pub computer: String,
     /// What the session is doing.
@@ -119,11 +119,14 @@ pub struct SessionListLine {
 
 impl fmt::Display for SessionListLine {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{} · {} · {} {} · {} · {}",
-            self.name, self.id, self.provider, self.model, self.project, self.computer
-        )?;
+        write!(formatter, "{} · {} · {}", self.name, self.id, self.provider)?;
+        if let Some(model) = &self.model {
+            write!(formatter, " {model}")?;
+        }
+        if let Some(project) = &self.project {
+            write!(formatter, " · {project}")?;
+        }
+        write!(formatter, " · {}", self.computer)?;
         if self.is_calling_session {
             return formatter.write_str(" · this session");
         }
