@@ -200,15 +200,16 @@ END;
 
 -- The newest quota reading per account, limit and window length. One provider files two windows
 -- under one limit identifier while another publishes several limits sharing a window length, so
--- the key is the identifier and the length together; the label is still read from the length.
+-- the key is the identifier and the length together; a window sent with no length is keyed by its
+-- label in the length's place.
 CREATE TABLE provider_account_usage_windows (
   account_id    TEXT NOT NULL
                 REFERENCES provider_accounts(account_id) ON DELETE CASCADE,
   -- The provider's own identifier, verbatim and untrusted; 'default' when the reading names none.
   -- No CHECK: the provider's limit set is open.
   limit_id      TEXT NOT NULL,
-  window_mins   INTEGER NOT NULL,               -- with the limit, which window the reading is
-  label         TEXT,                           -- display only
+  window_mins   INTEGER,                        -- with the limit, which window the reading is
+  label         TEXT,                           -- names the window where it has no length
   -- Not capped at 100: a provider may report over-consumption.
   used_percent  REAL NOT NULL CHECK(used_percent >= 0),
   resets_at     TEXT,                           -- NULL is unknown, never now
@@ -220,8 +221,11 @@ CREATE TABLE provider_account_usage_windows (
   -- A whole-account read, which replaces the stored set, or what the provider pushes during a
   -- turn, which is merged.
   source        TEXT NOT NULL CHECK(source IN ({reading_sources})),
-  PRIMARY KEY (account_id, limit_id, window_mins)
+  CHECK(window_mins IS NOT NULL OR label IS NOT NULL)
 ) STRICT;
+
+CREATE UNIQUE INDEX provider_account_usage_windows_key
+  ON provider_account_usage_windows(account_id, limit_id, IFNULL(window_mins, label));
 
 -- One row per turn, so an account's figures can be cut by a day and by a model: a projection of
 -- each usage.tokenCount.recorded event, keyed by its id, beside the turns no session owns, which

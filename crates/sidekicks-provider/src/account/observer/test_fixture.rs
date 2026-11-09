@@ -213,7 +213,8 @@ pub(super) fn figures() -> ProviderAccountFigures {
     ProviderAccountFigures {
         windows: vec![ProviderQuotaWindow {
             limit_id: "session".to_owned(),
-            window_mins: 300,
+            window_mins: Some(300),
+            label: None,
             used_percent: 40.0,
             resets_at: None,
         }],

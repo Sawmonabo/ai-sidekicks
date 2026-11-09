@@ -310,7 +310,7 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
             .iter()
             .map(|window| (window.limit_id.as_str(), window.window_mins))
             .collect::<Vec<_>>(),
-        [("codex", 300), ("codex", 10_080)]
+        [("codex", Some(300)), ("codex", Some(10_080))]
     );
     assert_eq!(
         (

@@ -18,7 +18,9 @@ use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
-use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use crate::provider::account::record::{
+    CredentialGeneration, PROVIDER_QUOTA_LABEL_MAX_LEN, ProviderAccountId,
+};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
@@ -412,7 +414,8 @@ fn window_dependent_required() -> Value {
 }
 
 /// One window of an account's whole set of quota readings: its limit, absent naming the default
-/// limit, and its length in minutes.
+/// limit, and what names the window within it, its length in minutes or, where the provider sent
+/// none, its label.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UsageRateLimitWindowKey {
@@ -424,14 +427,29 @@ pub struct UsageRateLimitWindowKey {
     )]
     #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
     pub limit_id: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
-    /// The window's length in minutes.
-    pub window_mins: SafeSignedInt,
+    /// The window's length in minutes; absent where the provider sent none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeSignedInt")]
+    pub window_mins: Option<SafeSignedInt>,
+    /// The window's label, which names a window the provider sent with no length.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_QUOTA_LABEL_MAX_LEN>")]
+    pub label: Option<FreeFormText<PROVIDER_QUOTA_LABEL_MAX_LEN>>,
 }
 
 /// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
-/// account, `limitId` and `windowMins`. It names no session and no run; the envelope binds it to
-/// the machine's sentinel session, and its `occurredAt` is when the quota was read. A display
-/// reading only, never an input to a security or admission decision.
+/// account, `limitId` and `windowMins`, or `label` where the provider sent no length. It names no
+/// session and no run; the envelope binds it to the machine's sentinel session, and its
+/// `occurredAt` is when the quota was read. A display reading only, never an input to a security
+/// or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -451,9 +469,24 @@ pub struct UsageRateLimitUpdatedPayload {
     )]
     #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
     pub limit_id: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
-    /// The quota's window in minutes as the provider gave it; a reader drops a window at or below
-    /// zero.
-    pub window_mins: SafeSignedInt,
+    /// The quota's window in minutes as the provider gave it, absent where it gave none; a reader
+    /// drops a window at or below zero.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeSignedInt")]
+    pub window_mins: Option<SafeSignedInt>,
+    /// The window's label, present on a window the provider sent with no length, which it names;
+    /// a reader drops a window with neither.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_QUOTA_LABEL_MAX_LEN>")]
+    pub label: Option<FreeFormText<PROVIDER_QUOTA_LABEL_MAX_LEN>>,
     /// The share of the window used, in percent as the provider gave it.
     pub used_percent: Number,
     /// When the window resets, absent when the provider did not say.

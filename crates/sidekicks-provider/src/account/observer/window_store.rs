@@ -1,6 +1,7 @@
 //! The newest quota reading of each account's windows, one row per account, limit and window
 //! length in `provider_account_usage_windows`, projected from the `usage.rateLimit.updated` events
-//! the machine's sentinel session holds, each read when its event occurred.
+//! the machine's sentinel session holds, each read when its event occurred. A window the provider
+//! sent with no length is named by its label in the length's place.
 //!
 //! - The later reading of a window is current; on an exact tie the account's own limits read
 //!   outranks what a turn pushed.
@@ -10,8 +11,8 @@
 //! - A reading from the account's own limits read carries the read's whole set, and first removes
 //!   every stored window of the account the set does not name and that was read no later; what a
 //!   turn pushed merges and removes nothing.
-//! - A window at or below zero minutes, or used below zero, is no reading the table holds, and
-//!   writes nothing.
+//! - A window at or below zero minutes, with neither a length nor a label, or used below zero, is
+//!   no reading the table holds, and writes nothing.
 //! - A reading is written only while its account is held, so a rebuild after a removal writes
 //!   nothing for it, as the removal's cascade left it.
 //! - `provider.account.list` reads the stored readings back, a registered account's alone, each
@@ -52,13 +53,14 @@ use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::registry::{StoredValueRefused, credential_generation};
 use crate::account::usage_turns::credential_generation_binding;
 
-// Each named window is a `[limitId, windowMins]` pair of the set's JSON.
+// Each named window is a `[limitId, windowMins]` pair of the set's JSON, its label in the length's
+// place where it has none, as the table's key names it.
 const DELETE_UNNAMED_WINDOWS_SQL: &str = "DELETE FROM provider_account_usage_windows
  WHERE account_id = @account_id
    AND observed_at <= @observed_at
    AND NOT EXISTS (SELECT 1 FROM json_each(@whole_set) AS named
                     WHERE json_extract(named.value, '$[0]') = limit_id
-                      AND json_extract(named.value, '$[1]') = window_mins)";
+                      AND json_extract(named.value, '$[1]') = IFNULL(window_mins, label))";
 
 // The stored row is replaced by a later reading, or on a tie by the limits read over a push,
 // unless both name the same reset and the newer one reads lower.
@@ -67,13 +69,14 @@ static WRITE_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     let run = <&'static str>::from(ProviderAccountUsageWindowSource::Run);
     format!(
         "INSERT INTO provider_account_usage_windows
-  (account_id, limit_id, window_mins, used_percent, resets_at, observed_at,
+  (account_id, limit_id, window_mins, label, used_percent, resets_at, observed_at,
    observed_credential_generation, source)
-SELECT account_id, @limit_id, @window_mins, @used_percent, @resets_at, @observed_at,
+SELECT account_id, @limit_id, @window_mins, @label, @used_percent, @resets_at, @observed_at,
   @observed_credential_generation, @source
 FROM provider_accounts WHERE account_id = @account_id
-ON CONFLICT (account_id, limit_id, window_mins) DO UPDATE
-   SET used_percent = excluded.used_percent,
+ON CONFLICT (account_id, limit_id, IFNULL(window_mins, label)) DO UPDATE
+   SET label = excluded.label,
+       used_percent = excluded.used_percent,
        resets_at = excluded.resets_at,
        observed_at = excluded.observed_at,
        observed_credential_generation = excluded.observed_credential_generation,
@@ -183,7 +186,11 @@ fn push_window_statements(
         });
     }
     let used_percent = updated.used_percent.get();
-    if updated.window_mins.get() <= 0 || used_percent < 0.0 {
+    let is_named = match updated.window_mins {
+        Some(window_mins) => window_mins.get() > 0,
+        None => updated.label.is_some(),
+    };
+    if !is_named || used_percent < 0.0 {
         return;
     }
     let source = if updated.whole_set.is_some() {
@@ -198,8 +205,11 @@ fn push_window_statements(
             text_binding("@limit_id", limit_id(updated.limit_id.as_ref())),
             (
                 Cow::Borrowed("@window_mins"),
-                Value::Integer(updated.window_mins.get()),
+                updated
+                    .window_mins
+                    .map_or(Value::Null, |window_mins| Value::Integer(window_mins.get())),
             ),
+            nullable_text_binding("@label", updated.label.as_ref().map(FreeFormText::as_str)),
             (Cow::Borrowed("@used_percent"), Value::Real(used_percent)),
             nullable_text_binding(
                 "@resets_at",
@@ -216,12 +226,19 @@ fn push_window_statements(
     });
 }
 
-// The set as the JSON array of `[limitId, windowMins]` pairs the removal reads.
+// The set as the JSON array of `[limitId, windowMins]` pairs the removal reads, the label in the
+// length's place on a window with none.
 fn compose_named_windows(whole_set: &[UsageRateLimitWindowKey]) -> String {
     serde_json::Value::Array(
         whole_set
             .iter()
-            .map(|key| serde_json::json!([limit_id(key.limit_id.as_ref()), key.window_mins.get()]))
+            .map(|key| {
+                let window_name = match (key.window_mins, &key.label) {
+                    (Some(window_mins), _) => serde_json::json!(window_mins.get()),
+                    (None, label) => serde_json::json!(label.as_ref().map(FreeFormText::as_str)),
+                };
+                serde_json::json!([limit_id(key.limit_id.as_ref()), window_name])
+            })
             .collect(),
     )
     .to_string()
@@ -253,17 +270,21 @@ pub async fn read_usage_windows(
 }
 
 fn read_usage_window(row: &Row<'_>) -> rusqlite::Result<ProviderAccountUsageWindow> {
-    let window_mins: i64 = row.get(2)?;
+    let window_mins: Option<i64> = row.get(2)?;
     let used_percent: f64 = row.get(4)?;
     Ok(ProviderAccountUsageWindow {
         account_id: text_column(row, 0, |text| {
             ProviderAccountId::new(text).ok_or(StoredValueRefused("account id"))
         })?,
         limit_id: text_column(row, 1, FreeFormText::new)?,
-        window_mins: u64::try_from(window_mins)
-            .ok()
-            .and_then(SafeInt::new)
-            .ok_or_else(|| stored_refusal(2, Type::Integer, "window length"))?,
+        window_mins: window_mins
+            .map(|window_mins| {
+                u64::try_from(window_mins)
+                    .ok()
+                    .and_then(SafeInt::new)
+                    .ok_or_else(|| stored_refusal(2, Type::Integer, "window length"))
+            })
+            .transpose()?,
         label: optional_text_column(row, 3, FreeFormText::new)?,
         used_percent: NonNegativeNumber::new(used_percent)
             .ok_or_else(|| stored_refusal(4, Type::Real, "share used"))?,

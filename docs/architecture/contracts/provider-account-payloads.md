@@ -716,7 +716,10 @@ type ProviderAccountNotification =
 // `windowMins` IS WHAT NAMES THE WINDOW, and its POSITION in the provider's reply never is. A Codex
 // limit id carries a primary and a secondary window and the provider has moved a given window
 // between those slots, so a surface that read the primary slot as "the short window" would relabel
-// every bar the day that moved. Key on the id; label from the length.
+// every bar the day that moved. Key on the id; label from the length. A window Codex sends with no
+// length carries no `windowMins` and is named by `label` in its place: `Usage` for a primary slot,
+// `Secondary usage` for a secondary one, as Codex's own app draws it; no length is inferred from
+// the plan.
 //
 // COMPLETENESS RIDES `source`, and the prune rule turns on it. A `probe`-source reading set is the
 // account's WHOLE standing and replaces the stored set for that account; a `run`-source reading is
@@ -734,8 +737,8 @@ interface ProviderAccountUsageWindow {
   // member so both paths key alike.
   accountId: ProviderAccountId;
   limitId: string; // untrusted provider-adjacent string, `FreeFormText<MAX>`-bounded; NOT a closed union — the provider's limit vocabulary is open and versioned
-  windowMins: number;
-  label?: string; // the provider's own display label where it publishes one; display-only, never parsed, never a key
+  windowMins?: number; // absent where the provider sent no length; `label` then names the window
+  label?: string; // the provider's own display label where it publishes one, or the name a window with no length is drawn by, which keys it in the length's place; never parsed
   usedPercent: number; // NOT clamped to 100 on the wire: a provider may report over-consumption against a soft limit and clamping would misreport it. Renderers clamp for display.
   resetsAt?: string; // RFC 3339 UTC where the provider supplies it; absent = unknown, never "now" and never "never"
   observedAt: string; // RFC 3339 UTC. THE ORDERING KEY: newest `observedAt` wins per `(accountId, limitId, windowMins)`, and `source` breaks ONLY exact ties. Ordering by arrival, or by preferring one source, would let a stale reading mask real consumption. It is ALSO the read time the surface renders beside the figure: a percentage with no read time invites a reader to plan against a number that on an idle account will be hours old.

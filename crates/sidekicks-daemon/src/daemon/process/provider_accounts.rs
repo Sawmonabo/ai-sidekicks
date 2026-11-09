@@ -25,6 +25,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::credential_home::ACCOUNT_SIGN_OUT_BOUND;
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
@@ -527,8 +528,9 @@ fn hand_turn_end(
 }
 
 /// Publishes the window `updated` names as the window projection now keeps it, the newest reading
-/// of that account, limit and length; nothing where the projection keeps none, as for a reading it
-/// takes no row for. Fails when the stored readings cannot be read.
+/// of that account, limit and length, or label where it has no length; nothing where the
+/// projection keeps none, as for a reading it takes no row for. Fails when the stored readings
+/// cannot be read.
 pub(super) async fn publish_usage_window(
     reads: &DatabaseReadPool,
     publisher: &dyn ProviderAccountNotificationPublisher,
@@ -546,7 +548,11 @@ pub(super) async fn publish_usage_window(
         .find(|window| {
             window.account_id == updated.provider_account_id
                 && window.limit_id.as_str() == limit_id
-                && i64::try_from(window.window_mins.get()).ok() == Some(updated.window_mins.get())
+                && window
+                    .window_mins
+                    .map(|window_mins| window_mins.get().cast_signed())
+                    == updated.window_mins.map(SafeSignedInt::get)
+                && window.label == updated.label
         });
     if let Some(window) = window {
         publisher.publish(ProviderAccountNotification::UsageWindowUpdated {

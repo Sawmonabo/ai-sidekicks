@@ -535,7 +535,7 @@ mod tests {
                         observed_credential_generation, source)
                      VALUES (@account_id, 'default', @window_mins, 0, @resets_at, @observed_at, 1,
                              'probe')
-                     ON CONFLICT (account_id, limit_id, window_mins)
+                     ON CONFLICT (account_id, limit_id, IFNULL(window_mins, label))
                      DO UPDATE SET resets_at = excluded.resets_at,
                                    observed_at = excluded.observed_at",
                 ),

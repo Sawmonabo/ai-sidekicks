@@ -45,23 +45,16 @@ pub(crate) fn log_with_account() -> SessionTestLog {
 /// The events `reading` files: one per window on the sentinel session, each naming the reading's
 /// whole set where it is one.
 pub(crate) fn file(reading: &Reading) -> Vec<UnsequencedEventEnvelope> {
-    let whole_set: Vec<_> = reading
-        .windows
-        .iter()
-        .map(|window| json!({"limitId": window.limit_id, "windowMins": window.window_mins}))
-        .collect();
+    let whole_set: Vec<_> = reading.windows.iter().map(window_key).collect();
     reading
         .windows
         .iter()
         .map(|window| {
-            let mut payload = json!({
-                "provider": "codex",
-                "providerAccountId": ACCOUNT,
-                "credentialGeneration": 1,
-                "limitId": window.limit_id,
-                "windowMins": window.window_mins,
-                "usedPercent": window.used_percent,
-            });
+            let mut payload = window_key(window);
+            payload["provider"] = json!("codex");
+            payload["providerAccountId"] = json!(ACCOUNT);
+            payload["credentialGeneration"] = json!(1);
+            payload["usedPercent"] = json!(window.used_percent);
             if let Some(resets_at) = window.resets_at {
                 payload["resetsAt"] =
                     json!(resets_at.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
@@ -80,6 +73,18 @@ pub(crate) fn file(reading: &Reading) -> Vec<UnsequencedEventEnvelope> {
             envelope
         })
         .collect()
+}
+
+// What names `window` on the wire: its limit, and its length and label where it has them.
+fn window_key(window: &ProviderQuotaWindow) -> serde_json::Value {
+    let mut key = json!({"limitId": window.limit_id});
+    if let Some(window_mins) = window.window_mins {
+        key["windowMins"] = json!(window_mins);
+    }
+    if let Some(label) = &window.label {
+        key["label"] = json!(label);
+    }
+    key
 }
 
 /// Writes each event's window as the append's own write does, in order.
@@ -106,14 +111,24 @@ fn rebuild(log: &SessionTestLog, envelopes: &[UnsequencedEventEnvelope]) {
     run_write_statements(&log.writer, &statements);
 }
 
-/// Every stored window, by its limit and length: its share used, reset, read time and source.
-pub(crate) fn rows(
-    log: &SessionTestLog,
-) -> Vec<(String, i64, f64, Option<String>, String, String)> {
+/// One stored window as [`rows`] answers it: its limit, length and label, then its share used,
+/// reset, read time and source.
+pub(crate) type StoredRow = (
+    String,
+    Option<i64>,
+    Option<String>,
+    f64,
+    Option<String>,
+    String,
+    String,
+);
+
+/// Every stored window, by its limit and length.
+pub(crate) fn rows(log: &SessionTestLog) -> Vec<StoredRow> {
     let reader = log.reader();
     let mut statement = reader
         .prepare(
-            "SELECT limit_id, window_mins, used_percent, resets_at, observed_at, source
+            "SELECT limit_id, window_mins, label, used_percent, resets_at, observed_at, source
                FROM provider_account_usage_windows ORDER BY limit_id, window_mins",
         )
         .expect("the read prepares");
@@ -126,6 +141,7 @@ pub(crate) fn rows(
                 row.get(3)?,
                 row.get(4)?,
                 row.get(5)?,
+                row.get(6)?,
             ))
         })
         .expect("the rows read")
@@ -142,7 +158,8 @@ pub(crate) fn window(
 ) -> ProviderQuotaWindow {
     ProviderQuotaWindow {
         limit_id: limit_id.to_owned(),
-        window_mins,
+        window_mins: Some(window_mins),
+        label: None,
         used_percent,
         resets_at: resets_at.map(|resets_at| resets_at.parse().expect("a reset instant")),
     }
@@ -172,10 +189,11 @@ fn row(
     resets_at: Option<&str>,
     second: u32,
     source: &str,
-) -> (String, i64, f64, Option<String>, String, String) {
+) -> StoredRow {
     (
         limit_id.to_owned(),
-        window_mins,
+        Some(window_mins),
+        None,
         used_percent,
         resets_at.map(str::to_owned),
         format!("2026-10-14T09:00:{second:02}.000Z"),
@@ -255,7 +273,7 @@ fn row(
 )]
 fn each_reading_leaves_the_newest_window_and_a_rebuild_leaves_the_same(
     #[case] readings: Vec<Reading>,
-    #[case] expected: Vec<(String, i64, f64, Option<String>, String, String)>,
+    #[case] expected: Vec<StoredRow>,
 ) {
     let log = log_with_account();
     let envelopes: Vec<_> = readings.iter().flat_map(file).collect();

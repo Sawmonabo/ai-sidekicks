@@ -67,16 +67,20 @@ pub(crate) struct CodexRateLimitObservation {
 }
 
 impl CodexRateLimitObservation {
-    /// Each window read, with the limit it belongs to: a limit's primary window, then its
-    /// secondary one, limits in id order.
-    pub(crate) fn windows(&self) -> impl Iterator<Item = (&str, &Value)> {
+    /// Each window read, with the limit it belongs to and whether it sits in the limit's secondary
+    /// slot: a limit's primary window, then its secondary one, limits in id order.
+    pub(crate) fn windows(&self) -> impl Iterator<Item = (&str, bool, &Value)> {
         self.windows_by_limit_id
             .iter()
             .flat_map(|(limit_id, windows)| {
-                [windows.primary.as_ref(), windows.secondary.as_ref()]
-                    .into_iter()
-                    .flatten()
-                    .map(move |window| (limit_id.as_str(), window))
+                [
+                    (false, windows.primary.as_ref()),
+                    (true, windows.secondary.as_ref()),
+                ]
+                .into_iter()
+                .filter_map(move |(is_secondary, window)| {
+                    Some((limit_id.as_str(), is_secondary, window?))
+                })
             })
     }
 

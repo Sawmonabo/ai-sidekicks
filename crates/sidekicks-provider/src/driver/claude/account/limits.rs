@@ -228,7 +228,8 @@ fn read_limit_windows(rate_limits: &Map<String, Value>) -> Vec<ProviderQuotaWind
             let window = rate_limits.get(key)?.as_object()?;
             Some(ProviderQuotaWindow {
                 limit_id: limit_id.to_owned(),
-                window_mins,
+                window_mins: Some(window_mins),
+                label: None,
                 used_percent: read_percent(window.get("utilization"))?,
                 resets_at: read_reset(window),
             })
@@ -259,7 +260,8 @@ fn read_limit_row(row: &Map<String, Value>) -> Option<ProviderQuotaWindow> {
     };
     Some(ProviderQuotaWindow {
         limit_id,
-        window_mins,
+        window_mins: Some(window_mins),
+        label: None,
         used_percent: read_percent(row.get("percent"))?,
         resets_at: read_reset(row),
     })
@@ -495,13 +497,15 @@ done
                 windows: vec![
                     ProviderQuotaWindow {
                         limit_id: "weekly_all".to_owned(),
-                        window_mins: 10_080,
+                        window_mins: Some(10_080),
+                        label: None,
                         used_percent: 47.0,
                         resets_at: Some(reset("2026-11-06T14:00:00.078508Z")),
                     },
                     ProviderQuotaWindow {
                         limit_id: "weekly_scoped:Fable".to_owned(),
-                        window_mins: 10_080,
+                        window_mins: Some(10_080),
+                        label: None,
                         used_percent: 31.0,
                         resets_at: Some(reset("2026-11-06T14:00:00.078702Z")),
                     },

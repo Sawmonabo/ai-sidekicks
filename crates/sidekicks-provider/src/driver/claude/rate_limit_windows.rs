@@ -93,7 +93,8 @@ fn read_window(
         .filter(|share| share.is_finite())?;
     Some(ProviderQuotaWindow {
         limit_id,
-        window_mins,
+        window_mins: Some(window_mins),
+        label: None,
         used_percent: utilization * 100.0,
         resets_at: window
             .get("resetsAt")
@@ -172,7 +173,12 @@ mod tests {
 
         let read: Vec<(&str, i64)> = windows
             .iter()
-            .map(|window| (window.limit_id.as_str(), window.window_mins))
+            .map(|window| {
+                let window_mins = window
+                    .window_mins
+                    .expect("a Claude window names its length");
+                (window.limit_id.as_str(), window_mins)
+            })
             .collect();
         assert_eq!(read, Vec::from_iter(expected));
     }
@@ -204,7 +210,12 @@ mod tests {
 
         let read: Vec<(&str, i64)> = windows
             .iter()
-            .map(|window| (window.limit_id.as_str(), window.window_mins))
+            .map(|window| {
+                let window_mins = window
+                    .window_mins
+                    .expect("a Claude window names its length");
+                (window.limit_id.as_str(), window_mins)
+            })
             .collect();
         assert_eq!(read, [("weekly_all", 10_080)]);
     }

@@ -560,6 +560,7 @@ impl ProviderAccount {
 
 /// One quota reading for one window of one limit of one account, keyed by all three: a provider
 /// can publish several limits that share a window length, and one limit with two windows at once.
+/// A window is named by its length, or by its label where the provider sent no length.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -569,9 +570,16 @@ pub struct ProviderAccountUsageWindow {
     /// The provider's own limit id, as sent; a reading that names none takes
     /// [`PROVIDER_QUOTA_DEFAULT_LIMIT_ID`].
     pub limit_id: FreeFormText<PROVIDER_QUOTA_LIMIT_ID_MAX_LEN>,
-    /// The window's length in minutes.
-    pub window_mins: SafeInt<1>,
-    /// The provider's own label for the window, never parsed.
+    /// The window's length in minutes; absent where the provider sent none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<1>")]
+    pub window_mins: Option<SafeInt<1>>,
+    /// The window's label, never parsed: the provider's own, or on a window the provider sent with
+    /// no length, the name its own app draws it by.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

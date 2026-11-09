@@ -22,13 +22,16 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 
 /// One quota window a provider reported for an account: the provider's own name for the limit, the
-/// window's length in minutes, the share of it used in percent, and when it resets where said.
+/// window's length in minutes or, where the provider sent none, the label it is named by, the
+/// share of it used in percent, and when it resets where said.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProviderQuotaWindow {
     /// The provider's own name for the limit.
     pub limit_id: String,
-    /// The window's length in minutes.
-    pub window_mins: i64,
+    /// The window's length in minutes; `None` where the provider sent none.
+    pub window_mins: Option<i64>,
+    /// The label that names a window sent with no length.
+    pub label: Option<String>,
     /// The share of the window used, in percent.
     pub used_percent: f64,
     /// When the window resets, where the provider said.

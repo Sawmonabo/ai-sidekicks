@@ -26,7 +26,8 @@ use sidekicks_contracts::event::usage::{
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
-    CredentialGeneration, PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountId,
+    CredentialGeneration, PROVIDER_QUOTA_DEFAULT_LIMIT_ID, PROVIDER_QUOTA_LABEL_MAX_LEN,
+    ProviderAccountId,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -627,7 +628,8 @@ fn normalized_figure(
     axis_figure(axis.map(|_| normalized))
 }
 
-// Every window of a non-empty set, by its limit and length, as each of its rows names the set.
+// Every window of a non-empty set, by its limit and its length or label, as each of its rows
+// names the set.
 fn whole_set_keys(
     windows: &[ProviderQuotaWindow],
 ) -> Result<UsageRateLimitWholeSet, UsageRecordError> {
@@ -637,13 +639,41 @@ fn whole_set_keys(
             let unfit = || UsageRecordError::QuotaWindowUnfit {
                 limit_id: window.limit_id.clone(),
             };
+            let (window_mins, label) = window_name(window)?;
             Ok(UsageRateLimitWindowKey {
                 limit_id: Some(BoundedText::new(window.limit_id.clone()).ok_or_else(unfit)?),
-                window_mins: SafeSignedInt::new(window.window_mins).ok_or_else(unfit)?,
+                window_mins,
+                label,
             })
         })
         .collect::<Result<Vec<_>, UsageRecordError>>()?;
     Ok(BoundedVec::new(keys).expect("the caller hands a set of at least one window"))
+}
+
+// What names `window` within its limit on the wire: its length, and its label where it has one.
+// Fails when either does not fit the wire.
+fn window_name(
+    window: &ProviderQuotaWindow,
+) -> Result<
+    (
+        Option<SafeSignedInt>,
+        Option<FreeFormText<PROVIDER_QUOTA_LABEL_MAX_LEN>>,
+    ),
+    UsageRecordError,
+> {
+    let unfit = || UsageRecordError::QuotaWindowUnfit {
+        limit_id: window.limit_id.clone(),
+    };
+    let window_mins = window
+        .window_mins
+        .map(|window_mins| SafeSignedInt::new(window_mins).ok_or_else(unfit))
+        .transpose()?;
+    let label = window
+        .label
+        .as_ref()
+        .map(|label| FreeFormText::new(label.clone()).ok().ok_or_else(unfit))
+        .transpose()?;
+    Ok((window_mins, label))
 }
 
 // Whether `rows`, an account's whole set, are the stored windows as they stand: the same windows,
@@ -657,7 +687,8 @@ fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWin
                 .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, BoundedText::as_str);
             stored.iter().any(|window| {
                 window.limit_id == limit_id
-                    && window.window_mins == row.window_mins.get()
+                    && window.window_mins == row.window_mins.map(SafeSignedInt::get)
+                    && window.label.as_deref() == row.label.as_ref().map(FreeFormText::as_str)
                     && window.used_percent.to_bits() == row.used_percent.get().to_bits()
                     && window.resets_at.as_deref()
                         == row.resets_at.as_ref().map(WireInstant::as_str)
@@ -674,11 +705,12 @@ fn quota_window_row(
     credential_generation: CredentialGeneration,
     whole_set: Option<UsageRateLimitWholeSet>,
 ) -> Result<UsageRateLimitUpdatedPayload, UsageRecordError> {
+    let (window_mins, label) = window_name(&window)?;
     let ProviderQuotaWindow {
         limit_id,
-        window_mins,
         used_percent,
         resets_at,
+        ..
     } = window;
     let unfit = || UsageRecordError::QuotaWindowUnfit {
         limit_id: limit_id.clone(),
@@ -691,7 +723,8 @@ fn quota_window_row(
         provider,
         provider_account_id,
         credential_generation,
-        window_mins: SafeSignedInt::new(window_mins).ok_or_else(unfit)?,
+        window_mins,
+        label,
         used_percent: Number::new(used_percent).ok_or_else(unfit)?,
         resets_at,
         limit_id: Some(BoundedText::new(limit_id.clone()).ok_or_else(unfit)?),

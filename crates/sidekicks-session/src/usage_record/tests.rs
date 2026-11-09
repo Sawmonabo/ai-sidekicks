@@ -618,7 +618,8 @@ const STORED_RESET: &str = "2026-11-01T05:00:00Z";
 fn quota_window(limit_id: &str, used_percent: f64, resets_at: &str) -> ProviderQuotaWindow {
     ProviderQuotaWindow {
         limit_id: limit_id.to_owned(),
-        window_mins: 300,
+        window_mins: Some(300),
+        label: None,
         used_percent,
         resets_at: Some(resets_at.parse().expect("a test reset instant")),
     }

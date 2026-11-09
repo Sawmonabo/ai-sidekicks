@@ -262,17 +262,29 @@ fn keep_recorded_codex_quota_windows(
         .collect();
 }
 
-// One window per reading that names its length and its share used; `resetsAt` in seconds, as
-// Codex sends it.
+// The label Codex's own app draws a window by when the window names no length, by its slot.
+const CODEX_PRIMARY_WINDOW_LABEL: &str = "Usage";
+const CODEX_SECONDARY_WINDOW_LABEL: &str = "Secondary usage";
+
+// One window per reading that names its share used; `resetsAt` in seconds, as Codex sends it. A
+// window with no length is named by its slot's label instead, never given a length the plan
+// suggests.
 fn compose_codex_quota_windows(
     observation: &CodexRateLimitObservation,
 ) -> Vec<ProviderQuotaWindow> {
     observation
         .windows()
-        .filter_map(|(limit_id, window)| {
+        .filter_map(|(limit_id, is_secondary, window)| {
+            let window_mins = window.get("windowDurationMins").and_then(Value::as_i64);
+            let label = match (window_mins, is_secondary) {
+                (Some(_), _) => None,
+                (None, false) => Some(CODEX_PRIMARY_WINDOW_LABEL.to_owned()),
+                (None, true) => Some(CODEX_SECONDARY_WINDOW_LABEL.to_owned()),
+            };
             Some(ProviderQuotaWindow {
                 limit_id: limit_id.to_owned(),
-                window_mins: window.get("windowDurationMins").and_then(Value::as_i64)?,
+                window_mins,
+                label,
                 used_percent: window.get("usedPercent").and_then(Value::as_f64)?,
                 resets_at: window
                     .get("resetsAt")
@@ -337,15 +349,68 @@ mod tests {
         append(&log, &file_reading(&read(0, five_hours(5), week(30))));
         append(&log, &file_reading(&read(1, week(40), five_hours(10))));
 
-        let stored: Vec<(String, i64, f64)> = rows(&log)
+        let stored: Vec<(String, Option<i64>, f64)> = rows(&log)
             .into_iter()
-            .map(|(limit_id, window_mins, used_percent, ..)| (limit_id, window_mins, used_percent))
+            .map(|(limit_id, window_mins, _, used_percent, ..)| {
+                (limit_id, window_mins, used_percent)
+            })
             .collect();
         assert_eq!(
             stored,
             [
-                ("codex".to_owned(), 300, 10.0),
-                ("codex".to_owned(), 10_080, 40.0)
+                ("codex".to_owned(), Some(300), 10.0),
+                ("codex".to_owned(), Some(10_080), 40.0)
+            ]
+        );
+    }
+
+    // A secondary window Codex sends with no length is filed beside the primary under its slot's
+    // label, and the rows the rest of the whole read writes keep it. Killed by dropping a window
+    // with no length, by labeling it by the other slot, and by a whole read that matches its set by
+    // length alone, whose next row's write removes the window the set named.
+    #[test]
+    fn a_window_with_no_length_is_filed_under_its_label() {
+        let log = log_with_account();
+        let read = Reading {
+            second: 0,
+            is_whole_set: true,
+            windows: compose_codex_quota_windows(&observe_codex_rate_limit_read(&json!({
+                "rateLimitsByLimitId": {
+                    "codex": {
+                        "limitId": "codex",
+                        "primary": {"usedPercent": 5, "windowDurationMins": 300},
+                        "secondary": {"usedPercent": 30, "resetsAt": 1_800_000_000},
+                    },
+                    "codex_other": {
+                        "limitId": "codex_other",
+                        "primary": {"usedPercent": 1, "windowDurationMins": 10_080},
+                    },
+                },
+            }))),
+        };
+
+        append(&log, &file_reading(&read));
+
+        let stored: Vec<_> = rows(&log)
+            .into_iter()
+            .map(
+                |(limit_id, window_mins, label, used_percent, resets_at, ..)| {
+                    (limit_id, window_mins, label, used_percent, resets_at)
+                },
+            )
+            .collect();
+        assert_eq!(
+            stored,
+            [
+                (
+                    "codex".to_owned(),
+                    None,
+                    Some("Secondary usage".to_owned()),
+                    30.0,
+                    Some("2027-01-15T08:00:00.000Z".to_owned())
+                ),
+                ("codex".to_owned(), Some(300), None, 5.0, None),
+                ("codex_other".to_owned(), Some(10_080), None, 1.0, None),
             ]
         );
     }

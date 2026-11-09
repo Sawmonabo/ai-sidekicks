@@ -204,7 +204,8 @@ fn session_reading(window_mins: i64) -> UsageRateLimitUpdatedPayload {
         provider_account_id: ProviderAccountId::new(ACCOUNT_ID.to_owned()).expect("an account id"),
         credential_generation: CredentialGeneration::new(1).expect("a generation"),
         limit_id: Some(BoundedText::new("session".to_owned()).expect("a limit id")),
-        window_mins: SafeSignedInt::new(window_mins).expect("a window length"),
+        window_mins: Some(SafeSignedInt::new(window_mins).expect("a window length")),
+        label: None,
         used_percent: Number::new(40.0).expect("a share"),
         resets_at: None,
         whole_set: None,
@@ -257,7 +258,7 @@ async fn a_quota_reading_publishes_the_window_the_projection_keeps() {
         panic!("one window is published, not {published:?}");
     };
     assert_eq!(account_id.as_str(), ACCOUNT_ID);
-    assert_eq!(window.window_mins.get(), 300);
+    assert_eq!(window.window_mins, SafeInt::new(300));
     assert_eq!(
         window.used_percent,
         NonNegativeNumber::new(40.0).expect("a share")

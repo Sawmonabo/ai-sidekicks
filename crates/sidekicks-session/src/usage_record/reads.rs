@@ -34,7 +34,7 @@ const SELECT_CREDENTIAL_GENERATION_SQL: &str =
     "SELECT credential_generation FROM provider_accounts WHERE account_id = ?1";
 
 const SELECT_STORED_WINDOWS_SQL: &str = "
-  SELECT limit_id, window_mins, used_percent, resets_at, observed_credential_generation
+  SELECT limit_id, window_mins, label, used_percent, resets_at, observed_credential_generation
     FROM provider_account_usage_windows
    WHERE account_id = ?1";
 
@@ -234,8 +234,10 @@ pub(super) fn read_credential_generation(
 pub(super) struct StoredQuotaWindow {
     /// The provider's name for the limit, the reserved one where the reading named none.
     pub(super) limit_id: String,
-    /// The window's length in minutes.
-    pub(super) window_mins: i64,
+    /// The window's length in minutes, `None` where the reading named none.
+    pub(super) window_mins: Option<i64>,
+    /// The label that names a window with no length.
+    pub(super) label: Option<String>,
     /// The share of the window used, in percent.
     pub(super) used_percent: f64,
     /// When the window resets, as the reading wrote it.
@@ -256,9 +258,10 @@ pub(super) fn read_stored_windows(
             Ok(StoredQuotaWindow {
                 limit_id: row.get(0)?,
                 window_mins: row.get(1)?,
-                used_percent: row.get(2)?,
-                resets_at: row.get(3)?,
-                credential_generation: credential_generation(4, row.get(4)?)?,
+                label: row.get(2)?,
+                used_percent: row.get(3)?,
+                resets_at: row.get(4)?,
+                credential_generation: credential_generation(5, row.get(5)?)?,
             })
         })?
         .collect::<Result<_, _>>()?;
