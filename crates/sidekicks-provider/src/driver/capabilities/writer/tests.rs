@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::schema::SchemaPart;
@@ -25,15 +24,12 @@ use crate::driver::capabilities::{
 };
 use crate::driver::contract::params_and_results::{DriverCliVersionReport, GetCapabilitiesResult};
 use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::first_provider;
 
 const SENTINEL: &str = "2000-01-01T00:00:00.000Z";
 
 // Long enough for a declare's read on a loaded machine, so only its held write outlasts it.
 const GIVE_UP: Duration = Duration::from_secs(1);
-
-fn provider() -> ProviderId {
-    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
-}
 
 fn reading(cli_version: &str) -> GetCapabilitiesResult {
     GetCapabilitiesResult {
@@ -74,7 +70,7 @@ fn refreshed_at_of_capability_rows(connection: &Connection) -> Vec<String> {
 async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_its_version() {
     let database = TestDatabase::new(schema_parts());
     let writer = test_capabilities_writer(&database, Arc::new(NoRecordReaders)).await;
-    let provider = provider();
+    let provider = first_provider();
     let first = writer
         .declare(&provider, &reading("2.0.0"))
         .await
@@ -122,7 +118,7 @@ async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_i
 async fn a_stored_flag_set_missing_a_flag_fails_the_rebuild() {
     let database = TestDatabase::new(schema_parts());
     let writer = test_capabilities_writer(&database, Arc::new(NoRecordReaders)).await;
-    let provider = provider();
+    let provider = first_provider();
     writer
         .declare(&provider, &reading("2.0.0"))
         .await
@@ -226,7 +222,7 @@ async fn a_new_printed_version_is_recorded_once_with_the_pair_it_moves() {
         Arc::clone(&readers) as Arc<dyn BuildRecordReaders>,
     )
     .await;
-    let provider = provider();
+    let provider = first_provider();
     let connection = database.reader();
     let declare = |version: &'static str| {
         let writer = &writer;
@@ -334,7 +330,7 @@ async fn a_declare_given_up_while_its_write_waits_keeps_the_turn_until_it_commit
         )
         .await,
     );
-    let provider = provider();
+    let provider = first_provider();
     writer
         .declare(&provider, &reading("2.1.293"))
         .await

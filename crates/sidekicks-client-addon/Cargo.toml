@@ -19,6 +19,7 @@ napi-derive.workspace = true
 serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
+sidekicks-std.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true

@@ -161,7 +161,9 @@ pub(crate) async fn answer_through_login(
     let mut methods = Vec::new();
     let mut answers = Vec::new();
     loop {
-        let message = tokio::time::timeout(Duration::from_secs(5), scripted.script.next_sent())
+        let message = scripted
+            .script
+            .next_sent_within(Duration::from_secs(5))
             .await
             .expect("the service sends its next message");
         let Some(method) = message["method"].as_str().map(str::to_owned) else {

@@ -137,6 +137,12 @@ impl JsonSchema for WireInstant {
     }
 }
 
+/// `text` as an instant, for tests that spell their instants out. Panics on text no instant holds.
+#[cfg(any(test, feature = "test-support"))]
+pub fn instant(text: &str) -> WireInstant {
+    WireInstant::try_from(text.to_owned()).expect("a test instant")
+}
+
 #[cfg(test)]
 mod tests {
     use garde::Validate;

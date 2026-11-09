@@ -6,7 +6,7 @@ use std::io::{self, Read as _, Write as _};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
-use std::sync::{Arc, Condvar, Mutex, Once, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ use sidekicks_platforms::{
     pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
     signal_foreground_group, start_inner_terminal, wait_for_exit, wait_for_terminal_command,
 };
-use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::mutex_lock::{lock, wait_timeout};
 use sidekicks_std::standard_error::write_error_line;
 
 use super::{
@@ -349,11 +349,7 @@ fn report_terminal(
                     let due = armed_at + cheap_check_delay(checks_done);
                     let now = Instant::now();
                     if now < due {
-                        drop(
-                            piece_came
-                                .wait_timeout(tail, due - now)
-                                .unwrap_or_else(PoisonError::into_inner),
-                        );
+                        drop(wait_timeout(piece_came, tail, due - now));
                         continue;
                     }
                     String::from_utf8_lossy(&tail.bytes).into_owned()

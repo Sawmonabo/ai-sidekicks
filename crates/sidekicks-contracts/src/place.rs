@@ -133,6 +133,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     method_tables: &[],
 };
 
+/// The place of the WSL distribution `name`, for tests. Panics on a name no distribution holds.
+#[cfg(any(test, feature = "test-support"))]
+pub fn wsl_place(name: &str) -> Place {
+    Place::Wsl(WslPlace {
+        distro: DistroName::new(name.to_owned()).expect("the test's distribution name"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

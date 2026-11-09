@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -11,6 +11,7 @@ use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use super::{ChildRunLookup, CodexHelperStart};
@@ -583,10 +584,7 @@ impl ReviewerDenialPort for KeptDenials {
         &self,
         denial: ProviderReviewerDenial,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(denial.is_overridable);
+        lock(&self.0).push(denial.is_overridable);
         Box::pin(async { Ok(()) })
     }
 
@@ -679,8 +677,5 @@ async fn a_block_inside_a_v2_helper_may_not_be_allowed_once(
         None => session.task.handle(review).await,
     }
 
-    assert_eq!(
-        *denials.0.lock().unwrap_or_else(PoisonError::into_inner),
-        [is_overridable]
-    );
+    assert_eq!(*lock(&denials.0), [is_overridable]);
 }

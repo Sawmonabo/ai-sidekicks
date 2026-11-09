@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewResponse;
@@ -99,10 +99,6 @@ fn run_id(number: u16) -> String {
 
 fn workflow_run_id(number: u16) -> WorkflowRunId {
     WorkflowRunId::new(&run_id(number)).expect("the test's run id")
-}
-
-fn instant(text: &str) -> WireInstant {
-    WireInstant::try_from(text.to_owned()).expect("the test's instant")
 }
 
 fn count(rows: &Connection, sql: &str, run_id: &str) -> i64 {

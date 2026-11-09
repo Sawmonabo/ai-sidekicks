@@ -13,7 +13,6 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
@@ -26,11 +25,10 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::{test_provider, test_token};
 use sidekicks_provider::driver::test_registry::{
-    bind_run_to_first_provider, registry_of_first_provider,
+    bind_run_to_first_provider, first_provider, registry_of_first_provider,
 };
 use sidekicks_provider::run::delivery::ChildRunSubagent;
 use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
@@ -182,7 +180,7 @@ fn queued_child_handle(queued: &Value) -> ChildHandle {
 
 // The node of the first provider's helper `subagent_id` in `session_id`.
 fn stored_node(database: &TestDatabase, session_id: SessionId, subagent_id: &str) -> AgentTreeNode {
-    let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a provider id");
+    let provider = first_provider();
     find_node(&database.reader(), session_id, &provider, subagent_id)
         .expect("the node reads")
         .expect("the helper has a node")

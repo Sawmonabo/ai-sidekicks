@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 use std::ops::Range;
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, RwLock};
 
 use aho_corasick::{AhoCorasick, MatchKind};
 use base64::Engine as _;
@@ -25,6 +25,7 @@ use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
+use sidekicks_std::mutex_lock::{read, write};
 
 /// The shortest value whose derived forms are registered, and the shortest derived form kept.
 const DERIVED_FORM_FLOOR: usize = 8;
@@ -72,10 +73,7 @@ impl RunRedaction {
     /// Adds `value`, a secret resolved mid-run, rebuilding the matcher; every stream already made
     /// masks it from its next push and keeps its carry.
     pub fn add_secret(&self, value: &SecretString) {
-        let mut current = self
-            .needle_set
-            .write()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut current = write(&self.needle_set);
         let mut needles: Vec<SecretString> = current
             .needles
             .iter()
@@ -253,7 +251,7 @@ fn free_member_name(members: &serde_json::Map<String, serde_json::Value>, name: 
 /// The needle set `shared` holds now; a poisoned lock still holds a whole set, since a writer only
 /// swaps one in.
 fn current_needle_set(shared: &RwLock<Arc<NeedleSet>>) -> Arc<NeedleSet> {
-    Arc::clone(&shared.read().unwrap_or_else(PoisonError::into_inner))
+    Arc::clone(&read(shared))
 }
 
 /// `bytes` with each of `ranges`, sorted and apart, replaced by one mask; a first range at the

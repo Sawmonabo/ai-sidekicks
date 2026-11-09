@@ -181,12 +181,12 @@ pub use stalled_reads::{hold_reads_of, stall_reads_of};
 #[cfg(any(test, feature = "test-support"))]
 mod stalled_reads {
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Condvar, Mutex, MutexGuard};
     use std::time::Duration;
 
     use tokio::sync::Notify;
 
-    use crate::mutex_lock::lock;
+    use crate::mutex_lock::{lock, wait};
 
     /// How long a held read is waited for, so a test of a read that never answers takes moments.
     pub(super) const STALLED_READ_CEILING: Duration = Duration::from_millis(200);
@@ -279,9 +279,7 @@ mod stalled_reads {
         stall.arrived += 1;
         stall.arrival.notify_one();
         while stalled.iter().any(|stall| stall.path == path) {
-            stalled = RELEASED
-                .wait(stalled)
-                .unwrap_or_else(PoisonError::into_inner);
+            stalled = wait(&RELEASED, stalled);
         }
     }
 

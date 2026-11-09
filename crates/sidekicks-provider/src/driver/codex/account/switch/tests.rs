@@ -537,12 +537,14 @@ async fn a_renewal_waiting_on_a_switch_hands_nothing_once_the_switch_lands() {
     let script = async {
         let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
         login_sent.send(()).expect("the renewal waits");
-        let renewal_login =
-            tokio::time::timeout(Duration::from_millis(200), scripted.script.next_sent()).await;
+        let renewal_login = scripted
+            .script
+            .next_sent_within(Duration::from_millis(200))
+            .await;
         scripted
             .script
             .answer(&login, &json!({"type": "chatgptAuthTokens"}));
-        renewal_login.ok()
+        renewal_login
     };
     let (moved, renewed, renewal_login) = tokio::join!(
         move_codex_sessions(

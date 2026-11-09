@@ -7,11 +7,12 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, RwLock};
 
 use ignore::WalkBuilder;
 use sidekicks_contracts::place::Place;
 use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::{read, write};
 
 use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::GIT_ENTRY_NAME;
@@ -53,7 +54,7 @@ pub(super) struct IgnoredPaths {
 impl IgnoredPaths {
     /// Holds `paths` from now on; answers whether they differ from the ones held before.
     pub(super) fn replace(&self, paths: HashSet<Vec<u8>>) -> bool {
-        let mut held = self.paths.write().unwrap_or_else(PoisonError::into_inner);
+        let mut held = write(&self.paths);
         let is_changed = *held != paths;
         *held = paths;
         is_changed
@@ -61,7 +62,7 @@ impl IgnoredPaths {
 
     // Whether `relative_path` is a path git ignores or lies in a folder it ignores.
     fn holds(&self, relative_path: &Path) -> bool {
-        let paths = self.paths.read().unwrap_or_else(PoisonError::into_inner);
+        let paths = read(&self.paths);
         if paths.is_empty() {
             return false;
         }

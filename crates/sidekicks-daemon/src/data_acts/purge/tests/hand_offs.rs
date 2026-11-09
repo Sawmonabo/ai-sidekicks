@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::plan::PlanId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, PlanMessage, PlanMessageKind};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -17,7 +16,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::driver::PROVIDERS;
+use sidekicks_provider::driver::test_registry::first_provider;
 use sidekicks_session::create::hand_off::{SessionHandOff, record_hand_off_statement};
 use sidekicks_session::queue_store::test_items::test_queue_item;
 use sidekicks_session::queue_store::{
@@ -53,8 +52,7 @@ async fn record_hand_off(
         plan_id,
         planning_session_id: planning,
         lead: SessionLead {
-            provider_name: ProviderId::new(PROVIDERS[0].id.to_owned())
-                .expect("a table id is a provider id"),
+            provider_name: first_provider(),
             model_id: ProviderToken::new("model-a".to_owned()).expect("the model fits"),
             effort: None,
             output_speed: None,

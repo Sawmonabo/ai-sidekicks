@@ -45,6 +45,8 @@ uuid.workspace = true
 [dev-dependencies]
 insta.workspace = true
 rstest.workspace = true
+# The WSL places a probe test compares.
+sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The unremovable and unreadable files and the folder links the tests make.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The pause points and stalled reads the tests arm.

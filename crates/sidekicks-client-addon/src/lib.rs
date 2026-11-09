@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures::StreamExt as _;
@@ -25,6 +25,7 @@ use sidekicks_contracts::jsonrpc::message::JsonRpcError;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 /// A JavaScript callback the addon calls from its own threads, its value passed as the one
@@ -407,9 +408,4 @@ fn wire_reply(reply: RawReply) -> WireReply {
             .map(|attachment| Buffer::from(attachment.to_vec()))
             .collect(),
     }
-}
-
-/// The mutex's guard, a poisoned one included: the maps hold only cancel tokens.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

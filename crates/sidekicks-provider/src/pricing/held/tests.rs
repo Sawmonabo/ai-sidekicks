@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::account::record::{ProviderAccountId, Provider
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
@@ -36,7 +37,7 @@ use super::{
     HeldRequestRepricingDependencies,
 };
 use crate::account::usage_turns::tests::{
-    EARLIER_START, Turn, append, instant, rebuild, recorded_with, turn_id,
+    EARLIER_START, Turn, append, rebuild, recorded_with, turn_id,
 };
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
 use crate::account::usage_turns::{

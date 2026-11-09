@@ -254,7 +254,7 @@ pub(crate) fn whole_milliseconds_between(from: &WireInstant, to: &WireInstant) -
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::instant::instant;
 
     use super::{
         GoingRunStatus, RunPersonWait, RunStatusChange, RunStepCounts, going_run_status,
@@ -266,10 +266,6 @@ mod tests {
             has_admitted_step: true,
             ..RunStepCounts::default()
         }
-    }
-
-    fn instant(text: &str) -> WireInstant {
-        WireInstant::try_from(text.to_owned()).expect("a stored instant")
     }
 
     #[rstest]

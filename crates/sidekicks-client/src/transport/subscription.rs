@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::task::{Context, Poll, Waker};
 
 use bytes::Bytes;
@@ -18,6 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SubscriptionNotifyParams,
 };
 use sidekicks_contracts::wire::attachment::{AttachmentError, parse};
+use sidekicks_std::mutex_lock::lock;
 
 use super::json_rpc::calls::ClientShared;
 use super::json_rpc::{JsonRpcClient, RawReply};
@@ -112,7 +113,7 @@ impl SubscriptionShared {
     }
 
     fn lock(&self) -> MutexGuard<'_, StreamState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

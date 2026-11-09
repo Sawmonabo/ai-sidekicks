@@ -4,7 +4,7 @@
 //! daemon's credit never holds back the credit the daemon's own replies wait for.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use bytes::Bytes;
 use futures::{SinkExt as _, StreamExt as _};
@@ -17,6 +17,7 @@ use sidekicks_contracts::jsonrpc::message::JsonRpcMessage;
 use sidekicks_contracts::jsonrpc::streaming::{
     SUBSCRIPTION_END_METHOD, SUBSCRIPTION_NOTIFY_METHOD, SubscriptionId,
 };
+use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 use tokio::time::Instant;
@@ -276,7 +277,7 @@ impl LinkShared {
     }
 
     fn lock(&self) -> MutexGuard<'_, LinkState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

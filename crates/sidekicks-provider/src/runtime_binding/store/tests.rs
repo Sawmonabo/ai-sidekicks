@@ -6,7 +6,6 @@ use std::fmt::Write as _;
 use rstest::rstest;
 use serde_json::Map;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
@@ -14,10 +13,10 @@ use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
     RuntimeBindingStore, mint_runtime_binding_id, read_binding,
 };
-use crate::driver::PROVIDERS;
 use crate::driver::registry::test_token;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::SessionToolServer;
+use crate::driver::test_registry::first_provider;
 use crate::left_conversations::LeftConversation;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -172,8 +171,7 @@ async fn a_binding_with_tool_servers_reads_back_as_recorded() {
         RuntimeBindingSpawnConfig {
             tool_servers: Some(vec![SessionToolServer {
                 binding: McpServerBindingRef::User {
-                    provider: ProviderId::new(PROVIDERS[0].id.to_owned())
-                        .expect("a table id is a provider id"),
+                    provider: first_provider(),
                     server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
                 },
                 is_enabled: true,

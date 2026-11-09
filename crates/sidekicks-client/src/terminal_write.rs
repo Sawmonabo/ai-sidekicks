@@ -4,7 +4,7 @@
 //! keys typed before it, while fewer than `TERMINAL_WRITES_WAITING_LIMIT` writes wait, so order
 //! holds and the daemon decides whether the key is a signal.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
@@ -12,6 +12,7 @@ use sidekicks_contracts::terminal::{
     TERMINAL_WRITE_MAX_BYTES, TERMINAL_WRITES_WAITING_LIMIT, TERMINAL_WRITES_WAITING_PER_SHELL,
     TerminalId, TerminalWrite, TerminalWriteRequest,
 };
+use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
@@ -142,6 +143,6 @@ impl WriteWindow {
     }
 
     fn lock(&self) -> MutexGuard<'_, WindowState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }

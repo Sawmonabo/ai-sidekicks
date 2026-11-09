@@ -223,14 +223,13 @@ mod tests {
     use std::sync::Arc;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
     use sidekicks_provider::driver::contract::MockProviderDriver;
-    use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
     use sidekicks_std::port_registration::PortRegistration;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -256,7 +255,7 @@ mod tests {
         let providers = registry_of_first_provider(Arc::new(driver));
         providers
             .record_capabilities(
-                &ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                &first_provider(),
                 DriverCapabilities {
                     flags: DriverCapabilityFlags::from_fn(|_| false),
                     contract_version: FreeFormText::new("1".to_owned()).expect("valid text"),

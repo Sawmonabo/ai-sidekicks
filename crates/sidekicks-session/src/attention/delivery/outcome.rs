@@ -210,6 +210,7 @@ mod tests {
         AttentionDeliveryChannel, AttentionDeliveryOutcome, AttentionDeliveryResult,
         AttentionDeliveryStoreUnavailableCause,
     };
+    use sidekicks_contracts::wire::instant::instant;
     use sidekicks_contracts::wire::integer::{BoundedInt, SafeInt};
     use sidekicks_store::database::statement::WriteStatement;
 
@@ -218,7 +219,6 @@ mod tests {
         read_delivery_outcomes, undelivered_count_statement,
     };
     use crate::attention::test_log::AttentionTestLog;
-    use crate::instant;
 
     const CHANNEL: AttentionDeliveryChannel = AttentionDeliveryChannel::WebAddress;
 

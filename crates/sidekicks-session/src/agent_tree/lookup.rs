@@ -219,6 +219,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::instant::instant;
     use sidekicks_provider::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::statement::run_statement;
@@ -229,7 +230,6 @@ mod tests {
     use super::{AGENT_TREE_LOOKUP_STATEMENT_CAPACITY, StoredAgentTreeLookup};
     use crate::agent_tree::schema::schema_parts;
     use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node};
-    use crate::instant;
 
     const PROVIDER: &str = "test-provider";
 

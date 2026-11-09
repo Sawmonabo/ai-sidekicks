@@ -4,7 +4,7 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -19,10 +19,6 @@ use crate::test_rows::TEST_NODE_ID;
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
 const OPENED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ANSWERED_AT: &str = "2026-10-02T00:00:05.000Z";
-
-fn instant(text: &str) -> WireInstant {
-    WireInstant::try_from(text.to_owned()).expect("the test's instant")
-}
 
 fn prompt() -> ComposedText {
     ComposedText::new("Ship it?".to_owned()).expect("the test's prompt")

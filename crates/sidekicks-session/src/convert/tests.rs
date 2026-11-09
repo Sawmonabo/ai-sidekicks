@@ -8,7 +8,7 @@ use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_contracts::place::{Place, WindowsPlace};
+use sidekicks_contracts::place::{Place, WindowsPlace, wsl_place};
 use sidekicks_contracts::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
     SessionConvertRequest, SessionConvertResponse, SessionConvertSkipReason,
@@ -17,7 +17,7 @@ use sidekicks_contracts::session::convert::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::{os_text_stable_bytes, real_path, ubuntu_place};
+use sidekicks_platforms::{os_text_stable_bytes, real_path};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::events::session::appender::SessionEventAppender;
@@ -538,13 +538,13 @@ fn windows() -> Place {
 #[case::windows_share(Some(windows()), r"\\server\share\app", Some(r"\\server\share\app"))]
 #[case::windows_distribution_share(Some(windows()), r"\\wsl.localhost\Ubuntu\home\me\app", None)]
 #[case::windows_no_drive(Some(windows()), r"\repos\app", Some(r"\repos\app"))]
-#[case::distribution_linux_path(Some(ubuntu_place()), "/home/me/app", Some("/home/me/app"))]
+#[case::distribution_linux_path(Some(wsl_place("Ubuntu")), "/home/me/app", Some("/home/me/app"))]
 #[case::distribution_drive_mount(
-    Some(ubuntu_place()),
+    Some(wsl_place("Ubuntu")),
     "/mnt/c/repos/app",
     Some("/mnt/c/repos/app")
 )]
-#[case::distribution_drive_path(Some(ubuntu_place()), r"C:\repos\app", None)]
+#[case::distribution_drive_path(Some(wsl_place("Ubuntu")), r"C:\repos\app", None)]
 fn a_typed_folder_attaches_as_its_chats_place_reads_it(
     #[case] place: Option<Place>,
     #[case] typed: &str,

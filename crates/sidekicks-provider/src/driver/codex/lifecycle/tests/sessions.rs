@@ -148,7 +148,9 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
                 .await
         }
     });
-    let turn_start = tokio::time::timeout(CLOSE_BOUND, scripted.script.next_sent())
+    let turn_start = scripted
+        .script
+        .next_sent_within(CLOSE_BOUND)
         .await
         .expect("the run's turn start is sent");
     assert_eq!(turn_start["method"], "turn/start");

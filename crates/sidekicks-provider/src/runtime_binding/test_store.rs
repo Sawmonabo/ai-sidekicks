@@ -24,12 +24,12 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-use crate::driver::PROVIDERS;
 use crate::driver::contract::params_and_results::{
     DriverCliVersionReport, SpawnedVersionBindingCarriers,
 };
 #[cfg(test)]
 use crate::driver::session_control::{LiveRunResume, ResumeSessionParams};
+use crate::driver::test_registry::first_provider;
 #[cfg(test)]
 use crate::driver::test_registry::new_agent_id;
 #[cfg(test)]
@@ -90,8 +90,7 @@ pub fn binding_input(
     CreateRuntimeBindingInput {
         id: mint_runtime_binding_id(),
         run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        provider_name: ProviderId::new(PROVIDERS[0].id.to_owned())
-            .expect("a table id is a provider id"),
+        provider_name: first_provider(),
         contract_version: FreeFormText::new("1.0.0".to_owned()).expect("a contract version"),
         spawned_version,
         resume_handle: Some("conversation-1".to_owned()),

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::instant::{WireInstant, instant};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
@@ -256,10 +256,6 @@ pub(super) fn step_key(node_id: &str, execution_index: u32) -> WorkflowStepKey {
         attempt: SafeInt::new(1).expect("a first attempt"),
         execution_index: SafeInt::new(u64::from(execution_index)).expect("an execution index"),
     }
-}
-
-pub(super) fn instant(text: &str) -> WireInstant {
-    WireInstant::try_from(text.to_owned()).expect("the test's instant")
 }
 
 pub(super) fn sequence(value: u64) -> SafeInt<0> {

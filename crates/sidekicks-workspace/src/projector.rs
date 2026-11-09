@@ -248,7 +248,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use rstest::rstest;
-    use sidekicks_contracts::place::{Place, WslPlace};
+    use sidekicks_contracts::place::wsl_place;
     use sidekicks_contracts::repo::mount::{RepoMountHealth, WorkspaceState};
     use sidekicks_contracts::wire::instant::WireInstant;
 
@@ -354,15 +354,10 @@ mod tests {
 
     #[test]
     fn a_probe_of_the_root_in_another_distribution_is_refused() {
-        let distribution = |name: &str| {
-            Place::Wsl(WslPlace {
-                distro: serde_json::from_value(serde_json::json!(name)).expect("a name reads"),
-            })
-        };
-        let ubuntu = distribution("Ubuntu");
+        let ubuntu = wsl_place("Ubuntu");
         let probe = FilesystemPathProbe {
             probed_path: PathBuf::from(ROOT),
-            probed_place: Some(distribution("Debian")),
+            probed_place: Some(wsl_place("Debian")),
             is_reachable: true,
             checked_at: checked_at(),
         };

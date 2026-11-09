@@ -685,9 +685,7 @@ pub(crate) async fn shut_down_drivers(
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
@@ -695,6 +693,7 @@ mod tests {
     use sidekicks_provider::driver::contract::params_and_results::{
         DriverCliVersionReport, GetCapabilitiesResult,
     };
+    use sidekicks_provider::driver::test_registry::first_provider;
 
     use super::hydrate_capabilities;
     use super::test_start::TestStart;
@@ -705,7 +704,7 @@ mod tests {
     async fn a_cold_start_answers_a_gated_call_from_the_stored_reading() {
         let start = TestStart::new();
         let providers = start.build(vec![MockProviderDriver::new()]).await;
-        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
+        let provider = first_provider();
         let stored = GetCapabilitiesResult {
             capabilities: DriverCapabilities {
                 flags: DriverCapabilityFlags::from_fn(|flag| {

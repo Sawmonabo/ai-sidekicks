@@ -8,12 +8,12 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 use std::collections::binary_heap::PeekMut;
 use std::io;
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::oneshot;
 
-use crate::mutex_lock::lock;
+use crate::mutex_lock::{lock, wait, wait_timeout};
 
 static DEADLINES: Mutex<Deadlines> = Mutex::new(Deadlines {
     due: BinaryHeap::new(),
@@ -109,14 +109,10 @@ fn keep_deadlines() {
         let earliest_at = deadlines.due.peek().map(|Reverse(due)| due.at);
         deadlines = match earliest_at {
             Some(at) => {
-                DEADLINE_SET
-                    .wait_timeout(deadlines, at.saturating_duration_since(now))
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0
+                let bound = at.saturating_duration_since(now);
+                wait_timeout(&DEADLINE_SET, deadlines, bound)
             }
-            None => DEADLINE_SET
-                .wait(deadlines)
-                .unwrap_or_else(PoisonError::into_inner),
+            None => wait(&DEADLINE_SET, deadlines),
         };
     }
 }

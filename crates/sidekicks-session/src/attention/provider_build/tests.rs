@@ -7,6 +7,7 @@ use sidekicks_contracts::attention::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::settings::ProviderVersion;
 use sidekicks_contracts::web_address::HttpsAddress;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::build_record::{RecordedProviderBuild, record_statements};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -14,7 +15,6 @@ use sidekicks_store::database::schema::session_directory::insert_session_row;
 use super::{provider_build_moment_id, record_change_statements};
 use crate::attention::read::read_attention_projection;
 use crate::attention::test_log::AttentionTestLog;
-use crate::instant;
 
 fn provider(id: &str) -> ProviderId {
     ProviderId::new(id.to_owned()).expect("a provider id")

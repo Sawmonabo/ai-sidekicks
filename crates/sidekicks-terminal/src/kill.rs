@@ -4,13 +4,13 @@
 use std::error::Error;
 use std::future::{Future, pending};
 use std::io;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sidekicks_platforms::{
     HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
 };
-use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::mutex_lock::{get_mut, lock};
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
@@ -98,12 +98,7 @@ impl Escalation {
 
 impl Drop for Escalation {
     fn drop(&mut self) {
-        if let Some(pending) = self
-            .pending
-            .get_mut()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-        {
+        if let Some(pending) = get_mut(&mut self.pending).take() {
             pending.abort();
         }
     }

@@ -12,7 +12,6 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::machine::settings::{MachineSettings, ProviderRowValue};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::directory::{
@@ -33,7 +32,7 @@ use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::test_token;
 use sidekicks_provider::driver::session_control::StartingLevel;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -251,7 +250,7 @@ impl Fixture {
             .0
             .lock()
             .expect("the settings are not poisoned");
-        settings.provider_settings = Record::new(BTreeMap::from([(lead_provider(), rows)]))
+        settings.provider_settings = Record::new(BTreeMap::from([(first_provider(), rows)]))
             .expect("no provider is named __proto__");
     }
 
@@ -302,10 +301,6 @@ fn opus() -> String {
     "opus".to_owned()
 }
 
-fn lead_provider() -> ProviderId {
-    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
-}
-
 /// A fresh idempotency key.
 pub(super) fn new_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client UUID")
@@ -314,7 +309,7 @@ pub(super) fn new_key() -> ClientUuid {
 /// The lead every test session is made with.
 pub(super) fn lead() -> SessionLead {
     SessionLead {
-        provider_name: lead_provider(),
+        provider_name: first_provider(),
         model_id: ProviderToken::new("model-a".to_owned()).expect("the model fits"),
         effort: None,
         output_speed: None,

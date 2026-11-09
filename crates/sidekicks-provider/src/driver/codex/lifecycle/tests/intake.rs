@@ -121,7 +121,7 @@ async fn a_refused_steer_pairs_with_its_own_prompt_and_an_unrun_one_is_dropped()
     let dropped = loop {
         tokio::select! {
             dropped = &mut interrupt => break dropped.expect("the interrupt stops the turn"),
-            sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+            sent = script.next_sent_within(Duration::from_secs(10)) => {
                 answer_stopping_request(script, &sent.expect("the interrupt goes out"));
             }
         }
@@ -208,7 +208,8 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             "item": {"type": "reasoning", "id": "item-1", "summary": [], "content": []},
         },
     }));
-    let interrupt = tokio::time::timeout(Duration::from_secs(10), script.next_sent())
+    let interrupt = script
+        .next_sent_within(Duration::from_secs(10))
         .await
         .expect("the step's end interrupts the turn");
     assert_eq!(interrupt["method"], "turn/interrupt");
@@ -385,7 +386,8 @@ async fn live_turn_runs_once_settled(session: &mut LiveCodexSession) -> Vec<RunI
         },
     }));
     loop {
-        let sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent())
+        let sent = script
+            .next_sent_within(Duration::from_secs(10))
             .await
             .expect("the session answers the request after the interrupt's answer");
         if sent["id"] == "after-the-answer" {
@@ -423,7 +425,7 @@ async fn an_interrupts_turn_ending_ahead_of_its_answer_is_the_interrupts() {
     let dropped = loop {
         tokio::select! {
             dropped = &mut interrupt => break dropped.expect("the interrupt stops the turn"),
-            sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+            sent = script.next_sent_within(Duration::from_secs(10)) => {
                 let sent = sent.expect("the interrupt goes out");
                 if sent["method"] == "turn/interrupt" {
                     // The end is read off the socket ahead of the answer.
@@ -509,7 +511,7 @@ async fn an_interrupt_that_stops_a_retry_answers_no_steer_its_held_turns_end_gav
     let script = &mut session.scripted.script;
     let stop = tokio::select! {
         _ = &mut retry => panic!("the retry waits for its interrupt's answer"),
-        sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+        sent = script.next_sent_within(Duration::from_secs(10)) => {
             sent.expect("the retry stops its turn")
         }
     };
@@ -524,7 +526,7 @@ async fn an_interrupt_that_stops_a_retry_answers_no_steer_its_held_turns_end_gav
     let (retried, dropped) = loop {
         tokio::select! {
             both = &mut settled => break both,
-            sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+            sent = script.next_sent_within(Duration::from_secs(10)) => {
                 answer_stopping_request(script, &sent.expect("the interrupt settles"));
             }
         }
@@ -706,10 +708,12 @@ async fn a_dynamic_tool_call_is_refused_as_a_tool_the_daemon_does_not_serve() {
         },
     }));
     let answer = loop {
-        let sent =
-            tokio::time::timeout(Duration::from_secs(10), session.scripted.script.next_sent())
-                .await
-                .expect("the session answers the tool call");
+        let sent = session
+            .scripted
+            .script
+            .next_sent_within(Duration::from_secs(10))
+            .await
+            .expect("the session answers the tool call");
         if sent["id"] == "tool-call-1" {
             break sent;
         }
@@ -796,10 +800,12 @@ async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
         },
     }));
     let answer = loop {
-        let sent =
-            tokio::time::timeout(Duration::from_secs(10), session.scripted.script.next_sent())
-                .await
-                .expect("the session answers the question");
+        let sent = session
+            .scripted
+            .script
+            .next_sent_within(Duration::from_secs(10))
+            .await
+            .expect("the session answers the question");
         if sent["id"] == "question-1" {
             break sent;
         }

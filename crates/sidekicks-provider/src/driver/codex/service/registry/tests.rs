@@ -105,8 +105,7 @@ async fn the_switch_off_retires_once_a_terminal_session_inside_ends() {
     scripted.script.answer(&first_read, &inside);
     let armed_read = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&armed_read, &inside);
-    let read_before_the_unload =
-        tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
+    let read_before_the_unload = scripted.script.next_sent_within(QUIET_WAIT).await;
     let is_retired_before_the_unload = retiring.is_finished();
     scripted
         .script
@@ -117,7 +116,7 @@ async fn the_switch_off_retires_once_a_terminal_session_inside_ends() {
     retiring.await.expect("the retirement ends");
 
     assert!(
-        read_before_the_unload.is_err(),
+        read_before_the_unload.is_none(),
         "the retirement read again before the terminal session ended"
     );
     assert!(!is_retired_before_the_unload);
@@ -133,8 +132,7 @@ async fn the_switch_off_retires_a_reconnecting_service_once_it_is_back() {
     let connection = scripted.publish_reconnecting();
 
     let retiring = switch_off(&registry);
-    let read_while_reconnecting =
-        tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
+    let read_while_reconnecting = scripted.script.next_sent_within(QUIET_WAIT).await;
     let is_retired_while_reconnecting = retiring.is_finished();
     scripted.publish_up(connection);
     let loaded = scripted.next_request("thread/loaded/list").await;
@@ -142,7 +140,7 @@ async fn the_switch_off_retires_a_reconnecting_service_once_it_is_back() {
     retiring.await.expect("the retirement ends");
 
     assert!(
-        read_while_reconnecting.is_err(),
+        read_while_reconnecting.is_none(),
         "the retirement read the service while it reconnected"
     );
     assert!(!is_retired_while_reconnecting);

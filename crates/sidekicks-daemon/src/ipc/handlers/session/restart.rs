@@ -120,11 +120,11 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::test_registry::first_provider;
     use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
     use super::restart_failure;
@@ -176,7 +176,7 @@ mod tests {
             Failure::NoConversation => ProviderSessionError::NoConversation { session_id },
             Failure::ResumeRefused(recovery_condition) => ProviderSessionError::ResumeRefused {
                 session_id,
-                provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                provider: first_provider(),
                 recovery_condition,
                 provider_failure_detail: FreeFormText::new("the process exited".to_owned())
                     .expect("the detail is valid text"),

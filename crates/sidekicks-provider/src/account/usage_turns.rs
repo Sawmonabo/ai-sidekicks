@@ -339,6 +339,7 @@ fn count_binding(name: &'static str, count: Option<SafeInt<0>>) -> (Cow<'static,
 pub(crate) mod tests {
     use rusqlite::params;
     use serde_json::{Value as Json, json};
+    use sidekicks_contracts::wire::instant::instant;
     use sidekicks_store::database::schema::schema_parts;
     use sidekicks_store::database::writer::test_file::test_envelope;
     use sidekicks_store::events::test_log::{
@@ -445,11 +446,6 @@ pub(crate) mod tests {
         }))
         .expect("the test writes a cost event");
         test_envelope(log.session_id, &event)
-    }
-
-    /// `text`, an instant a test writes.
-    pub(crate) fn instant(text: &str) -> WireInstant {
-        WireInstant::try_from(text.to_owned()).expect("the test writes an instant")
     }
 
     /// The id of `envelope`'s event, its row's turn id.

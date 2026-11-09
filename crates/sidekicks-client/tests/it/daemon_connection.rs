@@ -9,7 +9,7 @@
 //! on.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -27,6 +27,7 @@ use sidekicks_contracts::jsonrpc::negotiation::NegotiationText;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::session::methods::SessionRead;
+use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncReadExt as _, DuplexStream};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
@@ -148,10 +149,7 @@ impl DaemonConnector for MemoryConnector {
         reason = "the in-memory daemon answers at once, where the real connector awaits a socket"
     )]
     async fn open_stream(&self) -> Result<DuplexStream, ClientError> {
-        self.attempted_at
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Instant::now());
+        lock(&self.attempted_at).push(Instant::now());
         let not_listening = || ClientError::Unavailable {
             reason: ConnectionUnavailableReason::NotListening,
             cause: LinkFault::PeerClosed,
@@ -199,10 +197,7 @@ impl MemoryDaemons {
 
     /// When each attempt the client made started, the first connect's among them.
     fn attempted_at(&self) -> Vec<Instant> {
-        self.attempted_at
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.attempted_at).clone()
     }
 }
 
@@ -504,10 +499,8 @@ async fn each_repairing_answer_moves_the_handshake_wait_deadline_on() {
         {
             let handed = Arc::clone(&handed);
             move |details| {
-                handed
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(serde_json::to_value(details).expect("the details write as JSON"));
+                let value = serde_json::to_value(details).expect("the details write as JSON");
+                lock(&handed).push(value);
             }
         },
         std::future::pending::<()>(),
@@ -543,8 +536,5 @@ async fn each_repairing_answer_moves_the_handshake_wait_deadline_on() {
         "the wait ends unanswered"
     );
     assert_waited(refused_at.elapsed(), HANDSHAKE_DEADLINE);
-    assert_eq!(
-        *handed.lock().unwrap_or_else(PoisonError::into_inner),
-        vec![progress]
-    );
+    assert_eq!(*lock(&handed), vec![progress]);
 }

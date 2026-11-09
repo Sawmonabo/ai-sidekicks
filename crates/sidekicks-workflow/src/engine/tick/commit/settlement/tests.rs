@@ -8,6 +8,7 @@ use rusqlite::types::Value as SqlValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::AnyValue;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
@@ -24,7 +25,7 @@ use crate::definitions::kept_values::{
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::tick::commit::tests::{
-    DEFINITION_ID, TurnHarness, instant, report, run_id, sequence, step_key, test_node,
+    DEFINITION_ID, TurnHarness, report, run_id, sequence, step_key, test_node,
 };
 use crate::engine::tick::commit::{ReportedStep, SettlementAnswer};
 use crate::engine::tick::walk::WalkReady;

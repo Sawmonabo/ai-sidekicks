@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
 use rusqlite::Connection;
-use sidekicks_contracts::place::{Place, WindowsPlace};
+use sidekicks_contracts::place::{Place, WindowsPlace, wsl_place};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::settings::{ProviderInstallation, ProviderVersion};
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::ubuntu_place;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_store::database::statement::{WriteStatement, run_statement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
@@ -31,10 +30,6 @@ fn run(connection: &Connection, statement: &WriteStatement) {
 
 fn provider() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("a provider id")
-}
-
-fn instant(text: &str) -> WireInstant {
-    WireInstant::try_from(text.to_owned()).expect("an instant")
 }
 
 fn version(text: &str) -> ProviderVersion {
@@ -66,7 +61,7 @@ fn target(path: &str, identity: &str) -> CommandTarget {
 fn a_second_check_replaces_the_facts_and_keeps_the_markers_answer() {
     let (_database, connection) = database();
     let provider = provider();
-    let place = ubuntu_place();
+    let place = wsl_place("Ubuntu");
     let answer = MarkerAnswer {
         etag: MarkerEtag::new("\"abc\"".to_owned()).expect("an ETag"),
         build: version("2.1.316"),
@@ -113,7 +108,7 @@ fn a_second_check_replaces_the_facts_and_keeps_the_markers_answer() {
 fn each_place_is_its_own_row_and_an_unchecked_place_has_no_reading() {
     let (_database, connection) = database();
     let provider = provider();
-    let place = ubuntu_place();
+    let place = wsl_place("Ubuntu");
     run(
         &connection,
         &record_check(
@@ -205,7 +200,7 @@ fn an_installed_reading_round_trips_its_versions_and_file() {
 fn forgetting_a_place_removes_only_its_reading() {
     let (_database, connection) = database();
     let provider = provider();
-    let place = ubuntu_place();
+    let place = wsl_place("Ubuntu");
     for place in [None, Some(&place)] {
         run(
             &connection,

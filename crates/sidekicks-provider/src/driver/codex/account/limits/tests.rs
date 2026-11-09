@@ -383,9 +383,12 @@ async fn an_api_key_account_is_not_read() {
 
     assert_eq!(observed, ProviderObservation::OutOfScope);
     assert!(
-        tokio::time::timeout(QUIET_WAIT, fixture.scripted.script.next_sent())
+        fixture
+            .scripted
+            .script
+            .next_sent_within(QUIET_WAIT)
             .await
-            .is_err(),
+            .is_none(),
         "an API-key account's home was sent a request"
     );
     assert_eq!(fixture.reset_credits(), None);

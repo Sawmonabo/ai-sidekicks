@@ -8,7 +8,7 @@
 //! ended.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use interprocess::local_socket::tokio::Stream;
@@ -19,6 +19,7 @@ use sidekicks_client::daemon_ending::{
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_platforms::{ChildEnd, DaemonRunFolder, PinnedProcess};
+use sidekicks_std::mutex_lock::lock;
 use tokio::task::JoinHandle;
 
 use crate::helpers::{PATIENCE, ScriptedDaemon, accept, listen, run_folder};
@@ -105,14 +106,11 @@ fn recording_terms() -> (DaemonEndingTerms, Arc<Mutex<Vec<EndCall>>>) {
         drain_bound: DRAIN_BOUND,
         kill_grace: KILL_GRACE,
         end_process: Arc::new(move |process: &PinnedProcess, grace| {
-            recorded
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(EndCall {
-                    at: Instant::now(),
-                    process_id: process.id(),
-                    grace,
-                });
+            lock(&recorded).push(EndCall {
+                at: Instant::now(),
+                process_id: process.id(),
+                grace,
+            });
             process.stop_sparing_lasting_sessions(grace)
         }),
     };
@@ -172,7 +170,7 @@ async fn take_stop(daemon: &mut ScriptedDaemon<Stream>, identity: Value) -> Inst
 }
 
 fn take_calls(calls: &Mutex<Vec<EndCall>>) -> Vec<EndCall> {
-    std::mem::take(&mut *calls.lock().unwrap_or_else(PoisonError::into_inner))
+    std::mem::take(&mut *lock(calls))
 }
 
 #[tokio::test]

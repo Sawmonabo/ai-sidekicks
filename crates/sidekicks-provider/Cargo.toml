@@ -85,7 +85,8 @@ flate2.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The environment row builder the spawn and sign-in tests use.
+# The environment row builder the spawn and sign-in tests use, the instants the tests spell out
+# and the WSL place the installation tests read in.
 sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The scripted caller reader and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }

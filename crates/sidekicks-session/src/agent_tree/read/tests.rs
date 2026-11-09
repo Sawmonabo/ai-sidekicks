@@ -13,6 +13,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
@@ -24,7 +25,6 @@ use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node, m
 use crate::agents::projection::test_fixture::{
     binding, project, resolved_run_queued, run_statements, session_created, write_log_row,
 };
-use crate::instant;
 
 /// The provider that names every helper of these tests, in its started rows and its nodes alike.
 pub(crate) const HELPER_PROVIDER: &str = "test-provider";

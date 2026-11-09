@@ -2,7 +2,6 @@
 //! git folder and a spawn context's memory switch.
 
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::ffi::OsStr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -10,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt;
-use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
@@ -45,7 +43,7 @@ use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, SessionToolServer, SubagentPolicy,
 };
-use sidekicks_provider::driver::test_registry::TestProviderAccounts;
+use sidekicks_provider::driver::test_registry::{TestProviderAccounts, first_provider};
 use sidekicks_provider::driver::{
     CurrentProviderAccount, PROVIDERS, ProviderAccountReader, SessionSpawnContextResolver,
 };
@@ -67,7 +65,7 @@ use sidekicks_store::database::writer::test_file::{
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::git::process::{GitCall, GitLimits, GitRunner, test_git_runner};
-use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use sidekicks_workspace::machine_settings::{FixedMachineSettings, MachineSettingsReader};
 use sidekicks_workspace::project::records::{
     PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
 };
@@ -85,7 +83,7 @@ use crate::run::epochs::ExecutionEpochs;
 use crate::run::schema::schema_parts;
 use crate::run::stored_leg::read_session_leg;
 
-// A relaunch reads neither the projects nor the settings.
+// A relaunch reads no project's sessions.
 struct Unread;
 
 impl ProjectSessionActivity for Unread {
@@ -98,38 +96,18 @@ impl ProjectSessionActivity for Unread {
     }
 }
 
-impl MachineSettingsReader for Unread {
-    fn read_machine_settings(
-        &self,
-    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        async { Ok(MachineSettings::default()) }.boxed()
-    }
-}
-
 // A settings file whose one knob set is `Helpers at once` at `limit`, on `provider`.
-struct HelpersAtOnce {
-    provider: ProviderId,
-    limit: SafeInt<0>,
-}
-
-impl MachineSettingsReader for HelpersAtOnce {
-    fn read_machine_settings(
-        &self,
-    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        let knobs = ProviderKnobs {
-            helpers_at_once: Some(Some(self.limit)),
-            ..ProviderKnobs::default()
-        };
-        let provider_knobs = Record::new(BTreeMap::from([(self.provider.clone(), knobs)]))
-            .expect("a provider id is never `__proto__`");
-        async move {
-            Ok(MachineSettings {
-                provider_knobs,
-                ..MachineSettings::default()
-            })
-        }
-        .boxed()
-    }
+fn helpers_at_once(provider: ProviderId, limit: SafeInt<0>) -> FixedMachineSettings {
+    let knobs = ProviderKnobs {
+        helpers_at_once: Some(Some(limit)),
+        ..ProviderKnobs::default()
+    };
+    let provider_knobs = Record::new(BTreeMap::from([(provider, knobs)]))
+        .expect("a provider id is never `__proto__`");
+    FixedMachineSettings(MachineSettings {
+        provider_knobs,
+        ..MachineSettings::default()
+    })
 }
 
 // A port over a session whose leg runs on `conversation-1`, with the tracker's stream of the
@@ -250,7 +228,7 @@ async fn a_relaunch_records_its_binding_and_the_conversation_it_left(
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let binding_id = mint_runtime_binding_id();
@@ -304,7 +282,7 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let opened_id = mint_runtime_binding_id();
@@ -356,7 +334,7 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
     let session_id = test_session_id();
     let server_name = McpServerName::new("github".to_owned()).expect("a server name");
     let user_github = McpServerBindingRef::User {
-        provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id"),
+        provider: first_provider(),
         server_name: server_name.clone(),
     };
     let PortOverLeg {
@@ -374,7 +352,7 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
             }]),
             ..spawn_config_on(test_provider_account_id())
         },
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
 
@@ -429,7 +407,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let connection = database.reader();
@@ -589,7 +567,7 @@ async fn the_run_folder_reads_the_newest_live_workspace(
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let connection = database.reader();
@@ -652,7 +630,7 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
         session_id,
         git,
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let connection = database.reader();
@@ -706,7 +684,7 @@ async fn a_spawn_context_carries_the_sessions_memory_switch(#[case] auto_memory:
         session_id,
         test_git_runner(),
         spawn_config_on(test_provider_account_id()),
-        Arc::new(Unread),
+        Arc::new(FixedMachineSettings(MachineSettings::default())),
     )
     .await;
     let connection = database.reader();
@@ -774,11 +752,10 @@ async fn compose_opening_carries_the_leads_providers_helpers_at_once(
 ) {
     let database = TestDatabase::new(schema_parts());
     let session_id = test_session_id();
-    let settings = HelpersAtOnce {
-        provider: ProviderId::new(PROVIDERS[knob_provider].id.to_owned())
-            .expect("a registered provider id"),
-        limit: SafeInt::new(limit).expect("a small count is a limit"),
-    };
+    let settings = helpers_at_once(
+        ProviderId::new(PROVIDERS[knob_provider].id.to_owned()).expect("a registered provider id"),
+        SafeInt::new(limit).expect("a small count is a limit"),
+    );
     let PortOverLeg { port, .. } = port_over_a_leg(
         &database,
         session_id,

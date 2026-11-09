@@ -311,18 +311,18 @@ mod tests {
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::domain_error::DomainError;
-    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::registry::test_token;
-    use sidekicks_provider::driver::test_registry::{bind_run_to_first_provider, new_run_id};
+    use sidekicks_provider::driver::test_registry::{
+        bind_run_to_first_provider, first_provider, new_run_id,
+    };
     use sidekicks_session::agents::projection::test_fixture::{run_statements, write_log_row};
     use sidekicks_session::agents::projection::{StoredPendingSwitch, write_pending_switch};
 
@@ -547,7 +547,7 @@ mod tests {
             .switches
             .providers
             .record_capabilities(
-                &ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                &first_provider(),
                 DriverCapabilities {
                     flags: DriverCapabilityFlags::from_fn(|flag| {
                         flag == DriverCapabilityFlag::OutputSpeed

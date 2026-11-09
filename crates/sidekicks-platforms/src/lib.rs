@@ -144,8 +144,6 @@ mod system_folder;
 mod system_locale;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
-mod test_place;
-#[cfg(any(test, feature = "test-support"))]
 mod test_program;
 #[cfg(test)]
 mod thread_cpu_time;
@@ -554,8 +552,6 @@ pub use terminal::{
     ProcessTreeEnd, TerminalDevice, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
     TerminalSignalRoute, TerminalStart, TerminalWake, TerminalWaker,
 };
-#[cfg(any(test, feature = "test-support"))]
-pub use test_place::ubuntu_place;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::{harness_test_name, pass_through_start, terminal_taking_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;

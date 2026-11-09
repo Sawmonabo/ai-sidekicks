@@ -8,7 +8,6 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerStatus::{Connected, Failed, Unknown};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     McpResourceListRequest, SessionMcpServer, SessionMcpServerEnabledUpdateRequest,
@@ -30,7 +29,7 @@ use sidekicks_provider::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusProducer,
 };
 use sidekicks_provider::driver::session_control::SessionToolServer;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::{open_store, resumable_binding_input};
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
@@ -73,7 +72,7 @@ async fn session_reading(
     let session_id = test_session_id();
     insert_session_row(&schema, session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
-    let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
+    let provider = first_provider();
     let server_name = McpServerName::new("tracker".to_owned()).expect("a server name");
     let binding = McpServerBindingRef::User {
         provider: provider.clone(),

@@ -4,7 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use serde_json::Value;
@@ -19,6 +19,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SubscriptionCancel, SubscriptionCancelRequest, SubscriptionId,
 };
 use sidekicks_contracts::wire::attachment::AttachmentError;
+use sidekicks_std::mutex_lock::{get_mut, lock};
 use tokio::sync::oneshot;
 
 use super::{RawReply, RawRequest, typed_request};
@@ -504,13 +505,13 @@ impl ClientShared {
     }
 
     fn lock(&self) -> MutexGuard<'_, ClientState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 
 impl Drop for ClientShared {
     fn drop(&mut self) {
-        let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
+        let state = get_mut(&mut self.state);
         if let LinkStatus::Open(link) = &state.link {
             link.end(LinkFault::Closed);
         }

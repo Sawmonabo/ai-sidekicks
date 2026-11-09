@@ -67,6 +67,8 @@ zip.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 rstest.workspace = true
+# The instants the tests spell out.
+sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The wall clock the deadline tests set, and the instant an armed job holds.
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database the tests build on.

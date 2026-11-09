@@ -149,9 +149,11 @@ mod tests {
             .await
             .expect_err("a home with no Codex of its own starts its own, which the test cannot");
         assert!(
-            tokio::time::timeout(Duration::from_millis(200), scripted.script.next_sent())
+            scripted
+                .script
+                .next_sent_within(Duration::from_millis(200))
                 .await
-                .is_err(),
+                .is_none(),
             "the named home's service received another home's sign-out"
         );
     }

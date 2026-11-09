@@ -238,7 +238,6 @@ mod tests {
     use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::goal::{
         SessionGoal, SessionGoalClearRequest, SessionGoalUpdateRequest, SessionGoalUpdateResponse,
     };
@@ -251,7 +250,8 @@ mod tests {
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::session_control::{DriverGoalResult, SetSessionGoalParams};
     use sidekicks_provider::driver::test_registry::{
-        bind_run_to_first_provider, new_agent_id, new_run_id, registry_of_first_provider,
+        bind_run_to_first_provider, first_provider, new_agent_id, new_run_id,
+        registry_of_first_provider,
     };
     use sidekicks_provider::port::session_wake::SessionWaker;
     use sidekicks_session::agents::projection::test_fixture::{
@@ -374,7 +374,7 @@ mod tests {
             let providers = registry_of_first_provider(Arc::new(driver));
             providers
                 .record_capabilities(
-                    &ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                    &first_provider(),
                     DriverCapabilities {
                         flags: DriverCapabilityFlags::from_fn(|flag| {
                             flag != DriverCapabilityFlag::SessionGoals || keeps_goals

@@ -320,13 +320,13 @@ mod tests {
     use std::collections::HashSet;
 
     use serde_json::json;
+    use sidekicks_contracts::wire::instant::instant;
     use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
     use sidekicks_store::events::test_log::SessionTestLog;
 
     use super::*;
     use crate::account::usage_turns::tests::{
-        EARLIER_START, LEAD_MODEL, Turn, append, instant, log_with_accounts, priced, recorded_with,
-        turn_id,
+        EARLIER_START, LEAD_MODEL, Turn, append, log_with_accounts, priced, recorded_with, turn_id,
     };
 
     const OTHER_MODEL: &str = "claude-sonnet-4-5";

@@ -8,6 +8,7 @@ use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::instant::instant;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNode, WorkflowVersionId,
 };
@@ -24,7 +25,7 @@ use crate::engine::chain::{
 };
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::commit::tests::{
-    DEFINITION_ID, TurnHarness, VERSION_ID, instant, report, run_id, sequence, step_key, test_node,
+    DEFINITION_ID, TurnHarness, VERSION_ID, report, run_id, sequence, step_key, test_node,
 };
 use crate::engine::tick::commit::{ReportedStep, RunTurnCommit, RunTurnCommitted};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};

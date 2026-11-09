@@ -287,13 +287,12 @@ fn unresolvable(
 mod tests {
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_platforms::Spawner;
 
     use super::resolve_provider_executable;
     use crate::command_search::ProviderCommandSearch;
-    use crate::driver::PROVIDERS;
     use crate::driver::contract::error::DriverError;
+    use crate::driver::test_registry::first_provider;
 
     // A typed command path that names nothing is refused as a path the person typed, never as a
     // provider not installed, and a bare name no search finds is not installed. Killed by reading
@@ -310,7 +309,7 @@ mod tests {
         let search = ProviderCommandSearch::new(
             Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
         );
-        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a provider id");
+        let provider = first_provider();
         let environment = vec![(
             "PATH".to_owned(),
             empty_search_path.path().to_string_lossy().into_owned(),
