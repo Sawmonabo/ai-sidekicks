@@ -135,11 +135,12 @@ struct CodexFollowedRollout {
 }
 
 /// One launch's rollout fallback, run by the launch's own work task, which owns it: the files it
-/// follows while the status reads stopped, and the stretch it prices.
+/// follows while the status reads stopped, and where the stretch it prices starts.
 pub(crate) struct CodexRolloutFallback {
     rollouts: CodexLaunchRollouts,
     status: Option<ExportStatus>,
-    window: Option<CodexPricedWindow>,
+    // The first stamp priced, in Unix milliseconds, while the fallback reads.
+    since_ms: Option<u64>,
     files: HashMap<PathBuf, CodexFollowedRollout>,
 }
 
@@ -150,7 +151,7 @@ impl CodexRolloutFallback {
         let mut fallback = Self {
             rollouts,
             status,
-            window: None,
+            since_ms: None,
             files: HashMap::new(),
         };
         if status == Some(ExportStatus::Stopped) {
@@ -161,7 +162,7 @@ impl CodexRolloutFallback {
 
     /// Whether the fallback reads, its status stopped.
     pub(crate) fn is_reading(&self) -> bool {
-        self.window.is_some()
+        self.since_ms.is_some()
     }
 
     /// Waits for the launch's export status to change, the files it names aside, and answers
@@ -185,25 +186,23 @@ impl CodexRolloutFallback {
 
     /// Starts reading from the launch's last export, else its registration, unless it reads.
     pub(crate) fn start_reading(&mut self) {
-        if self.window.is_some() {
+        if self.since_ms.is_some() {
             return;
         }
         let mut times = lock(&self.rollouts.times);
         times.is_reading = true;
         times.resumed_at_ms = None;
         // A record stamped as the export's newest was in it.
-        let since_ms = times
-            .newest_export_stamp_ms
-            .map_or(times.registered_at_ms, |newest_ms| newest_ms + 1);
-        self.window = Some(CodexPricedWindow {
-            since_ms,
-            until_ms: None,
-        });
+        self.since_ms = Some(
+            times
+                .newest_export_stamp_ms
+                .map_or(times.registered_at_ms, |newest_ms| newest_ms + 1),
+        );
     }
 
     /// Stops reading: the offsets and the files it names go.
     pub(crate) fn stop_reading(&mut self) {
-        self.window = None;
+        self.since_ms = None;
         self.files.clear();
         let mut times = lock(&self.rollouts.times);
         times.is_reading = false;
@@ -217,15 +216,13 @@ impl CodexRolloutFallback {
     /// grew read on from its offset once its thread is placed, each request it states pushed to
     /// the session holding the thread it came from, and the files it cannot read published.
     pub(crate) async fn pass(&mut self, service: &Arc<CodexService>) {
-        let Some(mut window) = self.window else {
+        let Some(since_ms) = self.since_ms else {
             return;
         };
-        window.until_ms = lock(&self.rollouts.times).resumed_at_ms;
-        self.window = Some(window);
         let sessions = service.home().codex_home.join(SESSIONS_FOLDER);
-        let helpers = self.list_unfollowed_helpers(service, window.since_ms).await;
+        let helpers = self.list_unfollowed_helpers(service, since_ms).await;
         let found = tokio::task::spawn_blocking(move || {
-            let mut found = find_rollouts(&sessions, window.since_ms);
+            let mut found = find_rollouts(&sessions, since_ms);
             for helper in helpers {
                 found.extend(find_helper_rollout(&sessions, &helper));
             }
@@ -259,8 +256,9 @@ impl CodexRolloutFallback {
                 },
             );
         }
+        let times = Arc::clone(&self.rollouts.times);
         for (path, followed) in &mut self.files {
-            follow(service, path, followed, window).await;
+            follow(service, path, followed, since_ms, &times).await;
         }
         self.publish_unreadable();
     }
@@ -314,13 +312,15 @@ impl CodexRolloutFallback {
 }
 
 // Reads `followed` on where it grew past its offset: up to its first `session_meta` while its
-// thread is unknown, then, once its thread is placed, to its end, each request pushed to the
-// session its placement names.
+// thread is unknown, then, once its thread is placed, to its end, each request stamped from
+// `since_ms` on pushed to the session its placement names; one stamped from the oldest record of
+// an export read since reading began on, as `times` holds it at the read, is the export's.
 async fn follow(
     service: &Arc<CodexService>,
     path: &Path,
     followed: &mut CodexFollowedRollout,
-    window: CodexPricedWindow,
+    since_ms: u64,
+    times: &Mutex<CodexExportTimes>,
 ) {
     loop {
         let held_thread = match &followed.placement {
@@ -360,6 +360,11 @@ async fn follow(
         let file = std::mem::take(&mut followed.file);
         let read_path = path.to_owned();
         let offset = followed.offset;
+        // Read at each read, since an export can return while the pass waits on Codex.
+        let window = CodexPricedWindow {
+            since_ms,
+            until_ms: lock(times).resumed_at_ms,
+        };
         let read =
             tokio::task::spawn_blocking(move || read_on(&read_path, offset, file, window)).await;
         let (file, read) = match read {

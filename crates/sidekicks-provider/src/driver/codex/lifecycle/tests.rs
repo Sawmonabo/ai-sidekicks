@@ -145,6 +145,11 @@ impl LiveCodexSession {
         Self::open(None, &[TEST_TURN], steers, &[], true).await
     }
 
+    /// The session with its run open on each of `turns`, none of them started yet.
+    pub(super) async fn on_turns(turns: &[&str]) -> Self {
+        Self::open(None, turns, &[], &[], false).await
+    }
+
     /// The session with no turn running, its run bound but not started.
     pub(super) async fn idle() -> Self {
         Self::open(None, &[], &[], &[], false).await

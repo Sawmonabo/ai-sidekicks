@@ -1,9 +1,10 @@
 //! A session's completed responses from Codex's log export: each counted once on its session, the
 //! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
 //! turn, a request turn's settle arming one export check, and the session's rollout file read for
-//! what no export carried while the export is stopped.
+//! what no export carried while the export is stopped, each pass on from the last and none past an
+//! export that returned.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -55,8 +56,8 @@ enum Arrival {
     StatedAfterItsDecision,
 }
 
-/// A live session on a paused clock, its spend recorded through an open gate, its turn started
-/// and its service's launch registered with the drain running.
+/// A live session on a paused clock, its run open on its turns, its spend recorded through an
+/// open gate, [`TEST_TURN`] started and its service's launch registered with the drain running.
 struct ExportingSession {
     live: LiveCodexSession,
     usage: Arc<GatedUsage>,
@@ -65,8 +66,8 @@ struct ExportingSession {
 }
 
 impl ExportingSession {
-    async fn start() -> Self {
-        let live = LiveCodexSession::start(&[]).await;
+    async fn start(turns: &[&str]) -> Self {
+        let live = LiveCodexSession::on_turns(turns).await;
         tokio::time::pause();
         let usage = Arc::new(GatedUsage::new(watch::channel(true).1));
         assert!(
@@ -175,6 +176,37 @@ impl ExportingSession {
         tokio::time::sleep(PAST_TWO_INTERVALS).await;
         read()
     }
+
+    // Writes `lines` as the rollout file of the session's thread in today's day folder, by UTC,
+    // under the service's home; answers its path.
+    fn write_rollout(&self, lines: &[String]) -> PathBuf {
+        let today = jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .date();
+        let folder = self
+            .live
+            .scripted
+            .service
+            .home()
+            .codex_home
+            .join("sessions")
+            .join(format!("{:04}", today.year()))
+            .join(format!("{:02}", today.month()))
+            .join(format!("{:02}", today.day()));
+        std::fs::create_dir_all(&folder).expect("the day folder is made");
+        let path = folder.join(format!("rollout-2026-11-09T10-00-00-{TEST_THREAD}.jsonl"));
+        std::fs::write(&path, lines.join("\n") + "\n").expect("the rollout file is written");
+        path
+    }
+
+    // Answers a fallback pass's listing of the recent helpers with none.
+    async fn answer_helper_listing(&mut self) {
+        let listing = self.live.scripted.next_request("thread/list").await;
+        self.live
+            .scripted
+            .script
+            .answer(&listing, &json!({"data": [], "nextCursor": null}));
+    }
 }
 
 fn counts(input: u64, output: u64) -> UsageAxisCounts {
@@ -209,7 +241,7 @@ fn wire_counts(counts: &UsageAxisCounts) -> Value {
 #[case::stated_after_its_decision(Arrival::StatedAfterItsDecision)]
 #[tokio::test]
 async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Arrival) {
-    let mut session = ExportingSession::start().await;
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
     let stated = counts(1_000, 500);
     let expected = match arrival {
         Arrival::StatedFirst => {
@@ -277,20 +309,12 @@ enum ReviewCover {
     ListingFails,
 }
 
-// Now in Unix milliseconds, the clock a record's observed time and a review's start read.
-fn unix_time_ms() -> u64 {
-    let since = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is past 1970");
-    u64::try_from(since.as_millis()).expect("the time fits")
-}
-
-// A completed response on the fork's thread carrying `counts` and the person's identity, observed
-// at `observed_at_ms`.
-fn fork_record(counts: &UsageAxisCounts, observed_at_ms: u64) -> LogRecord {
+// A completed response on `thread_id` carrying `counts` and the person's identity, observed at
+// `observed_at_ms`.
+fn stamped_record(thread_id: &str, counts: &UsageAxisCounts, observed_at_ms: u64) -> LogRecord {
     LogRecord {
         observed_time_unix_nano: observed_at_ms * 1_000_000,
-        ..codex_record(completed_response_attributes(FORK_THREAD, counts))
+        ..codex_record(completed_response_attributes(thread_id, counts))
     }
 }
 
@@ -327,10 +351,10 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
 ) {
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
-    let mut session = ExportingSession::start().await;
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
     // Read once the session's task stamped its turn's start, which the paused clock waits for.
     tokio::time::sleep(Duration::from_millis(10)).await;
-    let now = unix_time_ms();
+    let now = read_unix_time_ms();
     if let ReviewCover::LatestWindow = cover {
         let script = &session.live.scripted.script;
         script.send(&review_started("review-0", "turn-0", now - 20_000));
@@ -340,7 +364,7 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
     }
     if let ReviewCover::ListingFails = cover {
         let records = (0..=1_000)
-            .map(|_| fork_record(&counts(10, 1), now))
+            .map(|_| stamped_record(FORK_THREAD, &counts(10, 1), now))
             .collect();
         session.export_records(records).await;
         let list = session.live.scripted.next_request("thread/list").await;
@@ -368,7 +392,10 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
     let first = counts(300, 20);
     let second = counts(200, 10);
     session
-        .export_records(vec![fork_record(&first, now), fork_record(&second, now)])
+        .export_records(vec![
+            stamped_record(FORK_THREAD, &first, now),
+            stamped_record(FORK_THREAD, &second, now),
+        ])
         .await;
     let unlisted = json!({ "data": [], "nextCursor": null });
     let list = session.live.scripted.next_request("thread/list").await;
@@ -485,8 +512,8 @@ fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
     json!({"timestamp": at.to_string(), "type": kind, "payload": payload}).to_string()
 }
 
-// The usage record of `response_id` on the session's thread and turn, stamped at `at_ms`.
-fn rollout_record(at_ms: u64, response_id: &str, input: u64, output: u64) -> String {
+// The usage record of `response_id` on the session's thread and `turn_id`, stamped at `at_ms`.
+fn rollout_record(at_ms: u64, turn_id: &str, response_id: &str, input: u64, output: u64) -> String {
     let usage = json!({
         "input_tokens": input,
         "cached_input_tokens": 0,
@@ -496,12 +523,39 @@ fn rollout_record(at_ms: u64, response_id: &str, input: u64, output: u64) -> Str
     });
     let payload = json!({
         "thread_id": TEST_THREAD,
-        "turn_id": TEST_TURN,
+        "turn_id": turn_id,
         "response_id": response_id,
         "usage": usage,
     });
     rollout_line(at_ms, "token_usage_record", &payload)
 }
+
+// The context line of `turn_id`, naming its model, stamped at `at_ms`.
+fn turn_context(at_ms: u64, turn_id: &str) -> String {
+    rollout_line(
+        at_ms,
+        "turn_context",
+        &json!({"turn_id": turn_id, "model": "gpt-5"}),
+    )
+}
+
+// The session's thread's rollout file through [`TEST_TURN`]: its thread named, the response the
+// stream states and a warm-up it never states, each stamped at `at_ms`.
+fn first_turn_rollout(at_ms: u64) -> Vec<String> {
+    vec![
+        rollout_line(
+            at_ms,
+            "session_meta",
+            &json!({"id": TEST_THREAD, "source": "cli"}),
+        ),
+        turn_context(at_ms, TEST_TURN),
+        rollout_record(at_ms, TEST_TURN, "response-stated", 1_000, 500),
+        rollout_record(at_ms, TEST_TURN, "response-warm-up", 2, 0),
+    ]
+}
+
+/// The session's second turn, after [`TEST_TURN`] settles.
+const SECOND_TURN: &str = "turn-2";
 
 // Once a request turn settles with no export, the session's own rollout file is read: the
 // response its stream stated is passed over and the warm-up the stream never stated is counted
@@ -509,55 +563,117 @@ fn rollout_record(at_ms: u64, response_id: &str, input: u64, output: u64) -> Str
 // again (three rows), and by no read as the status turns stopped (one row).
 #[tokio::test]
 async fn a_streamed_thread_s_rollout_counts_what_no_export_carried_once() {
-    let mut session = ExportingSession::start().await;
-    let at_ms = read_unix_time_ms();
-    let today = jiff::Timestamp::now()
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .date();
-    let folder = session
-        .live
-        .scripted
-        .service
-        .home()
-        .codex_home
-        .join("sessions")
-        .join(format!("{:04}", today.year()))
-        .join(format!("{:02}", today.month()))
-        .join(format!("{:02}", today.day()));
-    std::fs::create_dir_all(&folder).expect("the day folder is made");
-    let lines = [
-        rollout_line(
-            at_ms,
-            "session_meta",
-            &json!({"id": TEST_THREAD, "source": "cli"}),
-        ),
-        rollout_line(
-            at_ms,
-            "turn_context",
-            &json!({"turn_id": TEST_TURN, "model": "gpt-5"}),
-        ),
-        rollout_record(at_ms, "response-stated", 1_000, 500),
-        rollout_record(at_ms, "response-warm-up", 2, 0),
-    ];
-    std::fs::write(
-        folder.join(format!("rollout-2026-11-09T10-00-00-{TEST_THREAD}.jsonl")),
-        lines.join("\n") + "\n",
-    )
-    .expect("the rollout file is written");
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    session.write_rollout(&first_turn_rollout(read_unix_time_ms()));
 
     session.state(&counts(1_000, 500));
     answer_region_read(&mut session.live.scripted).await;
     session.complete_turn();
     // The check finds no export two intervals on; the fallback's pass lists the recent helpers.
+    session.answer_helper_listing().await;
+
+    assert_eq!(
+        session.settled_rows(2).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
+}
+
+// While the export stays stopped, the pass at each settled request turn reads the session's file
+// on from where the last pass stopped: the second counts only the second turn's warm-up. Killed by
+// an offset never kept or read from the file's start (the first warm-up counted again, five rows)
+// and by no pass at a request turn settled while the status reads stopped (three rows).
+#[tokio::test]
+async fn a_second_turn_s_pass_reads_the_file_on_from_where_the_first_stopped() {
+    let mut session = ExportingSession::start(&[TEST_TURN, SECOND_TURN]).await;
+    let at_ms = read_unix_time_ms();
+    let rollout = session.write_rollout(&first_turn_rollout(at_ms));
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    session.answer_helper_listing().await;
+    assert_eq!(
+        session.settled_rows(2).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
+
+    let second_turn = [
+        turn_context(at_ms, SECOND_TURN),
+        rollout_record(at_ms, SECOND_TURN, "response-second", 3_000, 700),
+        rollout_record(at_ms, SECOND_TURN, "response-second-warm-up", 3, 0),
+    ];
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&rollout)
+        .expect("the rollout file opens");
+    std::io::Write::write_all(&mut file, (second_turn.join("\n") + "\n").as_bytes())
+        .expect("the second turn's lines are written");
+    let script = &session.live.scripted.script;
+    script.send(&turn_started(SECOND_TURN));
+    let mut reading = token_usage_frame(
+        TEST_THREAD,
+        &wire_counts(&counts(4_000, 1_200)),
+        &wire_counts(&counts(3_000, 700)),
+    );
+    reading["params"]["turnId"] = json!(SECOND_TURN);
+    script.send(&reading);
+    script.send(&turn_completed(TEST_THREAD, SECOND_TURN, "completed"));
+    session.answer_helper_listing().await;
+
+    assert_eq!(
+        session.settled_rows(4).await,
+        [
+            (Some(1_000), Some(500)),
+            (Some(2), Some(0)),
+            (Some(3_000), Some(700)),
+            (Some(3), Some(0)),
+        ]
+    );
+}
+
+// A pass still waiting on Codex as the export returns prices nothing stamped from that export's
+// oldest record on: the warm-up stamped before it is counted, the export's own response once, and
+// the record stamped after it is left to the exports. Killed by the export's bound read once as
+// the pass begins (the late record counted, four rows).
+#[tokio::test]
+async fn a_pass_prices_nothing_stamped_from_an_export_that_returned_while_it_ran() {
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    let at_ms = read_unix_time_ms();
+    let returned_at_ms = at_ms + 1_000;
+    let mut lines = first_turn_rollout(at_ms);
+    lines.push(rollout_record(
+        returned_at_ms + 1_000,
+        TEST_TURN,
+        "response-late",
+        9,
+        3,
+    ));
+    session.write_rollout(&lines);
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+
     let listing = session.live.scripted.next_request("thread/list").await;
+    session
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(7, 1),
+            returned_at_ms,
+        )])
+        .await;
     session
         .live
         .scripted
         .script
         .answer(&listing, &json!({"data": [], "nextCursor": null}));
 
+    let mut rows = session.settled_rows(3).await;
+    rows.sort_unstable();
     assert_eq!(
-        session.settled_rows(2).await,
-        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+        rows,
+        [
+            (Some(2), Some(0)),
+            (Some(7), Some(1)),
+            (Some(1_000), Some(500)),
+        ]
     );
 }
