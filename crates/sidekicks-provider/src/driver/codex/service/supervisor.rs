@@ -7,6 +7,7 @@
 //! up; a service the daemon started that answers nothing for two minutes is ended as a crash; a
 //! service draining toward its exit refuses new work while its turns run on.
 
+mod away;
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
@@ -207,6 +208,8 @@ pub(crate) struct CodexService {
     supervision: Mutex<Supervision>,
     inputs: mpsc::UnboundedSender<RunnerInput>,
     availability: watch::Sender<CodexServiceAvailability>,
+    // Since when it has been anything but up; `None` while it is up or before its first publish.
+    away_since: Mutex<Option<tokio::time::Instant>>,
     live: Mutex<LiveService>,
     // Where the socket of the process the last start brought up really is, which the home's link
     // is cleared against once that process ends.
@@ -251,6 +254,7 @@ impl CodexService {
             supervision: Mutex::new(Supervision::new(kind)),
             inputs,
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
+            away_since: Mutex::default(),
             live: Mutex::default(),
             physical_socket: Mutex::default(),
             process_record_file: Mutex::default(),

@@ -364,9 +364,9 @@ impl CodexConversationRelease {
     }
 }
 
-// Whether a frame may have changed what the conversation runs: a command's end, or the
-// conversation going idle at a turn's end.
-fn is_list_change(method: &str, params: &RawValue) -> bool {
+/// Whether a frame may have changed what the conversation runs: a command's end, or the
+/// conversation going idle at a turn's end.
+pub(crate) fn is_list_change(method: &str, params: &RawValue) -> bool {
     let is_watched =
         method == CODEX_ITEM_COMPLETED_METHOD || method == CODEX_THREAD_STATUS_CHANGED_METHOD;
     if !is_watched {
