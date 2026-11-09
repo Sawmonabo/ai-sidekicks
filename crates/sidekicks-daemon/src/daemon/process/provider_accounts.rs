@@ -209,7 +209,7 @@ pub(crate) async fn build_provider_account_plane(
     .await;
     let home_lock = Arc::new(AccountHomeLock::default());
     let accounts_in_flight = Arc::new(AccountsInFlight::default());
-    let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
+    let live_turns: Arc<dyn AccountLiveTurns> = Arc::clone(&binding_cursors) as _;
     let publisher = Arc::new(ProviderAccountNotifications::new());
     let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
         registry: Arc::clone(&registry),
@@ -247,6 +247,7 @@ pub(crate) async fn build_provider_account_plane(
         switch_legs,
         providers: Arc::clone(&providers),
         level_moves: provider_sessions,
+        bindings: binding_cursors,
         appender,
         reads: Arc::clone(&reads),
         read_damaged_from_sequence,

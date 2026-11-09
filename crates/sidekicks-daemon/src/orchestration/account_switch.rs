@@ -13,9 +13,11 @@
 //!   every move has landed, letting it go with the provider's lock, so no sign-in or reset starts
 //!   in the home meanwhile and a second switch onto it, waiting on that lock, finds it free.
 //! - A lead lands at the provider's acknowledgment of its move with `agent.providerBinding.changed`
-//!   in place, or `agent.providerBinding.changeFailed` where the move failed; a first request the
-//!   provider then refuses for the new account's login hands the previous account back, recorded
-//!   by one `changeFailed`, which also records a hand-back that could not be made.
+//!   in place, each binding a live or interrupted helper or bridged run of its session rides moved
+//!   onto the same account first, so no helper spends the account the lead left; or with
+//!   `agent.providerBinding.changeFailed` where the move failed; a first request the provider then
+//!   refuses for the new account's login hands the previous account back, recorded by one
+//!   `changeFailed`, which also records a hand-back that could not be made.
 //! - The leads to move are read against each session's own binding, so a switch to the account
 //!   already current still moves a session a failed move left on another; a session whose lead
 //!   cannot be read is skipped and logged, and the rest move.
@@ -66,7 +68,9 @@ use sidekicks_provider::driver::contract::params_and_results::ListModesParams;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
 use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
+use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
 use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_session::agent_tree::read::AgentTreeReadError;
 use sidekicks_session::permission_level::read_session_permission_level;
 use sidekicks_session::run::agent::{SessionLead, read_provider_session_leads, read_session_lead};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -125,6 +129,8 @@ pub(crate) struct AccountSwitchDeps {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The level control's own move.
     pub(crate) level_moves: Arc<dyn SessionLevelMoves>,
+    /// The binding writer, which moves the bindings a moved lead's helpers ride.
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// Where each settlement and notice is appended.
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The daemon's read connections.
@@ -489,9 +495,9 @@ impl AccountSwitch {
         join_all(first_requests).map(drop).boxed()
     }
 
-    // A lead whose move landed on `to`, a switch's or one a driver reported: its settlement by
-    // `actor`, then its level moved where `to` cannot run it; answers the watch of its first
-    // request there, which records a hand-back.
+    // A lead whose move landed on `to`, a switch's or one a driver reported: the bindings its
+    // helpers ride moved onto `to`, its settlement by `actor`, then its level moved where `to`
+    // cannot run it; answers the watch of its first request there, which records a hand-back.
     async fn land(
         self: &Arc<Self>,
         lead: LandingLead,
@@ -499,6 +505,7 @@ impl AccountSwitch {
         actor: DeviceId,
         first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
     ) -> BoxFuture<'static, ()> {
+        self.move_child_bindings(&lead, &to).await;
         self.record_changed(&lead, &to, &actor).await;
         self.move_level_where_unavailable(&lead, &to).await;
         Arc::clone(self).watch_first_request(lead, to, actor, first_request)
@@ -798,13 +805,15 @@ async fn append_settlement(
     }
 }
 
-// Why the leads could not be read.
+// Why the leads, or the bindings a lead's helpers ride, could not be read.
 #[derive(Debug, thiserror::Error)]
 enum SessionLeadsReadError {
     #[error("no connection could read the sessions")]
     Read(#[from] DatabaseReadError),
     #[error("the sessions could not be read")]
     Query(#[from] rusqlite::Error),
+    #[error("the session's agent tree could not be read")]
+    Tree(#[from] AgentTreeReadError),
 }
 
 // Logs a session the switch skips because `error` kept its lead or level from reading.
@@ -820,6 +829,8 @@ fn skip_unreadable(session_id: SessionId, error: &(dyn Error + 'static)) {
 #[derive(Debug, thiserror::Error)]
 #[error("the account switch ended before it answered")]
 struct SwitchEnded;
+
+mod helper_bindings;
 
 #[cfg(test)]
 mod tests;
