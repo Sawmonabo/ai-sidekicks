@@ -3,6 +3,8 @@
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import { describe, expect, it } from "vitest";
+
+import type { FilePathRef } from "#shared/preload-api.js";
 import { checkParamAnswers, isParamFieldShown, seedParamAnswers } from "./answers.js";
 
 const FIELDS: readonly WorkflowParamSpec[] = [
@@ -66,6 +68,25 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
       issues: { reason: "Fill in this field." },
     });
     expect(isParamFieldShown(fields[1]!, { retries: "2" }, fields)).toBe(false);
+  });
+
+  it("counts a path field filled only by a picked folder whose token the wire carries as a path", () => {
+    const fields: readonly WorkflowParamSpec[] = [
+      { id: "where", label: "Where", type: "path", required: true },
+    ];
+    const picked = (ref: string) => ({ where: { ref: ref as FilePathRef, name: "app" } });
+    const unfilled = { kind: "invalid", issues: { where: "Fill in this field." } };
+
+    expect(checkParamAnswers(fields, picked(""))).toEqual(unfilled);
+    expect(checkParamAnswers(fields, picked("ref\u0000"))).toEqual(unfilled);
+    expect(checkParamAnswers(fields, picked("r".repeat(4097)))).toEqual(unfilled);
+    // A path written as text, as a default would be, is no folder main can swap in.
+    expect(checkParamAnswers(fields, { where: "/Users/person/app" })).toEqual(unfilled);
+    expect(checkParamAnswers(fields, picked("r".repeat(4096)))).toEqual({
+      kind: "valid",
+      values: {},
+      paths: [{ field: "where", path: "r".repeat(4096) }],
+    });
   });
 
   it("answers valid with parsed values and leaves empty optional fields out", () => {

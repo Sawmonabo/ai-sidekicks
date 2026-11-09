@@ -11,7 +11,7 @@ import type {
 } from "../../../generated/workflow/definition/document.js";
 import type { WorkflowNodeHandles } from "../../../generated/workflow/definition/refusals.js";
 import {
-  checkWorkflowDefinitionGraph,
+  checkWorkflowGraph,
   checkWorkflowNodeParams,
   provideWorkflowCheckModule,
 } from "../check.js";
@@ -36,7 +36,7 @@ it("refuses an unreached node through the built module", () => {
   const trigger = node("t", "trigger.manual");
   const reached = node("a", "agent.run");
   const unreached = node("b", "agent.run");
-  const findings = checkWorkflowDefinitionGraph({
+  const findings = checkWorkflowGraph({
     trigger,
     nodes: [reached, unreached],
     edges: [

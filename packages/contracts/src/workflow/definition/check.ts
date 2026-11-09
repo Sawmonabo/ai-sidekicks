@@ -55,9 +55,7 @@ export function subscribeToWorkflowCheckModule(listener: () => void): () => void
  * The graph check's findings for a document, empty when its graph is accepted. Throws before the
  * module arrives, and when the module traps, after starting it again for the next call.
  */
-export function checkWorkflowDefinitionGraph(
-  input: WorkflowGraphCheckInput,
-): WorkflowDefinitionFinding[] {
+export function checkWorkflowGraph(input: WorkflowGraphCheckInput): WorkflowDefinitionFinding[] {
   return JSON.parse(
     callModule(() => workflowCheckModule.check_workflow_graph_json(JSON.stringify(input))),
   ) as WorkflowDefinitionFinding[];
@@ -65,7 +63,7 @@ export function checkWorkflowDefinitionGraph(
 
 /**
  * The findings one connection adds to a document, empty when it is accepted. Throws as
- * `checkWorkflowDefinitionGraph` does.
+ * `checkWorkflowGraph` does.
  *
  * @consumedBy the workflow builder's canvas, checking a connection while it is dragged
  */
@@ -79,7 +77,7 @@ export function checkWorkflowConnection(
 
 /**
  * Each parameter value a node's kind refuses, empty when every value is accepted. Throws as
- * `checkWorkflowDefinitionGraph` does.
+ * `checkWorkflowGraph` does.
  */
 export function checkWorkflowNodeParams(input: WorkflowNodeParamsCheckInput): WorkflowParamIssue[] {
   return JSON.parse(
@@ -89,7 +87,7 @@ export function checkWorkflowNodeParams(input: WorkflowNodeParamsCheckInput): Wo
 
 /**
  * Whether each param the condition names holds one of its listed values, a param's default
- * standing in for a value left out. Throws as `checkWorkflowDefinitionGraph` does.
+ * standing in for a value left out. Throws as `checkWorkflowGraph` does.
  */
 export function isWorkflowConditionMet(input: WorkflowConditionCheckInput): boolean {
   return callModule(() =>

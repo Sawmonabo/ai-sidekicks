@@ -63,6 +63,7 @@ import {
   SWEEP_CHILD,
   TRIAGE,
   type WorkflowDefinitionRecord,
+  workflowVersionIdOf,
 } from "../definitions.js";
 
 /** The session every unattended run of these workflows lives in. */
@@ -260,7 +261,7 @@ function record(seed: RunSeed): WorkflowRunRecord {
     throw new RangeError(`run ${seed.id} names ${seed.definitionId}, which no saved workflow is`);
   }
   const definitionName = definition.summary.name;
-  const workflowVersionId = `${seed.definitionId}-v${String(seed.versionNumber)}`;
+  const workflowVersionId = workflowVersionIdOf(seed.definitionId, seed.versionNumber);
   const document = definition.versions.find(
     (version) => version.versionId === workflowVersionId,
   )?.document;

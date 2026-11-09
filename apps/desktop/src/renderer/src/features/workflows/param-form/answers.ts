@@ -2,6 +2,7 @@
 // whether they may be sent. The form keeps what the person typed (a number field holds its
 // text, a JSON field its source), so the check is where text becomes the value that is sent.
 
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 import { isWorkflowConditionMet } from "@ai-sidekicks/contracts/workflow/definition/check";
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step/methods";
@@ -240,7 +241,8 @@ function checkCollection(
 
 // No sentence echoes the answer, so a secret never reaches an issue.
 function checkLeaf(field: LeafParamSpec, answer: unknown): LeafOutcome {
-  if (isEmptyAnswer(answer)) {
+  const isFilled = field.type === "path" ? isPickedPath(answer) : !isEmptyAnswer(answer);
+  if (!isFilled) {
     return field.required === true
       ? { kind: "refused", issue: "Fill in this field." }
       : { kind: "empty" };
@@ -271,6 +273,15 @@ function sentValueOf(sibling: WorkflowParamSpec | undefined, answer: unknown): u
   }
   const outcome = checkLeaf(sibling, answer);
   return outcome.kind === "answered" ? outcome.value : answer;
+}
+
+// A picked folder's token is sent where the path goes, so it fills the field only when it is a
+// path the wire carries: 1 to `FILE_PATH_MAX_LEN` code points, none of them NUL.
+function isPickedPath(answer: unknown): boolean {
+  const ref = readPickedFolder(answer)?.ref;
+  return (
+    ref !== undefined && ref !== "" && !ref.includes("\0") && [...ref].length <= FILE_PATH_MAX_LEN
+  );
 }
 
 // A checkbox's `false` is an answer, not an empty one.

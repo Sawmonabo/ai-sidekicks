@@ -7,12 +7,12 @@
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
+import type { WorkflowRunAttentionListResponse } from "@ai-sidekicks/contracts/workflow/run/attention";
 import type {
-  WorkflowRunAttentionListResponse,
   WorkflowRunListResponse,
-  WorkflowRunReadResponse,
   WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/list";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { Clock } from "#renderer/lib/clock.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
@@ -35,7 +35,7 @@ export interface WorkflowReadSources {
 
 /**
  * How many runs there are under no filter at all, the figure the Runs tab's count reads, so what
- * stands above the table never moves under its filters. One `workflow.runList` call asking for a
+ * stands above the table never moves under its filters. One `workflow.run.list` call asking for a
  * single row answers it, since the reply carries the total, read again whenever any run moves.
  */
 export function createRunCountRead(sources: WorkflowReadSources): PushDrivenRead<number> {
@@ -44,7 +44,7 @@ export function createRunCountRead(sources: WorkflowReadSources): PushDrivenRead
     clock,
     origin: "workflow-run-count",
     read: async (signal) =>
-      unwrapDaemonReply(await callDaemon(bridge, "workflow.runList", { limit: 1 }, { signal }))
+      unwrapDaemonReply(await callDaemon(bridge, "workflow.run.list", { limit: 1 }, { signal }))
         .totalCount,
     subscribe: (onChange) => feed.onRunSignal(onChange),
   });
@@ -71,7 +71,7 @@ export function createRunListRead(
       const readPage = (limit: number, cursor: string | undefined) =>
         callDaemon(
           bridge,
-          "workflow.runList",
+          "workflow.run.list",
           { ...request, limit, ...(cursor === undefined ? {} : { cursor }) },
           { signal },
         );
@@ -117,7 +117,7 @@ export function createAttentionRead(
     clock,
     origin: "workflow-attention",
     read: async (signal) =>
-      unwrapDaemonReply(await callDaemon(bridge, "workflow.runAttentionList", {}, { signal })),
+      unwrapDaemonReply(await callDaemon(bridge, "workflow.run.attention.list", {}, { signal })),
     subscribe: (onChange) => feed.onRunSignal(onChange),
   });
 }
@@ -131,7 +131,7 @@ export function createDefinitionListRead(
     clock,
     origin: "workflow-definitions",
     read: async (signal) =>
-      unwrapDaemonReply(await callDaemon(bridge, "workflow.definitionList", {}, { signal })),
+      unwrapDaemonReply(await callDaemon(bridge, "workflow.definition.list", {}, { signal })),
     subscribe: (onChange) =>
       feed.onRunSignal((runSignal) => {
         if (runSignal.scope === "all") {
@@ -153,7 +153,7 @@ export function createProviderAccountRead(
     clock,
     origin: "workflow-provider-accounts",
     read: async (signal) =>
-      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.list", {}, { signal })),
+      unwrapDaemonReply(await callDaemon(bridge, "provider.account.list", {}, { signal })),
     // A stream opened again after it ended reads again, since a rename in the gap went unheard.
     subscribe: (onChange) =>
       openReopeningSubscription({
@@ -179,7 +179,7 @@ export function createRunRead(
     origin: "workflow-run",
     read: async (signal) =>
       unwrapDaemonReply(
-        await callDaemon(bridge, "workflow.runRead", { workflowRunId }, { signal }),
+        await callDaemon(bridge, "workflow.run.read", { workflowRunId }, { signal }),
       ),
     subscribe: (onChange) =>
       feed.onRunSignal((runSignal) => {

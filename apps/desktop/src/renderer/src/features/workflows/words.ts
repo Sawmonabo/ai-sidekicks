@@ -43,7 +43,7 @@ export const STEP_STATUS_WORDS: Readonly<Record<WorkflowStepStatus, string>> = {
   pending: "Idle",
   running: "Running",
   waiting: "Waiting",
-  "waiting-memory": "Waiting for memory",
+  waitingMemory: "Waiting for memory",
   succeeded: "Succeeded",
   failed: "Failed",
   skipped: "Skipped",
@@ -66,11 +66,11 @@ export const WAIT_CAUSE_WORDS: Readonly<Record<WorkflowWaitCause, string>> = {
 export const TRIGGER_KIND_WORDS: Readonly<Record<WorkflowTriggerKind, string>> = {
   "trigger.manual": "Manual",
   "trigger.schedule": "Schedule",
-  "trigger.file-watch": "File watch",
+  "trigger.fileWatch": "File watch",
   "trigger.webhook": "Webhook",
-  "trigger.session-event": "Session event",
+  "trigger.sessionEvent": "Session event",
   "trigger.chat": "Chat",
-  "trigger.sub-workflow": "Sub-workflow",
+  "trigger.subWorkflow": "Sub-workflow",
   "trigger.error": "Error",
 };
 

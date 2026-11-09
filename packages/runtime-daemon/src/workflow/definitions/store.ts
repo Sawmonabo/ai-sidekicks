@@ -31,7 +31,7 @@ import type {
   WorkflowDefinitionUpdateResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import {
-  checkWorkflowDefinitionGraph,
+  checkWorkflowGraph,
   provideWorkflowCheckModule,
 } from "@ai-sidekicks/contracts/workflow/definition/check";
 import type {
@@ -474,7 +474,7 @@ export class WorkflowDefinitionStore {
   #refuseFindings(document: WorkflowDocument, savedDefinitionId?: WorkflowDefinitionId): void {
     const nodes =
       document.trigger === undefined ? document.nodes : [document.trigger, ...document.nodes];
-    const findings = checkWorkflowDefinitionGraph({
+    const findings = checkWorkflowGraph({
       trigger: document.trigger,
       nodes: document.nodes,
       edges: document.edges,

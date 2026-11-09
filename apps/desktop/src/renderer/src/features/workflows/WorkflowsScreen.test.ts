@@ -43,14 +43,14 @@ describe("the workflows screen — away from the Runs tab", () => {
       expect(document.querySelector(".meridian-workflows-tabs__count")).not.toBeNull();
     });
     // Nothing on screen draws what is waiting, the saved workflows, the accounts or the stream.
-    expect(methodsAsked()).toStrictEqual(new Set(["workflow.runList"]));
+    expect(methodsAsked()).toStrictEqual(new Set(["workflow.run.list"]));
     expect(streamsOpened).not.toContain(WORKFLOW_NOTICE_STREAM);
 
     await navigate(mounted, workflowRunsRoute(undefined));
     await advanceScenarioUntil(mounted.engine, () => {
       expect(nextWaitingControl().textContent).toMatch(/^Next waiting \(\d+\)$/u);
     });
-    expect(methodsAsked()).toContain("workflow.runAttentionList");
+    expect(methodsAsked()).toContain("workflow.run.attention.list");
     expect(streamsOpened).toContain(WORKFLOW_NOTICE_STREAM);
   });
 });
@@ -63,7 +63,7 @@ describe("the workflows screen — `Next waiting`", () => {
       route: workflowRunsRoute(undefined),
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        return call.method === "workflow.runAttentionList" ? attentionOf(reply, owed) : reply;
+        return call.method === "workflow.run.attention.list" ? attentionOf(reply, owed) : reply;
       },
     });
     await advanceScenarioUntil(mounted.engine, () => {
@@ -93,7 +93,7 @@ describe("the workflows screen — `Next waiting`", () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.succeeded),
       answer: async (call, passThrough) => {
-        if (call.method === "workflow.runAttentionList" && isAttentionRefused) {
+        if (call.method === "workflow.run.attention.list" && isAttentionRefused) {
           throw new Error("The background service dropped the read.");
         }
         return passThrough();
@@ -136,7 +136,7 @@ describe("the workflows screen — what this sitting answered", () => {
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingApproval),
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        return call.method === "workflow.runAttentionList" ? attentionOf(reply, owed) : reply;
+        return call.method === "workflow.run.attention.list" ? attentionOf(reply, owed) : reply;
       },
     });
     await advanceScenarioUntil(mounted.engine, () => {
@@ -163,7 +163,7 @@ describe("the workflows screen — what this sitting answered", () => {
       route: workflowRunsRoute(undefined),
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        return call.method === "workflow.runAttentionList" ? attentionOf(reply, owed) : reply;
+        return call.method === "workflow.run.attention.list" ? attentionOf(reply, owed) : reply;
       },
     });
     await advanceScenarioUntil(mounted.engine, () => {

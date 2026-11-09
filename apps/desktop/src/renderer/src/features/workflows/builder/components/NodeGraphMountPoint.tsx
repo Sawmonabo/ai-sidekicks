@@ -12,7 +12,7 @@ export interface NodeGraphMount {
   readonly definitionId: string;
   /**
    * The pane's UI-state store, handed over whole so the body chooses its own serialization.
-   * Canvas layout itself is saved on the definition through `workflow.layoutSet`, outside its
+   * Canvas layout itself is saved on the definition through `workflow.layout.update`, outside its
    * hashed body, so dragging a node never makes a version.
    */
   readonly uiStateStore: UiStateStore;

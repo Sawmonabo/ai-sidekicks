@@ -8,7 +8,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/attention";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import {
@@ -154,7 +154,7 @@ export function nextWaitingControl(): HTMLButtonElement {
  */
 export function isRunsTableRead(call: RecordedDaemonCall): boolean {
   return (
-    call.method === "workflow.runList" &&
+    call.method === "workflow.run.list" &&
     (call.params as { readonly startedAfter?: string }).startedAfter !== undefined
   );
 }
