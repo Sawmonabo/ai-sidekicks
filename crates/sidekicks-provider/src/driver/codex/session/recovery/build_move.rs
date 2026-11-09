@@ -357,7 +357,8 @@ impl CodexServiceRecovery {
     }
 
     // The move itself, the session's slot claimed: its conversations leave `from`, `thread_id`
-    // unloading there first, then it resumes on `to`, tried again while `from` still writes it;
+    // and its helpers unloading there first, since Codex reopens a helper on `to` only once `from`
+    // no longer holds it, then it resumes on `to`, tried again while `from` still writes it;
     // answers the resume's outcome, `None` when the session closed or was established anew.
     async fn move_claimed(
         &self,
@@ -368,18 +369,22 @@ impl CodexServiceRecovery {
     ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
-        self.dependencies
+        let helpers = self
+            .dependencies
             .release
-            .release_session_threads(from, &session_id, |released| released != thread_id);
+            .release_session_threads(from, &session_id, |released| released != thread_id)
+            .await;
         to.attach_session(inbound.clone());
         let_go_codex_thread(from, &thread_id).await;
-        if !from.await_unloaded(&thread_id, deadline).await {
-            // Another client, such as a terminal the person joined, still holds it on the old
-            // service; the resume goes ahead and Codex decides.
-            CodexTransportDiagnostic::ConversationUnloadTimedOut {
-                thread_id: thread_id.clone(),
+        for unloading in std::iter::once(&thread_id).chain(&helpers) {
+            if !from.await_unloaded(unloading, deadline).await {
+                // Another client, such as a terminal the person joined, still holds it on the old
+                // service; the resume goes ahead and Codex decides.
+                CodexTransportDiagnostic::ConversationUnloadTimedOut {
+                    thread_id: unloading.clone(),
+                }
+                .report();
             }
-            .report();
         }
         let leaving = Arc::clone(from);
         let writer_left: CodexWriterLeft = Box::new(move || {

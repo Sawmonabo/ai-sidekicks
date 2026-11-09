@@ -473,7 +473,8 @@ async fn move_record_to_fork(
         .release
         .release_session_threads(&service, &session_id, |thread_id| {
             routing.is_helper_thread(thread_id)
-        });
+        })
+        .await;
     service.register_thread(forked.thread_id.clone(), session_id);
     dependencies
         .release
