@@ -457,6 +457,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::QuestionAsked
         | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
+        | SessionEventType::QuestionWaitSettled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled
         | SessionEventType::SessionGoalUpdated

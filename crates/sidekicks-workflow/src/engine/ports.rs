@@ -37,7 +37,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
-use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowDefinitionId, WorkflowName, WorkflowNodeId,
+};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{
@@ -392,6 +394,8 @@ pub trait RunSnapshotPoints: Send + Sync {
 pub struct FormQuestionRequest {
     /// The session the question is asked in.
     pub session_id: SessionId,
+    /// The workflow whose step asks, named on the question's card.
+    pub workflow_name: WorkflowName,
     /// The step that waits.
     pub step: WorkflowStepKey,
     /// The wait the answer settles.
@@ -407,6 +411,8 @@ pub struct FormQuestionRequest {
 pub struct ReplyQuestionRequest {
     /// The session the question is asked in.
     pub session_id: SessionId,
+    /// The workflow whose step asks, named on the question's card.
+    pub workflow_name: WorkflowName,
     /// The step that waits.
     pub step: WorkflowStepKey,
     /// The wait the answer settles.
@@ -433,12 +439,14 @@ pub trait PersonWaitQuestions: Send + Sync {
         request: ReplyQuestionRequest,
     ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
 
-    /// Routes the answer to the question of `wait_id` back to the engine after a restart. Fails
-    /// when the question cannot be read.
-    fn reattach<'call>(
-        &'call self,
-        wait_id: &'call UuidTextForm,
-    ) -> BoxFuture<'call, Result<(), PortError>>;
+    /// The open question the wait `wait_id` holds in `session_id`, which a restart reattaches to
+    /// its stored wait; `None` where none is open, so the restart asks it again. Fails when the
+    /// question cannot be read.
+    fn reattach(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>>;
 }
 
 /// Takes the engine's own records, its intents and outcomes, which are never read back as facts;

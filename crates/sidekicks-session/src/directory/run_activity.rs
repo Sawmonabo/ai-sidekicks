@@ -98,6 +98,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::QuestionAsked
         | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
+        | SessionEventType::QuestionWaitSettled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled
         | SessionEventType::SessionCreated

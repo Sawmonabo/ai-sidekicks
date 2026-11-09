@@ -1,6 +1,7 @@
 //! The question rows' writes, each the statement its event's live write and a rebuild's fold share,
 //! with the guards the live write keeps, and the reads of a record, its pages, the questions a
-//! run's end settles or a restart withdraws, and the open question a request sent again returns to.
+//! run's end settles or a restart withdraws, the open question a request sent again returns to,
+//! and the open question a workflow wait holds.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -11,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionPrompt,
+    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionPrompt, QuestionWaitOutcome,
 };
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
@@ -42,6 +43,24 @@ static SETTLE_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
         open = <&'static str>::from(QuestionState::Open),
         waiting = <&'static str>::from(QuestionState::WaitingForRun),
         canceled = <&'static str>::from(QuestionState::Canceled)
+    )
+});
+
+// Settles the open question a workflow wait holds in its session; one settled before is left.
+static SETTLE_WAIT_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE questions SET state = @state
+  WHERE session_id = @sessionId AND wait_id = @waitId AND state = '{}'",
+        <&'static str>::from(QuestionState::Open)
+    )
+});
+
+// The open question a workflow wait holds in its session.
+static OPEN_WAIT_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM questions
+  WHERE session_id = @sessionId AND wait_id = @waitId AND state = '{}'",
+        <&'static str>::from(QuestionState::Open)
     )
 });
 
@@ -279,17 +298,62 @@ pub(crate) fn settle_question_statement(
     question_id: &QuestionId,
     state: QuestionSettledState,
 ) -> WriteStatement {
-    let state = match state {
-        QuestionSettledState::Answered => QuestionState::Answered,
-        QuestionSettledState::Canceled => QuestionState::Canceled,
-    };
     WriteStatement {
         sql: Cow::Borrowed(SETTLE_QUESTION_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@questionId", question_id.text().as_str()),
-            text_binding("@state", state.into()),
+            text_binding("@state", stored_state(state).into()),
         ]),
         expected_row_count: Some(1),
+    }
+}
+
+/// Settles as `state` the open question the workflow wait `wait_id` holds in `session_id`; a
+/// question an earlier write settled is left as it is, so the statement is never refused.
+pub(crate) fn settle_wait_question_statement(
+    session_id: &str,
+    wait_id: &str,
+    state: QuestionSettledState,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SETTLE_WAIT_QUESTION_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@sessionId", session_id),
+            text_binding("@waitId", wait_id),
+            text_binding("@state", stored_state(state).into()),
+        ]),
+        expected_row_count: None,
+    }
+}
+
+/// The settle a `question.wait.settled`, given as its type and stored payload, writes: its wait's
+/// question `answered` for an answer, `canceled` for a timeout or an end. Any other event writes
+/// none.
+pub(crate) fn wait_settled_statement(
+    event_type: SessionEventType,
+    payload: &Map<String, Value>,
+) -> Option<WriteStatement> {
+    if event_type != SessionEventType::QuestionWaitSettled {
+        return None;
+    }
+    let session_id = payload.get("sessionId").and_then(Value::as_str)?;
+    let wait_id = payload.get("waitId").and_then(Value::as_str)?;
+    let outcome: QuestionWaitOutcome = serde_json::from_value(payload.get("outcome")?.clone())
+        .expect("a stored question.wait.settled passed its payload's check");
+    let state = match outcome {
+        QuestionWaitOutcome::Answered => QuestionSettledState::Answered,
+        QuestionWaitOutcome::TimedOut | QuestionWaitOutcome::Ended => {
+            QuestionSettledState::Canceled
+        }
+    };
+    Some(settle_wait_question_statement(session_id, wait_id, state))
+}
+
+// The word the store writes for a settled state.
+fn stored_state(state: QuestionSettledState) -> QuestionState {
+    match state {
+        QuestionSettledState::Answered => QuestionState::Answered,
+        QuestionSettledState::Canceled => QuestionState::Canceled,
     }
 }
 
@@ -389,6 +453,25 @@ pub(crate) fn read_asked(
                 "@questionId": question_id.text().as_str(),
             },
             |row| text_column(row, 0, |text| serde_json::from_str(&text)),
+        )
+        .optional()
+}
+
+/// The open question the workflow wait `wait_id` holds in `session_id`, or `None` when it holds
+/// none open. Fails as SQLite does, or when the stored id does not read.
+pub(crate) fn read_open_wait_question(
+    connection: &Connection,
+    session_id: &SessionId,
+    wait_id: &UuidTextForm,
+) -> rusqlite::Result<Option<QuestionId>> {
+    connection
+        .prepare_cached(&OPEN_WAIT_QUESTION_SQL)?
+        .query_row(
+            named_params! {
+                "@sessionId": session_id.text().as_str(),
+                "@waitId": wait_id.text().as_str(),
+            },
+            |row| text_column(row, 0, |text| QuestionId::new(&text)),
         )
         .optional()
 }

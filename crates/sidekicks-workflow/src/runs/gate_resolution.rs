@@ -23,10 +23,6 @@ use sidekicks_store::database::statement::{
 
 /// One answer to a gate of a run, as the approval side hands it over: every member of its row but
 /// the sequence, which the row's statement counts.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the approval side's gate answers and Keep going")
-)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkflowGateAnswer {
     /// The answer's id, its row's and its `workflow.gate.resolved` event's.

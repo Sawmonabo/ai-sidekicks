@@ -5,7 +5,7 @@
 //! the answer and kept on the record with the digest of its pages, so a request its provider sends
 //! again after the daemon's restart, under the same id or a new one, is held again for its open
 //! question, with no second record and the run unmoved; one whose question was answered meanwhile
-//! is handed the orphaned answer once.
+//! is handed the orphaned answer once. A workflow wait's question is recorded open once per wait.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -18,7 +18,8 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
     QuestionAskedPayload, QuestionAskedState, QuestionCanceledPayload, QuestionCanceledReason,
-    QuestionId, QuestionResolveResponse, RunQuestionAskedPayload,
+    QuestionId, QuestionPrompt, QuestionResolveResponse, RunQuestionAskedPayload,
+    WaitQuestionAskedPayload,
 };
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
@@ -27,8 +28,9 @@ use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -47,6 +49,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -58,7 +61,7 @@ use crate::questions::orphaned_answers::OrphanedSecretAnswers;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
     insert_question_statement, question_input_digest, read_open_questions_asked_again,
-    read_question, read_unsettled_among, settle_question_statement,
+    read_open_wait_question, read_question, read_unsettled_among, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
 use crate::run::engine::RunEngine;
@@ -73,9 +76,9 @@ mod tests;
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, which held questions are still open, the open
 /// questions a request sent again returns to, the orphaned answers a question asked again takes,
-/// the orphaned answers a session's continues owe, and a session's open questions that came on a
-/// request.
-pub const QUESTION_STATEMENT_CAPACITY: usize = 8;
+/// the orphaned answers a session's continues owe, a session's open questions that came on a
+/// request, and the open question a workflow wait holds.
+pub const QUESTION_STATEMENT_CAPACITY: usize = 9;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -272,9 +275,65 @@ impl QuestionsService {
     }
 
     /// The workflow waits' port, which the workflow engine registers once.
-    #[expect(dead_code, reason = "the workflow engine, which registers its waits")]
-    pub(crate) fn waits(&self) -> &PortRegistration<Arc<dyn QuestionWaits>> {
+    pub fn waits(&self) -> &PortRegistration<Arc<dyn QuestionWaits>> {
         &self.waits
+    }
+
+    /// Records `questions` open as the question the workflow wait `wait_id` holds in `session_id`,
+    /// a form wait's fields' schema `form_schema` beside them, and answers its id. Under the
+    /// session's append hold, a wait already holding an open question answers that one and
+    /// nothing is written, so a wait asked again asks once. Fails as the read, the draft or the
+    /// write fails.
+    pub async fn ask_for_wait(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+        questions: BoundedVec<QuestionPrompt, 1, { usize::MAX }>,
+        form_schema: Option<JsonRecord>,
+    ) -> Result<QuestionId, QuestionError> {
+        let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
+        if let Some(question_id) = self.open_wait_question(session_id, wait_id).await? {
+            return Ok(question_id);
+        }
+        let question_id =
+            QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is in a question id's form");
+        let asked = QuestionAskedPayload::Wait(WaitQuestionAskedPayload {
+            question_id,
+            session_id,
+            run_id: None,
+            wait_id,
+            state: None,
+            form_schema,
+            is_agent_waiting: true,
+            questions,
+        });
+        let insert = insert_question_statement(&asked);
+        let event = SessionEventDraft::of_session(session_id, &SessionEvent::QuestionAsked(asked))?;
+        self.appender
+            .append_held(
+                &hold,
+                event,
+                SessionEventLinkage {
+                    transactional_prelude: vec![insert],
+                    ..SessionEventLinkage::default()
+                },
+            )
+            .await?;
+        Ok(question_id)
+    }
+
+    /// The open question the workflow wait `wait_id` holds in `session_id`, `None` where it holds
+    /// none open. Fails as the read fails.
+    pub async fn open_wait_question(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> Result<Option<QuestionId>, QuestionError> {
+        self.reads
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QuestionError>(read_open_wait_question(reader, &session_id, &wait_id)?)
+            })
+            .await
     }
 
     /// Records `question` open under a minted id: when its agent waits, in the write that moves
@@ -360,6 +419,7 @@ impl QuestionsService {
                 state,
                 provider_request_id: provider_request_id.clone(),
                 wait_id: None,
+                form_schema: None,
                 is_agent_waiting,
                 questions: questions.clone(),
             })

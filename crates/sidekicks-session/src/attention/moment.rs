@@ -504,6 +504,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::QuestionAsked(_)
         | SessionEvent::QuestionOpened(_)
         | SessionEvent::QuestionCanceled(_)
+        | SessionEvent::QuestionWaitSettled(_)
         | SessionEvent::AgentQueueItemCreated(_)
         | SessionEvent::AgentQueueItemAdmitted(_)
         | SessionEvent::AgentQueueItemSuperseded(_)

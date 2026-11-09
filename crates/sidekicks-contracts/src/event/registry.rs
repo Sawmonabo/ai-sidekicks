@@ -144,6 +144,7 @@ session_event_types! {
         QuestionAsked = "question.asked",
         QuestionOpened = "question.opened",
         QuestionCanceled = "question.canceled",
+        QuestionWaitSettled = "question.wait.settled",
     ]
     /// The event types of the `artifactPublication` category.
     ARTIFACT_PUBLICATION_EVENT_TYPES = ArtifactPublication [

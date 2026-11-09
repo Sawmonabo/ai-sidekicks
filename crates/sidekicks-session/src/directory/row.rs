@@ -328,6 +328,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::QuestionAsked
         | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
+        | SessionEventType::QuestionWaitSettled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled
         | SessionEventType::SessionGoalUpdated

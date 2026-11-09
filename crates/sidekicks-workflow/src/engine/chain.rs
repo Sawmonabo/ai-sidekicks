@@ -74,13 +74,6 @@ pub(crate) struct ChainHeldStep {
 /// An answer that keeps its chain going: an approval of the chain's question on the chain's first
 /// run, the only answer [`keep_going_statements`] takes.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start's handlers and the tick, which ask and answer a chain's question"
-    )
-)]
 pub(crate) struct KeepGoingAnswer(WorkflowGateAnswer);
 
 /// Why an answer cannot keep its chain going.

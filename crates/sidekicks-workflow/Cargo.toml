@@ -41,6 +41,7 @@ futures.workspace = true
 garde.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
+jsonschema.workspace = true
 percent-encoding.workspace = true
 petgraph.workspace = true
 reqwest.workspace = true

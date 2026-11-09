@@ -8,6 +8,7 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
@@ -159,10 +160,11 @@ impl PersonWaitQuestions for RecordingAsks {
         Box::pin(async move { taken.map(|()| fresh_question_id()) })
     }
 
-    fn reattach<'call>(
-        &'call self,
-        _wait_id: &'call UuidTextForm,
-    ) -> BoxFuture<'call, Result<(), PortError>> {
+    fn reattach(
+        &self,
+        _session_id: SessionId,
+        _wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 }

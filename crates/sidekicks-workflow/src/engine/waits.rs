@@ -5,7 +5,8 @@
 //! The commit stores the wait, its id and deadline on the step's row, before anything asks the
 //! person. A crash in between leaves a stored wait the restart asks again, never a question with no
 //! stored wait to answer. The answer's intake, which makes an answer the step's resume and
-//! settlement, is `answers`.
+//! settlement, and the door that sends it to the tick, are `answers`; a form answer's check against
+//! its fields is `form_check`.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -37,7 +38,8 @@ use crate::engine::ports::{
 use crate::engine::tick::{RunScope, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure, uncoded_step_error};
 
-pub(crate) mod answers;
+pub mod answers;
+pub mod form_check;
 
 /// A wait on a person the engine opened for a step: what the commit stores on the step's row and
 /// writes in its `workflow.phase.suspended`.
@@ -203,6 +205,7 @@ impl PersonWaitPorts {
                 .questions
                 .open_form(FormQuestionRequest {
                     session_id: scope.session_id,
+                    workflow_name: scope.workflow_name.clone(),
                     step: step.clone(),
                     wait_id: opened.wait_id,
                     prompt: prompt.clone(),
@@ -214,6 +217,7 @@ impl PersonWaitPorts {
                 .questions
                 .open_reply(ReplyQuestionRequest {
                     session_id: scope.session_id,
+                    workflow_name: scope.workflow_name.clone(),
                     step: step.clone(),
                     wait_id: opened.wait_id,
                     prompt: prompt.clone(),
@@ -227,8 +231,7 @@ impl PersonWaitPorts {
 /// A person's answer to a step waiting on them: an approval card's decision, a form's fields keyed
 /// by each field's id, or a chat reply's text.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) enum PersonWaitAnswer {
+pub enum PersonWaitAnswer {
     /// The approval card's decision.
     Approval(ApprovalDecision),
     /// The submitted fields, keyed by each field's id.
@@ -265,8 +268,7 @@ pub(crate) struct WaitingPersonStep {
 
 /// Why an answer did not settle a wait; it answers `workflow.step.notWaiting`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) enum PersonWaitRefusal {
+pub enum PersonWaitRefusal {
     /// The answer names another wait, is the wrong kind for the wait, or came at or after its
     /// deadline.
     #[error("the step is not waiting on this answer")]

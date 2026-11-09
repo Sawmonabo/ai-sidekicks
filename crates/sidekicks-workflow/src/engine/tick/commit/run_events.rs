@@ -1,12 +1,14 @@
 //! The run's own share of a turn's write: the status its steps leave it in, stored with its
 //! person-wait columns and recorded by the run event the move implies, the write's last, or the
-//! run's ending in its place; and the two moves that take a step out of a wait, a gate's answer
-//! and the step's resume, which a person's answer and Keep going share.
+//! run's ending in its place; the two moves that take a step out of a wait, a gate's answer and
+//! the step's resume, which a person's answer and Keep going share; and the mark that settles a
+//! form or reply wait's question in the write that ends the wait.
 
 use std::borrow::Cow;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::events::{
@@ -90,6 +92,25 @@ impl RunTurnCommit {
         self.counts.moved(
             Some((WorkflowStepStatus::Waiting, Some(cause))),
             (WorkflowStepStatus::Running, None),
+        );
+    }
+
+    /// Writes `question.wait.settled` at `at` in the run's session: the question the form or reply
+    /// wait `wait_id` holds settled as `outcome`, its row settled by the event's own write.
+    pub(crate) fn settle_wait_question(
+        &mut self,
+        wait_id: &UuidTextForm,
+        outcome: QuestionWaitOutcome,
+        at: &WireInstant,
+    ) {
+        let session_id = self.keys.session_id;
+        self.push(
+            at,
+            SessionEvent::QuestionWaitSettled(QuestionWaitSettledPayload {
+                session_id,
+                wait_id: *wait_id,
+                outcome,
+            }),
         );
     }
 

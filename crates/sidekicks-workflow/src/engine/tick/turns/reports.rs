@@ -1,14 +1,20 @@
 //! The report path of the tick's loop: each report first offered to its run's waves, then added
-//! to its run's turn, a settlement's payload failure failed in its place, and what each settlement
-//! answers followed.
+//! to its run's turn, a settlement's payload failure failed in its place, a form or reply wait the
+//! settlement ends unanswered marked on its question, and what each settlement answers followed.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
 
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::question::QuestionWaitOutcome;
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
+use sidekicks_contracts::workflow::run::failures::{
+    WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
+};
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
@@ -146,7 +152,9 @@ impl EngineTick {
 
     /// Adds the settlement `report` to `commit` and answers what follows. A settlement whose
     /// payload cannot be stored fails its step with that error in its place, and a failure whose
-    /// passed-on output cannot be stored either ends the run, which stores nothing more.
+    /// passed-on output cannot be stored either ends the run, which stores nothing more. A step
+    /// still waiting on a form or a reply has its question marked once, after the settlement that
+    /// lands: timed out where the step's own `Timeout` failed it, else ended.
     pub(super) async fn report_settlement(
         &self,
         live: &LiveRun,
@@ -155,25 +163,31 @@ impl EngineTick {
     ) -> SettlementAnswer {
         let step = report.step.clone();
         let at = report.at.clone();
-        let failure = match commit.report(report, self.reported(live, &step)).await {
-            Ok(answer) => return answer.expect("a settlement answers"),
-            Err(failure) => failure,
+        let ended_wait = ended_question_wait(live, &report);
+        let answer = match commit.report(report, self.reported(live, &step)).await {
+            Ok(answer) => answer,
+            Err(failure) => {
+                let failed = self
+                    .fail_in_place(live, &step, at.clone(), failure, StepFailure::Failed)
+                    .await;
+                match commit.report(failed, self.reported(live, &step)).await {
+                    Ok(answer) => answer,
+                    Err(failure) => {
+                        let ended = self
+                            .fail_in_place(live, &step, at.clone(), failure, StepFailure::EndsRun)
+                            .await;
+                        commit
+                            .report(ended, self.reported(live, &step))
+                            .await
+                            .expect("a failure that ends its run stores no output and an empty log")
+                    }
+                }
+            }
         };
-        let failed = self
-            .fail_in_place(live, &step, at.clone(), failure, StepFailure::Failed)
-            .await;
-        let failure = match commit.report(failed, self.reported(live, &step)).await {
-            Ok(answer) => return answer.expect("a settlement answers"),
-            Err(failure) => failure,
-        };
-        let ended = self
-            .fail_in_place(live, &step, at, failure, StepFailure::EndsRun)
-            .await;
-        commit
-            .report(ended, self.reported(live, &step))
-            .await
-            .expect("a failure that ends its run stores no output and an empty log")
-            .expect("a settlement answers")
+        if let Some((wait_id, outcome)) = ended_wait {
+            commit.settle_wait_question(&wait_id, outcome, &at);
+        }
+        answer.expect("a settlement answers")
     }
 
     /// Deletes what the failed settlement of `step` wrote, records the failure, and answers the
@@ -634,6 +648,50 @@ pub(super) async fn sort_losers(
         siblings.push(RunSibling { step, state });
     }
     siblings
+}
+
+/// The wait whose question the settlement `report` ends unanswered, with how: its step still
+/// waits on a form or a reply, and the step's own `Timeout` failing it reads timed out while
+/// anything else, the run cap's cut among them, reads ended. `None` for any other step, an answered
+/// one included, since its answer cleared its wait before its settlement.
+fn ended_question_wait(
+    live: &LiveRun,
+    report: &StepReport,
+) -> Option<(UuidTextForm, QuestionWaitOutcome)> {
+    let live_step = live.steps.get(&report.step.execution_index.get())?;
+    match live_step.wait_cause? {
+        WorkflowWaitCause::Form | WorkflowWaitCause::Reply => {}
+        WorkflowWaitCause::Approval | WorkflowWaitCause::Account | WorkflowWaitCause::Chain => {
+            return None;
+        }
+    }
+    let wait_id = live_step.wait_id?;
+    let outcome = if matches!(
+        &report.kind,
+        StepReportKind::Settled(StepSettlement::Failed {
+            failure: StepFailure::Failed(error) | StepFailure::EndsRun(error),
+            ..
+        }) if is_step_timeout(error)
+    ) {
+        QuestionWaitOutcome::TimedOut
+    } else {
+        QuestionWaitOutcome::Ended
+    };
+    Some((wait_id, outcome))
+}
+
+/// Whether `error` is the failure the step's own `Timeout` gives: `workflow.step.timedOut` with
+/// the cause `stepTimeout`, never the run cap's `runCap`.
+fn is_step_timeout(error: &WorkflowStepError) -> bool {
+    let WorkflowStepError::Coded(coded) = error else {
+        return false;
+    };
+    coded.code.as_str() == RefusalCode::WorkflowStepTimedOut.as_str()
+        && coded.details.as_ref().is_some_and(|details| {
+            serde_json::to_value(details)
+                .and_then(serde_json::from_value::<WorkflowStepTimedOutDetails>)
+                .is_ok_and(|details| details.cause == WorkflowStepTimedOutCause::StepTimeout)
+        })
 }
 
 /// Cancels the live `step` of `live` at `at` without a driver: its cancel queued on the turn's

@@ -5,8 +5,11 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionResolveState};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::question::{
+    QuestionAnswer, QuestionId, QuestionPrompt, QuestionResolveState,
+};
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_provider::port::question::ToolServerAnswerDelivery;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 
@@ -18,9 +21,10 @@ use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 // whoever sends it on, the driver under the provider's request id or the tool-server task that
 // asked, and never to the other, before one write settles it `answered`, appends the person's
 // turn with the device and the secret masked, and moves the run back to `running`; the secret is
-// in no stored row. A second answer reads the state back and sends nothing. Killed by writing
-// before the answer goes out, by sending a task's answer to the driver, by storing the secret, by
-// a missing device, and by dropping the settled-state read.
+// in no stored row; a skip of a tool server's required field is taken. A second answer reads the
+// state back and sends nothing. Killed by writing before the answer goes out, by sending a task's
+// answer to the driver, by storing the secret, by a missing device, by dropping the settled-state
+// read, and by refusing a skip of a required page on a question no workflow wait holds.
 #[rstest]
 #[case::through_the_driver(false)]
 #[case::through_the_tool_server_task(true)]
@@ -41,7 +45,7 @@ async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
     let question_id = fixture
         .ask_answered_by(
             "request-1",
-            json!([choice_page(), secret_page()]),
+            json!([choice_page(), secret_page(), form_field_page()]),
             true,
             answered_by,
         )
@@ -52,6 +56,7 @@ async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
     let answers = json!([
         { "kind": "picked", "labels": ["Beta"] },
         { "kind": "secret", "value": SECRET },
+        { "kind": "skipped" },
     ]);
     let first = fixture.answer(question_id, answers.clone()).await;
     let second = fixture.answer(question_id, answers).await;
@@ -83,7 +88,7 @@ async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0]["answersQuestionId"], json!(question_id));
     assert_eq!(turns[0]["deviceId"], "device-1");
-    assert_eq!(turns[0]["message"], "Beta\nAnswered (secret)");
+    assert_eq!(turns[0]["message"], "Beta\nAnswered (secret)\nSkipped");
     // A stored body may be compressed, so each is decoded before it is searched.
     let reader = fixture.database.reader();
     let mut statement = reader
@@ -113,6 +118,8 @@ enum RefusedRecord {
     Unwaited,
     /// A one-page question waiting for its run.
     WaitingForRun,
+    /// A one-page question a workflow wait holds, its page required.
+    WaitHeld,
     /// An id no record holds.
     Unknown,
 }
@@ -121,9 +128,10 @@ enum RefusedRecord {
 // `question.answersIncomplete`, an answer its question cannot take `question.answerInvalid` with
 // its page and reason, an id no record holds `question.notFound`, a question its agent does not
 // wait for `question.notWaiting`, and one that waits for its run `question.waitingForRun`; none
-// of them reaches the driver, the record keeps its state and the run where it was. Killed by
-// removing the count check, any one reason's check, the waiting check, or the check of a question
-// waiting for its run.
+// of them reaches the driver or a wait, the record keeps its state and the run where it was; no
+// wait's door is registered, so a skip of a wait's required page is refused before the door. Killed
+// by removing the count check, any one reason's check, the waiting check, the check of a question
+// waiting for its run, or reading `required` as present rather than true.
 #[rstest]
 #[case::one_answer_short(
     RefusedRecord::Waited,
@@ -181,6 +189,13 @@ enum RefusedRecord {
     None,
     "running"
 )]
+#[case::a_skip_of_a_waits_required_page(
+    RefusedRecord::WaitHeld,
+    json!([{ "kind": "skipped" }]),
+    RefusalCode::QuestionAnswerInvalid,
+    Some((0, "skipOnRequired")),
+    "running"
+)]
 #[case::an_id_no_record_holds(
     RefusedRecord::Unknown,
     json!([{ "kind": "skipped" }]),
@@ -223,6 +238,21 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
                 .0,
             "waitingForRun",
         )),
+        RefusedRecord::WaitHeld => {
+            let pages = serde_json::from_value::<Vec<QuestionPrompt>>(json!([form_field_page()]))
+                .expect("the test's pages read");
+            let question_id = fixture
+                .questions
+                .ask_for_wait(
+                    fixture.session_id,
+                    UuidTextForm::from(mint_uuid_v7()),
+                    BoundedVec::new(pages).expect("one page"),
+                    None,
+                )
+                .await
+                .expect("the wait's question is recorded");
+            Some((question_id, "open"))
+        }
         RefusedRecord::Unknown => None,
     };
     let question_id = recorded.map_or_else(

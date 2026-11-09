@@ -41,7 +41,6 @@ pub(crate) enum RunGraphError {
 
 /// One slot a main output feeds: the target node's place in the graph and its slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SlotTarget {
     /// The target node's place, which is its visiting rank.
     pub(crate) node: usize,

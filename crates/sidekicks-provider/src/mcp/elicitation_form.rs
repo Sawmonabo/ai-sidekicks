@@ -156,6 +156,21 @@ pub fn compose_elicitation_content(
     content
 }
 
+/// The names of the fields [`read_elicitation_questions`] asks of `params`, one per question in
+/// the order it asks them, so a field's name gives its question's page; a property that is no
+/// object or is asked by nothing is not among them.
+pub fn read_elicitation_field_names(params: &Value) -> Vec<&str> {
+    params
+        .as_object()
+        .map(|payload| {
+            read_elicitation_fields(payload)
+                .into_iter()
+                .map(|field| field.name)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 // The fields of a `form` elicitation, in the order its schema lists its properties; none for
 // any other mode. A field asked by nothing (no title, description, name or form message) is
 // left out here, so the questions and the content pair every answer with the same field.

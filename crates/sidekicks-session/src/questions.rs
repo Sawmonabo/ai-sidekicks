@@ -13,17 +13,17 @@ pub mod schema;
 pub mod service;
 pub(crate) mod store;
 pub(crate) mod waiting_for_run;
-pub(crate) mod waits;
+pub mod waits;
 
 use sidekicks_contracts::question::QuestionResolveState;
 
-/// A settled question's state as the store writes it: answered, or canceled with the turn that
-/// held it.
+/// A settled question's state as the store writes it: answered, or canceled with the turn or the
+/// wait that held it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QuestionSettledState {
+pub enum QuestionSettledState {
     /// Answered.
     Answered,
-    /// Canceled with the turn that held it.
+    /// Canceled with the turn or the wait that held it.
     Canceled,
 }
 

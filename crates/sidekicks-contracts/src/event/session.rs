@@ -45,7 +45,10 @@ use crate::plan::{
     PlanAcceptedPayload, PlanHandOffFailedPayload, PlanHandedOffPayload, PlanHoldEndedPayload,
     PlanKeptPayload, PlanProposedPayload,
 };
-use crate::question::{QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload};
+use crate::question::{
+    QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload,
+    QuestionWaitSettledPayload,
+};
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
@@ -375,6 +378,8 @@ session_events! {
     QuestionOpened(QuestionOpenedPayload) = "question.opened",
     /// Emitted when an open question, or one waiting for its run, ends unanswered.
     QuestionCanceled(QuestionCanceledPayload) = "question.canceled",
+    /// Emitted in the write that ends a workflow form or reply wait, settling its question.
+    QuestionWaitSettled(QuestionWaitSettledPayload) = "question.wait.settled",
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.

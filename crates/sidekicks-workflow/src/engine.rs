@@ -13,4 +13,4 @@ pub mod ports;
 pub(crate) mod results;
 pub(crate) mod start;
 pub(crate) mod tick;
-pub(crate) mod waits;
+pub mod waits;

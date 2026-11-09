@@ -1,7 +1,7 @@
 //! The questions service's tests: a held question's answer and the refusals that send nothing,
 //! each way a question ends unanswered, a question's turn while its run waits on another, the
-//! queued answers of a question its agent does not wait for, a tool server's kept answer, and the
-//! orphaned answer, kept while no request held its question.
+//! queued answers of a question its agent does not wait for, a tool server's kept answer, the
+//! orphaned answer, kept while no request held its question, and a workflow wait's question.
 
 mod answers;
 mod endings;
@@ -9,6 +9,7 @@ mod orphaned;
 mod queued_answers;
 mod run_turn;
 mod tool_server;
+mod waits;
 
 use futures::FutureExt as _;
 use serde_json::{Value, json};

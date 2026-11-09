@@ -8,7 +8,8 @@
 //! orphaned answer for the question asked again and the run's continue. An answer the tool server
 //! keeps for its next ask leaves the question open and its run waiting until that ask takes it,
 //! when the same one write settles it. A question a workflow wait holds gets its answers through
-//! the wait. A settled record answers its state and sends nothing.
+//! the wait, which may refuse one its form field does not take, and takes no skip of a required
+//! page. A settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
 //! drops a late answer with no word back: an answer that reaches the driver in that window returns
@@ -49,7 +50,7 @@ use crate::questions::service::{
 use crate::questions::store::{
     QuestionHolder, question_input_digest, read_asked, read_question, settle_question_statement,
 };
-use crate::questions::waits::QuestionWaitAnswer;
+use crate::questions::waits::{QuestionWaitAnswer, QuestionWaitError};
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // An orphaned answer, which no provider request took, kept by the write that settles its
@@ -104,23 +105,34 @@ impl QuestionsService {
             return Err(question_waiting_for_run(question_id).into());
         }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
-        check_answers(question_id, asked_pages(&asked), &answers)?;
+        let is_wait_held = matches!(stored.holder, QuestionHolder::Wait(_));
+        check_answers(question_id, asked_pages(&asked), &answers, is_wait_held)?;
         let (state, orphaned): (QuestionResolveState, _) = match stored.holder {
-            QuestionHolder::Wait(wait_id) => (
-                self.waits
+            QuestionHolder::Wait(wait_id) => {
+                // A wait's row whose record is a run's has no record of its own.
+                let QuestionAskedPayload::Wait(asked) = asked else {
+                    return Err(QuestionError::AskedMissing { question_id });
+                };
+                let settled = self
+                    .waits
                     .require_port()?
                     .answer_wait(QuestionWaitAnswer {
                         session_id: stored.session_id,
                         question_id,
                         wait_id,
+                        asked,
                         answers,
                         device_id,
                     })
                     .await
-                    .map_err(QuestionError::Wait)?
-                    .into(),
-                None,
-            ),
+                    .map_err(|failure| match failure {
+                        QuestionWaitError::Refused { page, reason } => {
+                            QuestionError::Refused(answer_invalid(question_id, page, reason))
+                        }
+                        QuestionWaitError::Failed(source) => QuestionError::Wait(source),
+                    })?;
+                (settled.into(), None)
+            }
             QuestionHolder::Run(run_id) => {
                 self.answer_held(
                     question_id,
@@ -391,11 +403,13 @@ fn settled_state(state: QuestionState) -> Option<QuestionSettledState> {
     }
 }
 
-// Refuses a list that does not answer every page, then the first answer its page cannot take.
+// Refuses a list that does not answer every page, then the first answer its page cannot take,
+// a skip of a required page among them where a workflow wait holds the record (`is_wait_held`).
 fn check_answers(
     question_id: QuestionId,
     pages: &[QuestionPrompt],
     answers: &[QuestionAnswer],
+    is_wait_held: bool,
 ) -> Result<(), DomainError> {
     if answers.len() != pages.len() {
         return Err(DomainError::new(
@@ -409,26 +423,39 @@ fn check_answers(
         })));
     }
     for (page, (prompt, answer)) in pages.iter().zip(answers).enumerate() {
-        if let Some(reason) = refused_answer(prompt, answer) {
-            return Err(DomainError::new(
-                "An answer does not fit its question",
-                RefusalCode::QuestionAnswerInvalid,
-            )
-            .with_detail(json!({ "questionId": question_id, "page": page, "reason": reason })));
+        if let Some(reason) = refused_answer(prompt, answer, is_wait_held) {
+            return Err(answer_invalid(question_id, page, reason));
         }
     }
     Ok(())
 }
 
-// Why `prompt` cannot take `answer`, if it cannot: a secret question takes only a secret or a
-// skip, and only it takes a secret; picked labels must be offered, one unless several are; typed
-// text fits any question but a form field whose options are its only values.
+// `question.answerInvalid` for the answer to `page` of `question_id`, which does not fit for
+// `reason`.
+fn answer_invalid(
+    question_id: QuestionId,
+    page: usize,
+    reason: QuestionAnswerInvalidReason,
+) -> DomainError {
+    DomainError::new(
+        "An answer does not fit its question",
+        RefusalCode::QuestionAnswerInvalid,
+    )
+    .with_detail(json!({ "questionId": question_id, "page": page, "reason": reason }))
+}
+
+// Why `prompt` cannot take `answer`, if it cannot: a skip fits any question but a required one a
+// workflow wait holds (`is_wait_held`); a secret question takes only a secret or a skip, and only
+// it takes a secret; picked labels must be offered, one unless several are; typed text fits any
+// question but a form field whose options are its only values.
 fn refused_answer(
     prompt: &QuestionPrompt,
     answer: &QuestionAnswer,
+    is_wait_held: bool,
 ) -> Option<QuestionAnswerInvalidReason> {
     match answer {
-        QuestionAnswer::Skipped {} => None,
+        QuestionAnswer::Skipped {} => (is_wait_held && prompt.required == Some(true))
+            .then_some(QuestionAnswerInvalidReason::SkipOnRequired),
         QuestionAnswer::Secret { .. } => {
             (!prompt.secret).then_some(QuestionAnswerInvalidReason::SecretOnPlain)
         }
