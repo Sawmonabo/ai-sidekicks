@@ -639,11 +639,16 @@ impl CodexService {
         }
     }
 
-    /// Sends a session's frames and asks to `sender` from now on, and first the config warnings
-    /// the service sent that the session has not heard.
+    /// Sends a session's frames and asks to `sender` from now on, and first the start of a reading
+    /// of the service's settings with the config warnings the service sent that the session has
+    /// not heard.
     pub(crate) fn attach_session(&self, sender: CodexSessionInboundSender) {
         let session_id = sender.session_id();
         let mut routing = self.lock_routing();
+        // A queue whose task ended takes nothing more; its session is closing.
+        let _unheard = sender.push(CodexSessionInbound::SettingsReadingBegan);
+        // Every current warning follows the reading's start, those told at an earlier attach too.
+        routing.config_warnings.forget_session(&session_id);
         for warning in routing.config_warnings.take_owed(&session_id) {
             // A queue whose task ended takes nothing more; its session is closing.
             let _unheard = sender.push(CodexSessionInbound::Frame {
@@ -736,9 +741,17 @@ impl CodexService {
         }
     }
 
-    /// Starts a new connection's routing: its reports and its config warnings begin again.
+    /// Starts a new connection's routing: its reports and its config warnings begin again, and
+    /// each session the warnings reach hears that a new reading of the settings began.
     fn start_connection(&self) {
-        self.lock_routing().start_connection();
+        let mut routing = self.lock_routing();
+        routing.start_connection();
+        for session_id in self.lock_threads().sessions() {
+            if let Some(session) = routing.session(&session_id) {
+                // A queue whose task ended takes nothing more; its session is closing.
+                let _unheard = session.push(CodexSessionInbound::SettingsReadingBegan);
+            }
+        }
     }
 
     /// What the service starts, connects and reports through.

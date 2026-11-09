@@ -490,7 +490,8 @@ impl TestCodexTask {
             }
             CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::SideQuestionReleased { .. }
-            | CodexSessionInbound::ExportedResponse(_) => {}
+            | CodexSessionInbound::ExportedResponse(_)
+            | CodexSessionInbound::SettingsReadingBegan => {}
             // The test's task meters no spend, so the bindings move at once.
             CodexSessionInbound::AccountMoved(account_move) => {
                 let record = &mut self.record;
@@ -830,6 +831,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::ExportedResponse(response));
+        async {}.boxed()
+    }
+
+    // The test's session posts no notice, so the queue's tests read only what the service sent.
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 

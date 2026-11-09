@@ -271,6 +271,10 @@ impl CodexSessionInboundHandler for SessionQueue {
         async {}.boxed()
     }
 
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()> {
+        async {}.boxed()
+    }
+
     fn next_deadline(&self) -> Option<Instant> {
         None
     }

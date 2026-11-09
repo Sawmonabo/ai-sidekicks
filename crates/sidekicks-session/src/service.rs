@@ -121,7 +121,8 @@ pub struct SessionLogRead {
     pub transcript_cursors: SessionTranscriptCursors,
     /// Every run not yet ended.
     pub live_runs: Vec<SessionLiveRun>,
-    /// The newest event of each kind a reader keeps a standing fact from, in sequence order.
+    /// The events a reader keeps a standing fact from, in sequence order: the newest of each kind
+    /// and subject, and each notice that still stands.
     pub standing_events: Vec<SessionStandingEvent>,
 }
 
@@ -219,6 +220,11 @@ const SELECT_TAGS_SQL: &str =
 // log in sequence order; the envelope read orders them. A live run with no such row answers NULL,
 // which the outer select drops. Each newest pick takes the newest readable row, so a damaged or
 // skipped newer one never hides the fact before it.
+//
+// The notices that stand: each provider's crash loop until the restart that ends it; the newest
+// ignored-settings notice per provider and file until a reading finds that file clean or a new
+// start's reading begins; the newest build move until the next message is sent; and each distinct
+// provider warning, whose count the session keeps.
 static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let window_update = SessionEventType::UsageContextWindowUpdated.as_str();
     let compacted = SessionEventType::AgentRunContextCompacted.as_str();
@@ -226,11 +232,19 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     let run_queued = SessionEventType::AgentRunQueued.as_str();
     let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
+    let notice_posted = SessionEventType::SessionNoticePosted.as_str();
+    let message_sent = SessionEventType::UserMessageSent.as_str();
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     let readable_measured = readable_event_sql("measured");
     let readable_compacted = readable_event_sql("compacted");
     let readable_lease = readable_event_sql("lease");
     let readable_binding = readable_event_sql("binding");
+    let readable_crash = readable_event_sql("crash");
+    let readable_ignored = readable_event_sql("ignored");
+    let readable_loaded = readable_event_sql("loaded");
+    let readable_updated = readable_event_sql("updated");
+    let readable_sent = readable_event_sql("sent");
+    let readable_warning = readable_event_sql("warning");
     format!(
         "SELECT sequence FROM (
     SELECT (SELECT MAX(measured.sequence)
@@ -277,7 +291,55 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
       FROM session_events AS binding
      WHERE session_id = @session_id AND type = '{binding_changed}'
        AND {readable_binding}
-     GROUP BY json_extract(payload, '$.agentId'))
+     GROUP BY json_extract(payload, '$.agentId')
+    UNION ALL
+    SELECT sequence
+      FROM (SELECT MAX(sequence) AS sequence, json_extract(payload, '$.kind') AS kind
+              FROM session_events AS crash
+             WHERE session_id = @session_id AND type = '{notice_posted}'
+               AND json_extract(payload, '$.kind') IN ('providerCrashLoop', 'providerRestarted')
+               AND {readable_crash}
+             GROUP BY json_extract(payload, '$.provider'))
+     WHERE kind = 'providerCrashLoop'
+    UNION ALL
+    SELECT MAX(sequence)
+      FROM session_events AS ignored
+     WHERE session_id = @session_id AND type = '{notice_posted}'
+       AND json_extract(payload, '$.kind') = 'settingsIgnored'
+       AND {readable_ignored}
+       AND NOT EXISTS (
+             SELECT 1
+               FROM session_events AS loaded
+              WHERE loaded.session_id = @session_id AND loaded.type = '{notice_posted}'
+                AND loaded.sequence > ignored.sequence
+                AND json_extract(loaded.payload, '$.kind') = 'settingsLoaded'
+                AND json_extract(loaded.payload, '$.provider')
+                      = json_extract(ignored.payload, '$.provider')
+                AND (json_type(loaded.payload, '$.file') IS NULL
+                     OR json_extract(loaded.payload, '$.file')
+                          = json_extract(ignored.payload, '$.file'))
+                AND {readable_loaded})
+     GROUP BY json_extract(payload, '$.provider'), json_extract(payload, '$.file')
+    UNION ALL
+    SELECT MAX(sequence)
+      FROM session_events AS updated
+     WHERE session_id = @session_id AND type = '{notice_posted}'
+       AND json_extract(payload, '$.kind') = 'providerUpdated'
+       AND {readable_updated}
+       AND NOT EXISTS (
+             SELECT 1
+               FROM session_events AS sent
+              WHERE sent.session_id = @session_id AND sent.type = '{message_sent}'
+                AND sent.sequence > updated.sequence
+                AND {readable_sent})
+    UNION ALL
+    SELECT MAX(sequence)
+      FROM session_events AS warning
+     WHERE session_id = @session_id AND type = '{notice_posted}'
+       AND json_extract(payload, '$.kind') = 'providerWarning'
+       AND {readable_warning}
+     GROUP BY json_extract(payload, '$.source'), json_extract(payload, '$.text'),
+              json_extract(payload, '$.details'))
   WHERE sequence IS NOT NULL"
     )
 });
@@ -750,3 +812,6 @@ impl SessionRow {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

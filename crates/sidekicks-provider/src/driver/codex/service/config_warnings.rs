@@ -1,7 +1,9 @@
 //! The config warnings one Codex service sends, which name no conversation and belong to every
-//! session it holds. The service sends them again to each new connection, so each warning is kept
-//! by its content with the sessions already told it: a resume, a reconnect or a late attach tells
-//! a session only what it has not heard.
+//! session it holds. The service sends them again to each new connection, which is a new reading
+//! of its settings: each session hears that a reading began, then each warning of it once, so a
+//! file the new reading no longer warns of loads cleanly. Within one connection each warning is
+//! kept by its content with the sessions already told it, so a late attach tells a session only
+//! what it has not heard.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,14 +15,16 @@ use sidekicks_contracts::session::id::SessionId;
 pub(crate) struct CodexConfigWarnings {
     /// The current connection's warnings, keyed by their JSON text, in arrival order.
     current: Vec<(String, Box<RawValue>)>,
-    /// The sessions told each warning, by its JSON text; kept across connections.
+    /// The sessions told each warning on the current connection, by its JSON text.
     told_by_warning: HashMap<String, HashSet<SessionId>>,
 }
 
 impl CodexConfigWarnings {
-    /// Starts a new connection's list: the service sends its warnings again to each connection.
+    /// Starts a new connection's reading: the service sends its warnings again to each
+    /// connection, and every session hears them again.
     pub(crate) fn start_connection(&mut self) {
         self.current.clear();
+        self.told_by_warning.clear();
     }
 
     /// Records a warning the service just sent and answers the sessions among `session_ids` that
@@ -68,5 +72,41 @@ impl CodexConfigWarnings {
         for told in self.told_by_warning.values_mut() {
             told.remove(session_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use serde_json::value::to_raw_value;
+    use sidekicks_contracts::session::id::SessionId;
+
+    use super::CodexConfigWarnings;
+    use crate::driver::test_registry::new_session_id;
+
+    // A warning goes once per connection to each session, and a new connection tells every
+    // session again, its earlier banner having ended with the reading's start. Killed by keeping
+    // the told sessions across connections.
+    #[test]
+    fn a_new_connection_tells_each_session_its_warnings_again() {
+        let mut warnings = CodexConfigWarnings::default();
+        let session_id = new_session_id();
+        let warning = || {
+            to_raw_value(&json!({"summary": "bad", "path": "/c/config.toml"}))
+                .expect("a warning serializes")
+        };
+        assert_eq!(
+            warnings.record_warning(warning(), &[session_id]),
+            [session_id]
+        );
+        assert_eq!(
+            warnings.record_warning(warning(), &[session_id]),
+            Vec::<SessionId>::new()
+        );
+        warnings.start_connection();
+        assert_eq!(
+            warnings.record_warning(warning(), &[session_id]),
+            [session_id]
+        );
     }
 }

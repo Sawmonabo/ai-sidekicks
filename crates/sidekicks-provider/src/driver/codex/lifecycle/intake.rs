@@ -654,6 +654,19 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
         self.hold_exported_response(exported).boxed()
     }
 
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()> {
+        async move {
+            // A record let go has no session to post on.
+            if let Some(record) = &self.record {
+                self.parts
+                    .delivery
+                    .deliver_settings_reading_began(record)
+                    .await;
+            }
+        }
+        .boxed()
+    }
+
     fn next_deadline(&self) -> Option<Instant> {
         let delivery = self
             .record

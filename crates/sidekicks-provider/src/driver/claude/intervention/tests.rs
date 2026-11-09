@@ -712,14 +712,21 @@ async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_be
             answer: json!({"behavior": "cancelled"}),
         })
     );
+    // Each delivery's kind, a notice's by its own kind, since the start posts one of its own.
     let kinds: Vec<_> = session
         .engine
         .deliveries()
         .into_iter()
-        .map(|delivery| delivery.kind)
+        .map(|delivery| match delivery.payload {
+            Some(notice) if delivery.kind == "sessionNotice" => notice["kind"]
+                .as_str()
+                .expect("a notice names its kind")
+                .to_owned(),
+            _ => delivery.kind.to_owned(),
+        })
         .collect();
-    let queued = kinds.iter().position(|kind| *kind == "sessionNotice");
-    let settled = kinds.iter().rposition(|kind| *kind == "unstampedRow");
+    let queued = kinds.iter().position(|kind| kind == "providerWarning");
+    let settled = kinds.iter().rposition(|kind| kind == "unstampedRow");
     assert!(
         matches!((queued, settled), (Some(queued), Some(settled)) if queued < settled),
         "{kinds:?}"

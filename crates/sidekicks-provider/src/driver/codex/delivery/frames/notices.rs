@@ -1,15 +1,17 @@
 //! The provider's notices on a session: a warning, a deprecation or a config warning as the
-//! session's notice, a model switch held for its sentence, and the frames that go to the daemon's
-//! log only.
+//! session's notice, the start of a new reading of its settings, a model switch held for its
+//! sentence, and the frames that go to the daemon's log only.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
+use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::notices::{
     CodexWarningReading, hold_reroute, read_codex_config_warning, read_codex_deprecation_notice,
     read_codex_warning,
 };
+use crate::driver::codex::service::supervisor::routing::CODEX_CONFIG_WARNING_METHOD;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::record_readers::read_non_empty_string;
@@ -81,6 +83,18 @@ impl CodexFrameDelivery {
             }
             _ => {}
         }
+    }
+
+    /// Posts the session's notice that a new reading of Codex's settings began, which ends every
+    /// earlier ignored-settings notice ahead of the config warnings the reading sends.
+    pub(crate) async fn deliver_settings_reading_began(&self, record: &CodexSessionRecord) {
+        let notice = SessionNoticePostedPayload::Notice(SessionNotice::SettingsLoaded {
+            session_id: record.session_id,
+            provider: DESCRIPTOR.provider_id(),
+            file: None,
+        });
+        self.send_notice(record, notice, CODEX_CONFIG_WARNING_METHOD)
+            .await;
     }
 
     async fn send_notice(

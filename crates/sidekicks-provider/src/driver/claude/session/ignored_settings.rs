@@ -2,8 +2,10 @@
 //! notices in Claude Code's own words: each file or key its `get_settings` reply says it dropped,
 //! asked as the process starts and again after each settings file's change; a managed
 //! `cleanupPeriodDays` below the daemon's retention; and each malformed entry `claude doctor` says
-//! it skipped while the rest of its file loaded, which no reply names. A notice is posted once
-//! while it stands; one a later reading no longer carries is let go, so its return raises it again.
+//! it skipped while the rest of its file loaded, which no reply names. Each start's reading begins
+//! with the notice that ends every earlier one. A notice is posted once while it stands; one a
+//! later reading no longer carries is let go with the notice that its file loads cleanly, so its
+//! return raises it again.
 
 mod doctor;
 
@@ -14,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::events::{
-    SessionNoticePostedPayload, SettingsIgnoredAtKeyNotice, SettingsIgnoredKind,
+    SessionNotice, SessionNoticePostedPayload, SettingsIgnoredAtKeyNotice, SettingsIgnoredKind,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::ComposedText;
@@ -154,8 +156,9 @@ impl ClaudeIgnoredSettings {
         }
     }
 
-    /// Follows `watch`'s process in place of the session's earlier one: raises what its start's
-    /// `report` names, then, in the background, what `claude doctor` reports of its settings.
+    /// Follows `watch`'s process in place of the session's earlier one: ends the earlier start's
+    /// notices and raises what its start's `report` names, then, in the background, what `claude
+    /// doctor` reports of its settings.
     pub(crate) fn follow(
         self: &Arc<Self>,
         watch: ClaudeSettingsWatch,
@@ -215,8 +218,8 @@ impl ClaudeIgnoredSettings {
         {
             notices.push(notice);
         }
-        let fresh = raised.take_fresh(ClaudeSettingsReader::Reply, notices);
-        post_notices(&watch.stream, watch.session_id, fresh).await;
+        let posts = raised.take_fresh(watch.session_id, ClaudeSettingsReader::Reply, notices);
+        post_notices(&watch.stream, watch.session_id, posts).await;
     }
 
     // Posts each entry `claude doctor` reports of the watch's settings content that no notice
@@ -240,8 +243,8 @@ impl ClaudeIgnoredSettings {
             return;
         }
         let notices = self.dropped_setting_notices(watch.session_id, &entries);
-        let fresh = raised.take_fresh(ClaudeSettingsReader::Doctor, notices);
-        post_notices(&watch.stream, watch.session_id, fresh).await;
+        let posts = raised.take_fresh(watch.session_id, ClaudeSettingsReader::Doctor, notices);
+        post_notices(&watch.stream, watch.session_id, posts).await;
     }
 
     // The notice of each dropped setting: its file, its key where one was named, and Claude
@@ -323,19 +326,28 @@ async fn retention_notice(
 async fn post_notices(
     stream: &ClaudeSessionStream,
     session_id: SessionId,
-    notices: Vec<SettingsIgnoredAtKeyNotice>,
+    notices: Vec<SessionNoticePostedPayload>,
 ) {
     for notice in notices {
         drop(
             stream
                 .arrivals()
-                .dispatch(InboundDelivery::SessionNotice {
-                    session_id,
-                    notice: SessionNoticePostedPayload::SettingsIgnoredAtKey(notice),
-                })
+                .dispatch(InboundDelivery::SessionNotice { session_id, notice })
                 .await,
         );
     }
+}
+
+// The notice that `file` loads cleanly, or, with no file, that a new reading of every file began.
+fn settings_loaded(
+    session_id: SessionId,
+    file: Option<FilesystemPath>,
+) -> SessionNoticePostedPayload {
+    SessionNoticePostedPayload::Notice(SessionNotice::SettingsLoaded {
+        session_id,
+        provider: DESCRIPTOR.provider_id(),
+        file,
+    })
 }
 
 /// Which reading raised a notice.
@@ -350,40 +362,98 @@ enum ClaudeSettingsReader {
 /// A standing notice, by the file and the key it names.
 type ClaudeNoticePlace = (Option<FilesystemPath>, Option<ComposedText>);
 
-/// The notices one process raised that still stand, by the reading that last carried each, and
-/// the settings content the newest doctor reading is of.
+fn place_of(notice: &SettingsIgnoredAtKeyNotice) -> ClaudeNoticePlace {
+    (notice.file.clone(), notice.key.clone())
+}
+
+/// The notices one process raised that still stand, by the reading that last carried each,
+/// whether its first reading began, and the settings content the newest doctor reading is of.
 #[derive(Default)]
 struct ClaudeRaisedSettingsNotices {
-    by_reply: Vec<ClaudeNoticePlace>,
-    by_doctor: Vec<ClaudeNoticePlace>,
+    by_reply: Vec<SettingsIgnoredAtKeyNotice>,
+    by_doctor: Vec<SettingsIgnoredAtKeyNotice>,
+    has_reading_begun: bool,
     doctor_content: Option<blake3::Hash>,
 }
 
 impl ClaudeRaisedSettingsNotices {
-    // The notices of `notices` no standing notice carries, each place once; `reader`'s standing
-    // notices become `notices`, so one it no longer carries is let go and raised again on return.
+    // What `reader`'s new `notices` post, in order: the start of the process's first reading,
+    // which ends every earlier start's notices; then, for each file a let-go notice named, that the
+    // file loads cleanly, followed by the notices still standing on it, since the newest notice
+    // of a file is the one that stands (every one where a let-go notice named no file); then each
+    // notice no standing notice carried before, each place once.
     fn take_fresh(
         &mut self,
+        session_id: SessionId,
         reader: ClaudeSettingsReader,
         notices: Vec<SettingsIgnoredAtKeyNotice>,
-    ) -> Vec<SettingsIgnoredAtKeyNotice> {
-        let mut places: Vec<ClaudeNoticePlace> = Vec::new();
-        let mut fresh = Vec::new();
+    ) -> Vec<SessionNoticePostedPayload> {
+        let mut posts = Vec::new();
+        if !self.has_reading_begun {
+            self.has_reading_begun = true;
+            posts.push(settings_loaded(session_id, None));
+        }
+        let before: Vec<ClaudeNoticePlace> = self.standing().iter().map(place_of).collect();
+        let mut kept: Vec<SettingsIgnoredAtKeyNotice> = Vec::new();
         for notice in notices {
-            let place = (notice.file.clone(), notice.key.clone());
-            if places.contains(&place) {
-                continue;
+            if !kept.iter().any(|held| place_of(held) == place_of(&notice)) {
+                kept.push(notice);
             }
-            if !self.by_reply.contains(&place) && !self.by_doctor.contains(&place) {
-                fresh.push(notice);
-            }
-            places.push(place);
         }
         match reader {
-            ClaudeSettingsReader::Reply => self.by_reply = places,
-            ClaudeSettingsReader::Doctor => self.by_doctor = places,
+            ClaudeSettingsReader::Reply => self.by_reply = kept,
+            ClaudeSettingsReader::Doctor => self.by_doctor = kept,
         }
-        fresh
+        let standing = self.standing();
+        let mut cleared: Vec<Option<FilesystemPath>> = Vec::new();
+        for (file, key) in &before {
+            let is_let_go = !standing
+                .iter()
+                .any(|notice| notice.file == *file && notice.key == *key);
+            if is_let_go && !cleared.contains(file) {
+                cleared.push(file.clone());
+            }
+        }
+        // A notice naming no file is ended only by a reading that ends them all.
+        if cleared.contains(&None) {
+            cleared = vec![None];
+        }
+        let mut posted: Vec<ClaudeNoticePlace> = Vec::new();
+        for file in cleared {
+            let is_on_file =
+                |notice: &&SettingsIgnoredAtKeyNotice| file.is_none() || notice.file == file;
+            posts.push(settings_loaded(session_id, file.clone()));
+            for notice in standing.iter().filter(is_on_file) {
+                posted.push(place_of(notice));
+                posts.push(SessionNoticePostedPayload::SettingsIgnoredAtKey(
+                    notice.clone(),
+                ));
+            }
+        }
+        posts.extend(
+            standing
+                .into_iter()
+                .filter(|notice| {
+                    let place = place_of(notice);
+                    !before.contains(&place) && !posted.contains(&place)
+                })
+                .map(SessionNoticePostedPayload::SettingsIgnoredAtKey),
+        );
+        posts
+    }
+
+    // Every standing notice, each place once, the reply's first.
+    fn standing(&self) -> Vec<SettingsIgnoredAtKeyNotice> {
+        let mut standing: Vec<SettingsIgnoredAtKeyNotice> = Vec::new();
+        for notice in self.by_reply.iter().chain(&self.by_doctor) {
+            if !standing
+                .iter()
+                .any(|held| place_of(held) == place_of(notice))
+            {
+                standing.push(notice.clone());
+            }
+        }
+        standing
     }
 }
 

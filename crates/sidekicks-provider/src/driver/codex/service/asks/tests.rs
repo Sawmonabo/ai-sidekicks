@@ -92,6 +92,10 @@ impl CodexSessionInboundHandler for ArrivalOrder {
     fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
+
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()> {
+        async {}.boxed()
+    }
 }
 
 // Fails when an ask is queued for its session from a task the reader spawns rather than on the

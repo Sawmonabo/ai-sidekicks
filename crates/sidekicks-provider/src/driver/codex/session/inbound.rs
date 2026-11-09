@@ -101,6 +101,9 @@ pub(crate) enum CodexSessionInbound {
     AccountMoved(CodexAccountMove),
     /// A completed response Codex's log export stated on one of the session's threads.
     ExportedResponse(CodexExportedResponse),
+    /// The service began a new reading of its settings for the session, ahead of the config
+    /// warnings that reading sends, so every earlier ignored-settings notice ends.
+    SettingsReadingBegan,
 }
 
 /// A session's move onto another account, queued at the place among its frames where the service
@@ -302,6 +305,14 @@ pub(crate) struct CodexSessionInboundReceiver {
     depth: Arc<QueueDepth>,
 }
 
+#[cfg(test)]
+impl CodexSessionInboundReceiver {
+    /// The next item already queued, `None` while none is.
+    pub(crate) fn try_next(&mut self) -> Option<CodexSessionInbound> {
+        self.receiver.try_recv().ok()
+    }
+}
+
 /// How deep a queue is, and the depth at which it is next logged.
 #[derive(Debug)]
 struct QueueDepth {
@@ -396,6 +407,9 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Moves the session onto another account at its place among the frames.
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()>;
 
+    /// Ends the session's earlier ignored-settings notices, ahead of a new reading's warnings.
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()>;
+
     /// Takes a completed response the export stated: passed over where the stream stated it,
     /// else held until it can be told apart, then priced.
     fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()>;
@@ -450,6 +464,7 @@ pub(crate) async fn drain_codex_session_inbound(
             CodexSessionInbound::ExportedResponse(response) => {
                 handler.exported_response(response).await;
             }
+            CodexSessionInbound::SettingsReadingBegan => handler.settings_reading_began().await,
         }
     }
 }

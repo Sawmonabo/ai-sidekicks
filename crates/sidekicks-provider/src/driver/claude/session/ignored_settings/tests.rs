@@ -4,7 +4,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::events::{
-    SettingsIgnoredAtKeyNotice, SettingsIgnoredKind,
+    SessionNotice, SessionNoticePostedPayload, SettingsIgnoredAtKeyNotice, SettingsIgnoredKind,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::ComposedText;
@@ -102,30 +102,73 @@ async fn a_reply_raises_each_dropped_file_and_key_in_claude_codes_words_but_neve
     assert_eq!(retention_notice(session_id, &daemons_own, None).await, None);
 }
 
-// A notice is raised once while it stands; a reply with no errors raises nothing and lets it go,
-// so a later reply naming it raises it again; and a doctor entry a reply already raised is not
-// raised twice. Killed by a standing notice posted again, by a clean reply that keeps it standing
-// and by a doctor reading raising what the reply raised.
+// A process's first reading begins with the notice that ends the earlier start's, and a notice
+// is raised once while it stands. A reading that lets a notice go says its file loads cleanly and
+// posts again what still stands on that file, since the newest notice of a file is the one that
+// stands; one naming no file ends them all, and a notice that returns is raised again. Killed by
+// no start of the reading, by a standing notice posted again, by a clean reply that keeps it, by a
+// file's other notice left unposted after its clean load, and by a doctor reading raising what the
+// reply raised.
 #[test]
-fn a_clean_reply_lets_a_standing_notice_go_and_its_return_raises_it_again() {
+fn a_clean_reading_ends_its_files_notices_and_a_return_raises_them_again() {
     let session_id = test_session_id();
-    let dropped = notice(
+    let mode = notice(
         session_id,
         Some(SHARED_FILE),
         Some("permissions.defaultMode"),
         None,
     );
+    let allow = notice(
+        session_id,
+        Some(SHARED_FILE),
+        Some("permissions.allow"),
+        None,
+    );
+    let retention = notice(session_id, None, Some("cleanupPeriodDays"), None);
+    let ignored = |notice: &SettingsIgnoredAtKeyNotice| {
+        SessionNoticePostedPayload::SettingsIgnoredAtKey(notice.clone())
+    };
+    let loaded = |file: Option<&str>| {
+        SessionNoticePostedPayload::Notice(SessionNotice::SettingsLoaded {
+            session_id,
+            provider: DESCRIPTOR.provider_id(),
+            file: file.map(|file| FilesystemPath::new(file.to_owned()).expect("a path")),
+        })
+    };
     let mut raised = ClaudeRaisedSettingsNotices::default();
-
-    let first = raised.take_fresh(ClaudeSettingsReader::Reply, vec![dropped.clone()]);
-    let repeated = raised.take_fresh(ClaudeSettingsReader::Reply, vec![dropped.clone()]);
-    let from_doctor = raised.take_fresh(ClaudeSettingsReader::Doctor, vec![dropped.clone()]);
-    let clean = raised.take_fresh(ClaudeSettingsReader::Reply, Vec::new());
-    raised.take_fresh(ClaudeSettingsReader::Doctor, Vec::new());
-    let returned = raised.take_fresh(ClaudeSettingsReader::Reply, vec![dropped.clone()]);
+    let mut read = |reader, notices: &[&SettingsIgnoredAtKeyNotice]| {
+        raised.take_fresh(
+            session_id,
+            reader,
+            notices.iter().map(|notice| (*notice).clone()).collect(),
+        )
+    };
 
     assert_eq!(
-        (first, repeated, from_doctor, clean, returned),
-        (vec![dropped.clone()], vec![], vec![], vec![], vec![dropped])
+        read(ClaudeSettingsReader::Reply, &[&mode, &mode]),
+        [loaded(None), ignored(&mode)]
+    );
+    let nothing: [SessionNoticePostedPayload; 0] = [];
+    assert_eq!(read(ClaudeSettingsReader::Reply, &[&mode]), nothing);
+    assert_eq!(
+        read(ClaudeSettingsReader::Doctor, &[&mode, &allow]),
+        [ignored(&allow)]
+    );
+    assert_eq!(
+        read(ClaudeSettingsReader::Doctor, &[&mode]),
+        [loaded(Some(SHARED_FILE)), ignored(&mode)]
+    );
+    assert_eq!(read(ClaudeSettingsReader::Reply, &[]), nothing);
+    assert_eq!(
+        read(ClaudeSettingsReader::Doctor, &[]),
+        [loaded(Some(SHARED_FILE))]
+    );
+    assert_eq!(
+        read(ClaudeSettingsReader::Reply, &[&mode, &retention]),
+        [ignored(&mode), ignored(&retention)]
+    );
+    assert_eq!(
+        read(ClaudeSettingsReader::Reply, &[&mode]),
+        [loaded(None), ignored(&mode)]
     );
 }

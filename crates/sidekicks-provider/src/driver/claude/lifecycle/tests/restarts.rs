@@ -39,6 +39,7 @@ use crate::driver::session_control::{
     ResumeSessionParams, SessionCloseCause, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::run_host::test_host::RecordedDelivery;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
@@ -68,7 +69,7 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
                 .engine
                 .deliveries()
                 .iter()
-                .any(|delivery| delivery.kind == "sessionNotice")
+                .any(|delivery| is_notice_of(delivery, "providerCrashLoop"))
                 .then_some(())
         }),
     )
@@ -96,9 +97,18 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .engine
         .deliveries()
         .into_iter()
-        .filter(|delivery| delivery.kind == "sessionNotice")
+        .filter(|delivery| is_notice_of(delivery, "providerCrashLoop"))
         .count();
     assert_eq!(notices, 1);
+}
+
+// Whether `delivery` is the session's notice of `kind`.
+fn is_notice_of(delivery: &RecordedDelivery, kind: &str) -> bool {
+    delivery.kind == "sessionNotice"
+        && delivery
+            .payload
+            .as_ref()
+            .is_some_and(|notice| notice["kind"] == kind)
 }
 
 // Killed by a relaunch that starts its process after its binding could not be opened: the
@@ -532,7 +542,7 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
                 .engine
                 .deliveries()
                 .iter()
-                .any(|delivery| delivery.kind == "sessionNotice")
+                .any(|delivery| is_notice_of(delivery, "providerUpdated"))
                 .then_some(())
         }),
     )

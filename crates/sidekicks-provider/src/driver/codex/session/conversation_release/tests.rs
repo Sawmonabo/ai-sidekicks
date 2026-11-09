@@ -84,6 +84,10 @@ impl CodexSessionInboundHandler for SessionFrames {
     fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
+
+    fn settings_reading_began(&mut self) -> BoxFuture<'_, ()> {
+        async {}.boxed()
+    }
 }
 
 // Holds `THREAD` for a session with a queue attached, answering the first list read with one

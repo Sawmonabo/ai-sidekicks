@@ -305,6 +305,24 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
     },
+    /// The provider read its settings: with `file`, that file now loads cleanly and its
+    /// `settingsIgnored` notice ends; without one, a new start's reading began, which ends every
+    /// earlier `settingsIgnored` notice of the provider and posts again each one it still finds.
+    /// Draws no row.
+    SettingsLoaded {
+        /// The session.
+        session_id: SessionId,
+        /// The provider whose settings were read.
+        provider: ProviderId,
+        /// The settings file that now loads cleanly, where the reading is of one file.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FilesystemPath")]
+        file: Option<FilesystemPath>,
+    },
     /// The provider process ended too many times in a short window and the daemon stopped
     /// restarting it, with the exit code or the signal it ended on, the seconds it answered
     /// nothing before the daemon ended it, or, where the daemon read no ending, the failure its
@@ -456,6 +474,7 @@ impl SessionNotice {
             | Self::LevelMoved { .. }
             | Self::ProviderUpdated { .. }
             | Self::ProviderRestarted { .. }
+            | Self::SettingsLoaded { .. }
             | Self::FastOutputUnavailable { .. }
             | Self::ProviderMissing { .. }
             | Self::DistributionRemoved { .. }
