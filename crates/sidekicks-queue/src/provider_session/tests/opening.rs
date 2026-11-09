@@ -12,14 +12,14 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
-use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::driver::test_registry::{first_provider, new_run_id};
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
 use super::{Opening, WAIT, take_row, unregistered_provider, unresolvable_provider};
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
+use crate::provider_session::test_opening::read_provider_missing_notices;
 
 // Opening a session whose conversation an earlier daemon left resumes it, and a restart of its
 // process brings it back the same way: each records the binding it minted on its predecessor's run,

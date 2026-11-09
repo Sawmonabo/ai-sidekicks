@@ -166,7 +166,7 @@ type McpServerConfigView =
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex's), safe to serve
       envHttpHeaders?: Record<string, string>; // Codex's — header NAME → env-var NAME: a name→name reference map, round-trips verbatim
-      oauthScopes?: string[]; // Codex's — non-secret auth references, round-trip verbatim
+      oauthScopes?: string[]; // Codex's `scopes` and Claude Code's `oauth.scopes` — non-secret auth references, round-trip verbatim
       oauthResource?: string; // Codex's — non-secret auth reference, round-trips verbatim
       enabled?: boolean;
       required?: boolean;
@@ -373,10 +373,10 @@ interface McpLiveApplicationResult {
 // returns the saved result from the durable receipt, Spec-024 §Authorization). The governance
 // mutations below finalize their receipt with their store writes and emit no governance event;
 // mcp.server.signIn, mcp.server.signOut and mcp.server.reconnect are operational commands —
-// oauthLogin is receipted but its durable trace is the asynchronous mcp.server.signIn.completed,
-// emitted exactly once per completed sign-in (an abandoned sign-in, or one ended by a newer
-// attempt, leaves only its expiring receipt); oauthLogout is receipted, and it and reconnect show
-// through the status notices they induce; reconnect is unreceipted:
+// mcp.server.signIn is receipted but its durable trace is the asynchronous
+// mcp.server.signIn.completed, emitted exactly once per completed sign-in (an abandoned sign-in, or
+// one ended by a newer attempt, leaves only its expiring receipt); mcp.server.signOut is receipted,
+// and it and reconnect show through the status notices they induce; reconnect is unreceipted:
 //   mcp.server.upsert      McpWritableBindingRef & {clientIdempotencyKey: string, config:
 // McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade,
 // liveResults?: McpLiveApplicationResult[], reloadFailure?: string} // reloadFailure, on this reply,
@@ -389,7 +389,12 @@ interface McpLiveApplicationResult {
 // McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
 // removing an emulated Codex
 // local server also removes the daemon's row for it; removing any server removes every approval
-// rule over its tools from the provider's file that holds it, in the same transaction
+// rule over its tools from the provider's file that holds it, in the same transaction; removing
+// the last binding, at any scope on either provider, that names a signed-in server's address signs
+// that server out once the delete lands, as mcp.server.signOut does, and a delete leaving another
+// binding at that address keeps the sign-in; a credential store that refuses the removal refuses
+// nothing: the sign-out stays owed and is retried at the next start and at each later sign-in or
+// sign-out
 //   mcp.server.enabled.update        McpServerBindingRef & {clientIdempotencyKey: string, enabled:
 // boolean, projectRoot?: string, place?: WslPlace} → {server: McpServerInventoryEntry, applied:
 // McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
@@ -406,10 +411,13 @@ interface McpLiveApplicationResult {
 // tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
 //   mcp.server.signIn        McpServerBindingRef & {clientIdempotencyKey: string} →
 // {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of
-// server it is, and returns the address of the sign-in page for the client to open; a new
+// server it is, and returns the address of the sign-in page for the client to open; it reads the
+// whole address the binding's entry declares, through the provider's driver, on every sign-in and
+// sign-out, so a changed variable takes effect at the next press; a new
 // mcp.server.signIn on a server whose sign-in is still waiting ends that wait and starts the next
 // attempt; a binding or server no sign-in the daemon or a provider can run reaches is refused with
 // mcp.server.signInUnsupported, its message naming which cause: a binding not reached at an
+// address, an address its entry declares that still names a variable with no value or is not a web
 // address, a server that publishes no sign-in route (no protected-resource or authorization-server
 // metadata, or metadata the daemon cannot read), metadata naming no endpoint or flow the daemon's
 // client can use, an authorization server that does not list S256 or a server that does not admit
@@ -429,10 +437,12 @@ interface McpLiveApplicationResult {
 // material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved
 // acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a
 // caller that never received the URL starts a new sign-in under a fresh key
-//   mcp.server.signOut       {serverId: string, clientIdempotencyKey: string} → EmptyPayload //
-// `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the
-// daemon holds one sign-in per server, used by every provider and every binding that names it, and
-// each of those bindings' change after the sign-out arrives as its status notice on mcp.subscribe.
+//   mcp.server.signOut       McpServerBindingRef & {clientIdempotencyKey: string} →
+// EmptyPayload // `Sign out of this server`. It signs out of the server at the address the
+// binding's entry declares, read whole as mcp.server.signIn reads it: the daemon holds one sign-in
+// per server, shared by every provider and every binding at that address, and each of those
+// bindings' change after the sign-out arrives as its status notice on mcp.subscribe; a binding no
+// sign-in reaches is refused with mcp.server.signInUnsupported, as mcp.server.signIn is.
 // It deletes the daemon's refresh token for the server, and its signing key where the server
 // demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's
 // next call to that server carries no token and the server reads `needsAuth` in every session on
@@ -448,8 +458,7 @@ interface McpLiveApplicationResult {
 // the provider's own reconnect error for a server the provider connects to itself. Session operations (Spec-024 §A session's own
 // tool servers), in the session.* namespace; none emits a governance event:
 // `serverName` is the server's name in the session's own list, the name each provider starts the
-// session's servers by; it is not the address `mcp.server.signOut` takes, and a server run as a
-// local command has none.
+// session's servers by.
 //   session.mcpServer.subscribe   {sessionId} → a live list of the servers the session was started
 // with, each row the server's name, binding, status with its reason, whether it is on for the
 // session, and whether a switch waits for the next turn — names and statuses only, never a config
@@ -478,7 +487,7 @@ interface McpLiveApplicationResult {
 // a user entry with `enabled = false`, written the same way as a `user` one,
 // switched on per conversation in each session of that project, its name unique across the user
 // file (a clash is refused, naming the project that holds the other one).
-// Overrides, oauthLogin and reconnect apply to any binding, and oauthLogout to any server.
+// Overrides, mcp.server.signIn, mcp.server.signOut and reconnect address any binding.
 // One mcp.registry.search result, read from the registry's own record. Untrusted data: it fills the
 // add form and nothing else. No environment variable, header or address input carries a value or a
 // default, and neither does a secret argument.

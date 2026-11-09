@@ -16,9 +16,10 @@ use sidekicks_contracts::wire::record::Record;
 
 use super::{CodexLoadedServer, CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config};
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::mcp::test_plugin::write_codex_plugin;
 use crate::driver::codex::transport::connection::scripted_service::scripted_connection;
 use crate::driver::mcp_server::read::{
-    McpRootReading, McpServerDeclaration, McpServerSignInClient,
+    McpRootReading, McpServerDeclaration, McpServerSignInSettings,
 };
 
 /// The person's home folder, read when no root is attached.
@@ -208,10 +209,13 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         }
     );
     assert_eq!(
-        declaration(&reading, &user("remote")).sign_in_client,
-        Some(McpServerSignInClient {
+        declaration(&reading, &user("remote")).sign_in_settings,
+        Some(McpServerSignInSettings {
             client_id: Some("client-1".to_owned()),
             callback_url: Some("http://127.0.0.1:5555/callback".to_owned()),
+            callback_port: None,
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: false,
         })
     );
     assert_eq!(
@@ -472,17 +476,6 @@ fn plugin_binding(plugin: &str, name: &str) -> McpServerBindingRef {
     }
 }
 
-// Writes a plugin in Codex's own format under `plugin_home`, its servers inline in its manifest.
-fn write_codex_plugin(plugin_home: &Path, marketplace: &str, plugin: &str, servers: &Value) {
-    let folder = plugin_home.join(format!("plugins/cache/{marketplace}/{plugin}/1.0.0"));
-    std::fs::create_dir_all(folder.join(".codex-plugin")).expect("the plugin folder is made");
-    std::fs::write(
-        folder.join(".codex-plugin/plugin.json"),
-        json!({"name": plugin, "mcpServers": servers}).to_string(),
-    )
-    .expect("the manifest is written");
-}
-
 // A plugin switched off by its own key, by every plugin's default, or a plugin's server switched
 // off under its plugin's table, is disabled in the file that switches it off, and a plugin a
 // higher layer switches back on is not. Killed by the plugin's switch read by its name alone, by
@@ -637,6 +630,30 @@ async fn an_agent_format_plugin_declares_its_servers_as_codex_reads_them() {
             "url": "https://mcp.example.com/mcp",
             "http_headers": {"X-Team": "core"},
             "enabled": true,
+        })
+    );
+}
+
+// An entry's fixed `oauth.callback_port` reaches the sign-in beside its callback address, which
+// it binds where the entry names none. Killed by the port not read.
+#[test]
+fn a_fixed_callback_port_reaches_the_sign_in() {
+    let entry = json!({
+        "url": "https://docs.example.test/mcp",
+        "oauth": {"client_id": "client-1", "callback_port": 8765},
+    });
+
+    let declaration =
+        super::server_entry::read_codex_server_entry(&entry).expect("the entry reads");
+
+    assert_eq!(
+        declaration.sign_in_settings,
+        Some(McpServerSignInSettings {
+            client_id: Some("client-1".to_owned()),
+            callback_url: None,
+            callback_port: Some(8765),
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: false,
         })
     );
 }

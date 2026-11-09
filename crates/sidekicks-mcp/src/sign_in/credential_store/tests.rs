@@ -1,13 +1,15 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
+use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
 
 use super::SignInCustody;
-use crate::sign_in::canonical_server_address;
+use crate::sign_in::address_digest::ServerAddressDigest;
 
 fn server_address() -> McpServerAddress {
     McpServerAddress::new("https://docs.example.com/mcp").expect("a server address")
@@ -30,11 +32,26 @@ fn credentials(access_token: &str) -> StoredCredentials {
     )
 }
 
+/// The digest `custody` keeps the server at `address` under.
+async fn digest_of(custody: &SignInCustody, address: &McpServerAddress) -> ServerAddressDigest {
+    custody
+        .digest(address)
+        .await
+        .expect("the address key is made")
+}
+
 /// Keeps a sign-in whose access token is `access_token` for the server at `address`, as a
 /// sign-in attempt begun now does.
 async fn keep(custody: &Arc<SignInCustody>, address: &McpServerAddress, access_token: &str) {
+    let digest = digest_of(custody, address).await;
     custody
-        .attempt_credential_store(address, custody.sign_out_generation(address), None, None)
+        .attempt_credential_store(
+            &digest,
+            address,
+            custody.sign_out_generation(&digest),
+            None,
+            None,
+        )
         .save(credentials(access_token))
         .await
         .expect("the sign-in is kept");
@@ -60,10 +77,11 @@ async fn a_kept_sign_in_is_read_from_the_keychain_once() {
     .await;
     let counting = Arc::new(CountingKeychain::new(keychain));
     let custody = SignInCustody::new(Arc::clone(&counting) as _);
+    let digest = digest_of(&custody, &server_address()).await;
 
     for _ in 0..11 {
         let loaded = custody
-            .credential_store(&server_address())
+            .credential_store(&digest, &server_address())
             .load()
             .await
             .expect("the keychain answers")
@@ -71,7 +89,32 @@ async fn a_kept_sign_in_is_read_from_the_keychain_once() {
         assert_eq!(access_token(&loaded), "test-access-token");
     }
 
-    assert_eq!(counting.reads(), 1);
+    // One read of the address key, one of the sign-in.
+    assert_eq!(counting.reads(), 2);
+}
+
+/// A server's address written with and without a trailing slash reads one keychain item. Killed by
+/// a canonical address that keeps the slash, under which the second spelling reads nothing.
+#[tokio::test]
+async fn an_address_with_a_trailing_slash_reads_the_same_sign_in() {
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+    keep(
+        &SignInCustody::new(Arc::clone(&keychain)),
+        &server_address(),
+        "test-access-token",
+    )
+    .await;
+    let slashed = McpServerAddress::new("https://docs.example.com/mcp/").expect("a server address");
+
+    let custody = SignInCustody::new(keychain);
+    let loaded = custody
+        .credential_store(&digest_of(&custody, &slashed).await, &slashed)
+        .load()
+        .await
+        .expect("the keychain answers")
+        .expect("the sign-in is kept under the folded address");
+
+    assert_eq!(access_token(&loaded), "test-access-token");
 }
 
 /// A save the keychain refuses comes back refused, and the server's sign-in stays the one held
@@ -81,9 +124,11 @@ async fn a_refused_save_keeps_the_sign_in_held_before_it() {
     let (_data_folder, platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = server_address();
+    let digest = digest_of(&custody, &address).await;
     let store = custody.attempt_credential_store(
+        &digest,
         &address,
-        custody.sign_out_generation(&address),
+        custody.sign_out_generation(&digest),
         None,
         None,
     );
@@ -91,10 +136,7 @@ async fn a_refused_save_keeps_the_sign_in_held_before_it() {
         .save(credentials("test-access-token-1"))
         .await
         .expect("the first sign-in is kept");
-    platform_store.refuse_next_call(
-        KeychainService::McpSignIns.as_str(),
-        &canonical_server_address(&server_address()),
-    );
+    platform_store.refuse_next_call(KeychainService::McpSignIns.as_str(), digest.as_str());
 
     let refused = store.save(credentials("test-access-token-2")).await;
 
@@ -119,18 +161,18 @@ async fn a_sign_in_begun_before_a_sign_out_is_never_kept() {
     let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(Arc::clone(&keychain));
     let address = server_address();
-    let canonical_address = canonical_server_address(&address);
+    let digest = digest_of(&custody, &address).await;
     keep(&custody, &address, "test-access-token-1").await;
     let begun_before = custody.attempt_credential_store(
+        &digest,
         &address,
-        custody.sign_out_generation(&address),
+        custody.sign_out_generation(&digest),
         None,
         None,
     );
 
     custody
-        .credential_store(&address)
-        .sign_out()
+        .sign_out(&digest)
         .await
         .expect("the sign-out removes the sign-in");
     let refused = begun_before.save(credentials("test-access-token-2")).await;
@@ -138,29 +180,25 @@ async fn a_sign_in_begun_before_a_sign_out_is_never_kept() {
     assert!(matches!(refused, Err(AuthError::CredentialStoreError(_))));
     assert!(
         keychain
-            .read(&canonical_address)
+            .read(digest.as_str())
             .await
             .expect("the keychain answers")
             .is_none()
     );
-    assert!(
-        !custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_address)
-    );
+    assert!(!custody.signed_in_servers().borrow().contains(&digest));
 
     custody
-        .attempt_credential_store(&address, custody.sign_out_generation(&address), None, None)
+        .attempt_credential_store(
+            &digest,
+            &address,
+            custody.sign_out_generation(&digest),
+            None,
+            None,
+        )
         .save(credentials("test-access-token-3"))
         .await
         .expect("a sign-in begun after the sign-out is kept");
-    assert!(
-        custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_address)
-    );
+    assert!(custody.signed_in_servers().borrow().contains(&digest));
 }
 
 /// The sign-out answers the sign-in it removed, the last one kept, and leaves nothing held in
@@ -173,10 +211,11 @@ async fn a_sign_out_answers_the_sign_in_it_removed() {
     let address = server_address();
     keep(&custody, &address, "test-access-token-1").await;
     keep(&custody, &address, "test-access-token-2").await;
-    let store = custody.credential_store(&address);
+    let digest = digest_of(&custody, &address).await;
+    let store = custody.credential_store(&digest, &address);
 
-    let removed = store
-        .sign_out()
+    let removed = custody
+        .sign_out(&digest)
         .await
         .expect("the keychain answers")
         .expect("a sign-in was held");
@@ -185,7 +224,7 @@ async fn a_sign_out_answers_the_sign_in_it_removed() {
     assert!(store.load().await.expect("the custody answers").is_none());
     assert!(
         keychain
-            .read(&canonical_server_address(&address))
+            .read(digest.as_str())
             .await
             .expect("the keychain answers")
             .is_none()
@@ -220,9 +259,9 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
     let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(Arc::clone(&keychain));
     let address = server_address();
-    let canonical_address = canonical_server_address(&address);
+    let digest = digest_of(&custody, &address).await;
     keep(&custody, &address, "test-access-token-1").await;
-    let renewal = custody.credential_store(&address);
+    let renewal = custody.credential_store(&digest, &address);
     let guard = renewal
         .acquire_refresh_guard()
         .await
@@ -232,8 +271,7 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
         DuringRenewal::SignOut => {
             renewal.load().await.expect("the custody answers");
             custody
-                .credential_store(&address)
-                .sign_out()
+                .sign_out(&digest)
                 .await
                 .expect("the sign-out removes the sign-in");
         }
@@ -261,15 +299,50 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
         held_token.map(|token| serde_json::json!(token))
     );
     assert_eq!(
-        custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_address),
+        custody.signed_in_servers().borrow().contains(&digest),
         held_token.is_some()
     );
     let refused = renewal.take_refused_renewal();
     assert_eq!(
         refused.map(|refused| access_token(&refused.credentials)),
         (!is_kept).then(|| serde_json::json!("test-access-token-2"))
+    );
+}
+
+/// The start's seed marks signed in each server the keychain files a sign-in for that this daemon
+/// life has not read yet, and leaves a server already read as its read found it, so a seed that
+/// ends after a sign-out never undoes it. Killed by a seed that marks nothing, and by one that
+/// marks a server already read.
+#[tokio::test]
+async fn the_seed_marks_only_the_filed_servers_this_life_has_not_read() {
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
+    let custody = SignInCustody::new(Arc::clone(&keychain));
+    let unread = McpServerAddress::new("https://unread.example.test/mcp").expect("an address");
+    let read = McpServerAddress::new("https://read.example.test/mcp").expect("an address");
+    // Read while the keychain held nothing for it, as a sign-out leaves it, and filed after.
+    let held = custody
+        .credential_store(&digest_of(&custody, &read).await, &read)
+        .held()
+        .await
+        .expect("the keychain reads");
+    assert!(held.is_none());
+    for address in [&unread, &read] {
+        keychain
+            .write(
+                digest_of(&custody, address).await.as_str(),
+                &SecretString::from("not read by the seed".to_owned()),
+            )
+            .await
+            .expect("the keychain keeps the item");
+    }
+
+    custody
+        .seed_signed_in()
+        .await
+        .expect("the keychain lists its items");
+
+    assert_eq!(
+        *custody.signed_in_servers().borrow(),
+        BTreeSet::from([digest_of(&custody, &unread).await])
     );
 }

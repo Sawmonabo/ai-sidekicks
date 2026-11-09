@@ -29,7 +29,7 @@ use self::config::{
 use self::machine_probe::{
     ClaudeMcpProbeSources, ClaudeProbePlan, plan_claude_probe, probe_claude_mcp_servers,
 };
-use self::organization::has_readable_managed_mcp_file;
+use self::organization::{read_managed_mcp_servers, take_managed_entries};
 use self::precedence::{ClaudeMcpAccountServers, rank_claude_mcp_servers};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -75,14 +75,17 @@ impl From<ClaudeShortProcess> for ClaudeMcpProcess {
 /// organization server is probed under the first account that brings it, and every other binding
 /// under the first account that answered; with no such account no Claude Code process can run, so
 /// each target reads `unknown`, carrying the first account's failure as its failure text where
-/// accounts were asked. Fails as the config read or the probe does.
+/// accounts were asked. An organization server the administrator's MCP file declares is listed and
+/// probed as the file's entry, as Claude Code loads it. Fails as the config read or the probe
+/// does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
     managed_settings_folder: Option<&Path>,
     request: McpServersReadRequest,
 ) -> Result<ProviderMcpServersReading, DriverError> {
     let sources = &driver.sources;
-    let has_managed_mcp_file = has_readable_managed_mcp_file(managed_settings_folder).await;
+    let managed_mcp_servers = read_managed_mcp_servers(managed_settings_folder).await;
+    let has_managed_mcp_file = managed_mcp_servers.is_some();
     let plugin_home = plugin_home(&sources.home_folder, &DESCRIPTOR.provider_id());
     let roots: Vec<ClaudeMcpRoot> = request
         .attached_roots
@@ -115,7 +118,17 @@ pub(crate) async fn read_claude_mcp_servers(
     let mut accounts: Vec<ClaudeMcpAccountServers> = Vec::new();
     for read in account_reads {
         match read {
-            Ok(servers) => accounts.push(ClaudeMcpAccountServers::clone(&servers)),
+            Ok(servers) => {
+                let mut servers = ClaudeMcpAccountServers::clone(&servers);
+                take_managed_entries(
+                    &mut servers.organization_servers,
+                    managed_mcp_servers.as_ref(),
+                    &servers.organization_entries,
+                    &sources.base_environment,
+                )
+                .await;
+                accounts.push(servers);
+            }
             Err(error) => {
                 account_failure.get_or_insert_with(|| {
                     sanitize_failure_chain(&*error, FAILURE_TEXT_MAX_CODE_POINTS)
@@ -199,6 +212,7 @@ pub(crate) async fn read_claude_mcp_servers(
                 plugin_home: &plugin_home,
                 plugin_roots: &reading.plugin_roots,
                 attached_roots: &request.attached_roots,
+                managed_mcp_servers: managed_mcp_servers.as_ref(),
                 organization_entries: &account.organization_entries,
             };
             probe_readings.extend(probe_claude_mcp_servers(&probe_sources, targets).await?);

@@ -19,6 +19,7 @@ blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
 getrandom.workspace = true
+hmac.workspace = true
 http.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["service", "tokio"] }
@@ -55,6 +56,8 @@ uuid.workspace = true
 # The server the client's tests run their fakes on.
 axum = { workspace = true, features = ["http1", "tokio"] }
 rstest.workspace = true
+# The environment row builder the sign-in's target tests use.
+sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The credit gate the status tests read the notice board through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The in-memory credential store the sign-in's custody tests keep their items in.

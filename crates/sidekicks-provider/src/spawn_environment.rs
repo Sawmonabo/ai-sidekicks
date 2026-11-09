@@ -370,7 +370,6 @@ mod tests {
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
     use sidekicks_contracts::mcp::server::config::McpTransport;
     use sidekicks_contracts::run::children::ChildStoppedState;
-    use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
     use super::{
@@ -474,16 +473,6 @@ mod tests {
             .collect()
     }
 
-    fn rows(entries: &[(&str, &str)]) -> Vec<EnvironmentRow> {
-        entries
-            .iter()
-            .map(|(name, value)| EnvironmentRow {
-                name: BoundedText::new((*name).to_owned()).expect("the test's name is bounded"),
-                value: NulFreeText::new((*value).to_owned()).expect("the test's value has no NUL"),
-            })
-            .collect()
-    }
-
     fn reserved() -> ReservedEnvironmentNames {
         ReservedEnvironmentNames::of_providers(&[&DESCRIPTOR, &OTHER_DESCRIPTOR])
     }
@@ -499,7 +488,7 @@ mod tests {
             ("APP_WITHHELD", "1"),
             ("APP_UPDATES_OFF", "0"),
         ]);
-        let every_project_rows = rows(&[("NPM_TOKEN", "from-row")]);
+        let every_project_rows = EnvironmentRow::test_rows(&[("NPM_TOKEN", "from-row")]);
         let reserved_names = reserved();
         let request = ProviderEnvironmentRequest {
             session: SessionEnvironment {
@@ -538,7 +527,7 @@ mod tests {
     #[test]
     fn every_providers_background_switch_reaches_each_provider_and_never_a_project_command() {
         let base = pairs(&[("OTHER_BACKGROUND_OFF", "0")]);
-        let project_rows = rows(&[("OTHER_BACKGROUND_OFF", "0")]);
+        let project_rows = EnvironmentRow::test_rows(&[("OTHER_BACKGROUND_OFF", "0")]);
         let reserved_names = reserved();
         let request = ProviderEnvironmentRequest {
             session: SessionEnvironment {
@@ -611,8 +600,9 @@ mod tests {
     #[test]
     fn a_project_row_beats_every_project_and_reserved_rows_are_dropped() {
         let base = pairs(&[("APP_HOME", "/accounts/shell")]);
-        let every_project_rows = rows(&[("EDITOR", "vi"), ("OTHER_HOME", "/accounts/row")]);
-        let project_rows = rows(&[
+        let every_project_rows =
+            EnvironmentRow::test_rows(&[("EDITOR", "vi"), ("OTHER_HOME", "/accounts/row")]);
+        let project_rows = EnvironmentRow::test_rows(&[
             ("EDITOR", "nano"),
             ("APP_HOME", "/accounts/row"),
             ("APP_LAUNCH", "row"),
@@ -639,7 +629,7 @@ mod tests {
     #[test]
     fn a_mandated_pair_beats_the_base_and_every_row() {
         let base = pairs(&[("APP_HOME", "/accounts/shell"), ("TRACE_ADDRESS", "base")]);
-        let project_rows = rows(&[("TRACE_ADDRESS", "row")]);
+        let project_rows = EnvironmentRow::test_rows(&[("TRACE_ADDRESS", "row")]);
         let credential_homes = pairs(&[("APP_HOME", "/accounts/work")]);
         let reserved_names = reserved();
         let request = ProviderEnvironmentRequest {
@@ -743,7 +733,7 @@ mod tests {
             ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
             ("DISABLE_TELEMETRY", "1"),
         ]);
-        let project_rows = rows(&[("OTEL_TRACES_EXPORTER", "console")]);
+        let project_rows = EnvironmentRow::test_rows(&[("OTEL_TRACES_EXPORTER", "console")]);
         let reserved_names = reserved();
         let request = ProviderEnvironmentRequest {
             session: SessionEnvironment {

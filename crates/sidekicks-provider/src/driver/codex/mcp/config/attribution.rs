@@ -177,7 +177,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                             superseded_in,
                             disabled_in,
                             is_read_only: layer.role == LayerRole::Administrator,
-                            sign_in_client: declared.sign_in_client,
+                            sign_in_settings: declared.sign_in_settings,
                             is_switch_kept_by_daemon: false,
                             tool_defaults: declared.tool_defaults,
                             organization_managed: None,
@@ -387,7 +387,7 @@ fn gather(drafts: &mut Vec<DeclarationDraft>, draft: DeclarationDraft) {
     }
     if draft.is_view_outside_projects && !kept.is_view_outside_projects {
         kept.declaration.config = draft.declaration.config;
-        kept.declaration.sign_in_client = draft.declaration.sign_in_client;
+        kept.declaration.sign_in_settings = draft.declaration.sign_in_settings;
         kept.transport = draft.transport;
         kept.is_view_outside_projects = true;
     }

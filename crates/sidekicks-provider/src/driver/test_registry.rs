@@ -315,6 +315,12 @@ fn take_next_driver(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
         .expect("the registry is built right after its drivers are queued")
 }
 
+/// The table's first provider, the one [`registry_of_first_provider`] registers; unlike the
+/// registry's own test provider, the table holds it.
+pub fn first_provider() -> ProviderId {
+    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
+}
+
 /// A registry holding only the table's first provider, answered by `driver`. Called on a tokio
 /// runtime, which the spawner thread is started on.
 pub fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> ProviderRegistry {

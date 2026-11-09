@@ -2,7 +2,7 @@
 
 The MCP server governance tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store with the pin of the key its digests are taken under, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
+Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay, native-tool baseline and last declared address), the per-tool override store, the per-project switch for the servers Claude Code brings itself, the governance-mutation idempotency receipt store with the pin of the key its digests are taken under, the record of which OAuth client each server admitted, and the sign-outs a binding's removal owes. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcpGovernance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
@@ -16,6 +16,7 @@ CREATE TABLE mcp_server_bindings (
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's own switch for a binding whose provider keeps none: Claude bindings, every plugin binding and a Codex `local` binding the daemon emulates — Claude user scope has no enabled field, a plugin's declaration is the plugin's, and an emulated `local` add's receipt carries the switch its config asks (on for a new server asking nothing), which the landed commit writes; Codex's other bindings use its native `enabled` config field; NULL = no overlay
   native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at the first facet materialization, held while any facet is materialized, dropped once facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). mcp.toolOverride.clear restores from it (Spec-024 §Tool-Level Overrides) — without it, restore-on-clear would invent values
+  last_declared_address_digest TEXT,  -- the server address digest of the address the binding's whole address last read as, written at each read that declares one; a removal whose address no longer reads (a variable lost its value) signs this one out, a remaining binding whose address no longer reads keeps its sign-in, and a read at another address owes this one's sign-out; NULL until one has read. Never the address, whose user name, password and query are credentials
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name),
@@ -91,7 +92,7 @@ CREATE TABLE mcp_mutation_receipts (
 ) STRICT;
 ```
 
-Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. A retry with the same key is matched by the keyed digest of its request, and the digests of the binding's declaration before and after the write let a pending intent's provider state be settled at start. Receipts carry no config values: the digests are keyed, and no column holds a declaration.
+Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. A retry with the same key is matched by the keyed digest of its request, and the digests of the binding's declaration before and after the write let a pending intent's provider state be settled at start. Receipts carry no config values: the digests are keyed, and no column holds a declaration. A sign-in's or sign-out's pending receipt is expired at the start and by a retry under its key, which runs the command again, since neither writes a provider config nor a daemon row.
 
 ```sql
 -- Owner: Plan-022
@@ -128,6 +129,8 @@ CREATE TABLE mcp_project_server_switches (
 ) STRICT;
 ```
 
+A server is named in every row and keychain attribute by its **server address digest**: HMAC-SHA256 of its canonical address (scheme and host case, default port, trailing slash and fragment folded) under one 32-byte key, lowercase hex. The key is one item of the MCP sign-ins' credential-store service, made from the system's random source on first use and read once per daemon life; a store that cannot give it refuses the call as `mcp.bindingStoreUnavailable` and changes no row. The address itself, whose user name, password and query are credentials ([Spec-024 §Implementation Notes](../../specs/024-mcp-server-configuration-and-governance.md#implementation-notes), transient-secret handling), is kept only inside the sign-in's credential-store secret.
+
 ```sql
 -- Owner: Plan-022
 -- Which OAuth client each server admitted, one row per server address however many bindings or providers
@@ -137,9 +140,21 @@ CREATE TABLE mcp_project_server_switches (
 -- kept once here rather than on each binding that names the server. A sign-out forgets only the sign-in and
 -- keeps this row, so every later sign-in is one press. Not a credential.
 CREATE TABLE mcp_server_admitted_clients (
-  server_address           TEXT NOT NULL PRIMARY KEY,  -- the server's canonical address, the account its sign-in is kept under
+  server_address_digest    TEXT NOT NULL PRIMARY KEY,  -- the server address digest, the account its sign-in is kept under; never the address
   admitted_oauth_client    TEXT,  -- the open id of the provider whose own client the server admitted; NULL until one has
   own_client_unfinished_at TEXT,  -- when the daemon's own client last ended an attempt with no callback; NULL otherwise
   CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
+) STRICT;
+```
+
+```sql
+-- Owner: Plan-022
+-- The sign-out a removed binding, or one whose address changed, owes the server it named: written before the
+-- provider's write, so a stop between the write and the sign-out leaves it for the next start, and cleared once a
+-- settle finds another binding naming the server or signs it out. A credential store that refuses the
+-- sign-out keeps the row for the next settle, at the daemon's start or after a sign-in or sign-out press. Not a
+-- credential.
+CREATE TABLE mcp_server_owed_sign_outs (
+  server_address_digest TEXT NOT NULL PRIMARY KEY  -- the server address digest, the account its sign-in is kept under; never the address
 ) STRICT;
 ```
