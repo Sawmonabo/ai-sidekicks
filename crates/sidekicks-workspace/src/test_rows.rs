@@ -19,16 +19,17 @@ pub(crate) fn create_workspace_tables(connection: &Connection) -> rusqlite::Resu
     connection.execute_batch(&WORKSPACE_SCHEMA_SQL)
 }
 
-/// The rows of a project `id` and its attached mount `id` of `/repos/app` in `place`, `NULL` with
-/// none; each project is its own, since a project has one attached mount.
+/// The rows of a project `id` with no setup steps and its attached mount `id` of `/repos/app` in
+/// `place`, `NULL` with none; each project is its own, since a project has one attached mount.
 pub fn project_and_mount_rows(id: &str, place: Option<&str>) -> [String; 2] {
     let active = <&'static str>::from(ProjectState::Active);
     let place = place.map_or_else(|| "NULL".to_owned(), |place| format!("'{place}'"));
     [
         format!(
             "INSERT INTO projects (id, name, slug, folder_path, state, setup, place, created_at, \
-             updated_at) VALUES ('{id}', 'app', '{id}', '/repos/app', '{active}', '{{}}', {place}, \
-             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}')"
+             updated_at) VALUES ('{id}', 'app', '{id}', '/repos/app', '{active}', \
+             '{{\"filesToCopy\":[],\"commands\":[]}}', {place}, '{PARENT_ROWS_AT}', \
+             '{PARENT_ROWS_AT}')"
         ),
         format!(
             "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, place, \

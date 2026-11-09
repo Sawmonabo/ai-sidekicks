@@ -8789,6 +8789,7 @@ dependencies = [
  "bytes",
  "futures",
  "getrandom 0.4.3",
+ "hmac 0.13.0",
  "http",
  "hyper",
  "hyper-util",

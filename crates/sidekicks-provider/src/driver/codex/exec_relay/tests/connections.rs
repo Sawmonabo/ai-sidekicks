@@ -11,8 +11,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     ListeningRelay, admitted_socket, assert_quiet, initialize, initialized_executor,
-    listening_relay, next_forwarded, next_line, next_text, relay_for, send_text, wait_until,
+    listening_relay, next_forwarded, next_line, next_text, relay_for, send_text,
 };
+use crate::bounded_poll::poll_until;
 use crate::driver::test_registry::new_session_id;
 
 // Two connections that each send `initialize` under id 1 and are each answered from the relay's
@@ -102,7 +103,7 @@ async fn a_closed_connections_answer_reaches_no_one_and_the_other_goes_on() {
     send_text(&mut closing, &metadata_request(2, "file:///closed")).await;
     let orphan = next_forwarded(&mut fake).await;
     closing.close(None).await.expect("the client closes");
-    wait_until(|| connections() == 1).await;
+    poll_until(connections, |open| *open == 1).await;
     fake.write(&json!({ "id": orphan["id"], "result": metadata(1) }))
         .await;
 

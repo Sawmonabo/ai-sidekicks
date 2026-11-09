@@ -8,6 +8,7 @@ mod capability_read;
 mod commands;
 mod controls;
 mod diagnostic_recorders;
+mod export_usage;
 mod intake;
 mod kept_turns;
 mod questions;
@@ -16,7 +17,7 @@ mod rule_revoke;
 mod sessions;
 mod status_legs;
 mod terminal_reach;
-mod usage;
+pub(super) mod usage;
 
 use std::error::Error;
 use std::path::Path;

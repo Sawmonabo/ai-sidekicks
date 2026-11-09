@@ -15,7 +15,7 @@ use serde::de::{IgnoredAny, SeqAccess};
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::{
-    RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
+    ProviderBlock, RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -24,9 +24,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_store::transcript::whole_patch::WholePatchFile;
+use sidekicks_store::transcript::whole_patch::{WholePatchFile, omitted_patches_of};
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
@@ -94,7 +95,8 @@ struct ClaudeMessage {
 // a list of blocks.
 enum ClaudeMessageContent {
     Text(String),
-    Blocks(Vec<ClaudeContentBlock>),
+    // The blocks that read, and how many the list held.
+    Blocks(Vec<ClaudeContentBlock>, u64),
 }
 
 impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
@@ -108,12 +110,15 @@ impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
         Ok(Some(ClaudeMessageContent::Text(text.to_owned())))
     }
 
+    // Each block read keeps its index in the list, which a block left out still counts.
     fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
         let mut read = Vec::new();
+        let mut index = 0;
         while let Some(block) = blocks.next_element::<LenientElement<ClaudeContentBlock>>()? {
-            read.extend(block.0);
+            read.extend(block.0.map(|block| ClaudeContentBlock { index, ..block }));
+            index += 1;
         }
-        Ok(Some(ClaudeMessageContent::Blocks(read)))
+        Ok(Some(ClaudeMessageContent::Blocks(read, index)))
     }
 
     skip_other_shapes!(
@@ -141,9 +146,12 @@ struct ClaudeStopDetails {
     category: Option<String>,
 }
 
-// Every member a content block of either frame carries that a row reads.
+// Every member a content block of either frame carries that a row reads, and its index in the
+// message's content.
 #[derive(Deserialize)]
 struct ClaudeContentBlock {
+    #[serde(skip)]
+    index: u64,
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -394,11 +402,36 @@ impl ClaudeMessageFrame {
     pub(crate) fn text(&self) -> Option<&str> {
         match self.message.as_ref()?.content.as_ref()? {
             ClaudeMessageContent::Text(text) => Some(text.as_str()),
-            ClaudeMessageContent::Blocks(blocks) => blocks
+            ClaudeMessageContent::Blocks(blocks, _) => blocks
                 .iter()
                 .filter(|block| block.block_type.as_deref() == Some("text"))
                 .find_map(|block| block.text.as_deref().filter(|text| !text.is_empty())),
         }
+    }
+
+    /// How many blocks the frame's content holds, one where it is a single string.
+    pub(crate) fn block_count(&self) -> u64 {
+        match self
+            .message
+            .as_ref()
+            .and_then(|message| message.content.as_ref())
+        {
+            Some(ClaudeMessageContent::Blocks(_, count)) => *count,
+            Some(ClaudeMessageContent::Text(_)) => 1,
+            None => 0,
+        }
+    }
+
+    /// The index in the message's content of its last non-empty text block.
+    pub(crate) fn last_text_index(&self) -> Option<u64> {
+        self.blocks()
+            .iter()
+            .rev()
+            .find(|block| {
+                block.block_type.as_deref() == Some("text")
+                    && block.text.as_ref().is_some_and(|text| !text.is_empty())
+            })
+            .map(|block| block.index)
     }
 
     /// The refusal an `assistant` frame's message ends on (`stop_reason` `refusal`), with the
@@ -443,7 +476,7 @@ impl ClaudeMessageFrame {
             .as_ref()
             .and_then(|message| message.content.as_ref())
         {
-            Some(ClaudeMessageContent::Blocks(blocks)) => blocks,
+            Some(ClaudeMessageContent::Blocks(blocks, _)) => blocks,
             Some(ClaudeMessageContent::Text(_)) | None => &[],
         }
     }
@@ -454,7 +487,7 @@ impl ClaudeMessageFrame {
             .as_mut()
             .and_then(|message| message.content.as_mut())
         {
-            Some(ClaudeMessageContent::Blocks(blocks)) => blocks,
+            Some(ClaudeMessageContent::Blocks(blocks, _)) => blocks,
             Some(ClaudeMessageContent::Text(_)) | None => &mut [],
         }
     }
@@ -463,7 +496,9 @@ impl ClaudeMessageFrame {
 /// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
 /// text block under the message's id, a fresh one where the frame names none, and each tool call
 /// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`, its
-/// arguments moved off the frame into `arguments` for its trace.
+/// arguments moved off the frame into `arguments` for its trace. A summary or text names its block
+/// by its index in the message's content on the message's first response; a streamed block's last
+/// piece takes the block the stream named.
 pub(crate) fn read_claude_assistant_rows(
     frame: &mut ClaudeMessageFrame,
     session_id: SessionId,
@@ -480,12 +515,14 @@ pub(crate) fn read_claude_assistant_rows(
         .unwrap_or_else(|| {
             EventText::new(mint_uuid_v7().to_string()).expect("a uuid is a field's text")
         });
-    let output_payload = || RunAgentOutputPayload {
+    let output_payload = |index: u64| RunAgentOutputPayload {
         session_id,
         provider_message_id: provider_message_id.clone(),
         content_type: None,
         run_id,
-        provider_block: None,
+        provider_block: Some(
+            ProviderBlock::new(index, 1).expect("a held block's index is a safe integer"),
+        ),
         origin: None,
         source_epoch: None,
         source_position: None,
@@ -499,7 +536,7 @@ pub(crate) fn read_claude_assistant_rows(
             && let Some(thinking) = block.thinking.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Thinking {
-                payload: output_payload(),
+                payload: output_payload(block.index),
                 content: thinking.clone(),
             }));
             continue;
@@ -508,7 +545,7 @@ pub(crate) fn read_claude_assistant_rows(
             && let Some(text) = block.text.as_ref().filter(|text| !text.is_empty())
         {
             rows.push(unpaired(ClaudeMessageRowKind::Session {
-                row: LateAppendableRow::AgentMessageSent(output_payload()),
+                row: LateAppendableRow::AgentMessageSent(output_payload(block.index)),
                 body: ClaudeMessageBody::Text(text.clone()),
             }));
             continue;
@@ -631,7 +668,8 @@ pub(crate) struct ClaudeToolCallClose {
 }
 
 // The row that closes `opened`, the call `call_id`, on the run that started it, timed from its
-// start to `now`; `None` for an id no row can carry.
+// start to `now`, a completion carrying a patch naming its file in `omittedPatches`; `None` for an
+// id no row can carry.
 fn close_claude_tool_call(
     opened: ClaudeOpenToolCall,
     call_id: &str,
@@ -643,7 +681,12 @@ fn close_claude_tool_call(
     } else {
         ClaudeToolCallOutcome::Completed
     };
-    let row = close_opened_call(opened, call_id, closed.session_id, outcome, now)?;
+    let mut row = close_opened_call(opened, call_id, closed.session_id, outcome, now)?;
+    if let (LateAppendableRow::AgentToolCallCompleted(activity), ClaudeMessageBody::Patch(file)) =
+        (&mut row, &closed.body)
+    {
+        activity.omitted_patches = BoundedVec::new(omitted_patches_of(std::slice::from_ref(file)));
+    }
     Some(ClaudeMessageRow {
         tool_call_id: Some(call_id.to_owned()),
         pairing_role: ReorderPairingRole::Completion,
@@ -809,3 +852,6 @@ fn read_tool_result_text(content: Option<&RawValue>) -> String {
     })
     .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests;

@@ -15,8 +15,9 @@ use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 
 use super::{
     CALL, COPY_THREAD, EXECUTOR_PROCESS, THREAD, command_id, exited, initialized_executor,
-    relay_reporting_to, session_threads, wait_until,
+    relay_reporting_to, session_threads,
 };
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::codex::exec_relay::RelayedThread;
 use crate::driver::codex::exec_relay::start_rewrite::{WrappedStart, wrap_start};
@@ -226,7 +227,11 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
         fake.write(&json!({ "id": sent["id"], "result": {} })).await;
         if index == 0 {
             fake.write(&exited(&process)).await;
-            wait_until(|| relay.relayed_command(session_id, &call_id(call)).is_none()).await;
+            poll_until(
+                || relay.relayed_command(session_id, &call_id(call)).is_none(),
+                |is_gone| *is_gone,
+            )
+            .await;
         }
     }
     for process in ["1-process", "2-process"] {

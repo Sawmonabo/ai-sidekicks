@@ -16,6 +16,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::events::SessionRenamedPayload;
@@ -26,6 +27,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
     NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams,
 };
+use sidekicks_provider::runtime_binding::store::read_bindings_of_runs;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
@@ -96,12 +98,13 @@ enum NamingReadError {
     WorkingFolder(#[from] WorkingFolderReadError),
 }
 
-/// What one session's naming reads: its first message, where it runs, the provider of its first
-/// completed run, and that run's reply cut to the pass's bound.
+/// What one session's naming reads: its first message, where it runs, the provider and newest
+/// binding of its first completed run, and that run's reply cut to the pass's bound.
 struct NamingInput {
     first_message: String,
     place: Option<Place>,
     provider: Option<ProviderId>,
+    binding_id: Option<RuntimeBindingId>,
     first_reply: String,
 }
 
@@ -329,7 +332,7 @@ impl SessionAutoTitle {
     }
 
     // One pass on the driver of the session's first completed run, which bounds the pass itself;
-    // `None` when it returned nothing, failed or was canceled, or no driver answers.
+    // `None` when it returned nothing, failed or was canceled, or no driver or binding answers.
     async fn run_pass(
         &self,
         session_id: SessionId,
@@ -337,6 +340,14 @@ impl SessionAutoTitle {
         cancel: &CancellationToken,
     ) -> Option<String> {
         let provider = input.provider?;
+        let Some(binding_id) = input.binding_id else {
+            tracing::info!(
+                session_id = session_id.text().as_str(),
+                provider = provider.as_str(),
+                "the naming pass was skipped: the session's first run carries no binding"
+            );
+            return None;
+        };
         let driver = match self.providers.lookup(&provider) {
             Ok(driver) => driver,
             Err(refusal) => {
@@ -357,6 +368,7 @@ impl SessionAutoTitle {
             place: input.place,
             first_message: input.first_message,
             first_reply: input.first_reply,
+            binding_id,
             cancel: pass_cancel,
         };
         let outcome = tokio::select! {
@@ -554,11 +566,15 @@ fn read_naming_input(
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
     let provider = read_run_provider(&snapshot, &run_id)?.map(|run| run.provider);
+    let binding_id = read_bindings_of_runs(&snapshot, std::slice::from_ref(&run_id))?
+        .pop()
+        .map(|binding| binding.id);
     let first_reply = read_run_reply(&snapshot, session_id, &run_id)?;
     Ok(Some(NamingInput {
         first_message,
         place,
         provider,
+        binding_id,
         first_reply,
     }))
 }

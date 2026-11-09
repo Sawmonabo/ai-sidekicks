@@ -75,7 +75,7 @@ tokio-util.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
-# The diagnostics recorder other crates' tests install.
+# The diagnostics recorder and the captured log other crates' tests install.
 tracing-subscriber = { workspace = true, optional = true }
 unicode-normalization.workspace = true
 url.workspace = true
@@ -88,6 +88,8 @@ zeroize.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The environment row builder the spawn and sign-in tests use.
+sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The scripted caller reader and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The stand-in programs, the harness's test names and the socket folders the tests use.
@@ -116,10 +118,10 @@ zstd.workspace = true
 [features]
 # Helpers other crates' tests use: the drivers' test registry with its session inbox addresser, the
 # test provider id, the driver's mock, the unanswered request, the diagnostics recorder, the
-# runtime binding's test store, the question port's test card, the provider process stand-in and
-# its test identity, the late appendable row's `Clone` and `PartialEq`, the kept terminal service
-# with its listener and its recording `codex` command, and the command capture whose opens a test
-# holds.
+# runtime binding's test store, the captured test log, the question port's test card, the provider
+# process stand-in and its test identity, the late appendable row's `Clone` and `PartialEq`, the
+# kept terminal service with its listener and its recording `codex` command, and the command
+# capture whose opens a test holds.
 test-support = [
   "dep:mockall",
   "dep:tracing-subscriber",

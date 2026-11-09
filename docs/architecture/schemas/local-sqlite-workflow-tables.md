@@ -2,7 +2,7 @@
 
 The workflow tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store, the workflow secrets' records and the builder's unsaved drafts ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth. Table 1 is current state that changes in place: a definition's settings outside the hash, and its current body on a save. Tables 2 and 4 never change once written. Tables 3 and 6 are rebuildable projections. Tables 7 to 10 are MUTABLE truth: what this machine is armed to do next and which secrets it holds are facts no event history can reconstruct, so the durable row is the truth and an in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). Tables 5 and 11, a form step's draft and the builder's unsaved drafts, are durable state with no timer: what the person has drafted but not saved is in no event, so the row holds it. One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
+Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store, the workflow secrets' records and the builder's unsaved drafts ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth. Table 1 is current state that changes in place: a definition's settings outside the hash, and its current body on a save. Tables 2 and 4 never change once written. Tables 3 and 6 are rebuildable projections. Tables 7 to 10 are MUTABLE truth: what this machine is armed to do next and which secrets it holds are facts no event history can reconstruct, so the durable row is the truth and an in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). Tables 5 and 11, a form step's draft and the builder's unsaved drafts, are durable state with no timer: what the person has drafted but not saved is in no event, so the row holds it. Every column of tables 3 and 6 rebuilds from the log, a waiting step's `wait_deadline_at` from the `workflow.phase.suspended` that carries it, and the deadline timer is a cache over that column, re-armed from the row after a restart.
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
@@ -38,6 +38,11 @@ CREATE TABLE workflow_definitions (
   -- started with. OUTSIDE the content_hash preimage, so a change mints no version.
   background_browser   TEXT NOT NULL DEFAULT 'settingsDefault'
                        CHECK(background_browser IN ('settingsDefault','sandboxed','notSandboxed')),
+  -- The provider whose sandbox and shell the workflow's command steps run in, set from the builder
+  -- and prefilled at create where a provider has an account marked Default: a run reads it when it
+  -- starts. NULL until one is chosen; a person can change it but not clear it. No CHECK, since a
+  -- provider is an open id. OUTSIDE the content_hash preimage, so a change mints no version.
+  provider             TEXT,
   -- The node's pinned test data: an item array per node id. OUTSIDE the content_hash preimage and on
   -- the definition only, so a pin mints no version; NULL = nothing pinned.
   pin_data_json        TEXT
@@ -112,6 +117,7 @@ CREATE TABLE workflow_runs (
   id                        TEXT PRIMARY KEY,          -- the workflow run id, an event-sourced UUID; run_execution_contexts keys the captured context of a run that works in a repository by it
   workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
   session_id                TEXT NOT NULL,             -- the asking chat's session, or the workflow's own session for a run no chat asked for
+  provider                  TEXT,                      -- the workflow's provider as the run started, which a restart reads; NULL when the workflow named none
   status                    TEXT NOT NULL DEFAULT 'new'
                             CHECK(status IN (
                               'new','running','waiting','succeeded','failed','canceled','crashed'
@@ -127,6 +133,7 @@ CREATE TABLE workflow_runs (
   -- Result
   error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')
                             CHECK(error_json IS NULL OR json_valid(error_json)),
+  summary                   TEXT,                      -- the run's one summary line, which a `Write a summary` step writes on the run; NULL until one does
   -- Chains: a run that starts runs. Every row names its chain's first run; the first run's own row
   -- counts the runs the chain has started and records the person's answer to the chain's question,
   -- which is itself a row in workflow_gate_resolutions, so a chain needs no table of its own.
@@ -138,8 +145,13 @@ CREATE TABLE workflow_runs (
                             CHECK(chain_kept_going IS NULL OR chain_kept_going IN (0,1)),
   kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.run.purge) leaves a kept run
                             CHECK(kept IN (0,1)),
+  -- Time waited on people: the run's cap does not count it
+  person_wait_since         TEXT,                      -- set while the run waits only on people, from its workflow.run.waiting where no step holds an 'account' wait; the statement that moves the run off 'waiting' clears it
+  person_wait_ms            INTEGER NOT NULL DEFAULT 0 -- milliseconds the run has waited on people, added to as each such wait ends; two waits at once count once
+                            CHECK(person_wait_ms >= 0),
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
-  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
+  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL)),
+  CHECK(person_wait_since IS NULL OR status = 'waiting')
 ) STRICT;
 
 CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id, id);  -- deleting old runs pages in session order, each page seeking past the last one's final run
@@ -148,6 +160,8 @@ CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `Stop them all` cancels every run of the chain still going
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);  -- the runs list pages newest first by start, ties broken by id
+CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
+  WHERE finished_at IS NULL;  -- the engine's deadline clock reads every unfinished run's cap, a failed park among them
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5
@@ -214,10 +228,10 @@ CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_
 --     the run, approval and form pipelines already emit)
 -- ========================================================================
 -- Owner: Plan-014
--- A projection, not a second account of the run: every field below except wait_deadline_at is derivable
--- from the log, which is what keeps one step's history a function of the events rather than a parallel
--- record. wait_deadline_at is truth: it is written when the step starts waiting, and the deadline timer
--- is a cache over it, re-armed from the row when the daemon starts.
+-- A projection, not a second account of the run: every field below is derivable from the log, which is
+-- what keeps one step's history a function of the events rather than a parallel record. wait_deadline_at
+-- comes from the workflow.phase.suspended that suspends the step, and the deadline timer is a cache over
+-- it, re-armed from the row when the daemon starts.
 CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned definition this attempt ran
@@ -247,6 +261,17 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  pin_hash          TEXT                           -- a step that gave its node's pinned items in a manual run: the content hash of that pin, from its workflow.step.started, so a later partial run tells a pin added, changed or removed; on a reused skip, the hash its source step recorded, from its workflow.step.skipped; NULL on every other step
+                    CHECK(pin_hash IS NULL OR status <> 'pending'),
+  reused_from_json  TEXT                           -- JSON: on a skip a partial run reused, the step whose data it carries and the version that step's run executed (`$.workflowVersionId`), as its workflow.step.skipped names them; NULL on every other step
+                    CHECK(reused_from_json IS NULL
+                      OR (status = 'skipped' AND json_valid(reused_from_json))),
+  -- JSON array: how many items each main output holds, in output order, the error output last, so
+  -- output_ref's one joined list splits back into one list per output handle; '[]' until the step
+  -- settles with outputs.
+  output_item_counts_json TEXT NOT NULL DEFAULT '[]'
+                    CHECK(json_valid(output_item_counts_json)
+                      AND json_type(output_item_counts_json) = 'array'),
   cost_usd_micros   INTEGER,                     -- integer micro-dollars; NULL = never billed; the step still reads `$0.00` and names no account
   cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason agent_definitions states
   error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status
@@ -256,6 +281,8 @@ CREATE TABLE workflow_steps (
   permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step.started; NULL on every other step
                     CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step.failed; NULL on every other step and on a bare decline
+  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnPool to the event that ends it
+                    CHECK(total_pool_wait_ms >= 0),
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
@@ -277,6 +304,7 @@ CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;             -- one attention entry per spent account
 CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
   WHERE wait_id IS NOT NULL;                     -- an answer finds its waiting step by its waitId
+CREATE INDEX idx_workflow_steps_node_finished ON workflow_steps(node_id, finished_at);  -- a partial run's plan reads each node's newest settled step
 
 -- ========================================================================
 -- 7. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
@@ -324,19 +352,25 @@ CREATE TABLE workflow_webhook_tokens (
 -- would change the content hash on every fire and mint a version for nothing. It also holds the values a
 -- `Keep for later runs` step keeps: one entry per (workflow, name), with the value, the run that kept it and
 -- when. A value over 64 KiB is kept as a file and read back the same way, by the rule a step's payload over
--- the inline bound follows. Kept values belong to the workflow, not to a version: saving, restoring or
--- duplicating a version leaves them, a duplicate starts with none, and `workflow.keptValue.clear` or deleting
--- the workflow removes them.
+-- the inline bound follows; artifact_id names that file, so a value is never told apart by its shape. Kept
+-- values belong to the workflow, not to a version: saving, restoring or duplicating a version leaves them, a
+-- duplicate starts with none, and `workflow.keptValue.clear` or deleting the workflow removes them. The write
+-- that replaces, clears or deletes a value reads its artifact_id first, inside itself, and the artifact is
+-- removed right after that write commits, as is the file of a value a step of a deleted workflow kept, which
+-- keeps no row; a removal that fails is recorded beside the run's turn or answered beside the clear or delete,
+-- and no sweep follows.
 CREATE TABLE workflow_node_state (
   definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
   node_id           TEXT NOT NULL,               -- '' for a kept value, which belongs to the workflow rather than to one node
   key               TEXT NOT NULL,               -- a cursor's key, or a kept value's name
   value_json        TEXT NOT NULL
                     CHECK(json_valid(value_json)),
+  artifact_id       TEXT,                        -- the payload artifact a kept value above the inline cap is kept in, whose reference value_json then holds; NULL for a value kept inline and for trigger cursor state
   kept_by_run_id    TEXT,                        -- the run that kept the value; NULL for trigger cursor state
   updated_at        TEXT NOT NULL,               -- when the value was written or kept
   PRIMARY KEY (definition_id, node_id, key),
-  CHECK(kept_by_run_id IS NULL OR node_id = '')
+  CHECK(kept_by_run_id IS NULL OR node_id = ''),
+  CHECK(artifact_id IS NULL OR kept_by_run_id IS NOT NULL)
 ) STRICT;
 
 -- ========================================================================

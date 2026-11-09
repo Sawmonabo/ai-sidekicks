@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
-use crate::mcp::server::config::{McpRequestText, McpServerAddress, McpServerConfigInput};
+use crate::mcp::server::config::{McpRequestText, McpServerConfigInput};
 use crate::mcp::server::inventory::{
     McpServerInventoryEntry, McpServerLegStatus, McpToolOverride, McpToolOverrideFacet,
 };
@@ -140,16 +140,13 @@ binding_addressed! {
 
 impl KeyedRequest for McpToolOverrideClearRequest {}
 
-/// Signs out of one server: the daemon's single sign-in for it, which every provider and every
-/// binding naming it share. `serverId` is the server's address, not a scope-qualified binding.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-pub struct McpServerSignOutRequest {
-    /// The press's key; a retry reuses it.
-    pub client_idempotency_key: ClientUuid,
-    /// The server's address.
-    pub server_id: McpServerAddress,
+binding_addressed! {
+    /// Signs out of the server at the address the binding's entry declares: the one sign-in every
+    /// binding at that address shares.
+    pub enum McpServerSignOutRequest in every scope {
+        /// The press's key; a retry reuses it.
+        client_idempotency_key: ClientUuid,
+    }
 }
 
 impl KeyedRequest for McpServerSignOutRequest {}
@@ -560,7 +557,7 @@ pub struct McpRegistrySearchResponse {
 mod tests {
     use rstest::rstest;
 
-    use super::{McpServerSignOutRequest, McpServerUpsertRequest};
+    use super::McpServerUpsertRequest;
     use crate::mcp::server::config::McpServerConfigInput;
     use crate::wire::attachment::{ReceivedError, parse_received};
     use crate::wire::number::PositiveNumber;
@@ -583,22 +580,10 @@ mod tests {
             })
             .to_string()
         };
-        let logout = |url: &str| {
-            serde_json::json!({ "clientIdempotencyKey": KEY, "serverId": url }).to_string()
-        };
         parse_received::<McpServerUpsertRequest>(upsert("https://example.com/").as_bytes(), vec![])
             .expect("an address within the cap is read");
-        parse_received::<McpServerSignOutRequest>(
-            logout("https://example.com/").as_bytes(),
-            vec![],
-        )
-        .expect("an address within the cap is read");
         assert!(matches!(
             parse_received::<McpServerUpsertRequest>(upsert(&padded).as_bytes(), vec![]),
-            Err(ReceivedError::Read { .. })
-        ));
-        assert!(matches!(
-            parse_received::<McpServerSignOutRequest>(logout(&padded).as_bytes(), vec![]),
             Err(ReceivedError::Read { .. })
         ));
     }

@@ -21,14 +21,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
-use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
+use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
+use sidekicks_contracts::workflow::run::step::record::{
+    WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
+};
 
 use self::first_to_arrive::FirstToArriveWin;
-pub(crate) use self::graph::RunGraph;
 use self::graph::SlotTarget;
+pub(crate) use self::graph::{RunGraph, RunGraphError};
 use self::lineage::StepLineage;
 use self::round::{NodeRounds, Round, RoundSlot, SlotOpenings};
 use crate::expressions::lineage::{StepKey, StepOutputs};
@@ -68,12 +71,38 @@ pub(crate) struct WalkSkip {
     pub(crate) step: WorkflowStepKey,
     /// The node's run index, `$runIndex`.
     pub(crate) run_index: u64,
-    /// Why it was skipped.
-    pub(crate) reason: WorkflowStepSkipReason,
+    /// Why it was skipped, with the step a reused skip carries the data of.
+    pub(crate) reason: WalkSkipReason,
     /// The feed of each main input slot in slot order, `None` for a slot nothing fed.
     pub(crate) sources: Vec<Option<WorkflowStepSource>>,
     /// How many items each main output carries on, in output order.
     pub(crate) output_lengths: Vec<usize>,
+}
+
+/// Why the walk skipped a step.
+#[derive(Debug)]
+pub(crate) enum WalkSkipReason {
+    /// No main input carried items.
+    NoItems,
+    /// Its node is disabled, so its input passes on.
+    Disabled,
+    /// An earlier step's data stands in for it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the walk's seed of reused steps")
+    )]
+    Reused(ReusedStepRecord),
+}
+
+/// The earlier step a reused skip carries the data of, as its row and event record it.
+#[derive(Debug)]
+pub(crate) struct ReusedStepRecord {
+    /// The step and the version its run executed.
+    pub(crate) from: WorkflowReusedStep,
+    /// That step's output, which the skip passes on.
+    pub(crate) output_ref: WorkflowPayloadRef,
+    /// The hash of the pin that step ran on, where it recorded one.
+    pub(crate) pin_hash: Option<WorkflowContentHash>,
 }
 
 /// A first-to-arrive win the walk decided: the node that won and which places lost.
@@ -306,9 +335,9 @@ impl RunWalk {
             step,
             run_index,
             reason: if node.is_disabled {
-                WorkflowStepSkipReason::Disabled
+                WalkSkipReason::Disabled
             } else {
-                WorkflowStepSkipReason::NoItems
+                WalkSkipReason::NoItems
             },
             sources: round.sources(),
             output_lengths: vec![0; node.outputs.len()],
@@ -688,7 +717,7 @@ impl RunWalk {
         turn.skipped.push(WalkSkip {
             step,
             run_index,
-            reason: WorkflowStepSkipReason::Disabled,
+            reason: WalkSkipReason::Disabled,
             sources,
             output_lengths: output_lengths.clone(),
         });
@@ -828,20 +857,21 @@ impl RunWalk {
 }
 
 impl RunWalk {
-    /// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a
-    /// main slot's list is its source output's items, cloned once, and a tool input's or an unfed
-    /// slot's list is empty. A disabled skip's first output reads as the feed of its first slot,
-    /// through any chain of them, and its other outputs as empty; every other source is a step
-    /// `outputs` recorded.
+    /// The input lists `step`, readied or skipped with `sources`, runs on, one per input of its
+    /// kind's spec in spec order: a main slot's list is its source output's items, cloned once,
+    /// and a tool input's or an unfed slot's list is empty. A disabled skip's first output reads
+    /// as the feed of its first slot, through any chain of them, and its other outputs as empty;
+    /// every other source is a step `outputs` recorded.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn ready_inputs(
         &self,
-        ready: &WalkReady,
+        step: &WorkflowStepKey,
+        sources: &[Option<WorkflowStepSource>],
         outputs: &StepOutputs,
     ) -> Vec<Vec<WorkflowItem>> {
-        let node = self.graph.node(self.graph.place(&ready.step.node_id));
+        let node = self.graph.node(self.graph.place(&step.node_id));
         let mut inputs = vec![Vec::new(); node.input_count];
-        for (slot, source) in node.slots.iter().zip(&ready.sources) {
+        for (slot, source) in node.slots.iter().zip(sources) {
             let mut source = source.as_ref();
             while let Some((skip, passed)) = source
                 .and_then(|skip| Some((skip, self.passed_on.get(&skip.execution_index.get())?)))

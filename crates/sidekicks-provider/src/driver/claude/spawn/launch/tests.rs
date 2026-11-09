@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -7,27 +7,36 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
+use serde_json::Value;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_platforms::{ProgramStart, Spawner};
+use sidekicks_platforms::{ProgramStart, Spawner, has_file_mode};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::port_registration::PortRegistration;
 
-use super::ClaudeProcessLauncher;
+use super::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::bounded_poll::poll_until;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
+use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
+use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The token sealed for the test's account.
 const SEALED_TOKEN: &str = "sk-ant-oat01-sealed-test-token-5d2e8b";
@@ -107,7 +116,7 @@ sh -c 'env > "$RECORD/command-environment"; '\
 // it recorded in and the accounts reader.
 async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedToken>) {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let program = folder.path().join("claude");
+    let program = folder.path().join("claude-stand-in");
     write_file_atomically(&program, STAND_IN, 0o755)
         .await
         .expect("the stand-in is written");
@@ -115,37 +124,15 @@ async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedT
         mode,
         tokens_read: AtomicUsize::new(0),
     });
-    let provider_accounts = PortRegistration::new("provider accounts");
-    provider_accounts
-        .register(Arc::clone(&accounts) as Arc<dyn ProviderAccountReader>)
-        .expect("a new registration takes its port");
-    let launcher = ClaudeProcessLauncher::new(
-        Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
-        Arc::new(UnrecordedChildren),
-        Arc::new(ProviderProcessRegistry::default()),
-        Arc::new(provider_accounts),
-        DriverPorts::new().raw_provider_messages,
+    let launcher = compose_launcher(
         folder.path(),
+        Arc::clone(&accounts) as Arc<dyn ProviderAccountReader>,
+        None,
     );
-    let record = folder.path().to_string_lossy().into_owned();
 
     let process = launcher
         .start(
-            ClaudeProcessLaunch {
-                start: ProgramStart {
-                    program,
-                    leading_arguments: Vec::new(),
-                },
-                arguments: Vec::new(),
-                environment: vec![
-                    ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
-                    ("RECORD".to_owned(), record),
-                ],
-                working_folder: PathBuf::from(folder.path()),
-                provider_session_id: "conversation".to_owned(),
-                account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
-                token: None,
-            },
+            compose_launch(folder.path(), program),
             Arc::new(NoSession),
             None,
         )
@@ -156,6 +143,240 @@ async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedT
         .expect("the stand-in reads its token to the end and exits");
     assert!(ended.is_ok(), "{ended:?}");
     (folder, accounts)
+}
+
+// A launcher whose data folder is `folder`, reading accounts through `accounts` and with `target`
+// registered where given.
+fn compose_launcher(
+    folder: &Path,
+    accounts: Arc<dyn ProviderAccountReader>,
+    target: Option<TelemetryTarget>,
+) -> ClaudeProcessLauncher {
+    let provider_accounts = PortRegistration::new("provider accounts");
+    provider_accounts
+        .register(accounts)
+        .expect("a new registration takes its port");
+    let telemetry_target = PortRegistration::new("telemetry target");
+    if let Some(target) = target {
+        telemetry_target
+            .register(Arc::new(target))
+            .expect("a new registration takes its port");
+    }
+    ClaudeProcessLauncher::new(
+        Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
+        Arc::new(UnrecordedChildren),
+        Arc::new(ProviderProcessRegistry::default()),
+        Arc::new(provider_accounts),
+        Arc::new(telemetry_target),
+        DriverPorts::new().raw_provider_messages,
+        folder,
+    )
+}
+
+// A launch of `program` on the test's account with a short process's settings, recording into
+// `folder`.
+fn compose_launch(folder: &Path, program: PathBuf) -> ClaudeProcessLaunch {
+    ClaudeProcessLaunch {
+        start: ProgramStart {
+            program,
+            leading_arguments: Vec::new(),
+        },
+        arguments: Vec::new(),
+        settings: ClaudeSpawnSettings::short_process(false),
+        environment: vec![
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("RECORD".to_owned(), folder.to_string_lossy().into_owned()),
+        ],
+        working_folder: PathBuf::from(folder),
+        provider_session_id: "conversation".to_owned(),
+        account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
+        token: None,
+        telemetry_target: None,
+    }
+}
+
+// A stand-in that records its arguments and a copy of the file its last one names, says it has,
+// then waits on its input until the daemon closes it.
+const SETTINGS_STAND_IN: &str = r#"#!/bin/sh
+printf '%s\n' "$@" > "$RECORD/arguments"
+for last; do :; done
+cp "$last" "$RECORD/settings"
+: > "$RECORD/recorded"
+cat > /dev/null
+"#;
+
+// The `Authorization` value the copied settings document in `folder` presents its exports with.
+fn recorded_authorization(folder: &Path) -> String {
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(folder.join("settings")).expect("the stand-in copied the file"),
+    )
+    .expect("the file holds the document");
+    settings["env"]["OTEL_EXPORTER_OTLP_HEADERS"]
+        .as_str()
+        .and_then(|headers| headers.strip_prefix("authorization="))
+        .expect("the document presents an authorization")
+        .to_owned()
+}
+
+// Killed by the document inline on the command line, by the token in an argument, by the file
+// left after the process's end, by the file's mode left to the umask, by the person's hooks
+// turned off on a short process that does not ask for it, by one token shared by every process,
+// and by the token's guard dropped before the reap or kept after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_process_reads_its_settings_from_a_private_file_gone_at_its_end() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let program = folder.path().join("claude-stand-in");
+    write_file_atomically(&program, SETTINGS_STAND_IN, 0o755)
+        .await
+        .expect("the stand-in is written");
+    let bearers = Arc::new(TelemetryBearers::default());
+    let launcher = compose_launcher(
+        folder.path(),
+        Arc::new(SealedToken {
+            mode: ProviderAuthMode::OauthSubscription,
+            tokens_read: AtomicUsize::new(0),
+        }),
+        Some(TelemetryTarget::new(43_210, Arc::clone(&bearers))),
+    );
+    let resolve = |authorization: &str| {
+        bearers.resolve(&DESCRIPTOR.provider_id(), Some(authorization.as_bytes()))
+    };
+
+    let process = launcher
+        .start(
+            compose_launch(folder.path(), program.clone()),
+            Arc::new(NoSession),
+            None,
+        )
+        .await
+        .expect("the process starts");
+    let recorded = folder.path().join("recorded");
+    poll_until(|| recorded.exists(), |is_recorded| *is_recorded).await;
+    let authorization = recorded_authorization(folder.path());
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .expect("the authorization presents a bearer");
+
+    let arguments = std::fs::read_to_string(folder.path().join("arguments"))
+        .expect("the stand-in recorded its arguments");
+    let arguments: Vec<&str> = arguments.lines().collect();
+    let [.., flag, path] = arguments.as_slice() else {
+        panic!("the process has its settings arguments: {arguments:?}");
+    };
+    assert_eq!(*flag, "--settings");
+    let path = Path::new(path);
+    assert_eq!(
+        path.parent(),
+        Some(compose_claude_settings_folder(folder.path()).as_path())
+    );
+    assert!(
+        !arguments.iter().any(|argument| argument.contains(token)),
+        "no argument carries the token"
+    );
+    assert!(
+        has_file_mode(path, 0o600).expect("the settings file is there while the process runs"),
+        "the file is private to the daemon's user"
+    );
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(folder.path().join("settings"))
+            .expect("the stand-in copied the file"),
+    )
+    .expect("the file holds the document");
+    assert_eq!(
+        settings["env"]["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"],
+        "http://127.0.0.1:43210/telemetry/claude/v1/logs"
+    );
+    assert_eq!(
+        settings["env"]["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"],
+        "http://127.0.0.1:43210/telemetry/claude/v1/traces"
+    );
+    assert_eq!(
+        settings["env"]["OTEL_EXPORTER_OTLP_HEADERS"],
+        format!("authorization=Bearer {token}")
+    );
+    assert_eq!(settings["otelHeadersHelper"], "");
+    assert_eq!(settings["disableAllHooks"], Value::Null);
+    assert_eq!(
+        resolve(&authorization),
+        Some(TelemetryHolderId::new(process.identity().spawn_sequence)),
+        "the token names its own process while it runs"
+    );
+
+    let beside_folder = tempfile::tempdir().expect("a scratch folder is made");
+    let beside = launcher
+        .start(
+            compose_launch(beside_folder.path(), program),
+            Arc::new(NoSession),
+            None,
+        )
+        .await
+        .expect("the process beside it starts");
+    let beside_recorded = beside_folder.path().join("recorded");
+    poll_until(|| beside_recorded.exists(), |is_recorded| *is_recorded).await;
+    let beside_authorization = recorded_authorization(beside_folder.path());
+    assert_ne!(
+        beside_authorization, authorization,
+        "each process has its own token"
+    );
+    assert_eq!(
+        resolve(&beside_authorization),
+        Some(TelemetryHolderId::new(beside.identity().spawn_sequence))
+    );
+
+    process.stop(Duration::from_secs(10), None).await;
+    let ended = tokio::time::timeout(Duration::from_secs(30), process.exited())
+        .await
+        .expect("the stand-in exits once its input closes");
+    assert!(ended.is_ok(), "{ended:?}");
+    poll_until(|| path.exists(), |is_there| !*is_there).await;
+    assert_eq!(
+        resolve(&authorization),
+        None,
+        "a reaped process's token is refused"
+    );
+    assert!(
+        resolve(&beside_authorization).is_some(),
+        "the process beside it keeps its own"
+    );
+    beside.stop(Duration::from_secs(10), None).await;
+}
+
+// Killed by the file's guard made after the spawn, which leaves the written file behind when the
+// program cannot start.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_whose_program_is_missing_leaves_no_settings_file() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let launcher = compose_launcher(
+        folder.path(),
+        Arc::new(SealedToken {
+            mode: ProviderAuthMode::OauthSubscription,
+            tokens_read: AtomicUsize::new(0),
+        }),
+        None,
+    );
+
+    let started = launcher
+        .start(
+            compose_launch(folder.path(), folder.path().join("missing")),
+            Arc::new(NoSession),
+            None,
+        )
+        .await;
+
+    assert!(
+        matches!(started, Err(ClaudeLaunchError::Spawn(_))),
+        "the start fails at its spawn"
+    );
+    let settings_folder = compose_claude_settings_folder(folder.path());
+    poll_until(
+        || {
+            std::fs::read_dir(&settings_folder)
+                .expect("the settings folder was made before the spawn")
+                .count()
+        },
+        |files| *files == 0,
+    )
+    .await;
 }
 
 // Killed by the token placed in the process's environment, which the model's command inherits,
@@ -201,4 +422,71 @@ async fn a_store_account_s_start_reads_no_keychain() {
         !command_environment.contains("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR="),
         "no token pipe is named: {command_environment}"
     );
+}
+
+// A stand-in that copies the file its last argument names, then answers each control request
+// with an empty success.
+const INITIALIZE_STAND_IN: &str = r#"#!/bin/sh
+for last; do :; done
+cp "$last" "$RECORD/settings"
+while read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+  printf '{"type":"control_response","response":{"subtype":"success",'\
+'"request_id":"%s","response":{}}}\n' "$id"
+done
+"#;
+
+// Killed by the command-list read started with the person's hooks on, which runs their
+// `SessionStart` hook on every palette read.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_command_list_read_turns_the_persons_hooks_off() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let program = folder.path().join("claude-stand-in");
+    write_file_atomically(&program, INITIALIZE_STAND_IN, 0o755)
+        .await
+        .expect("the stand-in is written");
+    let launcher = compose_launcher(
+        folder.path(),
+        Arc::new(SealedToken {
+            mode: ProviderAuthMode::OauthSubscription,
+            tokens_read: AtomicUsize::new(0),
+        }),
+        None,
+    );
+    let executable = ResolvedProviderExecutable {
+        requested_command: "claude".to_owned(),
+        resolved_executable_path: program.clone(),
+        start: ProgramStart {
+            program,
+            leading_arguments: Vec::new(),
+        },
+        environment: vec![
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            (
+                "RECORD".to_owned(),
+                folder.path().to_string_lossy().into_owned(),
+            ),
+        ],
+    };
+
+    let commands = tokio::time::timeout(
+        Duration::from_secs(30),
+        read_claude_session_commands(
+            &launcher,
+            &executable,
+            folder.path().to_path_buf(),
+            test_provider_account_id(),
+            false,
+        ),
+    )
+    .await
+    .expect("the read ends");
+
+    assert!(commands.is_ok(), "{commands:?}");
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(folder.path().join("settings"))
+            .expect("the stand-in copied the file"),
+    )
+    .expect("the file holds the document");
+    assert_eq!(settings["disableAllHooks"], true);
 }

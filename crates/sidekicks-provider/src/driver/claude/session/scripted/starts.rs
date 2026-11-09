@@ -30,7 +30,7 @@ use crate::driver::claude::account::credentials::{
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
-use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
+use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInStart, SIGN_IN_KEYCHAIN_ACCOUNT_FILE};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
@@ -52,7 +52,7 @@ use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
-use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
@@ -106,7 +106,8 @@ struct ScriptedStartTables {
     session_commands: VecDeque<Vec<ClaudeListedCommand>>,
     session_command_holds: VecDeque<oneshot::Receiver<()>>,
     session_command_reads: usize,
-    one_turn_replies: VecDeque<ClaudeOneTurnReply>,
+    // Each scripted one turn's outcome, and what it waits for before answering it.
+    one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnWait)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
@@ -121,6 +122,16 @@ struct ScriptedStartTables {
     stop_deadlines: Vec<Instant>,
     stop_hold: Option<oneshot::Receiver<()>>,
     next_process_id: u32,
+}
+
+// What a scripted one turn waits for before it answers.
+enum OneTurnWait {
+    // Nothing: it answers at once.
+    Nothing,
+    // Its stop.
+    Stop,
+    // The test's release.
+    Release(oneshot::Receiver<()>),
 }
 
 // One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
@@ -153,10 +164,10 @@ pub(crate) enum ScriptedSignInPlace {
 pub(crate) struct ScriptedSignInStart {
     /// Its whole environment.
     pub(crate) environment: Vec<(String, String)>,
-    /// The servers file it was handed, as read when it started.
-    pub(crate) servers: Value,
-    /// Whether it was told to load only the servers that file declares.
-    pub(crate) loads_only_its_servers: bool,
+    /// The servers file it was handed, as read when it started; `None` where it was handed none.
+    pub(crate) servers: Option<Value>,
+    /// The keychain account its folder recorded when it started; `None` where none was.
+    pub(crate) keychain_account_record: Option<String>,
 }
 
 /// Every start answered as scripted; a start with nothing scripted fails as a spawn would.
@@ -248,9 +259,28 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().session_command_reads)
     }
 
-    /// Scripts the next one-turn process to answer `reply`.
-    pub(crate) fn script_one_turn(&self, reply: ClaudeOneTurnReply) {
-        self.lock().one_turn_replies.push_back(reply);
+    /// Scripts the next one-turn process to end as `outcome`.
+    pub(crate) fn script_one_turn(&self, outcome: ClaudeOneTurnOutcome) {
+        let wait = OneTurnWait::Nothing;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+    }
+
+    /// Scripts the next one-turn process to run until its stop fires, then end as `outcome`.
+    pub(crate) fn script_one_turn_until_stopped(&self, outcome: ClaudeOneTurnOutcome) {
+        let wait = OneTurnWait::Stop;
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+    }
+
+    /// Scripts the next one-turn process to run until the answered sender sends or drops, then
+    /// end as `outcome`, whether or not anyone still waits for it.
+    pub(crate) fn script_one_turn_until_released(
+        &self,
+        outcome: ClaudeOneTurnOutcome,
+    ) -> oneshot::Sender<()> {
+        let (release, released) = oneshot::channel();
+        let wait = OneTurnWait::Release(released);
+        self.lock().one_turn_outcomes.push_back((outcome, wait));
+        release
     }
 
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
@@ -438,8 +468,8 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn run_one_turn<'a>(
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
-    ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
-        let reply = {
+    ) -> BoxFuture<'a, ClaudeOneTurnOutcome> {
+        let outcome = {
             let mut tables = self.lock();
             tables.one_turns.push(ScriptedOneTurnRecord {
                 model: request.spawn.legs.model.clone(),
@@ -450,9 +480,28 @@ impl ClaudeProcessStarts for ScriptedStarts {
             tables
                 .one_turn_environments
                 .push(request.spawn.legs.spawn_environment.clone());
-            tables.one_turn_replies.pop_front()
+            tables.one_turn_outcomes.pop_front()
         };
-        async move { reply.ok_or_else(|| spawn_failure("no one-turn reply scripted")) }.boxed()
+        let (outcome, wait) = outcome.unwrap_or_else(|| {
+            let outcome = ClaudeOneTurnOutcome {
+                reply: Err(spawn_failure("no one-turn reply scripted")),
+                spend: None,
+            };
+            (outcome, OneTurnWait::Nothing)
+        });
+        let stop = request.stop;
+        async move {
+            match wait {
+                OneTurnWait::Nothing => {}
+                OneTurnWait::Stop => stop.cancelled().await,
+                // A dropped sender releases the turn as a send does.
+                OneTurnWait::Release(released) => {
+                    let _is_sent = released.await.is_ok();
+                }
+            }
+            outcome
+        }
+        .boxed()
     }
 
     fn probe_sign_in(
@@ -548,14 +597,26 @@ impl ClaudeProcessStarts for ScriptedStarts {
     ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         let scripted = self.lock().sign_ins.pop_front();
         async move {
-            let servers = tokio::fs::read(&start.servers_file)
-                .await
-                .map_err(ClaudeLaunchError::Spawn)?;
+            let servers =
+                match &start.servers_file {
+                    Some(servers_file) => {
+                        let servers = tokio::fs::read(servers_file)
+                            .await
+                            .map_err(ClaudeLaunchError::Spawn)?;
+                        Some(serde_json::from_slice(&servers).map_err(|error| {
+                            ClaudeLaunchError::Spawn(std::io::Error::other(error))
+                        })?)
+                    }
+                    None => None,
+                };
+            let keychain_account_record =
+                tokio::fs::read_to_string(start.folder.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE))
+                    .await
+                    .ok();
             self.lock().sign_in_starts.push(ScriptedSignInStart {
                 environment: start.environment.clone(),
-                servers: serde_json::from_slice(&servers)
-                    .map_err(|error| ClaudeLaunchError::Spawn(std::io::Error::other(error)))?,
-                loads_only_its_servers: start.loads_only_its_servers,
+                servers,
+                keychain_account_record,
             });
             let ScriptedSignIn {
                 channel,

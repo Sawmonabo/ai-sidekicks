@@ -36,6 +36,7 @@ use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::mcp::sign_in::sign_in_with_codex_client;
 use crate::driver::codex::model_windows::join_codex_model_windows;
+use crate::driver::codex::pricing::CODEX_REVIEWER_MODELS;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -180,6 +181,7 @@ impl CodexDriver {
                         resume,
                         &params,
                         Arc::clone(&parts.ports.usage),
+                        Arc::clone(&parts.pricing),
                     )
                     .await?
             }
@@ -255,10 +257,11 @@ impl CodexDriver {
     }
 
     /// The models of the account the params name, else of Codex's current account, each with its
-    /// windows from the catalog dump. A catalog read that asks for a restart restarts the service
-    /// and reads once more. Refused `provider.account.notRegistered` or
-    /// `provider.account.current.notSet` with no account named and none to run on; fails as the
-    /// service's start or the catalog read fails.
+    /// windows from the catalog dump; once they are read, the reviewer's models are marked in use
+    /// on the price list. A catalog read that asks for a restart restarts the service and reads
+    /// once more. Refused `provider.account.notRegistered` or `provider.account.current.notSet`
+    /// with no account named and none to run on; fails as the service's start or the catalog read
+    /// fails.
     pub(crate) async fn list_models(
         &self,
         params: ListModelsParams,
@@ -282,6 +285,7 @@ impl CodexDriver {
             }
             read => read?,
         };
+        self.pricing.mark_in_use(&CODEX_REVIEWER_MODELS).await;
         let windows = self.model_windows.refresh(&service).await;
         Ok(join_codex_model_windows(models, &windows))
     }

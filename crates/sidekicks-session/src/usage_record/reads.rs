@@ -141,11 +141,10 @@ static SELECT_PRIOR_EMITTED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Where a metered reading's row goes: the binding's run or a helper's own run, none for a copy of
-/// the session's conversation, and the account it is charged to with that account's generation.
+/// Where a metered reading's row goes: the binding's run or a helper's own run, none for the
+/// session's own spend, and the account it is charged to with that account's generation.
 pub(super) struct MeteredTarget {
-    /// The run the row is recorded on and counted toward, `None` for a copy of the session's
-    /// conversation.
+    /// The run the row is recorded on and counted toward, `None` for the session's own spend.
     pub(super) run_id: Option<RunId>,
     /// The account the reading is charged to.
     pub(super) provider_account_id: ProviderAccountId,
@@ -154,20 +153,22 @@ pub(super) struct MeteredTarget {
 }
 
 /// The target of a reading on `binding_id` that is `owner`'s, a helper's own run read from the log
-/// only where `kept_helper_run` does not already name it. Fails as the binding, the helper's start
-/// or the account is missing, or a read fails.
+/// only where `kept_helper_run` does not already name it, charged to `ran_on`, the account the
+/// reading ran on, else to the binding's. Fails as the binding, the helper's start or the account
+/// is missing, or a read fails.
 pub(super) fn read_metered_target(
     reader: &Connection,
     session_id: SessionId,
     binding_id: &RuntimeBindingId,
     owner: &MeteredUsageOwner,
     kept_helper_run: Option<RunId>,
+    ran_on: Option<ProviderAccountId>,
 ) -> Result<MeteredTarget, UsageRecordError> {
     let binding =
         read_binding(reader, binding_id)?.ok_or_else(|| UsageRecordError::BindingNotFound {
             binding_id: binding_id.clone(),
         })?;
-    let provider_account_id = binding.spawn_config.provider_account_id;
+    let provider_account_id = ran_on.unwrap_or(binding.spawn_config.provider_account_id);
     let run_id = match owner {
         MeteredUsageOwner::Run => Some(binding.run_id),
         MeteredUsageOwner::Helper(subagent_id) => match kept_helper_run {
@@ -179,7 +180,7 @@ pub(super) fn read_metered_target(
                 subagent_id,
             )?),
         },
-        MeteredUsageOwner::SessionCopy => None,
+        MeteredUsageOwner::Session => None,
     };
     let credential_generation = read_credential_generation(reader, provider_account_id.clone())?;
     Ok(MeteredTarget {

@@ -1,6 +1,7 @@
-//! The whole-session purge, for `Delete old data` and a damaged session's `Delete session`: the
-//! one path that removes a committed row of the append-only log. Nothing in the background calls
-//! it. Each session goes on its own, under its transition lock, so a refused one stops no other.
+//! The whole-session purge, for `Delete old data` and `Delete session` on a damaged session or one
+//! whose create never finished: the one path that removes a committed row of the append-only log.
+//! Nothing in the background calls it. Each session goes on its own, under its transition lock, so
+//! a refused one stops no other.
 //!
 //! - The session is marked `purgeRequested` first, from the states its caller purges, with no
 //!   event, which locks its row against every other change. The mark is refused while a plan the
@@ -62,7 +63,9 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::remove_tree_awaited;
 use sidekicks_provider::run::posture::ExecutionPostureService;
-use sidekicks_recovery::damaged_history::DamagedSessionPurge;
+use sidekicks_recovery::damaged_history::{
+    SessionDeletePurge, SessionDeletePurgeError, SessionDeletion,
+};
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::changes::{SessionChangeError, SessionChanges};
@@ -554,18 +557,19 @@ impl SessionPurge {
     }
 }
 
-impl DamagedSessionPurge for SessionPurge {
-    fn purge_damaged_session(
+impl SessionDeletePurge for SessionPurge {
+    fn purge_deleted_session(
         &self,
         session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        deletion: SessionDeletion,
+    ) -> BoxFuture<'_, Result<(), SessionDeletePurgeError>> {
+        let caller = match deletion {
+            SessionDeletion::DamagedHistory => PurgeCaller::DamagedHistory,
+            SessionDeletion::UnfinishedCreate => PurgeCaller::UnfinishedCreate,
+        };
         Box::pin(async move {
             let report = self
-                .purge(
-                    &[session_id],
-                    PurgeCaller::DamagedHistory,
-                    &ProcessorMeter::default(),
-                )
+                .purge(&[session_id], caller, &ProcessorMeter::default())
                 .await;
             let (_, outcome) = report
                 .outcomes
@@ -574,8 +578,11 @@ impl DamagedSessionPurge for SessionPurge {
                 .expect("a purge answers one outcome for each session id it was given");
             match outcome {
                 SessionPurgeOutcome::Removed { .. } => Ok(()),
+                SessionPurgeOutcome::Refused(SessionPurgeError::NotMarkable { .. }) => {
+                    Err(SessionDeletePurgeError::NotDeletable)
+                }
                 SessionPurgeOutcome::Refused(refusal) => {
-                    Err(Box::<dyn Error + Send + Sync>::from(refusal))
+                    Err(SessionDeletePurgeError::Failed(Box::new(refusal)))
                 }
             }
         })

@@ -288,13 +288,14 @@ mod tests {
     use crate::data_acts::mode_outcome::hold_data_folder;
 
     // With two Claude Code accounts registered, a third removed from the list with its home kept
-    // and a fourth minted by a sign-in that did not finish, the erase runs `claude auth logout` in
-    // each home while it still holds its files, and only then deletes the data folder with the
-    // homes in it; the second's, third's and fourth's sign-outs exit 1, so the erase deletes every
-    // home and fails naming each as left signed in, the third as removed from the list and the
-    // fourth as from a sign-in that did not finish. Killed by the sign-out skipped, by the sign-out
-    // run after the delete, by an early return on a failed sign-out, by only the rows read, and by
-    // the removed or the unfinished account's line written as a listed one.
+    // and a fourth minted by a sign-in that did not finish, the erase runs `claude auth logout`,
+    // after the settings document, in each home while it still holds its files, and only then
+    // deletes the data folder with the homes in it; the second's, third's and fourth's sign-outs
+    // exit 1, so the erase deletes every home and fails naming each as left signed in, the third
+    // as removed from the list and the fourth as from a sign-in that did not finish. Killed by the
+    // sign-out skipped, by the sign-out run after the delete, by an early return on a failed
+    // sign-out, by only the rows read, and by the removed or the unfinished account's line written
+    // as a listed one.
     #[tokio::test]
     async fn the_offline_erase_signs_every_account_out_before_it_deletes() {
         let root = tempfile::tempdir().expect("a scratch folder is made");
@@ -346,13 +347,15 @@ mod tests {
         tokio::fs::create_dir_all(&programs)
             .await
             .expect("the programs folder is made");
+        // The stand-in records the settings flag and the subcommand after its document, one short
+        // line a run, so the concurrent sign-outs' appends never interleave.
         let record = root.path().join("sign-outs");
         write_file_atomically(
             &programs.join("claude"),
             format!(
                 "#!/bin/sh\nif [ -e \"$CLAUDE_CONFIG_DIR/settings.json\" ]; then held=whole; \
-                 else held=gone; fi\nprintf '%s|%s|%s\\n' \"$CLAUDE_CONFIG_DIR\" \"$*\" \
-                 \"$held\" >> '{}'\n\
+                 else held=gone; fi\nflag=$1; shift 2\nprintf '%s|%s %s|%s\\n' \
+                 \"$CLAUDE_CONFIG_DIR\" \"$flag\" \"$*\" \"$held\" >> '{}'\n\
                  case \"$CLAUDE_CONFIG_DIR\" in */account-2|*/account-3|*/account-4) exit 1;; \
                  esac\n",
                 record.display()
@@ -394,7 +397,7 @@ mod tests {
         recorded.sort_unstable();
         let expected: Vec<String> = homes
             .iter()
-            .map(|home| format!("{}|auth logout|whole", home.display()))
+            .map(|home| format!("{}|--settings auth logout|whole", home.display()))
             .collect();
         assert_eq!(recorded, expected);
         for home in &homes {

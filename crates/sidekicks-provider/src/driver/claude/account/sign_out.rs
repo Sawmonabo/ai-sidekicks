@@ -113,6 +113,7 @@ mod tests {
 
     use crate::driver::claude::account::helper_mode::ClaudeHelperModeLegs;
     use crate::driver::claude::account::test_account_legs;
+    use crate::driver::claude::spawn::settings::compose_claude_export_off_settings;
     use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
     use crate::driver::helper_mode_services_over;
     use crate::driver::test_registry::test_driver_services;
@@ -158,12 +159,13 @@ mod tests {
     }
 
     // What the stand-in recorded for `folders`' home: its configuration and store folders and
-    // `auth logout`, one line a run.
+    // `auth logout` after the export-off settings, one line a run.
     fn signed_out_line(folders: &ProviderAccountFolders) -> String {
         format!(
-            "{}|{}|auth logout\n",
+            "{}|{}|--settings {} auth logout\n",
             folders.configuration_folder.display(),
-            folders.credential_store_folder.display()
+            folders.credential_store_folder.display(),
+            compose_claude_export_off_settings()
         )
     }
 

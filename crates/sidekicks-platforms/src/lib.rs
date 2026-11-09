@@ -37,8 +37,8 @@
               `K32GetProcessMemoryInfo`, the calling thread's processor time (`GetThreadTimes`), \
               the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
-              (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a command \
+              (`proc_listpids`) and process start read (`sysctl` of `KERN_PROCARGS2`), its \
+              descriptor path read (`fcntl` of `F_GETPATH`), a command \
               wrapper's read of its standard input's window size (`TIOCGWINSZ`), a released \
               terminal's wait for its program (`waitid`, and its exit event's registration), \
               mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
@@ -87,6 +87,7 @@ mod clone_refusal;
 mod code_signature;
 mod credential_store;
 mod entry_identity;
+mod environment_value_limits;
 mod executable_search;
 mod file_facts;
 mod file_watch;
@@ -193,6 +194,7 @@ pub use credential_store::{
     login_keychain, secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
+pub use environment_value_limits::EnvironmentValueLimits;
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
 pub use file_facts::FileFacts;
 pub use file_watch::{DOES_WATCH_OUTLIVE_TREE_MOVE, WATCHES_TREES, inotify_watch_ceiling};
@@ -237,6 +239,8 @@ pub use linux::process_start::read_process_start;
 pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
+#[cfg(target_os = "linux")]
+pub use linux::read_environment_value_limits;
 #[cfg(target_os = "linux")]
 pub(crate) use linux::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "linux")]
@@ -292,6 +296,8 @@ pub use macos::process_start::read_process_start;
 pub use macos::processes::list_user_process_ids;
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
+#[cfg(target_os = "macos")]
+pub use macos::read_environment_value_limits;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
@@ -612,6 +618,8 @@ pub use windows::disk::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::{entry_identity, open_file_identity};
+#[cfg(target_os = "windows")]
+pub use windows::environment_value_limits::read_environment_value_limits;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::error_codes::is_illegal_byte_sequence;
 #[cfg(target_os = "windows")]

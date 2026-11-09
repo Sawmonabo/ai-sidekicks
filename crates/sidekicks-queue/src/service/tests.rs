@@ -7,7 +7,6 @@
 mod cancel;
 mod helper_continue;
 mod interrupt;
-mod return_to_draft;
 mod run_ends;
 mod sends;
 mod starts;
@@ -50,7 +49,7 @@ use sidekicks_provider::driver::run_control::{
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
 use sidekicks_provider::driver::test_registry::registered_test_accounts;
 use sidekicks_provider::driver::test_registry::{
-    NothingServed, new_run_id, registry_of_first_provider,
+    NothingServed, first_provider, new_run_id, registry_of_first_provider,
 };
 use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
@@ -82,8 +81,8 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    OrphanedAnswersStandIn, RecordedResumedRuns, first_provider,
-    record_first_provider_capabilities, test_provider_sessions,
+    OrphanedAnswersStandIn, RecordedResumedRuns, record_first_provider_capabilities,
+    test_provider_sessions,
 };
 use crate::run_token_limit::RunTokenLimitReader;
 use crate::test_items::{Form, insert_form};

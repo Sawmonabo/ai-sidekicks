@@ -860,3 +860,6 @@ fn session_statement(
         expected_row_count: Some(expected_row_count),
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -88,6 +88,7 @@ use crate::daemon::process::session_services::stored_resumes::StoredSessionResum
 use crate::observability::diagnostic_buckets::recorders::{RawMessageRecorder, ToolTraceRecorder};
 use crate::program::dispatches_hook_mode;
 
+pub(crate) mod pricing;
 pub(crate) mod stored_rows;
 #[cfg(test)]
 mod test_start;
@@ -228,6 +229,12 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
+    let private_folders = (registry.drivers())
+        .flat_map(|(_, driver)| driver.private_file_folders())
+        .collect();
+    execution_postures
+        .set_private_folders(private_folders)
+        .expect("the providers' private folders are handed over once, as their drivers are built");
     // A recorded build's write wakes the attention projection's followers, which list it.
     let capabilities = Arc::new(DriverCapabilitiesWriter::new(
         start.reads,
@@ -528,6 +535,21 @@ pub(crate) async fn sweep_left_sign_in_folders(providers: &Providers) {
     }
 }
 
+/// Removes the settings files a stopped daemon's provider processes left, each driver its own,
+/// before any call can start a process, each failure logged; the next start's sweep takes what
+/// stays.
+pub(crate) async fn sweep_left_settings_files(providers: &Providers) {
+    for (provider, driver) in providers.registry.drivers() {
+        if let Err(error) = driver.remove_left_settings_files().await {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "the provider settings files a previous run left were not removed"
+            );
+        }
+    }
+}
+
 /// The providers' first capability reads running on their own task, which the start waits for
 /// before the run queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {
@@ -617,8 +639,6 @@ pub(crate) async fn shut_down_drivers(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_provider::driver::PROVIDERS;
@@ -629,7 +649,6 @@ mod tests {
     use sidekicks_provider::driver::contract::params_and_results::{
         DriverCliVersionReport, GetCapabilitiesResult,
     };
-    use sidekicks_provider::driver::test_registry::registrations_of_first_providers;
 
     use super::hydrate_capabilities;
     use super::test_start::TestStart;
@@ -639,11 +658,7 @@ mod tests {
     #[tokio::test]
     async fn a_cold_start_answers_a_gated_call_from_the_stored_reading() {
         let start = TestStart::new();
-        let providers = start
-            .build(&registrations_of_first_providers(vec![Arc::new(
-                MockProviderDriver::new(),
-            )]))
-            .await;
+        let providers = start.build(vec![MockProviderDriver::new()]).await;
         let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
         let stored = GetCapabilitiesResult {
             capabilities: DriverCapabilities {

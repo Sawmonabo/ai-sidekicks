@@ -4,7 +4,7 @@
 //! tool's switches among them, and the home it runs on: an account's folders with the scratch
 //! folder the daemon keeps under its own data folder for each configuration home, a throwaway
 //! folder that holds all three for one read, or a throwaway folder on an account's own credential
-//! store.
+//! store; or, for a read that fills a server entry's variables, no home at all.
 
 use std::path::{Path, PathBuf};
 
@@ -16,6 +16,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
 };
+use crate::driver::claude::spawn::settings::telemetry_switches::CLAUDE_TELEMETRY_VARIABLES;
 use crate::service_log::provider_home_key;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
@@ -23,20 +24,12 @@ use crate::spawn_environment::{
 };
 
 // The person's telemetry settings no Claude Code process inherits, so its exports reach only the
-// daemon's receiver: every `OTEL_` name and the switches Claude Code reads beside them. The
-// person's opt-outs of Anthropic's own telemetry (`DISABLE_TELEMETRY`,
-// `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) are kept.
+// daemon's receiver: every `OTEL_` name, the undocumented `ANT_OTEL_` aliases and the switches
+// Claude Code reads beside them. The person's opt-outs of Anthropic's own telemetry
+// (`DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) are kept.
 const CLAUDE_TELEMETRY_WITHHELD: WithheldEnvironmentNames<'static> = WithheldEnvironmentNames {
-    prefixes: &["OTEL_"],
-    names: &[
-        "BETA_TRACING_ENDPOINT",
-        "ENABLE_BETA_TRACING_DETAILED",
-        "CLAUDE_CODE_ENABLE_TELEMETRY",
-        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
-        "ENABLE_ENHANCED_TELEMETRY_BETA",
-        "CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS",
-        "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS",
-    ],
+    prefixes: &["OTEL_", "ANT_OTEL_"],
+    names: &CLAUDE_TELEMETRY_VARIABLES,
 };
 
 // The data folder's folder of Claude Code scratch folders, and in it the folder of each home's.
@@ -233,6 +226,26 @@ pub(crate) fn compose_claude_process_environment(
             credential_homes: &credential_homes,
         },
         additional_mandated_pairs,
+        CLAUDE_TELEMETRY_WITHHELD,
+    )
+}
+
+/// The environment a Claude Code process composes from `session` on no home of the daemon's: the
+/// names [`compose_claude_process_environment`] withholds withheld and the app's variables set,
+/// with no config, credential or scratch folder, so a read fills an entry's variables as the
+/// process would. Fails as `build_provider_process_environment` does: an inherited account folder
+/// variable that is empty.
+pub(crate) fn compose_claude_environment_without_home(
+    session: SessionEnvironment<'_>,
+) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
+    build_provider_process_environment(
+        &ProviderEnvironmentRequest {
+            session,
+            descriptor: &DESCRIPTOR,
+            deny_env_vars: &[],
+            credential_homes: &[],
+        },
+        &[],
         CLAUDE_TELEMETRY_WITHHELD,
     )
 }

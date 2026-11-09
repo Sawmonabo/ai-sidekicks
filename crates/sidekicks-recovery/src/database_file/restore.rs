@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use sidekicks_contracts::daemon::backup::{
-    BACKUP_DATABASE_FILE_NAME, BackupManifestError, DaemonBackupRestoredPayload,
+    BACKUP_DATABASE_FILE_NAME, BackupManifest, BackupManifestError, DaemonBackupRestoredPayload,
     read_backup_manifest,
 };
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
@@ -53,6 +53,7 @@ use sidekicks_store::events::log_service::{
 use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::database_file::copy::copy_file_replacing;
@@ -165,6 +166,15 @@ pub(crate) enum RestoreError {
     /// The mode's runtime did not start.
     #[error("the restore's runtime did not start")]
     Runtime(#[source] io::Error),
+    /// A blocking step of the restore ended before it finished, so what it reached is unknown.
+    #[error("the restore's {step} ended before it finished")]
+    Interrupted {
+        /// The step, as a person reads it.
+        step: &'static str,
+        /// Why the step's task ended.
+        #[source]
+        source: JoinError,
+    },
 }
 
 /// Runs the `database restore` mode on the argument after the mode's own, the backup's folder,
@@ -238,7 +248,8 @@ fn restore_from_home(
 /// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions,
 /// [`RestoreError::Place`] for a kept place that cannot be written, and
 /// [`RestoreError::StopIntent`] when the stop intent, written whole so the next start resumes none
-/// of the restored store's runs, cannot be written.
+/// of the restored store's runs, cannot be written; and at any step with [`RestoreError::Interrupted`],
+/// naming the blocking step whose task ended first.
 pub(crate) async fn restore_backup(
     home: &Path,
     backup_folder: &Path,
@@ -260,7 +271,65 @@ pub(crate) async fn restore_backup(
         })
     })
     .await
-    .map_err(|failure| RestoreError::Runtime(io::Error::other(failure)))??;
+    .map_err(interrupted("taking of the data folder"))??;
+    let checked_backup = backup_folder.to_path_buf();
+    let checked_home = home.to_path_buf();
+    let build_schema_version = schema.fingerprint();
+    let build_service_version = service_version.clone();
+    let (manifest, kept) = tokio::task::spawn_blocking(move || {
+        check_backup(
+            &checked_backup,
+            &checked_home,
+            build_schema_version,
+            &build_service_version,
+        )
+    })
+    .await
+    .map_err(interrupted("check of the backup"))??;
+    let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    // The restored store's live runs end as a Stop ends them; the data folder's lock keeps the
+    // service from writing the intent beside this one.
+    StopIntentFile::new(&store)
+        .write_whole()
+        .await
+        .map_err(RestoreError::StopIntent)?;
+    let backup_database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
+    let replaced_store = store.clone();
+    let index_folder = data_folder.join(SEARCH_INDEX_FOLDER_NAME);
+    tokio::task::spawn_blocking(move || {
+        replace_store(&backup_database, &replaced_store, &index_folder)
+    })
+    .await
+    .map_err(interrupted("replacing of the store"))?
+    .map_err(|(path, source)| RestoreError::Replace { path, source })?;
+    tokio::task::spawn_blocking(move || restore_mirror(&kept))
+        .await
+        .map_err(interrupted("putting back of the kept files"))??;
+    record_restore(
+        &store,
+        schema,
+        SessionEvent::DaemonBackupRestored(DaemonBackupRestoredPayload {
+            backup_id: manifest.backup_id,
+            kept_distribution_parts: None,
+        }),
+    )
+    .await
+}
+
+// The failure of the blocking `step` whose task ended before it finished.
+fn interrupted(step: &'static str) -> impl FnOnce(JoinError) -> RestoreError {
+    move |source| RestoreError::Interrupted { step, source }
+}
+
+// Reads the backup in `backup_folder`, its manifest and its database header, refuses a copy
+// whose schema is not `build_schema_version`, the one `build_service_version` reads, and answers
+// the manifest and the places the mirror keeps under `home`, each checked writable.
+fn check_backup(
+    backup_folder: &Path,
+    home: &Path,
+    build_schema_version: i32,
+    build_service_version: &ReleaseVersion,
+) -> Result<(BackupManifest, Vec<KeptPlace>), RestoreError> {
     let missing_manifest = |source| RestoreError::Manifest {
         backup: backup_folder.to_path_buf(),
         source,
@@ -274,44 +343,19 @@ pub(crate) async fn restore_backup(
             path: backup_database.clone(),
             source,
         })?;
-    if backup_version != schema.fingerprint() {
+    if backup_version != build_schema_version {
         return Err(RestoreError::OtherBuild {
             backup_schema_version: backup_version,
             backup_service_version: manifest.service_version.as_str().to_owned(),
-            build_schema_version: schema.fingerprint(),
-            build_service_version: service_version.as_str().to_owned(),
+            build_schema_version,
+            build_service_version: build_service_version.as_str().to_owned(),
         });
     }
-    let mirror_folder = backup_folder
-        .parent()
-        .map(|backups_folder| backups_folder.join(MIRROR_FOLDER_NAME));
-    let kept = match &mirror_folder {
-        Some(mirror_folder) => read_kept_places(mirror_folder, home)?,
+    let kept = match backup_folder.parent() {
+        Some(backups_folder) => read_kept_places(&backups_folder.join(MIRROR_FOLDER_NAME), home)?,
         None => Vec::new(),
     };
-    let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
-    // The restored store's live runs end as a Stop ends them; the data folder's lock keeps the
-    // service from writing the intent beside this one.
-    StopIntentFile::new(&store)
-        .write_whole()
-        .await
-        .map_err(RestoreError::StopIntent)?;
-    replace_store(
-        &backup_database,
-        &store,
-        &data_folder.join(SEARCH_INDEX_FOLDER_NAME),
-    )
-    .map_err(|(path, source)| RestoreError::Replace { path, source })?;
-    restore_mirror(&kept)?;
-    record_restore(
-        &store,
-        schema,
-        SessionEvent::DaemonBackupRestored(DaemonBackupRestoredPayload {
-            backup_id: manifest.backup_id,
-            kept_distribution_parts: None,
-        }),
-    )
-    .await
+    Ok((manifest, kept))
 }
 
 // The `user_version` the header of the SQLite file at `path` holds, read without opening the
@@ -351,9 +395,7 @@ fn replace_store(
             .none_if_missing()
             .map_err(at(&companion))?;
     }
-    remove_tree(index_folder)
-        .none_if_missing()
-        .map_err(at(index_folder))?;
+    remove_tree(index_folder).map_err(at(index_folder))?;
     rename_replacing(&restoring, store).map_err(at(store))?;
     let folder = store.parent().expect("the store's path names its folder");
     flush_folder(folder).map_err(at(folder))

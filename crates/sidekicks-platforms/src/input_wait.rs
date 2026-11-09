@@ -77,9 +77,17 @@ mod tests {
     use crate::spawner::Spawner;
     use crate::terminal::InnerTerminal;
 
-    // How long after its prompt a waiting command must read as waiting, and how long a command
-    // that waits on nothing keeps reading as not waiting.
+    // How long a command that waits on nothing keeps reading as not waiting.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
+
+    // How long a command gets to print its marker.
+    const PROMPT_BOUND: Duration = Duration::from_secs(20);
+
+    // How long a waiting command is read before it fails as never reading as waiting. With
+    // `PROMPT_BOUND`, `STOP_BOUND`, `WAIT_BOUND` after a stop and `TEARDOWN_READ_BOUND`, a case
+    // ends within 115.5 s, short of nextest's 120 s kill, so a hang names itself, and no passing
+    // case comes near it.
+    const READING_BOUND: Duration = Duration::from_secs(80);
 
     // How long a command that waits on nothing settles before it is read, where the test cannot
     // wait for what it did to land.
@@ -239,15 +247,19 @@ mod tests {
         )))
         .expect("the terminal starts");
         let peer_failure_noted = Once::new();
-        let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
+        let prompt = read_until_marker(&terminal.pty, marker, PROMPT_BOUND);
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
         // A stop is sent once the command waits in its read, so it stops in that read and not in
         // the shell about to replace itself with it, whose stop macOS drops once the command runs.
         let is_stopped = matches!(at_prompt, AtPrompt::Stop);
         let before_stop = if prompt.is_ok() && is_stopped {
-            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
-                reading.is_waiting
-            })
+            read_input_waits(
+                &terminal,
+                &spawner,
+                &peer_failure_noted,
+                READING_BOUND,
+                |reading| reading.is_waiting,
+            )
             .await
         } else {
             Vec::new()
@@ -257,9 +269,10 @@ mod tests {
             tokio::time::sleep(SETTLE).await;
         }
         // A waiting command is read until it reads as waiting; one that waits on nothing is read
-        // across the whole bound, and must never read as waiting.
+        // across the whole short bound, and must never read as waiting.
+        let bound = if is_marked { READING_BOUND } else { WAIT_BOUND };
         let readings = if prompt.is_ok() {
-            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, bound, |reading| {
                 is_marked && *reading == expected
             })
             .await
@@ -279,7 +292,10 @@ mod tests {
                 .expect("the wait reads before the stop");
             assert!(
                 before_stop.last().is_some_and(|reading| reading.is_waiting),
-                "{script} before its stop: {before_stop:?}"
+                "{script} never read as waiting before its stop within {READING_BOUND:?}, \
+                 last of {} readings: {:?}",
+                before_stop.len(),
+                before_stop.last()
             );
         }
         let readings = readings
@@ -287,7 +303,13 @@ mod tests {
             .collect::<std::io::Result<Vec<_>>>()
             .expect("the wait reads");
         if is_marked {
-            assert_eq!(readings.last(), Some(&expected), "{script}: {readings:?}");
+            assert!(
+                readings.last() == Some(&expected),
+                "{script} never read as {expected:?} within {READING_BOUND:?}, \
+                 last of {} readings: {:?}",
+                readings.len(),
+                readings.last()
+            );
         } else {
             assert!(
                 readings.iter().all(|reading| *reading == expected),
@@ -297,12 +319,13 @@ mod tests {
     }
 
     // The readings of `terminal`'s wait every few milliseconds until one `is_settled`, one fails or
-    // the bound passes, the command's output read away as the daemon reads it, so a command drawing
+    // `bound` passes, the command's output read away as the daemon reads it, so a command drawing
     // a screen never blocks on a full terminal.
     async fn read_input_waits(
         terminal: &InnerTerminal,
         spawner: &Spawner,
         peer_failure_noted: &Once,
+        bound: Duration,
         is_settled: impl Fn(&InputWaitReading) -> bool,
     ) -> Vec<std::io::Result<InputWaitReading>> {
         let window_start = Instant::now();
@@ -324,7 +347,7 @@ mod tests {
             };
             let is_done = reading.as_ref().map_or(true, &is_settled);
             readings.push(reading);
-            if is_done || window_start.elapsed() >= WAIT_BOUND {
+            if is_done || window_start.elapsed() >= bound {
                 return readings;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -342,7 +365,7 @@ mod tests {
         let peer_failure_noted = Once::new();
         let read_master = || read_terminal_master(&terminal.pty, &peer_failure_noted);
         let leader = Pid::from_raw(i32::try_from(terminal.pty.process_id()).expect("a process id"));
-        let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
+        let prompt = read_until_marker(&terminal.pty, "ready", PROMPT_BOUND);
         let before_typing = prompt.is_ok().then(read_master);
         // The line stays queued: the program stops itself before its read.
         let typing = prompt
@@ -365,7 +388,7 @@ mod tests {
         let continued = prompt.is_ok().then(|| killpg(leader, Signal::SIGCONT));
         let ending = prompt
             .is_ok()
-            .then(|| read_until_marker(&terminal.pty, "done", Duration::from_secs(20)));
+            .then(|| read_until_marker(&terminal.pty, "done", PROMPT_BOUND));
         let after_reading = ending.as_ref().is_some_and(Result::is_ok).then(read_master);
         end_inner_terminal(terminal);
 

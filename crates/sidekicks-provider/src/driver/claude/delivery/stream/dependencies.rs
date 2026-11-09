@@ -24,6 +24,7 @@ use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::tool_traces::ToolTraces;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::pricing::live::LivePricing;
 
 /// Reports that Claude Code took a message the daemon handed: the session, the message's own id
 /// and the run it was taken by.
@@ -67,4 +68,6 @@ pub(crate) struct ClaudeStreamDependencies {
     /// The windows of the commands that run with no wrapper, which a call's tool result, refusal
     /// or background task's end closes where no post hook did.
     pub(crate) command_windows: Arc<ClaudeCommandWindows>,
+    /// Claude's live pricing, which prices each turn's rows and marks a rerouted model in use.
+    pub(crate) pricing: Arc<LivePricing>,
 }

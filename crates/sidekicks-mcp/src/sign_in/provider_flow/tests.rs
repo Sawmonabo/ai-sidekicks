@@ -24,7 +24,6 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::client::http::McpRequestAuthorizer as _;
 use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
-use crate::sign_in::canonical_server_address;
 use crate::sign_in::completion_event::SignInFailureReason;
 use crate::sign_in::service::{ProviderAccounts, SignInTarget};
 use crate::sign_in::test_service::{
@@ -209,7 +208,7 @@ async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
         .await
         .expect("the provider's flow opens the browser");
 
-    assert_eq!(browser_url, scripted_browser_url());
+    assert_eq!(browser_url.as_str(), scripted_browser_url().as_str());
     let completions = settled_completions(&harness).await;
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0]["outcome"], "failure");
@@ -218,7 +217,7 @@ async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
     assert_eq!(
         harness
             .admitted_clients
-            .read(&address)
+            .read(&harness.service.custody.test_digest(&address).await)
             .await
             .expect("the admitted client reads"),
         None
@@ -227,7 +226,7 @@ async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
         harness
             .service
             .custody
-            .signed_in_addresses()
+            .signed_in_servers()
             .borrow()
             .is_empty()
     );
@@ -262,8 +261,10 @@ async fn the_bindings_provider_is_tried_before_another() {
     let browser_url = harness.service.launch(&target, &[], &accounts).await;
 
     assert_eq!(
-        browser_url.expect("the other provider's flow opens the browser"),
-        scripted_browser_url()
+        browser_url
+            .expect("the other provider's flow opens the browser")
+            .as_str(),
+        scripted_browser_url().as_str()
     );
     assert_eq!(*lock(&calls), ["binding's", "other"]);
 }
@@ -361,8 +362,10 @@ async fn a_server_without_s256_signs_in_through_a_provider_or_is_refused_for_it(
     assert_eq!(*lock(&calls), ["only"], "the provider's flow is asked");
     if does_provider_admit {
         assert_eq!(
-            launched.expect("the provider's flow opens the browser"),
-            scripted_browser_url()
+            launched
+                .expect("the provider's flow opens the browser")
+                .as_str(),
+            scripted_browser_url().as_str()
         );
         let completions = settled_completions(&harness).await;
         assert_eq!(completions[0]["outcome"], "success");
@@ -404,10 +407,10 @@ async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_
     // The daemon's own client did not finish here before, so the press goes to the provider.
     harness
         .admitted_clients
-        .mark_own_client_unfinished(&address)
+        .mark_own_client_unfinished(&harness.service.custody.test_digest(&address).await)
         .await
         .expect("the mark is recorded");
-    let mut signed_in = harness.service.custody.signed_in_addresses();
+    let mut signed_in = harness.service.custody.signed_in_servers();
 
     harness
         .service
@@ -415,10 +418,10 @@ async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_
         .await
         .expect("the provider's flow opens the browser");
 
-    let canonical_address = canonical_server_address(&address);
+    let digest = harness.service.custody.test_digest(&address).await;
     tokio::time::timeout(
         Duration::from_secs(5),
-        signed_in.wait_for(|addresses| addresses.contains(&canonical_address)),
+        signed_in.wait_for(|addresses| addresses.contains(&digest)),
     )
     .await
     .expect("the server is marked signed in")
@@ -426,7 +429,8 @@ async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_
     let held = harness
         .service
         .custody
-        .credential_store(&address)
+        .test_held_store(&address)
+        .await
         .held()
         .await
         .expect("the keychain answers")
@@ -443,7 +447,7 @@ async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_
     assert_eq!(completions[0]["provider"], provider.as_str());
     let admitted = harness
         .admitted_clients
-        .read(&address)
+        .read(&harness.service.custody.test_digest(&address).await)
         .await
         .expect("the admitted client reads")
         .expect("the provider is recorded");
@@ -489,7 +493,7 @@ async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
     let address = McpServerAddress::new(&server.base).expect("a server address");
     harness
         .admitted_clients
-        .mark_own_client_unfinished(&address)
+        .mark_own_client_unfinished(&harness.service.custody.test_digest(&address).await)
         .await
         .expect("the mark is recorded");
     harness
@@ -526,7 +530,8 @@ async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
     let held = harness
         .service
         .custody
-        .credential_store(&address)
+        .test_held_store(&address)
+        .await
         .held()
         .await
         .expect("the keychain answers")
@@ -554,7 +559,7 @@ async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
 async fn is_own_client_unfinished(harness: &Harness, address: &McpServerAddress) -> bool {
     harness
         .admitted_clients
-        .read(address)
+        .read(&harness.service.custody.test_digest(address).await)
         .await
         .expect("the admitted client reads")
         .is_some_and(|admitted| admitted.is_own_client_unfinished)
@@ -581,7 +586,7 @@ async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
     let address = McpServerAddress::new(&server.base).expect("a server address");
     harness
         .admitted_clients
-        .mark_own_client_unfinished(&address)
+        .mark_own_client_unfinished(&harness.service.custody.test_digest(&address).await)
         .await
         .expect("the mark is recorded");
 
@@ -590,7 +595,7 @@ async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
         .launch(&target, &[], &accounts)
         .await
         .expect("the provider's flow opens the browser");
-    assert_eq!(first, scripted_browser_url());
+    assert_eq!(first.as_str(), scripted_browser_url().as_str());
     let completions = settled_completions(&harness).await;
     assert_eq!(completions[0]["outcome"], "failure");
     assert!(!is_own_client_unfinished(&harness, &address).await);
@@ -604,7 +609,8 @@ async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
     assert!(
         next.as_str()
             .starts_with(&format!("{}/authorize", server.base)),
-        "the own client's authorization address opens, not {next}"
+        "the own client's authorization address opens, not {}",
+        next.as_str()
     );
     assert_eq!(*lock(&calls), ["only"], "the provider's flow runs once");
 }
@@ -675,7 +681,7 @@ async fn a_refused_push_after_the_flows_ran_runs_them_no_more() {
     let address = McpServerAddress::new(&server.base).expect("a server address");
     harness
         .admitted_clients
-        .mark_own_client_unfinished(&address)
+        .mark_own_client_unfinished(&harness.service.custody.test_digest(&address).await)
         .await
         .expect("the mark is recorded");
 
@@ -694,4 +700,47 @@ async fn a_refused_push_after_the_flows_ran_runs_them_no_more() {
         "refused as no provider's flow admits it, not {refused:?}"
     );
     assert_eq!(*lock(&calls), ["only"], "the provider's flow runs once");
+}
+
+/// A provider's flow that names a page of another scheme ends at once, its flow forgotten, and the
+/// sign-in is refused as unsupported. Killed by the flow kept running after the refusal.
+#[tokio::test]
+async fn a_provider_page_that_is_no_web_address_keeps_no_flow() {
+    let server = serve_authorization_server(FakeServerAnswers {
+        pkce_methods: &[],
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_sign_in_with_own_client()
+        .returning(|request| {
+            async move {
+                request
+                    .authorization_url
+                    .send(Url::parse("ftp://login.example.com/authorize").expect("an address"))
+                    .expect("the launch waits for the address");
+                std::future::pending().await
+            }
+            .boxed()
+        });
+    let harness = harness_with(vec![Arc::new(driver)]).await;
+    let provider = registered_providers(&harness).remove(0);
+    let (target, accounts) = provider_target(&harness, &provider, &server);
+
+    let launched = harness.service.launch(&target, &[], &accounts).await;
+
+    assert!(
+        matches!(
+            &launched,
+            Err(SignInLaunchError::Refused(
+                McpRefusal::ServerSignInUnsupported {
+                    reason: SignInUnsupportedReason::UnusableMetadata,
+                    ..
+                }
+            ))
+        ),
+        "refused as unsupported, not {launched:?}"
+    );
+    assert!(lock(&harness.service.attempts).provider_flows.is_empty());
 }

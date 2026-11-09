@@ -80,6 +80,7 @@ use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 
 mod erasure;
+mod forks;
 mod hand_offs;
 mod races_and_failures;
 
@@ -305,6 +306,26 @@ async fn append_event(log: &TestLog, session_id: SessionId, tool: &str) {
         },
     }))
     .expect("the test writes an agent.toolCall.invoked event");
+    log.service
+        .append(
+            test_envelope(session_id, &event),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the event is appended");
+}
+
+// The session's `session.activated`, as its create's finish writes it.
+async fn append_activation(log: &TestLog, session_id: SessionId) {
+    let event = serde_json::from_value(json!({
+        "type": "session.activated",
+        "payload": {
+            "sessionId": session_id,
+            "previousState": "provisioning",
+            "newState": "active",
+        },
+    }))
+    .expect("the test writes a session.activated event");
     log.service
         .append(
             test_envelope(session_id, &event),

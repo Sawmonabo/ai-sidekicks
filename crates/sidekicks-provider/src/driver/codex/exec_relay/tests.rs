@@ -262,14 +262,3 @@ fn exited(process: &str) -> Value {
         "params": { "processId": process, "seq": 1, "exitCode": 3 },
     })
 }
-
-// Yields until `holds` reads true, failing after a bound.
-async fn wait_until(mut holds: impl FnMut() -> bool) {
-    for _turn in 0..1_000 {
-        if holds() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    panic!("the condition never held");
-}

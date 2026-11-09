@@ -23,6 +23,18 @@ pub enum WorkflowStepTimedOutCause {
     RunCap,
 }
 
+/// The unit a filled value's or an environment's bound counts in.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowStepValueMeasure {
+    /// Bytes, as macOS and Linux count a program's arguments and environment.
+    Bytes,
+    /// UTF-16 code units, as Windows counts an environment variable.
+    Utf16Units,
+}
+
 /// The time-limit failure's details: which limit, and the limit itself in milliseconds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -106,6 +118,8 @@ ts_constants! {
     /// A `Run a command` step whose filled value or environment passes the system's or the shell's
     /// bound.
     WORKFLOW_STEP_VALUE_TOO_LARGE_CODE = RefusalCode::WorkflowStepValueTooLarge;
+    /// Every unit a step value's bound counts in.
+    WORKFLOW_STEP_VALUE_MEASURES = WorkflowStepValueMeasure::VARIANTS;
     /// A full-tier Code step or a sandboxed shell step whose provider sandbox did not start; the
     /// step never runs unprotected instead.
     WORKFLOW_SANDBOX_UNAVAILABLE_CODE = RefusalCode::WorkflowSandboxUnavailable;
@@ -127,6 +141,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowStepTimedOutDetails>(),
         Definition::read::<WorkflowStepThreadFailedReason>(),
         Definition::read::<WorkflowStepThreadFailedDetails>(),
+        Definition::read::<WorkflowStepValueMeasure>(),
         Definition::read::<WorkflowSandboxUnavailableDetails>(),
         Definition::read::<WorkflowCodeInstallFailedReason>(),
         Definition::read::<WorkflowCodeInstallFailedDetails>(),

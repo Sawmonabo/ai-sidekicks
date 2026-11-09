@@ -7,9 +7,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::ProviderRegistration;
 use sidekicks_provider::driver::child_records::UnrecordedChildren;
-use sidekicks_provider::driver::test_registry::NothingServed;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+use sidekicks_provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
 use sidekicks_session::attention::changes::attention_changes_after_commits;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -45,14 +45,22 @@ impl TestStart {
         }
     }
 
-    /// The providers of `registrations`, built as the daemon's start builds them, on this
-    /// start's database and home.
-    pub(crate) async fn build(&self, registrations: &[ProviderRegistration]) -> Providers {
+    /// The providers of `drivers`, registered as the table's first providers in order and built as
+    /// the daemon's start builds them, on this start's database and home; each driver keeps no
+    /// private folder.
+    pub(crate) async fn build(&self, drivers: Vec<MockProviderDriver>) -> Providers {
+        let drivers = drivers
+            .into_iter()
+            .map(|mut driver| {
+                driver.expect_private_file_folders().returning(Vec::new);
+                Arc::new(driver) as Arc<dyn ProviderDriver>
+            })
+            .collect();
         let log = open_log(&self.database, None).await;
         let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
         let base_environment: Arc<[(String, String)]> = Arc::from([]);
         build_providers(
-            registrations,
+            &registrations_of_first_providers(drivers),
             ProviderStart {
                 spawner: spawner.clone(),
                 data_folder: self.home.path().join("data"),

@@ -17,6 +17,7 @@ use crate::approval::events::{
     ApprovalResolvedPayload, ApprovalReviewerDeniedPayload, ApprovalRuleRememberedPayload,
     ApprovalRuleRevokedPayload,
 };
+use crate::approval::holder::ApprovalHolder;
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
 use crate::command::AgentCommandEndedPayload;
@@ -285,8 +286,12 @@ session_events! {
     WorktreeBound(WorktreeLifecyclePayload) = "worktree.bound",
     /// Emitted when uncommitted work was observed in the checkout.
     WorktreeDirtied(WorktreeLifecyclePayload) = "worktree.dirtied",
+    /// Emitted when a dirty worktree's checkout reads clean again, its work committed or dropped.
+    WorktreeCleaned(WorktreeLifecyclePayload) = "worktree.cleaned",
     /// Emitted when the worktree's branch has merged back.
     WorktreeMerged(WorktreeLifecyclePayload) = "worktree.merged",
+    /// Emitted when a merged worktree's branch gains commits of its own again.
+    WorktreeReopened(WorktreeLifecyclePayload) = "worktree.reopened",
     /// Emitted when a worktree retires, recorded before any disk change; cleanup is asynchronous
     /// and idempotent. Carries the kept copy when a discard kept one.
     WorktreeRetired(WorktreeRetiredPayload) = "worktree.retired",
@@ -343,9 +348,11 @@ session_events! {
     SessionProviderStatusReported(#[garde(dive)] SessionProviderStatusReportedPayload)
         = "session.providerStatus.reported" => optional,
     /// Emitted when an approval request is refused, and by whom.
-    ApprovalRejected(ApprovalResolvedPayload) = "approval.rejected" => required,
-    /// Emitted when an ask ends with its run and can no longer be answered.
-    ApprovalCanceled(ApprovalCanceledPayload) = "approval.canceled" => required,
+    ApprovalRejected(ApprovalResolvedPayload) = "approval.rejected"
+        => read(approval_resolved_run),
+    /// Emitted when an ask ends unanswered and can no longer be answered.
+    ApprovalCanceled(ApprovalCanceledPayload) = "approval.canceled"
+        => read(approval_canceled_run),
     /// Emitted when an approval rule is remembered; the payload is the whole rule.
     ApprovalRuleRemembered(ApprovalRuleRememberedPayload) = "approval.rule.remembered" => required,
     /// Emitted when a remembered approval rule is revoked.
@@ -455,9 +462,11 @@ session_events! {
     AgentProviderBindingChangeFailed(#[garde(dive)] AgentProviderBindingChangeFailedPayload) =
         "agent.providerBinding.changeFailed",
     /// Emitted when an approval is requested, including a provider's permission ask.
-    ApprovalRequested(ApprovalRequestedPayload) = "approval.requested" => required,
+    ApprovalRequested(ApprovalRequestedPayload) = "approval.requested"
+        => read(approval_requested_run),
     /// Emitted when an approval request is granted, and by whom.
-    ApprovalApproved(ApprovalResolvedPayload) = "approval.approved" => required,
+    ApprovalApproved(ApprovalResolvedPayload) = "approval.approved"
+        => read(approval_resolved_run),
     /// Emitted when the provider's own reviewer blocks an action.
     ApprovalReviewerDenied(ApprovalReviewerDeniedPayload) = "approval.reviewer.denied"
         => required,
@@ -544,9 +553,9 @@ session_events! {
     WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step.failed",
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
-    WorkflowStepCanceled(WorkflowStepCanceledPayload) = "workflow.step.canceled",
+    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) = "workflow.step.canceled",
     /// Emitted when a workflow step is skipped.
-    WorkflowStepSkipped(WorkflowStepSkippedPayload) = "workflow.step.skipped",
+    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) = "workflow.step.skipped",
     /// Emitted when a workflow gate is answered.
     WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved",
     /// Emitted when a workflow is authored or a new version of it is written.
@@ -577,7 +586,7 @@ session_events! {
     /// Emitted when a workflow phase is asked to stop and is winding down.
     WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) = "workflow.phase.canceling",
     /// Emitted when a failed workflow phase is retried as a new attempt.
-    WorkflowPhaseRetried(WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
+    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
     /// Emitted when a waiting workflow step resumes.
     WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed",
     /// Emitted when a workflow phase finishes.
@@ -656,6 +665,30 @@ fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {
         }),
         AgentOutputPayload::Voice(_) => None,
     }
+}
+
+/// The run that holds an ask; a workflow wait's card names none.
+fn approval_holder_run(holder: &ApprovalHolder) -> Option<EventRun> {
+    holder.run_id().map(|run_id| EventRun {
+        run_id,
+        run_version: None,
+        turn_number: None,
+    })
+}
+
+/// The run that holds a raised ask.
+fn approval_requested_run(payload: &ApprovalRequestedPayload) -> Option<EventRun> {
+    approval_holder_run(&payload.holder)
+}
+
+/// The run that held an answered ask.
+fn approval_resolved_run(payload: &ApprovalResolvedPayload) -> Option<EventRun> {
+    approval_holder_run(&payload.holder)
+}
+
+/// The run that held a canceled ask.
+fn approval_canceled_run(payload: &ApprovalCanceledPayload) -> Option<EventRun> {
+    approval_holder_run(&payload.holder)
 }
 
 /// The run that holds a question; a workflow wait's question names none.

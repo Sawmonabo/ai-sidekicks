@@ -18,10 +18,7 @@
 use std::error::Error;
 
 use reqwest::StatusCode;
-use rmcp::transport::auth::{
-    AuthorizationManager, AuthorizationMetadata, AuthorizationMetadataResolution, OAuthClientConfig,
-};
-use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata, OAuthClientConfig};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
@@ -30,6 +27,7 @@ use crate::errors::SignInUnsupportedReason;
 use crate::oauth::address::is_loopback_address;
 use crate::oauth::client_authentication::TOKEN_ENDPOINT_AUTH_METHODS;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
+use crate::sign_in::address_digest::ServerAddressDigest;
 use crate::sign_in::admitted_client::{AdmittedClient, AdmittedClientStore};
 use crate::sign_in::oauth_http_client::{RegistrationOutcome, ServerOAuthHttpClient};
 
@@ -69,16 +67,12 @@ impl RelayAddress {
 /// What a sign-in asks of its client: the server, the redirect address its receiver listens on
 /// (an owner-issued one or the daemon's loopback one), the client the server's owner issued for
 /// it, if any, and the scopes it asks for.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch asks for its client with it")
-)]
 pub(crate) struct ClientRequest<'a> {
-    /// The server signed in to.
-    pub(crate) server_address: &'a McpServerAddress,
+    /// The digest the server's sign-in and admitted client are kept under.
+    pub(crate) server_digest: &'a ServerAddressDigest,
     /// The redirect address registered and listened on.
     pub(crate) redirect_address: &'a Url,
-    /// The `client_id` the server's owner issued, which the entry names.
+    /// The `client_id` the server's owner issued, when the entry names one.
     pub(crate) owner_client_id: Option<&'a str>,
     /// The scopes the sign-in asks for.
     pub(crate) scopes: &'a [String],
@@ -87,10 +81,6 @@ pub(crate) struct ClientRequest<'a> {
 /// The client a sign-in goes through, or why the daemon's own cannot: what the launch and the
 /// provider's flow act on.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch acts on it")
-)]
 pub(crate) enum SignInClient {
     /// The daemon's own client, configured on the manager; the launch builds the authorization
     /// address from it.
@@ -120,22 +110,20 @@ pub(crate) enum SignInClient {
 }
 
 /// The client the sign-in described by `request` goes through, its own client configured on
-/// `manager` when it is the daemon's: `manager` sends through `http_client`, and `resolution` is
-/// what its metadata discovery found. The relay's client metadata document is offered only when
-/// `relay` holds the relay's address.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the sign-in's launch picks its client through it")
-)]
+/// `manager` when it is the daemon's: `manager` sends through `http_client`, `metadata` is the
+/// authorization server's, and `is_published` says whether the server published it (discovered,
+/// or read at the address its entry names) rather than rmcp making its endpoints up. The relay's
+/// client metadata document is offered only when `relay` holds the relay's address.
 pub(crate) async fn choose_client(
     request: &ClientRequest<'_>,
     admitted_clients: &AdmittedClientStore,
     relay: &PortRegistration<RelayAddress>,
     manager: &mut AuthorizationManager,
     http_client: &ServerOAuthHttpClient,
-    resolution: AuthorizationMetadataResolution,
+    metadata: AuthorizationMetadata,
+    is_published: bool,
 ) -> SignInClient {
-    match admitted_clients.read(request.server_address).await {
+    match admitted_clients.read(request.server_digest).await {
         Err(error) => {
             return SignInClient::Failed {
                 source: Box::new(error),
@@ -157,7 +145,7 @@ pub(crate) async fn choose_client(
         Ok(_) => {}
     }
     // Endpoints rmcp made up from the server's address are no sign-in the server publishes.
-    if !resolution.source.is_discovered() {
+    if !is_published {
         return SignInClient::Unsupported {
             reason: SignInUnsupportedReason::NoSignInRoute,
         };
@@ -165,7 +153,6 @@ pub(crate) async fn choose_client(
     if !is_loopback_address(request.redirect_address) {
         return provider_flow();
     }
-    let metadata = resolution.metadata;
     // A server that does not list `S256` may ignore the challenge, so the daemon's own client never
     // opens a browser for it, the field's absence included; a provider's own flow may still admit
     // it.
@@ -198,13 +185,6 @@ pub(crate) async fn choose_client(
 /// What a refusal of the pushed authorization request means for the sign-in: the server does
 /// not admit the daemon's own client (`invalid_client`, `unauthorized_client`), so a provider's
 /// flow signs in; any other refusal failed it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch reads a refused pushed authorization request through it"
-    )
-)]
 pub(crate) fn classify_pushed_authorization_refusal(
     refusal: PushedAuthorizationRefusal,
 ) -> SignInClient {

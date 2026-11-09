@@ -66,6 +66,9 @@ pub enum DaemonStopStep {
     AttentionDecisions,
     /// The web address's sender ending, a write under way waited out.
     WebAddressSender,
+    /// The price list's fetch and the held requests' repricing ending, a write under way waited
+    /// out.
+    Pricing,
     /// The session services' follows of the log ending with the chats' write watch.
     SessionFollows,
     /// The chats' file recount ending, where no session services ran.
@@ -85,6 +88,9 @@ pub enum DaemonStopStep {
     /// The MCP binding edits' settle pass ending, dropped past the bound and run again at the next
     /// start.
     McpSettle,
+    /// The MCP server sign-ins ending: every attempt and its listener closing, every provider's
+    /// flow and revocation canceled.
+    McpSignIns,
     /// The providers' services ending, each told why the service stops.
     Providers,
     /// The person's Stop ending the runs still live.
@@ -110,15 +116,17 @@ impl DaemonStopStep {
             Self::RepositoryAttachments => "ending the repositories' background work",
             Self::AttentionDecisions => "finishing the notifications under way",
             Self::WebAddressSender => "sending the last message to the web address",
+            Self::Pricing => "finishing the price updates",
             Self::SessionFollows | Self::ChatsRecount | Self::ChatsChanges => {
                 "finishing the chats' updates"
             }
             Self::Terminals => "closing the terminals",
-            Self::SignIns => "finishing the sign-ins under way",
+            Self::SignIns => "ending the sign-ins under way",
             Self::Scheduler => "stopping the background jobs",
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
             Self::McpSettle => "finishing the MCP server changes",
+            Self::McpSignIns => "ending the MCP server sign-ins under way",
             Self::Providers => "stopping the sidekicks",
             Self::LiveRunsDrain => "ending the turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",

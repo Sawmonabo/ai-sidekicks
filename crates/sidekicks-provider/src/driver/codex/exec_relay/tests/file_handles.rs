@@ -7,8 +7,9 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::{
     ClientSocket, FakeExecutor, ListeningRelay, admitted_socket, assert_executor_quiet, initialize,
-    listening_relay, next_forwarded, next_text, send_text, wait_until,
+    listening_relay, next_forwarded, next_text, send_text,
 };
+use crate::bounded_poll::poll_until;
 use crate::driver::test_registry::new_session_id;
 
 // A handle id as Codex mints one, 32 hex characters, the same on both connections.
@@ -93,7 +94,7 @@ async fn each_connection_owns_its_file_handles_and_a_drop_closes_its_own() {
             .map_or(0, |executor| executor.connection_count())
     };
     first.close(None).await.expect("the client closes");
-    wait_until(|| connections() == 1).await;
+    poll_until(connections, |open| *open == 1).await;
     assert_closed(&next_forwarded(&mut fake).await, &open_handle);
     assert_executor_quiet(&mut fake).await;
     answer_open(&mut fake, &opening).await;

@@ -17,7 +17,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::run_control::{ReattachHelpersParams, ReattachedHelper};
-use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::driver::test_registry::{first_provider, new_run_id};
 use sidekicks_session::agent_tree::store::{NewAgentTreeNode, insert_node};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::statement::run_statement;
@@ -25,7 +25,6 @@ use tokio::time::timeout;
 
 use super::super::{Opening, WAIT, unresolvable_provider};
 use super::insert_run_event;
-use crate::provider_session::test_opening::first_provider;
 
 /// The provider's own id of the helper that was live before the restart.
 const LIVE_HELPER: &str = "helper-live";

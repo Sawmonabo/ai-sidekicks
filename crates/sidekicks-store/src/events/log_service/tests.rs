@@ -3,16 +3,20 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rusqlite::types::Value;
 use serde_json::json;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use super::test_fixture::{TestLog, open_log};
 use super::{
     EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
 };
+use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::appender::{
@@ -289,6 +293,237 @@ async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
         .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
         .expect("the test counts the stored rows");
     assert_eq!(rows, 1);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+/// A statement that changes no row, refusing its write when `is_guarded` sets the one row it
+/// expects, and passing otherwise.
+fn statement_on_no_row(is_guarded: bool) -> WriteStatement {
+    WriteStatement {
+        sql: "UPDATE session_events SET type = type WHERE 0".into(),
+        bindings: StatementBindings::None,
+        expected_row_count: is_guarded.then_some(1),
+    }
+}
+
+/// A statement that reads `text` back as its one row.
+fn statement_reading(text: &str) -> WriteStatement {
+    WriteStatement {
+        sql: format!("SELECT '{text}'").into(),
+        bindings: StatementBindings::None,
+        expected_row_count: None,
+    }
+}
+
+// Killed by the holds taken in the given order (the two writes deadlock), by one session's rows
+// kept when the other's statement refuses, by sequences counted across sessions, by a refused
+// index counted within its own append, and by a prelude's results taken from another append's
+// range (the high receipt reads the low append's statements).
+#[tokio::test]
+async fn one_write_appends_several_sessions_or_none() {
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
+    let TestLog {
+        writer, service, ..
+    } = open_log(&database, None).await;
+    let mut session_ids = [test_session_id(), test_session_id()];
+    session_ids.sort();
+    let [low, high] = session_ids;
+    let run_id = mint_uuid_v7().to_string();
+    service
+        .append(
+            tool_invoked(&high, &run_id),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the high session's first event commits");
+    let stored_rows = || -> i64 {
+        database
+            .reader()
+            .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
+            .expect("the test counts the stored rows")
+    };
+
+    let receipts = service
+        .append_together(vec![
+            (
+                tool_invoked(&low, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![
+                        statement_on_no_row(false),
+                        statement_reading("low"),
+                    ],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+            (
+                tool_invoked(&high, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_reading("high")],
+                    preceding_events: vec![(tool_invoked(&high, &run_id), None)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+        ])
+        .await
+        .expect("the write commits");
+    let prelude_rows: Vec<Vec<Vec<Vec<Value>>>> = receipts
+        .iter()
+        .map(|receipt| {
+            receipt
+                .prelude_results
+                .iter()
+                .map(|result| result.rows.clone())
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        prelude_rows,
+        [
+            vec![Vec::new(), vec![vec![Value::Text("low".to_owned())]]],
+            vec![vec![vec![Value::Text("high".to_owned())]]],
+        ]
+    );
+    let sequences: Vec<u64> = receipts
+        .iter()
+        .map(|receipt| receipt.sequence.get())
+        .collect();
+    assert_eq!(sequences, [0, 2]);
+    assert_eq!(stored_rows(), 4);
+
+    let refused = service
+        .append_together(vec![
+            (
+                tool_invoked(&low, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_on_no_row(false)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+            (
+                tool_invoked(&high, &run_id),
+                EventLogAppendOptions {
+                    transactional_prelude: vec![statement_on_no_row(true)],
+                    ..EventLogAppendOptions::default()
+                },
+            ),
+        ])
+        .await
+        .expect_err("the second append's statement refuses the write");
+    let EventAppendError::Write(write) = refused else {
+        panic!("the writer refuses the write: {refused:?}");
+    };
+    assert_eq!(write.refused_statement_index(), Some(1));
+    assert_eq!(stored_rows(), 4);
+
+    // Each write waits behind the test's hold on the low session before it takes either lock.
+    let hold = SESSION_APPEND_LOCK.acquire(low).await;
+    let handles = SESSION_APPEND_LOCK.queue_handle_count(low);
+    let together = |first: SessionId, second: SessionId| {
+        let service = Arc::clone(&service);
+        let run_id = run_id.clone();
+        tokio::spawn(async move {
+            service
+                .append_together(vec![
+                    (
+                        tool_invoked(&first, &run_id),
+                        EventLogAppendOptions::default(),
+                    ),
+                    (
+                        tool_invoked(&second, &run_id),
+                        EventLogAppendOptions::default(),
+                    ),
+                ])
+                .await
+        })
+    };
+    let low_first = together(low, high);
+    SESSION_APPEND_LOCK.wait_for_queue_past(low, handles).await;
+    let joined = SESSION_APPEND_LOCK.queue_handle_count(low);
+    let high_first = together(high, low);
+    SESSION_APPEND_LOCK.wait_for_queue_past(low, joined).await;
+    drop(hold);
+    for write in [low_first, high_first] {
+        tokio::time::timeout(APPEND_WAIT, write)
+            .await
+            .expect("the writes over the same sessions never wait on each other")
+            .expect("the write's task ends")
+            .expect("the write commits");
+    }
+    assert_eq!(stored_rows(), 8);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+// Killed by stamping a preceding event with the clock, by letting a draft's instant override
+// the instant the append's linkage carries for its main event, and by answering no preceding id
+// or one in another order than the rows'.
+#[tokio::test]
+async fn each_preceding_event_keeps_its_own_instant_and_answers_its_id() {
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
+    let TestLog {
+        writer, service, ..
+    } = open_log(&database, None).await;
+    let appender = SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone());
+    let session_id = test_session_id();
+    let run_id = mint_uuid_v7().to_string();
+    let instant = |text: &str| WireInstant::try_from(text.to_owned()).expect("an instant");
+    let invoked = || {
+        let event = serde_json::from_value(json!({
+            "type": "agent.toolCall.invoked",
+            "payload": { "sessionId": session_id, "runId": run_id, "toolName": "Read" },
+        }))
+        .expect("the test writes an agent.toolCall.invoked event");
+        SessionEventDraft::of_session(session_id, &event).expect("the event passes its checks")
+    };
+    let before = WireInstant::now();
+
+    let receipt = appender
+        .append(
+            invoked().with_occurred_at(instant("2001-01-01T00:00:03.000Z")),
+            SessionEventLinkage {
+                preceding_events: vec![
+                    invoked().with_occurred_at(instant("2001-01-01T00:00:01.000Z")),
+                    invoked().with_occurred_at(instant("2001-01-01T00:00:02.000Z")),
+                    invoked(),
+                ],
+                ..SessionEventLinkage::default()
+            },
+        )
+        .await
+        .expect("the write commits");
+    appender
+        .append(
+            invoked().with_occurred_at(instant("2001-01-01T00:00:03.000Z")),
+            SessionEventLinkage {
+                occurred_at: Some(instant("2001-01-01T00:00:04.000Z")),
+                ..SessionEventLinkage::default()
+            },
+        )
+        .await
+        .expect("the write commits");
+
+    let reader = database.reader();
+    let (ids, stored): (Vec<String>, Vec<String>) = reader
+        .prepare("SELECT id, occurred_at FROM session_events ORDER BY sequence")
+        .expect("the test reads the stored instants")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("the test reads the stored instants")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("each instant reads")
+        .into_iter()
+        .unzip();
+    let answered: Vec<&str> = receipt
+        .preceding_ids
+        .iter()
+        .chain([&receipt.id])
+        .map(FreeFormText::as_str)
+        .collect();
+    assert_eq!(answered, ids[..4]);
+    assert_eq!(stored.len(), 5);
+    assert_eq!(stored[0], "2001-01-01T00:00:01.000Z");
+    assert_eq!(stored[1], "2001-01-01T00:00:02.000Z");
+    assert!(stored[2].as_str() >= before.as_str(), "{stored:?}");
+    assert_eq!(stored[3], "2001-01-01T00:00:03.000Z");
+    assert_eq!(stored[4], "2001-01-01T00:00:04.000Z");
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 

@@ -15,7 +15,7 @@ pub(super) mod requests;
 pub(super) mod reviewer;
 pub(super) mod run_readings;
 pub(super) mod stream;
-mod streamed_blocks;
+pub(super) mod streamed_blocks;
 pub(super) mod system;
 mod turn_end;
 pub(super) mod turn_readings;

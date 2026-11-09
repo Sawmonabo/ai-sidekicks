@@ -14,7 +14,7 @@ pub(crate) mod dependencies;
 mod goals;
 mod helper_messages;
 mod helper_runs;
-mod lead_messages;
+mod message_frames;
 pub(crate) mod resumes;
 mod rows;
 mod run_end;
@@ -34,7 +34,6 @@ use sidekicks_contracts::session::controls::events::{
     ProviderWarningSource, SessionNotice, SessionNoticePostedPayload,
 };
 use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
-use sidekicks_contracts::turn::TurnTasksUpdate;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
@@ -45,16 +44,15 @@ use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::capabilities::without_larger_window_mark;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
-use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::driver::claude::delivery::system::{
     is_claude_goal_check_cap, read_claude_api_retry, read_claude_model_reroute,
     read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
     read_claude_worker_shutdown_reason,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
-use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::rate_limit_windows::read_claude_quota_windows;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -571,6 +569,8 @@ impl ClaudeDeliveryStream {
             read_claude_model_reroute(frame_kind, members, session.session_id, lead.run_id)?;
         let running_model = (reroute.scope == ModelRerouteScope::Session)
             .then(|| reroute.to_model.as_str().to_owned());
+        let to_model = without_larger_window_mark(reroute.to_model.as_str());
+        self.dependencies.pricing.mark_in_use(&[to_model]).await;
         self.send_row(
             session,
             lead,
@@ -579,37 +579,6 @@ impl ClaudeDeliveryStream {
         )
         .await;
         running_model
-    }
-
-    // A streamed piece waits for its interval, which the session's timer sends; the tokens the
-    // turn received go to the working line at once.
-    fn stream_event(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun, text: &str) {
-        let run = ClaudeStreamedRun {
-            session_id: session.session_id,
-            run_id: lead.run_id,
-        };
-        // Only a reply opened after an account move is the moved account's first request.
-        if session.is_watching_first_request() && is_claude_message_start(text) {
-            session.settle_first_request(ClaudeFirstRequest::Answered);
-        }
-        let provider_account_id = session.provider_account_id();
-        let usage = {
-            let mut readings = session.lock();
-            readings
-                .streamed_blocks
-                .observe(text, run, &provider_account_id, Instant::now());
-            readings.turn_readings.observe_stream_event(text)
-        };
-        if let (Some(usage), Some(publisher)) = (usage, self.dependencies.turn_readings.port()) {
-            publisher.publish_turn_usage(session.session_id, usage);
-        }
-    }
-
-    // Sends the turn's whole task list to the working line, once its readings are registered.
-    fn publish_turn_tasks(&self, session: &ClaudeSessionStream, tasks: TurnTasksUpdate) {
-        if let Some(publisher) = self.dependencies.turn_readings.port() {
-            publisher.publish_turn_tasks(session.session_id, tasks);
-        }
     }
 
     // The quota windows the account's limits frame reports, recorded on the account the process

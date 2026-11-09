@@ -56,7 +56,7 @@ pub struct SessionRebuildingDetails {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionRecoveryRefusedReason {
-    /// The session's history is not damaged.
+    /// The session's history is not damaged, and for `Delete session` its create finished.
     NotDamaged,
     /// No event of the session can be read.
     NoReadableEvent,

@@ -9,11 +9,13 @@ use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::place::PlacedPath;
 
 use super::{
-    ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
+    ClaudeMcpConfigReading, ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles,
+    read_claude_mcp_config,
 };
 use crate::driver::claude::session::rules::{
     CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, local_settings_path, settings_path,
 };
+use crate::driver::mcp_server::read::McpServerSignInSettings;
 
 // A root at `folder`, read in place.
 fn attached_root(folder: &Path) -> ClaudeMcpRoot {
@@ -118,9 +120,29 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     assert_eq!(root_b.switched_off_server_names, [] as [McpServerName; 0]);
 }
 
-// A WebSocket server lists with its address and names too. Killed by keeping any value: a header,
-// a bearer token, a query, userinfo or an environment value in the declaration or in the
-// reading's `Debug`, the transient address included, and by a WebSocket server left out.
+// Reads the `user` servers of a `.claude.json` holding `servers` in a fresh home.
+async fn read_user_servers(servers: serde_json::Value) -> ClaudeMcpConfigReading {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    write_json(
+        &home.join(".claude.json"),
+        &json!({ "mcpServers": servers }),
+    );
+    read_claude_mcp_config(&ClaudeMcpConfigSources {
+        person: &ClaudePersonConfigFiles::resolve(&[], &home).await,
+        managed_settings_folder: None,
+        plugin_home: &scratch.path().join("plugin-home"),
+        roots: &[],
+    })
+    .await
+    .expect("the config reads")
+}
+
+// A WebSocket server lists with its address and names too, and a remote entry's `oauth` members
+// read as its sign-in settings and its view's scopes. Killed by keeping any value: a header, a
+// bearer token, a query, userinfo or an environment value in the declaration or in the reading's
+// `Debug`, the transient address and the metadata address included; by a WebSocket server left
+// out; and by any of `clientId`, `callbackPort`, `scopes` or `authServerMetadataUrl` dropped.
 #[tokio::test]
 async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -137,6 +159,12 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 "headers": {
                     "Authorization": "Bearer bearer-secret-token",
                     "X-Api-Key": "header-secret-value",
+                },
+                "oauth": {
+                    "clientId": "owner-client",
+                    "callbackPort": 8080,
+                    "scopes": "read write",
+                    "authServerMetadataUrl": "https://auth.example.test/meta?tenant=metadata-secret",
                 },
             },
             "program": {
@@ -184,7 +212,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 header_names: Some(vec!["Authorization".to_owned(), "X-Api-Key".to_owned()]),
                 bearer_token_env_var: None,
                 env_http_headers: None,
-                oauth_scopes: None,
+                oauth_scopes: Some(vec!["read".to_owned(), "write".to_owned()]),
                 oauth_resource: None,
                 enabled: None,
                 required: None,
@@ -198,8 +226,30 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
             },
         ]
     );
+    let settings: Vec<Option<&McpServerSignInSettings>> = reading
+        .user_servers
+        .iter()
+        .map(|server| server.sign_in_settings.as_ref())
+        .collect();
+    assert_eq!(
+        settings,
+        [
+            None,
+            Some(&McpServerSignInSettings {
+                client_id: Some("owner-client".to_owned()),
+                callback_url: Some("http://localhost:8080/callback".to_owned()),
+                callback_port: None,
+                authorization_server_metadata_url: Some(
+                    "https://auth.example.test/meta?tenant=metadata-secret".to_owned()
+                ),
+                asks_offline_access_where_listed: true,
+            }),
+            None,
+        ]
+    );
     let printed = format!("{reading:?}");
     for secret in [
+        "metadata-secret",
         "alice-userinfo",
         "hunter2-password",
         "query-secret-value",
@@ -406,4 +456,38 @@ enum Manifest {
     Absent,
     Text(&'static str),
     Folder,
+}
+
+// A callback port given alone reads as a callback with no client id, and an `oauth` member of the
+// wrong shape still lists its server, its settings naming nothing. Killed by a callback built only
+// beside a client id, and by an entry dropped for a malformed member.
+#[rstest]
+#[case::callback_alone(
+    json!({"callbackPort": 8080}),
+    Some("http://localhost:8080/callback")
+)]
+#[case::malformed(json!({"callbackPort": "8080"}), None)]
+#[tokio::test]
+async fn an_oauth_member_reads_each_setting_on_its_own(
+    #[case] oauth: serde_json::Value,
+    #[case] callback_url: Option<&str>,
+) {
+    let reading = read_user_servers(json!({
+        "docs": { "type": "http", "url": "https://docs.example.test/mcp", "oauth": oauth },
+    }))
+    .await;
+
+    let [server] = reading.user_servers.as_slice() else {
+        panic!("the server lists: {:?}", reading.user_servers);
+    };
+    assert_eq!(
+        server.sign_in_settings,
+        Some(McpServerSignInSettings {
+            client_id: None,
+            callback_url: callback_url.map(str::to_owned),
+            callback_port: None,
+            authorization_server_metadata_url: None,
+            asks_offline_access_where_listed: true,
+        })
+    );
 }

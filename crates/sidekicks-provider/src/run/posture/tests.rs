@@ -96,6 +96,35 @@ async fn an_absent_deny_path_keeps_its_expanded_form() {
     );
 }
 
+// Killed by a driver's private folder left off the curated list, which leaves a process's telemetry
+// token readable by another provider's agent, and by the folder denied only as a linked data
+// folder spells it, which leaves the real folder, where the files land, readable. The folder is
+// not made yet, as before a first launch.
+#[tokio::test]
+async fn a_private_folder_is_denied_as_spelled_and_at_its_real_path() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let real = scratch.path().join("real");
+    std::fs::create_dir(&real).expect("the data folder is made");
+    let linked = scratch.path().join("linked");
+    sidekicks_platforms::make_folder_link(&real, &linked).expect("the data folder is linked");
+    let service = ExecutionPostureService::new(scratch.path(), scratch.path().join("daemon.token"));
+    service
+        .set_private_folders(vec![linked.join("provider").join("settings")])
+        .expect("the folders are set once");
+
+    let policy = service
+        .resolve_credential_policy(CURATED_CREDENTIAL_POLICY_REF)
+        .await
+        .expect("the curated list resolves");
+
+    let real = real_path(&real).expect("the real folder resolves");
+    let folder = |data_folder: &Path| CredentialDenyPath {
+        path: data_folder.join("provider").join("settings"),
+        kind: CredentialDenyPathKind::Folder,
+    };
+    assert_eq!(policy.deny_paths[3..], [folder(&linked), folder(&real)]);
+}
+
 #[tokio::test]
 async fn a_reference_to_another_list_is_refused() {
     let home = tempfile::tempdir().expect("a scratch home");
@@ -128,6 +157,7 @@ fn run_context(session_id: SessionId, execution_posture: ExecutionPosture) -> Ru
         session_id,
         opening_words: None,
         workspace_id: None,
+        parent_run: None,
         execution_posture,
     }
 }

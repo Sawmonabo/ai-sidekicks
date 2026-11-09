@@ -23,12 +23,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
 use tokio::sync::{SetOnce, watch};
+use tokio_util::sync::CancellationToken;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
@@ -73,6 +75,8 @@ use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::driver::{DriverServices, PROVIDERS};
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::pricing::store::HeldPriceList;
+use crate::pricing::test_fixture::{ListServer, started_list};
 use crate::process_identity::ProviderProcessIdentity;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
@@ -207,6 +211,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     /// The wall clock the driver's scheduler runs on, which a test moves.
     pub(crate) wall_clock: Arc<TestWallClock>,
+    /// Where a test registers the price list the driver's pricing reads.
+    pub(crate) price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
     /// The daemon's data folder the driver runs over.
     pub(crate) data_folder: PathBuf,
     listener: Arc<dyn ClaudeProcessListener>,
@@ -318,6 +324,7 @@ impl ScriptedSession {
             interventions: Arc::clone(&parts.interventions),
             helper_steers: Arc::clone(&services.helper_steers),
             wall_clock,
+            price_list: Arc::clone(&driver_ports.price_list),
             data_folder,
             parts,
             listener: started.listener,
@@ -458,4 +465,25 @@ pub(crate) fn exit_scripted_process(listener: &dyn ClaudeProcessListener) {
 /// nothing can run, so a short sleep returns after the session's task drained its queue.
 pub(crate) async fn settle() {
     tokio::time::sleep(Duration::from_millis(1)).await;
+}
+
+// Opus 5.5's rates and `us` multiplier, beside the two models the list fixture keeps.
+const OPUS_COPY: &[u8] =
+    br#"{"m1": {"input_cost_per_token": 3e-06}, "seed-only": {"input_cost_per_token": 2e-06},
+    "claude-opus-5-5": {"input_cost_per_token": 4e-06, "output_cost_per_token": 2e-05,
+        "provider_specific_entry": {"us": 1.1}}}"#;
+
+/// Registers in `price_list` a list in `scratch` with Opus 5.5's rates, run until `stop`, and
+/// answers its stand-in server.
+pub(crate) async fn register_claude_price_list(
+    price_list: &PortRegistration<Arc<HeldPriceList>>,
+    scratch: &TempDir,
+    stop: &CancellationToken,
+) -> Arc<ListServer> {
+    let folder = scratch.path().join("price-list");
+    let (held, server) = started_list(&folder, r#"W/"opus""#, OPUS_COPY, stop).await;
+    price_list
+        .register(held)
+        .expect("the price list registers once");
+    server
 }

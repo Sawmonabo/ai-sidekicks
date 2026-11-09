@@ -1,8 +1,9 @@
 //! The writes to the one workflow library: create (a duplicate among them), save a new version,
 //! soft delete, and the settings kept beside a version (layout, pinned data, tags, permission
-//! level, background browser), which mint none. Each change is one write, so a refused write leaves
-//! nothing behind.
+//! level, background browser, provider), which mint none. Each change is one write, so a refused
+//! write leaves nothing behind.
 
+mod deletion;
 mod params;
 mod settings;
 #[cfg(test)]
@@ -18,9 +19,9 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::issue::{ISSUES_MAX, IssuePathSegment};
 use sidekicks_contracts::name_fold::fold_name;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -55,9 +56,10 @@ use tokio::task::JoinError;
 use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::definitions::drafts::clear_workflow_draft_statement;
 use crate::definitions::errors::DefinitionRefusal;
-use crate::definitions::kept_values::clear_kept_values_statement;
+use crate::definitions::kept_values::KeptArtifactsLeftBehind;
 use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
 use crate::definitions::store::params::check_node_params;
+use crate::engine::ports::StepPayloadArtifacts;
 use crate::expressions::save_check::check_expressions;
 use crate::kinds::NodeKindTable;
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
@@ -66,13 +68,14 @@ use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 /// version a refused save is told about.
 pub const WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY: usize = 1;
 
-// A permission level is left to the column's default, so a new workflow starts at `yolo`.
+// A permission level is left to the column's default, so a new workflow starts at `yolo`; the
+// provider is the prefill the create's caller passes.
 const INSERT_DEFINITION_SQL: &str = "INSERT INTO workflow_definitions (
     id, name, name_folded, content_hash, schema_version, definition_body, layout_json,
-    pin_data_json, tags, created_at, created_by, updated_at
+    pin_data_json, tags, provider, created_at, created_by, updated_at
   ) VALUES (
     @id, @name, @name_folded, @content_hash, @schema_version, @definition_body, @layout_json,
-    @pin_data_json, @tags, @created_at, @created_by, @created_at
+    @pin_data_json, @tags, @provider, @created_at, @created_by, @created_at
   )";
 
 // A Duplicate whose document holds the copied version's content, its hash under the source's name
@@ -134,18 +137,6 @@ const LATEST_VERSION_SQL: &str = "SELECT deleted_at,
       AS latest_version_number
   FROM workflow_definitions WHERE id = @definition_id";
 
-const SOFT_DELETE_SQL: &str = "UPDATE workflow_definitions SET deleted_at = @at, updated_at = @at
-  WHERE id = @definition_id AND deleted_at IS NULL";
-
-// A deleted workflow arms nothing; a trigger with no schedule armed has no next fire.
-const DISARM_TRIGGERS_SQL: &str = "UPDATE workflow_triggers SET enabled = 0, next_fire_at = NULL
-  WHERE definition_id = @definition_id";
-
-const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
-  WHERE workflow_version_id IN (
-    SELECT id FROM workflow_versions WHERE definition_id = @definition_id
-  )";
-
 // The position of the name check among a create's and a save's statements, of the copied
 // version's check among a Duplicate's, and of the read of the saved version among a save's.
 const NAME_CHECK_INDEX: usize = 0;
@@ -154,8 +145,6 @@ const SAVED_VERSION_INDEX: usize = 3;
 // How many free copy names a Duplicate reads, each followed by one write, so a name taken between
 // a read and its write is read past once before the Duplicate is refused.
 const DUPLICATE_NAME_READS: usize = 2;
-// The position of the pinned runs' count among a delete's statements.
-const PINNED_RUN_COUNT_INDEX: usize = 4;
 
 /// Who saved a version: the device the save came from, and the agent that saved it, if one did.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,7 +155,8 @@ pub(crate) struct WorkflowSaveAuthor {
     pub(crate) agent_id: Option<AgentId>,
 }
 
-/// Why a write to the library was not kept; a refused write leaves nothing behind.
+/// Why a write to the library was not kept; a refused write leaves nothing behind, and a delete
+/// whose kept artifacts were left behind stands.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowDefinitionStoreError {
     /// The document breaks a rule or names a held name (`workflow.definition.refused`), or the
@@ -196,6 +186,16 @@ pub(crate) enum WorkflowDefinitionStoreError {
     /// The contract check a tool binding is read through could not be built.
     #[error("the check of a tool binding could not be built")]
     BindingCheck(#[from] ReceivedCheckError),
+    /// The delete committed, but an artifact one of the workflow's kept values named could not be
+    /// deleted.
+    #[error("the workflow was deleted, but artifacts its kept values named were left behind")]
+    KeptArtifactsLeftBehind {
+        /// The committed delete's answer.
+        deleted: WorkflowDefinitionDeleteResponse,
+        /// Each artifact left behind, beside why.
+        #[source]
+        left_behind: KeptArtifactsLeftBehind,
+    },
 }
 
 impl From<WorkflowDefinitionStoreError> for HandlerError {
@@ -210,7 +210,10 @@ impl From<WorkflowDefinitionStoreError> for HandlerError {
             | WorkflowDefinitionStoreError::Database(_)
             | WorkflowDefinitionStoreError::Pool(_)
             | WorkflowDefinitionStoreError::ShellLineReading(_)
-            | WorkflowDefinitionStoreError::BindingCheck(_)) => Self::Internal(Box::new(fault)),
+            | WorkflowDefinitionStoreError::BindingCheck(_)
+            | WorkflowDefinitionStoreError::KeptArtifactsLeftBehind { .. }) => {
+                Self::Internal(Box::new(fault))
+            }
         }
     }
 }
@@ -233,12 +236,15 @@ pub(crate) struct WorkflowDefinitionStore {
     writer: Arc<DatabaseWriter>,
     node_kinds: Arc<NodeKindTable>,
     shell_line_bound: Arc<ShellLineReadingBound>,
+    /// The store a deleted workflow's kept artifacts are deleted through.
+    payloads: Arc<dyn StepPayloadArtifacts>,
 }
 
 impl WorkflowDefinitionStore {
     /// The store reading through `pool`, writing through `writer`, checking each save against the
-    /// rules `node_kinds` gives each node's kind, and reading command lines inside
-    /// `shell_line_bound`, the daemon's one bound on shell-line reads.
+    /// rules `node_kinds` gives each node's kind, reading command lines inside `shell_line_bound`,
+    /// the daemon's one bound on shell-line reads, and deleting a deleted workflow's kept artifacts
+    /// through `payloads`.
     #[cfg_attr(
         not(test),
         expect(
@@ -251,19 +257,22 @@ impl WorkflowDefinitionStore {
         writer: Arc<DatabaseWriter>,
         node_kinds: Arc<NodeKindTable>,
         shell_line_bound: Arc<ShellLineReadingBound>,
+        payloads: Arc<dyn StepPayloadArtifacts>,
     ) -> Self {
         Self {
             pool,
             writer,
             node_kinds,
             shell_line_bound,
+            payloads,
         }
     }
 
     /// Creates a workflow and its first version in one write, with no policy check; a create from
-    /// the new-workflow draft clears that draft in the same write. A Duplicate is written under
-    /// the first free `<name> copy` name after the document's and keeps the copied version's
-    /// package locks while the document holds that version's content. Fails with
+    /// the new-workflow draft clears that draft in the same write, and the workflow stores the
+    /// provider pick its caller passes, none for `None`. A Duplicate is written under the first
+    /// free `<name> copy` name after the document's and keeps the copied version's package locks
+    /// while the document holds that version's content. Fails with
     /// [`WorkflowDefinitionStoreError::Refused`] for a document with findings or a name another
     /// workflow holds, and with [`WorkflowDefinitionStoreError::NotFound`] for a copied version
     /// not in the library, writing nothing.
@@ -278,6 +287,7 @@ impl WorkflowDefinitionStore {
         &self,
         request: &WorkflowDefinitionCreateRequest,
         author: &WorkflowSaveAuthor,
+        provider: Option<&ProviderId>,
     ) -> Result<WorkflowDefinitionCreateResponse, WorkflowDefinitionStoreError> {
         let document = &request.document;
         let WorkflowCreateOrigin::Duplicate { .. } = request.origin else {
@@ -289,7 +299,7 @@ impl WorkflowDefinitionStore {
                 sent_content_hash: &hash.content_hash,
             };
             return self
-                .insert_workflow(document, &first_version, author, request.origin)
+                .insert_workflow(document, &first_version, author, request.origin, provider)
                 .await?
                 .ok_or_else(|| name_taken().into());
         };
@@ -314,7 +324,7 @@ impl WorkflowDefinitionStore {
                 sent_content_hash: &sent_content_hash,
             };
             if let Some(created) = self
-                .insert_workflow(document, &first_version, author, request.origin)
+                .insert_workflow(document, &first_version, author, request.origin, provider)
                 .await?
             {
                 return Ok(created);
@@ -458,71 +468,6 @@ impl WorkflowDefinitionStore {
         })
     }
 
-    /// Marks the workflow deleted, disarms its triggers, and deletes its kept values and its draft,
-    /// in one write; its versions stay, so the runs pinned to them still read, and the reply counts
-    /// those runs. Fails with [`WorkflowDefinitionStoreError::NotFound`] for a workflow not in the
-    /// library.
-    #[expect(
-        dead_code,
-        reason = "the workflow definition handlers and the workflow agent tools"
-    )]
-    pub(crate) async fn delete(
-        &self,
-        definition_id: WorkflowDefinitionId,
-    ) -> Result<WorkflowDefinitionDeleteResponse, WorkflowDefinitionStoreError> {
-        let definition_text = definition_id.text();
-        let deleted_at = WireInstant::now();
-        let of_definition = || {
-            StatementBindings::Named(vec![text_binding(
-                "@definition_id",
-                definition_text.as_str(),
-            )])
-        };
-        let statements = vec![
-            WriteStatement {
-                sql: Cow::Borrowed(SOFT_DELETE_SQL),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@at", deleted_at.as_str()),
-                    text_binding("@definition_id", definition_text.as_str()),
-                ]),
-                expected_row_count: Some(1),
-            },
-            WriteStatement {
-                sql: Cow::Borrowed(DISARM_TRIGGERS_SQL),
-                bindings: of_definition(),
-                expected_row_count: None,
-            },
-            clear_kept_values_statement(definition_id),
-            clear_workflow_draft_statement(Some(definition_id)),
-            WriteStatement {
-                sql: Cow::Borrowed(COUNT_PINNED_RUNS_SQL),
-                bindings: of_definition(),
-                expected_row_count: None,
-            },
-        ];
-        let results = match self.writer.write(statements).await {
-            Ok(results) => results,
-            Err(WriteError::Refused { .. }) => {
-                return Err(WorkflowNotFound::Definition { definition_id }.into());
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let retained_run_count = match results
-            .get(PINNED_RUN_COUNT_INDEX)
-            .and_then(|count| count.rows.first())
-            .and_then(|row| row.first())
-        {
-            Some(&Value::Integer(count)) => u64::try_from(count).ok().and_then(SafeInt::new),
-            _ => None,
-        }
-        .expect("a count of rows is a safe integer");
-        Ok(WorkflowDefinitionDeleteResponse {
-            definition_id,
-            deleted: True::default(),
-            retained_run_count,
-        })
-    }
-
     // Writes a workflow and its first version from `document` under the name and hash
     // `first_version` gives, the copied version checked inside the write for a Duplicate and the
     // new-workflow draft cleared for a create from it. `None` when the write's name check finds
@@ -533,6 +478,7 @@ impl WorkflowDefinitionStore {
         first_version: &FirstVersion<'_>,
         author: &WorkflowSaveAuthor,
         origin: WorkflowCreateOrigin,
+        provider: Option<&ProviderId>,
     ) -> Result<Option<WorkflowDefinitionCreateResponse>, WorkflowDefinitionStoreError> {
         let FirstVersion {
             name,
@@ -590,6 +536,7 @@ impl WorkflowDefinitionStore {
                         stored_pin_data_json(document.pin_data.as_ref()).as_deref(),
                     ),
                     text_binding("@tags", &tags_json),
+                    nullable_text_binding("@provider", provider.map(ProviderId::as_str)),
                     text_binding("@created_at", created_at.as_str()),
                     text_binding("@created_by", author.device_id.as_str()),
                 ]),

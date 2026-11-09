@@ -91,7 +91,8 @@ use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
 use crate::run::superseded::read_superseded_turns_guarded;
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
-/// The statements the engine's reads prepare on a pooled connection: the run's row, the live
+/// The statements the engine's reads prepare on a pooled connection: the run's row, the workspace
+/// a run's execution context bound it in, the live
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
@@ -106,7 +107,7 @@ use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 /// helper was dispatched beneath, a turn start's reads of the message that opened it and of
 /// where its run stands (the run's rollbacks, and its turn starts and steers), and a late row's
 /// reads of the tool call it closes, of its run's superseded turns and of its binding.
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 33 + RUN_AGENT_STATEMENT_CAPACITY;
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 34 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;

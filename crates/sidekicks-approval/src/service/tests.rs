@@ -10,9 +10,11 @@ use rstest::rstest;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
-    ApprovalCategory, ApprovalDecision, ApprovalResolutionInvalidReason, ApprovalResolveRequest,
-    ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope, RememberedScopeKind,
+    ApprovalCategory, ApprovalDecision, ApprovalListRequest, ApprovalResolutionInvalidReason,
+    ApprovalResolveRequest, ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope,
+    RememberedScopeKind,
 };
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -33,9 +35,10 @@ use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{stored_run_state, test_engine};
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
     SessionAppendRefusal,
@@ -52,11 +55,12 @@ use super::{
     ApprovalService, ApprovalServiceError, RaisedCard, RaisedRequestSettlement, ResolveAnswer,
     refuse_unfit_answer,
 };
+use crate::projection::read::read_approval_projection;
 use crate::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
 };
 use crate::run_blocking::ApprovalRunHolds;
-use crate::store::StoredApprovalRequest;
+use crate::store::{ApprovalSettlement, StoredApprovalRequest, settle_pending_statement};
 
 /// A session with one running run, the approval service over it, and the run engine its holds
 /// move.
@@ -88,16 +92,23 @@ pub(crate) struct ApprovalFixture {
 impl ApprovalFixture {
     /// The fixture, its run `running` at version 1.
     pub(crate) async fn new() -> Self {
-        Self::build(true).await
+        Self::build(true, crate::schema::schema_parts()).await
     }
 
     /// The fixture with holds that reach no engine, so no reconcile moves its run.
     pub(crate) async fn without_holds() -> Self {
-        Self::build(false).await
+        Self::build(false, crate::schema::schema_parts()).await
     }
 
-    async fn build(is_engine_reached: bool) -> Self {
-        let database = TestDatabase::new(crate::schema::schema_parts());
+    /// The fixture over the workflow tables too, which a workflow gate's card reads.
+    pub(crate) async fn with_workflow_tables() -> Self {
+        let schema =
+            crate::schema::schema_parts().with_parts(sidekicks_workflow::schema::schema_parts());
+        Self::build(true, schema).await
+    }
+
+    async fn build(is_engine_reached: bool, schema: SchemaParts) -> Self {
+        let database = TestDatabase::new(schema);
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await
@@ -285,13 +296,16 @@ fn client_id() -> String {
     mint_uuid_v7().to_string()
 }
 
-fn refusal(error: ApprovalServiceError) -> DomainError {
+/// The refusal `error` carries; a test that expects a refusal fails on any fault.
+pub(crate) fn refusal(error: ApprovalServiceError) -> DomainError {
     match error {
         ApprovalServiceError::Refused(refusal) => refusal,
         other @ (ApprovalServiceError::Read(_)
         | ApprovalServiceError::Pool(_)
         | ApprovalServiceError::Draft(_)
-        | ApprovalServiceError::Cancel(_)) => {
+        | ApprovalServiceError::Cancel(_)
+        | ApprovalServiceError::WaitsUnregistered(_)
+        | ApprovalServiceError::Wait(_)) => {
             panic!("the call failed rather than refused: {other}")
         }
     }
@@ -458,6 +472,57 @@ async fn one_answer_settles_a_card(
     }
 }
 
+// A second settle of one ask changes no row: it is refused at its own statement, and the ask keeps
+// the first settle's state and time. Killed by the settle's pending guard dropped.
+#[tokio::test]
+async fn a_second_settle_of_one_ask_is_refused_and_keeps_the_first() {
+    let fixture = ApprovalFixture::without_holds().await;
+    let card = fixture.raise("git push").await.expect("the card is raised");
+    let first_at: WireInstant = from_json(json!("2026-10-14T09:00:00.000Z"));
+    fixture
+        .writer
+        .write(vec![settle_pending_statement(
+            &card.approval_request_id,
+            ApprovalSettlement::Decided(ApprovalDecision::Approved),
+            &first_at,
+        )])
+        .await
+        .expect("the first settle writes");
+
+    let second = fixture
+        .writer
+        .write(vec![settle_pending_statement(
+            &card.approval_request_id,
+            ApprovalSettlement::Decided(ApprovalDecision::Rejected),
+            &from_json(json!("2026-10-14T09:00:05.000Z")),
+        )])
+        .await;
+
+    assert!(
+        matches!(
+            second,
+            Err(WriteError::Refused {
+                statement_index: 0,
+                row_count: 0,
+            })
+        ),
+        "{second:?}"
+    );
+    let stored: (String, String) = fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT state, updated_at FROM approval_requests WHERE id = ?1",
+            [card.approval_request_id.text().as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the test reads the ask");
+    assert_eq!(
+        stored,
+        ("approved".to_owned(), first_at.as_str().to_owned())
+    );
+}
+
 /// One case of an answer's fit to its ask.
 #[expect(
     clippy::struct_excessive_bools,
@@ -548,7 +613,9 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     let stored = StoredApprovalRequest {
         approval_request_id: from_json(json!(mint_uuid_v7())),
         session_id: test_session_id(),
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        holder: ApprovalHolder::Run {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        },
         requested_by: from_json(json!("agent")),
         category: fit.category,
         scope: scope.clone(),
@@ -617,4 +684,86 @@ async fn a_runs_end_settles_a_card_whose_row_was_dropped() {
             .expect("the run's end settles its waiter"),
         RaisedRequestSettlement::Canceled
     );
+}
+
+/// The session a case raises its ask on.
+#[derive(Clone, Copy, Debug)]
+enum AskSession {
+    /// The fixture's session, a project.
+    Project,
+    /// The fixture's session, a chat.
+    Chat,
+    /// The fixture's session, a chat, beside another session that is a project.
+    ChatBesideAProject,
+}
+
+// The card offers the project scope only for a provider's ask, which carries an ask id, on a
+// project session; another session's shape never reaches it. Killed by the ask id's check dropped,
+// by the session shape's check dropped, and by the session join not keyed on the ask's own
+// session, which reads the card once per session or with the other session's shape.
+#[rstest]
+#[case::a_providers_ask_on_a_project(AskSession::Project, true, true)]
+#[case::an_ask_with_no_ask_id(AskSession::Project, false, false)]
+#[case::a_chat(AskSession::Chat, true, false)]
+#[case::a_chat_beside_a_project(AskSession::ChatBesideAProject, true, false)]
+#[tokio::test]
+async fn a_card_offers_the_project_scope_only_for_a_providers_ask_on_a_project(
+    #[case] session: AskSession,
+    #[case] has_ask_id: bool,
+    #[case] is_offered: bool,
+) {
+    let fixture = ApprovalFixture::without_holds().await;
+    match session {
+        AskSession::Project => fixture.execute("UPDATE sessions SET shape = 'project'"),
+        AskSession::Chat => {}
+        AskSession::ChatBesideAProject => {
+            let other = test_session_id();
+            insert_session_row(
+                &fixture.database.reader(),
+                other.text().as_str(),
+                None,
+                None,
+            );
+            fixture.execute(&format!(
+                "UPDATE sessions SET shape = 'project' WHERE id = '{}'",
+                other.text().as_str()
+            ));
+        }
+    }
+    fixture
+        .service
+        .create(
+            ApprovalRequestCreateRequest {
+                session_id: fixture.session_id,
+                run_id: fixture.run_id,
+                requested_by: from_json(json!("agent")),
+                category: ApprovalCategory::ToolExecution,
+                scope: from_json(json!("npm test")),
+                resource_descriptor: from_json(json!({
+                    "subject": "npm test",
+                    "standingAllowOffered": true,
+                    "projectScopeOffered": true,
+                    "editable": false,
+                })),
+            },
+            ApprovalRequestOrigin {
+                ask_id: has_ask_id.then(|| from_json(json!(mint_uuid_v7()))),
+                tool_call_id: None,
+                input_digest: None,
+            },
+        )
+        .await
+        .expect("the card is raised");
+
+    let request: ApprovalListRequest = from_json(json!({ "sessionId": fixture.session_id }));
+    let cards = read_approval_projection(&fixture.database.reader(), &request)
+        .expect("the session's cards read");
+    let offers: Vec<Value> =
+        serde_json::to_value(&cards).expect("the cards serialize")["approvals"]
+            .as_array()
+            .expect("the cards are a list")
+            .iter()
+            .map(|card| card["projectScopeOffered"].clone())
+            .collect();
+    assert_eq!(offers, [json!(is_offered)]);
 }

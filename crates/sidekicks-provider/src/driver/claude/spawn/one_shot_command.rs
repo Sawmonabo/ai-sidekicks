@@ -1,6 +1,6 @@
 //! Claude Code commands that run once and exit: started as every child of the daemon starts, in
-//! their resolved build's environment alone, with their exit read and, where asked, the tail of
-//! their error output.
+//! their resolved build's environment alone, every exporter off, with their exit read and, where
+//! asked, the tail of their error output.
 
 use std::io;
 use std::path::Path;
@@ -11,7 +11,9 @@ use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_platforms::{ChildExit, Spawner, read_child_exit, wrap_child_command};
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 
+use super::arguments::CLAUDE_SETTINGS_FLAG;
 use super::command::compose_claude_command;
+use super::settings::compose_claude_export_off_settings;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The longest one write of Claude Code's MCP config runs: the wait for Claude Code's lock and
@@ -44,11 +46,24 @@ pub(crate) enum ClaudeOneShotError {
     Wait(#[source] io::Error),
 }
 
-/// Runs `executable` with `arguments` in `working_folder`, in the build's environment alone,
-/// started on `spawner`'s thread as every child of the daemon starts, and reads its exit. Its
-/// output is never read; its error output is read to its end and kept to its tail where
-/// `is_error_output_kept`. A caller bounds the run by dropping it, which kills the command. Fails
-/// as the command cannot start or the wait for its exit fails.
+/// The command line of a Claude Code subcommand run outside the launcher: the export-off settings
+/// document inline, then `subcommand`. The document goes first, since the root parser takes its own
+/// options only before a subcommand, and Claude Code reads it before any command runs.
+pub(crate) fn compose_claude_subcommand_arguments(subcommand: &[&str]) -> Vec<String> {
+    [
+        CLAUDE_SETTINGS_FLAG.to_owned(),
+        compose_claude_export_off_settings(),
+    ]
+    .into_iter()
+    .chain(subcommand.iter().map(|argument| (*argument).to_owned()))
+    .collect()
+}
+
+/// Runs `executable` with `arguments` after the export-off settings in `working_folder`, in the
+/// build's environment alone, started on `spawner`'s thread as every child of the daemon starts,
+/// and reads its exit. Its output is never read; its error output is read to its end and kept to
+/// its tail where `is_error_output_kept`. A caller bounds the run by dropping it, which kills the
+/// command. Fails as the command cannot start or the wait for its exit fails.
 pub(crate) async fn run_claude_one_shot(
     spawner: &Spawner,
     executable: &ResolvedProviderExecutable,
@@ -58,7 +73,7 @@ pub(crate) async fn run_claude_one_shot(
 ) -> Result<ClaudeOneShotExit, ClaudeOneShotError> {
     let mut command = compose_claude_command(
         &executable.start,
-        arguments,
+        &compose_claude_subcommand_arguments(arguments),
         &executable.environment,
         working_folder,
     );

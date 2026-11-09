@@ -272,7 +272,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
 
     use super::{PROVIDER_ACCOUNTS_STATEMENT_CAPACITY, ProviderAccounts, select_current_account};
-    use crate::account::errors::ProviderAccountRegistryError;
+    use crate::account::errors::is_account_not_found;
     use crate::account::registry::tests::{create_workflow_steps_table, register};
     use crate::account::registry::{
         HealthObservation, HealthObserver, ProviderAccountRegistry, open_test_registry,
@@ -536,10 +536,7 @@ mod tests {
             KindWrite::RemovalMark => {
                 let error = after.expect_err("a marked account is not registered");
                 assert!(
-                    matches!(
-                        error.downcast_ref::<ProviderAccountRegistryError>(),
-                        Some(ProviderAccountRegistryError::NotFound)
-                    ),
+                    is_account_not_found(&*error),
                     "a marked account reads as not registered: {error}"
                 );
             }

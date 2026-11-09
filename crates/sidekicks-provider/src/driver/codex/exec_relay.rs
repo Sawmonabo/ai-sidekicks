@@ -52,6 +52,8 @@ use crate::command::channel::records::LineCapture;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::codex::app_server_protocol::EnvironmentAddParams;
+use crate::driver::codex::service::home::CodexHomeKind;
+use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::session::errors::CodexError;
 use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{ProviderCommandEnd, RunningCommandPublisher as _};
@@ -59,8 +61,13 @@ use crate::port::running_command_publisher::{ProviderCommandEnd, RunningCommandP
 /// The id of the environment every relayed conversation's turns name, the relay's executor.
 pub(crate) const CODEX_RELAY_ENVIRONMENT_ID: &str = "sidekicks-relay";
 
-/// The arguments that start Codex's executor on its standard input and output.
-pub(crate) const CODEX_EXECUTOR_ARGUMENTS: [&str; 3] = ["exec-server", "--listen", "stdio"];
+/// The arguments that start Codex's executor on its standard input and output on a home of
+/// `kind`: the home's own switches first, every exporter off among them.
+pub(crate) fn compose_codex_executor_arguments(kind: &CodexHomeKind) -> Vec<String> {
+    let mut arguments = home_exec_switches(kind);
+    arguments.extend(["exec-server", "--listen", "stdio"].map(str::to_owned));
+    arguments
+}
 
 /// The folder under a session's channel folder that its relayed commands' channel opens in.
 const RELAY_CHANNEL_FOLDER: &str = "codex-relay";

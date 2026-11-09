@@ -3,12 +3,12 @@
 //!
 //! The versions and the gate answers never change once written. A definition's row is current
 //! state that changes in place: its settings outside the hash, and its current body on a save. The
-//! runs and the steps are projections the event log can rebuild, except a waiting step's
-//! `wait_deadline_at`. The triggers, webhook tokens, node state and secrets are truth that changes:
-//! no event history can say what this machine is armed to do next or which secrets it holds, so
-//! the row is the truth and any in-process timer is a cache over it, re-armed from the row at
-//! start. The form drafts and the builder drafts are durable state with no timer: what the person
-//! has typed but not saved is in no event, so the row holds it.
+//! runs and the steps are projections the event log can rebuild. The triggers, webhook tokens,
+//! node state and secrets are truth that changes: no event history can say what this machine is
+//! armed to do next or which secrets it holds, so the row is the truth and any in-process timer is
+//! a cache over it, re-armed from the row at start. The form drafts and the builder drafts are
+//! durable state with no timer: what the person has typed but not saved is in no event, so the row
+//! holds it.
 
 use std::sync::LazyLock;
 
@@ -49,6 +49,7 @@ fn workflow_schema_sql() -> String {
     let webhook_fire_outcomes = sql_list_of_every::<WorkflowWebhookFireOutcome>();
     let run_statuses = sql_list_of_every::<WorkflowRunStatus>();
     let new_run = <&'static str>::from(WorkflowRunStatus::New);
+    let waiting_run = <&'static str>::from(WorkflowRunStatus::Waiting);
     let going_run_statuses = &*GOING_RUN_STATUSES_SQL;
     let run_modes = sql_list_of_every::<WorkflowRunMode>();
     let gate_kinds = sql_list_of_every::<WorkflowGateKind>();
@@ -56,8 +57,10 @@ fn workflow_schema_sql() -> String {
     let approval_categories = sql_list_of_every::<WorkflowGateApprovalCategory>();
     let approval_decisions = sql_list_of_every::<ApprovalDecision>();
     let step_statuses = sql_list_of_every::<WorkflowStepStatus>();
+    let pending = <&'static str>::from(WorkflowStepStatus::Pending);
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
+    let skipped = <&'static str>::from(WorkflowStepStatus::Skipped);
     let wait_causes = sql_list_of_every::<WorkflowWaitCause>();
     let account = <&'static str>::from(WorkflowWaitCause::Account);
     let person_wait_causes = sql_list_of(
@@ -75,8 +78,8 @@ fn workflow_schema_sql() -> String {
 -- ---------------------------------------------------------------------------
 -- workflow_definitions: one row per workflow in the one library.
 -- ---------------------------------------------------------------------------
--- The layout, tags, permission level, background browser and pinned data sit
--- outside the content hash, so changing any of them mints no version.
+-- The layout, tags, permission level, background browser, provider and pinned
+-- data sit outside the content hash, so changing any of them mints no version.
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,                -- as the person cased it
@@ -101,6 +104,9 @@ CREATE TABLE workflow_definitions (
   -- browser it started with.
   background_browser   TEXT NOT NULL DEFAULT '{settings_default}'
                        CHECK(background_browser IN ({background_browsers})),
+  -- The provider whose sandbox and shell the workflow's command steps run in;
+  -- NULL until one is chosen. A run reads it when it starts.
+  provider             TEXT,
   -- JSON object of node id to a pinned item array; NULL when nothing is pinned.
   pin_data_json        TEXT
                        CHECK(pin_data_json IS NULL
@@ -178,6 +184,9 @@ CREATE TABLE workflow_runs (
   workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
   -- The asking chat's session, or the workflow's own for a run no chat asked for.
   session_id                TEXT NOT NULL,
+  -- The workflow's provider as the run started, which a restart reads; NULL when the workflow
+  -- named none.
+  provider                  TEXT,
   status                    TEXT NOT NULL DEFAULT '{new_run}'
                             CHECK(status IN ({run_statuses})),
   mode                      TEXT NOT NULL
@@ -196,6 +205,9 @@ CREATE TABLE workflow_runs (
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.
   error_json                TEXT
                             CHECK(error_json IS NULL OR json_valid(error_json)),
+  -- The run's one summary line, which a Write a summary step writes on the run;
+  -- NULL until one does.
+  summary                   TEXT,
   chain_root_run_id         TEXT NOT NULL,           -- the run's own id on a first run
   chain_from_error          INTEGER NOT NULL DEFAULT 0 -- 1 when an error trigger joined
                             CHECK(chain_from_error IN (0, 1)),
@@ -208,8 +220,16 @@ CREATE TABLE workflow_runs (
   -- The run's Keep mark: deleting old runs leaves a kept run.
   kept                      INTEGER NOT NULL DEFAULT 0
                             CHECK(kept IN (0, 1)),
+  -- Set while the run waits only on people, from its workflow.run.waiting; the
+  -- statement that moves the run off '{waiting_run}' clears it.
+  person_wait_since         TEXT,
+  -- The milliseconds the run has waited on people, added to as each such wait
+  -- ends; the run cap does not count them.
+  person_wait_ms            INTEGER NOT NULL DEFAULT 0
+                            CHECK(person_wait_ms >= 0),
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
-  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
+  CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL)),
+  CHECK(person_wait_since IS NULL OR status = '{waiting_run}')
 ) STRICT;
 
 -- Deleting old runs pages in session order, each page seeking past the last one's final run.
@@ -221,6 +241,9 @@ CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 -- The runs list pages newest first by start, ties broken by id.
 CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);
+-- The engine's deadline clock reads every unfinished run's cap, a failed park among them.
+CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
+  WHERE finished_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- workflow_gate_resolutions: every answer to an approval node or a chain's
@@ -326,6 +349,21 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
+  -- The content hash of the pinned items a step gave in place of running, from its
+  -- workflow.step.started; on a reused skip, the hash its source step recorded, from its
+  -- workflow.step.skipped; NULL on a step that gave no pin.
+  pin_hash          TEXT
+                    CHECK(pin_hash IS NULL OR status <> '{pending}'),
+  -- JSON: the step a partial run reused in this skip's place and the version its run executed,
+  -- as its workflow.step.skipped names them; NULL on every other step.
+  reused_from_json  TEXT
+                    CHECK(reused_from_json IS NULL
+                      OR (status = '{skipped}' AND json_valid(reused_from_json))),
+  -- JSON array: how many items each main output holds, in output order, so the one joined
+  -- list output_ref stores splits back into one list per output handle.
+  output_item_counts_json TEXT NOT NULL DEFAULT '[]'
+                    CHECK(json_valid(output_item_counts_json)
+                      AND json_type(output_item_counts_json) = 'array'),
   cost_usd_micros   INTEGER,                       -- NULL when never billed
   -- The account that paid. No foreign key: removing an account must neither
   -- rewrite nor block the step's cost record.
@@ -345,6 +383,9 @@ CREATE TABLE workflow_steps (
   -- failed it, from its workflow.step.failed. NULL on every other step and on a
   -- bare decline.
   decline_reason    TEXT,
+  -- The milliseconds the memory gate held the step, summed over its holds.
+  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0
+                    CHECK(total_pool_wait_ms >= 0),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
   UNIQUE(workflow_run_id, execution_index),
@@ -371,6 +412,8 @@ CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
   WHERE wait_id IS NOT NULL;
+-- A partial run's plan reads each node's newest settled step, newest end first.
+CREATE INDEX idx_workflow_steps_node_finished ON workflow_steps(node_id, finished_at);
 
 -- ---------------------------------------------------------------------------
 -- workflow_triggers: one row per armed trigger.
@@ -419,10 +462,14 @@ CREATE TABLE workflow_node_state (
   key               TEXT NOT NULL,                 -- a cursor's key, or a kept value's name
   value_json        TEXT NOT NULL
                     CHECK(json_valid(value_json)),
+  -- The payload artifact a kept value above the inline cap is kept in, whose reference
+  -- value_json then holds; NULL for a value kept inline and for trigger cursor state.
+  artifact_id       TEXT,
   kept_by_run_id    TEXT,                          -- NULL for trigger cursor state
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (definition_id, node_id, key),
-  CHECK(kept_by_run_id IS NULL OR node_id = '')
+  CHECK(kept_by_run_id IS NULL OR node_id = ''),
+  CHECK(artifact_id IS NULL OR kept_by_run_id IS NOT NULL)
 ) STRICT;
 
 -- ---------------------------------------------------------------------------

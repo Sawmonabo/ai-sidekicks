@@ -1,11 +1,12 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
-//! serving socket: the MCP services, the session directory's port, the session services, the
-//! terminals' table, the project and clone services, the worktree creator and its setup card, the
-//! workspace services, the recovery services and the stored data's methods, then every method
-//! table registered over them; it hands back the parts the start runs next and the stop ends.
+//! serving socket: the MCP services, the session directory's port, the session services, the MCP
+//! server sign-ins, the terminals' table, the project and clone services, the worktree creator and
+//! its setup card, the workspace services, the recovery services and the stored data's methods,
+//! then every method table registered over them; it hands back the parts the start runs next and
+//! the stop ends.
 
 pub(crate) mod error;
-mod mcp;
+pub(crate) mod mcp;
 mod recovery;
 mod worktree;
 
@@ -29,6 +30,8 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::sign_in::service::SignInService;
+use sidekicks_mcp::sign_in::sign_out::owed::OwedSignOuts;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
@@ -54,6 +57,7 @@ use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
 };
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
+use sidekicks_session::changes::UnarchivedCreateListener;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::interventions::service::InterventionService;
@@ -91,7 +95,9 @@ use crate::daemon::machine_settings::methods::{
 };
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::method_inputs::error::MethodInputsError;
-use crate::daemon::process::method_inputs::mcp::{McpGovernanceStart, open_mcp_status};
+use crate::daemon::process::method_inputs::mcp::{
+    McpGovernanceStart, McpSignInStart, build_sign_ins, open_mcp_status,
+};
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
 };
@@ -250,6 +256,10 @@ pub(crate) struct MethodInputs {
     /// The MCP binding edits' service, whose pass over the edits a stop left unfinished the start
     /// requests.
     pub(crate) mcp_mutations: Arc<McpMutationService>,
+    /// The MCP server sign-ins, whose open attempts the stop closes.
+    pub(crate) mcp_sign_ins: Arc<SignInService>,
+    /// The sign-outs the MCP bindings' removals owe, which the start settles.
+    pub(crate) mcp_owed_sign_outs: Arc<OwedSignOuts>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
     /// The daemon's one client of the sessions' tool servers, which the stop stops.
@@ -326,11 +336,9 @@ pub(crate) async fn register_method_inputs(
         mcp_attribution: Arc::clone(&mcp.attribution),
         mcp_tool_servers: Arc::clone(&mcp.session_tool_servers),
     })?;
-    let (mcp_inventory, mcp_mutations) = mcp.build_governance(&McpGovernanceStart {
+    let mcp_inventory = mcp.build_governance(&McpGovernanceStart {
         providers: &registry,
         projects: &port.project_records,
-        secret_items: &secret_items,
-        writer: &writer,
         reads: &reads,
     });
     mcp.session_tool_servers
@@ -447,6 +455,19 @@ pub(crate) async fn register_method_inputs(
         mcp_status: Arc::clone(&mcp.status),
         mcp_first_observations: mcp.first_observations,
     })?;
+    let mcp_sign_ins = build_sign_ins(&McpSignInStart {
+        providers: &registry,
+        inventory: &mcp_inventory,
+        board: &mcp.board,
+        provider_accounts: &providers.ports.provider_accounts,
+        settings: &settings_reader,
+        projects: &port.project_records,
+        secret_items: &secret_items,
+        writer: &writer,
+        reads: &reads,
+        appender: &session.appender,
+    })
+    .map_err(MethodInputsError::McpSignInPools)?;
     let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -559,9 +580,14 @@ pub(crate) async fn register_method_inputs(
         project_list_feed: Arc::clone(&project_list_feed),
         scheduler: Arc::clone(&scheduler),
     });
-    // The create finishes the sessions a clone holds once it attaches.
+    // The create finishes the sessions a clone holds once it attaches, and a session unarchived
+    // before its create finished.
     let clone_attached = Arc::new(PortRegistration::new("clone attached"));
     clone_attached.register(Arc::clone(&workspace.creation) as Arc<dyn CloneAttachedListener>)?;
+    session
+        .changes
+        .unarchived_creates()
+        .register(Arc::clone(&workspace.creation) as Arc<dyn UnarchivedCreateListener>)?;
     let clones = match repo
         .askpass
         .take()
@@ -619,6 +645,7 @@ pub(crate) async fn register_method_inputs(
         pool: Arc::clone(&reads),
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        price_list: Arc::clone(&providers.ports.price_list),
     });
     // The messages waiting for a paused run, which a run's and a child's continue deliver.
     let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
@@ -737,7 +764,8 @@ pub(crate) async fn register_method_inputs(
                 log: Arc::clone(&database.event_log),
                 board: mcp.board,
                 inventory: Arc::clone(&mcp_inventory),
-                mutations: Arc::clone(&mcp_mutations),
+                mutations: Arc::clone(&mcp_sign_ins.mutations),
+                sign_ins: mcp_sign_ins.commands,
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -818,7 +846,9 @@ pub(crate) async fn register_method_inputs(
         web_address_sender,
         workspace_work: workspace.work,
         mcp_inventory,
-        mcp_mutations,
+        mcp_mutations: mcp_sign_ins.mutations,
+        mcp_sign_ins: mcp_sign_ins.service,
+        mcp_owed_sign_outs: mcp_sign_ins.owed_sign_outs,
         provider_accounts: accounts.observation,
         mcp_client,
     })

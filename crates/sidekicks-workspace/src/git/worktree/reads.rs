@@ -1,9 +1,10 @@
 //! The git reads behind the switcher's rows, the branch list, the working-folder watch, creation
 //! and Put back: the trees git lists for a repository, each branch's distance from its upstream,
-//! refs' commits and a branch's holding tree, every branch's name, the paths a tree has
-//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record, the record a
-//! `.git` file names and the `.git` a record names. Every answer but the last two is git's own;
-//! those read git's files themselves, so they answer even when what the file names is gone.
+//! refs' commits, a branch's holding tree and its upstream, every branch's name, the paths a tree
+//! has uncommitted and whether it has any, the branch a folder is on, its own git folder, a linked
+//! tree's record, the record a `.git` file names and the `.git` a record names. Every answer but
+//! the last two is git's own; those read git's files themselves, so they answer even when what the
+//! file names is gone.
 //!
 //! Each git read runs in the background with no optional lock, so it never rewrites the index
 //! under a run working in the same tree. Output stays bytes, and a path git prints is read back as
@@ -119,13 +120,27 @@ pub(crate) fn tree_name_of(folder: &Path) -> Result<FreeFormText<FILE_PATH_MAX_L
     )
 }
 
-/// A ref's commit and, for a branch, the tree git lists with it checked out.
+/// A ref's commit and, for a branch, the tree git lists with it checked out and its upstream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RefHead {
     /// The commit the ref names.
     pub(crate) commit: String,
     /// The folder of a tree git lists with the branch checked out, or `None` when none has.
     pub(crate) checked_out_at: Option<PathBuf>,
+    /// The full name of the branch's upstream, or `None` when it follows none.
+    pub(crate) upstream: Option<String>,
+    /// The commits only the branch holds and only its upstream holds, or `None` when it follows
+    /// none, its upstream is gone or the read did not count them.
+    pub(crate) upstream_distance: Option<(u64, u64)>,
+}
+
+/// Whether a ref read counts each branch's commits apart from its upstream's, a walk of both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UpstreamDistanceRead {
+    /// Counted, as [`RefHead::upstream_distance`] answers.
+    Counted,
+    /// Not counted, so [`RefHead::upstream_distance`] is `None`.
+    Skipped,
 }
 
 /// Why the record of a linked tree could not be read.
@@ -417,20 +432,27 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
     Ok(Some((ahead, behind)))
 }
 
-/// Reads, in one git call, the commit and holding tree of each of `ref_names` (full names) that
-/// exists in the repository at `repository_folder`, by full name; a ref that does not exist has
-/// no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this system
-/// cannot name.
+/// Reads, in one git call, the commit, holding tree and upstream of each of `ref_names` (full
+/// names) that exists in the repository at `repository_folder`, by full name, with its upstream
+/// distance as `distance` says; a ref that does not exist has no entry. Fails as
+/// [`GitRunner::run`] does, with `PathText` for a holding tree this system cannot name.
 pub(crate) async fn read_ref_heads(
     git: &GitRunner,
     place: Option<&Place>,
     repository_folder: &Path,
     ref_names: &[&str],
+    distance: UpstreamDistanceRead,
 ) -> Result<HashMap<String, RefHead>, GitError> {
-    let mut arguments = vec![
-        "for-each-ref",
-        "--format=%(refname)%00%(objectname)%00%(worktreepath)%00",
-    ];
+    let format = match distance {
+        UpstreamDistanceRead::Counted => {
+            "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00\
+             %(upstream:track,nobracket)%00"
+        }
+        UpstreamDistanceRead::Skipped => {
+            "--format=%(refname)%00%(objectname)%00%(worktreepath)%00%(upstream)%00"
+        }
+    };
+    let mut arguments = vec!["for-each-ref", format];
     arguments.extend_from_slice(ref_names);
     let output = git
         .run(
@@ -442,7 +464,8 @@ pub(crate) async fn read_ref_heads(
     for record in ref_records(&output.stdout) {
         let mut fields = record.split(|byte| *byte == 0);
         let mut field = || fields.next().unwrap_or_default();
-        let (ref_name, commit, checked_out_at) = (field(), field(), field());
+        let (ref_name, commit, checked_out_at, upstream, track) =
+            (field(), field(), field(), field(), field());
         // A pattern also matches the refs below it, so only the names asked for are kept.
         let Some(asked) = ref_names.iter().find(|asked| asked.as_bytes() == ref_name) else {
             continue;
@@ -452,6 +475,15 @@ pub(crate) async fn read_ref_heads(
             RefHead {
                 commit: String::from_utf8_lossy(commit).into_owned(),
                 checked_out_at: optional_path(checked_out_at)?,
+                upstream: (!upstream.is_empty())
+                    .then(|| String::from_utf8_lossy(upstream).into_owned()),
+                upstream_distance: if upstream.is_empty()
+                    || distance == UpstreamDistanceRead::Skipped
+                {
+                    None
+                } else {
+                    parse_upstream_track(track)?
+                },
             },
         );
     }
@@ -467,11 +499,15 @@ pub(crate) async fn has_branch(
     branch: &str,
 ) -> Result<bool, GitError> {
     let ref_name = format!("{BRANCH_REF_PREFIX}{branch}");
-    Ok(
-        read_ref_heads(git, place, repository_folder, &[ref_name.as_str()])
-            .await?
-            .contains_key(&ref_name),
+    Ok(read_ref_heads(
+        git,
+        place,
+        repository_folder,
+        &[ref_name.as_str()],
+        UpstreamDistanceRead::Skipped,
     )
+    .await?
+    .contains_key(&ref_name))
 }
 
 /// Every local branch's name in the repository at `repository_folder`, in git's order, each read
@@ -592,6 +628,26 @@ pub(crate) async fn read_uncommitted_paths(
         paths.push(path_from_program_output(path.to_vec()).map_err(GitError::PathText)?);
     }
     Ok(paths)
+}
+
+/// Whether `git status` lists anything in `folder`: a changed, staged or unmerged file, or an
+/// untracked one, a new folder counted once; ignored files are not. Fails as [`GitRunner::run`]
+/// does.
+pub(crate) async fn has_uncommitted_work(
+    git: &GitRunner,
+    place: Option<&Place>,
+    folder: &Path,
+) -> Result<bool, GitError> {
+    let output = git
+        .run(
+            place,
+            GitCall::live_index_read(
+                folder,
+                &["status", "--porcelain=v2", "-z", "--untracked-files=normal"],
+            ),
+        )
+        .await?;
+    Ok(!output.stdout.is_empty())
 }
 
 // The last of `part_count` space-separated parts of a status entry, the path.
@@ -820,15 +876,17 @@ fn optional_path(field: &[u8]) -> Result<Option<PathBuf>, GitError> {
         .map_err(GitError::PathText)
 }
 
-// A number git printed in decimal; bytes that are not UTF-8 fail the parse.
-fn parse_number<Number: FromStr<Err = ParseIntError>>(digits: &[u8]) -> Result<Number, GitError> {
+/// A number git printed in decimal; bytes that are not UTF-8 fail the parse.
+pub(crate) fn parse_number<Number: FromStr<Err = ParseIntError>>(
+    digits: &[u8],
+) -> Result<Number, GitError> {
     String::from_utf8_lossy(digits)
         .parse()
         .map_err(|error| GitError::Read(io::Error::new(io::ErrorKind::InvalidData, error)))
 }
 
-// git printed something these reads cannot parse.
-fn malformed(what: &'static str) -> GitError {
+/// git printed something a read cannot parse, as a read failure.
+pub(crate) fn malformed(what: &'static str) -> GitError {
     GitError::Read(io::Error::new(io::ErrorKind::InvalidData, what))
 }
 

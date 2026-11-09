@@ -132,6 +132,7 @@ impl RunEngine {
                 session_id: starting.session_id,
                 opening_words,
                 workspace_id,
+                parent_run: None,
                 execution_posture,
             })
             .await;
@@ -328,6 +329,7 @@ impl RunEngine {
                     session_id: run.session_id,
                     opening_words: Some(opening_words),
                     workspace_id,
+                    parent_run: None,
                     execution_posture,
                 })
                 .await

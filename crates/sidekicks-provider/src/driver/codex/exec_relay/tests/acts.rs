@@ -13,8 +13,9 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 
 use super::{
     CALL, EXECUTOR_PROCESS, THREAD, command_id, exited, initialized_executor, relay_for,
-    relay_reporting_to, session_threads, wait_until,
+    relay_reporting_to, session_threads,
 };
+use crate::bounded_poll::poll_until;
 use crate::command::channel::test_support::{
     end_party, new_party_keys, party_command, ready_parties, sent_requests, write_party_record,
 };
@@ -132,10 +133,14 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
             process: Some(EXECUTOR_PROCESS.to_owned()),
         },
     );
-    wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+    poll_until(
+        || sets.paired_wrapper(session_id, &command_id()) == Some(party),
+        |is_paired| *is_paired,
+    )
+    .await;
     // The wrapper's start is acknowledged and answered `Go`, so the stop is the third request.
     let written_requests = || sent_requests(&channel.channel, &keys, party);
-    wait_until(|| written_requests().len() == 2).await;
+    poll_until(|| written_requests().len(), |written| *written == 2).await;
     // From here the clock moves only once nothing can run, so the hold cannot run out before the
     // poll below, and a terminate passed on at once reaches the executor before it.
     tokio::time::pause();
@@ -149,7 +154,11 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
     let terminating = tokio::spawn(
         Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
     );
-    wait_until(|| written_requests().last() == Some(&DaemonRequest::Stop {})).await;
+    poll_until(
+        || written_requests().last() == Some(&DaemonRequest::Stop {}),
+        |is_stop_last| *is_stop_last,
+    )
+    .await;
 
     // Held once the wrapper is asked: nothing has reached the executor yet. `next_line` is
     // cancel-safe, so this one poll loses no line.
@@ -291,9 +300,13 @@ async fn a_stop_the_wrapper_ended_still_terminates_in_codex() {
             process: Some(EXECUTOR_PROCESS.to_owned()),
         },
     );
-    wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+    poll_until(
+        || sets.paired_wrapper(session_id, &command_id()) == Some(party),
+        |is_paired| *is_paired,
+    )
+    .await;
     let written_requests = || sent_requests(&channel.channel, &keys, party);
-    wait_until(|| written_requests().len() == 2).await;
+    poll_until(|| written_requests().len(), |written| *written == 2).await;
     let params = StopCommandParams {
         command: RunningCommandParams {
             session_id,
@@ -304,7 +317,11 @@ async fn a_stop_the_wrapper_ended_still_terminates_in_codex() {
     };
 
     let answering = async {
-        wait_until(|| written_requests().last() == Some(&DaemonRequest::Stop {})).await;
+        poll_until(
+            || written_requests().last() == Some(&DaemonRequest::Stop {}),
+            |is_stop_last| *is_stop_last,
+        )
+        .await;
         fake.write(&exited(EXECUTOR_PROCESS)).await;
         let request = scripted
             .next_request("thread/backgroundTerminals/terminate")

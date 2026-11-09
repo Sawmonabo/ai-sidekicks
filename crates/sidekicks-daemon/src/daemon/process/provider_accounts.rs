@@ -63,6 +63,7 @@ use sidekicks_store::events::session::followers::{
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 use crate::daemon::process::start_error::DaemonStartError;
@@ -456,6 +457,11 @@ impl ProviderAccountObservation {
             bound,
         )
         .await
+    }
+
+    /// A subscription to the account notices, reading every one published from this call on.
+    pub(crate) fn account_notices(&self) -> broadcast::Receiver<ProviderAccountNotification> {
+        self.publisher.subscribe()
     }
 
     /// Ends the follow and every account's job, timer and the wake watch; a read under way

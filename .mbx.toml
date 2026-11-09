@@ -7,10 +7,10 @@
 share_workspace_root = true
 
 [scheduler]
-# Leave one core, and 10 GiB of the 16 for compilers and test binaries, which leaves about 6 GiB
+# Leave two cores, and 10 GiB of the 16 for compilers and test binaries, which leaves about 6 GiB
 # for macOS and the editor; the scheduler also backs off under memory pressure. A run beside the
 # Linux container's VM exports `MBX_SCHEDULER_MEMORY=6GiB`, which wins over this file.
-reserve_cpus = 1
+reserve_cpus = 2
 memory = "10GiB"
 # A test binary takes no permit: a test queued behind compilers counts the wait toward nextest's
 # two-minute limit and is ended as hung. nextest bounds each run's own parallelism.

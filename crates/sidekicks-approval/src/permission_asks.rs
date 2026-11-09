@@ -230,7 +230,9 @@ impl PermissionAsks {
                 Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
             }
             match self.claim_orphaned_card(&ask, &key, input_digest).await {
-                Ok(Some((card, ask_id))) => return self.hand_card_answer(&card, &ask_id).await,
+                Ok(Some((card, ask_id))) => {
+                    return self.hand_card_answer(&card, ask.run_id, &ask_id).await;
+                }
                 Ok(None) => {}
                 Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
             }
@@ -482,9 +484,16 @@ impl PermissionAsks {
                 self.find_held(run_id, ask_id).is_some()
             })
             .await?;
+        // A workflow wait's card holds no provider ask: the service's answer is all it takes.
+        let Some(run_id) = stored.holder.run_id() else {
+            return Ok(ResolvedCard {
+                response,
+                orphaned: None,
+            });
+        };
         let resolved = ResolvedCard {
             response,
-            orphaned: is_orphaned.then_some((stored.session_id, stored.run_id)),
+            orphaned: is_orphaned.then_some((stored.session_id, run_id)),
         };
         let Some(ask_id) = stored.ask_id.clone() else {
             // A card's rule is the one its stored answer asked for, recorded once: the answer sent
@@ -499,7 +508,7 @@ impl PermissionAsks {
         // once its call hand is claimed, so a call made again that claims it first is not handed
         // twice.
         if is_orphaned
-            && (self.find_held(stored.run_id, &ask_id).is_none()
+            && (self.find_held(run_id, &ask_id).is_none()
                 || !self
                     .deps
                     .approvals
@@ -509,23 +518,25 @@ impl PermissionAsks {
         {
             return Ok(resolved);
         }
-        self.hand_card_answer(&stored, &ask_id).await?;
+        self.hand_card_answer(&stored, run_id, &ask_id).await?;
         Ok(resolved)
     }
 
-    // Hands the stored answer of `card` to the ask held under its `ask_id` where one is and no hand
-    // of it is under way or reached its provider, then records the rule it made once the provider
-    // kept it. Fails with `approval.rule.notKept` when the provider could not keep the rule, and as
-    // reaching the provider or recording the rule fails.
+    // Hands the stored answer of `card`, which `run_id` holds, to the ask held under its `ask_id`
+    // where one is and no hand of it is under way or reached its provider, then records the rule
+    // it made once the provider kept it. Fails with `approval.rule.notKept` when the provider could
+    // not keep the rule, and as reaching the provider or recording the rule fails.
     async fn hand_card_answer(
         &self,
         card: &StoredApprovalRequest,
+        run_id: RunId,
         ask_id: &NonEmptyText,
     ) -> Result<(), PermissionAskError> {
-        let Some((request_id, answer, made_rule)) = self.claim_hand(card, ask_id).await? else {
+        let Some((request_id, answer, made_rule)) = self.claim_hand(card, run_id, ask_id).await?
+        else {
             return Ok(());
         };
-        match self.hand_answer(&(card.run_id, request_id), answer).await {
+        match self.hand_answer(&(run_id, request_id), answer).await {
             Ok(()) => {
                 if let Some(made_rule) = made_rule {
                     self.deps.rules.record(card, &made_rule).await?;
@@ -558,12 +569,13 @@ impl PermissionAsks {
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,
+        run_id: RunId,
         ask_id: &NonEmptyText,
     ) -> Result<
         Option<(String, ProviderPermissionAnswer, Option<ProviderAnswerRule>)>,
         PermissionAskError,
     > {
-        let Some((request_id, action)) = self.find_held(stored.run_id, ask_id) else {
+        let Some((request_id, action)) = self.find_held(run_id, ask_id) else {
             return Ok(None);
         };
         let made_rule = match stored.asked_scope() {
@@ -587,7 +599,7 @@ impl PermissionAsks {
             .expect("an ask the service settled holds its answer");
         let composed = compose_answer(stored.approval_request_id, resolution, made_rule.clone());
         let mut held = self.lock_held();
-        let Some(ask) = held.get_mut(&(stored.run_id, request_id.clone())) else {
+        let Some(ask) = held.get_mut(&(run_id, request_id.clone())) else {
             return Ok(None);
         };
         let claimed = match &mut ask.state {

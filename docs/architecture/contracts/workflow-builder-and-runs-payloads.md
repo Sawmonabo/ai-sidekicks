@@ -139,6 +139,7 @@ type WorkflowRunSummary = {
   // Whether the person marked the run Keep, which the row shows as a mark and `Delete runs older than…`
   // leaves.
   keep: boolean;
+  summary?: string; // the run's own summary line, which a `Write a summary` step writes; absent until one does
 } & (
   | { status: "waiting"; waitCause: "account"; resumeAt?: string }
   | { status: "waiting"; waitCause: Exclude<WorkflowWaitCause, "account"> }
@@ -246,6 +247,7 @@ interface WorkflowRunRerunRequest {
 // runs a SAVED version and never unsaved bytes: a dirty draft is saved first and the version saved
 // is the version run. Pinned data is honored here and IGNORED by every trigger-started run.
 interface WorkflowNodeExecuteRequest {
+  clientIdempotencyKey: string; // a UUID: a resend under the same key after a reconnect answers the first node run's run, never a second (return-or-conflict on the call's own record)
   workflowVersionId: string;
   // Omitted from the builder, where the run lives in the one session the workflow owns and works in the
   // repository the trigger's `Repository` names; a chat that asks for a node run names its own session,
@@ -262,7 +264,13 @@ interface WorkflowNodeExecuteRequest {
   // The nodes the builder believes are dirty. The daemon intersects this with what it can reuse and
   // answers with the set it actually ran, so a stale hint costs a re-execution and never a wrong result.
   dirtyNodeIds?: WorkflowNodeId[];
+  // The items the trigger starts on, as the node run's panel gave them; absent, the trigger's earlier
+  // data is reused. Items that differ from the trigger's earlier input run the trigger again.
+  input?: WorkflowItem[];
 }
+// Refused as a start of the version is (workflow.version.notFound, workflow.run.startDenied,
+// workflow.run.repositoryRequired, workflow.run.inputRequired, workflow.run.idempotencyConflict and
+// the rest), and with workflow.node.notFound for a nodeId the version does not hold.
 interface WorkflowNodeExecuteResponse {
   workflowRunId: WorkflowRunId;
   // The nodes the daemon actually executed, in execution order — the authoritative answer to what the
@@ -402,6 +410,9 @@ interface WorkflowNodeKindSpec {
     cancelable: boolean;
     resumable: boolean;
     sideEffects: "none" | "local" | "external";
+    repository: boolean; // true where a run of the kind needs a project's repository
+    // When a run of the kind runs in its provider's sandbox: absent never, {} always, else as showWhen
+    sandbox?: Record<string, unknown[]>;
   };
 }
 interface WorkflowKindListResponse {
@@ -472,11 +483,27 @@ interface WorkflowBackgroundBrowserUpdateResponse {
   pick: "settingsDefault" | "sandboxed" | "notSandboxed";
 }
 
+// WorkflowProviderUpdate — workflow.provider.update. Sets the provider whose sandbox and shell every
+// run of the workflow uses for its command steps, read when a run starts. A new workflow is
+// prefilled with the provider whose account is marked Default, and is blank where none is; a pick
+// can be changed but not cleared. The pick sits outside the hashed body, so a change mints no
+// version.
+interface WorkflowProviderUpdateRequest {
+  definitionId: WorkflowDefinitionId;
+  provider: ProviderId;
+}
+interface WorkflowProviderUpdateResponse {
+  definitionId: WorkflowDefinitionId;
+  provider: ProviderId;
+}
+
 // WorkflowPinDataUpdate — workflow.pinData.update. Pins test data onto one node, or unpins it with
 // `items: null`, from the inspector's Output panel, a run's step panel, or Copy this run into the
 // builder — without a new version, because pinned data sits outside the hashed body. Pinned data is
 // honored only in manual runs and ignored by every trigger-started run, and a node can be pinned
-// only where it has a single `main` output and its items carry no binary payload.
+// only where it has a single `main` output and its items carry no binary payload. A pin stored under
+// an empty key, or a key naming a node the version lacks, names no node: a manual run's start
+// ignores it and never refuses on it.
 interface WorkflowPinDataUpdateRequest {
   definitionId: WorkflowDefinitionId;
   nodeId: WorkflowNodeId;

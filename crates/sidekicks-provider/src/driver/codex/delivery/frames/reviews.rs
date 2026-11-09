@@ -12,7 +12,9 @@ use crate::driver::codex::delivery::reviewer::{
     CodexReviewFlag, complete_codex_review, hold_guardian_warning, require_codex_review,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
+use crate::driver::codex::event_normalizer::CODEX_REVIEW_STARTED_METHOD;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::port::reviewer_denial::ProviderReviewerDenial;
 use crate::record_readers::read_non_empty_string;
@@ -63,7 +65,21 @@ impl CodexFrameDelivery {
         run: Option<CodexRowRun>,
         about_event_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     ) {
+        // A review's window, opened at its start and closed at its completion, which its
+        // reviewer's off-stream requests are joined to.
+        if matches!(
+            method,
+            CODEX_REVIEW_STARTED_METHOD | "item/autoApprovalReview/completed"
+        ) && let Some(window) = CodexReviewWindow::read(record.session_id, members)
+        {
+            let service = &record.service;
+            service
+                .dependencies()
+                .exports
+                .review_window(service.id(), window);
+        }
         match method {
+            CODEX_REVIEW_STARTED_METHOD => {}
             "guardianWarning" => hold_guardian_warning(&mut record.delivery, members),
             "item/autoApprovalReview/completed" => {
                 let completion = complete_codex_review(&mut record.delivery, members, run.as_ref());

@@ -16,10 +16,14 @@ use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
     lock_record, take_kept_service,
 };
-use crate::driver::codex::service::supervisor::start::{
-    CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
-    connect, launch_lasting_service, name_lasting_log_file, read_service_version, start_failed,
+use crate::driver::codex::service::supervisor::start::lasting_launch::{
+    LaunchedLastingService, connect, launch_lasting_service, name_lasting_log_file,
 };
+use crate::driver::codex::service::supervisor::start::{
+    CodexServiceProcess, StartFailure, StartedService, compose_launch, read_service_version,
+    start_failed,
+};
+use crate::driver::codex::service::telemetry_switches::restore_daemon_export;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::socket::CodexSocketWait;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -38,7 +42,8 @@ pub(super) async fn start_account_home_service(
         .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
     let locked = lock_record(record_file).await?;
     let log_file = name_lasting_log_file(service)?;
-    if let Some((lasting, physical_socket)) = take_kept_service(&locked, &socket).await? {
+    if let Some((mut lasting, physical_socket, kept)) = take_kept_service(&locked, &socket).await? {
+        lasting.keep_telemetry(kept.and_then(|kept| restore_daemon_export(service, &kept)));
         return join_kept_service(
             service,
             launch,

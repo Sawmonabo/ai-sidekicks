@@ -50,13 +50,14 @@ impl SessionTestLog {
     }
 
     /// Writes a piece of `event_type` (`agent.message.sent` or `agent.thinking.updated`) of
-    /// `run_id`'s provider message `message_id`, in its block `block` where it names one.
+    /// `run_id`'s provider message `message_id`, in its block `block`, an `(index, attempt)` pair,
+    /// where it names one.
     pub fn piece(
         &self,
         event_type: &str,
         run_id: RunId,
         message_id: &str,
-        block: Option<u64>,
+        block: Option<(u64, u64)>,
         body: &str,
         occurred_at: &str,
     ) -> (i64, String) {
@@ -65,8 +66,8 @@ impl SessionTestLog {
             "runId": run_id,
             "providerMessageId": message_id,
         });
-        if let Some(index) = block {
-            payload["providerBlock"] = json!({ "index": index, "attempt": 1 });
+        if let Some((index, attempt)) = block {
+            payload["providerBlock"] = json!({ "index": index, "attempt": attempt });
         }
         insert_test_event(
             &self.writer,
@@ -78,7 +79,7 @@ impl SessionTestLog {
     }
 
     /// Writes a reply piece of the lead run at [`AT`].
-    pub fn reply(&self, message_id: &str, block: Option<u64>, body: &str) -> (i64, String) {
+    pub fn reply(&self, message_id: &str, block: Option<(u64, u64)>, body: &str) -> (i64, String) {
         self.piece(
             "agent.message.sent",
             self.run_id,

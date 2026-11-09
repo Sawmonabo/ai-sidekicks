@@ -31,6 +31,7 @@ use sidekicks_std::mutex_lock::lock;
 use crate::command::channel::stop::StoppedCommandParties;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
+use crate::driver::codex::mcp::sign_in::read_codex_server_addresses;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -48,7 +49,10 @@ use crate::driver::contract::params_and_results::{
 use crate::driver::contract::plan_verdict::{
     AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
 };
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
+};
 use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -83,6 +87,8 @@ use crate::port::running_command_publisher::{
     RunningCommandParams, StopCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::pricing::receiver::TelemetryExportReader;
+use crate::pricing::rule::RequestPricer;
 
 mod account;
 mod account_home_logs;
@@ -99,6 +105,7 @@ mod delivery;
 mod descriptor;
 mod event_normalizer;
 mod exec_relay;
+mod exec_turn;
 mod goals;
 mod hand_over;
 mod hooks;
@@ -112,6 +119,7 @@ mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod pricing;
 mod privacy;
 mod rate_limits;
 mod release_notes;
@@ -122,6 +130,7 @@ mod server_requests;
 mod service;
 mod session;
 mod shells;
+mod telemetry;
 mod thread;
 mod token_usage;
 mod tools;
@@ -736,5 +745,25 @@ impl ProviderDriver for CodexDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        vec![self.registry.service_record_folder()]
+    }
+
+    fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
+        Some(Arc::new(pricing::CodexRequestPricer))
+    }
+
+    fn telemetry_export_reader(&self) -> Option<Arc<dyn TelemetryExportReader>> {
+        Some(Arc::clone(&self.exports) as _)
+    }
+
+    fn read_mcp_server_addresses(
+        &self,
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
+        read_codex_server_addresses(&self.registry, &self.project_rules.home_folder, requests)
+            .boxed()
     }
 }

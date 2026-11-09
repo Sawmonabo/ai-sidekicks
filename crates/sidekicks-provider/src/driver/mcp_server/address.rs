@@ -21,9 +21,9 @@ pub(crate) struct ServerAddressReading {
 }
 
 /// A remote server's whole address folded so two spellings of one server compare equal: the case
-/// of its scheme and host, its scheme's default port and a trailing slash fold, while its user
-/// name, password, path, query and any other port stay apart. It holds credentials, so it lives
-/// only in memory, and its `Debug` prints none of it.
+/// of its scheme and host, its scheme's default port, a trailing slash and any fragment fold, while
+/// its user name, password, path, query and any other port stay apart. It holds credentials, so it
+/// lives only in memory, is never stored, and its `Debug` prints none of it.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ServerAddressIdentity(String);
 
@@ -49,19 +49,34 @@ pub(crate) fn read_server_address(address: &str) -> ServerAddressReading {
             query_param_names.push(name.into_owned());
         }
     }
-    // The parse already folds the case of a web scheme and host and drops a default port.
-    let path = &url[Position::BeforePath..Position::AfterPath];
-    let folded_path = path.strip_suffix('/').unwrap_or(path);
-    let mut identity = format!("{}{folded_path}", &url[..Position::AfterPort]);
-    if let Some(query) = url.query() {
-        identity.push('?');
-        identity.push_str(query);
-    }
     ServerAddressReading {
         stripped_url: strip_written_address(address),
         query_param_names,
-        identity: Some(ServerAddressIdentity(identity)),
+        identity: Some(ServerAddressIdentity(fold_parsed_address(&url))),
     }
+}
+
+/// The whole of `address` folded so two spellings of one server read the same: the case of its
+/// scheme and host, its scheme's default port, a trailing slash and any fragment fold, while its
+/// user name, password, path, query and any other port stay. It may hold credentials, so it is
+/// never stored or logged: what a row or a keychain attribute keeps is a keyed digest of it.
+pub fn fold_server_address(address: &McpServerAddress) -> String {
+    fold_parsed_address(
+        &Url::parse(address.as_str()).expect("a server address parses as a web address"),
+    )
+}
+
+// The fold of a parsed address, which already folds the case of a web scheme and host and drops a
+// default port.
+fn fold_parsed_address(url: &Url) -> String {
+    let path = &url[Position::BeforePath..Position::AfterPath];
+    let folded_path = path.strip_suffix('/').unwrap_or(path);
+    let mut folded = format!("{}{folded_path}", &url[..Position::AfterPort]);
+    if let Some(query) = url.query() {
+        folded.push('?');
+        folded.push_str(query);
+    }
+    folded
 }
 
 /// Whether `written`, a remote server's address as a config or a saved sign-in writes it, names

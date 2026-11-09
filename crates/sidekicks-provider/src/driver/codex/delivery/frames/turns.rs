@@ -624,17 +624,22 @@ impl CodexFrameDelivery {
             .forget_turn_asks(record.session_id, turn_id);
     }
 
-    // Codex settled an ask itself, such as at a turn's interrupt: no answer is sent for it, and
-    // its card is withdrawn. Answers the request's id.
+    // Codex resolved an ask. One still held, which Codex settled itself (such as at a turn's
+    // interrupt), is let go of with no answer sent and its card withdrawn. One the daemon answered
+    // is let go of by its answer's guard once the answer is sent, normally before this
+    // notification arrives, so nothing changes for it here.
     pub(super) fn forget_resolved_request(
         &self,
         record: &CodexSessionRecord,
         members: &Map<String, Value>,
-    ) -> Option<String> {
-        let request_id = match members.get("requestId")? {
+    ) {
+        let Some(request_id) = members.get("requestId") else {
+            return;
+        };
+        let request_id = match request_id {
             Value::String(request_id) => request_id.clone(),
             Value::Number(request_id) => request_id.to_string(),
-            Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => return None,
+            Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => return,
         };
         let ask_kind = record
             .service
@@ -649,7 +654,6 @@ impl CodexFrameDelivery {
                 ask_kind,
             );
         }
-        Some(request_id)
     }
 
     /// An `error` frame: one Codex retries files the retried request's row on the turn's run; one

@@ -76,14 +76,14 @@ Workspace lifecycle:
 
 Worktree lifecycle:
 
-| State      | Meaning                                                       |
-| ---------- | ------------------------------------------------------------- |
-| `creating` | The worktree is being created or rebound.                     |
-| `ready`    | The worktree is available for execution.                      |
-| `dirty`    | The worktree contains uncommitted changes.                    |
-| `merged`   | The worktree's branch has been integrated and can be retired. |
-| `retired`  | The worktree is intentionally preserved but no longer active. |
-| `failed`   | Creation or maintenance of the worktree failed.               |
+| State      | Meaning                                                                          |
+| ---------- | -------------------------------------------------------------------------------- |
+| `creating` | The worktree is being created or rebound.                                        |
+| `ready`    | The worktree is available for execution.                                         |
+| `dirty`    | The worktree contains uncommitted changes; it is `ready` again once it has none. |
+| `merged`   | Merged into its base or upstream; can retire. New commits of its own reopen it.  |
+| `retired`  | The worktree is intentionally preserved but no longer active.                    |
+| `failed`   | Creation or maintenance of the worktree failed.                                  |
 
 ## Example Flows
 

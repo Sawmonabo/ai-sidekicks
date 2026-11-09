@@ -213,6 +213,7 @@ pub(crate) fn build_repo_services(
         git: git.clone(),
         reads: Arc::clone(&reads),
         occupancy: occupancy.clone(),
+        writer: Arc::clone(&writer),
         events: Arc::clone(&worktree_events),
         scheduler: Arc::clone(&scheduler),
         read_watch_ceiling: inotify_watch_ceiling,

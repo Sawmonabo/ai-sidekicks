@@ -122,7 +122,10 @@ pub(crate) fn gate_resolution_statement(answer: &WorkflowGateAnswer) -> WriteSta
 
 /// The `workflow.gate.resolved` event of `answer` in the run `keys` names, written in the same
 /// write as the answer's row.
-#[expect(dead_code, reason = "the approval side's gate answers and Keep going")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the approval side's gate answers and Keep going")
+)]
 pub(crate) fn gate_resolved_payload(
     answer: &WorkflowGateAnswer,
     keys: RunEventKeys,

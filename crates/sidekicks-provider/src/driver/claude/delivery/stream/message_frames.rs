@@ -1,16 +1,21 @@
-//! The lead's message frames read into the session's rows: an assistant message's rows, its calls'
-//! lines and step, and a user message's rows, its peer arrival, the message it echoes taken and
-//! each answered call's trace.
+//! The lead's message frames on the session's task: an assistant message's rows, its calls' lines
+//! and task-list changes, its step and its mid-turn context reading; a user message's rows, the
+//! message another session sent and the echo of a message Claude Code took; and a streamed piece,
+//! held for its interval while the tokens the turn received go to the working line.
 
 use jiff::Timestamp;
+use sidekicks_contracts::turn::TurnTasksUpdate;
+use tokio::time::Instant;
 
-use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
+use super::{ClaudeDeliveryStream, ClaudeFirstRequest, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows, record_claude_traces,
 };
 use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
+use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
+use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::goals::endings::{GoalEndingInput, is_goal_line};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::transport::declarations::ClaudeMessageUsageObservation;
@@ -154,6 +159,42 @@ impl ClaudeDeliveryStream {
         self.admit_rows(session, rows, "user").await;
         record_claude_traces(&self.dependencies.tool_traces, traces).await;
         self.send_backgrounded(session, stand_ins).await;
+    }
+
+    // A streamed piece waits for its interval, which the session's timer sends; the tokens the
+    // turn received go to the working line at once.
+    pub(super) fn stream_event(
+        &self,
+        session: &ClaudeSessionStream,
+        lead: &ClaudeBoundRun,
+        text: &str,
+    ) {
+        let run = ClaudeStreamedRun {
+            session_id: session.session_id,
+            run_id: lead.run_id,
+        };
+        // Only a reply opened after an account move is the moved account's first request.
+        if session.is_watching_first_request() && is_claude_message_start(text) {
+            session.settle_first_request(ClaudeFirstRequest::Answered);
+        }
+        let provider_account_id = session.provider_account_id();
+        let usage = {
+            let mut readings = session.lock();
+            readings
+                .streamed_blocks
+                .observe(text, run, &provider_account_id, Instant::now());
+            readings.turn_readings.observe_stream_event(text)
+        };
+        if let (Some(usage), Some(publisher)) = (usage, self.dependencies.turn_readings.port()) {
+            publisher.publish_turn_usage(session.session_id, usage);
+        }
+    }
+
+    // Sends the turn's whole task list to the working line, once its readings are registered.
+    pub(super) fn publish_turn_tasks(&self, session: &ClaudeSessionStream, tasks: TurnTasksUpdate) {
+        if let Some(publisher) = self.dependencies.turn_readings.port() {
+            publisher.publish_turn_tasks(session.session_id, tasks);
+        }
     }
 }
 

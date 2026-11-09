@@ -37,7 +37,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::retention::{
     WorkflowRunKeepSet, WorkflowRunPurgePreviewResponse,
 };
-use sidekicks_contracts::workflow::run::status::{GOING_RUN_STATUSES, WorkflowRunStatus};
+use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::settle_all::DescribeEach;
@@ -46,7 +46,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
@@ -57,7 +57,8 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::record::{
-    GOING_RUN_STATUSES_SQL, StoredInstantBound, parked_failed_run_condition, stored_instant_bound,
+    GOING_RUN_STATUSES_SQL, RunProgress, StoredInstantBound, finished_run_condition,
+    parked_failed_run_condition, read_run_progress, stored_instant_bound,
 };
 
 /// The statements the deletion's reads run: the run a delete removes, the runs a bulk delete
@@ -75,12 +76,12 @@ const RUNS_PER_DELETE_WRITE: usize = 100;
 // is not deletable while one is.
 static DELETABLE_RUN_CONDITION: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "run.status NOT IN ({going}) AND NOT {parked_run}
+        "{finished_run}
   AND NOT EXISTS (SELECT 1 FROM workflow_runs AS later
     WHERE later.chain_root_run_id = run.id AND later.id <> run.id
       AND (later.status IN ({going}) OR {parked_later}))",
+        finished_run = finished_run_condition("run"),
         going = *GOING_RUN_STATUSES_SQL,
-        parked_run = parked_failed_run_condition("run"),
         parked_later = parked_failed_run_condition("later"),
     )
 });
@@ -154,9 +155,6 @@ static STILL_REMOVABLE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
         *REMOVABLE
     )
 });
-
-const RUN_STATUS_SQL: &str =
-    "SELECT status, finished_at FROM workflow_runs WHERE id = @workflow_run_id";
 
 const KEEP_SQL: &str = "UPDATE workflow_runs SET kept = @kept WHERE id = @workflow_run_id";
 
@@ -713,31 +711,34 @@ impl WorkflowRunDeletion {
     // it is parked on its failed step, or it is a chain's first run and a later run of the chain is
     // going or parked on its failed step.
     async fn refusal(&self, workflow_run_id: WorkflowRunId) -> WorkflowRunDeletionError {
-        let status = self
+        let progress = self
             .pool
             .read(ReadLength::Short, move |connection| {
-                Ok::<_, WorkflowRunDeletionError>(read_run_status(connection, workflow_run_id)?)
+                Ok::<_, WorkflowRunDeletionError>(read_run_progress(connection, workflow_run_id)?)
             })
             .await;
-        match status {
+        match progress {
             Ok(None) => WorkflowNotFound::Run { workflow_run_id }.into(),
-            Ok(Some((status, finished_at))) => if GOING_RUN_STATUSES.contains(&status) {
-                WorkflowRunNotDeletable::Going {
-                    workflow_run_id,
-                    status,
+            Ok(Some(stored)) => {
+                let status = stored.status;
+                match stored.progress() {
+                    RunProgress::Going => WorkflowRunNotDeletable::Going {
+                        workflow_run_id,
+                        status,
+                    },
+                    RunProgress::ParkedOnFailedStep => {
+                        WorkflowRunNotDeletable::ParkedOnFailedStep {
+                            workflow_run_id,
+                            status,
+                        }
+                    }
+                    RunProgress::Finished => WorkflowRunNotDeletable::LaterChainRunGoing {
+                        workflow_run_id,
+                        status,
+                    },
                 }
-            } else if status == WorkflowRunStatus::Failed && finished_at.is_none() {
-                WorkflowRunNotDeletable::ParkedOnFailedStep {
-                    workflow_run_id,
-                    status,
-                }
-            } else {
-                WorkflowRunNotDeletable::LaterChainRunGoing {
-                    workflow_run_id,
-                    status,
-                }
+                .into()
             }
-            .into(),
             Err(error) => error,
         }
     }
@@ -834,19 +835,6 @@ fn read_preview(
             })
         },
     )
-}
-
-fn read_run_status(
-    connection: &Connection,
-    workflow_run_id: WorkflowRunId,
-) -> rusqlite::Result<Option<(WorkflowRunStatus, Option<String>)>> {
-    connection
-        .prepare_cached(RUN_STATUS_SQL)?
-        .query_row(
-            named_params! { "@workflow_run_id": workflow_run_id.text().as_str() },
-            |row| Ok((text_column(row, 0, closed_word)?, row.get(1)?)),
-        )
-        .optional()
 }
 
 fn run_to_delete_from_row(row: &Row<'_>) -> rusqlite::Result<RunToDelete> {
