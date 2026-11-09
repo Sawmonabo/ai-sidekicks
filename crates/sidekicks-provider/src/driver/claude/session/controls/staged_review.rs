@@ -25,7 +25,7 @@ use sidekicks_workspace::git::worktree::staged_changes::{
 use tokio_util::sync::CancellationToken;
 
 use super::review::review_text;
-use super::{ClaudeSessionControls, one_turn_legs};
+use super::{ClaudeOneTurnReach, ClaudeSessionControls, one_turn_legs};
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
@@ -239,7 +239,9 @@ impl ClaudeSessionControls {
                 &legs,
                 live.admitted_provider_account_id(),
                 None,
-                None,
+                &ClaudeOneTurnReach::Session {
+                    permission_mode: None,
+                },
                 review_text(SessionReviewTarget::Staged).text,
                 stop.clone(),
             )

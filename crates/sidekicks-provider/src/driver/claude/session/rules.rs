@@ -12,6 +12,7 @@
 //! rule would stretch over a force push or a branch delete is never handed over: the daemon answers
 //! each ask it covers.
 
+pub(crate) mod deny_list;
 mod listing;
 mod protected_paths;
 

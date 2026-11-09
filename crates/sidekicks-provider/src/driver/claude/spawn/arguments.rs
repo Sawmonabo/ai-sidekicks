@@ -1,7 +1,8 @@
 //! The command line a Claude Code session process starts with: stream-json both ways with the
 //! person's messages replayed, every permission prompt sent to the daemon, the level's permission
-//! mode, the session's model and settings, and how the conversation starts. No tool server is named
-//! on it: the daemon's servers ride Claude Code's in-process route, named at `initialize`.
+//! mode, the session's model and settings, and how the conversation starts, with none of the
+//! person's settings files loaded for a process pre-approved nothing. No tool server is named on
+//! it: the daemon's servers ride Claude Code's in-process route, named at `initialize`.
 
 use std::path::Path;
 
@@ -72,6 +73,9 @@ pub(crate) struct ClaudeArgumentsRequest<'a> {
     /// The socket the process listens on for other sessions' messages, which the daemon chose;
     /// `None` leaves Claude Code its own.
     pub(crate) messaging_socket: Option<&'a Path>,
+    /// Whether Claude Code loads the person's user, project and local settings files; the managed
+    /// settings load either way.
+    pub(crate) loads_settings_files: bool,
 }
 
 /// The arguments after the executable. No budget cap, background run, auto-mode opt-in, prompt
@@ -132,6 +136,10 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     if let Some(socket) = request.messaging_socket {
         arguments.push("--messaging-socket-path".to_owned());
         arguments.push(socket.display().to_string());
+    }
+    // An empty list loads none of the person's files, so none of their allow rules applies.
+    if !request.loads_settings_files {
+        arguments.extend(["--setting-sources", ""].map(str::to_owned));
     }
     arguments
 }
@@ -199,8 +207,9 @@ mod tests {
     // Killed by a `--max-turns` of the bound itself, by a leftover daemon `--mcp-config` entry, by
     // `--strict-mcp-config` under a managed file (Claude Code's startup exit), by a fork that
     // drops `--resume-drops-turn` or writes it before `--resume-session-at`, and by any start's
-    // list changing, by a start that does not append the long-running-commands section, and by a
-    // daemon-chosen messaging socket left off the line.
+    // list changing, by a start that does not append the long-running-commands section, by a
+    // daemon-chosen messaging socket left off the line, and by a copy that loads no settings file
+    // left loading them, which carries the person's allow rules into it.
     #[rstest]
     #[case::new(
         ClaudeConversationStart::New { provider_session_id: "s1".to_owned() },
@@ -237,6 +246,15 @@ mod tests {
         None,
         &["--resume", "s1", "--fork-session", "--no-session-persistence"],
     )]
+    #[case::unkept_copy_without_settings_files(
+        ClaudeConversationStart::Unkept { resume_handle: Some("s1".to_owned()) },
+        true,
+        None,
+        None,
+        &[
+            "--resume", "s1", "--fork-session", "--no-session-persistence", "--setting-sources", "",
+        ],
+    )]
     #[case::fork(
         ClaudeConversationStart::Fork {
             resume_handle: "s1".to_owned(),
@@ -259,12 +277,14 @@ mod tests {
         #[case] messaging_socket: Option<&str>,
         #[case] tail: &[&str],
     ) {
+        let loads_settings_files = !tail.contains(&"--setting-sources");
         let arguments = compose(
             conversation,
             has_managed_mcp_file,
             step_bound,
             messaging_socket,
             None,
+            loads_settings_files,
         );
 
         assert_eq!(&arguments[LEADING_ARGUMENTS..], tail);
@@ -289,7 +309,7 @@ mod tests {
             resume_handle: "s1".to_owned(),
         };
 
-        let arguments = compose(conversation, true, None, None, Some(policy));
+        let arguments = compose(conversation, true, None, None, Some(policy), true);
 
         assert_eq!(&arguments[LEADING_ARGUMENTS + 2..], withheld);
     }
@@ -301,6 +321,7 @@ mod tests {
         step_bound: Option<u32>,
         messaging_socket: Option<&str>,
         subagent_policy: Option<&SubagentPolicy>,
+        loads_settings_files: bool,
     ) -> Vec<String> {
         let settings = ClaudeSpawnSettings {
             cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
@@ -324,6 +345,7 @@ mod tests {
             has_managed_mcp_file,
             conversation,
             messaging_socket: messaging_socket.map(Path::new),
+            loads_settings_files,
         };
 
         let arguments = compose_claude_arguments(&request);

@@ -53,7 +53,7 @@ use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
-use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::claude::spawn::settings::{ClaudePreApprovals, ClaudeSessionAdvisor};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::process_identity::ProviderProcessIdentity;
@@ -93,6 +93,16 @@ pub(crate) struct ScriptedOneTurnRecord {
     pub(crate) text: String,
 }
 
+/// How far one one-turn process the driver asked for may act.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ScriptedOneTurnReach {
+    /// The deny rules it carries in place of the person's settings files; `None` where it loads
+    /// those files.
+    pub(crate) deny_rules_only: Option<Vec<String>>,
+    /// Whether it is handed the daemon's in-process tool servers.
+    pub(crate) has_tool_servers: bool,
+}
+
 #[derive(Default)]
 struct ScriptedStartTables {
     sessions: VecDeque<Result<Arc<ScriptedChannel>, String>>,
@@ -109,6 +119,7 @@ struct ScriptedStartTables {
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
+    one_turn_reaches: Vec<ScriptedOneTurnReach>,
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
@@ -338,6 +349,11 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().one_turn_environments)
     }
 
+    /// Takes how far each one-turn process run so far may act.
+    pub(crate) fn take_one_turn_reaches(&self) -> Vec<ScriptedOneTurnReach> {
+        std::mem::take(&mut self.lock().one_turn_reaches)
+    }
+
     /// Waits until at least `count` session starts were recorded since the last take.
     pub(crate) async fn wait_for_starts(&self, count: usize) {
         loop {
@@ -450,6 +466,13 @@ impl ClaudeProcessStarts for ScriptedStarts {
             tables
                 .one_turn_environments
                 .push(request.spawn.legs.spawn_environment.clone());
+            tables.one_turn_reaches.push(ScriptedOneTurnReach {
+                deny_rules_only: match request.pre_approvals {
+                    ClaudePreApprovals::Kept => None,
+                    ClaudePreApprovals::DenyRulesOnly(deny_rules) => Some(deny_rules.to_vec()),
+                },
+                has_tool_servers: request.spawn.in_process_servers.is_some(),
+            });
             tables.one_turn_replies.pop_front()
         };
         async move { reply.ok_or_else(|| spawn_failure("no one-turn reply scripted")) }.boxed()

@@ -46,6 +46,7 @@ use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcessArrival, ForwardedArrivals,
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::spawn::settings::ClaudePreApprovals;
 use crate::lenient_json::read_lenient;
 use crate::outbound_text::OutboundText;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -64,6 +65,9 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
     pub(crate) resume_handle: Option<String>,
     /// The mode the turn runs in in place of its level's own; `None` keeps the level's.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// What the turn may do unasked; with only deny rules, it loads none of the person's settings
+    /// files.
+    pub(crate) pre_approvals: ClaudePreApprovals<'a>,
     /// The one message.
     pub(crate) text: OutboundText,
     /// Ends the turn and its process at once when canceled.
@@ -179,6 +183,7 @@ pub(crate) async fn run_claude_one_turn(
             turn_holds: None,
             permission_mode: request.permission_mode,
             messaging_socket: None,
+            pre_approvals: request.pre_approvals,
         },
     )
     .await

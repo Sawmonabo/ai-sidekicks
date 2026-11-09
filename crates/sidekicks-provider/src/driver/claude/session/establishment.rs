@@ -91,7 +91,7 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegsRequest, bind_claude_callback_tools, build_claude_spawn_binding,
     build_claude_spawn_bound_legs,
 };
-use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::claude::spawn::settings::{ClaudePreApprovals, ClaudeSessionAdvisor};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
@@ -592,6 +592,7 @@ impl ClaudeSessionEstablishment {
                 }),
                 permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),
+                pre_approvals: ClaudePreApprovals::Kept,
             })
             .await;
         let started = match started {

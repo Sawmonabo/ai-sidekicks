@@ -33,6 +33,7 @@ use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
+use crate::driver::claude::spawn::settings::ClaudePreApprovals;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, SubagentPolicy, run_naming_pass_until};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -239,6 +240,7 @@ async fn run_naming_turn(
             provider_account_id,
             resume_handle: None,
             permission_mode: None,
+            pre_approvals: ClaudePreApprovals::Kept,
             text,
             stop: stop.clone(),
         })

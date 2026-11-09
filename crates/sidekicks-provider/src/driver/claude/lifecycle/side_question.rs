@@ -1,5 +1,6 @@
 //! A side question on Claude Code: the copy of the conversation its one-turn process runs on, the
-//! live process's own or a session at rest's from its resume material, and the ask itself.
+//! live process's own or a session at rest's from its resume material, locked down with the
+//! person's own deny rules when another session asks, and the ask itself.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -12,11 +13,13 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use super::{ClaudeDriver, ClaudeSessionParts};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::controls::{
-    ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
+    ClaudeCopyComposition, ClaudeOneTurnReach, ClaudeSideQuestionCopy, claude_full_model_id,
+    without_credential_prompts,
 };
 use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
+use crate::driver::claude::session::rules::deny_list::read_claude_deny_list;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
@@ -25,13 +28,16 @@ use crate::driver::claude::spawn::legs::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::prior_usage::read_prior_emitted;
-use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::driver::session_control::{
+    AskSideQuestionParams, ResumeSessionParams, SideQuestionPurpose,
+};
 
 impl ClaudeDriver {
     /// Asks a side question on a copy of the conversation: the live process's own, else the one
-    /// the session's resume material names; resolves to its answer once it is answered. Fails
-    /// `NoLiveSession` for a session at rest asked with no resume material, and as the question's
-    /// turn fails.
+    /// the session's resume material names, locked down when another session asks; resolves to
+    /// its answer once it is answered. Fails `NoLiveSession` for a session at rest asked with no
+    /// resume material, and as the person's deny rules cannot be read or the question's turn
+    /// fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
@@ -39,6 +45,10 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         let copy = self.compose_copy(parts, session_id, params.resume)?;
+        let copy = match params.purpose {
+            SideQuestionPurpose::Person => copy,
+            SideQuestionPurpose::SessionAsk => lock_down(copy, Arc::clone(&self.sources)).boxed(),
+        };
         let hold = parts
             .establishment
             .task_services
@@ -48,6 +58,7 @@ impl ClaudeDriver {
             .session_controls
             .ask_side_question(
                 session_id,
+                params.purpose,
                 params.binding_id,
                 params.side_question_id,
                 params.question,
@@ -84,6 +95,24 @@ impl ClaudeDriver {
             },
         })
     }
+}
+
+// `copy` locked down for another session's ask, carrying the person's own deny rules from the
+// settings files its process would load, which it loads none of. Fails as the copy cannot be
+// composed or a settings file cannot be read as a strict JSON object.
+async fn lock_down(
+    copy: ClaudeCopyComposition,
+    sources: Arc<ClaudeSpawnSources>,
+) -> Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>> {
+    let copy = copy.await?;
+    let settings_sources = sources
+        .read_settings_sources(&copy.legs.spawn_environment, &copy.legs.working_directory)
+        .await;
+    let person_deny_rules = read_claude_deny_list(&settings_sources.sources()).await?;
+    Ok(ClaudeSideQuestionCopy {
+        reach: ClaudeOneTurnReach::LockedDown { person_deny_rules },
+        ..copy
+    })
 }
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, in the
@@ -144,5 +173,6 @@ async fn compose_resting_side_question_copy(
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
         parent_cumulative,
+        reach: ClaudeOneTurnReach::PLAN,
     })
 }

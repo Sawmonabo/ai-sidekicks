@@ -1,7 +1,8 @@
 //! The controls on a live Claude Code session as a whole, each answered on Claude Code's own
 //! means: Build or Plan, the commands the daemon answers itself (the output style and the advisor
-//! for this one session), a side question in a one-turn process that keeps nothing, Claude Code's
-//! own review as the session's own run, and the live command list.
+//! for this one session), a side question in a one-turn process that keeps nothing, locked down
+//! when another session asks it, Claude Code's own review as the session's own run, and the live
+//! command list.
 
 mod review;
 mod staged_review;
@@ -63,14 +64,14 @@ use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
-use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::claude::spawn::settings::{ClaudePreApprovals, ClaudeSessionAdvisor};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::side_question_refusal;
 use crate::driver::session_control::{
-    ProviderCommandsListener, SessionCommandAnswer, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    ProviderCommandsListener, SessionCommandAnswer, SideQuestionPurpose,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -118,8 +119,32 @@ pub(crate) struct ClaudeSessionControls {
 pub(crate) type ClaudeCopyComposition =
     BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>;
 
-/// The copy a side question runs on: the legs at the session's full model id, the account and the
-/// conversation copied.
+/// How far a one-turn process may act.
+pub(crate) enum ClaudeOneTurnReach {
+    /// As the session's own process: with its rules, the person's settings files and the daemon's
+    /// tool servers, in `permission_mode` where given and else its level's own.
+    Session {
+        /// The mode in place of the level's own.
+        permission_mode: Option<ClaudePermissionMode>,
+    },
+    /// Read only: in `dontAsk`, pre-approved nothing and holding none of the daemon's tool
+    /// servers, so it asks no one and refuses whatever would need an approval; only deny rules
+    /// hold, the session's own and the person's.
+    LockedDown {
+        /// The person's own deny rules, read from the settings files the process does not load.
+        person_deny_rules: Vec<String>,
+    },
+}
+
+impl ClaudeOneTurnReach {
+    /// The reach of a copy that answers the person: plan mode, which runs nothing.
+    pub(crate) const PLAN: Self = Self::Session {
+        permission_mode: Some(ClaudePermissionMode::Plan),
+    };
+}
+
+/// The copy a side question runs on: the legs at the session's full model id, the account, the
+/// conversation copied and how far it may act.
 pub(crate) struct ClaudeSideQuestionCopy {
     /// The legs the copy starts on.
     pub(crate) legs: ClaudeSpawnBoundLegs,
@@ -129,6 +154,8 @@ pub(crate) struct ClaudeSideQuestionCopy {
     pub(crate) parent_provider_session_id: String,
     /// The conversation's cumulative usage at the fork, which the copy's total includes.
     pub(crate) parent_cumulative: UsageAxisCounts,
+    /// How far the copy may act: plan mode for the person, locked down for another session's ask.
+    pub(crate) reach: ClaudeOneTurnReach,
 }
 
 impl ClaudeSideQuestionCopy {
@@ -140,6 +167,7 @@ impl ClaudeSideQuestionCopy {
             provider_account_id: live.admitted_provider_account_id(),
             parent_provider_session_id: live.provider_session_id.clone(),
             parent_cumulative,
+            reach: ClaudeOneTurnReach::PLAN,
         }
     }
 }
@@ -306,19 +334,22 @@ impl ClaudeSessionControls {
         Ok(SessionCommandAnswer::Answered { line })
     }
 
-    /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
-    /// plan mode that keeps nothing, and resolves to the answer once it is answered: the answer is
-    /// appended as a row, its turn's usage metered on the session's `binding_id` through `usage`;
-    /// `hold` keeps the session awake until then. Refused `session.sideQuestion.refused` when the
-    /// model refuses the question; fails as the copy cannot be composed or its turn fails, and when
-    /// its words cannot be stored.
+    /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process that
+    /// keeps nothing and acts as far as the copy's reach lets it, and resolves to the answer once
+    /// it is answered: the person's answer is appended as a row, while the session is never told
+    /// of another session's ask; its turn's usage is metered on the session's `binding_id` through
+    /// `usage`, and `hold` keeps the session awake until then. Refused
+    /// `session.sideQuestion.refused` when the model refuses the question; fails as the copy cannot
+    /// be composed or its turn fails, and when its words cannot be stored.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the question, where it is metered and the hold that keeps its session awake"
+        reason = "the question, who asks it, where it is metered and the hold that keeps its \
+                  session awake"
     )]
     pub(crate) async fn ask_side_question(
         &self,
         session_id: SessionId,
+        purpose: SideQuestionPurpose,
         binding_id: RuntimeBindingId,
         side_question_id: SideQuestionId,
         question: String,
@@ -332,9 +363,11 @@ impl ClaudeSessionControls {
             .await?;
         let answered = side_question_answered(session_id, side_question_id, question, reply)?;
         let answer = answered.answer.clone();
-        let row = SessionScopedRow::SideQuestionAnswered(answered);
-        self.deliver(session_id, InboundDelivery::SessionEvent { row })
-            .await;
+        if purpose == SideQuestionPurpose::Person {
+            let row = SessionScopedRow::SideQuestionAnswered(answered);
+            self.deliver(session_id, InboundDelivery::SessionEvent { row })
+                .await;
+        }
         Ok(answer)
     }
 
@@ -515,8 +548,8 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    /// One turn on `copy` in plan mode sending `text`, its usage metered on `binding_id` through
-    /// `usage` once the model answered. Fails as the copy's turn fails.
+    /// One turn on `copy` as far as its reach lets it act, sending `text`, its usage metered on
+    /// `binding_id` through `usage` once the model answered. Fails as the copy's turn fails.
     pub(crate) async fn run_copy_turn(
         &self,
         copy: &ClaudeSideQuestionCopy,
@@ -529,7 +562,7 @@ impl ClaudeSessionControls {
                 &copy.legs,
                 copy.provider_account_id.clone(),
                 Some(copy.parent_provider_session_id.clone()),
-                Some(ClaudePermissionMode::Plan),
+                &copy.reach,
                 text,
                 CancellationToken::new(),
             )
@@ -546,20 +579,31 @@ impl ClaudeSessionControls {
     }
 
     // Runs one unkept turn on `legs` with the session's rules, the words given as the daemon's,
-    // in `permission_mode` where given and else the level's own.
+    // acting as far as `reach` lets it.
     async fn run_one_turn(
         &self,
         legs: &ClaudeSpawnBoundLegs,
         provider_account_id: ProviderAccountId,
         resume_handle: Option<String>,
-        permission_mode: Option<ClaudePermissionMode>,
+        reach: &ClaudeOneTurnReach,
         text: String,
         stop: CancellationToken,
     ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
         let session_rules = read_claude_session_rules(&self.session_rules, legs.session_id)
             .await
             .map_err(|error| ClaudeLaunchError::Build(DriverError::Internal(error)))?;
-        let in_process_servers = self.in_process_tool_servers.port();
+        let (permission_mode, in_process_servers, pre_approvals) = match reach {
+            ClaudeOneTurnReach::Session { permission_mode } => (
+                *permission_mode,
+                self.in_process_tool_servers.port(),
+                ClaudePreApprovals::Kept,
+            ),
+            ClaudeOneTurnReach::LockedDown { person_deny_rules } => (
+                Some(ClaudePermissionMode::DontAsk),
+                None,
+                ClaudePreApprovals::DenyRulesOnly(person_deny_rules),
+            ),
+        };
         self.starts
             .run_one_turn(ClaudeOneTurnRequest {
                 spawn: ClaudeSessionSpawn {
@@ -572,6 +616,7 @@ impl ClaudeSessionControls {
                 provider_account_id,
                 resume_handle,
                 permission_mode,
+                pre_approvals,
                 text: OutboundText {
                     text,
                     origin: OutboundTextOrigin::DriverCommand,

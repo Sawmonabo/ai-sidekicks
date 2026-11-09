@@ -40,7 +40,7 @@ use crate::driver::claude::spawn::launch::{
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::claude::spawn::settings::{
-    ClaudePermissionsRequest, compose_claude_spawn_settings,
+    ClaudePermissionsRequest, ClaudePreApprovals, compose_claude_spawn_settings,
 };
 use crate::driver::session_control::SubagentPolicy;
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -82,6 +82,9 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     /// The socket the process listens on for other sessions' messages; `None` for a process
     /// no inbox passes messages to.
     pub(crate) messaging_socket: Option<&'a Path>,
+    /// What the process may do unasked; with only deny rules, it loads none of the person's
+    /// settings files.
+    pub(crate) pre_approvals: ClaudePreApprovals<'a>,
 }
 
 /// What a `get_settings` reply says the process runs with.
@@ -132,6 +135,7 @@ pub(crate) async fn bring_up_claude_process(
         &legs.advisor,
         legs.output_style.as_deref(),
         legs.command_channel.as_deref(),
+        request.pre_approvals,
     )?;
     let has_managed_mcp_file =
         has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await;
@@ -152,6 +156,7 @@ pub(crate) async fn bring_up_claude_process(
         has_managed_mcp_file,
         conversation: request.conversation,
         messaging_socket: request.messaging_socket,
+        loads_settings_files: matches!(request.pre_approvals, ClaudePreApprovals::Kept),
     });
     // Under an administrator's MCP file only the daemon's own server is fronted, and Claude Code
     // loads the organization's servers itself.
@@ -270,8 +275,9 @@ mod tests {
     use tokio::runtime::Handle;
 
     use super::{
-        ClaudeBringUpRequest, ClaudePermissionMode, ClaudeProcessAccount, ClaudeSessionSpawn,
-        ClaudeSpawnBoundLegs, bring_up_claude_process, claude_spawn_permission_mode,
+        ClaudeBringUpRequest, ClaudePermissionMode, ClaudePreApprovals, ClaudeProcessAccount,
+        ClaudeSessionSpawn, ClaudeSpawnBoundLegs, bring_up_claude_process,
+        claude_spawn_permission_mode,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::command::running_set::unbound_running_command_sets;
@@ -441,6 +447,7 @@ mod tests {
                 turn_holds: None,
                 permission_mode: None,
                 messaging_socket: None,
+                pre_approvals: ClaudePreApprovals::Kept,
             },
         )
         .await;

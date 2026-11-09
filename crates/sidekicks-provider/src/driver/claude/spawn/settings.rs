@@ -1,6 +1,7 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
 //! conversation, its agent view held off, the session's whole permission rules, its advisor and
-//! output style, and the command sandbox at Sandboxed.
+//! output style, and the command sandbox at Sandboxed; for a process pre-approved nothing, no
+//! allow rule and no sandbox, the person's own deny rules carried beside the session's.
 
 use std::path::{Path, PathBuf};
 
@@ -80,6 +81,17 @@ pub(crate) struct ClaudePermissionsRequest<'a> {
     pub(crate) path_rules: PathRules,
     /// Every provider's background work, denied written plainly at the levels that never ask.
     pub(crate) background_work: &'a BackgroundWorkForms,
+}
+
+/// What a process may do unasked.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ClaudePreApprovals<'a> {
+    /// What its level, the session's rules and the person's settings files allow.
+    Kept,
+    /// Nothing: no settings file of the person's loads, no rule allows and no sandbox runs a
+    /// command unasked; only deny rules hold, the process's own and these, the person's own read
+    /// from the files it does not load.
+    DenyRulesOnly(&'a [String]),
 }
 
 /// The advisor a session's processes start with.
@@ -208,27 +220,38 @@ pub(crate) fn compose_claude_permissions(
 }
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
-/// style and own rules, its commands reaching `command_channel` where one opened. Fails as
-/// [`compose_claude_permissions`] does.
+/// style and own rules, its commands reaching `command_channel` where one opened, and pre-approved
+/// what `pre_approvals` keeps. Fails as [`compose_claude_permissions`] does.
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,
     advisor: &ClaudeSessionAdvisor,
     output_style: Option<&str>,
     command_channel: Option<&ClaudeCommandChannel>,
+    pre_approvals: ClaudePreApprovals<'_>,
 ) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
         .unwrap_or_default();
     let level = posture.map(ExecutionPosture::permission_level);
+    let mut permissions = compose_claude_permissions(request, writable_roots, level)?;
+    let sandbox = match pre_approvals {
+        ClaudePreApprovals::Kept => (level == Some(PermissionLevel::Sandboxed))
+            .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
+        // The sandbox runs a command unasked, so a process pre-approved nothing runs without it.
+        ClaudePreApprovals::DenyRulesOnly(person_deny_rules) => {
+            permissions.allow.clear();
+            permissions.deny.extend_from_slice(person_deny_rules);
+            None
+        }
+    };
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
-        permissions: compose_claude_permissions(request, writable_roots, level)?,
+        permissions,
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
-        sandbox: (level == Some(PermissionLevel::Sandboxed))
-            .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
+        sandbox,
     })
 }
 
@@ -279,13 +302,17 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_platforms::PathRules;
 
+    use sidekicks_contracts::free_form_string::FilesystemPath;
+
     use super::{
-        ClaudePermissionsRequest, ClaudeSessionAdvisor, compose_claude_permissions,
-        compose_claude_spawn_settings,
+        ClaudePermissionsRequest, ClaudePreApprovals, ClaudeSessionAdvisor,
+        compose_claude_permissions, compose_claude_spawn_settings,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
-    use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
+    use crate::run::posture::{
+        CredentialDenyPath, CredentialDenyPathKind, compose_execution_posture,
+    };
 
     // Killed by dropping the credential paths from `permissions.deny`, which lets every
     // file-reading tool read them, by a folder's rule that leaves out what is under it, and by a
@@ -383,8 +410,15 @@ mod tests {
             background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
         let advisor_setting = |advisor: ClaudeSessionAdvisor| {
-            let settings = compose_claude_spawn_settings(&request, None, &advisor, None, None)
-                .expect("the settings compose");
+            let settings = compose_claude_spawn_settings(
+                &request,
+                None,
+                &advisor,
+                None,
+                None,
+                ClaudePreApprovals::Kept,
+            )
+            .expect("the settings compose");
             serde_json::to_value(settings).expect("the settings serialize")["advisorModel"].clone()
         };
 
@@ -393,6 +427,59 @@ mod tests {
         assert_eq!(
             advisor_setting(ClaudeSessionAdvisor::Model("opus".to_owned())),
             json!("opus")
+        );
+    }
+
+    // Killed by dropping the person's deny rules from a process pre-approved nothing, by keeping
+    // an allow rule there, which runs its tool unasked under `dontAsk`, and by keeping the sandbox,
+    // which runs a command unasked.
+    #[test]
+    fn a_process_pre_approved_nothing_carries_only_deny_rules_and_no_sandbox() {
+        let memory_folders = [PathBuf::from("/Users/alice/.claude/agent-memory")];
+        let credential_deny_paths = [CredentialDenyPath {
+            path: PathBuf::from("/Users/alice/.ssh"),
+            kind: CredentialDenyPathKind::Folder,
+        }];
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &credential_deny_paths,
+            memory_folders: &memory_folders,
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+        let posture = compose_execution_posture(
+            PermissionLevel::Sandboxed,
+            FilesystemPath::new("/Users/alice/project".to_owned()).expect("a path"),
+        );
+        let person_deny_rules = ["Read(./secrets/**)".to_owned()];
+        let compose = |pre_approvals| {
+            compose_claude_spawn_settings(
+                &request,
+                Some(&posture),
+                &ClaudeSessionAdvisor::Unpicked,
+                None,
+                None,
+                pre_approvals,
+            )
+            .expect("the settings compose")
+        };
+
+        let kept = compose(ClaudePreApprovals::Kept);
+        let locked = compose(ClaudePreApprovals::DenyRulesOnly(&person_deny_rules));
+
+        assert_eq!(
+            kept.permissions.allow,
+            [
+                "Read(//Users/alice/.claude/agent-memory/**)",
+                "Edit(//Users/alice/.claude/agent-memory/**)",
+            ]
+        );
+        assert!(kept.sandbox.is_some());
+        assert_eq!(locked.permissions.allow, [] as [String; 0]);
+        assert_eq!(locked.sandbox, None);
+        assert_eq!(
+            locked.permissions.deny,
+            [kept.permissions.deny.as_slice(), &person_deny_rules].concat()
         );
     }
 }
