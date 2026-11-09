@@ -10,12 +10,107 @@
   },
   "exports": {
     "./*": {
-      "@ai-sidekicks/source": "./src/*.ts",
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js"
+      "@ai-sidekicks/source": "./src/generated/*.ts",
+      "types": "./dist/generated/*.d.ts",
+      "import": "./dist/generated/*.js"
+    },
+    "./app-link": {
+      "@ai-sidekicks/source": "./src/app-link.ts",
+      "types": "./dist/app-link.d.ts",
+      "import": "./dist/app-link.js"
+    },
+    "./content-length-framing": {
+      "@ai-sidekicks/source": "./src/content-length-framing.ts",
+      "types": "./dist/content-length-framing.d.ts",
+      "import": "./dist/content-length-framing.js"
+    },
+    "./jsonrpc/byte-length": {
+      "@ai-sidekicks/source": "./src/jsonrpc/byte-length.ts",
+      "types": "./dist/jsonrpc/byte-length.d.ts",
+      "import": "./dist/jsonrpc/byte-length.js"
+    },
+    "./mcp/request-bounds": {
+      "@ai-sidekicks/source": "./src/mcp/request-bounds.ts",
+      "types": "./dist/mcp/request-bounds.d.ts",
+      "import": "./dist/mcp/request-bounds.js"
+    },
+    "./mcp/server-config": {
+      "@ai-sidekicks/source": "./src/mcp/server-config.ts",
+      "types": "./dist/mcp/server-config.d.ts",
+      "import": "./dist/mcp/server-config.js"
+    },
+    "./mcp/tool-settings": {
+      "@ai-sidekicks/source": "./src/mcp/tool-settings.ts",
+      "types": "./dist/mcp/tool-settings.d.ts",
+      "import": "./dist/mcp/tool-settings.js"
+    },
+    "./name-fold": {
+      "@ai-sidekicks/source": "./src/name-fold.ts",
+      "types": "./dist/name-fold.d.ts",
+      "import": "./dist/name-fold.js"
+    },
+    "./provider/account/label": {
+      "@ai-sidekicks/source": "./src/provider/account/label.ts",
+      "types": "./dist/provider/account/label.d.ts",
+      "import": "./dist/provider/account/label.js"
+    },
+    "./provider/driver/intervention": {
+      "@ai-sidekicks/source": "./src/provider/driver/intervention.ts",
+      "types": "./dist/provider/driver/intervention.d.ts",
+      "import": "./dist/provider/driver/intervention.js"
+    },
+    "./provider/name": {
+      "@ai-sidekicks/source": "./src/provider/name.ts",
+      "types": "./dist/provider/name.d.ts",
+      "import": "./dist/provider/name.js"
+    },
+    "./schema-check": {
+      "@ai-sidekicks/source": "./src/schema-check.ts",
+      "types": "./dist/schema-check.d.ts",
+      "import": "./dist/schema-check.js"
+    },
+    "./service-place": {
+      "@ai-sidekicks/source": "./src/service-place.ts",
+      "types": "./dist/service-place.d.ts",
+      "import": "./dist/service-place.js"
+    },
+    "./session/event-cursor": {
+      "@ai-sidekicks/source": "./src/session/event-cursor.ts",
+      "types": "./dist/session/event-cursor.d.ts",
+      "import": "./dist/session/event-cursor.js"
+    },
+    "./session/name": {
+      "@ai-sidekicks/source": "./src/session/name.ts",
+      "types": "./dist/session/name.d.ts",
+      "import": "./dist/session/name.js"
+    },
+    "./session/search": {
+      "@ai-sidekicks/source": "./src/session/search.ts",
+      "types": "./dist/session/search.d.ts",
+      "import": "./dist/session/search.js"
+    },
+    "./transcript/content": {
+      "@ai-sidekicks/source": "./src/transcript/content.ts",
+      "types": "./dist/transcript/content.d.ts",
+      "import": "./dist/transcript/content.js"
+    },
+    "./transcript/run-attribution": {
+      "@ai-sidekicks/source": "./src/transcript/run-attribution.ts",
+      "types": "./dist/transcript/run-attribution.d.ts",
+      "import": "./dist/transcript/run-attribution.js"
+    },
+    "./transcript/run-facts": {
+      "@ai-sidekicks/source": "./src/transcript/run-facts.ts",
+      "types": "./dist/transcript/run-facts.d.ts",
+      "import": "./dist/transcript/run-facts.js"
+    },
+    "./transcript/turn-attribution": {
+      "@ai-sidekicks/source": "./src/transcript/turn-attribution.ts",
+      "types": "./dist/transcript/turn-attribution.d.ts",
+      "import": "./dist/transcript/turn-attribution.js"
     },
     "./event/version": null,
-    "./gitflow/shared": null,
+    "./git/shared": null,
     "./internal/*": null,
     "./*.test": null,
     "./*.test-support": null,

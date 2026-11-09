@@ -1,22 +1,49 @@
-// Generates the contracts' TypeScript from the Rust contracts' emit folder: one file per contract
-// module at `<output root>/<module path>.ts`. Generated modules import the hand-written ones from
-// the folder above the output root, as `src/generated` sits in `src`.
-// Usage: node --experimental-strip-types generator/generate.ts <emit folder> [output root]
-// (default `src/generated`)
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+// Generates the contracts' TypeScript into `src/generated`: runs the Rust contracts' emit into a
+// temporary folder, then writes one file per contract module at `src/generated/<module path>.ts`,
+// formatted by the repository's Prettier, in place of everything the folder held. Generated
+// modules import the hand-written ones from `src`, the folder above.
+// Usage: pnpm --filter @ai-sidekicks/contracts generate
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { readContractEmit } from "./emit-folder.ts";
 import { writeModuleFile } from "./module-file.ts";
+import { GENERATED_FOLDER } from "./module-imports.ts";
+import { createCheckCompiler } from "./schema-checks.ts";
 
-const [emitFolder, outputRoot = "src/generated"] = process.argv.slice(2);
-if (emitFolder === undefined) {
-  throw new Error("usage: generate.ts <emit folder> [output root]");
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const outputRoot = join(packageRoot, "src", GENERATED_FOLDER);
+const emitFolder = mkdtempSync(join(tmpdir(), "sidekicks-contracts-emit-"));
+try {
+  const emitRun = spawnSync(
+    "cargo",
+    ["run", "--quiet", "--package", "sidekicks-contracts", "--example", "emit", "--", emitFolder],
+    { cwd: packageRoot, stdio: "inherit" },
+  );
+  if (emitRun.status !== 0) {
+    throw new Error(
+      `the contracts' emit failed: ${emitRun.error?.message ?? `exit status ${String(emitRun.status)}`}`,
+    );
+  }
+  const emit = readContractEmit(emitFolder);
+  const checkCompiler = createCheckCompiler(emit.modules.map((module) => module.schema));
+  // Every file is written in memory first, so a failed run leaves the folder as it was.
+  const files = new Map<string, string>();
+  for (const module of emit.modules) {
+    files.set(
+      join(outputRoot, `${module.path}.ts`),
+      await writeModuleFile(module, emit.modules, emit.refusalCodes, checkCompiler),
+    );
+  }
+  rmSync(outputRoot, { recursive: true, force: true });
+  for (const [file, source] of files) {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, source);
+  }
+  console.log(`generated ${files.size} contract modules into ${outputRoot}`);
+} finally {
+  rmSync(emitFolder, { recursive: true, force: true });
 }
-const emit = readContractEmit(resolve(emitFolder));
-for (const module of emit.modules) {
-  const file = join(resolve(outputRoot), `${module.path}.ts`);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, await writeModuleFile(module, emit.modules, emit.refusalCodes));
-}
-console.log(`generated ${emit.modules.length} contract modules into ${resolve(outputRoot)}`);

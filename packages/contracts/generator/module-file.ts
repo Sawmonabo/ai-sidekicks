@@ -2,6 +2,7 @@
 // refusal codes, types, checks and method tables, formatted by the repository's Prettier.
 import { fileURLToPath } from "node:url";
 
+import type { Ajv2020 } from "ajv/dist/2020.js";
 import { format, resolveConfig } from "prettier";
 
 import type { ContractModule, MethodTable, RefusalCodes } from "./emit-folder.ts";
@@ -9,11 +10,12 @@ import { ModuleImports, parseTypeReference, type TypeReference } from "./module-
 import { SCHEMA_CHECK_MODULE, checkName, generateChecks } from "./schema-checks.ts";
 import { generateTypes } from "./type-declarations.ts";
 
-// File-scoped: generated code is held to its generator, not to the hand-written code's lint rules.
 const GENERATED_HEADER =
-  "/* eslint-disable */\n" +
   "// Generated from the Rust contracts by `pnpm --filter @ai-sidekicks/contracts generate`.\n" +
   "// Change the Rust source and regenerate; never edit this file.";
+// File-scoped, and only where a file holds Ajv's code, which is held to its generator rather than
+// to the hand-written code's lint rules; a file of types alone meets them.
+const LINT_EXEMPTION = "/* eslint-disable */";
 
 /** `text` as a block comment, one `*` line per line of text. */
 function docComment(text: string): string {
@@ -117,12 +119,14 @@ function writeMethodTable(
 
 /**
  * The complete, formatted file for `module`. `allModules` holds every module, for references and
- * method tables across modules; `refusalCodes` is written here when this module owns them.
+ * method tables across modules; `refusalCodes` is written here when this module owns them; the
+ * checks compile with `checkCompiler`, the run's one Ajv.
  */
 export async function writeModuleFile(
   module: ContractModule,
   allModules: readonly ContractModule[],
   refusalCodes: RefusalCodes,
+  checkCompiler: Ajv2020,
 ): Promise<string> {
   const definitions = Object.keys((module.schema["$defs"] ?? {}) as Record<string, unknown>);
   const checked = checkedDefinitions(module, allModules);
@@ -153,12 +157,11 @@ export async function writeModuleFile(
         ]
       : [];
   const types = await generateTypes(module.schema, imports);
-  const allSchemas = allModules.map((other) => other.schema);
-  const checks = generateChecks(module, checked, allSchemas, imports);
+  const checks = generateChecks(module, checked, checkCompiler, imports);
   const tables = module.methodTables.map((table) => writeMethodTable(table, module, imports));
 
   const source = [
-    GENERATED_HEADER,
+    checks === "" ? GENERATED_HEADER : `${LINT_EXEMPTION}\n${GENERATED_HEADER}`,
     module.doc
       .split("\n")
       .map((line) => (line === "" ? "//" : `// ${line}`))

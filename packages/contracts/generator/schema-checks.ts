@@ -22,31 +22,25 @@ export function checkName(name: string): string {
   return `validate${name}`;
 }
 
-/**
- * Every `format` value the schemas name, with the kind of value it checks, so Ajv's strict mode
- * knows each one at compile time. Throws on a format named for both a number and a string.
- */
-function formatKinds(schemas: readonly SchemaObject[]): Map<string, "number" | "string"> {
-  const kinds = new Map<string, "number" | "string">();
+/** A format named for an integer type (`uint32`, `int64`) checks numbers; every other, strings. */
+const NUMBER_FORMAT_NAME = /^u?int[0-9]+$/u;
+
+/** Every `format` value the schemas name, so Ajv's strict mode knows each one at compile time. */
+function formatNames(schemas: readonly SchemaObject[]): Set<string> {
+  const names = new Set<string>();
   const walk = (node: unknown): void => {
     if (Array.isArray(node)) {
       node.forEach(walk);
     } else if (node !== null && typeof node === "object") {
-      const { format, type } = node as { format?: unknown; type?: unknown };
+      const { format } = node as { format?: unknown };
       if (typeof format === "string") {
-        const types: unknown[] = Array.isArray(type) ? type : [type];
-        const isNumber = types.some((name) => name === "integer" || name === "number");
-        const kind = isNumber ? "number" : "string";
-        if ((kinds.get(format) ?? kind) !== kind) {
-          throw new Error(`format ${format} is named for both a number and a string`);
-        }
-        kinds.set(format, kind);
+        names.add(format);
       }
       Object.values(node).forEach(walk);
     }
   };
   schemas.forEach(walk);
-  return kinds;
+  return names;
 }
 
 /**
@@ -86,14 +80,17 @@ function defaultAmongOptionsCode(cxt: KeywordCxt): void {
   cxt.pass(isAmongOptions);
 }
 
-/** A strict Ajv holding every module's schema, so a reference across modules resolves. */
-function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
+/**
+ * The one strict Ajv a generation run compiles every check with, holding every module's schema so
+ * a reference across modules resolves and each schema compiles once.
+ */
+export function createCheckCompiler(schemas: readonly SchemaObject[]): Ajv2020 {
   // A number format is Ajv's object form, so its check runs on numbers and its code calls
   // `SCHEMA_FORMATS[name].validate`; a string format is a bare function.
   const formats = Object.fromEntries(
-    [...formatKinds(schemas)].map(([name, kind]) => [
+    [...formatNames(schemas)].map((name) => [
       name,
-      kind === "number"
+      NUMBER_FORMAT_NAME.test(name)
         ? { type: "number" as const, validate: (): boolean => true }
         : (): boolean => true,
     ]),
@@ -103,7 +100,9 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
     $data: true,
     // Picks a tagged union's arm by its `discriminator`.
     discriminator: true,
-    allErrors: true,
+    // A check stops at its first fault: every fault would keep a refused value's slow keywords
+    // running, and a reader records only where the value failed.
+    allErrors: false,
     messages: false,
     passContext: true,
     // Generation only needs each format's name and kind: the code reads `SCHEMA_FORMATS`.
@@ -217,26 +216,26 @@ const AJV_EXPORT = /^export const (\w+) = (validate\d+);$/u;
 const AJV_EVALUATED = /^(validate\d+)\.evaluated = (.*);$/u;
 
 /**
- * Generates the checks for `module`'s checked definitions, with every module's schema available
- * for references. Adds the imports the code needs to `imports` and returns the module's code.
+ * Generates the checks for `module`'s checked definitions with `compiler`, from
+ * {@link createCheckCompiler}. Adds the imports the code needs to `imports` and returns the
+ * module's code.
  */
 export function generateChecks(
   module: ContractModule,
   checkedNames: readonly string[],
-  allSchemas: readonly SchemaObject[],
+  compiler: Ajv2020,
   imports: ModuleImports,
 ): string {
   if (checkedNames.length === 0) {
     return "";
   }
-  const ajv = createAjv(allSchemas);
   const exportsByName = Object.fromEntries(
     checkedNames.map((name) => [
       checkName(name),
       `${MODULE_ID_SCHEME}${module.path}#/$defs/${name}`,
     ]),
   );
-  const statements = splitStatements(standaloneCode.default(ajv, exportsByName));
+  const statements = splitStatements(standaloneCode.default(compiler, exportsByName));
 
   const typeByFunction = new Map<string, string>();
   const kept: string[] = [];
@@ -305,8 +304,9 @@ export function generateChecks(
         // comparison of two constants.
         .replace(/\((\d+(?:\.\d+)?) === 0 \|\| \(/gu, "(($1 as number) === 0 || ("),
     );
-    // Declares `errors` where TypeScript sees a function's own properties, beside `evaluated`.
-    return [typedHead + body, `${functionName}.errors = null;`];
+    // Declares `errors` where TypeScript sees a function's own properties, beside `evaluated`,
+    // typed for the fault list a refusal assigns.
+    return [typedHead + body, `${functionName}.errors = null as any[] | null;`];
   });
 
   for (const value of RUN_TIME_VALUES) {

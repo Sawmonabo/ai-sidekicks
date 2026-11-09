@@ -145,7 +145,10 @@ workflow_run_event! {
     #[garde(custom(|payload: &Self, (): &()| names_its_ending_only_when_ended(payload)))]
     #[schemars(extend(
         "if" = { "properties": { "outcome": { "const": "ended" } }, "required": ["outcome"] },
-        "then" = { "required": ["endingStep", "error"] },
+        "then" = {
+            "properties": { "endingStep": true, "error": true },
+            "required": ["endingStep", "error"]
+        },
         "else" = {
             "not": { "anyOf": [{ "required": ["endingStep"] }, { "required": ["error"] }] }
         },

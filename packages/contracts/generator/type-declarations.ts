@@ -1,6 +1,7 @@
 // Writes a module's TypeScript types from its schema with json-schema-to-typescript. A member
 // carrying `tsType` (a brand, `Uint8Array` for bytes, the type of an Ajv `$data` value) becomes
-// that type as written, and a reference into another module becomes an imported type.
+// that type as written, and a reference names its definition's type: imported from another module,
+// declared once in this one.
 import type { SchemaObject } from "ajv/dist/2020.js";
 import { compile, type JSONSchema } from "json-schema-to-typescript";
 
@@ -8,6 +9,8 @@ import { MODULE_ID_SCHEME } from "./emit-folder.ts";
 import type { ModuleImports } from "./module-imports.ts";
 
 const ROOT_NAME = "GeneratedModuleRoot";
+/** How a schema refers to a definition of its own module. */
+const LOCAL_DEFINITION = "#/$defs/";
 
 /** Whether `schema` is an object that may hold no member at all. */
 function isEmptyClosedObject(schema: Record<string, unknown>): boolean {
@@ -20,7 +23,43 @@ function isEmptyClosedObject(schema: Record<string, unknown>): boolean {
   );
 }
 
-/** A copy of `node` ready for the type generator: titles gone, `tsType` and foreign refs typed. */
+/** Whether `arm` is only an `if`/`then`/`else` rule, which states no shape of its own. */
+function isConditionalRule(arm: unknown): boolean {
+  return (
+    arm !== null &&
+    typeof arm === "object" &&
+    Object.keys(arm).every((key) => key === "if" || key === "then" || key === "else")
+  );
+}
+
+/** Whether every arm of `arms` only restricts `schema`'s own shape, naming no member it lacks. */
+function isRuleOnShape(schema: Record<string, unknown>, arms: unknown[]): boolean {
+  const members = new Set(Object.keys((schema["properties"] ?? {}) as object));
+  return (
+    "type" in schema &&
+    arms.every((arm) =>
+      Object.keys(((arm as Record<string, unknown>)["properties"] ?? {}) as object).every(
+        (member) => members.has(member),
+      ),
+    )
+  );
+}
+
+/**
+ * `schema` without the arms that only restrict it: an `allOf` of conditional rules and an `anyOf`
+ * over its own shape. The generator would write each as a second, numbered type; the check holds
+ * them, and a type has no way to say them.
+ */
+function withoutRuleArms(schema: Record<string, unknown>): Record<string, unknown> {
+  const { allOf, anyOf, ...rest } = schema;
+  return {
+    ...rest,
+    ...(Array.isArray(allOf) && allOf.every(isConditionalRule) ? {} : { allOf }),
+    ...(Array.isArray(anyOf) && isRuleOnShape(schema, anyOf) ? {} : { anyOf }),
+  };
+}
+
+/** A copy of `node` ready for the type generator: titles gone, `tsType` and references typed. */
 function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
   if (Array.isArray(node)) {
     return node.map((item) => prepareForTypes(item, imports));
@@ -39,6 +78,10 @@ function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
     return { tsType: "Record<string, never>", ...described };
   }
   const reference = schema["$ref"];
+  if (typeof reference === "string" && reference.startsWith(LOCAL_DEFINITION)) {
+    // A described reference would otherwise be written as a second, numbered copy of its type.
+    return { tsType: reference.slice(LOCAL_DEFINITION.length), ...described };
+  }
   if (typeof reference === "string" && reference.startsWith(MODULE_ID_SCHEME)) {
     const match = /^sidekicks-contracts:([^#]+)#\/\$defs\/([A-Za-z0-9]+)$/u.exec(reference);
     if (match === null) {
@@ -48,7 +91,8 @@ function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
     return { tsType: match[2]!, ...described };
   }
   return Object.fromEntries(
-    Object.entries(schema)
+    Object.entries(withoutRuleArms(schema))
+      .filter(([, value]) => value !== undefined)
       // A title would make the generator name the type after it instead of its definition.
       .filter(([key]) => key !== "title")
       .map(([key, value]) => [key, prepareForTypes(value, imports)]),
@@ -69,7 +113,9 @@ export async function generateTypes(schema: SchemaObject, imports: ModuleImports
   const root: JSONSchema = {
     type: "object",
     additionalProperties: false,
-    properties: Object.fromEntries(names.map((name) => [name, { $ref: `#/$defs/${name}` }])),
+    properties: Object.fromEntries(
+      names.map((name) => [name, { $ref: `${LOCAL_DEFINITION}${name}` }]),
+    ),
     $defs: definitions,
   };
   const code = await compile(root, ROOT_NAME, {

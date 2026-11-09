@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { readCaseTable } from "./case-table.test-support.js";
+import { validateHostingAddress } from "../generated/git/shared.js";
+import { validatePreviewPortTicketIssueResponse } from "../generated/preview/port.js";
+import {
+  PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
+  validateProviderAccountSignInResponse,
+} from "../generated/provider/account/sign-in.js";
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
-import { SCHEMA_FORMATS, ucs2length, wireByteLength } from "../schema-check.js";
+import { SCHEMA_FORMATS, wireByteLength } from "../schema-check.js";
 import { WEB_ADDRESS_FAULTS, webAddressFault } from "../web-address.js";
 
 describe("wireByteLength", () => {
@@ -48,37 +54,11 @@ const webAddressCases = readCaseTable(
 );
 
 describe("SCHEMA_FORMATS", () => {
-  // Each format is the parse half of its schema; a `pattern` beside it holds the rest (the
-  // `http` start of a web address, the NUL an https: address may not carry), and `maxLength`
-  // the cap, counted in code points.
   it.each(webAddressCases.faults)(
     "judges $address as a web address exactly when it draws no fault",
     ({ address, fault }) => {
       expect(webAddressFault(new URL(address))).toBe(fault);
       expect(SCHEMA_FORMATS["web-url"](address)).toBe(fault === null);
-    },
-  );
-
-  it("takes every text the Rust web address type keeps", () => {
-    for (const { name, text } of webAddressCases.texts.filter(({ web }) => web !== null)) {
-      expect(SCHEMA_FORMATS["web-url"](text), name).toBe(true);
-    }
-  });
-
-  it("takes an https: address exactly where the Rust address type keeps one", () => {
-    for (const { name, text, https } of webAddressCases.texts.filter(
-      ({ text }) => !text.includes("\0"),
-    )) {
-      expect(SCHEMA_FORMATS["https-url"](text), name).toBe(https !== null);
-    }
-  });
-
-  it.each(webAddressCases.capped)(
-    "takes $name as an https: address under the cap exactly where the Rust type keeps it",
-    ({ text, https }) => {
-      expect(
-        SCHEMA_FORMATS["https-url"](text) && ucs2length(text) <= webAddressCases.httpsCap,
-      ).toBe(https !== null);
     },
   );
 
@@ -91,4 +71,33 @@ describe("SCHEMA_FORMATS", () => {
     expect(SCHEMA_FORMATS.int64.validate(2 ** 64)).toBe(false);
     expect(SCHEMA_FORMATS.int64.validate(-(2 ** 64))).toBe(false);
   });
+});
+
+// Each generated check runs its address type's whole schema: the format, the patterns beside it
+// (the `http` start of a web address, the NUL an https: address may not carry) and the cap.
+describe("the generated web address checks", () => {
+  it.each(webAddressCases.texts)(
+    "take $name exactly where the Rust address types keep it",
+    ({ text, web, https }) => {
+      expect(validateHostingAddress(text)).toBe(web !== null);
+      expect(validatePreviewPortTicketIssueResponse({ address: text })).toBe(https !== null);
+    },
+  );
+
+  // The product's capped address takes 2048 code points, not the table's cap: leading spaces,
+  // which both sides trim, fill the difference, so each row is measured as sent at the table's cap.
+  it.each(webAddressCases.capped)(
+    "caps $name as sent, exactly where the Rust address type does",
+    ({ text, https }) => {
+      const padding = " ".repeat(
+        PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN - webAddressCases.httpsCap,
+      );
+      const response = {
+        attemptId: "attempt",
+        verificationUri: `${padding}${text}`,
+        isBrowserOpenedByProvider: false,
+      };
+      expect(validateProviderAccountSignInResponse(response)).toBe(https !== null);
+    },
+  );
 });

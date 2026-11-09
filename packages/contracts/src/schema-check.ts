@@ -19,10 +19,8 @@ export interface SchemaCheckContext {
 }
 
 /**
- * A generated check: answers whether `value` is a `T` and, when it is not, leaves every fault in
- * `errors` (Ajv's error objects, without messages). It reads and never changes the value.
- *
- * @consumedBy the generated contract checks and the clients that call them
+ * A generated check: answers whether `value` is a `T` and, when it is not, leaves the first fault
+ * in `errors` (Ajv's error object, without a message). It reads and never changes the value.
  */
 export interface SchemaCheck<T> {
   (this: SchemaCheckContext | void, value: unknown): value is T;
@@ -120,20 +118,12 @@ function commonJsDefault(imported: unknown): unknown {
   return (imported as { default?: unknown }).default ?? imported;
 }
 
-/**
- * Ajv's length of `text` in code points, as `minLength` and `maxLength` count it.
- *
- * @consumedBy the generated contract checks
- */
+/** Ajv's length of `text` in code points, as `minLength` and `maxLength` count it. */
 export const ucs2length: (text: string) => number = commonJsDefault(ajvUcs2lengthModule) as (
   text: string,
 ) => number;
 
-/**
- * Ajv's structural equality, which `const`, `enum` and `uniqueItems` use on objects.
- *
- * @consumedBy the generated contract checks
- */
+/** Ajv's structural equality, which `const`, `enum` and `uniqueItems` use on objects. */
 export const deepEqual: (left: unknown, right: unknown) => boolean = commonJsDefault(
   ajvEqualModule,
 ) as (left: unknown, right: unknown) => boolean;
