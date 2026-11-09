@@ -531,7 +531,9 @@ async fn run_a_busy_session(
             | CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::Call(_)
             | CodexSessionInbound::Lifecycle(_)
-            | CodexSessionInbound::AccountMoved(_) => {}
+            | CodexSessionInbound::AccountMoved(_)
+            | CodexSessionInbound::SideQuestionReleased { .. }
+            | CodexSessionInbound::ExportedResponse(_) => {}
         }
     }
 }

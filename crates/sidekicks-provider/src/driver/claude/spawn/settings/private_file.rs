@@ -9,7 +9,8 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{create_new_file, create_private_folder, remove_tree_awaited};
+use sidekicks_platforms::{create_new_file, create_private_folder};
+use sidekicks_std::file::remove_tree_awaited;
 
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::pricing::receiver::bearers::TelemetryBearer;
