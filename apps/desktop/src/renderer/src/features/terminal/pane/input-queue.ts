@@ -1,54 +1,119 @@
-// Keystrokes on their way to one shell, in the order they were typed.
+// Keystrokes and pastes on their way to one shell, in the order they were typed and pasted.
 //
-// At most `TERMINAL_WRITES_WAITING_PER_SHELL` writes wait for the daemon's answer at once; keys
-// typed past that are joined and sent as answers return. An interrupt, quit or suspend key is sent
-// at once with the keys before it while fewer than `TERMINAL_WRITES_WAITING_LIMIT` wait, so Ctrl-C
-// reaches a program that stopped reading. Each write carries at most `TERMINAL_WRITE_MAX_BYTES` of
-// UTF-8, so a long paste goes as several writes, never cut inside a character.
+// Every write is bound to the pane's open output subscription; while none is open (before the
+// first open, and between a stream's end and its re-open) what is typed waits here and goes once
+// the new subscription is bound. At most `TERMINAL_WRITES_WAITING_PER_SHELL` writes wait for the
+// daemon's answer at once; keys typed past that are joined and sent as answers return. An
+// interrupt, quit or suspend key is sent at once with everything before it while fewer than
+// `TERMINAL_WRITES_WAITING_LIMIT` wait, so Ctrl-C reaches a program that stopped reading. A paste
+// goes as one paste of one or more parts, never joined with keys. Each write carries at most
+// `TERMINAL_WRITE_MAX_BYTES` of UTF-8, never cut inside a character.
 
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import {
   TERMINAL_WRITE_MAX_BYTES,
   TERMINAL_WRITES_WAITING_LIMIT,
   TERMINAL_WRITES_WAITING_PER_SHELL,
+  type TerminalWriteRequest,
 } from "@ai-sidekicks/contracts/terminal";
 
 /** The keys that reach a program as its signal: Ctrl-C, Ctrl-\ and Ctrl-Z. */
 const SIGNAL_KEYS: readonly string[] = ["\u0003", "\u001c", "\u001a"];
 
+/** One write as the queue holds it: the request without the shell and the subscription. */
+export type ShellWrite = TerminalWriteRequest extends infer Write
+  ? Write extends unknown
+    ? Omit<Write, "sessionId" | "terminalId" | "outputSubscriptionId">
+    : never
+  : never;
+
 /**
- * One shell's typed keys, sent in order through `send`, which settles once the daemon answers and
- * never rejects.
+ * One shell's typed keys and pastes, sent in order through `send` with the subscription bound
+ * when each goes; `send` settles once the daemon answers and never rejects.
  */
 export class ShellInputQueue {
-  readonly #send: (data: string) => Promise<void>;
-  #joined = "";
-  #waitingCount = 0;
+  readonly #send: (write: ShellWrite, outputSubscriptionId: SubscriptionId) => Promise<void>;
+  /** What waits to be sent, oldest first; a keys write at the end takes the next keys. */
+  #waiting: ShellWrite[] = [];
+  #answerWaitingCount = 0;
+  #outputSubscriptionId: SubscriptionId | undefined;
 
-  public constructor(send: (data: string) => Promise<void>) {
+  public constructor(
+    send: (write: ShellWrite, outputSubscriptionId: SubscriptionId) => Promise<void>,
+  ) {
     this.#send = send;
+  }
+
+  /** Bind later writes to the open subscription and send what waited; `undefined` holds them. */
+  public bind(outputSubscriptionId: SubscriptionId | undefined): void {
+    this.#outputSubscriptionId = outputSubscriptionId;
+    this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
   }
 
   /** Queue what was typed and send what the waiting caps allow. */
   public type(data: string): void {
-    this.#joined += data;
-    this.#sendJoined(
+    const last = this.#waiting.at(-1);
+    if (last?.kind === "keys") {
+      this.#waiting[this.#waiting.length - 1] = { kind: "keys", data: last.data + data };
+    } else {
+      this.#waiting.push({ kind: "keys", data });
+    }
+    this.#sendWaiting(
       SIGNAL_KEYS.some((key) => data.includes(key))
         ? TERMINAL_WRITES_WAITING_LIMIT
         : TERMINAL_WRITES_WAITING_PER_SHELL,
     );
   }
 
-  #sendJoined(waitingCap: number): void {
-    while (this.#joined !== "" && this.#waitingCount < waitingCap) {
-      const end = writeEndOf(this.#joined);
-      const piece = this.#joined.slice(0, end);
-      this.#joined = this.#joined.slice(end);
-      this.#waitingCount += 1;
-      void this.#send(piece).finally(() => {
-        this.#waitingCount -= 1;
-        this.#sendJoined(TERMINAL_WRITES_WAITING_PER_SHELL);
+  /** Queue one paste, in as many parts as the write cap needs, all naming one fresh paste id. */
+  public paste(text: string): void {
+    if (text === "") {
+      return;
+    }
+    const pasteId = crypto.randomUUID();
+    let rest = text;
+    while (rest !== "") {
+      const end = writeEndOf(rest);
+      this.#waiting.push({
+        kind: "paste",
+        data: rest.slice(0, end),
+        pasteId,
+        isLastPart: end === rest.length,
+      });
+      rest = rest.slice(end);
+    }
+    this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
+  }
+
+  #sendWaiting(waitingCap: number): void {
+    const outputSubscriptionId = this.#outputSubscriptionId;
+    while (outputSubscriptionId !== undefined && this.#answerWaitingCount < waitingCap) {
+      const write = this.#takeNextWrite();
+      if (write === undefined) {
+        return;
+      }
+      this.#answerWaitingCount += 1;
+      void this.#send(write, outputSubscriptionId).finally(() => {
+        this.#answerWaitingCount -= 1;
+        this.#sendWaiting(TERMINAL_WRITES_WAITING_PER_SHELL);
       });
     }
+  }
+
+  // A paste part is already within the cap; joined keys are cut at it, the rest left first.
+  #takeNextWrite(): ShellWrite | undefined {
+    const [first, ...later] = this.#waiting;
+    if (first === undefined) {
+      return undefined;
+    }
+    if (first.kind === "paste") {
+      this.#waiting = later;
+      return first;
+    }
+    const end = writeEndOf(first.data);
+    this.#waiting =
+      end === first.data.length ? later : [{ kind: "keys", data: first.data.slice(end) }, ...later];
+    return { kind: "keys", data: first.data.slice(0, end) };
   }
 }
 

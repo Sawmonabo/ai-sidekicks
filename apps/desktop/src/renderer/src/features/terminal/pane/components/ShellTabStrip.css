@@ -1,0 +1,71 @@
+/* The terminal pane's tab strip, drawn with Preview's strip metrics so both panes read as one
+   shape. No literal color: every value is read from a Meridian property. One row that scrolls
+   rather than wraps, so a second row never pushes the shell's body down. */
+
+.meridian-terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+  overflow-x: auto;
+}
+
+.meridian-terminal-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  max-inline-size: 14rem;
+  padding-inline: var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-terminal-tab--selected {
+  border-color: var(--meridian-edge-strong);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-terminal-tab__face {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-terminal-tab__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-terminal-tab__close {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-faint);
+  cursor: pointer;
+}
+
+.meridian-terminal-tab__close:hover {
+  color: var(--meridian-text);
+}

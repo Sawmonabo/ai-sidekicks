@@ -10,6 +10,7 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { spiedAnnouncer, type SpiedAnnouncer } from "#test/helpers/spied-announcer.js";
+import { useStopRun } from "../hooks/useStopRun.js";
 import { useTakeShell } from "../hooks/useTakeShell.js";
 import { HeldTakes, TAKE_TARGET } from "../hooks/useTakeShell.test-support.js";
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../state.js";
@@ -63,5 +64,13 @@ function LeaseLineWithTake(props: {
   readonly holderName: string | undefined;
 }): React.JSX.Element {
   const takeShell = useTakeShell(props.bridge, TAKE_TARGET, props.state.holderDeviceId);
-  return <LeaseLine state={props.state} holderName={props.holderName} takeShell={takeShell} />;
+  const stopRun = useStopRun(props.bridge, TAKE_TARGET.sessionId, props.state.holderCommandId);
+  return (
+    <LeaseLine
+      state={props.state}
+      holderName={props.holderName}
+      takeShell={takeShell}
+      stopRun={stopRun}
+    />
+  );
 }

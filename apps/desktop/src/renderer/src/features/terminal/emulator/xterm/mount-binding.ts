@@ -13,6 +13,10 @@
 // element without being told again. The binding never decides who may write; the pane hands
 // it the lease's answer. Resize observation goes through `lib/element-resize.ts` and starts
 // no interval.
+//
+// A paste is taken off the mount element before the library sees it, so it reaches the shell as
+// one paste rather than as typed keys. Its line breaks become carriage returns, as a terminal's
+// paste sends them; marking it as pasted is the shell's side's, never the pane's.
 
 import type { IDisposable, Terminal } from "@xterm/xterm";
 
@@ -25,6 +29,8 @@ export interface XtermMountBindingOptions {
   readonly isWriteEnabled?: boolean | undefined;
   /** Where a user's keystrokes go. Absent means this terminal never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
+  /** Where pasted text goes, whole. Absent leaves a paste to the library, as typed keys. */
+  readonly onPaste?: ((text: string) => void) | undefined;
   /**
    * What a change in the mount element's box re-enters. The adapter's public re-fit, so a
    * resize and an explicit `fitToMountPoint()` share one path to the grid.
@@ -35,17 +41,20 @@ export interface XtermMountBindingOptions {
 /** One emulator's tie to one mount element. */
 export class XtermMountBinding {
   readonly #onKeystroke: ((data: string) => void) | undefined;
+  readonly #onPaste: ((text: string) => void) | undefined;
   readonly #onMountResize: () => void;
   #terminal: Terminal | undefined;
   #mountElement: HTMLElement | undefined;
   #stopObservingMountSize: Unsubscribe | undefined;
   #keystrokeSubscription: IDisposable | undefined;
+  #stopTakingPastes: Unsubscribe | undefined;
   #isWriteAllowedByLease: boolean;
 
   /** A binding holding the lease's first answer, with no emulator or mount element yet. */
   public constructor(options: XtermMountBindingOptions) {
     this.#isWriteAllowedByLease = options.isWriteEnabled ?? false;
     this.#onKeystroke = options.onKeystroke;
+    this.#onPaste = options.onPaste;
     this.#onMountResize = options.onMountResize;
   }
 
@@ -92,6 +101,8 @@ export class XtermMountBinding {
     this.#stopObservingMountSize = observeElementResize(mountElement, () => {
       this.#onMountResize();
     });
+    this.#stopTakingPastes?.();
+    this.#stopTakingPastes = this.#takePastesOn(mountElement);
     this.#applyStdinGate();
   }
 
@@ -99,6 +110,8 @@ export class XtermMountBinding {
   public detach(): void {
     this.#stopObservingMountSize?.();
     this.#stopObservingMountSize = undefined;
+    this.#stopTakingPastes?.();
+    this.#stopTakingPastes = undefined;
     this.#mountElement = undefined;
     this.#applyStdinGate();
   }
@@ -112,6 +125,27 @@ export class XtermMountBinding {
     this.#keystrokeSubscription?.dispose();
     this.#keystrokeSubscription = undefined;
     this.#terminal = undefined;
+  }
+
+  // Captured on the way down, so neither of the library's own paste listeners runs; a paste
+  // while the gate is shut goes nowhere, as a keystroke would.
+  #takePastesOn(mountElement: HTMLElement): Unsubscribe | undefined {
+    const onPaste = this.#onPaste;
+    if (onPaste === undefined) {
+      return undefined;
+    }
+    const takePaste = (event: ClipboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (this.isWriteEnabled && text !== "") {
+        onPaste(text.replace(/\r?\n/g, "\r"));
+      }
+    };
+    mountElement.addEventListener("paste", takePaste, { capture: true });
+    return () => {
+      mountElement.removeEventListener("paste", takePaste, { capture: true });
+    };
   }
 
   /** Pushes the composed answer onto the library's option; the one writer of it. */

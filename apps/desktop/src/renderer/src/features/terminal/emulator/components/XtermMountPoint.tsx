@@ -16,7 +16,7 @@ import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { TerminalRendererMode } from "../xterm/addons.js";
-import type { XtermTerminalAdapter } from "../xterm/adapter.js";
+import type { TerminalGridSize, XtermTerminalAdapter } from "../xterm/adapter.js";
 
 /** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {
@@ -28,6 +28,10 @@ export interface XtermMountPointProps {
   readonly label: string;
   /** Where keystrokes go. Absent means this terminal never writes to the wire. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
+  /** Where pasted text goes, whole. Absent leaves a paste to the keystroke path. */
+  readonly onPaste?: ((text: string) => void) | undefined;
+  /** Told the grid's columns and rows once it is fitted, and again each time a fit changes them. */
+  readonly onGridResize?: ((size: TerminalGridSize) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
   /**
@@ -54,13 +58,28 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     attempt: emulatorAttempt,
   } = useChunkLoad(terminalEmulatorLoader, "terminal-emulator-chunk");
 
-  const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode, openOutput } =
-    props;
-  const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
+  const {
+    terminalId,
+    isWriteEnabled,
+    onKeystroke,
+    onPaste,
+    onGridResize,
+    onActivateLink,
+    onRendererMode,
+    openOutput,
+  } = props;
+  const callbacksRef = useLatestRef({
+    onKeystroke,
+    onPaste,
+    onGridResize,
+    onActivateLink,
+    onRendererMode,
+  });
   // Callbacks live in `callbacksRef`, so a parent's fresh function identities do not rebuild
   // the emulator and drop its scrollback. What the terminal can do is what rebuilds it: gaining
   // or losing a capability does, a fresh function for an existing one does not.
   const canWriteToWire = onKeystroke !== undefined;
+  const canPaste = onPaste !== undefined;
   const canActivateLinks = onActivateLink !== undefined;
   // A terminal takes typing only while the lease allows it and a keystroke has somewhere to go.
   const isWritable = isWriteEnabled && canWriteToWire;
@@ -84,6 +103,11 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
             callbacksRef.current.onKeystroke?.(data);
           }
         : undefined,
+      onPaste: canPaste
+        ? (text: string): void => {
+            callbacksRef.current.onPaste?.(text);
+          }
+        : undefined,
       onActivateLink: canActivateLinks
         ? (url: string): void => {
             callbacksRef.current.onActivateLink?.(url);
@@ -92,6 +116,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     });
     adapterRef.current = adapter;
     let unsubscribeFromRendererMode: (() => void) | undefined;
+    let unsubscribeFromGridSize: Unsubscribe | undefined;
     let closeOutput: Unsubscribe | undefined;
     // One guard around every step that can leave an emulator behind: React pairs a disposal
     // only with the cleanup this effect returns. `subscribeToRendererMode` delivers the mode
@@ -105,6 +130,9 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
         setRendererMode(mode);
         callbacksRef.current.onRendererMode?.(mode);
       });
+      unsubscribeFromGridSize = adapter.subscribeToGridSize((size) => {
+        callbacksRef.current.onGridResize?.(size);
+      });
       closeOutput = openOutput?.(adapter);
     } catch (setupFailure: unknown) {
       adapterRef.current = undefined;
@@ -115,6 +143,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       adapterRef.current = undefined;
       // Before the disposal, so its mode reset is not delivered into a tree React is dropping.
       unsubscribeFromRendererMode?.();
+      unsubscribeFromGridSize?.();
       // Before the disposal, so no frame is written into an emulator that is gone.
       closeOutput?.();
       // Final, not `detach()`: the pane is going away, so the renderer hold must go back.
@@ -124,6 +153,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     emulator,
     terminalId,
     canWriteToWire,
+    canPaste,
     canActivateLinks,
     callbacksRef,
     isWritableRef,

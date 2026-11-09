@@ -14,3 +14,27 @@
   min-block-size: 0;
   padding: var(--meridian-space-3);
 }
+
+/* The `+` that opens a shell, at the strip's end and under `No active terminal.`. */
+.meridian-terminal-pane__open-shell {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-faint);
+  cursor: pointer;
+}
+
+.meridian-terminal-pane__open-shell:hover {
+  color: var(--meridian-text);
+}
+
+/* The line under an exited shell's output: its exit code, in quiet ink. */
+.meridian-terminal-pane__exit-line {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}

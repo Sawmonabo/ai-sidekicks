@@ -4,7 +4,8 @@
 // opened again after it and the daemon sends only the bytes past it, or a fresh scrollback when
 // the offset has left its window. A frame that does not match is recorded and the stream opened
 // again with no offset, so the window is drawn afresh rather than with a hole in it. Each open
-// hands on the subscription's id, which a write or a take on the shell is bound to.
+// hands on the subscription's id, which a write or a take on the shell is bound to, and each end
+// says the id is gone, so nothing is bound to it while the stream is opened again.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -30,11 +31,13 @@ export interface ShellOutputSubject {
 }
 
 /**
- * One delivery on a shell's output stream: a subscription opened with its id, a checked frame with
- * its bytes in place, or why the stream cannot be opened again (`undefined` once a re-open works).
+ * One delivery on a shell's output stream: a subscription opened with its id, the subscription
+ * ended, a checked frame with its bytes in place, or why the stream cannot be opened again
+ * (`undefined` once a re-open works).
  */
 export type ShellOutputDelivery =
   | { readonly kind: "opened"; readonly subscriptionId: SubscriptionId }
+  | { readonly kind: "ended" }
   | { readonly kind: "frame"; readonly frame: TerminalOutputFrame }
   | { readonly kind: "reopenRefusal"; readonly refusal: Refusal | undefined };
 
@@ -90,7 +93,10 @@ class ShellOutputFollower {
           (payload, attachments) => {
             deliver({ payload, attachments });
           },
-          onEnded,
+          (end) => {
+            this.#onDelivery({ kind: "ended" });
+            onEnded(end);
+          },
           (subscriptionId) => {
             this.#onDelivery({ kind: "opened", subscriptionId });
           },
@@ -119,6 +125,7 @@ class ShellOutputFollower {
       });
       // Opened again from no offset: the daemon answers with a fresh scrollback window.
       this.release();
+      this.#onDelivery({ kind: "ended" });
       this.#afterOffset = undefined;
       this.open();
       return;

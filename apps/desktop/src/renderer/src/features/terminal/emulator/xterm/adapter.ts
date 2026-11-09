@@ -15,12 +15,19 @@ import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../caps.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
 import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./addons.js";
 import { XtermMountBinding } from "./mount-binding.js";
 import { ignoreTerminalQueries } from "./queries.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./links.js";
 import { applyDeclaredMonospaceTypeface } from "./typeface.js";
+
+/** A grid's size in character cells. */
+export interface TerminalGridSize {
+  readonly columns: number;
+  readonly rows: number;
+}
 
 /** What one adapter is built with: its terminal id, renderer pool, and callbacks. */
 export interface XtermTerminalAdapterOptions {
@@ -34,6 +41,8 @@ export interface XtermTerminalAdapterOptions {
   readonly isWriteEnabled?: boolean | undefined;
   /** Where a user's keystrokes go. Absent means this terminal never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
+  /** Where pasted text goes, whole. Absent leaves a paste to the library, as typed keys. */
+  readonly onPaste?: ((text: string) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
 }
@@ -49,6 +58,9 @@ export class XtermTerminalAdapter {
   readonly #onActivateLink: ((url: string) => void) | undefined;
   readonly #addons: TerminalAddonSuite;
   readonly #mountBinding: XtermMountBinding;
+  readonly #gridSizeChanges = new Emitter<TerminalGridSize>("terminal grid size");
+  /** The size the last fit settled on, `undefined` before the first. */
+  #gridSize: TerminalGridSize | undefined;
   // Built on the first attach and dropped with the adapter, so no reference to a disposed
   // emulator and its buffer outlives it.
   #terminal: Terminal | undefined;
@@ -60,6 +72,7 @@ export class XtermTerminalAdapter {
     this.#mountBinding = new XtermMountBinding({
       isWriteEnabled: options.isWriteEnabled,
       onKeystroke: options.onKeystroke,
+      onPaste: options.onPaste,
       onMountResize: () => {
         this.fitToMountPoint();
       },
@@ -77,6 +90,17 @@ export class XtermTerminalAdapter {
    */
   public subscribeToRendererMode(sink: (mode: TerminalRendererMode) => void): Unsubscribe {
     return this.#addons.subscribeToRendererMode(sink);
+  }
+
+  /**
+   * Be told the grid's size each time a fit changes it, and now if one has settled. A scrollback
+   * redraw's passing size is never told: only the fit after it is.
+   */
+  public subscribeToGridSize(sink: (size: TerminalGridSize) => void): Unsubscribe {
+    if (this.#gridSize !== undefined) {
+      sink(this.#gridSize);
+    }
+    return this.#gridSizeChanges.subscribe(sink);
   }
 
   /** Whether an emulator exists yet. False before the first attach and after disposal. */
@@ -175,10 +199,17 @@ export class XtermTerminalAdapter {
    * before the emulator is built or while detached, when there is no grid or no box.
    */
   public fitToMountPoint(): void {
-    if (this.#terminal === undefined || this.#mountBinding.mountElement === undefined) {
+    const terminal = this.#terminal;
+    if (terminal === undefined || this.#mountBinding.mountElement === undefined) {
       return;
     }
     this.#addons.fitGrid();
+    const { cols: columns, rows } = terminal;
+    const previous = this.#gridSize;
+    if (previous === undefined || previous.columns !== columns || previous.rows !== rows) {
+      this.#gridSize = { columns, rows };
+      this.#gridSizeChanges.emit(this.#gridSize);
+    }
   }
 
   /**
@@ -214,6 +245,7 @@ export class XtermTerminalAdapter {
       return;
     }
     this.#isDisposed = true;
+    this.#gridSizeChanges.clear();
     this.#addons.releaseBeforeEmulatorDisposal();
     this.#mountBinding.dispose();
     this.#terminal?.dispose();

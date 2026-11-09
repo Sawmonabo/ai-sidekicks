@@ -1,7 +1,7 @@
-// The holder line's words, and where it draws nothing: another device's hold names
-// the device beside `Take the shell`, a running command's names the agent with no take, a free
-// shell draws nothing because the first keystroke takes it, and a holder whose name has not been
-// read draws nothing either, so the line never speaks for a holder it cannot name.
+// The holder line's words, and where it draws nothing: another device's hold names the device
+// beside `Take the shell`, a running command's names the agent beside `Stop the run` and no take,
+// a free shell draws nothing because the first keystroke takes it, and a holder whose name has not
+// been read draws nothing either, so the line never speaks for a holder it cannot name.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -37,14 +37,16 @@ describe("the holder line", () => {
     expect(screen.getByRole("button", { name: "Take the shell" })).toBeTruthy();
   });
 
-  it("names the agent whose running command holds it and offers no take, even on its device", () => {
+  it("names the agent whose running command holds it beside `Stop the run`, with no take, even on its device", () => {
     // The run's machine is the holding device, and that may be this one; the line still draws
     // the run's hold rather than nothing.
     renderLease(HELD_BY_A_RUN, "Codex");
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Codex's running command holds the shell.",
+      "Codex's running command holds the shell.Stop the run",
     );
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toStrictEqual([
+      "Stop the run",
+    ]);
   });
 
   it("draws nothing while nobody holds the shell, since the first keystroke takes it", () => {
