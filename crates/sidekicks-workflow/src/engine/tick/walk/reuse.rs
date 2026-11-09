@@ -38,17 +38,20 @@ pub(crate) struct KeptStep {
 
 impl RunWalk {
     /// The walk of `run_id` over `graph` that readies no place outside `covered`, by place (`None`
-    /// covers every place), and replays `reused`: each node's steps in the order its earlier run
-    /// executed them, the next one settling each time the walk readies that node.
+    /// covers every place), feeds nothing from `sealed`, a node run's target's place, and replays
+    /// `reused`: each node's steps in the order its earlier run executed them, the next one
+    /// settling each time the walk readies that node.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn reusing(
         graph: Arc<RunGraph>,
         run_id: WorkflowRunId,
         covered: Option<Arc<[bool]>>,
+        sealed: Option<usize>,
         reused: Vec<ReusedSeedStep>,
     ) -> Self {
         let mut walk = Self::new(graph, run_id);
         walk.covered = covered;
+        walk.sealed = sealed;
         for step in reused {
             let place = walk.graph.place(&step.node_id);
             walk.reused.entry(place).or_default().push_back(step);
@@ -57,11 +60,11 @@ impl RunWalk {
     }
 
     /// The walk of this walk's run over `graph`, another version's, readying no place outside
-    /// `covered`, by place, and settling again each step of `kept`, in execution order, the next
-    /// one each time the walk readies its node; its execution indices go on after this walk's, and
-    /// each step of `again`, a step of this walk to run again whose node `graph` holds, in
-    /// execution order, is carried: the next step the new walk readies to run at its node takes
-    /// its next attempt.
+    /// `covered`, by place, sealing a node run's target where `graph` holds it, and settling again
+    /// each step of `kept`, in execution order, the next one each time the walk readies its node;
+    /// its execution indices go on after this walk's, and each step of `again`, a step of this walk
+    /// to run again whose node `graph` holds, in execution order, is carried: the next step the new
+    /// walk readies to run at its node takes its next attempt.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn rebuilt(
         &self,
@@ -70,7 +73,11 @@ impl RunWalk {
         kept: Vec<KeptStep>,
         again: &[WorkflowStepKey],
     ) -> Self {
-        let mut walk = Self::reusing(graph, self.run_id, Some(covered), Vec::new());
+        // A node run's target stays sealed where the version holds it.
+        let sealed = self
+            .sealed
+            .and_then(|place| graph.find_place(&self.graph.node(place).id));
+        let mut walk = Self::reusing(graph, self.run_id, Some(covered), sealed, Vec::new());
         walk.next_execution_index = self.next_execution_index;
         for step in kept {
             let place = walk.graph.place(&step.step.node_id);

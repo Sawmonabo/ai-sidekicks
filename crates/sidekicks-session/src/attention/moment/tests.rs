@@ -408,7 +408,10 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_canceled(
-    step_event("workflow.step.canceled", json!({"readied": []})),
+    step_event(
+        "workflow.step.canceled",
+        json!({"cancellationReason": "mergeFirstToArrive", "readied": []})
+    ),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::workflow_run_resumed(

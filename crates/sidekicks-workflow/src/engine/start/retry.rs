@@ -31,24 +31,12 @@ use super::{
 };
 use crate::engine::partial_run::plan_retry;
 use crate::not_found::WorkflowNotFound;
+use crate::runs::record::FIRST_NON_RETRY_MODE_SQL;
 use crate::runs::step_payload::read_step_payload;
 
-/// How the first run of the chain of retries `@run_id` heads that is not a retry was started,
-/// followed through each retry's retried run, as one scalar subquery.
-pub(super) static FIRST_MODE_SQL: LazyLock<String> = LazyLock::new(|| {
-    let retry = <&'static str>::from(WorkflowRunMode::Retry);
-    format!(
-        "(WITH RECURSIVE retried(mode, retried_run_id) AS (
-         SELECT mode, retried_run_id FROM workflow_runs WHERE id = @run_id
-       UNION ALL
-         SELECT earlier.mode, earlier.retried_run_id
-           FROM workflow_runs AS earlier JOIN retried ON earlier.id = retried.retried_run_id)
-     SELECT mode FROM retried WHERE mode <> '{retry}' LIMIT 1)"
-    )
-});
-
 // The source run's version, session, status and trigger, how the first run of its retries that is
-// not a retry was started, and the project of the workspace of its own it worked in, if any.
+// not a retry was started, followed through each retry's retried run, and the project of the
+// workspace of its own it worked in, if any.
 static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.workflow_version_id, run.session_id, run.status, run.trigger_json,
@@ -57,7 +45,7 @@ static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
        JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
       WHERE workspace.workflow_run_id = run.id)
   FROM workflow_runs AS run WHERE run.id = @run_id",
-        first_mode = *FIRST_MODE_SQL
+        first_mode = FIRST_NON_RETRY_MODE_SQL.as_str(),
     )
 });
 
@@ -131,9 +119,11 @@ struct SourceRun {
 impl WorkflowRunStarter {
     /// Retries `retry`: a new run in `retry` mode of the source run's pinned version, in its
     /// session, its project's workspace or the project's folder it worked in, recording the source
-    /// run as the run it retries. Every node outside the named node and what it feeds whose steps
-    /// in the source run settled is replayed from them, recorded as reused and never run again, its
-    /// trigger's step among them, which then gets no row of its own. Refuses, with nothing made,
+    /// run as the run it retries, and honoring the pins its first run that is not a retry honored.
+    /// Every node outside the named node and what it feeds whose steps in the source run settled
+    /// is replayed from them, recorded as reused and never run again, its trigger's step among
+    /// them, which then gets no row of its own, as is each pass of a loop holding the named node
+    /// before the pass it failed in. Refuses, with nothing made,
     /// `workflow.run.notFound` for a source run no row answers to, `workflow.run.stillRunning`
     /// (`sourceRunning`) while it is new, running or waiting, `workflow.step.notFound` for a node
     /// it holds no step of and `workflow.invalidTransition` for a node whose latest step did not
@@ -173,7 +163,9 @@ impl WorkflowRunStarter {
             chain: WorkflowRunChainPlace::Starts {},
             input: None,
         };
-        let mut checked = self.check(&start, None).await?;
+        // A retry honors the pins of the run it retries, as that run's first mode did.
+        let pins_mode = source.first_mode.unwrap_or(WorkflowRunMode::Retry);
+        let mut checked = self.check(&start, None, pins_mode).await?;
         let graph = Arc::clone(&checked.graph);
         let trigger_id = checked.trigger_node.node_id.clone();
         let (plan, trigger_input) = self
@@ -212,12 +204,14 @@ impl WorkflowRunStarter {
             workflow_run_id: source_run_id,
             first_mode: source.first_mode,
         };
-        let WorkflowStartOutcome::Started(mut run) = self
+        let outcome = self
             .start_checked(start, checked, Some(&retried), None)
-            .await?
-        else {
-            unreachable!("a retry starts a chain of its own, which never holds it");
-        };
+            .await?;
+        let mut run = match outcome {
+            WorkflowStartOutcome::Started(run) => Some(run),
+            WorkflowStartOutcome::HeldOnChain { .. } => None,
+        }
+        .expect("a retry starts a chain of its own, which never holds it");
         run.node_run = Some(node_run);
         Ok(run)
     }

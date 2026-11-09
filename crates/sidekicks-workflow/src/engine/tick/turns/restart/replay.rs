@@ -64,11 +64,12 @@ pub(super) async fn reused_seeds(
                 output_lengths,
                 record: ReusedStepRecord {
                     from: from.clone(),
+                    input_ref: skipped.input_ref.clone(),
                     output_ref: skipped.output_ref.clone(),
                     pin_hash: skipped.pin_hash.clone(),
+                    outputs,
                 },
             },
-            outputs,
             session_id,
         });
     }
@@ -221,7 +222,7 @@ impl Replay<'_> {
                 let index = suspended_step(suspended).execution_index.get();
                 self.run.last_hold_reports.remove(&index);
             }
-            SessionEvent::WorkflowPhaseWaitingOnPool(held) => {
+            SessionEvent::WorkflowPhaseWaitingOnMemory(held) => {
                 self.run
                     .last_hold_reports
                     .insert(held.execution_index.get(), replayed.at.clone());
@@ -293,9 +294,9 @@ impl Replay<'_> {
     /// canceled follow as their own cancels.
     fn take(&mut self, walked: WalkTurn) {
         let live = &mut self.run.live;
-        for skip in walked.skipped {
-            if let WalkSkipReason::Reused(reused) = &skip.reason {
-                let (_, outputs) = live.take_reused_output(&skip.step.node_id, &reused.from);
+        for mut skip in walked.skipped {
+            if let WalkSkipReason::Reused(reused) = &mut skip.reason {
+                let outputs = std::mem::take(&mut reused.outputs);
                 live.outputs.record(
                     StepKey {
                         node_id: skip.step.node_id.clone(),

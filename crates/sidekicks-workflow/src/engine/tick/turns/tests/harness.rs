@@ -3,11 +3,11 @@
 
 pub(in crate::engine::tick::turns) mod ports;
 mod restart;
+mod scripted_kinds;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
@@ -15,7 +15,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
@@ -33,12 +33,13 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::sync::oneshot::error::RecvError;
-use tokio::sync::{Notify, mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use self::restart::{DaemonLife, LifeParts};
+use self::scripted_kinds::{Signals, kinds};
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::partial_run::PartialRunPlan;
@@ -46,7 +47,7 @@ use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
-use crate::engine::ports::{AgentStepRequest, EngineRecordSink, KeptEngineRecords};
+use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
 use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger};
 use crate::engine::tick::commit::SessionEventId;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
@@ -57,12 +58,7 @@ use crate::engine::tick::turns::{EngineTickInput, RunCancelIntake};
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
-use crate::kinds::step_context::StepContext;
-use crate::kinds::{
-    NodeExecutor, NodeKind, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait,
-    StepAdmissionNeed, StepFailure, StepOutcome, loop_test_kind, main_test_kind,
-    uncoded_step_error,
-};
+use crate::kinds::{NodeKindTable, uncoded_step_error};
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
 };
@@ -79,199 +75,6 @@ const NO_WAIT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eff";
 /// How long a test waits to see that the loop writes nothing more.
 pub(in crate::engine::tick::turns) const QUIET: Duration = Duration::from_millis(300);
 
-/// A test executor's behavior, by the node it runs.
-#[derive(Clone, Copy)]
-enum Script {
-    /// Fails its first try uncoded, then outputs one item.
-    Flaky,
-    /// Wakes the test once it runs, waits for its cancel, wakes the test, waits for the test's
-    /// release, then passes its inputs on.
-    Linger,
-    /// Waits for the test's go, then passes its inputs on.
-    Gated,
-    /// Waits for the test's go, then fails uncoded.
-    GatedFailure,
-    /// Waits for the test's go, then fails uncoded in a way that ends its run.
-    GatedStop,
-    /// Passes its inputs on, readied on its first main input with items.
-    First,
-    /// Outputs one empty list.
-    Empty,
-    /// Waits for the test's release, then outputs ten items of 7 KiB, above the inline cap
-    /// together.
-    Large,
-    /// Waits for its cancel, then passes its inputs on.
-    AwaitCancel,
-    /// On the first try of an input whose first item is marked `hang`, waits for its cancel as a
-    /// step the daemon's stop cuts off; any other try passes its inputs on.
-    HangsFirst,
-    /// Outputs the level it runs at; the node `A` first waits for the test's release.
-    Level,
-    /// Asks an approval that times out after 60 s.
-    Approve,
-    /// A loop: pass `n` puts batch `n` of the `batches` its first item carries on its loop
-    /// output, each batch carrying the list on, and once none is left passes its inputs on done.
-    Batches,
-    /// Asks for a chat reply that times out after 120 s.
-    Ask,
-    /// Asks for a form that times out after 120 s.
-    Form,
-    /// Asks for an agent run, which the harness's runner makes.
-    Agent,
-    /// Keeps the run variable `report`, above the inline cap, for later runs, then passes its
-    /// inputs on.
-    Keep,
-}
-
-/// An executor that runs `script`, waking `signal` where the script waits or is canceled.
-struct ScriptedExecutor {
-    script: Script,
-    signal: Arc<Signals>,
-}
-
-/// What the test and its executors wake each other with.
-#[derive(Default)]
-pub(in crate::engine::tick::turns) struct Signals {
-    /// Woken when a step starts waiting for its release or is canceled.
-    pub(in crate::engine::tick::turns) reached: Notify,
-    /// Woken by the test to release a waiting step.
-    pub(in crate::engine::tick::turns) release: Notify,
-    /// Woken when a lingering step runs, so the test lets a cancel land only on a running step.
-    pub(in crate::engine::tick::turns) running: Notify,
-    /// Woken by the test to let a gated step settle.
-    pub(in crate::engine::tick::turns) go: Notify,
-}
-
-impl NodeExecutor for ScriptedExecutor {
-    fn execute<'step>(
-        &'step self,
-        context: &'step StepContext,
-        inputs: Vec<Vec<WorkflowItem>>,
-    ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>> {
-        Box::pin(async move {
-            Ok(StepOutcome::Outputs(match self.script {
-                Script::Flaky => {
-                    if context.step.attempt.get() == 1 {
-                        return Err(StepFailure::Failed(Box::new(uncoded_step_error(
-                            "the first try fails".to_owned(),
-                        ))));
-                    }
-                    vec![vec![item(json!({ "attempt": context.step.attempt }))]]
-                }
-                Script::Linger => {
-                    self.signal.running.notify_one();
-                    context.cancel.cancelled().await;
-                    self.signal.reached.notify_one();
-                    self.signal.release.notified().await;
-                    inputs
-                }
-                Script::First => inputs,
-                Script::Batches => {
-                    let carried = inputs
-                        .first()
-                        .and_then(|items| items.first())
-                        .map_or(Value::Null, |first| first.json.0.clone());
-                    let pass = usize::try_from(context.run_index).expect("a pass fits a usize");
-                    match carried["batches"].get(pass) {
-                        Some(batch) => {
-                            let mut next = batch.clone();
-                            next["batches"] = carried["batches"].clone();
-                            vec![Vec::new(), vec![item(next)]]
-                        }
-                        None => vec![inputs.into_iter().next().unwrap_or_default(), Vec::new()],
-                    }
-                }
-                Script::Gated => {
-                    self.signal.go.notified().await;
-                    inputs
-                }
-                Script::GatedFailure => {
-                    self.signal.go.notified().await;
-                    return Err(StepFailure::Failed(Box::new(uncoded_step_error(
-                        "the gated step fails".to_owned(),
-                    ))));
-                }
-                Script::GatedStop => {
-                    self.signal.go.notified().await;
-                    return Err(StepFailure::EndsRun(Box::new(uncoded_step_error(
-                        "the gated step stops its run".to_owned(),
-                    ))));
-                }
-                Script::Empty => vec![Vec::new()],
-                Script::Keep => {
-                    let report = json!("y".repeat(70 * 1024));
-                    context.set_run_variables(
-                        serde_json::Map::from_iter([("report".to_owned(), report)]),
-                        true,
-                    );
-                    inputs
-                }
-                Script::Large => {
-                    self.signal.release.notified().await;
-                    vec![large_items()]
-                }
-                Script::HangsFirst => {
-                    let is_marked = inputs
-                        .first()
-                        .and_then(|items| items.first())
-                        .is_some_and(|first| first.json.0.get("hang").is_some());
-                    if is_marked && context.step.attempt.get() == 1 {
-                        context.cancel.cancelled().await;
-                    }
-                    inputs
-                }
-                Script::AwaitCancel => {
-                    context.cancel.cancelled().await;
-                    self.signal.reached.notify_one();
-                    inputs
-                }
-                Script::Level => {
-                    if context.step.node_id.as_str() == "A" {
-                        self.signal.reached.notify_one();
-                        self.signal.release.notified().await;
-                    }
-                    let level = serde_json::to_value(context.permission_level)
-                        .expect("a level writes as JSON");
-                    vec![vec![item(json!({ "level": level }))]]
-                }
-                Script::Approve => {
-                    return Ok(person_wait(PersonAsk::Approval { prompt: prompt() }, 60));
-                }
-                Script::Ask => return Ok(person_wait(PersonAsk::Reply { prompt: prompt() }, 120)),
-                Script::Agent => {
-                    return Ok(StepOutcome::AgentRun(AgentStepRequest {
-                        session_id: context.session_id,
-                        step: context.step.clone(),
-                        node_key: context.node_key.clone(),
-                        permission_level: context.permission_level,
-                        params: serde_json::Map::new(),
-                    }));
-                }
-                Script::Form => {
-                    let input_schema = serde_json::Map::new();
-                    let form = PersonAsk::Form {
-                        prompt: prompt(),
-                        input_schema,
-                    };
-                    return Ok(person_wait(form, 120));
-                }
-            }))
-        })
-    }
-
-    fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
-        matches!(self.script, Script::First)
-    }
-
-    fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
-        if matches!(self.script, Script::Agent) {
-            StepAdmissionNeed::OwnRun
-        } else {
-            StepAdmissionNeed::Unweighed
-        }
-    }
-}
-
 pub(in crate::engine::tick::turns) fn item(json: Value) -> WorkflowItem {
     WorkflowItem {
         json: AnyValue(json),
@@ -281,77 +84,11 @@ pub(in crate::engine::tick::turns) fn item(json: Value) -> WorkflowItem {
     }
 }
 
-/// A wait on a person asking `ask`, which times out after `timeout_secs`.
-fn person_wait(ask: PersonAsk, timeout_secs: u64) -> StepOutcome {
-    StepOutcome::PersonWait(PersonWait {
-        ask,
-        timeout: Some(Duration::from_secs(timeout_secs)),
-    })
-}
-
-/// What the test's person waits ask.
-fn prompt() -> ComposedText {
-    ComposedText::new("Ship it?".to_owned()).expect("the test's prompt")
-}
-
 /// Ten items of 7 KiB each, above the inline cap together.
 pub(in crate::engine::tick::turns) fn large_items() -> Vec<WorkflowItem> {
     (0..10)
         .map(|index| item(json!({ "index": index, "text": "x".repeat(7 * 1024) })))
         .collect()
-}
-
-/// The test's kinds: a trigger, a step and a pair passing their inputs on, the loop, and one kind
-/// per script; an approval has two outputs, which its answer fills.
-fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
-    let scripted = |name: &str, inputs: usize, script: Script| {
-        let outputs = if matches!(script, Script::Approve | Script::Batches) {
-            2
-        } else {
-            1
-        };
-        main_test_kind(
-            name,
-            "developer",
-            (inputs, outputs),
-            Box::new(ScriptedExecutor {
-                script,
-                signal: Arc::clone(signal),
-            }),
-        )
-    };
-    let passing = |name: &str, category: &str, inputs: usize| {
-        main_test_kind(name, category, (inputs, 1), Box::new(PassThroughExecutor))
-    };
-    Arc::new(
-        NodeKindTable::new(vec![
-            passing("test.trigger", "trigger", 1),
-            passing("test.step", "developer", 1),
-            passing("test.pair", "developer", 2),
-            scripted("test.empty", 1, Script::Empty),
-            scripted("test.large", 1, Script::Large),
-            scripted("test.wait", 1, Script::AwaitCancel),
-            scripted("test.hangsFirst", 1, Script::HangsFirst),
-            scripted("test.level", 1, Script::Level),
-            scripted("test.flaky", 1, Script::Flaky),
-            scripted("test.linger", 1, Script::Linger),
-            scripted("test.first", 2, Script::First),
-            scripted("test.gated", 1, Script::Gated),
-            scripted("test.gatedFailure", 1, Script::GatedFailure),
-            scripted("test.gatedStop", 1, Script::GatedStop),
-            scripted("test.approve", 1, Script::Approve),
-            scripted("test.ask", 1, Script::Ask),
-            scripted("test.form", 1, Script::Form),
-            scripted("test.agent", 1, Script::Agent),
-            scripted("test.keep", 1, Script::Keep),
-            loop_test_kind(),
-            NodeKind {
-                loop_output: Some(1),
-                ..scripted("test.batches", 1, Script::Batches)
-            },
-        ])
-        .expect("the test's kinds build a table"),
-    )
 }
 
 pub(in crate::engine::tick::turns) fn node(
@@ -523,7 +260,7 @@ impl Harness {
         trigger_items: Vec<WorkflowItem>,
         before_start: impl FnOnce(&Connection),
     ) -> CancellationToken {
-        self.start_run::<fn(&Connection) -> PartialRunPlan, _>(
+        self.start_run::<fn(&Connection, &RunGraph) -> PartialRunPlan, _>(
             nodes,
             edges,
             Ok(trigger_items),
@@ -534,13 +271,14 @@ impl Harness {
 
     /// Stores the workflow as [`Harness::start`] does and writes the scope's run as the node run
     /// `node_run` that reuses its trigger's step, then hands the loop the seed of the plan `plan`
-    /// makes over the stored rows, each reused output read back from the payload store.
+    /// makes over the stored rows and the run's graph, as the start hands it on: target sealed,
+    /// reused outputs read back, another session's payloads stored again in the run's.
     pub(in crate::engine::tick::turns) async fn start_node_run(
         &self,
         nodes: Vec<WorkflowNode>,
         edges: &[WorkflowEdge],
         node_run: WorkflowNodeRun,
-        plan: impl FnOnce(&Connection) -> PartialRunPlan,
+        plan: impl FnOnce(&Connection, &RunGraph) -> PartialRunPlan,
     ) -> CancellationToken {
         self.start_run(nodes, edges, Err((node_run, plan)), |_| {})
             .await
@@ -548,7 +286,10 @@ impl Harness {
 
     /// Writes the scope's run as [`Harness::start`] does, on its trigger's items or as a node run
     /// whose plan is made once the workflow is stored, and hands it to the loop.
-    async fn start_run<Plan: FnOnce(&Connection) -> PartialRunPlan, Before: FnOnce(&Connection)>(
+    async fn start_run<
+        Plan: FnOnce(&Connection, &RunGraph) -> PartialRunPlan,
+        Before: FnOnce(&Connection),
+    >(
         &self,
         nodes: Vec<WorkflowNode>,
         edges: &[WorkflowEdge],
@@ -578,6 +319,16 @@ impl Harness {
             kind: WorkflowTriggerKind::Manual,
             node_id: nodes[0].id.clone(),
         };
+        let graph = RunGraph::new(
+            &nodes
+                .iter()
+                .map(|node| (node.id.clone(), node.clone()))
+                .collect(),
+            &trigger.node_id,
+            edges,
+            &self.kinds,
+        )
+        .expect("the test's graph builds");
         let started_at = WireInstant::now();
         let run_started_at = started_at.timestamp().expect("a stored instant reads");
         let (started_trigger, node_run) = match opening {
@@ -592,7 +343,7 @@ impl Harness {
                 .expect("the trigger's input is stored");
                 (Some(StartedTrigger { input_ref, items }), None)
             }
-            Err((node_run, plan)) => (None, Some((node_run, plan(&self.rows)))),
+            Err((node_run, plan)) => (None, Some((node_run, plan(&self.rows, &graph)))),
         };
         let trigger_input = started_trigger
             .as_ref()
@@ -658,16 +409,6 @@ impl Harness {
             .await
             .expect("the run is stored");
         before_start(&self.rows);
-        let graph = RunGraph::new(
-            &nodes
-                .iter()
-                .map(|node| (node.id.clone(), node.clone()))
-                .collect(),
-            &trigger.node_id,
-            edges,
-            &self.kinds,
-        )
-        .expect("the test's graph builds");
         let scope = RunScope {
             run_id: base.run_id,
             trigger,
@@ -677,11 +418,17 @@ impl Harness {
         };
         let cancel = scope.cancel.clone();
         let node_run = match node_run {
-            Some((_, plan)) => Some(
-                StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
+            Some((node_run, plan)) => {
+                let mut started = StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
                     .await
-                    .expect("the reused outputs read back"),
-            ),
+                    .expect("the reused outputs read back");
+                started.sealed = Some(graph.place(&node_run.node_id));
+                started
+                    .store_in_session(self.payloads.as_ref(), base.session_id, &mut Vec::new())
+                    .await
+                    .expect("the reused payloads are stored in the run's session");
+                Some(started)
+            }
             None => None,
         };
         let started = StartedRun {

@@ -111,13 +111,16 @@ impl EngineTick {
         }
         let repin = match version_repin {
             None => None,
-            Some(target) => match self.repin_target(live, target).await {
-                Ok(repin) => Some(repin),
-                Err(refusal) => {
-                    let _unheard = reply.send(Err(refusal));
-                    return;
+            Some(target) => {
+                let settled_in_turn = turn.commit.first_settled_step();
+                match self.repin_target(live, settled_in_turn, target).await {
+                    Ok(repin) => Some(repin),
+                    Err(refusal) => {
+                        let _unheard = reply.send(Err(refusal));
+                        return;
+                    }
                 }
-            },
+            }
         };
         let at = WireInstant::now();
         for step in account_waits {

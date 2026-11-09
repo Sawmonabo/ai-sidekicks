@@ -93,15 +93,20 @@ pub(crate) enum WalkSkipReason {
     Reused(ReusedStepRecord),
 }
 
-/// The earlier step a reused skip carries the data of, as its row and event record it.
+/// The earlier step a reused skip carries the data of, as its row and event record it, with the
+/// items its outputs hold, which the run's later steps read.
 #[derive(Debug)]
 pub(crate) struct ReusedStepRecord {
     /// The step and the version its run executed.
     pub(crate) from: WorkflowReusedStep,
+    /// That step's input, which the skip records as its own.
+    pub(crate) input_ref: WorkflowPayloadRef,
     /// That step's output, which the skip passes on.
     pub(crate) output_ref: WorkflowPayloadRef,
     /// The hash of the pin that step ran on, where it recorded one.
     pub(crate) pin_hash: Option<WorkflowContentHash>,
+    /// Its main outputs' items, in output order, which move into the run's outputs as it replays.
+    pub(crate) outputs: Vec<Vec<WorkflowItem>>,
 }
 
 /// A step the walk readied and that has not settled.
@@ -123,7 +128,8 @@ struct LiveStep {
 /// The walk of one run over its graph: the steps live, each node's open rounds, the feeds its
 /// disabled skips passed on, the first-to-arrive wins decided, the next execution index, for a
 /// partial run the places it covers and the earlier steps it replays, and for a walk rebuilt on
-/// another version the steps it keeps and the attempts its steps run again carry.
+/// another version the steps it keeps and the attempts its steps run again carry. A node run's
+/// walk also seals its target, whose outputs feed nothing.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunWalk {
     /// The run's graph.
@@ -134,6 +140,8 @@ pub(crate) struct RunWalk {
     next_execution_index: u64,
     /// Whether each place, by place, may be readied: `None` for a whole run, which covers all.
     covered: Option<Arc<[bool]>>,
+    /// For a node run, its target's place, whose outputs feed nothing: not even its own loop.
+    sealed: Option<usize>,
     /// The earlier steps still to replay at each place, by place, in their run's execution order.
     reused: BTreeMap<usize, VecDeque<ReusedSeedStep>>,
     /// For a walk rebuilt on another version, the run's own steps still to settle again under
@@ -179,6 +187,7 @@ impl RunWalk {
             run_id,
             next_execution_index: 0,
             covered: None,
+            sealed: None,
             reused: BTreeMap::new(),
             kept: BTreeMap::new(),
             carried_attempts: BTreeMap::new(),
@@ -422,16 +431,16 @@ impl RunWalk {
 
     /// Puts one feed of `count` items from `source`, the step at `source_place`, of `lineage`, into
     /// `target`'s slot and answers the run index of the round it entered, or `None` for a feed
-    /// dropped: one into a place the run does not cover, an empty one while the node has an open
-    /// round, one a win of the node overtook that no round of that win takes, or one from a place
-    /// in the body of a loop node whose body holds the node of a win that overtook it, so an
-    /// overtaken step never restarts its own loop. A step outside that body keeps its feed into
-    /// the loop node, even when the win reached it through its direct edge into the won node: its
-    /// feed into that node enters the won round, and its feed into the loop node starts the next
-    /// pass. Items enter the lowest open round of the feed's loop passes admitting it whose slot is
-    /// unfilled or settled empty; an empty feed the lowest admitting one whose slot is unfilled;
-    /// with no such round the feed opens one. A won round admits only the feeds its win overtook,
-    /// so the winner never runs again on its own pass.
+    /// dropped: one into a place the run does not cover, one out of a node run's target, an empty
+    /// one while the node has an open round, one a win of the node overtook that no round of that
+    /// win takes, or one from a place in the body of a loop node whose body holds the node of a win
+    /// that overtook it, so an overtaken step never restarts its own loop. A step outside that body
+    /// keeps its feed into the loop node, even when the win reached it through its direct edge into
+    /// the won node: its feed into that node enters the won round, and its feed into the loop node
+    /// starts the next pass. Items enter the lowest open round of the feed's loop passes admitting
+    /// it whose slot is unfilled or settled empty; an empty feed the lowest admitting one whose
+    /// slot is unfilled; with no such round the feed opens one. A won round admits only the feeds
+    /// its win overtook, so the winner never runs again on its own pass.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn fill(
         &mut self,
@@ -441,10 +450,11 @@ impl RunWalk {
         count: usize,
         lineage: &StepLineage,
     ) -> Option<u64> {
-        if self
-            .covered
-            .as_ref()
-            .is_some_and(|covered| !covered[target.node])
+        if self.sealed == Some(source_place)
+            || self
+                .covered
+                .as_ref()
+                .is_some_and(|covered| !covered[target.node])
         {
             return None;
         }
@@ -663,9 +673,10 @@ impl RunWalk {
     /// Readies `step` of the node at `place`, of `lineage`, making it live, or, where the place
     /// keeps a step of the run's own, settles that step again in its stead, writing nothing, or,
     /// where it has an earlier step left to replay, settles it at once as that step. A loop node's
-    /// step belongs to the passes around its loop, not its own; it starts a new pass of what it leads
-    /// to, so it closes the rounds of earlier passes nothing can fill, and no win at a node its
-    /// body holds reaches it: such a win's pass is over, and the new pass's feeds open new rounds.
+    /// step belongs to the passes around its loop, not its own; it starts a new pass of what it
+    /// leads to, so it closes the rounds of earlier passes nothing can fill, and no win at a node
+    /// its body holds reaches it: such a win's pass is over, and the new pass's feeds open new
+    /// rounds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,

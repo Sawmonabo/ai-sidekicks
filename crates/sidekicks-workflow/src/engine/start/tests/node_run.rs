@@ -5,18 +5,16 @@
 use std::path::PathBuf;
 
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
 use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
 
 use super::{
@@ -29,24 +27,15 @@ use crate::engine::start::{
 use crate::runs::step_payload::write_step_payload;
 use crate::runs::store::WorkflowRunStore;
 use crate::test_rows::{
-    TEST_SESSION_ID, TestSettledStep, assert_rebuild_rewrites_run_rows, insert_run,
-    insert_settled_step, test_node_id,
+    EARLIER_RUN_ID, EarlierStep, TEST_SESSION_ID, assert_rebuild_rewrites_session_rows,
+    earlier_key, insert_later_workflow_version, set_payload_ref, store_earlier_run, test_node_id,
 };
 
-/// The earlier run whose settled steps the node runs reuse.
-const EARLIER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
+/// A later version of the test's workflow, whose trigger declares inputs.
+const CHANGED_VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73";
 
 /// A session other than the one the node runs start in.
 const OTHER_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
-
-/// One step of the earlier run: its node, its execution index, the `(node, execution index)` of
-/// the step feeding each slot, and its main outputs' items.
-type EarlierStep = (
-    &'static str,
-    u32,
-    &'static [(&'static str, u32)],
-    Vec<Vec<WorkflowItem>>,
-);
 
 /// The version `start → A → B`, `A` of the two-output kind feeding `B` from its first output.
 fn chain_body() -> Value {
@@ -56,7 +45,11 @@ fn chain_body() -> Value {
             "target": target, "targetHandle": "inputs/main/0",
         })
     };
-    let node = |id: &str, kind: &str, order: u32| json!({ "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": order, "params": {} });
+    let node = |id: &str, kind: &str, order: u32| {
+        json!({
+            "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": order, "params": {},
+        })
+    };
     json!({
         "name": "Nightly",
         "trigger": node("start", "trigger.manual", 0),
@@ -82,73 +75,6 @@ fn named(name: &str) -> WorkflowItem {
 /// An item tagged `tag`, large enough that two of them are kept as an artifact.
 fn large(tag: &str) -> WorkflowItem {
     item(json!({ "tag": tag, "note": "x".repeat(40 * 1024) }))
-}
-
-/// The key of the earlier run's first attempt of `node_id` at `execution_index`.
-fn earlier_key(node_id: &str, execution_index: u64) -> WorkflowStepKey {
-    WorkflowStepKey {
-        workflow_run_id: WorkflowRunId::new(EARLIER_RUN_ID).expect("the earlier run's id"),
-        node_id: test_node_id(node_id),
-        attempt: SafeInt::new(1).expect("1 is a whole number from 1"),
-        execution_index: SafeInt::new(execution_index).expect("a small execution index"),
-    }
-}
-
-/// Stores the earlier run of the test's version, every step succeeded, its outputs inline.
-fn store_earlier_run(rows: &Connection, steps: &[EarlierStep]) {
-    insert_run(
-        rows,
-        EARLIER_RUN_ID,
-        VERSION_ID,
-        WorkflowRunStatus::Succeeded,
-        "2026-10-02T00:00:00.000Z",
-        Some("2026-10-02T01:00:00.000Z"),
-    );
-    for (node_id, execution_index, sources, outputs) in steps {
-        let counts: Vec<u64> = outputs
-            .iter()
-            .map(|output| u64::try_from(output.len()).expect("a test output's length fits"))
-            .collect();
-        insert_settled_step(
-            rows,
-            EARLIER_RUN_ID,
-            &TestSettledStep {
-                node_id,
-                attempt: 1,
-                execution_index: *execution_index,
-                status: WorkflowStepStatus::Succeeded,
-                finished_at: "2026-10-02T00:30:00.000Z",
-                sources,
-                output_item_counts: &counts,
-                pin_hash: None,
-                reused_from: None,
-            },
-        );
-        let output_ref = WorkflowPayloadRef::Inline {
-            items: outputs.concat(),
-        };
-        set_payload_ref(rows, node_id, "output_ref", &output_ref);
-    }
-}
-
-/// Points `column` of the earlier run's step of `node_id` at `payload_ref`.
-fn set_payload_ref(
-    rows: &Connection,
-    node_id: &str,
-    column: &str,
-    payload_ref: &WorkflowPayloadRef,
-) {
-    rows.execute(
-        &format!(
-            "UPDATE workflow_steps SET {column} = ?1 WHERE workflow_run_id = ?2 AND node_id = ?3"
-        ),
-        params![
-            serde_json::to_string(payload_ref).expect("a payload ref writes as JSON"),
-            EARLIER_RUN_ID,
-            node_id
-        ],
-    )
-    .expect("the test stores the earlier step's payload");
 }
 
 /// A person's node run of the test's version, given `input`.
@@ -214,7 +140,11 @@ fn step_rows(fixture: &Fixture, run_id: WorkflowRunId) -> i64 {
 #[tokio::test]
 async fn run_from_here_reuses_its_clean_trigger_and_names_the_node_run() {
     let fixture = Fixture::new(&chain_body(), TestSession::WithoutFolder, None).await;
-    store_earlier_run(&fixture.rows, &chain_steps(vec![named("given")]));
+    store_earlier_run(
+        &fixture.rows,
+        VERSION_ID,
+        &chain_steps(vec![named("given")]),
+    );
 
     let (run, executed, reused) = started_node_run(
         fixture
@@ -249,7 +179,7 @@ async fn run_from_here_reuses_its_clean_trigger_and_names_the_node_run() {
         read.run.node_run,
         Some(node_run("B", WorkflowNodeExecuteScope::FromHere))
     );
-    assert_rebuild_rewrites_run_rows(&fixture.rows, TEST_SESSION_ID, run_id.text().as_str());
+    assert_rebuild_rewrites_session_rows(&fixture.rows, TEST_SESSION_ID);
 }
 
 /// How the items a node run is given stand against its trigger's earlier input.
@@ -278,7 +208,11 @@ async fn given_items_reuse_an_equal_trigger_and_run_a_changed_one(#[case] given:
         GivenItems::EqualInline | GivenItems::Changed => vec![named("given")],
         GivenItems::EqualStored => vec![large("given")],
     };
-    store_earlier_run(&fixture.rows, &chain_steps(earlier_items.clone()));
+    store_earlier_run(
+        &fixture.rows,
+        VERSION_ID,
+        &chain_steps(earlier_items.clone()),
+    );
     let earlier_ref = write_step_payload(
         fixture.payloads.as_ref(),
         session_id(),
@@ -287,8 +221,8 @@ async fn given_items_reuse_an_equal_trigger_and_run_a_changed_one(#[case] given:
     )
     .await
     .expect("the earlier input is stored");
-    set_payload_ref(&fixture.rows, "start", "input_ref", &earlier_ref);
-    set_payload_ref(&fixture.rows, "start", "output_ref", &earlier_ref);
+    set_payload_ref(&fixture.rows, "start", 0, "input_ref", &earlier_ref);
+    set_payload_ref(&fixture.rows, "start", 0, "output_ref", &earlier_ref);
     let given_items = match given {
         GivenItems::EqualInline | GivenItems::EqualStored => earlier_items,
         GivenItems::Changed => vec![named("other")],
@@ -340,6 +274,57 @@ async fn given_items_reuse_an_equal_trigger_and_run_a_changed_one(#[case] given:
     }
 }
 
+/// A trigger whose declared inputs changed since its earlier step runs, with what it feeds, on its
+/// earlier items filled by the inputs it declares now, a new input taking its default. Mutation:
+/// start a trigger that runs on its earlier items as they are (`urgent` is missing).
+#[tokio::test]
+async fn a_changed_trigger_runs_on_its_earlier_items_filled_by_its_new_inputs() {
+    let fixture = Fixture::new(&chain_body(), TestSession::WithoutFolder, None).await;
+    let earlier_items = vec![item(json!({ "ticket": "7" }))];
+    store_earlier_run(
+        &fixture.rows,
+        VERSION_ID,
+        &chain_steps(earlier_items.clone()),
+    );
+    let earlier_input = WorkflowPayloadRef::Inline {
+        items: earlier_items,
+    };
+    set_payload_ref(&fixture.rows, "start", 0, "input_ref", &earlier_input);
+    let mut body = chain_body();
+    body["trigger"]["inputs"] = json!([
+        { "type": "string", "name": "ticket", "default": "" },
+        { "type": "boolean", "name": "urgent", "default": true },
+    ]);
+    insert_later_workflow_version(&fixture.rows, VERSION_ID, CHANGED_VERSION_ID, 2, &body);
+
+    let (run, executed, reused) = started_node_run(
+        fixture
+            .starter
+            .start_node_run(
+                WorkflowRunStart {
+                    workflow_version_id: WorkflowVersionId::new(CHANGED_VERSION_ID)
+                        .expect("the changed version's id"),
+                    ..node_start(None)
+                },
+                node_run("B", WorkflowNodeExecuteScope::FromHere),
+            )
+            .await,
+    );
+
+    assert_eq!(
+        (executed, reused),
+        (
+            vec!["start".to_owned(), "A".to_owned(), "B".to_owned()],
+            Vec::new()
+        )
+    );
+    let trigger = run.trigger.expect("the changed trigger runs");
+    assert_eq!(
+        trigger.items,
+        [item(json!({ "ticket": "7", "urgent": true }))]
+    );
+}
+
 /// `A`'s two outputs, kept together as an artifact, are read back and split by their counts; one
 /// kept in another session is stored again in the run's session, under the step that computed
 /// it, and replayed from that copy, and one in the run's session is replayed as it is. Mutations:
@@ -353,7 +338,7 @@ async fn a_reused_artifact_output_is_read_back_and_split(#[case] is_same_session
     let outputs = vec![vec![large("kept")], vec![large("dropped")]];
     let mut steps = chain_steps(vec![named("given")]);
     steps[1].3 = outputs.clone();
-    store_earlier_run(&fixture.rows, &steps);
+    store_earlier_run(&fixture.rows, VERSION_ID, &steps);
     let earlier_session = if is_same_session {
         session_id()
     } else {
@@ -374,7 +359,7 @@ async fn a_reused_artifact_output_is_read_back_and_split(#[case] is_same_session
     )
     .await
     .expect("the earlier output is stored");
-    set_payload_ref(&fixture.rows, "A", "output_ref", &earlier_ref);
+    set_payload_ref(&fixture.rows, "A", 1, "output_ref", &earlier_ref);
 
     let (run, ..) = started_node_run(
         fixture
@@ -392,7 +377,7 @@ async fn a_reused_artifact_output_is_read_back_and_split(#[case] is_same_session
         .iter()
         .find(|step| step.seed.node_id.as_str() == "A")
         .expect("A is replayed");
-    assert_eq!(a.outputs, outputs);
+    assert_eq!(a.seed.record.outputs, outputs);
     assert_eq!(a.session_id, session_id());
     let writes = fixture.payloads.writes();
     if is_same_session {
@@ -421,7 +406,7 @@ async fn a_reused_output_not_stored_again_fails_the_start() {
     let outputs = vec![vec![large("kept")], vec![large("dropped")]];
     let mut steps = chain_steps(vec![named("given")]);
     steps[1].3 = outputs.clone();
-    store_earlier_run(&fixture.rows, &steps);
+    store_earlier_run(&fixture.rows, VERSION_ID, &steps);
     let other_session = SessionId::new(OTHER_SESSION_ID).expect("the other session's id");
     fixture
         .rows
@@ -438,7 +423,7 @@ async fn a_reused_output_not_stored_again_fails_the_start() {
     )
     .await
     .expect("the earlier output is stored");
-    set_payload_ref(&fixture.rows, "A", "output_ref", &earlier_ref);
+    set_payload_ref(&fixture.rows, "A", 1, "output_ref", &earlier_ref);
     fixture.payloads.refuse_writes_past(1);
 
     let outcome = fixture

@@ -11,7 +11,7 @@ use super::harness::{Harness, WAIT, attempt_column, edge, item, node, step_colum
 use crate::engine::ports::AgentStepOutcome;
 use crate::engine::tick::turns::resuming::tests::resume;
 use crate::engine::waits::PersonWaitAnswer;
-use crate::test_rows::assert_rebuild_rewrites_run_rows;
+use crate::test_rows::assert_rebuild_rewrites_session_rows;
 
 /// The run's status.
 fn run_status(rows: &Connection) -> String {
@@ -32,14 +32,10 @@ fn step_events(harness: &Harness, event_type: &str, node_id: &str) -> Vec<Value>
 }
 
 /// Waits for every turn the test has seen, then checks that a rebuild from the log writes the
-/// run's rows as the loops wrote them.
+/// session's rows as the loops wrote them.
 async fn assert_rebuilds(harness: &Harness) {
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A step running when the daemon stops fails as crashed and parks its run, and a step the memory
@@ -274,7 +270,7 @@ async fn a_waiting_step_keeps_its_wait_across_the_restart() {
 
 /// A step the memory gate held when the daemon stops is held again on an event of the restart's
 /// own, a new hold beside the cut one, and admitted by the new loop's gate; the rows rebuild from
-/// the log. Mutations: the sweep's hold report dropped (one `waitingOnPool` only); its hold named
+/// the log. Mutations: the sweep's hold report dropped (one `waitingOnMemory` only); its hold named
 /// on the step's old readying sequence (the new hold reads as the old one's report and the
 /// rebuilt pool wait differs).
 #[tokio::test]
@@ -300,7 +296,7 @@ async fn a_held_step_is_held_again_and_admitted_by_the_new_loop() {
     harness
         .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("running"))
         .await;
-    let holds = step_events(&harness, "workflow.phase.waitingOnPool", "A");
+    let holds = step_events(&harness, "workflow.phase.waitingOnMemory", "A");
     assert_eq!(holds.len(), 2, "the restart opens a hold of its own");
     assert_ne!(holds[0]["waitingSinceSeq"], holds[1]["waitingSinceSeq"]);
     harness.agents.end(AgentStepOutcome::Completed {

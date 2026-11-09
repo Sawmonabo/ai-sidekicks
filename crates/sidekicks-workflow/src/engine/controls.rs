@@ -8,6 +8,7 @@
     expect(dead_code, reason = "the daemon's workflow run method handlers")
 )]
 
+use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::Connection;
@@ -15,7 +16,7 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
-use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use sidekicks_contracts::workflow::run::control::{
     WorkflowCancelReason, WorkflowRunCancelResponse, WorkflowRunCanceledStatus,
     WorkflowRunResumeVersionRepin,
@@ -38,6 +39,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::engine::ports::ApprovalCardRaiser;
 use crate::engine::tick::{
     EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
     RunResumeIntake, RunResumeRefusal,
@@ -63,12 +65,14 @@ static GOING_CHAIN_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// What a person's run controls reach: the tick's inbox, the rows a run the tick does not hold is
-/// read from, the log its cancel is written to, and the binder told once that cancel commits.
+/// read from, the log its cancel is written to, the binder told once that cancel commits and the
+/// approval cards it withdraws then.
 pub(crate) struct WorkflowRunControls {
     inbox: mpsc::Sender<EngineTickInput>,
     pool: Arc<DatabaseReadPool>,
     appender: SessionEventAppender,
     binder: Arc<dyn SessionRunBinder>,
+    cards: Arc<dyn ApprovalCardRaiser>,
 }
 
 /// Why a run control did not do what it asked; nothing of the run was written.
@@ -127,19 +131,22 @@ enum UnheldCancel {
 }
 
 impl WorkflowRunControls {
-    /// The controls over the tick's `inbox`, reading through `pool`, writing to `event_log` and
-    /// telling `binder` once a cancel the tick does not hold commits.
+    /// The controls over the tick's `inbox`, reading through `pool`, writing to `event_log`,
+    /// telling `binder` once a cancel the tick does not hold commits and withdrawing that cancel's
+    /// approval cards through `cards`.
     pub(crate) fn new(
         inbox: mpsc::Sender<EngineTickInput>,
         pool: Arc<DatabaseReadPool>,
         event_log: Arc<EventLogService>,
         binder: Arc<dyn SessionRunBinder>,
+        cards: Arc<dyn ApprovalCardRaiser>,
     ) -> Self {
         Self {
             inbox,
             pool,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             binder,
+            cards,
         }
     }
 
@@ -238,7 +245,8 @@ impl WorkflowRunControls {
 
     /// `Stop them all` on the chain whose first run is `root`: cancels every run of the chain still
     /// going or parked, the first run included, through [`Self::cancel`] with no reason, in the
-    /// order they started; a run that ends meanwhile is passed over. Answers each cancel taken.
+    /// order they started; a run that ends or is deleted meanwhile is passed over. Answers each
+    /// cancel taken.
     pub(crate) async fn stop_chain(
         &self,
         root: WorkflowRunId,
@@ -253,8 +261,12 @@ impl WorkflowRunControls {
         for workflow_run_id in runs {
             match self.cancel(workflow_run_id, None).await {
                 Ok(response) => canceled.push(response),
+                // The run ended, or was deleted, between the read and its cancel.
                 Err(WorkflowRunControlError::Refused(refusal))
-                    if refusal.code == RefusalCode::WorkflowRunNotCancelable => {}
+                    if matches!(
+                        refusal.code,
+                        RefusalCode::WorkflowRunNotCancelable | RefusalCode::WorkflowRunNotFound
+                    ) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -277,9 +289,10 @@ impl WorkflowRunControls {
     }
 
     /// Cancels the run of `cancellation`, which the tick does not hold, from its rows: a going or
-    /// parked run's `workflow.run.canceled`, its results event after it for a run that posts them,
-    /// and its rows' statements in one write, then the session's binder told. A run that ended
-    /// between the read and the write is read again.
+    /// parked run's `workflow.run.canceled`, a `question.wait.settled` for each form or reply wait
+    /// it ends, its results event for a run that posts them, and its rows' statements in one write;
+    /// then the session's binder told and each approval wait's card withdrawn, a failed withdraw
+    /// left to the restart's settle. A run that ended between the read and the write is read again.
     async fn cancel_unheld(
         &self,
         cancellation: WorkflowRunCancellation,
@@ -310,16 +323,18 @@ impl WorkflowRunControls {
                 session_id,
                 statements,
                 canceled: canceled_event,
+                questions_settled,
                 results_posted,
+                withdrawn_cards,
             } = write;
-            let canceled_draft = SessionEventDraft::of_session(session_id, &canceled_event)?;
-            let (draft, preceding_events) = match results_posted {
-                Some(posted) => (
-                    SessionEventDraft::of_session(session_id, &posted)?,
-                    vec![canceled_draft],
-                ),
-                None => (canceled_draft, Vec::new()),
-            };
+            let mut preceding_events = std::iter::once(&canceled_event)
+                .chain(&questions_settled)
+                .chain(&results_posted)
+                .map(|event| SessionEventDraft::of_session(session_id, event))
+                .collect::<Result<Vec<_>, _>>()?;
+            let draft = preceding_events
+                .pop()
+                .expect("a cancel's write holds its canceled event");
             let linkage = SessionEventLinkage {
                 transactional_prelude: statements.into(),
                 preceding_events,
@@ -328,6 +343,16 @@ impl WorkflowRunControls {
             match self.appender.append(draft, linkage).await {
                 Ok(receipt) => {
                     self.binder.note_context_changed(session_id);
+                    for wait_id in withdrawn_cards {
+                        if let Err(error) = self.cards.withdraw(session_id, wait_id).await {
+                            tracing::warn!(
+                                workflow_run_id = %workflow_run_id,
+                                wait_id = wait_id.text().as_str(),
+                                error = &*error as &(dyn Error + 'static),
+                                "a canceled run's approval card was not withdrawn"
+                            );
+                        }
+                    }
                     let event_id = receipt
                         .preceding_ids
                         .into_iter()
@@ -410,14 +435,6 @@ fn not_cancelable(workflow_run_id: WorkflowRunId, why: &str) -> DomainError {
 /// The refusal of a move of `workflow_run_id` to another version for `refusal`.
 fn repin_refused(workflow_run_id: WorkflowRunId, refusal: RepinRefusal) -> DomainError {
     match refusal {
-        RepinRefusal::NotParked => DomainError::new(
-            format!(
-                "Workflow run {workflow_run_id} is not waiting on a Resume, so it stays on its \
-                 version."
-            ),
-            RefusalCode::WorkflowRunRepairNotParked,
-        )
-        .with_detail(json!({ "workflowRunId": workflow_run_id })),
         RepinRefusal::AttemptInFlight(step) => DomainError::new(
             format!(
                 "Workflow run {workflow_run_id} cannot move to another version while its step at \
@@ -436,6 +453,20 @@ fn repin_refused(workflow_run_id: WorkflowRunId, refusal: RepinRefusal) -> Domai
             RefusalCode::WorkflowRunRepairVersionUnaccountable,
         )
         .with_detail(json!({ "workflowRunId": workflow_run_id })),
+        RepinRefusal::FailedNodesMissing(node_ids) => DomainError::new(
+            format!(
+                "Workflow run {workflow_run_id} cannot move to that version: it lacks the failed \
+                 step's node {}, which the Resume would run again. Pick a version that has it, or \
+                 cancel the run.",
+                node_ids
+                    .iter()
+                    .map(WorkflowNodeId::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            RefusalCode::WorkflowRunRepairFailedNodeMissing,
+        )
+        .with_detail(json!({ "workflowRunId": workflow_run_id, "nodeIds": node_ids })),
     }
 }
 

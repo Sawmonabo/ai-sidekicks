@@ -2,7 +2,6 @@
 //! own write, or a node run's walk seeded with the earlier steps it reuses and kept to the places
 //! it covers, whose first turn the run's share of the tick's turn writes.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
@@ -13,7 +12,7 @@ use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use super::EngineTick;
 use crate::engine::event_record::RunEngineRecord;
 use crate::engine::start::{StartedNodeRun, StartedReusedStep, StartedRun, StartedTrigger};
-use crate::engine::tick::live_runs::{LiveRun, LiveStep, ReusedOutputs};
+use crate::engine::tick::live_runs::{LiveRun, LiveStep};
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::walk::{RunGraph, RunWalk, WalkTurn};
 use crate::engine::tick::{ReadyStep, RunScope};
@@ -28,7 +27,7 @@ pub(super) enum RunOpening {
 
 impl EngineTick {
     /// Takes `run` into the live set on its walk, a node run's seeded with the steps it reuses,
-    /// each step's outputs held until the walk replays it, and kept to the places it covers.
+    /// each carrying its outputs until the walk replays it, and kept to the places it covers.
     /// Answers its trigger step, readied by the start's own write, on the start's items, or, where
     /// the walk replays the trigger, the walk's first turn.
     pub(super) fn start_run(&mut self, run: StartedRun) -> (WorkflowRunId, RunOpening) {
@@ -41,11 +40,15 @@ impl EngineTick {
         } = run;
         let run_id = scope.run_id;
         let record = self.recorder.for_run(run_id, Arc::clone(&scope.redaction));
-        let (covered, reused) = match node_run {
-            None => (None, Vec::new()),
-            Some(StartedNodeRun { covered, reused }) => (Some(covered), reused),
+        let (covered, sealed, reused) = match node_run {
+            None => (None, None, Vec::new()),
+            Some(StartedNodeRun {
+                covered,
+                sealed,
+                reused,
+            }) => (Some(covered), sealed, reused),
         };
-        let mut live = seeded_run(scope, graph, covered, reused, record);
+        let mut live = seeded_run(scope, graph, (covered, sealed), reused, record);
         let mut opened = live.walk.start();
         let opening = if opened.skipped.is_empty() {
             let trigger_step = opened
@@ -94,29 +97,17 @@ pub(super) fn trigger_inputs(
     inputs
 }
 
-/// The run of `scope` before any step, its walk over `graph` kept to `covered` (`None` covers every
-/// place) and seeded with `reused`, each reused step's outputs held until the walk replays it.
+/// The run of `scope` before any step, its walk over `graph` kept to the places `coverage` covers
+/// (`None` covers every place), a node run's target sealed where it names one, and seeded with
+/// `reused`, each reused step carrying its outputs until the walk replays it.
 pub(super) fn seeded_run(
     scope: Arc<RunScope>,
     graph: Arc<RunGraph>,
-    covered: Option<Arc<[bool]>>,
+    (covered, sealed): (Option<Arc<[bool]>>, Option<usize>),
     reused: Vec<StartedReusedStep>,
     record: RunEngineRecord,
 ) -> LiveRun {
-    let mut reused_outputs: HashMap<_, ReusedOutputs> = HashMap::new();
-    let mut seed = Vec::with_capacity(reused.len());
-    for StartedReusedStep {
-        seed: step,
-        outputs,
-        session_id,
-    } in reused
-    {
-        reused_outputs
-            .entry(step.node_id.clone())
-            .or_default()
-            .push((step.record.from.clone(), session_id, outputs));
-        seed.push(step);
-    }
-    let walk = RunWalk::reusing(graph, scope.run_id, covered, seed);
-    LiveRun::new(scope, walk, reused_outputs, record)
+    let seed = reused.into_iter().map(|step| step.seed).collect();
+    let walk = RunWalk::reusing(graph, scope.run_id, covered, sealed, seed);
+    LiveRun::new(scope, walk, record)
 }

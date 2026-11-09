@@ -129,6 +129,9 @@ impl QuestionsService {
                         QuestionWaitError::Refused { page, reason } => {
                             QuestionError::Refused(answer_invalid(question_id, page, reason))
                         }
+                        QuestionWaitError::NotHeld => {
+                            QuestionError::Refused(question_wait_not_held(question_id))
+                        }
                         QuestionWaitError::Failed(source) => QuestionError::Wait(source),
                     })?;
                 (settled.into(), None)
@@ -464,11 +467,9 @@ fn refused_answer(
             Some(QuestionAnswerInvalidReason::SecretOnPlain)
         }
         QuestionAnswer::Path { .. } => {
-            (prompt.path != Some(true)).then_some(QuestionAnswerInvalidReason::PathOnPlain)
+            (!prompt.path).then_some(QuestionAnswerInvalidReason::PathOnPlain)
         }
-        QuestionAnswer::Picked { .. } | QuestionAnswer::Typed { .. }
-            if prompt.path == Some(true) =>
-        {
+        QuestionAnswer::Picked { .. } | QuestionAnswer::Typed { .. } if prompt.path => {
             Some(QuestionAnswerInvalidReason::PathOnPlain)
         }
         QuestionAnswer::Picked { labels } => {
@@ -504,6 +505,15 @@ pub(crate) fn question_not_waiting(question_id: QuestionId) -> DomainError {
     DomainError::new(
         "The agent does not wait for this question; a message answers it",
         RefusalCode::QuestionNotWaiting,
+    )
+    .with_detail(json!({ "questionId": question_id }))
+}
+
+// `question.waitNotHeld` for a wait's question no run the engine holds waits on.
+fn question_wait_not_held(question_id: QuestionId) -> DomainError {
+    DomainError::new(
+        "No running workflow waits on this question; the answer was not taken",
+        RefusalCode::QuestionWaitNotHeld,
     )
     .with_detail(json!({ "questionId": question_id }))
 }

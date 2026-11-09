@@ -12,18 +12,6 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::ports::AgentStepRun;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 
-/// Why a set of branches was canceled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) enum BranchCancelReason {
-    /// A `firstToArrive` merge took its first input; the run goes on.
-    FirstToArrive,
-    /// A park or an end stopped the run's other branches, each of which fails as a sibling.
-    SiblingFailure,
-    /// A person canceled the run, whose branches each fail as canceled with it.
-    RunCanceled,
-}
-
 /// A step on a losing branch, with its cancel.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct BranchLoser {
@@ -41,7 +29,7 @@ pub(crate) struct BranchWave {
     /// The step whose turn decided the cancel.
     deciding: WorkflowStepKey,
     /// Why the branches were canceled.
-    reason: BranchCancelReason,
+    reason: WorkflowPhaseCancellationReason,
     /// The running losers, in loser order.
     members: Vec<WorkflowStepKey>,
     /// How many members have not settled yet.
@@ -74,7 +62,7 @@ pub(crate) enum WaveSettle {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn cancel_branches(
     deciding: WorkflowStepKey,
-    reason: BranchCancelReason,
+    reason: WorkflowPhaseCancellationReason,
     losers: Vec<BranchLoser>,
 ) -> (Vec<StepReport>, Option<BranchWave>) {
     let mut reports = Vec::new();
@@ -123,13 +111,6 @@ impl BranchWave {
         if self.unsettled > 0 {
             return WaveSettle::Pending { run_to_stop };
         }
-        let cancellation_reason = match self.reason {
-            BranchCancelReason::FirstToArrive => None,
-            BranchCancelReason::SiblingFailure => {
-                Some(WorkflowPhaseCancellationReason::SiblingFailure)
-            }
-            BranchCancelReason::RunCanceled => Some(WorkflowPhaseCancellationReason::RunCanceled),
-        };
         let members = std::mem::take(&mut self.members);
         let branches_canceled = StepReport {
             step: self.deciding.clone(),
@@ -145,7 +126,7 @@ impl BranchWave {
             at: closed_at.clone(),
             kind: StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at: None,
-                cancellation_reason,
+                cancellation_reason: Some(self.reason),
             }),
         });
         WaveSettle::Closed {
@@ -163,11 +144,12 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
     use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
-    use super::{BranchCancelReason, BranchLoser, WaveSettle, cancel_branches};
+    use super::{BranchLoser, WaveSettle, cancel_branches};
     use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
     use crate::kinds::step_context::StepRecords;
@@ -195,7 +177,7 @@ mod tests {
             }) => json!({ "canceled": {
                 "holdStartedAt": hold_started_at, "cancellationReason": cancellation_reason,
             } }),
-            StepReportKind::WaitingOnPool { .. }
+            StepReportKind::WaitingOnMemory { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
             | StepReportKind::ResumeDue { .. }
@@ -227,16 +209,19 @@ mod tests {
     /// settlement's instant. Mutations: write `BranchesCanceled` per member, or with another reason
     /// or count; stamp the closing reports with fresh clock reads; close the wave at its first
     /// settlement; write a raced `Completed` as completed; put the held loser in the wave or give
-    /// it a `Canceling`; answer `Pending` for a report that is no member's settlement; set
-    /// a reason on a `firstToArrive` wave's members, or another reason than the wave's; order the
-    /// members by settlement.
+    /// it a `Canceling`; answer `Pending` for a report that is no member's settlement; drop
+    /// the wave's reason from its members, or give them another; order the members by
+    /// settlement.
     #[rstest]
-    #[case::first_to_arrive(BranchCancelReason::FirstToArrive, None)]
-    #[case::sibling_failure(BranchCancelReason::SiblingFailure, Some("siblingFailure"))]
-    #[case::run_canceled(BranchCancelReason::RunCanceled, Some("runCanceled"))]
+    #[case::merge_first_to_arrive(
+        WorkflowPhaseCancellationReason::MergeFirstToArrive,
+        "mergeFirstToArrive"
+    )]
+    #[case::sibling_failure(WorkflowPhaseCancellationReason::SiblingFailure, "siblingFailure")]
+    #[case::run_canceled(WorkflowPhaseCancellationReason::RunCanceled, "runCanceled")]
     fn running_losers_settle_as_one_wave(
-        #[case] reason: BranchCancelReason,
-        #[case] cancellation_reason: Option<&str>,
+        #[case] reason: WorkflowPhaseCancellationReason,
+        #[case] cancellation_reason: &str,
     ) {
         let tokens = [
             CancellationToken::new(),
@@ -343,8 +328,11 @@ mod tests {
                 cancel: CancellationToken::new(),
             })
             .collect();
-        let (_reports, wave) =
-            cancel_branches(step("merge"), BranchCancelReason::FirstToArrive, losers);
+        let (_reports, wave) = cancel_branches(
+            step("merge"),
+            WorkflowPhaseCancellationReason::MergeFirstToArrive,
+            losers,
+        );
         let mut wave = wave.expect("two running losers make a wave");
         let spent = |node_id| {
             report(

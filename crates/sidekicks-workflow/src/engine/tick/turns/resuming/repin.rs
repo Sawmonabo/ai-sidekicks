@@ -1,7 +1,8 @@
-//! Whether a parked run may move to another version of its workflow on Resume: a run with nothing
-//! a Resume lifts, any attempt still in flight, or a target that cannot account for what the run
-//! already did refuses the move, each before anything is written; and the target as a move the
-//! Resume takes reads it: its graph, checked as a start checks one, and the run's steps it keeps.
+//! Whether a parked run may move to another version of its workflow on Resume: any attempt still
+//! in flight or settled in the turn ahead of the Resume, a target that cannot account for what the
+//! run already did, or one lacking a failed step's node refuses the move, each before anything is
+//! written; and the target as a move the Resume takes reads it: its graph, checked as a start
+//! checks one, and the run's steps it keeps.
 
 #![cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 
@@ -13,7 +14,7 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDocumentHashedBody, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::database::stored_column::{closed_word, text_column};
@@ -80,12 +81,14 @@ pub(crate) enum RepinReadError {
 impl EngineTick {
     /// The move of the run of `live`, which a Resume lifts, to `target`, or why it is refused with
     /// nothing written: `workflow.version.notFound` for a version no saved version of the run's
-    /// workflow answers to, then each refusal of [`repin_refusal`] in its order, then a start's
-    /// checks of the target's graph for the run's repository and provider. The steps the run
-    /// keeps are planned by [`plan_repin`]; their outputs are the run's own, already held.
+    /// workflow answers to, then each refusal of [`repin_refusal`] in its order, `settled_in_turn`
+    /// the first step the Resume's turn settled ahead of it, then a start's checks of the target's
+    /// graph for the run's repository and provider. The steps the run keeps are planned by
+    /// [`plan_repin`]; their outputs are the run's own, already held.
     pub(super) async fn repin_target(
         &self,
         live: &LiveRun,
+        settled_in_turn: Option<&WorkflowStepKey>,
         target: WorkflowVersionId,
     ) -> Result<RepinTarget, RunResumeRefusal> {
         let run_id = live.scope.run_id;
@@ -113,12 +116,8 @@ impl EngineTick {
         };
         let body = parse_stored_workflow_body(&version.definition_body)
             .map_err(|error| RunResumeRefusal::Unread(error.into()))?;
-        if let Some(refusal) = repin_refusal(
-            live.live_steps(),
-            live.is_parked_on_failure(),
-            &held_nodes,
-            &body,
-        ) {
+        if let Some(refusal) = repin_refusal(live.live_steps(), settled_in_turn, &held_nodes, &body)
+        {
             return Err(RunResumeRefusal::Repin(refusal));
         }
         let (nodes, graph) = check_run_graph(
@@ -174,32 +173,27 @@ fn read_held_nodes(
 /// Why a Resume may not move a run to another version.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RepinRefusal {
-    /// Nothing waits on a Resume: no account park and no failed park.
-    NotParked,
-    /// The named attempt is still in flight: running, held, pending or waiting.
+    /// The named attempt is still in flight: running, held, pending or waiting, or it settled in
+    /// the Resume's turn ahead of the Resume, so its row is not yet written.
     AttemptInFlight(WorkflowStepKey),
     /// The target lacks a node whose outputs the run holds, or cannot reach a step it completed.
     VersionUnaccountable,
+    /// The target lacks the nodes of these failed steps, which the Resume would run again.
+    FailedNodesMissing(Vec<WorkflowNodeId>),
 }
 
 /// Why the run, whose live steps are `live_steps`, may not move to `target` on Resume, `None` where
-/// it may: the run must be parked on a spent account or on a failure (`is_parked_on_failure`), no
-/// attempt of it may be in flight, the earliest named where one is, and `target` must hold every
-/// node in `held_nodes`, the nodes whose outputs the run holds, each reached from its trigger.
+/// it may: no attempt of it may be in flight, the earliest named where one is, nor settled in the
+/// Resume's turn ahead of it (`settled_in_turn`); `target` must hold every node in `held_nodes`,
+/// the nodes whose outputs the run holds, each reached from its trigger; and it must hold the node
+/// of every failed step, each named where it lacks one.
 pub(crate) fn repin_refusal<'tick>(
     live_steps: impl IntoIterator<Item = RunLiveStep<'tick>>,
-    is_parked_on_failure: bool,
+    settled_in_turn: Option<&WorkflowStepKey>,
     held_nodes: &HashSet<WorkflowNodeId>,
     target: &WorkflowDocumentHashedBody,
 ) -> Option<RepinRefusal> {
     let live_steps: Vec<RunLiveStep<'tick>> = live_steps.into_iter().collect();
-    let is_account_parked = live_steps.iter().any(|live| {
-        live.status == WorkflowStepStatus::Waiting
-            && live.wait_cause == Some(WorkflowWaitCause::Account)
-    });
-    if !is_account_parked && !is_parked_on_failure {
-        return Some(RepinRefusal::NotParked);
-    }
     if let Some(in_flight) = live_steps
         .iter()
         .filter(|live| is_in_flight(live))
@@ -207,9 +201,25 @@ pub(crate) fn repin_refusal<'tick>(
     {
         return Some(RepinRefusal::AttemptInFlight(in_flight.step.clone()));
     }
+    if let Some(settled) = settled_in_turn {
+        return Some(RepinRefusal::AttemptInFlight(settled.clone()));
+    }
     let reached = reached_nodes(target);
-    let is_accounted = held_nodes.iter().all(|node_id| reached.contains(node_id));
-    (!is_accounted).then_some(RepinRefusal::VersionUnaccountable)
+    if !held_nodes.iter().all(|node_id| reached.contains(node_id)) {
+        return Some(RepinRefusal::VersionUnaccountable);
+    }
+    let mut missing: Vec<WorkflowNodeId> = live_steps
+        .iter()
+        .filter(|live| live.status == WorkflowStepStatus::Failed)
+        .map(|live| &live.step.node_id)
+        .filter(|node_id| {
+            target.trigger.id != **node_id && !target.nodes.iter().any(|node| node.id == **node_id)
+        })
+        .cloned()
+        .collect();
+    missing.sort();
+    missing.dedup();
+    (!missing.is_empty()).then_some(RepinRefusal::FailedNodesMissing(missing))
 }
 
 /// Whether `live` is an attempt still in flight: running, held for memory, pending, or waiting on
@@ -218,17 +228,8 @@ fn is_in_flight(live: &RunLiveStep<'_>) -> bool {
     match live.status {
         WorkflowStepStatus::Running
         | WorkflowStepStatus::WaitingMemory
-        | WorkflowStepStatus::Pending => true,
-        WorkflowStepStatus::Waiting => match live.wait_cause {
-            Some(
-                WorkflowWaitCause::Approval
-                | WorkflowWaitCause::Form
-                | WorkflowWaitCause::Reply
-                | WorkflowWaitCause::Account
-                | WorkflowWaitCause::Chain,
-            ) => true,
-            None => unreachable!("a waiting step waits on a cause"),
-        },
+        | WorkflowStepStatus::Pending
+        | WorkflowStepStatus::Waiting => true,
         WorkflowStepStatus::Succeeded
         | WorkflowStepStatus::Failed
         | WorkflowStepStatus::Skipped
@@ -318,18 +319,20 @@ mod tests {
         node_ids.iter().map(|id| test_node_id(id)).collect()
     }
 
-    /// Each refusal in its order: a run with no park is not parked even with nothing in flight;
-    /// an account park, a step running beside a failed park, and a person's wait beside a failed
-    /// park are each in flight, the earliest named; a failed park alone moves only to a target
-    /// holding and reaching every node whose outputs the run holds. Mutations: check flight before
-    /// the park; name the latest attempt; leave the chain's wait out of flight; accept a target
-    /// missing a held node, or one that holds it unreached.
+    /// Each refusal in its order: an account park, a step running beside a failed park, and a
+    /// person's wait beside a failed park are each in flight, the earliest named, and so is a step
+    /// the Resume's turn settled ahead of it; a failed park alone moves only to a target holding
+    /// and reaching every node whose outputs the run holds, and holding the failed step's node.
+    /// Mutations: name the latest attempt; leave the chain's wait out of flight; let a step the
+    /// turn settled pass; accept a target missing a held node, one that holds it unreached, or one
+    /// lacking the failed step's node.
     #[test]
     fn a_repin_is_refused_in_order() {
         let failed = step("F", 1);
         let waiting = step("W", 2);
         let account = step("P", 3);
         let running = step("R", 0);
+        let settled = step("S", 4);
 
         let target = body(&["F", "W", "P"]);
         let held_a = held(&["A"]);
@@ -338,23 +341,10 @@ mod tests {
             repin_refusal(
                 [live(
                     WorkflowStepStatus::Waiting,
-                    Some(WorkflowWaitCause::Reply),
-                    &waiting
-                )],
-                false,
-                &held_a,
-                &target
-            ),
-            Some(RepinRefusal::NotParked)
-        );
-        assert_eq!(
-            repin_refusal(
-                [live(
-                    WorkflowStepStatus::Waiting,
                     Some(WorkflowWaitCause::Account),
                     &account
                 )],
-                false,
+                None,
                 &held_a,
                 &target
             ),
@@ -371,7 +361,7 @@ mod tests {
                     ),
                     live(WorkflowStepStatus::Running, None, &running),
                 ],
-                true,
+                None,
                 &held_a,
                 &target,
             ),
@@ -387,23 +377,31 @@ mod tests {
                         &waiting
                     ),
                 ],
-                true,
+                None,
                 &held_a,
                 &target,
             ),
             Some(RepinRefusal::AttemptInFlight(waiting.clone()))
         );
         let failed_alone = || [live(WorkflowStepStatus::Failed, None, &failed)];
-        assert_eq!(repin_refusal(failed_alone(), true, &held_a, &target), None);
         assert_eq!(
-            repin_refusal(failed_alone(), true, &held(&["A", "Gone"]), &target),
+            repin_refusal(failed_alone(), Some(&settled), &held_a, &target),
+            Some(RepinRefusal::AttemptInFlight(settled.clone()))
+        );
+        assert_eq!(repin_refusal(failed_alone(), None, &held_a, &target), None);
+        assert_eq!(
+            repin_refusal(failed_alone(), None, &held(&["A", "Gone"]), &target),
             Some(RepinRefusal::VersionUnaccountable)
         );
         let mut unreached = body(&["F"]);
         unreached.edges.retain(|edge| edge.target.as_str() != "A");
         assert_eq!(
-            repin_refusal(failed_alone(), true, &held_a, &unreached),
+            repin_refusal(failed_alone(), None, &held_a, &unreached),
             Some(RepinRefusal::VersionUnaccountable)
+        );
+        assert_eq!(
+            repin_refusal(failed_alone(), None, &held_a, &body(&["W"])),
+            Some(RepinRefusal::FailedNodesMissing(vec![test_node_id("F")]))
         );
     }
 }

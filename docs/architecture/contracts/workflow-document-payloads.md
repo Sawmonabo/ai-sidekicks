@@ -288,7 +288,7 @@ interface WorkflowStep {
   childWorkflowRunId?: WorkflowRunId;
   // The milliseconds the memory gate held the step before it started, summed over every hold; `0`
   // where it was never held.
-  totalPoolWaitMs: number;
+  totalMemoryWaitMs: number;
   startedAt: string;
   finishedAt?: string;
   // The three refs a step panel reads. They are refs and not payloads, so a run read stays bounded

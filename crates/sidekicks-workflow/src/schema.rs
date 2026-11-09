@@ -22,6 +22,7 @@ use sidekicks_contracts::workflow::run::gate_resolution::{
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_contracts::workflow::secret::WorkflowSecretScope;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
@@ -62,6 +63,8 @@ fn workflow_schema_sql() -> String {
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
     let skipped = <&'static str>::from(WorkflowStepStatus::Skipped);
+    let canceled = <&'static str>::from(WorkflowStepStatus::Canceled);
+    let cancellation_reasons = sql_list_of_every::<WorkflowPhaseCancellationReason>();
     let wait_causes = sql_list_of_every::<WorkflowWaitCause>();
     let account = <&'static str>::from(WorkflowWaitCause::Account);
     let person_wait_causes = sql_list_of(
@@ -391,9 +394,16 @@ CREATE TABLE workflow_steps (
   -- failed it, from its workflow.step.failed. NULL on every other step and on a
   -- bare decline.
   decline_reason    TEXT,
+  -- Why a canceled step was canceled, from its workflow.step.canceled: a sibling's failure, the
+  -- run's cancel or a first-to-arrive merge's win. NULL on every other step and on a cancel with
+  -- no recorded cause.
+  cancellation_reason TEXT
+                    CHECK(cancellation_reason IS NULL
+                      OR (status = '{canceled}'
+                        AND cancellation_reason IN ({cancellation_reasons}))),
   -- The milliseconds the memory gate held the step, summed over its holds.
-  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0
-                    CHECK(total_pool_wait_ms >= 0),
+  total_memory_wait_ms INTEGER NOT NULL DEFAULT 0
+                    CHECK(total_memory_wait_ms >= 0),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
   UNIQUE(workflow_run_id, execution_index),

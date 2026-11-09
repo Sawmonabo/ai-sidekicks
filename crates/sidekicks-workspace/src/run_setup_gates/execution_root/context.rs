@@ -71,12 +71,9 @@ const RELEASE_RUN_CONTEXT_SQL: &str = "UPDATE run_execution_contexts SET release
 const ARCHIVE_RUN_WORKSPACE_SQL: &str = "UPDATE workspaces SET state = @archived, updated_at = @now
   WHERE workflow_run_id = @run_id AND state <> @archived";
 
-// Over a JSON list of run ids: their workspaces' branch contexts first, so the foreign keys hold.
-const RUN_WORKSPACE_DELETE_SQL: [&str; 2] = [
-    "DELETE FROM branch_contexts WHERE workspace_id IN
-  (SELECT id FROM workspaces WHERE workflow_run_id IN (SELECT value FROM json_each(?1)))",
-    "DELETE FROM workspaces WHERE workflow_run_id IN (SELECT value FROM json_each(?1))",
-];
+// The deletes of the workspaces of the runs a JSON list of their ids names.
+static LISTED_RUN_WORKSPACE_DELETE_SQL: LazyLock<[String; 2]> =
+    LazyLock::new(|| run_workspace_delete_sql("SELECT value FROM json_each(?1)"));
 
 /// Binds a run a session starts outside the run engine, a workflow run, in the session's own live
 /// workspace, and holds the checkout its context row is written in, which the gate implements.
@@ -237,15 +234,18 @@ pub fn archive_run_workspace_statement(run_id: &str, now: &WireInstant) -> Write
     }
 }
 
-/// The statements that delete the workspaces the workflow runs of `run_ids_json`, a JSON list of
-/// their ids, own, their branch contexts first; a write runs them once those runs' context rows,
-/// which name the branch contexts, are gone. They change no row for a run that owns none.
-pub fn run_workspace_deletion_statements(run_ids_json: &str) -> [WriteStatement; 2] {
-    RUN_WORKSPACE_DELETE_SQL.map(|sql| WriteStatement {
-        sql: Cow::Borrowed(sql),
-        bindings: StatementBindings::Positional(vec![Value::Text(run_ids_json.to_owned())]),
-        expected_row_count: None,
-    })
+/// The deletes of the workspaces the workflow runs `runs` selects own, `runs` a subquery of run
+/// ids over the statement's bindings, their branch contexts first so the foreign keys hold; a
+/// write runs them once those runs' context rows, which name the branch contexts, are gone. They
+/// change no row for a run that owns none.
+pub fn run_workspace_delete_sql(runs: &str) -> [String; 2] {
+    [
+        format!(
+            "DELETE FROM branch_contexts WHERE workspace_id IN
+  (SELECT id FROM workspaces WHERE workflow_run_id IN ({runs}))"
+        ),
+        format!("DELETE FROM workspaces WHERE workflow_run_id IN ({runs})"),
+    ]
 }
 
 impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetupGate<W> {
@@ -320,8 +320,17 @@ impl<W: Watcher + Send + Sync + 'static> SessionRunBinder for ExecutionRootSetup
         Box::pin(async move {
             let run_ids_json =
                 serde_json::to_string(&[workflow_run_id]).expect("a run id writes as JSON");
+            let statements = LISTED_RUN_WORKSPACE_DELETE_SQL
+                .iter()
+                .map(|sql| WriteStatement {
+                    sql: Cow::Borrowed(sql.as_str()),
+                    bindings: StatementBindings::Positional(vec![Value::Text(
+                        run_ids_json.clone(),
+                    )]),
+                    expected_row_count: None,
+                });
             self.writer
-                .write(Vec::from(run_workspace_deletion_statements(&run_ids_json)))
+                .write(statements.collect())
                 .await
                 .map(drop)
                 .map_err(failed)

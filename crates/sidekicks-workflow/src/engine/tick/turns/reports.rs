@@ -25,7 +25,7 @@ use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_fail
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
 use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
-use crate::engine::tick::branch_cancellation::{BranchCancelReason, WaveSettle};
+use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{
     RunEnding, RunTurnCommit, SettlementAnswer, SettlementWriteFailure,
 };
@@ -76,14 +76,23 @@ impl EngineTick {
         let Some(mut report) = offer_to_waves(live, &mut turn.follow_ups, report).await else {
             return;
         };
-        // Every step a person's cancel stops fails as canceled with its run.
-        if matches!(live.ending, Some(RunEnding::Canceled { .. }))
-            && let StepReportKind::Settled(StepSettlement::Canceled {
-                cancellation_reason,
-                ..
-            }) = &mut report.kind
+        // A held step a merge's win canceled records that cause; every other step a person's
+        // cancel stops fails as canceled with its run.
+        if let StepReportKind::Settled(StepSettlement::Canceled {
+            cancellation_reason,
+            ..
+        }) = &mut report.kind
         {
-            cancellation_reason.get_or_insert(WorkflowPhaseCancellationReason::RunCanceled);
+            let is_merge_canceled = live
+                .steps
+                .get(&report.step.execution_index.get())
+                .is_some_and(|live_step| live_step.is_merge_canceled);
+            if is_merge_canceled {
+                cancellation_reason
+                    .get_or_insert(WorkflowPhaseCancellationReason::MergeFirstToArrive);
+            } else if matches!(live.ending, Some(RunEnding::Canceled { .. })) {
+                cancellation_reason.get_or_insert(WorkflowPhaseCancellationReason::RunCanceled);
+            }
         }
         if let StepReportKind::BranchesCanceled { reason, count } = report.kind {
             turn.commit
@@ -109,7 +118,7 @@ impl EngineTick {
             None => return,
         }
         let hold = match &report.kind {
-            StepReportKind::WaitingOnPool { .. } => Some(Some(report.at.clone())),
+            StepReportKind::WaitingOnMemory { .. } => Some(Some(report.at.clone())),
             StepReportKind::Admitted { .. } => Some(None),
             StepReportKind::Settled(_) => {
                 let step = report.step.clone();
@@ -270,7 +279,8 @@ impl EngineTick {
                 turn.commit.retried(&next, failed.input_ref.clone());
                 // A stopped run starts nothing new; with no wait, the attempt goes out this turn.
                 let follows = if live.stop.is_some() {
-                    turn.commit.canceled_unrun(&next.step, &at);
+                    let reason = live.stop_cancellation_reason();
+                    turn.commit.canceled_unrun(&next.step, &at, reason);
                     live.leave_walk(&next.step, &failed.inputs, &failed.input_ref);
                     ReadiedNext::Canceled
                 } else if wait.is_zero() {
@@ -575,7 +585,7 @@ pub(super) async fn stop_steps(
                 .map(|readied| readied.ready.step.clone()),
         )
         .collect();
-    let siblings = sort_losers(live, turn, others, at).await;
+    let siblings = sort_losers(live, turn, others, at, false).await;
     // With no running sibling no wave forms, so the step the key names carries nothing.
     let Some(deciding) = deciding
         .cloned()
@@ -589,11 +599,7 @@ pub(super) async fn stop_steps(
     else {
         return;
     };
-    let reason = if matches!(live.ending, Some(RunEnding::Canceled { .. })) {
-        BranchCancelReason::RunCanceled
-    } else {
-        BranchCancelReason::SiblingFailure
-    };
+    let reason = live.stop_cancellation_reason();
     let SiblingStop {
         reports,
         wave,
@@ -602,11 +608,12 @@ pub(super) async fn stop_steps(
     turn.follow_ups.extend(reports);
     live.waves.extend(wave);
     for waiting in canceled_waits {
-        cancel_now(live, turn, waiting, at).await;
+        cancel_now(live, turn, waiting, at, None).await;
     }
 }
 
-/// Sorts `steps`, which a cancel of `live` at `at` names, by how each stops. A step readied
+/// Sorts `steps`, which a cancel of `live` at `at` names, by how each stops: the run's stop, or
+/// where `is_merge_win`, a first-to-arrive merge's win, whose cause each records. A step readied
 /// earlier in this turn is canceled unrun and leaves the walk; an undispatched `pending` step is
 /// canceled now; a step winding down, or one that settled, is left as it is. Answers each running
 /// step with its cancel, each dispatched one the entry line or the memory gate holds with its
@@ -616,7 +623,9 @@ pub(super) async fn sort_losers(
     turn: &mut RunTurn,
     steps: Vec<WorkflowStepKey>,
     at: &WireInstant,
+    is_merge_win: bool,
 ) -> Vec<RunSibling> {
+    let merge_cause = is_merge_win.then_some(WorkflowPhaseCancellationReason::MergeFirstToArrive);
     // A failed park's cancels are run again by the person's Resume.
     let is_parked = live.is_parked_on_failure();
     let mut siblings = Vec::new();
@@ -628,7 +637,8 @@ pub(super) async fn sort_losers(
         {
             if !matches!(readied.next, ReadiedNext::Canceled) {
                 readied.next = ReadiedNext::Canceled;
-                turn.commit.canceled_unrun(&step, at);
+                let reason = merge_cause.unwrap_or_else(|| live.stop_cancellation_reason());
+                turn.commit.canceled_unrun(&step, at, reason);
                 live.leave_walk(&step, &readied.inputs, &readied.input_ref);
             }
             continue;
@@ -649,11 +659,12 @@ pub(super) async fn sort_losers(
             (WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory, Some(cancel)) => {
                 // A held loser of an earlier race is already canceled and is not run again.
                 live_step.is_park_canceled = is_parked && !cancel.is_cancelled();
+                live_step.is_merge_canceled |= is_merge_win;
                 SiblingState::Held(cancel.clone())
             }
             (WorkflowStepStatus::Pending, None) => {
                 live_step.is_park_canceled = is_parked;
-                cancel_now(live, turn, step, at).await;
+                cancel_now(live, turn, step, at, merge_cause).await;
                 continue;
             }
             (WorkflowStepStatus::Waiting, _) => SiblingState::Waiting,
@@ -728,13 +739,15 @@ fn is_step_timeout(error: &WorkflowStepError) -> bool {
         })
 }
 
-/// Cancels the live `step` of `live` at `at` without a driver: its cancel queued on the turn's
-/// follow-ups, and the agent run a spent account parked on it stopped.
+/// Cancels the live `step` of `live` at `at` without a driver for `cancellation_reason`, `None`
+/// where the run's stop records none: its cancel queued on the turn's follow-ups, and the agent
+/// run a spent account parked on it stopped.
 pub(super) async fn cancel_now(
     live: &mut LiveRun,
     turn: &mut RunTurn,
     step: WorkflowStepKey,
     at: &WireInstant,
+    cancellation_reason: Option<WorkflowPhaseCancellationReason>,
 ) {
     let parked = live
         .steps
@@ -747,7 +760,7 @@ pub(super) async fn cancel_now(
         at: at.clone(),
         kind: StepReportKind::Settled(StepSettlement::Canceled {
             hold_started_at: None,
-            cancellation_reason: None,
+            cancellation_reason,
         }),
     });
 }

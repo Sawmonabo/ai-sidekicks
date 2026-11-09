@@ -53,7 +53,6 @@ use sidekicks_workspace::working_folder::{
 use tokio_util::sync::CancellationToken;
 
 use super::check::read_definition_scope;
-use super::retry::FIRST_MODE_SQL;
 use super::{check_run_graph, hash_run_pins, read_session_project};
 use crate::definitions::kept_values::{WorkflowKeptValueError, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_workflow_body;
@@ -66,6 +65,7 @@ use crate::engine::waits::step_key;
 use crate::kinds::{NodeKindTable, coded_step_error, uncoded_step_error};
 use crate::runs::gate_resolution::RunEventKeys;
 use crate::runs::projection::suspended_step;
+use crate::runs::record::FIRST_NON_RETRY_MODE_SQL;
 use crate::secrets::redaction::RunRedaction;
 
 // The session's unfinished runs, each with the root, mount and project of the context it holds
@@ -106,7 +106,7 @@ static KEPT_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // How the first run of a retry's chain of retries that is not a retry was started.
 static FIRST_MODE_OF_RUN_SQL: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {}", *FIRST_MODE_SQL));
+    LazyLock::new(|| format!("SELECT {}", *FIRST_NON_RETRY_MODE_SQL));
 
 /// The events the restart replays: a run's start, failed park and Resume, and each step's hold,
 /// admission, wait, wind-down, retry and settlement.
@@ -114,7 +114,7 @@ const REPLAYED_EVENT_TYPES: [SessionEventType; 12] = [
     SessionEventType::WorkflowRunStarted,
     SessionEventType::WorkflowRunFailed,
     SessionEventType::WorkflowRunResumed,
-    SessionEventType::WorkflowPhaseWaitingOnPool,
+    SessionEventType::WorkflowPhaseWaitingOnMemory,
     SessionEventType::WorkflowPhaseAdmitted,
     SessionEventType::WorkflowPhaseSuspended,
     SessionEventType::WorkflowPhaseCanceling,
@@ -159,7 +159,7 @@ pub(crate) struct ReplayedEvent {
 }
 
 /// What a reloaded run runs on: its scope, its pinned version's graph, and for a node run the
-/// places it covers.
+/// places it covers and its target's place.
 pub(crate) struct ReloadedScope {
     /// What the run's steps share.
     pub(crate) scope: Arc<RunScope>,
@@ -167,6 +167,8 @@ pub(crate) struct ReloadedScope {
     pub(crate) graph: Arc<RunGraph>,
     /// The places a node run covers, by place; `None` for a run that covers every place.
     pub(crate) covered: Option<Arc<[bool]>>,
+    /// A node run's target's place, whose outputs feed nothing; `None` for any other run.
+    pub(crate) sealed: Option<usize>,
 }
 
 /// A step of a reloaded run not settled, failed or canceled, as its row stores it.
@@ -345,7 +347,13 @@ fn read_session_runs(
                     Ok(checked) => checked,
                     Err(refusal) => break 'built Err(refused_error(&refusal)),
                 };
-            match hash_run_pins(pin_data_json.as_deref(), row.mode) {
+            // A retry honors the pins its chain's first run that is not a retry honored.
+            let pins_mode = if row.is_retry {
+                retried_mode.unwrap_or(row.mode)
+            } else {
+                row.mode
+            };
+            match hash_run_pins(pin_data_json.as_deref(), pins_mode) {
                 Ok(pins) => Ok(((body.name, nodes, graph), pins)),
                 Err(error) => Err(uncoded_step_error(error.to_string())),
             }
@@ -358,6 +366,10 @@ fn read_session_runs(
                 }
                 Arc::from(covered)
             });
+            let sealed = row
+                .node_run
+                .as_ref()
+                .map(|node_run| graph.place(&node_run.node_id));
             let working_folder = row
                 .execution_root
                 .clone()
@@ -398,6 +410,7 @@ fn read_session_runs(
                 scope: Arc::new(scope),
                 graph: Arc::new(graph),
                 covered,
+                sealed,
             }
         });
         runs.push(ReloadedRun {
@@ -491,7 +504,7 @@ fn replayed_event(
         SessionEvent::WorkflowRunStarted(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowRunFailed(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowRunResumed(payload) => payload.workflow_run_id,
-        SessionEvent::WorkflowPhaseWaitingOnPool(payload) => payload.workflow_run_id,
+        SessionEvent::WorkflowPhaseWaitingOnMemory(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowPhaseAdmitted(payload) => payload.workflow_run_id,
         SessionEvent::WorkflowPhaseSuspended(payload) => suspended_step(payload).workflow_run_id,
         SessionEvent::WorkflowPhaseCanceling(payload) => payload.workflow_run_id,

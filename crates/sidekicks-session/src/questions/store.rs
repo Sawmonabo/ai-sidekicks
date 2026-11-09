@@ -336,10 +336,17 @@ pub(crate) fn wait_settled_statement(
     if event_type != SessionEventType::QuestionWaitSettled {
         return None;
     }
-    let session_id = payload.get("sessionId").and_then(Value::as_str)?;
-    let wait_id = payload.get("waitId").and_then(Value::as_str)?;
-    let outcome: QuestionWaitOutcome = serde_json::from_value(payload.get("outcome")?.clone())
-        .expect("a stored question.wait.settled passed its payload's check");
+    let checked = "a stored question.wait.settled passed its payload's check";
+    let session_id = payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .expect(checked);
+    let wait_id = payload
+        .get("waitId")
+        .and_then(Value::as_str)
+        .expect(checked);
+    let outcome: QuestionWaitOutcome =
+        serde_json::from_value(payload.get("outcome").expect(checked).clone()).expect(checked);
     let state = match outcome {
         QuestionWaitOutcome::Answered => QuestionSettledState::Answered,
         QuestionWaitOutcome::TimedOut | QuestionWaitOutcome::Ended => {

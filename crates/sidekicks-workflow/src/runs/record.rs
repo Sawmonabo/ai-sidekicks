@@ -40,6 +40,21 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::{
 
 use crate::runs::spent_account::SpentAccountColumns;
 
+/// A scalar subquery answering how the run `@run_id`, or the first run before it that is not a
+/// retry, followed back through each retry's retried run, was started; `NULL` for a chain of
+/// retries whose first run is gone.
+pub(crate) static FIRST_NON_RETRY_MODE_SQL: LazyLock<String> = LazyLock::new(|| {
+    let retry = <&'static str>::from(WorkflowRunMode::Retry);
+    format!(
+        "(WITH RECURSIVE retried(mode, retried_run_id) AS (
+         SELECT mode, retried_run_id FROM workflow_runs WHERE id = @run_id
+       UNION ALL
+         SELECT earlier.mode, earlier.retried_run_id
+           FROM workflow_runs AS earlier JOIN retried ON earlier.id = retried.retried_run_id)
+     SELECT mode FROM retried WHERE mode <> '{retry}' LIMIT 1)"
+    )
+});
+
 /// One run as its row stores it. `finished_at` once present is when the run ended, and `error`
 /// says why a failed, canceled or crashed run ended.
 #[derive(Clone, Debug, PartialEq)]

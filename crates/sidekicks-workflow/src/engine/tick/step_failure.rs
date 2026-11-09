@@ -16,13 +16,12 @@ use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::failures::{
     WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
 };
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::tick::StepReport;
-use crate::engine::tick::branch_cancellation::{
-    BranchCancelReason, BranchLoser, BranchWave, cancel_branches,
-};
+use crate::engine::tick::branch_cancellation::{BranchLoser, BranchWave, cancel_branches};
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
 use crate::kinds::{StepFailure, coded_step_error, uncoded_step_error};
@@ -272,7 +271,7 @@ pub(crate) struct SiblingStop {
 pub(crate) fn stop_siblings(
     deciding: WorkflowStepKey,
     stop: RunStop,
-    reason: BranchCancelReason,
+    reason: WorkflowPhaseCancellationReason,
     siblings: Vec<RunSibling>,
 ) -> SiblingStop {
     let mut losers = Vec::new();
@@ -320,7 +319,7 @@ mod tests {
     use super::{
         RunSibling, RunStop, SiblingState, StepFailureRoute, route_step_failure, stop_siblings,
     };
-    use crate::engine::tick::branch_cancellation::{BranchCancelReason, WaveSettle};
+    use crate::engine::tick::branch_cancellation::WaveSettle;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
     use crate::kinds::StepFailure;
 
@@ -520,7 +519,7 @@ mod tests {
         let stopped = stop_siblings(
             step("failed", 1),
             stop,
-            BranchCancelReason::SiblingFailure,
+            WorkflowPhaseCancellationReason::SiblingFailure,
             siblings,
         );
         let reports: Vec<(String, bool)> = stopped

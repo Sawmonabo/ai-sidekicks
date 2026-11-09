@@ -1,41 +1,30 @@
 //! A node run in the tick's loop: its walk seeded with the earlier steps it reuses, their skips
-//! and the steps they ready in one write, kept to the places it covers, and a reused output that
-//! lives in another session stored again in this run's.
+//! and the steps they ready in one write, kept to the places it covers with its target sealed, and
+//! a reused payload that lives in another session stored again in this run's.
+
+use std::collections::HashMap;
 
 use rstest::rstest;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowEdge, WorkflowNode, WorkflowVersionId,
+    WorkflowEdge, WorkflowNode, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
 use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
-use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 
 use super::harness::{Harness, edge, item, large_items, node};
-use crate::engine::partial_run::{PartialRunPlan, read_settled_steps};
+use crate::definitions::versions::history::WorkflowVersions;
+use crate::engine::partial_run::{PartialRunPlan, plan_partial_run};
+use crate::engine::tick::RunGraph;
 use crate::runs::step_payload::write_step_payload;
 use crate::test_rows::{
-    TEST_SESSION_ID, TestSettledStep, assert_rebuild_rewrites_run_rows, insert_run,
-    insert_settled_step, test_node_id,
+    EARLIER_RUN_ID, EarlierStep, TEST_SESSION_ID, assert_rebuild_rewrites_session_rows,
+    earlier_key, set_payload_ref, store_earlier_run, test_node_id,
 };
-
-/// The earlier run whose settled steps the node runs reuse.
-const EARLIER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
-
-/// One step of the earlier run: its node, its execution index, the `(node, execution index)` of
-/// the step feeding each slot, and its main outputs' items.
-type EarlierStep = (
-    &'static str,
-    u32,
-    &'static [(&'static str, u32)],
-    Vec<Vec<WorkflowItem>>,
-);
 
 /// The chain `T → A → B → C`.
 fn chain() -> (Vec<WorkflowNode>, Vec<WorkflowEdge>) {
@@ -72,110 +61,38 @@ fn node_run(node_id: &str, scope: WorkflowNodeExecuteScope) -> WorkflowNodeRun {
     }
 }
 
-/// The key of the earlier run's first attempt of `node_id` at `execution_index`.
-fn earlier_key(node_id: &str, execution_index: u64) -> WorkflowStepKey {
-    WorkflowStepKey {
-        workflow_run_id: WorkflowRunId::new(EARLIER_RUN_ID).expect("the earlier run's id"),
-        node_id: test_node_id(node_id),
-        attempt: SafeInt::new(1).expect("1 is a whole number from 1"),
-        execution_index: SafeInt::new(execution_index).expect("a small execution index"),
-    }
-}
-
-/// Stores the earlier run of `version_id`, its every step succeeded with its outputs inline.
-fn store_earlier_run(rows: &Connection, version_id: WorkflowVersionId, steps: &[EarlierStep]) {
-    insert_run(
-        rows,
-        EARLIER_RUN_ID,
-        version_id.text().as_str(),
-        WorkflowRunStatus::Succeeded,
-        "2026-10-02T00:00:00.000Z",
-        Some("2026-10-02T01:00:00.000Z"),
-    );
-    for (node_id, execution_index, sources, outputs) in steps {
-        let counts: Vec<u64> = outputs
-            .iter()
-            .map(|output| u64::try_from(output.len()).expect("a test output's length fits"))
-            .collect();
-        insert_settled_step(
-            rows,
-            EARLIER_RUN_ID,
-            &TestSettledStep {
-                node_id,
-                attempt: 1,
-                execution_index: *execution_index,
-                status: WorkflowStepStatus::Succeeded,
-                finished_at: "2026-10-02T00:30:00.000Z",
-                sources,
-                output_item_counts: &counts,
-                pin_hash: None,
-                reused_from: None,
-            },
-        );
-        let items = WorkflowPayloadRef::Inline {
-            items: outputs.concat(),
-        };
-        set_output_ref(rows, node_id, *execution_index, &items);
-    }
-}
-
-/// Points the earlier run's step of `node_id` at `execution_index` at `output_ref`.
-fn set_output_ref(
-    rows: &Connection,
-    node_id: &str,
-    execution_index: u32,
-    output_ref: &WorkflowPayloadRef,
-) {
-    rows.execute(
-        "UPDATE workflow_steps SET output_ref = ?1 \
-         WHERE workflow_run_id = ?2 AND node_id = ?3 AND execution_index = ?4",
-        params![
-            serde_json::to_string(output_ref).expect("a payload ref writes as JSON"),
-            EARLIER_RUN_ID,
-            node_id,
-            execution_index
-        ],
-    )
-    .expect("the test stores the earlier step's output");
-}
-
-/// The plan of a node run in `scope` that executes `executed` and keeps the earlier run's steps of
-/// `kept`, reused from a node or read as the target's prior input for one node.
+/// The plan the start makes of `node_run` of version `version_id` over the stored rows and
+/// `graph`, with no pins, reusing runs that worked in no project's repository.
 fn plan(
     rows: &Connection,
-    definition_id: WorkflowDefinitionId,
-    scope: WorkflowNodeExecuteScope,
-    executed: &[&str],
-    kept: &[&str],
+    graph: &RunGraph,
+    version_id: WorkflowVersionId,
+    node_run: &WorkflowNodeRun,
 ) -> PartialRunPlan {
-    let kept_ids: Vec<_> = kept.iter().map(|node_id| test_node_id(node_id)).collect();
-    let mut settled =
-        read_settled_steps(rows, definition_id, &kept_ids).expect("the earlier steps read");
-    let kept = kept_ids
-        .into_iter()
-        .map(|node_id| {
-            let steps = settled
-                .remove(&node_id)
-                .expect("the earlier run settled it");
-            (node_id, steps)
+    let version = WorkflowVersions::new(rows)
+        .read_version(version_id)
+        .expect("the run's version reads");
+    let pins = HashMap::new();
+    let (target, scope) = (&node_run.node_id, node_run.scope);
+    plan_partial_run(rows, &version, graph, target, scope, &pins, None).expect("the plan reads")
+}
+
+/// Starts `node_run` over `nodes` and `edges` once `before` stored the earlier run, on the plan
+/// the start makes of it.
+async fn start_node_run(
+    harness: &Harness,
+    (nodes, edges): (Vec<WorkflowNode>, Vec<WorkflowEdge>),
+    node_run: WorkflowNodeRun,
+    before: impl FnOnce(&Connection),
+) {
+    let version_id = harness.scope.workflow_version_id;
+    let planned = node_run.clone();
+    harness
+        .start_node_run(nodes, &edges, node_run, |rows, graph| {
+            before(rows);
+            plan(rows, graph, version_id, &planned)
         })
-        .collect();
-    let executed = executed
-        .iter()
-        .map(|node_id| test_node_id(node_id))
-        .collect();
-    match scope {
-        WorkflowNodeExecuteScope::FromHere => PartialRunPlan {
-            executed,
-            reused: kept,
-            inputs: Vec::new(),
-        },
-        WorkflowNodeExecuteScope::Node => PartialRunPlan {
-            executed,
-            reused: Vec::new(),
-            inputs: kept,
-        },
-    }
+        .await;
 }
 
 /// `column` of this run's step of `node_id`, `None` while it has no row.
@@ -226,40 +143,35 @@ fn ran(harness: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// `T` and `A` are reused and `B` and `C` run: the reused steps are skipped `reused` naming the
-/// earlier steps they carry, `B`'s `pending` row rides on `A`'s skip in the seed's one write, and
-/// `B` runs on `A`'s earlier output; a rebuild from the log writes the run's rows byte-identical.
-/// Mutations: in `RunWalk::reusing`, queue no seed step, so the walk readies `T` to run and the
-/// start finds no trigger input (`start_run`'s trigger `expect`); the fold's
-/// `workflow.step.skipped` arm dropping `reusedFrom` or the steps the skip readied (the rebuilt
-/// rows differ).
+/// A run from `C` with nothing changed reuses `T`, `A` and `B` and runs `C`: each reused step is
+/// skipped `reused`, naming the earlier step it carries and recording that step's input as its
+/// own, `C`'s `pending` row rides on `B`'s skip in the seed's one write, and `C` runs on `B`'s
+/// earlier output; a rebuild from the log writes the run's rows byte-identical. Mutations: in
+/// `RunWalk::reusing`, queue no seed step (the start finds no trigger input); record a reused
+/// skip's input from its feeds (`T`'s reads empty); the fold's `workflow.step.skipped` arm
+/// dropping `reusedFrom` or the steps the skip readied (the rebuilt rows differ).
 #[tokio::test]
-async fn run_from_here_reuses_the_clean_steps_and_runs_the_dirty_ones() {
+async fn run_from_here_reuses_the_clean_steps_and_runs_the_target() {
     let mut harness = Harness::new(None).await;
-    let (version_id, definition_id) =
-        (harness.scope.workflow_version_id, harness.scope.workflow_id);
-    let (nodes, edges) = chain();
-    harness
-        .start_node_run(
-            nodes,
-            &edges,
-            node_run("C", WorkflowNodeExecuteScope::FromHere),
-            |rows| {
-                store_earlier_run(rows, version_id, &chain_steps());
-                plan(
-                    rows,
-                    definition_id,
-                    WorkflowNodeExecuteScope::FromHere,
-                    &["B", "C"],
-                    &["T", "A"],
-                )
-            },
-        )
-        .await;
+    let version_id = harness.scope.workflow_version_id;
+    let trigger_input = WorkflowPayloadRef::Inline {
+        items: vec![named("start")],
+    };
+    let earlier_input = trigger_input.clone();
+    start_node_run(
+        &harness,
+        chain(),
+        node_run("C", WorkflowNodeExecuteScope::FromHere),
+        |rows| {
+            store_earlier_run(rows, version_id.text().as_str(), &chain_steps());
+            set_payload_ref(rows, "T", 0, "input_ref", &earlier_input);
+        },
+    )
+    .await;
 
     assert_eq!(ended(&mut harness).await, "succeeded");
-    assert_eq!(ran(&harness), ["B", "C"]);
-    for (node_id, execution_index) in [("T", 0), ("A", 1)] {
+    assert_eq!(ran(&harness), ["C"]);
+    for (node_id, execution_index) in [("T", 0), ("A", 1), ("B", 2)] {
         assert_eq!(
             column(&harness, node_id, "status").as_deref(),
             Some("skipped")
@@ -274,20 +186,17 @@ async fn run_from_here_reuses_the_clean_steps_and_runs_the_dirty_ones() {
             json!(execution_index)
         );
     }
-    let (_, _, skipped_at, skipped) = harness.event("workflow.step.skipped", "A");
-    assert_eq!(skipped["readied"][0]["nodeId"], json!("B"));
-    assert_eq!(column(&harness, "B", "started_at"), Some(skipped_at));
+    assert_eq!(payload_ref(&harness, "T", "input_ref"), trigger_input);
+    let (_, _, skipped_at, skipped) = harness.event("workflow.step.skipped", "B");
+    assert_eq!(skipped["readied"][0]["nodeId"], json!("C"));
+    assert_eq!(column(&harness, "C", "started_at"), Some(skipped_at));
     assert_eq!(
-        payload_ref(&harness, "B", "input_ref"),
+        payload_ref(&harness, "C", "input_ref"),
         WorkflowPayloadRef::Inline {
-            items: vec![named("A")]
+            items: vec![named("B")]
         }
     );
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A run from `B` covers `T`, `A` and `B` alone, so `C`, which `B` feeds, gets no row and the run
@@ -296,46 +205,37 @@ async fn run_from_here_reuses_the_clean_steps_and_runs_the_dirty_ones() {
 #[tokio::test]
 async fn the_targets_descendants_never_run() {
     let mut harness = Harness::new(None).await;
-    let (version_id, definition_id) =
-        (harness.scope.workflow_version_id, harness.scope.workflow_id);
-    let (nodes, edges) = chain();
-    harness
-        .start_node_run(
-            nodes,
-            &edges,
-            node_run("B", WorkflowNodeExecuteScope::FromHere),
-            |rows| {
-                store_earlier_run(rows, version_id, &chain_steps());
-                plan(
-                    rows,
-                    definition_id,
-                    WorkflowNodeExecuteScope::FromHere,
-                    &["B"],
-                    &["T", "A"],
-                )
-            },
-        )
-        .await;
+    let version_id = harness.scope.workflow_version_id;
+    start_node_run(
+        &harness,
+        chain(),
+        node_run("B", WorkflowNodeExecuteScope::FromHere),
+        |rows| store_earlier_run(rows, version_id.text().as_str(), &chain_steps()),
+    )
+    .await;
 
     assert_eq!(ended(&mut harness).await, "succeeded");
     assert_eq!(ran(&harness), ["B"]);
     assert_eq!(column(&harness, "C", "status"), None);
 }
 
-/// A run of `X`, inside the body of the loop `L`, replays `T` and the loop's first pass, runs `X`
-/// on that pass's batch, and ends without running `Y`, the body node after `X`, or any later pass.
-/// Mutation: in `StartedNodeRun::from_plan`, cover every place of the graph, so `Y` runs and the
-/// loop's second pass replays.
+/// A run of `X`, inside the body of the loop `L`, replays `T`, runs `L` and then `X` on the loop's
+/// first batch, and ends: `X` feeds nothing, neither `Y`, the body node after it, nor `L` where `X`
+/// closes the loop itself, so no later pass runs. Mutation: in `fill`, feed out of the sealed
+/// target (where `X` closes the loop, `L` runs again).
+#[rstest]
+#[case::target_closes_its_loop(false)]
+#[case::target_before_the_bodys_end(true)]
 #[tokio::test]
-async fn a_target_inside_a_loop_runs_on_the_loops_first_batch_and_the_run_ends() {
+async fn a_target_inside_a_loop_runs_on_the_loops_first_batch_and_the_run_ends(
+    #[case] is_followed: bool,
+) {
     let mut harness = Harness::new(None).await;
-    let (version_id, definition_id) =
-        (harness.scope.workflow_version_id, harness.scope.workflow_id);
-    let nodes = vec![
+    let version_id = harness.scope.workflow_version_id;
+    let mut nodes = vec![
         node("T", "test.trigger", 0, None),
         node("L", "test.loop", 1, None),
         node("X", "test.step", 2, None),
-        node("Y", "test.step", 3, None),
         node("D", "test.step", 4, None),
     ];
     let loop_body: WorkflowEdge = serde_json::from_value(json!({
@@ -343,48 +243,30 @@ async fn a_target_inside_a_loop_runs_on_the_loops_first_batch_and_the_run_ends()
         "target": "X", "targetHandle": "inputs/main/0",
     }))
     .expect("the loop's body edge reads");
-    let edges = vec![
-        edge("T", "L", 0),
-        loop_body,
-        edge("X", "Y", 0),
-        edge("Y", "L", 0),
-        edge("L", "D", 0),
-    ];
-    let steps: Vec<EarlierStep> = vec![
-        ("T", 0, &[], vec![vec![named("T")]]),
-        ("L", 1, &[("T", 0)], vec![Vec::new(), vec![named("L")]]),
-        ("X", 2, &[("L", 1)], vec![vec![named("X")]]),
-        ("Y", 3, &[("X", 2)], vec![vec![named("Y")]]),
-        ("L", 4, &[("Y", 3)], vec![vec![named("L")], Vec::new()]),
-        ("D", 5, &[("L", 4)], vec![vec![named("D")]]),
-    ];
-    harness
-        .start_node_run(
-            nodes,
-            &edges,
-            node_run("X", WorkflowNodeExecuteScope::Node),
-            |rows| {
-                store_earlier_run(rows, version_id, &steps);
-                plan(
-                    rows,
-                    definition_id,
-                    WorkflowNodeExecuteScope::Node,
-                    &["X"],
-                    &["T", "L"],
-                )
-            },
-        )
-        .await;
+    let mut edges = vec![edge("T", "L", 0), loop_body, edge("L", "D", 0)];
+    if is_followed {
+        nodes.push(node("Y", "test.step", 3, None));
+        edges.extend([edge("X", "Y", 0), edge("Y", "L", 0)]);
+    } else {
+        edges.push(edge("X", "L", 0));
+    }
+    let steps: Vec<EarlierStep> = vec![("T", 0, &[], vec![vec![named("T")]])];
+    start_node_run(
+        &harness,
+        (nodes, edges),
+        node_run("X", WorkflowNodeExecuteScope::Node),
+        |rows| store_earlier_run(rows, version_id.text().as_str(), &steps),
+    )
+    .await;
 
     assert_eq!(ended(&mut harness).await, "succeeded");
-    assert_eq!(ran(&harness), ["X"]);
-    assert_eq!(
-        payload_ref(&harness, "X", "input_ref"),
-        WorkflowPayloadRef::Inline {
-            items: vec![named("L")]
-        }
-    );
-    assert_eq!(column(&harness, "L", "status").as_deref(), Some("skipped"));
+    assert_eq!(ran(&harness), ["L", "X"]);
+    // The first batch's item, whatever lineage the loop's inputs give it.
+    let WorkflowPayloadRef::Inline { items } = payload_ref(&harness, "X", "input_ref") else {
+        panic!("X's input is stored inline");
+    };
+    let batch: Vec<&Value> = items.iter().map(|input| &input.json.0).collect();
+    assert_eq!(batch, [&json!({ "pass": 1 })]);
     assert_eq!(column(&harness, "Y", "status"), None);
     assert_eq!(column(&harness, "D", "status"), None);
 }
@@ -395,26 +277,14 @@ async fn a_target_inside_a_loop_runs_on_the_loops_first_batch_and_the_run_ends()
 #[tokio::test]
 async fn run_this_node_runs_the_target_on_its_prior_input() {
     let mut harness = Harness::new(None).await;
-    let (version_id, definition_id) =
-        (harness.scope.workflow_version_id, harness.scope.workflow_id);
-    let (nodes, edges) = chain();
-    harness
-        .start_node_run(
-            nodes,
-            &edges,
-            node_run("C", WorkflowNodeExecuteScope::Node),
-            |rows| {
-                store_earlier_run(rows, version_id, &chain_steps());
-                plan(
-                    rows,
-                    definition_id,
-                    WorkflowNodeExecuteScope::Node,
-                    &["C"],
-                    &["T", "A", "B"],
-                )
-            },
-        )
-        .await;
+    let version_id = harness.scope.workflow_version_id;
+    start_node_run(
+        &harness,
+        chain(),
+        node_run("C", WorkflowNodeExecuteScope::Node),
+        |rows| store_earlier_run(rows, version_id.text().as_str(), &chain_steps()),
+    )
+    .await;
 
     assert_eq!(ended(&mut harness).await, "succeeded");
     assert_eq!(ran(&harness), ["C"]);
@@ -426,85 +296,88 @@ async fn run_this_node_runs_the_target_on_its_prior_input() {
     );
 }
 
-/// `A`'s earlier output, stored as an artifact, is stored again under this run's step in this
-/// run's session when the earlier run lives in another session, and its ref kept as it is when
-/// both share the session; `B` runs on its items either way. Mutation: in `reused_output_ref`,
-/// keep the earlier step's ref whatever its session, so the other session's case writes no copy.
+/// `A`'s earlier input and output, each stored as an artifact, are stored again under `A`'s
+/// earlier step in this run's session when the earlier run lives in another session, and its refs
+/// kept as they are when both share the session; `A`'s skip records them and `B` runs on its
+/// items either way, with no other payload written. Mutations: in `store_in_session`, keep the
+/// earlier refs whatever their session (no copy is written); store no input copy (`A`'s input
+/// stays the other session's).
 #[rstest]
 #[case::another_session(false)]
 #[case::the_same_session(true)]
 #[tokio::test]
-async fn a_reused_output_of_another_session_is_stored_again(#[case] is_same_session: bool) {
+async fn a_reused_payload_of_another_session_is_stored_again(#[case] is_same_session: bool) {
     let mut harness = Harness::new(None).await;
-    let (version_id, definition_id) =
-        (harness.scope.workflow_version_id, harness.scope.workflow_id);
+    let version_id = harness.scope.workflow_version_id;
     let this_session = harness.scope.session_id;
     let earlier_session = if is_same_session {
         this_session
     } else {
         SessionId::new(TEST_SESSION_ID).expect("the test's session id")
     };
-    let earlier_ref = write_step_payload(
-        harness.payloads.as_ref(),
-        earlier_session,
-        &earlier_key("A", 1),
-        &large_items(),
-    )
-    .await
-    .expect("the earlier output is stored");
-    let (nodes, edges) = chain();
-    let stored_ref = earlier_ref.clone();
-    harness
-        .start_node_run(
-            nodes,
-            &edges,
-            node_run("B", WorkflowNodeExecuteScope::FromHere),
-            |rows| {
-                let mut steps = chain_steps();
-                steps[1].3 = vec![large_items()];
-                store_earlier_run(rows, version_id, &steps);
-                set_output_ref(rows, "A", 1, &stored_ref);
-                rows.execute(
-                    "UPDATE workflow_runs SET session_id = ?1 WHERE id = ?2",
-                    params![earlier_session.text().as_str(), EARLIER_RUN_ID],
-                )
-                .expect("the test moves the earlier run to its session");
-                plan(
-                    rows,
-                    definition_id,
-                    WorkflowNodeExecuteScope::FromHere,
-                    &["B"],
-                    &["T", "A"],
-                )
-            },
+    let mut stored = Vec::new();
+    for items in [large_items(), large_items()] {
+        let stored_ref = write_step_payload(
+            harness.payloads.as_ref(),
+            earlier_session,
+            &earlier_key("A", 1),
+            &items,
         )
-        .await;
+        .await
+        .expect("the earlier payload is stored");
+        stored.push(stored_ref);
+    }
+    let (earlier_output, earlier_input) = (stored[0].clone(), stored[1].clone());
+    let (output_ref, input_ref) = (earlier_output.clone(), earlier_input.clone());
+    start_node_run(
+        &harness,
+        chain(),
+        node_run("B", WorkflowNodeExecuteScope::FromHere),
+        |rows| {
+            let mut steps = chain_steps();
+            steps[1].3 = vec![large_items()];
+            store_earlier_run(rows, version_id.text().as_str(), &steps);
+            set_payload_ref(rows, "A", 1, "output_ref", &output_ref);
+            set_payload_ref(rows, "A", 1, "input_ref", &input_ref);
+            rows.execute(
+                "UPDATE workflow_runs SET session_id = ?1 WHERE id = ?2",
+                params![earlier_session.text().as_str(), EARLIER_RUN_ID],
+            )
+            .expect("the test moves the earlier run to its session");
+        },
+    )
+    .await;
 
     assert_eq!(ended(&mut harness).await, "succeeded");
     assert_eq!(ran(&harness), ["B"]);
-    let copies: Vec<_> = harness
-        .payloads
-        .writes()
-        .into_iter()
-        .filter(|kept| {
-            kept.step.node_id.as_str() == "A" && kept.step.workflow_run_id == harness.scope.run_id
-        })
+    let writes = harness.payloads.writes();
+    // Past the two the test stored, a write under `A`'s earlier step is a copy.
+    let earlier_a = earlier_key("A", 1);
+    let copies: Vec<_> = writes
+        .iter()
+        .skip(2)
+        .filter(|kept| kept.step == earlier_a)
         .collect();
-    let output_ref = payload_ref(&harness, "A", "output_ref");
+    let (output_ref, input_ref) = (
+        payload_ref(&harness, "A", "output_ref"),
+        payload_ref(&harness, "A", "input_ref"),
+    );
     if is_same_session {
-        assert_eq!(output_ref, earlier_ref);
-        assert_eq!(copies, []);
+        assert_eq!((output_ref, input_ref), (earlier_output, earlier_input));
+        assert_eq!(copies.len(), 0);
     } else {
-        assert_eq!(copies.len(), 1);
-        assert_eq!(copies[0].session_id, this_session);
-        assert_eq!(
-            copies[0].bytes,
-            serde_json::to_vec(&large_items()).expect("the items write as JSON")
-        );
-        let WorkflowPayloadRef::Artifact { artifact_id, .. } = output_ref else {
-            panic!("the copy is an artifact");
-        };
-        assert_eq!(artifact_id, copies[0].artifact_id);
+        assert_eq!(copies.len(), 2);
+        let copied_refs = [output_ref, input_ref];
+        for ((copy, original), copied_ref) in copies.iter().zip(&writes).zip(copied_refs) {
+            assert_eq!(
+                (copy.session_id, &copy.step, &copy.bytes),
+                (this_session, &earlier_a, &original.bytes)
+            );
+            let WorkflowPayloadRef::Artifact { artifact_id, .. } = copied_ref else {
+                panic!("the copy is an artifact");
+            };
+            assert_eq!(artifact_id, copy.artifact_id);
+        }
     }
     assert_eq!(
         column(&harness, "B", "status").as_deref(),

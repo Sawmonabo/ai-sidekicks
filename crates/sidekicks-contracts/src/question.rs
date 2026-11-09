@@ -120,14 +120,10 @@ pub struct QuestionPrompt {
     /// Whether the answer is masked and never stored.
     pub secret: bool,
     /// Whether the answer is a folder picked with the platform's own chooser, never typed: a
-    /// workflow form's `path` field sets it, and such a question takes only a path or a skip.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "bool")]
-    pub path: Option<bool>,
+    /// workflow form's `path` field sets it, and such a question takes only a path or a skip;
+    /// absent reads false.
+    #[serde(default, skip_serializing_if = "<&bool as std::ops::Not>::not")]
+    pub path: bool,
     /// Whether the form must have this field answered. A tool server's form field and a workflow
     /// wait's question set it; a producer that sets it on a question with options makes that
     /// question refuse typed text, and a workflow wait's question with it true takes no skip.
@@ -206,7 +202,7 @@ impl garde::Validate for QuestionPrompt {
                 garde::Error::new("a secret question draws a masked field and no option rows"),
             );
         }
-        if self.path == Some(true) && !self.options.is_empty() {
+        if self.path && !self.options.is_empty() {
             report.append(
                 parent().join("options"),
                 garde::Error::new("a path question draws the folder chooser and no option rows"),

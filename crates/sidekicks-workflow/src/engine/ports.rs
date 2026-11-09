@@ -15,6 +15,8 @@ pub(crate) mod run_limits;
 #[cfg(test)]
 pub(crate) mod scripted_agent_runs;
 pub mod tool_call;
+#[cfg(test)]
+pub(crate) mod withdrawn_cards;
 
 use std::error::Error;
 use std::ffi::OsString;

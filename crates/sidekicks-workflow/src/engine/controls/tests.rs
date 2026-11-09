@@ -8,9 +8,12 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_contracts::workflow::run::status::{
+    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+};
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -20,12 +23,14 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBin
 use tokio::sync::mpsc;
 
 use super::{WorkflowRunControlError, WorkflowRunControls};
+use crate::engine::ports::ApprovalCardRaiser;
 use crate::engine::ports::noticed_sessions::NoticedSessions;
+use crate::engine::ports::withdrawn_cards::WithdrawnCards;
 use crate::engine::tick::{EngineTickInput, RepinRefusal, RunCancelRefusal, RunResumeRefusal};
 use crate::schema::schema_parts;
 use crate::test_rows::{
     TEST_SESSION_ID, TestStep, insert_chain_run, insert_run, insert_step, insert_workflow_version,
-    stored_rows,
+    stored_rows, test_node_id,
 };
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
@@ -38,11 +43,12 @@ const STARTED: &str = "2026-10-02T00:00:00.000Z";
 const ENDED: &str = "2026-10-02T00:05:00.000Z";
 
 /// The controls over a test database holding one workflow version, a tick that answers every
-/// cancel `cancel` and its one Resume `resume`, and the binder they tell.
+/// cancel `cancel` and its one Resume `resume`, the binder they tell and the cards they withdraw.
 struct ControlsTest {
     run_controls: WorkflowRunControls,
     rows: Connection,
     notices: Arc<NoticedSessions>,
+    cards: Arc<WithdrawnCards>,
     _database: TestDatabase,
 }
 
@@ -58,12 +64,19 @@ impl ControlsTest {
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
         let notices = Arc::new(NoticedSessions::default());
         let binder = Arc::clone(&notices) as Arc<dyn SessionRunBinder>;
-        let run_controls =
-            WorkflowRunControls::new(refusing_tick(cancel, resume), pool, service, binder);
+        let cards = Arc::new(WithdrawnCards::default());
+        let run_controls = WorkflowRunControls::new(
+            refusing_tick(cancel, resume),
+            pool,
+            service,
+            binder,
+            Arc::clone(&cards) as Arc<dyn ApprovalCardRaiser>,
+        );
         Self {
             run_controls,
             rows,
             notices,
+            cards,
             _database: database,
         }
     }
@@ -128,11 +141,12 @@ fn events(rows: &Connection) -> Vec<(String, String, Value)> {
 }
 
 /// A cancel of a going run the tick does not hold writes `workflow.run.canceled`, with the
-/// person's reason and the error carrying it, then a chat run's results, in one write that ends
-/// the run's row and cancels its running step, answers the canceled event's id and tells the
-/// session's binder; a second cancel answers that same id as already canceled and writes nothing.
-/// Mutations: answer the results event's id; post a manual run's results; skip the binder; write a
-/// second canceled event.
+/// person's reason and the error carrying it, then `question.wait.settled` `ended` for its reply
+/// wait, then a chat run's results, in one write that ends the run's row and cancels its running
+/// step, answers the canceled event's id, tells the session's binder and then withdraws its
+/// approval wait's card; a second cancel answers that same id as already canceled and writes
+/// nothing. Mutations: answer the results event's id; post a manual run's results; skip the
+/// binder; write a second canceled event; settle no question; withdraw no card.
 #[rstest]
 #[case::chat(WorkflowRunMode::Chat, true)]
 #[case::manual(WorkflowRunMode::Manual, false)]
@@ -156,14 +170,36 @@ async fn a_cancel_of_an_unheld_run_writes_its_end_once(
             [<&'static str>::from(mode), RUN_ID],
         )
         .expect("the test sets the run's mode");
-    let running = TestStep {
-        execution_index: 0,
-        status: WorkflowStepStatus::Running,
-        wait_cause: None,
-        wait_account_id: None,
-        resume_at: None,
+    let steps = [
+        (WorkflowStepStatus::Running, None),
+        (WorkflowStepStatus::Waiting, Some(WorkflowWaitCause::Reply)),
+        (
+            WorkflowStepStatus::Waiting,
+            Some(WorkflowWaitCause::Approval),
+        ),
+    ];
+    for (execution_index, (status, wait_cause)) in (0..).zip(steps) {
+        let step = TestStep {
+            execution_index,
+            status,
+            wait_cause,
+            wait_account_id: None,
+            resume_at: None,
+        };
+        insert_step(&test.rows, RUN_ID, &step);
+    }
+    let wait_id = |execution_index: u32| -> UuidTextForm {
+        let text: String = test
+            .rows
+            .query_row(
+                "SELECT wait_id FROM workflow_steps WHERE execution_index = ?1",
+                [execution_index],
+                |row| row.get(0),
+            )
+            .expect("the step waits");
+        UuidTextForm::new(&text).expect("a stored wait id")
     };
-    insert_step(&test.rows, RUN_ID, &running);
+    let (reply_wait, approval_wait) = (wait_id(1), wait_id(2));
     let reason = WorkflowCancelReason::new("Wrong input".to_owned());
 
     let first = test
@@ -178,11 +214,21 @@ async fn a_cancel_of_an_unheld_run_writes_its_end_once(
         .map(|(_, event_type, _)| event_type.as_str())
         .collect();
     let expected: &[&str] = if posts {
-        &["workflow.run.canceled", "workflow.results.posted"]
+        &[
+            "workflow.run.canceled",
+            "question.wait.settled",
+            "workflow.results.posted",
+        ]
     } else {
-        &["workflow.run.canceled"]
+        &["workflow.run.canceled", "question.wait.settled"]
     };
     assert_eq!(types, expected);
+    let session_id = SessionId::new(TEST_SESSION_ID).expect("the test's session");
+    assert_eq!(
+        logged[1].2,
+        json!({ "sessionId": session_id, "waitId": reply_wait, "outcome": "ended" })
+    );
+    assert_eq!(test.cards.withdrawn(), [(session_id, approval_wait)]);
     let (canceled_id, _, canceled) = &logged[0];
     assert_eq!(first.canceled_event_id.as_str(), canceled_id.as_str());
     assert!(!first.already_canceled);
@@ -192,7 +238,8 @@ async fn a_cancel_of_an_unheld_run_writes_its_end_once(
         .rows
         .query_row(
             "SELECT run.status, step.status FROM workflow_runs AS run
-             JOIN workflow_steps AS step ON step.workflow_run_id = run.id",
+             JOIN workflow_steps AS step ON step.workflow_run_id = run.id
+             WHERE step.execution_index = 0",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -201,10 +248,7 @@ async fn a_cancel_of_an_unheld_run_writes_its_end_once(
         (status.as_str(), step_status.as_str()),
         ("canceled", "canceled")
     );
-    assert_eq!(
-        test.notices.sessions(),
-        [SessionId::new(TEST_SESSION_ID).expect("the test's session")]
-    );
+    assert_eq!(test.notices.sessions(), [session_id]);
     let before = stored_rows(&test.rows);
 
     let second = test
@@ -216,6 +260,7 @@ async fn a_cancel_of_an_unheld_run_writes_its_end_once(
     assert_eq!(second.canceled_event_id, first.canceled_event_id);
     assert!(second.already_canceled);
     assert_eq!(stored_rows(&test.rows), before);
+    assert_eq!(test.cards.withdrawn().len(), 1);
 }
 
 /// A cancel of a run that has ended, or that no row answers to, is refused with the words that
@@ -284,6 +329,11 @@ async fn a_cancel_of_an_ended_run_is_refused_and_writes_nothing(
     RunResumeRefusal::Repin(RepinRefusal::VersionUnaccountable),
     true,
     RefusalCode::WorkflowRunRepairVersionUnaccountable
+)]
+#[case::repin_failed_node_missing(
+    RunResumeRefusal::Repin(RepinRefusal::FailedNodesMissing(vec![test_node_id("F")])),
+    true,
+    RefusalCode::WorkflowRunRepairFailedNodeMissing
 )]
 #[tokio::test]
 async fn the_ticks_refusals_answer_their_codes(

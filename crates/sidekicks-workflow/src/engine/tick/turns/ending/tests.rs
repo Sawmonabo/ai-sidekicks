@@ -26,7 +26,8 @@ use crate::engine::waits::PersonWaitAnswer;
 use crate::kinds::{PersonAsk, PersonWait};
 use crate::runs::gate_resolution::tests::gate_answer;
 use crate::test_rows::{
-    assert_rebuild_rewrites_run_rows, execution_context_released_at, insert_live_execution_context,
+    assert_rebuild_rewrites_session_rows, execution_context_released_at,
+    insert_live_execution_context,
 };
 
 /// The key of the step of `node_id`, read from its row.
@@ -463,11 +464,7 @@ async fn a_cancel_winds_the_run_down_and_writes_canceled_with_its_last_branch() 
         assert_eq!(harness.status(node_id).as_deref(), Some("canceled"));
     }
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A cancel reaching a run whose pause takes two points, P's and Q's, both still capturing, waits

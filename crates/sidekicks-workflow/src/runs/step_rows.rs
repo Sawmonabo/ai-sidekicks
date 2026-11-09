@@ -14,7 +14,9 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
-use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
+use sidekicks_contracts::workflow::run::step::events::{
+    WorkflowPhaseCancellationReason, WorkflowReusedStep,
+};
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -44,9 +46,9 @@ static HOLD_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!("UPDATE workflow_steps SET status = '{waiting_memory}' WHERE {STEP_KEY_SQL}")
 });
 
-static ADD_POOL_WAIT_SQL: LazyLock<String> = LazyLock::new(|| {
+static ADD_MEMORY_WAIT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "UPDATE workflow_steps SET total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+        "UPDATE workflow_steps SET total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -55,7 +57,7 @@ static ADMIT_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     let running = <&'static str>::from(WorkflowStepStatus::Running);
     format!(
         "UPDATE workflow_steps
-  SET status = '{running}', total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+  SET status = '{running}', total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -72,7 +74,8 @@ static CANCEL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{canceled}', finished_at = @finished_at,
-      total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms, {CLEAR_WAIT_COLUMNS_SQL}
+      cancellation_reason = @cancellation_reason,
+      total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms, {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -109,7 +112,7 @@ static FAIL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
   SET status = '{failed}', finished_at = @finished_at, error_json = @error_json,
       decline_reason = @decline_reason, output_ref = COALESCE(@output_ref, output_ref),
       output_item_counts_json = COALESCE(@output_item_counts_json, output_item_counts_json),
-      log_ref = @log_ref, total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms,
+      log_ref = @log_ref, total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms,
       {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
     )
@@ -132,7 +135,7 @@ static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
         "UPDATE workflow_steps
   SET status = '{waiting}', wait_cause = '{account}', wait_account_id = @wait_account_id,
       wait_started_at = @wait_started_at, resume_at = @resume_at,
-      total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+      total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -195,19 +198,23 @@ pub(crate) fn hold_step(step: &WorkflowStepKey) -> WriteStatement {
     keyed_statement(&HOLD_STEP_SQL, step, Vec::new())
 }
 
-/// Adds `pool_wait_ms` to `step`'s pool wait, a held step's time since its hold's last report.
-pub(crate) fn add_step_pool_wait(step: &WorkflowStepKey, pool_wait_ms: u64) -> WriteStatement {
+/// Adds `memory_wait_ms` to `step`'s memory wait, a held step's time since its hold's last report.
+pub(crate) fn add_step_memory_wait(step: &WorkflowStepKey, memory_wait_ms: u64) -> WriteStatement {
     keyed_statement(
-        &ADD_POOL_WAIT_SQL,
+        &ADD_MEMORY_WAIT_SQL,
         step,
-        vec![pool_wait_binding(pool_wait_ms)],
+        vec![memory_wait_binding(memory_wait_ms)],
     )
 }
 
-/// Moves `step` to `running`, admitted, adding `pool_wait_ms`, its hold's time since that hold's
+/// Moves `step` to `running`, admitted, adding `memory_wait_ms`, its hold's time since that hold's
 /// last report.
-pub(crate) fn admit_step(step: &WorkflowStepKey, pool_wait_ms: u64) -> WriteStatement {
-    keyed_statement(&ADMIT_STEP_SQL, step, vec![pool_wait_binding(pool_wait_ms)])
+pub(crate) fn admit_step(step: &WorkflowStepKey, memory_wait_ms: u64) -> WriteStatement {
+    keyed_statement(
+        &ADMIT_STEP_SQL,
+        step,
+        vec![memory_wait_binding(memory_wait_ms)],
+    )
 }
 
 /// Records on started `step` the level it runs at in place of its run's and the hash of the pin it
@@ -230,19 +237,25 @@ pub(crate) fn record_step_start(
     )
 }
 
-/// Moves `step` to `canceled`, ended at `finished_at`, with every wait column emptied, adding
-/// `pool_wait_ms`, the time a hold the cancel cut ran since its last report.
+/// Moves `step` to `canceled` for `cancellation_reason`, `None` where no cause is recorded, ended
+/// at `finished_at`, with every wait column emptied, adding `memory_wait_ms`, the time a hold the
+/// cancel cut ran since its last report.
 pub(crate) fn cancel_step(
     step: &WorkflowStepKey,
     finished_at: &WireInstant,
-    pool_wait_ms: u64,
+    memory_wait_ms: u64,
+    cancellation_reason: Option<WorkflowPhaseCancellationReason>,
 ) -> WriteStatement {
     keyed_statement(
         &CANCEL_STEP_SQL,
         step,
         vec![
             text_binding("@finished_at", finished_at.as_str()),
-            pool_wait_binding(pool_wait_ms),
+            memory_wait_binding(memory_wait_ms),
+            nullable_text_binding(
+                "@cancellation_reason",
+                cancellation_reason.map(<&'static str>::from),
+            ),
         ],
     )
 }
@@ -313,7 +326,7 @@ pub(crate) struct FailedStepRow<'row> {
     /// Its log.
     pub(crate) log_ref: &'row WorkflowPayloadRef,
     /// The time a hold the failure cut ran since its last report, in milliseconds.
-    pub(crate) pool_wait_ms: u64,
+    pub(crate) memory_wait_ms: u64,
 }
 
 /// Moves `step` to `failed` as `row` says, from wherever it stood, with every wait column emptied.
@@ -342,7 +355,7 @@ pub(crate) fn fail_step(step: &WorkflowStepKey, row: &FailedStepRow<'_>) -> Writ
                 }),
             ),
             (Cow::Borrowed("@log_ref"), payload_value(row.log_ref)),
-            pool_wait_binding(row.pool_wait_ms),
+            memory_wait_binding(row.memory_wait_ms),
         ],
     )
 }
@@ -371,14 +384,14 @@ pub(crate) fn wait_step_on_person(
 }
 
 /// Moves `step` to `waiting` on the spent account `account_id` since `started_at`, resuming at
-/// `resume_at` where one is armed, adding `pool_wait_ms`, the time a hold the wait cut ran since
+/// `resume_at` where one is armed, adding `memory_wait_ms`, the time a hold the wait cut ran since
 /// its last report.
 pub(crate) fn wait_step_on_account(
     step: &WorkflowStepKey,
     account_id: &ProviderAccountId,
     started_at: &WireInstant,
     resume_at: Option<&WireInstant>,
-    pool_wait_ms: u64,
+    memory_wait_ms: u64,
 ) -> WriteStatement {
     keyed_statement(
         &WAIT_ON_ACCOUNT_SQL,
@@ -387,7 +400,7 @@ pub(crate) fn wait_step_on_account(
             text_binding("@wait_account_id", account_id.as_str()),
             text_binding("@wait_started_at", started_at.as_str()),
             nullable_text_binding("@resume_at", resume_at.map(WireInstant::as_str)),
-            pool_wait_binding(pool_wait_ms),
+            memory_wait_binding(memory_wait_ms),
         ],
     )
 }
@@ -471,11 +484,11 @@ fn step_key_bindings(step: &WorkflowStepKey) -> [(Cow<'static, str>, Value); 4] 
     ]
 }
 
-fn pool_wait_binding(pool_wait_ms: u64) -> (Cow<'static, str>, Value) {
+fn memory_wait_binding(memory_wait_ms: u64) -> (Cow<'static, str>, Value) {
     // No hold runs for the 292 million years past which the milliseconds overflow the column.
     (
-        Cow::Borrowed("@pool_wait_ms"),
-        Value::Integer(i64::try_from(pool_wait_ms).unwrap_or(i64::MAX)),
+        Cow::Borrowed("@memory_wait_ms"),
+        Value::Integer(i64::try_from(memory_wait_ms).unwrap_or(i64::MAX)),
     )
 }
 

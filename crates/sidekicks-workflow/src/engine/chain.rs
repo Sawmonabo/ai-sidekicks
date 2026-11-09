@@ -382,9 +382,10 @@ pub(crate) fn read_chain_held_steps(
 /// Keep going's write of `answer` at `at` over `commits`, one fresh turn of each run it touches,
 /// the chain's first run's among them: the first run's turn first, holding the kept-going update
 /// and the answer's row ahead of every other statement, then `card`'s settle, its answer event and
-/// `workflow.gate.resolved` with no node, then each of `held` resumed in its run's turn. Each turn's status move is drafted as it
-/// commits; the caller commits them together with [`RunTurnCommit::append_together`], whose
-/// refusal at [`KEEP_GOING_STATEMENT_INDEX`] means the chain has no question left to answer.
+/// `workflow.gate.resolved` with no node, then each of `held` resumed in its run's turn. Each
+/// turn's status move is drafted as it commits; the caller commits them together with
+/// [`RunTurnCommit::append_together`], whose refusal at [`KEEP_GOING_STATEMENT_INDEX`] means the
+/// chain has no question left to answer.
 #[cfg_attr(
     not(test),
     expect(

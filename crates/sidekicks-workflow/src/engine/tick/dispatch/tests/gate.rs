@@ -103,14 +103,14 @@ async fn a_gate_step_waits_for_its_admission_before_it_launches(
     }
     assert_eq!(answered, Vec::<Value>::new());
     let mut expected_sent = if initial.is_none() {
-        let hold = sent[0]["waitingOnPool"].clone();
+        let hold = sent[0]["waitingOnMemory"].clone();
         assert!(
             hold.is_string(),
             "the first report is not a hold: {}",
             sent[0]
         );
         vec![
-            json!({ "waitingOnPool": hold }),
+            json!({ "waitingOnMemory": hold }),
             json!({ "admitted": hold }),
         ]
     } else {
@@ -207,7 +207,7 @@ async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: Canc
             let held = next_report(&mut received, &step)
                 .await
                 .expect("the hold is reported");
-            let hold = held["waitingOnPool"].clone();
+            let hold = held["waitingOnMemory"].clone();
             assert!(hold.is_string(), "the first report is not a hold: {held}");
             dispatched.cancel.cancel();
             hold

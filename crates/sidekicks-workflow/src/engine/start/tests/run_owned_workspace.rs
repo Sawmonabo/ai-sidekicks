@@ -125,9 +125,10 @@ async fn a_chat_start_naming_a_project_works_in_a_workspace_of_the_runs_own() {
     );
 }
 
-/// A chat start naming a project that is held on its chain leaves no workspace behind: the
-/// binding's workspace and its branch context are deleted, since no run owns them. Mutation: the
-/// held start's workspace left in place.
+/// A chat start naming a project that is held on its chain is held before it binds a workspace, so
+/// it leaves no workspace, no branch context and no workspace event behind. Mutations: the held
+/// start's workspace left in place; the hold read after the binding, which logs its workspace
+/// events.
 #[tokio::test]
 async fn a_held_start_naming_a_project_leaves_no_workspace() {
     let fixture = Fixture::new(
@@ -148,6 +149,10 @@ async fn a_held_start_naming_a_project_leaves_no_workspace() {
     ));
     assert_eq!(fixture.count("SELECT COUNT(*) FROM workspaces"), 0);
     assert_eq!(fixture.count("SELECT COUNT(*) FROM branch_contexts"), 0);
+    assert_eq!(
+        fixture.count("SELECT COUNT(*) FROM session_events WHERE type LIKE 'workspace.%'"),
+        0
+    );
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
 }
 

@@ -16,7 +16,7 @@ use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
 use crate::engine::tick::turns::{EngineTickInput, RepinRefusal, RunResumeRefusal};
-use crate::test_rows::{assert_rebuild_rewrites_run_rows, stored_rows};
+use crate::test_rows::{assert_rebuild_rewrites_session_rows, stored_rows};
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
@@ -173,7 +173,7 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
     );
     assert_eq!(
         waves_recorded(&harness, "M"),
-        [(json!("firstToArrive"), json!(1))]
+        [(json!("mergeFirstToArrive"), json!(1))]
     );
     let b_events: Vec<String> = harness
         .events()
@@ -192,11 +192,7 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
             .any(|event_type| event_type == "workflow.step.completed")
     );
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// Y is readied in the walk turn that X's completion wins M on, on M's losing input. Mutations: Y

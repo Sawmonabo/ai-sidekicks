@@ -130,9 +130,10 @@ enum RefusedRecord {
 // wait for `question.notWaiting`, and one that waits for its run `question.waitingForRun`; none
 // of them reaches the driver or a wait, the record keeps its state and the run where it was; no
 // wait's door is registered, so a skip of a wait's required page and a path on a page that takes
-// none, or text on one that takes only a path, are refused before the door. Killed by removing the
-// count check, any one reason's check, the waiting check, the check of a question waiting for its
-// run, reading `required` as present rather than true, or either arm of the path check.
+// none, or text or a pick on one that takes only a path, are refused before the door. Killed by
+// removing the count check, any one reason's check, the waiting check, the check of a question
+// waiting for its run, reading `required` as present rather than true, either arm of the path
+// check, or a pick or text dropped from the path page's arm.
 #[rstest]
 #[case::one_answer_short(
     RefusedRecord::Waited,
@@ -206,7 +207,20 @@ enum RefusedRecord {
 )]
 #[case::text_on_a_path_page(
     RefusedRecord::WaitHeld,
-    json!([{ "kind": "picked", "labels": ["Alpha"] }, { "kind": "typed", "text": "/Users/person/app" }]),
+    json!([
+        { "kind": "picked", "labels": ["Alpha"] },
+        { "kind": "typed", "text": "/Users/person/app" },
+    ]),
+    RefusalCode::QuestionAnswerInvalid,
+    Some((1, "pathOnPlain")),
+    "running"
+)]
+#[case::picked_on_a_path_page(
+    RefusedRecord::WaitHeld,
+    json!([
+        { "kind": "picked", "labels": ["Alpha"] },
+        { "kind": "picked", "labels": ["/Users/person/app"] },
+    ]),
     RefusalCode::QuestionAnswerInvalid,
     Some((1, "pathOnPlain")),
     "running"

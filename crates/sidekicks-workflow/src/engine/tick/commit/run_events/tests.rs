@@ -279,13 +279,13 @@ enum AnswerCase {
 }
 
 /// An answer resumes its step in its turn, in the order an answer writes: an approval's card
-/// answer, its `gate.resolved` and its row, then `phase.resumed`, then the settlement's events,
-/// its input on the `approved` handle; a form's writes no `gate.resolved` and settles its question
+/// answer, its `gate.resolved` and its row, then `phase.resumed`, then the settlement's events, its
+/// input on the `approved` handle; a form's writes no `gate.resolved` and settles its question
 /// after its resume. An answer at its deadline, of another kind, an approval whose gate answer is
 /// missing or differs, and a form carrying one are refused `NotWaiting` with nothing written; one
-/// whose row left the wait refuses the write at the resume statement, nothing stored. Mutations: an answer at its deadline
-/// written; a resume not keyed on the wait id; `gate.resolved` on a form; the gate answer not
-/// checked; the card's event after `gate.resolved`.
+/// whose row left the wait refuses the write at the resume statement, nothing stored. Mutations: an
+/// answer at its deadline written; a resume not keyed on the wait id; `gate.resolved` on a form;
+/// the gate answer not checked; the card's event after `gate.resolved`.
 #[rstest]
 #[case::approval_on_time(AnswerCase::ApprovalOnTime)]
 #[case::form_on_time(AnswerCase::FormOnTime)]

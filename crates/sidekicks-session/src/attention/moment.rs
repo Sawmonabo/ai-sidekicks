@@ -565,7 +565,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorkflowRunStarted(_)
         | SessionEvent::WorkflowResultsPosted(_)
         | SessionEvent::WorkflowPhaseFailed(_)
-        | SessionEvent::WorkflowPhaseWaitingOnPool(_)
+        | SessionEvent::WorkflowPhaseWaitingOnMemory(_)
         | SessionEvent::WorkflowStepStarted(_)
         | SessionEvent::WorkflowStepSkipped(_)
         | SessionEvent::WorkflowGateResolved(_)

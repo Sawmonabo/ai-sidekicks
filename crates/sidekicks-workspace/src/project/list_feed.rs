@@ -533,7 +533,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::WorkflowTriggerFired
         | SessionEventType::WorkflowResultsPosted
         | SessionEventType::WorkflowPhaseAdmitted
-        | SessionEventType::WorkflowPhaseWaitingOnPool
+        | SessionEventType::WorkflowPhaseWaitingOnMemory
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling

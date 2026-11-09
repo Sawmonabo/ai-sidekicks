@@ -47,7 +47,8 @@ impl EngineAnswers {
     }
 
     /// Answers the form or reply wait `wait_id` with `answer`, given now, and returns once the
-    /// write that settles it commits. Refused [`PersonWaitRefusal::NotWaiting`] when no live step
+    /// write that settles it commits. Refused [`PersonWaitRefusal::NotHeld`] when a step still
+    /// waits under it but no live run holds it, [`PersonWaitRefusal::NotWaiting`] when no step
     /// waits on it as this answer's kind, and [`WaitAnswerError::Closed`] when the tick did not
     /// take it.
     pub async fn answer_wait(

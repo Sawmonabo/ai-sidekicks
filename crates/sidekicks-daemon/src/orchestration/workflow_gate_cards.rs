@@ -2,11 +2,6 @@
 //! under its workflow's name, withdrawn once its wait ends unanswered, and the card's answer made
 //! the gate's answer, which the engine settles with the card in the step's own write.
 
-#![expect(
-    dead_code,
-    reason = "the workflow engine's composition, which builds the bridge and registers it"
-)]
-
 use std::error::Error;
 use std::sync::Arc;
 
@@ -33,6 +28,10 @@ use sidekicks_workflow::runs::gate_resolution::{ApprovalCardAnswer, WorkflowGate
 
 /// The bridge between the workflow engine's approval waits and the approval cards: it raises and
 /// withdraws each wait's card and hands the card's answers to the engine.
+#[expect(
+    dead_code,
+    reason = "the workflow engine's composition, which builds the bridge and registers it"
+)]
 pub(crate) struct WorkflowGateCards {
     approvals: Arc<ApprovalService>,
     answers: EngineAnswers,
@@ -40,6 +39,10 @@ pub(crate) struct WorkflowGateCards {
 
 impl WorkflowGateCards {
     /// The bridge raising through `approvals` and answering through the engine's `answers`.
+    #[expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )]
     pub(crate) fn new(approvals: Arc<ApprovalService>, answers: EngineAnswers) -> Self {
         Self { approvals, answers }
     }
@@ -49,6 +52,10 @@ impl WorkflowGateCards {
 /// controls rather than through a wait's answer, so this bridge does not take it.
 #[derive(Debug, thiserror::Error)]
 #[error("a chain card's Decline stops the chain through the run controls, not a wait's answer")]
+#[expect(
+    dead_code,
+    reason = "the workflow engine's composition, which builds the bridge and registers it"
+)]
 struct ChainDeclineNotAWaitAnswer;
 
 impl ApprovalCardRaiser for WorkflowGateCards {
@@ -103,15 +110,32 @@ impl ApprovalWaits for WorkflowGateCards {
                     return Err(ChainDeclineNotAWaitAnswer.into());
                 }
             };
-            match answered {
-                Ok(()) => Ok(ApprovalWaitOutcome::Settled),
-                Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting)) => {
-                    Ok(ApprovalWaitOutcome::NotWaiting)
-                }
-                Err(closed @ WaitAnswerError::Closed) => Err(closed.into()),
-            }
+            wait_outcome(answered)
         }
         .boxed()
+    }
+}
+
+/// How the card reads the engine's answer `answered` to its wait: settled when the step's write
+/// committed, not waiting when its held run's step had left the wait; a wait no held run waits on
+/// and a closed engine are errors, the card left pending.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
+fn wait_outcome(
+    answered: Result<(), WaitAnswerError>,
+) -> Result<ApprovalWaitOutcome, Box<dyn Error + Send + Sync>> {
+    match answered {
+        Ok(()) => Ok(ApprovalWaitOutcome::Settled),
+        Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting)) => {
+            Ok(ApprovalWaitOutcome::NotWaiting)
+        }
+        Err(refused @ WaitAnswerError::Refused(PersonWaitRefusal::NotHeld)) => Err(refused.into()),
+        Err(closed @ WaitAnswerError::Closed) => Err(closed.into()),
     }
 }
 
@@ -119,6 +143,13 @@ impl ApprovalWaits for WorkflowGateCards {
 /// `human.approval` gate naming its node, and a chain's card its chain gate naming none, under a
 /// freshly minted resolution id; the decision's context holds the card's scope, its resource and
 /// the person's decline words where they typed some.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn gate_answer(answer: ApprovalWaitAnswer) -> (WorkflowGateAnswer, ApprovalCardAnswer) {
     let ApprovalWaitAnswer {
         approval_request_id,
@@ -160,6 +191,13 @@ fn gate_answer(answer: ApprovalWaitAnswer) -> (WorkflowGateAnswer, ApprovalCardA
 }
 
 /// The gate row's word for the card's category.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn gate_category(category: ApprovalCategory) -> WorkflowGateApprovalCategory {
     match category {
         ApprovalCategory::ToolExecution => WorkflowGateApprovalCategory::ToolExecution,

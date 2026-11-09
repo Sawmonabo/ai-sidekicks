@@ -11,10 +11,18 @@ use sidekicks_contracts::workflow::run::status::{
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 #[cfg(test)]
+use sidekicks_contracts::wire::integer::SafeInt;
+#[cfg(test)]
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+#[cfg(test)]
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+#[cfg(test)]
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+#[cfg(test)]
+use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 #[cfg(test)]
-use crate::schema::WORKFLOW_SCHEMA_SQL;
+use crate::schema::schema_parts;
 
 /// The session every test run lives in.
 pub const TEST_SESSION_ID: &str = "00000000-0000-7000-8000-000000000001";
@@ -34,12 +42,13 @@ pub(crate) fn test_node_id(id: &str) -> WorkflowNodeId {
     WorkflowNodeId::new(id.to_owned()).expect("the test's node id")
 }
 
-/// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
+/// A connection on a fresh in-memory database holding the workflow tables beside the tables their
+/// reads join, a session's project and a run's workspace among them.
 #[cfg(test)]
 pub(crate) fn workflow_tables() -> Connection {
     let connection = Connection::open_in_memory().expect("an in-memory database opens");
     connection
-        .execute_batch(&WORKFLOW_SCHEMA_SQL)
+        .execute_batch(schema_parts().into_schema().sql())
         .expect("the workflow tables create");
     connection
 }
@@ -305,6 +314,94 @@ pub(crate) fn insert_settled_step(
     );
 }
 
+/// The earlier run whose settled steps a test's partial runs reuse.
+#[cfg(test)]
+pub(crate) const EARLIER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
+
+/// One step of a test's earlier run: its node, its execution index, the `(node, execution index)`
+/// of the step feeding each slot, and its main outputs' items.
+#[cfg(test)]
+pub(crate) type EarlierStep = (
+    &'static str,
+    u32,
+    &'static [(&'static str, u32)],
+    Vec<Vec<WorkflowItem>>,
+);
+
+/// The key of the earlier run's first attempt of `node_id` at `execution_index`.
+#[cfg(test)]
+pub(crate) fn earlier_key(node_id: &str, execution_index: u64) -> WorkflowStepKey {
+    WorkflowStepKey {
+        workflow_run_id: WorkflowRunId::new(EARLIER_RUN_ID).expect("the earlier run's id"),
+        node_id: test_node_id(node_id),
+        attempt: SafeInt::new(1).expect("1 is a whole number from 1"),
+        execution_index: SafeInt::new(execution_index).expect("a small execution index"),
+    }
+}
+
+/// Stores the earlier run of version `version_id` in the test session, every step of `steps`
+/// succeeded with its outputs inline.
+#[cfg(test)]
+pub(crate) fn store_earlier_run(rows: &Connection, version_id: &str, steps: &[EarlierStep]) {
+    insert_run(
+        rows,
+        EARLIER_RUN_ID,
+        version_id,
+        WorkflowRunStatus::Succeeded,
+        "2026-10-02T00:00:00.000Z",
+        Some("2026-10-02T01:00:00.000Z"),
+    );
+    for (node_id, execution_index, sources, outputs) in steps {
+        let counts: Vec<u64> = outputs
+            .iter()
+            .map(|output| u64::try_from(output.len()).expect("a test output's length fits"))
+            .collect();
+        insert_settled_step(
+            rows,
+            EARLIER_RUN_ID,
+            &TestSettledStep {
+                node_id,
+                attempt: 1,
+                execution_index: *execution_index,
+                status: WorkflowStepStatus::Succeeded,
+                finished_at: "2026-10-02T00:30:00.000Z",
+                sources,
+                output_item_counts: &counts,
+                pin_hash: None,
+                reused_from: None,
+            },
+        );
+        let output_ref = WorkflowPayloadRef::Inline {
+            items: outputs.concat(),
+        };
+        set_payload_ref(rows, node_id, *execution_index, "output_ref", &output_ref);
+    }
+}
+
+/// Points `column` of the earlier run's step of `node_id` at `execution_index` at `payload_ref`.
+#[cfg(test)]
+pub(crate) fn set_payload_ref(
+    rows: &Connection,
+    node_id: &str,
+    execution_index: u32,
+    column: &str,
+    payload_ref: &WorkflowPayloadRef,
+) {
+    rows.execute(
+        &format!(
+            "UPDATE workflow_steps SET {column} = ?1 \
+             WHERE workflow_run_id = ?2 AND node_id = ?3 AND execution_index = ?4"
+        ),
+        params![
+            serde_json::to_string(payload_ref).expect("a payload ref writes as JSON"),
+            EARLIER_RUN_ID,
+            node_id,
+            execution_index
+        ],
+    )
+    .expect("the test stores the earlier step's payload");
+}
+
 /// The `source_json` of a step fed by each of `sources`, a `(node, execution index)` per slot,
 /// each from its node's first main output.
 #[cfg(test)]
@@ -475,21 +572,49 @@ fn table_rows(
         .expect("each row reads")
 }
 
-/// Rebuilds session `session_id`'s run and step rows from its log on `rows` and checks that run
-/// `run_id`'s rows read back byte-identical to the rows the live writes left.
+/// Every run row of session `session_id` whose `workflow.run.started` its log holds, by id, then
+/// those runs' step rows in execution order, each column as SQLite holds it, so a rebuild is seen
+/// to write every row the log holds byte-identical and none it does not.
 #[cfg(test)]
-pub(crate) fn assert_rebuild_rewrites_run_rows(rows: &Connection, session_id: &str, run_id: &str) {
-    let live = run_rows(rows, run_id);
-    rebuild_workflow_runs(rows, session_id);
-    assert_eq!(run_rows(rows, run_id), live);
+pub(crate) fn session_run_rows(
+    rows: &Connection,
+    session_id: &str,
+) -> Vec<Vec<rusqlite::types::Value>> {
+    let started = "SELECT json_extract(payload, '$.workflowRunId') FROM session_events \
+                   WHERE session_id = ?1 AND type = 'workflow.run.started'";
+    [
+        format!(
+            "SELECT * FROM workflow_runs WHERE session_id = ?1 AND id IN ({started}) ORDER BY id"
+        ),
+        format!(
+            "SELECT step.* FROM workflow_steps AS step \
+             JOIN workflow_runs AS run ON run.id = step.workflow_run_id \
+             WHERE run.session_id = ?1 AND run.id IN ({started}) \
+             ORDER BY step.workflow_run_id, step.execution_index"
+        ),
+    ]
+    .into_iter()
+    .flat_map(|sql| table_rows(rows, &sql, [session_id]))
+    .collect()
 }
 
-/// Writes the run and step rows of session `session_id` again from its log on `rows`, through the
-/// runs projection's clear and fold in one transaction with foreign keys on, each statement held
-/// to the row count it expects, as a rebuild's write holds it; the fold reads only the event types
-/// the projection names, as a rebuild's read does.
+/// Rebuilds session `session_id`'s run and step rows from its whole log on `rows` and checks that
+/// every run's rows the log holds read back byte-identical to the rows the live writes left.
 #[cfg(test)]
-pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str) {
+pub(crate) fn assert_rebuild_rewrites_session_rows(rows: &Connection, session_id: &str) {
+    let live = session_run_rows(rows, session_id);
+    rebuild_workflow_runs(rows, session_id, None);
+    assert_eq!(session_run_rows(rows, session_id), live);
+}
+
+/// Writes the run and step rows of session `session_id` again from its log on `rows`, read up to
+/// and with the event at sequence `through` where one is given, as recovery's rebuild through a
+/// session's last good point reads it, through the runs projection's clear, fold and close in one
+/// transaction with foreign keys on, each statement held to the row count it expects, as a
+/// rebuild's write holds it; the fold reads only the event types the projection names, as a
+/// rebuild's read does.
+#[cfg(test)]
+pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str, through: Option<u64>) {
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_store::database::statement::run_statement;
@@ -504,7 +629,10 @@ pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str) {
         .expect("the log reads");
     let mut statements = WorkflowRunsProjection.clear_statements(&session_id);
     let mut fold = WorkflowRunsProjection.fold(&session_id);
-    for envelope in &events {
+    for envelope in events
+        .iter()
+        .take_while(|envelope| through.is_none_or(|through| envelope.sequence.get() <= through))
+    {
         let event = SessionEvent::from_envelope(envelope).expect("each event reads");
         if WorkflowRunsProjection
             .event_types()

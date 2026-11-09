@@ -1,14 +1,17 @@
 //! What a cancel does to a run's rows: the statements the engine's cancel writes in one unit of
 //! work with the run's canceled event, and a projection rebuild applies from that event alone,
-//! beside the results event the cancel of a run that posts its results appends after it; and the
-//! first cancel's event, which a second cancel of the same run answers.
+//! beside the events the cancel appends after it, one closing each question its waits held and the
+//! results of a run that posts them, and the approval cards it withdraws once the write commits;
+//! and the first cancel's event, which a second cancel of the same run answers.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, OptionalExtension as _};
+use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
@@ -18,14 +21,17 @@ use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::events::WorkflowRunCanceledPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_contracts::workflow::run::status::{
+    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::engine::results::{results_posted_event, run_posts_results};
-use crate::runs::record::end_run_statements;
+use crate::runs::record::{FIRST_NON_RETRY_MODE_SQL, end_run_statements};
 use crate::runs::step_rows::CLEAR_WAIT_COLUMNS_SQL;
 
 /// A cancel as the run's rows record it.
@@ -62,10 +68,13 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
         .map(<&'static str>::from),
     );
     let canceled = <&'static str>::from(WorkflowStepStatus::Canceled);
+    let run_canceled = <&'static str>::from(WorkflowPhaseCancellationReason::RunCanceled);
     format!(
         "UPDATE workflow_steps
   SET status = CASE WHEN status IN ({going}) THEN '{canceled}' ELSE status END,
       finished_at = CASE WHEN status IN ({going}) THEN @finished_at ELSE finished_at END,
+      cancellation_reason = CASE WHEN status IN ({going}) THEN '{run_canceled}'
+        ELSE cancellation_reason END,
       {CLEAR_WAIT_COLUMNS_SQL}
   WHERE workflow_run_id = @workflow_run_id"
     )
@@ -87,18 +96,38 @@ pub(crate) struct WorkflowRunCancellationWrite {
     pub(crate) statements: [WriteStatement; 4],
     /// The run's `workflow.run.canceled`, carrying the cancel's reason and error.
     pub(crate) canceled: SessionEvent,
+    /// One `question.wait.settled` `ended` for each form or reply wait the cancel ends, appended
+    /// after its canceled event in the same write.
+    pub(crate) questions_settled: Vec<SessionEvent>,
     /// The run's results event, with its summary line, appended after its canceled event in the
     /// same write, for a run whose mode posts its results.
     pub(crate) results_posted: Option<SessionEvent>,
+    /// The approval waits the cancel ends, whose cards are withdrawn once the write commits.
+    pub(crate) withdrawn_cards: Vec<UuidTextForm>,
 }
 
-// The session a run's results post into, its mode and its summary line, and the definition and
-// version its events name.
-const RUN_CANCELLATION_SQL: &str = "SELECT run.session_id, run.mode, run.summary,
-    version.definition_id, run.workflow_version_id
+// The session a run's results post into, its mode and its summary line, the definition and
+// version its events name, and how the first run of its retries that is not a retry was started.
+static RUN_CANCELLATION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT run.session_id, run.mode, run.summary,
+    version.definition_id, run.workflow_version_id, {first_mode}
   FROM workflow_runs AS run
   JOIN workflow_versions AS version ON version.id = run.workflow_version_id
-  WHERE run.id = ?1";
+  WHERE run.id = @run_id",
+        first_mode = FIRST_NON_RETRY_MODE_SQL.as_str(),
+    )
+});
+
+// The wait and its cause of each step of a run waiting under a wait of its own, in step order.
+static OPEN_WAITS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT wait_id, wait_cause FROM workflow_steps
+  WHERE workflow_run_id = ?1 AND status = '{waiting}' AND wait_id IS NOT NULL
+  ORDER BY execution_index",
+        waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
+    )
+});
 
 // The first `workflow.run.canceled` of a run in its session's log; a run is canceled once.
 const CANCELED_EVENT_SQL: &str = "SELECT id FROM session_events
@@ -106,17 +135,19 @@ const CANCELED_EVENT_SQL: &str = "SELECT id FROM session_events
     AND json_extract(payload, '$.workflowRunId') = ?2
   ORDER BY sequence LIMIT 1";
 
-/// The write of `cancellation`, the run's session, mode, summary, definition and version read on
-/// `connection`; `None` when no row has the run. Its `workflow.run.canceled` carries the cancel's
-/// reason and error. Its statements end the run's row `canceled` through [`end_run_statements`],
-/// its open wait on people closed, its execution context released and the workspace it owns
-/// archived, every step still running, waiting or held by the memory gate reads `canceled` with
-/// the same end, and no step of the run keeps a wait cause, wait start, resume instant, deadline,
-/// wait id or spent account; the write is refused, changing nothing, unless the run is still going
-/// or parked on a failed step. Its writer tells the session's binder once the write commits, as
-/// the tick's ending does. A run whose mode posts its results posts them as its ending in the tick
-/// would; a retry's retried mode is not on its row, so a retry posts none here. Fails as the read
-/// does.
+/// The write of `cancellation`, the run's session, mode, summary, definition, version and open
+/// waits read on `connection`; `None` when no row has the run. Its `workflow.run.canceled` carries
+/// the cancel's reason and error, and each form or reply wait the cancel ends has its question
+/// settled `ended` after it, while each approval wait's card is named for withdrawal once the write
+/// commits, as the tick's ending does both. Its statements end the run's row `canceled` through
+/// [`end_run_statements`], its open wait on people closed, its execution context released and the
+/// workspace it owns archived, every step still running, waiting or held by the memory gate reads
+/// `canceled` with the same end, and no step of the run keeps a wait cause, wait start, resume
+/// instant, deadline, wait id or spent account; the write is refused, changing nothing, unless the
+/// run is still going or parked on a failed step. Its writer tells the session's binder once the
+/// write commits, as the tick's ending does. A run whose mode posts its results posts them as its
+/// ending in the tick would, a retry as the first run of its retries that is not a retry would.
+/// Fails as the read does.
 #[cfg_attr(
     not(test),
     expect(
@@ -129,21 +160,48 @@ pub(crate) fn workflow_run_cancellation_statements(
     cancellation: &WorkflowRunCancellation,
 ) -> rusqlite::Result<Option<WorkflowRunCancellationWrite>> {
     let workflow_run_id = cancellation.workflow_run_id;
-    let Some((session_id, mode, summary, definition_id, workflow_version_id)) = connection
-        .prepare_cached(RUN_CANCELLATION_SQL)?
-        .query_row([workflow_run_id.text().as_str()], |row| {
-            Ok((
-                text_column(row, 0, |text| SessionId::new(&text))?,
-                text_column(row, 1, closed_word::<WorkflowRunMode>)?,
-                optional_text_column(row, 2, closed_word::<NonEmptyText>)?,
-                text_column(row, 3, |text| WorkflowDefinitionId::new(&text))?,
-                text_column(row, 4, |text| WorkflowVersionId::new(&text))?,
-            ))
-        })
-        .optional()?
+    let run_text = workflow_run_id.text();
+    let Some((session_id, mode, summary, definition_id, workflow_version_id, retried_mode)) =
+        connection
+            .prepare_cached(RUN_CANCELLATION_SQL.as_str())?
+            .query_row(named_params! { "@run_id": run_text.as_str() }, |row| {
+                Ok((
+                    text_column(row, 0, |text| SessionId::new(&text))?,
+                    text_column(row, 1, closed_word::<WorkflowRunMode>)?,
+                    optional_text_column(row, 2, closed_word::<NonEmptyText>)?,
+                    text_column(row, 3, |text| WorkflowDefinitionId::new(&text))?,
+                    text_column(row, 4, |text| WorkflowVersionId::new(&text))?,
+                    optional_text_column(row, 5, closed_word::<WorkflowRunMode>)?,
+                ))
+            })
+            .optional()?
     else {
         return Ok(None);
     };
+    let mut questions_settled = Vec::new();
+    let mut withdrawn_cards = Vec::new();
+    let mut waits = connection.prepare_cached(OPEN_WAITS_SQL.as_str())?;
+    for wait in waits.query_map([run_text.as_str()], |row| {
+        Ok((
+            text_column(row, 0, |text| UuidTextForm::new(&text))?,
+            text_column(row, 1, closed_word::<WorkflowWaitCause>)?,
+        ))
+    })? {
+        let (wait_id, cause) = wait?;
+        match cause {
+            WorkflowWaitCause::Form | WorkflowWaitCause::Reply => {
+                questions_settled.push(SessionEvent::QuestionWaitSettled(
+                    QuestionWaitSettledPayload {
+                        session_id,
+                        wait_id,
+                        outcome: QuestionWaitOutcome::Ended,
+                    },
+                ));
+            }
+            WorkflowWaitCause::Approval => withdrawn_cards.push(wait_id),
+            WorkflowWaitCause::Account | WorkflowWaitCause::Chain => {}
+        }
+    }
     let canceled = SessionEvent::WorkflowRunCanceled(WorkflowRunCanceledPayload {
         session_id,
         workflow_run_id,
@@ -152,13 +210,15 @@ pub(crate) fn workflow_run_cancellation_statements(
         reason: cancellation.reason.clone(),
         error: cancellation.error.clone(),
     });
-    let results_posted = run_posts_results(mode, None)
+    let results_posted = run_posts_results(mode, retried_mode)
         .then(|| results_posted_event(session_id, workflow_run_id, summary));
     Ok(Some(WorkflowRunCancellationWrite {
         session_id,
         statements: cancellation_statements(cancellation),
         canceled,
+        questions_settled,
         results_posted,
+        withdrawn_cards,
     }))
 }
 
@@ -248,6 +308,7 @@ mod tests {
     const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
     const WAITING_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
     const ENDED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e53";
+    const RETRIED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e54";
 
     // A step's status, end and every wait column, as the row holds them.
     type StepRow = (
@@ -315,13 +376,17 @@ mod tests {
     }
 
     /// A chat run's cancel appends its results event after its canceled event, naming the run's
-    /// session and summary line, a manual run's appends none, and a run no row has answers no
-    /// write. Mutations: post for every mode; post for none; drop the summary.
+    /// session and summary line, a manual run's appends none, a retry's posts as the run it
+    /// retries would, and a run no row has answers no write. Mutations: post for every mode; post
+    /// for none; drop the summary; read no retried mode.
     #[rstest]
-    #[case::chat(WorkflowRunMode::Chat, true)]
-    #[case::manual(WorkflowRunMode::Manual, false)]
+    #[case::chat(WorkflowRunMode::Chat, None, true)]
+    #[case::manual(WorkflowRunMode::Manual, None, false)]
+    #[case::retry_of_a_chat(WorkflowRunMode::Retry, Some(WorkflowRunMode::Chat), true)]
+    #[case::retry_of_a_manual(WorkflowRunMode::Retry, Some(WorkflowRunMode::Manual), false)]
     fn a_cancel_posts_the_results_of_a_run_that_posts_them(
         #[case] mode: WorkflowRunMode,
+        #[case] retried_mode: Option<WorkflowRunMode>,
         #[case] posts: bool,
     ) {
         let database = TestDatabase::new(schema_parts());
@@ -335,9 +400,26 @@ mod tests {
             "2026-10-02T00:00:00.000Z",
             None,
         );
+        let retried_run_id = retried_mode.map(|retried_mode| {
+            insert_run(
+                &rows,
+                RETRIED_RUN_ID,
+                VERSION_ID,
+                WorkflowRunStatus::Succeeded,
+                "2026-10-01T00:00:00.000Z",
+                Some(ENDED_AT),
+            );
+            rows.execute(
+                "UPDATE workflow_runs SET mode = ?1 WHERE id = ?2",
+                [<&'static str>::from(retried_mode), RETRIED_RUN_ID],
+            )
+            .expect("the test sets the retried run's mode");
+            RETRIED_RUN_ID
+        });
         rows.execute(
-            "UPDATE workflow_runs SET mode = ?1, summary = 'Shipped three fixes.' WHERE id = ?2",
-            [<&'static str>::from(mode), WAITING_RUN_ID],
+            "UPDATE workflow_runs SET mode = ?1, retried_run_id = ?2, \
+             summary = 'Shipped three fixes.' WHERE id = ?3",
+            rusqlite::params![<&'static str>::from(mode), retried_run_id, WAITING_RUN_ID],
         )
         .expect("the test sets the run's mode and summary");
 

@@ -190,7 +190,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowTriggerFired
         | SessionEventType::WorkflowResultsPosted
         | SessionEventType::WorkflowPhaseAdmitted
-        | SessionEventType::WorkflowPhaseWaitingOnPool
+        | SessionEventType::WorkflowPhaseWaitingOnMemory
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling

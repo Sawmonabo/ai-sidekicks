@@ -52,7 +52,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_workspace::run_setup_gates::execution_root::context::run_workspace_deletion_statements;
+use sidekicks_workspace::run_setup_gates::execution_root::context::run_workspace_delete_sql;
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::record::{
@@ -155,23 +155,36 @@ static STILL_REMOVABLE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The deletes of the rows that hang off a run, children first so the foreign keys hold at every
-// statement, each over a JSON list of run ids; the workspace a run owns goes after its execution
-// context, which names that workspace's branch context, and the run's own row last.
-static RUN_CHILD_ROW_DELETE_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
+// The deletes of the runs a JSON list of their ids names, with every row that hangs off them.
+static LISTED_RUN_DELETE_SQL: LazyLock<Vec<String>> =
+    LazyLock::new(|| run_delete_sql("SELECT value FROM json_each(?1)"));
+
+// The deletes of the runs of a session, bound first, that a JSON list of run ids, bound second,
+// leaves out, with every row that hangs off them.
+static UNLISTED_SESSION_RUN_DELETE_SQL: LazyLock<Vec<String>> = LazyLock::new(|| {
+    run_delete_sql(
+        "SELECT id FROM workflow_runs WHERE session_id = ?1
+    AND id NOT IN (SELECT value FROM json_each(?2))",
+    )
+});
+
+// The deletes of the runs `runs` selects, a subquery of run ids, and of the rows that hang off
+// them, children first so the foreign keys hold at every statement: the workspace a run owns goes
+// after its execution context, which names that workspace's branch context, and the run's own row
+// last.
+fn run_delete_sql(runs: &str) -> Vec<String> {
     [
         ("workflow_steps", "workflow_run_id"),
         ("human_phase_form_state", "workflow_run_id"),
         ("workflow_gate_resolutions", "workflow_run_id"),
         ("run_execution_contexts", "run_id"),
     ]
-    .map(|(table, run_column)| {
-        format!("DELETE FROM {table} WHERE {run_column} IN (SELECT value FROM json_each(?1))")
-    })
-});
-
-const RUN_ROW_DELETE_SQL: &str =
-    "DELETE FROM workflow_runs WHERE id IN (SELECT value FROM json_each(?1))";
+    .into_iter()
+    .map(|(table, run_column)| format!("DELETE FROM {table} WHERE {run_column} IN ({runs})"))
+    .chain(run_workspace_delete_sql(runs))
+    .chain([format!("DELETE FROM workflow_runs WHERE id IN ({runs})")])
+    .collect()
+}
 
 /// A run a delete removed, with the git common folder its execution context named, or `None` where
 /// it had none; the snapshot cleanup prunes the run's refs there after the rows are gone.
@@ -349,16 +362,36 @@ impl From<WorkflowRunDeletionError> for HandlerError {
 /// applies on reading that event.
 pub fn workflow_run_deletion_statements(workflow_run_ids: &[WorkflowRunId]) -> Vec<WriteStatement> {
     let ids_json = serde_json::to_string(workflow_run_ids).expect("run ids write as JSON");
-    let by_runs = |sql: &'static str| WriteStatement {
-        sql: Cow::Borrowed(sql),
-        bindings: StatementBindings::Positional(vec![Value::Text(ids_json.clone())]),
-        expected_row_count: None,
-    };
-    RUN_CHILD_ROW_DELETE_SQL
+    run_deletes(&LISTED_RUN_DELETE_SQL, &[Value::Text(ids_json)])
+}
+
+/// The statements that remove every run of `session_id` but `kept`, with every row that hangs off
+/// them, as [`workflow_run_deletion_statements`] removes a listed run: what a rebuild of the runs
+/// that read the log only up to a point applies once it has, for a run it kept for its gate
+/// answers or form drafts whose `workflow.run.started` lies past that point.
+pub(crate) fn unlisted_session_run_deletion_statements(
+    session_id: SessionId,
+    kept: &[WorkflowRunId],
+) -> Vec<WriteStatement> {
+    let kept_json = serde_json::to_string(kept).expect("run ids write as JSON");
+    run_deletes(
+        &UNLISTED_SESSION_RUN_DELETE_SQL,
+        &[
+            Value::Text(session_id.text().as_str().to_owned()),
+            Value::Text(kept_json),
+        ],
+    )
+}
+
+// The statements of `deletes`, each over `bindings`.
+fn run_deletes(deletes: &'static [String], bindings: &[Value]) -> Vec<WriteStatement> {
+    deletes
         .iter()
-        .map(|sql| by_runs(sql.as_str()))
-        .chain(run_workspace_deletion_statements(&ids_json))
-        .chain([by_runs(RUN_ROW_DELETE_SQL)])
+        .map(|sql| WriteStatement {
+            sql: Cow::Borrowed(sql.as_str()),
+            bindings: StatementBindings::Positional(bindings.to_vec()),
+            expected_row_count: None,
+        })
         .collect()
 }
 

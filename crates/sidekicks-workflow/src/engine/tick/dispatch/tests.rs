@@ -255,8 +255,8 @@ pub(super) fn test_node(settings: &Value) -> WorkflowNode {
 pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value {
     assert_eq!(&report.step, step);
     match &report.kind {
-        StepReportKind::WaitingOnPool { hold_started_at } => {
-            json!({ "waitingOnPool": hold_started_at })
+        StepReportKind::WaitingOnMemory { hold_started_at } => {
+            json!({ "waitingOnMemory": hold_started_at })
         }
         StepReportKind::Admitted { hold_started_at } => json!({ "admitted": hold_started_at }),
         StepReportKind::Started {
@@ -390,7 +390,7 @@ async fn run_step(
         if report == json!("progressed") {
             probe.release.notify_one();
         }
-        if let Some(gate) = gate.filter(|_gate| report.get("waitingOnPool").is_some()) {
+        if let Some(gate) = gate.filter(|_gate| report.get("waitingOnMemory").is_some()) {
             gate.admit();
         }
         sent.push(report);

@@ -102,6 +102,7 @@ impl EngineTick {
             scope,
             graph,
             covered,
+            sealed,
         } = match drive {
             Ok(reloaded_scope) => reloaded_scope,
             Err(error) => return self.end_unrunnable(unrunnable, error).await,
@@ -109,7 +110,7 @@ impl EngineTick {
         let record = self.recorder.for_run(run_id, Arc::clone(&scope.redaction));
         let replayed = match reused_seeds(&events, scope.session_id, &*self.payloads).await {
             Ok(reused) => {
-                let live = seeded_run(scope, graph, covered, reused, record);
+                let live = seeded_run(scope, graph, (covered, sealed), reused, record);
                 replay_run(live, &events, &*self.payloads).await
             }
             Err(reason) => Err(reason),
@@ -315,7 +316,7 @@ impl EngineTick {
                 live.next_batch.push(StepReport {
                     step: step.clone(),
                     at: now.clone(),
-                    kind: StepReportKind::WaitingOnPool {
+                    kind: StepReportKind::WaitingOnMemory {
                         hold_started_at: now.clone(),
                     },
                 });

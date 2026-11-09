@@ -96,9 +96,10 @@ enum TestSession {
 }
 
 /// The starter over the execution roots' fixture, its database holding the store's, workspace and
-/// workflow tables, binding through the real setup gate behind the test's binder: the workflow's version 1 with `body` and
-/// no provider picked, the payloads it stored, the git kind, which needs a project's repository,
-/// the command kind, which runs in its provider's sandbox, and `test.split`, with two outputs.
+/// workflow tables, binding through the real setup gate behind the test's binder: the workflow's
+/// version 1 with `body` and no provider picked, the payloads it stored, the git kind, which needs
+/// a project's repository, the command kind, which runs in its provider's sandbox, and
+/// `test.split`, with two outputs.
 struct Fixture {
     roots: ExecutionRootFixture,
     rows: Connection,

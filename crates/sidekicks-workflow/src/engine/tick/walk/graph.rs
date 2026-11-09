@@ -244,10 +244,14 @@ impl RunGraph {
     /// The place of the node `node_id`, which the graph holds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn place(&self, node_id: &WorkflowNodeId) -> usize {
-        *self
-            .places
-            .get(node_id)
+        self.find_place(node_id)
             .expect("a step's node is a node of its run's graph")
+    }
+
+    /// The place of the node `node_id`, `None` where the graph holds no such node.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn find_place(&self, node_id: &WorkflowNodeId) -> Option<usize> {
+        self.places.get(node_id).copied()
     }
 
     /// The places of the nodes that precede the node at `place` along forward main edges, lowest

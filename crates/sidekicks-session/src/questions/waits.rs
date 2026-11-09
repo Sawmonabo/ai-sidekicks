@@ -43,6 +43,10 @@ pub enum QuestionWaitError {
         /// Why.
         reason: QuestionAnswerInvalidReason,
     },
+    /// No run the engine holds waits on the wait: its run ended, or is not loaded yet; nothing
+    /// was taken and the question stays open.
+    #[error("no run the engine holds waits on this question's wait")]
+    NotHeld,
     /// The wait could not take the answers.
     #[error("the workflow wait did not take the answer")]
     Failed(#[source] Box<dyn Error + Send + Sync>),

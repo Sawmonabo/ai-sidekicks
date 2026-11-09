@@ -71,7 +71,7 @@ describe("a reply that offers a path to open", () => {
 });
 
 describe("a question card's answers", () => {
-  it("cross with a path page's folder token swapped for its path and every other answer as sent", () => {
+  it("cross with a path page's folder token swapped for its path, the rest as sent", () => {
     const refs = new FilePathRefs();
     const page = pageOwner(1);
     const folder = "/Users/person/projects/app";

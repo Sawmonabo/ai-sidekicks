@@ -11,9 +11,12 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_contracts::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy};
 
-use super::{Fixture, ROOT_STARTED_AT, TestSession, VERSION_ID, refusal};
+use super::{DEFINITION_ID, Fixture, ROOT_STARTED_AT, TestSession, VERSION_ID, refusal};
 use crate::engine::start::retry::WorkflowRunRetry;
-use crate::test_rows::{TEST_SESSION_ID, TestSettledStep, insert_run, insert_settled_step};
+use crate::test_rows::{
+    TEST_SESSION_ID, TestSettledStep, assert_rebuild_rewrites_session_rows, insert_run,
+    insert_settled_step,
+};
 
 const SOURCE_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
 const FIRST_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
@@ -125,16 +128,18 @@ enum SourceStart {
 }
 
 /// A retry from `B`, whose step failed in `start → A → B → C` before `A`'s other branch `D` was
-/// reached, records `start` and `A` as reused from the source run's own steps, never from the
-/// later run that also settled them, covers every node, `D` among them, writes no trigger row, and
-/// records the source run as the run it retries, with the mode of the first run of its retries
-/// that is not a retry. Mutations: leave a node the source run never reached out of the plan,
-/// which leaves `D` uncovered; read the nodes' newest settled steps across
-/// the workflow's runs (`read_settled_steps`) in place of the source run's, which names the later
-/// run; seed nothing (`plan.reused` dropped), which leaves `reused` empty; write the trigger's row
-/// though the trigger is reused; copy the source run's own mode as `first_mode`, which reads
-/// `retry` for a retry of a chat's run; leave `retried_run_id` off the creation, which the row's
-/// check refuses.
+/// reached, records `start` and `A` as reused from the source run's own steps, never from the later
+/// run that also settled them, covers every node, `D` among them, writes no trigger row, and
+/// records the source run as the run it retries, with the mode of the first run of its retries that
+/// is not a retry, and honors the workflow's pins on `C` only where that run was a manual one.
+/// Mutations: leave a node the source run never reached out of the plan, which leaves `D`
+/// uncovered; read the nodes' newest settled steps across the workflow's runs
+/// (`read_settled_steps`) in place of the source run's, which names the later run; seed nothing
+/// (`plan.reused` dropped), which leaves `reused` empty; write the trigger's row though the trigger
+/// is reused; copy the source run's own mode as `first_mode`, which reads `retry` for a retry of a
+/// chat's run; leave `retried_run_id` off the creation, which the row's check refuses; leave it off
+/// the rebuild's start, which the same check refuses on a rebuild; hash the pins by the retry's own
+/// mode, which drops a manual run's pins.
 #[rstest]
 #[case::of_a_manual_run(SourceStart::Manual, WorkflowRunMode::Manual)]
 #[case::of_a_retry_of_a_chat_run(SourceStart::RetryOfAChatRun, WorkflowRunMode::Chat)]
@@ -167,6 +172,13 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
         ],
     );
     store_run(&fixture, LATER_RUN_ID, WorkflowRunStatus::Failed);
+    fixture
+        .rows
+        .execute(
+            "UPDATE workflow_definitions SET pin_data_json = ?1 WHERE id = ?2",
+            params![json!({ "C": [{ "json": {} }] }).to_string(), DEFINITION_ID],
+        )
+        .expect("the test pins C");
     store_steps(
         &fixture,
         LATER_RUN_ID,
@@ -211,7 +223,7 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
         node_run
             .reused
             .iter()
-            .all(|step| step.outputs == vec![Vec::new()]
+            .all(|step| step.seed.record.outputs == vec![Vec::new()]
                 && step.session_id.text().as_str() == TEST_SESSION_ID)
     );
     assert_eq!(retry.graph.node_count(), 5);
@@ -219,6 +231,18 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
     assert!(retry.trigger.is_none());
     assert_eq!(retry.scope.mode, WorkflowRunMode::Retry);
     assert_eq!(retry.scope.retried_mode, Some(first_mode));
+    let pinned: Vec<&str> = retry
+        .scope
+        .pins
+        .keys()
+        .map(WorkflowNodeId::as_str)
+        .collect();
+    let honored: &[&str] = if first_mode == WorkflowRunMode::Manual {
+        &["C"]
+    } else {
+        &[]
+    };
+    assert_eq!(pinned, honored);
     let run_id = retry.scope.run_id;
     let (mode, retried_run_id): (String, String) = fixture
         .rows
@@ -253,6 +277,7 @@ async fn a_retry_reuses_the_source_runs_steps_before_the_failed_one(
     let (payload, _, _) = fixture.started_record(run_id);
     assert_eq!(payload["retriedWorkflowRunId"], json!(SOURCE_RUN_ID));
     assert_eq!(payload.get("inputRef"), None);
+    assert_rebuild_rewrites_session_rows(&fixture.rows, TEST_SESSION_ID);
 }
 
 /// A retry that cannot be made is refused with its reason and makes no run: a source run no row

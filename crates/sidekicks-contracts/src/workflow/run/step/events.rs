@@ -5,7 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::approval::ApprovalDecision;
 use crate::provider::account::record::ProviderAccountId;
@@ -72,6 +72,11 @@ workflow_step_event! {
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     pub struct WorkflowStepCanceledPayload {
+        /// Why it was canceled: `siblingFailure`, `runCanceled` or `mergeFirstToArrive`; `null`
+        /// where no cause is recorded, as for a retry's attempt a stopping run never started.
+        #[serde(deserialize_with = "crate::wire::nullable")]
+        #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
+        pub cancellation_reason: Option<WorkflowPhaseCancellationReason>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -417,15 +422,31 @@ phase_suspended_payload! {
     }
 }
 
-/// Why a phase was canceled rather than failing on its own work: a sibling branch's failure ended
-/// the run, or a person canceled the run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// Why a step was canceled rather than failing on its own work: a sibling branch's failure ended
+/// the run, a person canceled the run, or a `firstToArrive` merge took another branch's input.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum WorkflowPhaseCancellationReason {
     /// A sibling branch failed and ended the run.
     SiblingFailure,
     /// A person canceled the run.
     RunCanceled,
+    /// A `firstToArrive` merge took another branch's input first; the run goes on, and the step's
+    /// branch passed nothing on.
+    MergeFirstToArrive,
 }
 
 workflow_step_event! {
@@ -436,6 +457,7 @@ workflow_step_event! {
     pub struct WorkflowPhaseFailedPayload {
         /// `siblingFailure` where a sibling branch's failure canceled the phase, `runCanceled`
         /// where a person's cancel of the run did; `null` where the phase failed on its own work.
+        /// Never `mergeFirstToArrive`: a merge's cancel fails no phase.
         #[serde(deserialize_with = "crate::wire::nullable")]
         #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
         pub cancellation_reason: Option<WorkflowPhaseCancellationReason>,
@@ -443,12 +465,12 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.phase.waitingOnPool`: the memory gate holds the step before it starts, written
+    /// `workflow.phase.waitingOnMemory`: the memory gate holds the step before it starts, written
     /// on entry to the hold and every 30 seconds while it lasts; memory is the only pool, so the
     /// payload names none.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowPhaseWaitingOnPoolPayload {
+    pub struct WorkflowPhaseWaitingOnMemoryPayload {
         /// The envelope sequence the hold began at, which ties each repeat back to one hold.
         pub waiting_since_seq: SafeInt<0>,
     }
@@ -678,7 +700,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
         Definition::read::<WorkflowPhaseCancellationReason>(),
         Definition::read::<WorkflowPhaseFailedPayload>().checked(),
-        Definition::read::<WorkflowPhaseWaitingOnPoolPayload>().checked(),
+        Definition::read::<WorkflowPhaseWaitingOnMemoryPayload>().checked(),
         Definition::read::<WorkflowPhaseAdmittedPayload>().checked(),
         Definition::read::<WorkflowPhaseStartedPayload>().checked(),
         Definition::read::<WorkflowPhaseProgressedPayload>().checked(),

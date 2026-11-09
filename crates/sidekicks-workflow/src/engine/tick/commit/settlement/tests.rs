@@ -417,12 +417,12 @@ async fn a_failure_routes_as_its_node_says(#[case] case: FailureCase) {
                 )
                 .expect("the run's row reads");
             assert_eq!(run_row, ("failed".to_owned(), None));
-            let pool_wait_ms = if matches!(case, FailureCase::HeldStop) {
+            let memory_wait_ms = if matches!(case, FailureCase::HeldStop) {
                 5_000
             } else {
                 0
             };
-            assert_eq!(harness.step_row(1).1, pool_wait_ms);
+            assert_eq!(harness.step_row(1).1, memory_wait_ms);
         }
     }
 }

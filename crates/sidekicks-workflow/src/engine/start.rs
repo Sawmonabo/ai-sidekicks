@@ -76,7 +76,8 @@ use crate::engine::tick::{RunGraph, RunPin, RunScope};
 use crate::kinds::NodeKindTable;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
-    execution_context_statement_index, trigger_step_key, workflow_run_creation_statements,
+    execution_context_statement_index, is_chain_full, trigger_step_key,
+    workflow_run_creation_statements,
 };
 use crate::runs::deletion::remove_run_folder;
 use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
@@ -374,7 +375,7 @@ impl WorkflowRunStarter {
         &self,
         start: WorkflowRunStart,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
-        let checked = self.check(&start, None).await?;
+        let checked = self.check(&start, None, start.mode).await?;
         self.start_checked(start, checked, None, None).await
     }
 
@@ -394,6 +395,25 @@ impl WorkflowRunStarter {
         let workflow_run_id =
             WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let is_run_owned = checked.project_root.is_some();
+        // A run of its own workspace binds and prepares it before the write, so a start the chain
+        // would hold is held first.
+        if is_run_owned
+            && let WorkflowRunChainPlace::Joins {
+                chain_root_run_id, ..
+            } = start.chain
+        {
+            let chain_ask_after = self.run_limits.chain_ask_after_runs();
+            let is_full = self
+                .pool
+                .read(ReadLength::Short, move |connection| {
+                    is_chain_full(connection, &chain_root_run_id, chain_ask_after)
+                        .map_err(WorkflowRunStartError::from)
+                })
+                .await?;
+            if is_full {
+                return Ok(WorkflowStartOutcome::HeldOnChain { chain_root_run_id });
+            }
+        }
         let prepared = match self
             .prepare(start.session_id, workflow_run_id, &checked)
             .await
@@ -617,8 +637,7 @@ impl WorkflowRunStarter {
         if let Some(replayed) = &mut replayed {
             replayed
                 .store_in_session(&*self.payloads, session_id, stored)
-                .await
-                .map_err(WorkflowRunStartError::ReusedOutputStore)?;
+                .await?;
         }
         let retried_run_id = retried.map(|retried| retried.workflow_run_id);
         // The limit is read at each joining start, so a changed setting holds the next one.

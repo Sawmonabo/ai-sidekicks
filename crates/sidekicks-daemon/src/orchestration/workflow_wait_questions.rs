@@ -4,11 +4,6 @@
 //! chooser, and the card's answers made the wait's answer, a form's checked against its fields,
 //! which the engine settles in the write that ends the wait.
 
-#![expect(
-    dead_code,
-    reason = "the workflow engine's composition, which builds the bridge and registers it"
-)]
-
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -38,13 +33,31 @@ use sidekicks_workflow::engine::waits::form_check::{FormAnswerCheckError, check_
 use sidekicks_workflow::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 
 /// The pages of a record, from one page up.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 type QuestionPages = BoundedVec<QuestionPrompt, 1, { usize::MAX }>;
 
 /// The `format` a form's string field carries when its answer is a folder's path.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 const PATH_FIELD_FORMAT: &str = "path";
 
 /// The bridge between the workflow engine's form and reply waits and the session's questions: it
 /// asks each wait's question and hands the card's answers to the engine.
+#[expect(
+    dead_code,
+    reason = "the workflow engine's composition, which builds the bridge and registers it"
+)]
 pub(crate) struct WorkflowWaitQuestions {
     questions: Arc<QuestionsService>,
     answers: EngineAnswers,
@@ -52,6 +65,10 @@ pub(crate) struct WorkflowWaitQuestions {
 
 impl WorkflowWaitQuestions {
     /// The bridge asking through `questions` and answering through the engine's `answers`.
+    #[expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )]
     pub(crate) fn new(questions: Arc<QuestionsService>, answers: EngineAnswers) -> Self {
         Self { questions, answers }
     }
@@ -117,28 +134,58 @@ impl QuestionWaits for WorkflowWaitQuestions {
     ) -> BoxFuture<'_, Result<QuestionSettledState, QuestionWaitError>> {
         async move {
             let wait_answer = wait_answer(&answer.asked, &answer.answers)?;
-            match self.answers.answer_wait(answer.wait_id, wait_answer).await {
-                // A wait no longer waiting was settled by the step panel's answer or by a write
-                // ending it that is in flight; the card follows that write's mark either way.
-                Ok(()) | Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting)) => {
-                    Ok(QuestionSettledState::Answered)
-                }
-                Err(closed @ WaitAnswerError::Closed) => {
-                    Err(QuestionWaitError::Failed(Box::new(closed)))
-                }
-            }
+            settled_state(self.answers.answer_wait(answer.wait_id, wait_answer).await)
         }
         .boxed()
     }
 }
 
+/// How the card reads the engine's answer `answered` to its wait: a wait its held run no longer
+/// waits on was settled by the step panel's answer or by a write ending it that is in flight, so
+/// the card follows that write's mark and reads answered; a wait no held run waits on is refused,
+/// its question left open; a closed engine is a fault.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
+fn settled_state(
+    answered: Result<(), WaitAnswerError>,
+) -> Result<QuestionSettledState, QuestionWaitError> {
+    match answered {
+        Ok(()) | Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting)) => {
+            Ok(QuestionSettledState::Answered)
+        }
+        Err(WaitAnswerError::Refused(PersonWaitRefusal::NotHeld)) => {
+            Err(QuestionWaitError::NotHeld)
+        }
+        Err(closed @ WaitAnswerError::Closed) => Err(QuestionWaitError::Failed(Box::new(closed))),
+    }
+}
+
 /// The card's chip: the workflow's name.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn workflow_header(workflow_name: &WorkflowName) -> NonEmptyText {
     NonEmptyText::new(workflow_name.as_str().to_owned()).expect("a workflow's name is never empty")
 }
 
 /// The elicitation form a form wait asks: `prompt` as its message over the fields of
 /// `form_schema`, the one value its pages and its answers are both read from.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn form_params(prompt: &str, form_schema: &JsonRecord) -> Value {
     json!({ "mode": "form", "message": prompt, "requestedSchema": form_schema })
 }
@@ -146,6 +193,13 @@ fn form_params(prompt: &str, form_schema: &JsonRecord) -> Value {
 /// The pages a form wait asks, one per field of `input_schema` in its order under the workflow's
 /// name, a string field of `format: "path"` asked as a path page, and the schema as the record
 /// keeps it. Fails when the schema holds a member no record takes.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn form_question(
     workflow_name: &WorkflowName,
     prompt: &ComposedText,
@@ -156,9 +210,12 @@ fn form_question(
     let mut pages = read_elicitation_questions(&params, Some(workflow_header(workflow_name)));
     let properties = &params["requestedSchema"]["properties"];
     for (page, field) in pages.iter_mut().zip(read_elicitation_field_names(&params)) {
-        if properties[field]["format"] == PATH_FIELD_FORMAT {
-            page.path = Some(true);
-        }
+        let property = &properties[field];
+        // A path is a string picked with the chooser, so a field of another type, or one whose
+        // reading gave option rows, keeps its plain page.
+        page.path = property["format"] == PATH_FIELD_FORMAT
+            && property["type"] == "string"
+            && page.options.is_empty();
     }
     let pages = BoundedVec::new(pages).expect("a form with a message asks at least its message");
     Ok((pages, form_schema))
@@ -166,6 +223,13 @@ fn form_question(
 
 /// The one page a reply wait asks: its prompt as free text under the workflow's name, required,
 /// so it takes no skip.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn reply_question(workflow_name: &WorkflowName, prompt: &ComposedText) -> QuestionPages {
     let page = QuestionPrompt {
         header: Some(workflow_header(workflow_name)),
@@ -175,7 +239,7 @@ fn reply_question(workflow_name: &WorkflowName, prompt: &ComposedText) -> Questi
         options: Vec::new(),
         several_answers: false,
         secret: false,
-        path: None,
+        path: false,
         required: Some(true),
         default: None,
         minimum: None,
@@ -191,6 +255,13 @@ fn reply_question(workflow_name: &WorkflowName, prompt: &ComposedText) -> Questi
 /// each field's id, refused at the page of the first field its schema does not take, or a reply's
 /// one typed text. Fails when the form's schema does not compile or a reply's answers are not one
 /// typed text, which the session's check of a required free-text page lets through.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow engine's composition, which builds the bridge and registers it"
+    )
+)]
 fn wait_answer(
     asked: &WaitQuestionAskedPayload,
     answers: &[QuestionAnswer],
@@ -242,10 +313,12 @@ mod tests {
     use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
     use sidekicks_contracts::wire::text::{BoundedText, ComposedText};
     use sidekicks_contracts::workflow::definition::document::WorkflowName;
+    use sidekicks_session::questions::QuestionSettledState;
     use sidekicks_session::questions::waits::QuestionWaitError;
-    use sidekicks_workflow::engine::waits::PersonWaitAnswer;
+    use sidekicks_workflow::engine::waits::answers::WaitAnswerError;
+    use sidekicks_workflow::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 
-    use super::{QuestionPages, form_question, reply_question, wait_answer};
+    use super::{QuestionPages, form_question, reply_question, settled_state, wait_answer};
 
     /// The workflow the tests' waits belong to.
     fn workflow_name() -> WorkflowName {
@@ -320,9 +393,11 @@ mod tests {
         );
     }
 
-    /// A string field of `format: "path"` is asked as a path page and no other field is, and the
-    /// folder picked on it becomes that field's value, the path as text. Kills: the format not
-    /// read; every page marked; the marks paired with the schema's fields rather than the pages'.
+    /// A string field of `format: "path"` is asked as a path page and no other field is, an
+    /// integer or a choice of `format: "path"` among them, and the folder picked on it becomes
+    /// that field's value, the path as text. Kills: the format not read; every page marked; the
+    /// marks paired with the schema's fields rather than the pages'; the type or the options not
+    /// read.
     #[test]
     fn a_path_field_is_asked_as_a_path_page_and_answered_with_the_path() {
         let schema = json!({
@@ -331,6 +406,13 @@ mod tests {
                 "unasked": true,
                 "note": { "type": "string", "title": "Note" },
                 "where": { "type": "string", "format": "path", "title": "Folder" },
+                "count": { "type": "integer", "format": "path", "title": "Count" },
+                "pick": {
+                    "type": "string",
+                    "format": "path",
+                    "enum": ["/a", "/b"],
+                    "title": "Pick",
+                },
             },
             "required": ["where"],
         });
@@ -342,11 +424,13 @@ mod tests {
                 .iter()
                 .map(|page| page.path)
                 .collect::<Vec<_>>(),
-            [None, Some(true)]
+            [false, true, false, false]
         );
         let answers: Vec<QuestionAnswer> = serde_json::from_value(json!([
             { "kind": "skipped" },
             { "kind": "path", "path": "/Users/person/app" },
+            { "kind": "skipped" },
+            { "kind": "skipped" },
         ]))
         .expect("the test's answers");
 
@@ -412,5 +496,28 @@ mod tests {
             panic!("a reply's text is taken: {answered:?}");
         };
         assert_eq!(text.as_str(), "Ship it");
+    }
+
+    /// The card reads answered when the engine took the answer or its held run's step had left
+    /// the wait, is refused not held when no held run waits on it, and fails when the engine is
+    /// closed. Kills: a wait no held run waits on read answered; a closed engine read answered.
+    #[test]
+    fn the_engines_answer_is_read_as_the_cards() {
+        assert!(matches!(
+            settled_state(Ok(())),
+            Ok(QuestionSettledState::Answered)
+        ));
+        assert!(matches!(
+            settled_state(Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting))),
+            Ok(QuestionSettledState::Answered)
+        ));
+        assert!(matches!(
+            settled_state(Err(WaitAnswerError::Refused(PersonWaitRefusal::NotHeld))),
+            Err(QuestionWaitError::NotHeld)
+        ));
+        assert!(matches!(
+            settled_state(Err(WaitAnswerError::Closed)),
+            Err(QuestionWaitError::Failed(_))
+        ));
     }
 }

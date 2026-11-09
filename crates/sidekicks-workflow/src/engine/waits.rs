@@ -267,13 +267,17 @@ pub(crate) struct WaitingPersonStep {
     pub(crate) deadline_at: Option<WireInstant>,
 }
 
-/// Why an answer did not settle a wait; it answers `workflow.step.notWaiting`.
+/// Why an answer did not settle a wait.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PersonWaitRefusal {
-    /// The answer names another wait, is the wrong kind for the wait, or came at or after its
-    /// deadline.
+    /// The answer names another wait of a run the engine holds, is the wrong kind for the wait,
+    /// or came at or after its deadline; it answers `workflow.step.notWaiting`.
     #[error("the step is not waiting on this answer")]
     NotWaiting,
+    /// A step still waits under the wait, but no run the engine holds drives it: its run is not
+    /// loaded yet; it answers `question.waitNotHeld`, never an answered card.
+    #[error("no run the engine holds waits on this answer")]
+    NotHeld,
 }
 
 /// Makes `answer`, given at `at`, the settlement of `waiting`, the live step under the wait the

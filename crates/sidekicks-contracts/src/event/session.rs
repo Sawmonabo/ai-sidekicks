@@ -107,7 +107,7 @@ use crate::workflow::run::step::events::{
     WorkflowPhaseAdmittedPayload, WorkflowPhaseCancelingPayload, WorkflowPhaseCompletedPayload,
     WorkflowPhaseFailedPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseResumedPayload,
     WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseSuspendedPayload,
-    WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
+    WorkflowPhaseWaitingOnMemoryPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
     WorkflowStepFailedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use crate::worktree::events::{
@@ -552,8 +552,8 @@ session_events! {
     WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase.failed",
     /// Emitted when the memory gate holds a step before it starts, and every 30 seconds while it
     /// holds it.
-    WorkflowPhaseWaitingOnPool(WorkflowPhaseWaitingOnPoolPayload) =
-        "workflow.phase.waitingOnPool",
+    WorkflowPhaseWaitingOnMemory(WorkflowPhaseWaitingOnMemoryPayload) =
+        "workflow.phase.waitingOnMemory",
     /// Emitted when a workflow step starts, with the input it ran on.
     WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) = "workflow.step.started",
     /// Emitted when a workflow step finishes, with its output and log.

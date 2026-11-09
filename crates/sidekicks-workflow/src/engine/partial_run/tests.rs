@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
@@ -26,7 +27,9 @@ use crate::test_rows::{
     workflow_tables,
 };
 
+mod merge;
 mod pins;
+mod retry;
 mod reuse;
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e01";
@@ -35,6 +38,8 @@ const SECOND_VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e12";
 const FIRST_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e21";
 const SECOND_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e22";
 const THIRD_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e23";
+const FIRST_PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e31";
+const SECOND_PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e32";
 
 /// An edge from `.0`'s main output `.1` into `.2`'s main input `.3`.
 type Edge = (&'static str, usize, &'static str, usize);
@@ -189,6 +194,7 @@ fn settled(
         output_item_counts: vec![SafeInt::new(0).expect("a count")],
         pin_hash: None,
         reused_from: None,
+        cancellation_reason: None,
     }
 }
 
@@ -234,6 +240,7 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     let read = read_settled_steps(
         &connection,
         definition_id,
+        None,
         &[test_node_id("A"), test_node_id("B")],
     )
     .expect("the steps read");
@@ -485,6 +492,7 @@ fn planned(
         &test_node_id(target),
         scope,
         pins,
+        None,
     )
     .expect("the plan reads")
 }
@@ -767,4 +775,54 @@ fn run_this_node_uses_its_ancestors_steps_as_they_are() {
             )
         );
     }
+}
+
+/// A node run reuses steps only from runs that worked in its repository: the earlier run's session
+/// works in the first project, so a run in that project reuses its steps and a run in another
+/// project finds nothing to reuse and executes every covered node. Mutation: drop the repository
+/// filter from the source run's read (the other project's run reuses `T`, `A` and `B`).
+#[rstest]
+#[case::the_same_repository(FIRST_PROJECT_ID, &["C"], &["T", "A", "B"])]
+#[case::another_repository(SECOND_PROJECT_ID, &["T", "A", "B", "C"], &[])]
+fn a_node_run_reuses_steps_only_from_its_repository(
+    #[case] project_id: &str,
+    #[case] executed: &[&str],
+    #[case] reused: &[&str],
+) {
+    let connection = workflow_tables();
+    let chain = body(&chain(), CHAIN);
+    store_versions(&connection, &chain, &chain);
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, \
+             updated_at) VALUES ('{FIRST_PROJECT_ID}', 'app', 'app', '/app', 'active', '{{}}', \
+             '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z');
+             INSERT INTO session_create_requests (client_idempotency_key, session_id, project_id, \
+             execution_mode, provider_account_id) VALUES ('{TEST_SESSION_ID}', \
+             '{TEST_SESSION_ID}', '{FIRST_PROJECT_ID}', 'boundRoot', 'account-a')"
+        ))
+        .expect("the earlier run's session works in the first project");
+    let version = WorkflowVersions::new(&connection)
+        .read_version(WorkflowVersionId::new(SECOND_VERSION_ID).expect("the test's version id"))
+        .expect("the target version reads");
+    let project = ProjectId::new(project_id).expect("the test's project id");
+    let planned = plan_partial_run(
+        &connection,
+        &version,
+        &graph_of(&parsed(&chain)),
+        &test_node_id("C"),
+        WorkflowNodeExecuteScope::FromHere,
+        &HashMap::new(),
+        Some(&project),
+    )
+    .expect("the plan reads");
+    assert_eq!(
+        kept_runs(planned),
+        (
+            names(executed),
+            reused_from(FIRST_RUN_ID, reused),
+            Vec::new()
+        )
+    );
 }

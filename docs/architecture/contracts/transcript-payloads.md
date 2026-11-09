@@ -538,17 +538,20 @@ interface TurnTasksUpdate {
 
 // question.asked — the record the screen renders, registered in Spec-005's `interactiveRequest`
 // category, which owns the name and the census. A tool server's question and a workflow step
-// waiting for a chat reply become the same record.
+// waiting on a form or a chat reply become the same record.
 type QuestionId = string & { readonly __brand: "QuestionId" }; // daemon-minted
 interface QuestionAskedPayload {
   questionId: QuestionId;
   sessionId: SessionId;
   // Exactly one of the two names what is waiting: an agent's or a tool server's question names the
-  // agent's run; a workflow step waiting for a chat reply names its wait, the durable id that ties
-  // the wait to its workflow run, its step and its session, so the first answer through either door
-  // settles it.
+  // agent's run; a workflow step waiting on a form or a chat reply names its wait, the durable id
+  // that ties the wait to its workflow run, its step and its session, so the first answer through
+  // either door settles it.
   runId?: RunId;
   waitId?: string; // a UUID
+  // On a form wait's question only: its fields as a JSON Schema, by which its answers go back keyed
+  // by each field's id.
+  formSchema?: Record<string, unknown>;
   // On a run's question only: `open` is answerable at once, its run waiting on it; `waitingForRun`
   // was asked while its run waits on something else, so it is recorded waiting, shown greyed under
   // `Waiting for the run`, and opens in the order the run's questions came once the run reads
@@ -593,10 +596,10 @@ interface QuestionAskedPayload {
     // True on a workflow form's `path` field: the card draws `Browse…`, which opens the platform's
     // folder chooser, and NO option rows, and the question takes only a path or a skip.
     path?: boolean;
-    // `required` comes only from a tool server's form; `default`, `minimum` and `maximum`
-    // come from a tool server's form or a Claude Code number question. Each is present only
-    // where its source sets it.
-    // Whether the form must have this field answered.
+    // Whether the form must have this field answered. A tool server's form field and a workflow
+    // wait's question set it; on a question with options it refuses typed text, and a workflow
+    // wait's question with it true takes no skip. `default`, `minimum` and `maximum` come from a
+    // form or a Claude Code number question. Each is present only where its source sets it.
     required?: boolean;
     // The answer the field starts from: the label of the option it preselects (several labels on a
     // field of several picks), or a typed field's value in its own type. A label is always one of
@@ -633,13 +636,24 @@ interface QuestionCanceledPayload {
   reason: "interrupted" | "withdrawn" | "runEnded";
 }
 
+// question.wait.settled — the write that ended a workflow form or reply wait settled the question
+// its wait holds, so its card closes on every open copy and stays closed after a reload: `answered`
+// where the first answer, through the card or the run's step panel, settled the wait, `timedOut`
+// where the step's own `Timeout` came first, `ended` where its run ended or its branch was canceled
+// before an answer came.
+interface QuestionWaitSettledPayload {
+  sessionId: SessionId;
+  waitId: string; // a UUID
+  outcome: "answered" | "timedOut" | "ended";
+}
+
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the
 // picked labels, typed text, a secret, a picked folder's path, or a skip — which is why the arms are
 // a closed union rather than five optional members. A path page's answer leaves the page as the
 // folder chooser's file token, and the desktop's main process puts the path it stands for in its
-// place before the call reaches the daemon, so no typed path stands for one. A secret is delivered to the provider and NEVER stored: it reaches no
-// event payload, no artifact and no projection. The person's turn is written as an ordinary message
-// record with the secret masked.
+// place before the call reaches the daemon, so no typed path stands for one. A secret is delivered
+// to the provider and NEVER stored: it reaches no event payload, no artifact and no projection.
+// The person's turn is written as an ordinary message record with the secret masked.
 type QuestionAnswer =
   | { kind: "picked"; labels: string[] } // at least one
   | { kind: "typed"; text: string }

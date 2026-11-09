@@ -2,21 +2,21 @@
 //! readies, skips, wins or cancels added to the run's turn, each readied step's first main input
 //! stored for its `pending` row and each reused step's outputs kept as a settled step's.
 
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, failed_at_once, reports, step_failure};
 use crate::engine::event_record::EngineFault;
-use crate::engine::tick::branch_cancellation::{BranchCancelReason, BranchLoser, cancel_branches};
+use crate::engine::tick::branch_cancellation::{BranchLoser, cancel_branches};
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::step_failure::{RunSibling, SiblingState};
-use crate::engine::tick::walk::{ReusedStepRecord, WalkSkip, WalkSkipReason, WalkTurn};
+use crate::engine::tick::walk::{WalkSkip, WalkSkipReason, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput};
 use crate::kinds::StepFailure;
-use crate::runs::step_payload::{join_step_outputs, write_step_payload};
+use crate::runs::step_payload::write_step_payload;
 
 impl EngineTick {
     /// Settles `step` in the walk with `outputs`, which move into the run's outputs beside its
@@ -70,8 +70,9 @@ impl EngineTick {
     }
 
     /// Adds what the walk answered to the turn: each skip's row and event, a reused skip's outputs
-    /// kept as its step's, then each readied step's `pending` row on its stored first main input,
-    /// on the event of the last skip it names as a source, or else on `readying`'s event.
+    /// kept as its step's and its earlier step's payloads recorded as its own, then each readied
+    /// step's `pending` row on its stored first main input, on the event of the last skip it
+    /// names as a source, or else on `readying`'s event.
     pub(super) async fn take_walk(
         &self,
         live: &mut LiveRun,
@@ -81,23 +82,18 @@ impl EngineTick {
     ) {
         let WalkTurn {
             ready,
-            skipped,
+            mut skipped,
             wins,
             canceled,
         } = walked;
         let mut skip_events: Vec<(u64, usize)> = Vec::with_capacity(skipped.len());
-        for skip in &skipped {
-            let (input_ref, output_ref) = match &skip.reason {
+        for skip in &mut skipped {
+            let (input_ref, output_ref) = match &mut skip.reason {
                 WalkSkipReason::Disabled => {
                     let payload = self.store_skipped_input(live, skip).await;
                     (payload.clone(), payload)
                 }
                 WalkSkipReason::Reused(reused) => {
-                    let (session_id, outputs) =
-                        live.take_reused_output(&skip.step.node_id, &reused.from);
-                    let output_ref = self
-                        .reused_output_ref(live, skip, reused, session_id, &outputs)
-                        .await;
                     live.outputs.record(
                         StepKey {
                             node_id: skip.step.node_id.clone(),
@@ -105,11 +101,10 @@ impl EngineTick {
                         },
                         StepOutput {
                             sources: skip.sources.clone(),
-                            outputs,
+                            outputs: std::mem::take(&mut reused.outputs),
                         },
                     );
-                    let input_ref = self.store_skipped_input(live, skip).await;
-                    (input_ref, output_ref)
+                    (reused.input_ref.clone(), reused.output_ref.clone())
                 }
                 WalkSkipReason::NoItems => (
                     WorkflowPayloadRef::Inline { items: Vec::new() },
@@ -163,7 +158,13 @@ impl EngineTick {
             };
             turn.commit.readied(&ready, input_ref.clone(), event);
             if is_canceled {
-                turn.commit.canceled_unrun(&ready.step, &at);
+                // The walk cancels only a first-to-arrive merge's losers; a stopped run its own.
+                let reason = if is_walk_live {
+                    live.stop_cancellation_reason()
+                } else {
+                    WorkflowPhaseCancellationReason::MergeFirstToArrive
+                };
+                turn.commit.canceled_unrun(&ready.step, &at, reason);
                 if is_walk_live {
                     live.leave_walk(&ready.step, &inputs, &input_ref);
                 }
@@ -181,7 +182,7 @@ impl EngineTick {
             return;
         }
         for win in wins {
-            let losers = reports::sort_losers(live, turn, win.losers, &at).await;
+            let losers = reports::sort_losers(live, turn, win.losers, &at, true).await;
             let mut branch_losers = Vec::with_capacity(losers.len());
             for RunSibling { step, state } in losers {
                 match state {
@@ -195,52 +196,19 @@ impl EngineTick {
                         is_running: false,
                         cancel,
                     }),
-                    SiblingState::Waiting => reports::cancel_now(live, turn, step, &at).await,
+                    SiblingState::Waiting => {
+                        let merge = Some(WorkflowPhaseCancellationReason::MergeFirstToArrive);
+                        reports::cancel_now(live, turn, step, &at, merge).await;
+                    }
                 }
             }
             let (cancelings, wave) = cancel_branches(
                 win.deciding,
-                BranchCancelReason::FirstToArrive,
+                WorkflowPhaseCancellationReason::MergeFirstToArrive,
                 branch_losers,
             );
             turn.follow_ups.extend(cancelings);
             live.waves.extend(wave);
-        }
-    }
-
-    /// The output `skip`, which replays `reused`, passes on: the earlier step's own where it is
-    /// inline or lives in this run's session, `session_id`, else `outputs` stored again in this
-    /// run's session under the skip's key, since a session's purge erases only its own payloads. A
-    /// copy that cannot be stored is recorded, and the skip keeps the earlier step's ref.
-    async fn reused_output_ref(
-        &self,
-        live: &LiveRun,
-        skip: &WalkSkip,
-        reused: &ReusedStepRecord,
-        session_id: SessionId,
-        outputs: &[Vec<WorkflowItem>],
-    ) -> WorkflowPayloadRef {
-        if session_id == live.scope.session_id
-            || matches!(reused.output_ref, WorkflowPayloadRef::Inline { .. })
-        {
-            return reused.output_ref.clone();
-        }
-        let joined = join_step_outputs(outputs);
-        match write_step_payload(
-            self.payloads.as_ref(),
-            live.scope.session_id,
-            &skip.step,
-            &joined,
-        )
-        .await
-        {
-            Ok(output_ref) => output_ref,
-            Err(error) => {
-                live.record
-                    .fault(Some(&skip.step), EngineFault::SettlementWriteFailed, &error)
-                    .await;
-                reused.output_ref.clone()
-            }
         }
     }
 

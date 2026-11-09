@@ -59,7 +59,7 @@ impl WorkflowRunStarter {
     // with no attached folder, a node run's `target` among the version's nodes, the trigger's
     // declared inputs but on a retry, which reuses its source run's, a project's repository for
     // the steps that need one, the workflow's provider for the steps that run in its sandbox, the
-    // run's graph, then the pins it honors, hashed.
+    // run's graph, then the pins a run of `pins_mode` honors, hashed.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -68,6 +68,7 @@ impl WorkflowRunStarter {
         &self,
         start: &WorkflowRunStart,
         target: Option<&WorkflowNodeId>,
+        pins_mode: WorkflowRunMode,
     ) -> Result<CheckedStart, WorkflowRunStartError> {
         // Only a trigger's fire is judged here, as this machine's owner.
         let judged_owner = match start.arrival {
@@ -167,7 +168,7 @@ impl WorkflowRunStarter {
         let works_in_repository = session.shape == SessionShape::Project || project_root.is_some();
         let (nodes, graph) =
             check_run_graph(&self.kinds, &body, works_in_repository, provider.is_some())?;
-        let pins = hash_run_pins(pin_data_json.as_deref(), start.mode)?;
+        let pins = hash_run_pins(pin_data_json.as_deref(), pins_mode)?;
         Ok(CheckedStart {
             definition_id: version.definition_id,
             workflow_name: body.name,
@@ -192,7 +193,8 @@ impl WorkflowRunStarter {
 /// `has_provider` does. Refuses `workflow.run.repositoryRequired` or
 /// `workflow.run.providerRequired` for an enabled step that needs what the run lacks, then
 /// `workflow.run.nodeKindUnavailable` for each node whose kind the table does not list at its
-/// version, then `workflow.run.handleUndeclared` for each edge end its node's kind does not declare.
+/// version, then `workflow.run.handleUndeclared` for each edge end its node's kind does not
+/// declare.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")

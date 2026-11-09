@@ -38,8 +38,10 @@ fn earlier_step(node_id: &str, execution_index: u64, output_lengths: &[usize]) -
                 workflow_version_id: WorkflowVersionId::new(EARLIER_VERSION_ID)
                     .expect("the earlier version's id"),
             },
+            input_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
             output_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
             pin_hash: None,
+            outputs: Vec::new(),
         },
     }
 }
@@ -108,7 +110,7 @@ fn the_seed_replays_reused_steps_and_readies_the_first_executing_one() {
         &chain(&["trigger", "A", "B", "C"]),
     );
     let seed = vec![earlier_step("trigger", 0, &[1]), earlier_step("A", 2, &[2])];
-    let mut walk = RunWalk::reusing(graph, run_id(), None, seed);
+    let mut walk = RunWalk::reusing(graph, run_id(), None, None, seed);
 
     assert_eq!(
         replayed(&walk.start()),
@@ -147,7 +149,7 @@ fn the_seed_replays_every_reused_iteration_of_a_loop() {
         earlier_step("B", 4, &[2]),
         earlier_step("L", 5, &[3, 0]),
     ];
-    let mut walk = RunWalk::reusing(graph, run_id(), None, seed);
+    let mut walk = RunWalk::reusing(graph, run_id(), None, None, seed);
 
     assert_eq!(
         replayed(&walk.start()),
@@ -178,7 +180,7 @@ fn a_place_outside_the_covered_set_is_never_readied() {
         &chain(&["trigger", "A", "B"]),
     );
     let covered = covered(&graph, &["trigger", "A"]);
-    let mut walk = RunWalk::reusing(graph, run_id(), Some(covered), Vec::new());
+    let mut walk = RunWalk::reusing(graph, run_id(), Some(covered), None, Vec::new());
 
     let start_turn = walk.start();
     let a_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);

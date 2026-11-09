@@ -86,7 +86,7 @@ mod tests {
     /// left-out required field's included.
     #[rstest]
     #[case::text_in_a_number_field(json!({ "count": "abc", "confirmed": true }), Some("count"))]
-    #[case::a_fraction_in_an_integer_field(json!({ "count": 1.5, "confirmed": true }), Some("count"))]
+    #[case::a_fraction_as_an_integer(json!({ "count": 1.5, "confirmed": true }), Some("count"))]
     #[case::past_the_fields_maximum(json!({ "count": 11, "confirmed": true }), Some("count"))]
     #[case::a_required_field_left_out(json!({ "count": 3, "note": "Hi" }), Some("confirmed"))]
     #[case::a_fitting_answer(json!({ "count": 10, "note": "Hi", "confirmed": false }), None)]

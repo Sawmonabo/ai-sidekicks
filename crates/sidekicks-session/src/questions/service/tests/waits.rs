@@ -122,29 +122,30 @@ impl QuestionWaits for RecordingWaits {
     }
 }
 
-/// A wait asked twice, as a restart asks a stored wait again, writes one `question.asked` and
-/// answers one id. Kills: the open question's read skipped.
-#[tokio::test]
+/// A wait asked twice at once, as a restart's ask of a stored wait races the tick's own, writes
+/// one `question.asked` and answers one id. Kills: the open question's read skipped; the session's
+/// append hold dropped, so both asks read no question and each writes one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_wait_asked_twice_asks_one_question() {
     let fixture = Fixture::new().await;
     let wait_id = fresh_wait_id();
 
-    let first = ask_wait(
-        &fixture,
-        fixture.session_id,
-        wait_id,
-        json!([reply_page()]),
-        None,
-    )
-    .await;
-    let second = ask_wait(
-        &fixture,
-        fixture.session_id,
-        wait_id,
-        json!([reply_page()]),
-        None,
-    )
-    .await;
+    let (first, second) = tokio::join!(
+        ask_wait(
+            &fixture,
+            fixture.session_id,
+            wait_id,
+            json!([reply_page()]),
+            None,
+        ),
+        ask_wait(
+            &fixture,
+            fixture.session_id,
+            wait_id,
+            json!([reply_page()]),
+            None,
+        ),
+    );
 
     assert_eq!(first, second);
     assert_eq!(fixture.payloads("question.asked").len(), 1);

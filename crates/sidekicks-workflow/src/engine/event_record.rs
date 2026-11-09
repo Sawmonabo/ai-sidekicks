@@ -24,11 +24,11 @@ use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::engine::ports::EngineRecordSink;
-use crate::engine::tick::BranchCancelReason;
 use crate::kinds::StepFailure;
 use crate::secrets::redaction::RunRedaction;
 
@@ -115,7 +115,7 @@ pub(crate) enum EngineDecision<'report> {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepTransition<'report> {
     /// The memory gate holds the step.
-    WaitingOnPool {
+    WaitingOnMemory {
         /// When the hold began.
         hold_started_at: &'report WireInstant,
     },
@@ -128,7 +128,7 @@ pub(crate) enum StepTransition<'report> {
     /// The step's turn canceled a wave of its run's other branches.
     BranchesCanceled {
         /// Why they were canceled.
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         /// How many running branches the wave canceled.
         count: usize,
     },
@@ -586,8 +586,8 @@ fn says(line: &mut Map<String, Value>, record: &str, sentence: &str) {
 fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>) {
     says(line, "stepReported", "A step's report moved it.");
     match transition {
-        StepTransition::WaitingOnPool { hold_started_at } => {
-            line.insert("report".to_owned(), json!("waitingOnPool"));
+        StepTransition::WaitingOnMemory { hold_started_at } => {
+            line.insert("report".to_owned(), json!("waitingOnMemory"));
             line.insert("holdStartedAt".to_owned(), json!(hold_started_at));
         }
         StepTransition::Admitted => {
@@ -601,11 +601,6 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
         }
         StepTransition::BranchesCanceled { reason, count } => {
             line.insert("report".to_owned(), json!("branchesCanceled"));
-            let reason = match reason {
-                BranchCancelReason::FirstToArrive => "firstToArrive",
-                BranchCancelReason::SiblingFailure => "siblingFailure",
-                BranchCancelReason::RunCanceled => "runCanceled",
-            };
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));
         }

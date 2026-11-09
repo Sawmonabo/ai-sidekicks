@@ -492,13 +492,6 @@ export const WORKFLOW_RUN_NOT_CANCELABLE_CODE = "workflow.run_not_cancelable" as
 export const WORKFLOW_RESUME_NOT_PARKED_CODE = "workflow.resume_not_parked" as const;
 
 /**
- * A version re-pin on a run that is not waiting; a going run is never re-pinned.
- *
- * @consumedBy the handler that returns the `workflow.repair_not_parked` error
- */
-export const WORKFLOW_REPAIR_NOT_PARKED_CODE = "workflow.repair_not_parked" as const;
-
-/**
  * A version re-pin while one of the run's steps is still in flight.
  *
  * @consumedBy the handler that returns the `workflow.repair_attempt_in_flight` error

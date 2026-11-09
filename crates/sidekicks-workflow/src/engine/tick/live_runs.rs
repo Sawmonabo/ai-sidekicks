@@ -8,15 +8,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
-use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -40,7 +38,7 @@ use crate::kinds::PersonAsk;
 use crate::runs::gate_resolution::RunEventKeys;
 
 /// A run the tick drives: its scope, its record, its walk, each node's executions so far, the
-/// outputs of the earlier steps its walk is still to replay, the values it set with
+/// values it set with
 /// `Set variables`, its steps still to settle, the reports its last dispatch
 /// answered, which open its next turn, its step counts and person-wait columns as its last write
 /// left them, the waves of its steps winding down, how a failure stopped it and the ending it
@@ -55,9 +53,6 @@ pub(crate) struct LiveRun {
     pub(crate) walk: RunWalk,
     /// Each node's executions so far, which a dispatched step's expressions read.
     pub(crate) outputs: StepOutputs,
-    /// The outputs of the earlier steps a node run's walk is still to replay, by node, each beside
-    /// the step it carries and that step's session; each moves into `outputs` as it replays.
-    pub(crate) reused_outputs: HashMap<WorkflowNodeId, ReusedOutputs>,
     /// The values the run set with `Set variables`, shared with each snapshot that reads them.
     pub(crate) run_variables: Arc<Map<String, Value>>,
     /// The run's steps readied and not yet settled, by execution index, which no two steps of a
@@ -186,6 +181,9 @@ pub(crate) struct LiveStep {
     pub(crate) parked_agent_run: Option<ParkedAgentRun>,
     /// When it resumes itself from its spent account's wait, where a resume is armed.
     pub(crate) resume_at: Option<WireInstant>,
+    /// Whether a first-to-arrive merge's win canceled it while the entry line or the memory gate
+    /// held it, so its own cancel, when it settles, records that cause.
+    pub(crate) is_merge_canceled: bool,
 }
 
 impl LiveStep {
@@ -214,24 +212,25 @@ impl LiveStep {
             is_park_canceled: false,
             parked_agent_run: None,
             resume_at: None,
+            is_merge_canceled: false,
         }
     }
 }
 
-/// One node's earlier steps still to replay, in replay order: each step beside the session it lives
-/// in and its main outputs' items.
-pub(crate) type ReusedOutputs = Vec<(WorkflowReusedStep, SessionId, Vec<Vec<WorkflowItem>>)>;
-
 impl LiveRun {
-    /// The run of `scope` before any step, on `walk`, holding `reused_outputs` for the earlier
-    /// steps the walk replays, and recording through `record`.
+    /// Why the run's stop cancels its other steps: the person's cancel where the run's ending is
+    /// one, else a sibling's failure.
+    pub(crate) fn stop_cancellation_reason(&self) -> WorkflowPhaseCancellationReason {
+        if matches!(self.ending, Some(RunEnding::Canceled { .. })) {
+            WorkflowPhaseCancellationReason::RunCanceled
+        } else {
+            WorkflowPhaseCancellationReason::SiblingFailure
+        }
+    }
+
+    /// The run of `scope` before any step, on `walk`, recording through `record`.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn new(
-        scope: Arc<RunScope>,
-        walk: RunWalk,
-        reused_outputs: HashMap<WorkflowNodeId, ReusedOutputs>,
-        record: RunEngineRecord,
-    ) -> Self {
+    pub(crate) fn new(scope: Arc<RunScope>, walk: RunWalk, record: RunEngineRecord) -> Self {
         let outputs = StepOutputs::new(
             scope
                 .nodes
@@ -243,7 +242,6 @@ impl LiveRun {
             scope,
             record,
             outputs,
-            reused_outputs,
             run_variables: Arc::new(Map::new()),
             steps: HashMap::new(),
             next_batch: Vec::new(),
@@ -274,25 +272,6 @@ impl LiveRun {
     /// Whether a step's failure parked the run, waiting on Resume, with its ending undecided.
     pub(crate) fn is_parked_on_failure(&self) -> bool {
         self.stop == Some(RunStop::Park) && self.ending.is_none()
-    }
-
-    /// The session and outputs of `from`, an earlier step of `node_id` the walk just replayed,
-    /// taken out of the run's reused outputs.
-    pub(crate) fn take_reused_output(
-        &mut self,
-        node_id: &WorkflowNodeId,
-        from: &WorkflowReusedStep,
-    ) -> (SessionId, Vec<Vec<WorkflowItem>>) {
-        let held = self
-            .reused_outputs
-            .get_mut(node_id)
-            .expect("a replayed step's node holds its outputs");
-        let position = held
-            .iter()
-            .position(|(step, ..)| step == from)
-            .expect("each replayed step came with its outputs");
-        let (_, session_id, outputs) = held.remove(position);
-        (session_id, outputs)
     }
 
     /// Whether any ask of the run's pause still waits on its point: a pausing run takes no turn.

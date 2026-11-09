@@ -10,7 +10,7 @@ use tokio::time::timeout;
 use crate::engine::ports::AgentStepOutcome;
 use crate::engine::start::hash_run_pins;
 use crate::kinds::uncoded_step_error;
-use crate::test_rows::{TestStep, assert_rebuild_rewrites_run_rows, insert_step};
+use crate::test_rows::{TestStep, assert_rebuild_rewrites_session_rows, insert_step};
 
 pub(super) mod harness;
 mod node_run;
@@ -70,11 +70,7 @@ async fn a_three_step_run_commits_each_step_with_what_it_readied() {
         assert!(admitted < started, "{node_id} is admitted before it starts");
     }
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A manual run whose `A` is pinned settles `A` on its pinned items, its row naming the pin's
@@ -105,18 +101,14 @@ async fn a_pinned_steps_hash_rebuilds_as_written() {
     assert!(step_column(&harness.rows, "A", "pin_hash").is_some());
     assert_eq!(step_column(&harness.rows, "B", "pin_hash"), None);
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// An agent step held at the memory gate and canceled with its run settles `canceled` with the
 /// whole milliseconds of its hold, and a rebuild from the log writes the run's rows
 /// byte-identical. Mutations: the fold's `workflow.step.canceled` arm dropping the hold it cuts,
-/// its `workflow.phase.waitingOnPool` arm keeping no hold report, or that type dropped from the
-/// projection's event types, which a rebuild then never reads (the rebuilt `total_pool_wait_ms`
+/// its `workflow.phase.waitingOnMemory` arm keeping no hold report, or that type dropped from the
+/// projection's event types, which a rebuild then never reads (the rebuilt `total_memory_wait_ms`
 /// reads 0).
 #[tokio::test]
 async fn a_held_steps_cut_hold_rebuilds_as_written() {
@@ -152,18 +144,14 @@ async fn a_held_steps_cut_hold_rebuilds_as_written() {
     let held_ms: i64 = harness
         .rows
         .query_row(
-            "SELECT total_pool_wait_ms FROM workflow_steps WHERE node_id = 'A'",
+            "SELECT total_memory_wait_ms FROM workflow_steps WHERE node_id = 'A'",
             [],
             |row| row.get(0),
         )
         .expect("A's row reads");
     assert!(held_ms > 0, "the cancel adds the hold it cut");
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A step keeping a value above the cap under a name whose value is kept in an artifact deletes

@@ -3,7 +3,7 @@
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_approval::workflow_gate::ApprovalWaitAnswer;
+use sidekicks_approval::workflow_gate::{ApprovalWaitAnswer, ApprovalWaitOutcome};
 use sidekicks_contracts::approval::events::ApprovalResolvedPayload;
 use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
@@ -22,7 +22,10 @@ use sidekicks_contracts::workflow::run::gate_resolution::{
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 
-use super::gate_answer;
+use sidekicks_workflow::engine::waits::PersonWaitRefusal;
+use sidekicks_workflow::engine::waits::answers::WaitAnswerError;
+
+use super::{gate_answer, wait_outcome};
 
 /// The answer `decision` to a card a wait of a fresh run holds, on the step of `node_id` or, with
 /// none, on the chain's question, with the decline words `decline_reason`.
@@ -142,4 +145,21 @@ fn a_cards_answer_is_its_gates_answer(
         context
     );
     assert_eq!(card.event, expected_card_event);
+}
+
+/// The card reads settled when the step's write committed and not waiting when its held run's
+/// step had left the wait, and fails, its card left pending, when no held run waits on it or the
+/// engine is closed. Kills: a wait no held run waits on read not waiting, which cancels its card.
+#[test]
+fn the_engines_answer_is_read_as_the_cards() {
+    assert!(matches!(
+        wait_outcome(Ok(())),
+        Ok(ApprovalWaitOutcome::Settled)
+    ));
+    assert!(matches!(
+        wait_outcome(Err(WaitAnswerError::Refused(PersonWaitRefusal::NotWaiting))),
+        Ok(ApprovalWaitOutcome::NotWaiting)
+    ));
+    assert!(wait_outcome(Err(WaitAnswerError::Refused(PersonWaitRefusal::NotHeld))).is_err());
+    assert!(wait_outcome(Err(WaitAnswerError::Closed)).is_err());
 }

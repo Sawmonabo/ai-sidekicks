@@ -17,8 +17,8 @@ use crate::engine::tick::turns::tests::harness::{
     Harness, WAIT, attempt_column, edge, item, node, step_column,
 };
 use crate::test_rows::{
-    assert_rebuild_rewrites_run_rows, insert_later_workflow_version, insert_workflow_version_body,
-    stored_rows,
+    assert_rebuild_rewrites_session_rows, insert_later_workflow_version,
+    insert_workflow_version_body, stored_rows,
 };
 
 /// The version a re-pin moves the scope's run to.
@@ -127,11 +127,7 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
         .wait_until(|rows| attempt_column(rows, "F", 1, "status").as_deref() == Some("failed"))
         .await;
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 
     assert_eq!(
         resume(&harness, None).await.expect("the Resume is taken"),
@@ -141,11 +137,7 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
         .wait_until(|rows| attempt_column(rows, "F", 2, "status").as_deref() == Some("running"))
         .await;
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 
     let (resumed, _, _, payload) = harness
         .events()
@@ -179,11 +171,7 @@ async fn a_resume_runs_a_failed_park_again_and_leaves_the_wait_beside_it() {
         .wait_until(|rows| attempt_column(rows, "F", 2, "status").as_deref() == Some("failed"))
         .await;
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A Resume of a run parked on F's failure, which canceled its running sibling B, runs F and B
@@ -215,11 +203,7 @@ async fn a_resume_runs_each_step_the_park_canceled_again() {
         .wait_until(|rows| attempt_column(rows, "B", 1, "status").as_deref() == Some("canceled"))
         .await;
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
     assert_eq!(run_status(&harness.rows), "failed");
 
     assert_eq!(
@@ -252,11 +236,7 @@ async fn a_resume_runs_each_step_the_park_canceled_again() {
         "B runs again on its own input"
     );
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// The stored body of a workflow whose trigger is the first of `nodes`.
@@ -402,11 +382,7 @@ async fn a_repin_runs_the_failed_step_on_the_target_version() {
         "F runs on the trigger's kept step"
     );
     harness.wait_for_earlier_turns().await;
-    assert_rebuild_rewrites_run_rows(
-        &harness.rows,
-        harness.scope.session_id.text().as_str(),
-        harness.scope.run_id.text().as_str(),
-    );
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// A Resume moving a run parked on F's failure, after `A` and `B` succeeded, to a version that

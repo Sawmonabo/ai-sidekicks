@@ -4,89 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 
+use self::declaration::refusal_codes;
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 use crate::typescript::{Definition, TypeScriptModule};
 
 pub mod category;
-
-/// Declares [`RefusalCode`] from one line per code: its variant, its wire text and, in
-/// parentheses, its category and its HTTP status, no status for a code that rides only the
-/// daemon's JSON-RPC wire, then after a `;` the JSON-RPC number of a protocol outcome, none for a
-/// domain refusal.
-macro_rules! refusal_codes {
-    (
-        $(
-            $(#[doc = $doc:literal])+
-            $variant:ident = $code:literal
-                ($category:ident $(, $status:literal)? $(; $protocol:ident)?);
-        )+
-    ) => {
-        $(
-            const _: () = assert!(
-                crate::wire::name::is_wire_name($code),
-                concat!("not a wire name: ", $code),
-            );
-        )+
-
-        /// A refusal's code, the `data.type` of a JSON-RPC error and the `code` of an HTTP error.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-        pub enum RefusalCode {
-            $(
-                $(#[doc = $doc])+
-                #[serde(rename = $code)]
-                $variant,
-            )+
-        }
-
-        impl RefusalCode {
-            /// The TypeScript module the refusal union is written into.
-            pub const TYPESCRIPT_MODULE_PATH: &str = "jsonrpc/refusal";
-
-            /// Every code, in the order the TypeScript union lists them.
-            pub const ALL: &[Self] = &[$(Self::$variant),+];
-
-            /// The code's wire text.
-            pub const fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $code,)+
-                }
-            }
-
-            /// The code's category, sent as `data.category`.
-            pub const fn category(self) -> RefusalCategory {
-                RefusalCategory::Known(self.known_category())
-            }
-
-            /// The code's category, as this build knows every one it makes.
-            pub const fn known_category(self) -> KnownRefusalCategory {
-                match self {
-                    $(Self::$variant => KnownRefusalCategory::$category,)+
-                }
-            }
-
-            /// The JSON-RPC number the code answers with: `-31000` for a domain refusal, JSON-RPC's
-            /// own number for a protocol outcome.
-            pub const fn json_rpc_code(self) -> JsonRpcErrorCode {
-                match self {
-                    $(Self::$variant => refusal_codes!(@protocol $($protocol)?),)+
-                }
-            }
-
-            /// The HTTP status a control plane route answers the code with; `None` for a code
-            /// that rides only the daemon's JSON-RPC wire.
-            pub const fn http_status(self) -> Option<u16> {
-                match self {
-                    $(Self::$variant => refusal_codes!(@status $($status)?),)+
-                }
-            }
-        }
-    };
-    (@protocol) => { JsonRpcErrorCode::DomainRefusal };
-    (@protocol $protocol:ident) => { JsonRpcErrorCode::$protocol };
-    (@status) => { None };
-    (@status $status:literal) => { Some($status) };
-}
+mod declaration;
 
 refusal_codes! {
     /// `account.signIn` on a machine already signed in to the hosted account; nothing starts.
@@ -545,6 +469,9 @@ refusal_codes! {
     /// `question.resolve` named a question that waits for its run to read running before it takes
     /// an answer.
     QuestionWaitingForRun = "question.waitingForRun" (FailedPrecondition, 409);
+    /// `question.resolve` named a workflow wait's question no run the engine holds waits on: its
+    /// run ended, or is not loaded yet; the answer is not taken and the question stays open.
+    QuestionWaitNotHeld = "question.waitNotHeld" (FailedPrecondition, 409);
     /// Relay authentication failed.
     RelayAuthenticationFailed = "relay.authenticationFailed" (Unauthenticated, 401);
     /// Relay connection to the upstream service failed.
@@ -788,8 +715,10 @@ refusal_codes! {
     /// Frozen-definition re-pin refused: a step of the run is still in flight.
     WorkflowRunRepairAttemptInFlight = "workflow.run.repairAttemptInFlight"
         (FailedPrecondition, 409);
-    /// Frozen-definition re-pin refused: the target run is not parked.
-    WorkflowRunRepairNotParked = "workflow.run.repairNotParked" (FailedPrecondition, 409);
+    /// Frozen-definition re-pin refused: the target version lacks the node of a failed step the
+    /// resume would run again.
+    WorkflowRunRepairFailedNodeMissing = "workflow.run.repairFailedNodeMissing"
+        (FailedPrecondition, 409);
     /// Frozen-definition re-pin refused: the target version cannot account for the nodes the run
     /// has already completed.
     WorkflowRunRepairVersionUnaccountable = "workflow.run.repairVersionUnaccountable"

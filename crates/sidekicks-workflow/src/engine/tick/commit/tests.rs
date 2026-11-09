@@ -189,11 +189,12 @@ impl TurnHarness {
         step_key(TEST_NODE_ID, execution_index)
     }
 
-    /// The status and pool wait of the step at `execution_index`.
+    /// The status and memory wait of the step at `execution_index`.
     pub(super) fn step_row(&self, execution_index: u32) -> (String, i64) {
         self.rows
             .query_row(
-                "SELECT status, total_pool_wait_ms FROM workflow_steps WHERE execution_index = ?1",
+                "SELECT status, total_memory_wait_ms FROM workflow_steps \
+                 WHERE execution_index = ?1",
                 params![execution_index],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -294,14 +295,14 @@ fn artifact_payload(artifact_id: ArtifactId) -> WorkflowPayloadRef {
 // Killed by a repeat re-entering the hold, a repeat adding nothing, the admission adding the whole
 // hold again, and a hold report naming its own sequence rather than the readying one.
 #[tokio::test]
-async fn a_held_step_records_one_hold_and_its_pool_wait() {
+async fn a_held_step_records_one_hold_and_its_memory_wait() {
     let harness = TurnHarness::new().await;
     let step = harness.store_step(1, WorkflowStepStatus::Pending);
     let readying = sequence(7);
     let t0 = "2026-10-02T00:01:00.000Z";
     let t30 = "2026-10-02T00:01:30.000Z";
     let t45 = "2026-10-02T00:01:45.000Z";
-    let held = || StepReportKind::WaitingOnPool {
+    let held = || StepReportKind::WaitingOnMemory {
         hold_started_at: instant(t0),
     };
 
@@ -347,7 +348,7 @@ async fn a_held_step_records_one_hold_and_its_pool_wait() {
     let events = harness.events();
     let held_events: Vec<_> = events
         .iter()
-        .filter(|(_, event_type, _, _)| event_type == "workflow.phase.waitingOnPool")
+        .filter(|(_, event_type, _, _)| event_type == "workflow.phase.waitingOnMemory")
         .map(|(_, _, at, payload)| (at.as_str(), payload["waitingSinceSeq"].clone()))
         .collect();
     assert_eq!(held_events, [(t0, json!(7)), (t30, json!(7))]);
@@ -563,8 +564,10 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
         run_index: 0,
         reason: WalkSkipReason::Reused(ReusedStepRecord {
             from: from.clone(),
+            input_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
             output_ref: reused_output.clone(),
             pin_hash: Some(pin_hash),
+            outputs: Vec::new(),
         }),
         sources: vec![None],
         output_lengths: vec![3],
@@ -612,8 +615,8 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
     assert_eq!(failure.artifact_ids, [input_artifact]);
 }
 
-// Killed by a sibling-failure marker on a step a merge canceled, and by a cancel that drops the
-// hold it cut.
+// Killed by a sibling-failure marker on a step a merge canceled, by a cancel that drops the hold
+// it cut, and by a cancel whose row or event drops its cause.
 #[rstest]
 #[case::held_by_a_sibling_failure(
     WorkflowStepStatus::WaitingMemory,
@@ -625,7 +628,7 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
 #[case::running_and_canceled_by_a_merge(
     WorkflowStepStatus::Running,
     None,
-    None,
+    Some(WorkflowPhaseCancellationReason::MergeFirstToArrive),
     &["workflow.step.canceled"],
     0
 )]
@@ -635,7 +638,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     #[case] hold_started_at: Option<&str>,
     #[case] cancellation_reason: Option<WorkflowPhaseCancellationReason>,
     #[case] event_types: &[&str],
-    #[case] pool_wait_ms: i64,
+    #[case] memory_wait_ms: i64,
 ) {
     let harness = TurnHarness::new().await;
     let step = harness.store_step(1, status);
@@ -651,23 +654,35 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         )
         .await
         .expect("a cancel writes no payload");
-    let readying_event = usize::from(cancellation_reason.is_some());
+    let readying_event = event_types.len() - 1;
     assert!(matches!(
         answer,
         Some(SettlementAnswer::Canceled { readying_event: index }) if index == readying_event
     ));
     harness.append(commit).await;
 
-    assert_eq!(harness.step_row(1), ("canceled".to_owned(), pool_wait_ms));
+    assert_eq!(harness.step_row(1), ("canceled".to_owned(), memory_wait_ms));
     let events = harness.events();
     let written: Vec<_> = events
         .iter()
         .map(|(_, event_type, _, _)| event_type.as_str())
         .collect();
     assert_eq!(written, event_types);
-    if cancellation_reason.is_some() {
-        assert_eq!(events[0].3["cancellationReason"], json!("siblingFailure"));
-    }
+    let cause = json!(cancellation_reason);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.3["cancellationReason"] == cause)
+    );
+    let stored_cause: Option<String> = harness
+        .rows
+        .query_row(
+            "SELECT cancellation_reason FROM workflow_steps WHERE execution_index = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the step's row reads");
+    assert_eq!(json!(stored_cause), cause);
 }
 
 /// How a turn that replaces a kept value is written.

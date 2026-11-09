@@ -12,7 +12,6 @@ pub(crate) mod step_failure;
 mod turns;
 mod walk;
 
-pub(crate) use self::branch_cancellation::BranchCancelReason;
 pub(crate) use self::turns::{
     EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
     RunResumeIntake, RunResumeRefusal,
@@ -80,8 +79,8 @@ pub(crate) struct RunScope {
     pub(crate) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
     /// Each node's params as the pinned version stores them, by node id.
     pub(crate) node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
-    /// The test items pinned onto nodes with their hashes, by node id; empty outside a manual run,
-    /// the only run that honors them.
+    /// The test items pinned onto nodes with their hashes, by node id; empty outside a manual run
+    /// and a retry of one, the only runs that honor them.
     pub(crate) pins: HashMap<WorkflowNodeId, RunPin>,
     /// When the run started, the one instant its expressions read as now.
     pub(crate) run_started_at: Timestamp,
@@ -209,7 +208,7 @@ pub(crate) struct StepReport {
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// which the step makes while no hold report of it stands.
-    WaitingOnPool {
+    WaitingOnMemory {
         /// When the hold began: the `at` of its first report.
         hold_started_at: WireInstant,
     },
@@ -235,7 +234,7 @@ pub(crate) enum StepReportKind {
     /// settled; the report sits on the deciding step.
     BranchesCanceled {
         /// Why the branches were canceled.
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         /// How many running branches the wave canceled.
         count: usize,
     },
@@ -308,7 +307,7 @@ pub(crate) enum StepSettlement {
         records: StepRecords,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's
-    /// pool wait.
+    /// memory wait.
     Canceled {
         /// When the hold the cancel ended began, `None` when the gate was not holding the step.
         hold_started_at: Option<WireInstant>,

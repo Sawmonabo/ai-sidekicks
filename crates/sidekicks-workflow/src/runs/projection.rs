@@ -38,14 +38,17 @@ use crate::engine::tick::run_status::{
 };
 use crate::runs::cancellation::cancel_steps_statement;
 use crate::runs::creation::{
-    WorkflowRunCreation, count_chain_run_statement, run_row_statement, trigger_step_statement,
+    WorkflowRunCreation, count_chain_run_statement, rebuilt_run_row_statement,
+    trigger_step_statement,
 };
 use crate::runs::deletion::keep::keep_statement;
-use crate::runs::deletion::workflow_run_deletion_statements;
+use crate::runs::deletion::{
+    unlisted_session_run_deletion_statements, workflow_run_deletion_statements,
+};
 use crate::runs::record::end_run_row_statement;
 use crate::runs::step_payload::stored_output_lengths;
 use crate::runs::step_rows::{
-    FailedStepRow, add_step_pool_wait, admit_step, cancel_step, fail_step, hold_step,
+    FailedStepRow, add_step_memory_wait, admit_step, cancel_step, fail_step, hold_step,
     insert_pending_step, insert_skipped_step, record_step_start, resume_step, succeed_step,
     wait_step_on_account, wait_step_on_chain, wait_step_on_person,
 };
@@ -55,7 +58,8 @@ const CLEAR_STEPS_SQL: &str = "DELETE FROM workflow_steps
   WHERE workflow_run_id IN (SELECT id FROM workflow_runs WHERE session_id = ?)";
 
 // A run a gate answer or a form draft names stays, since those rows are no projection and keep
-// naming it; its `workflow.run.started` writes over it.
+// naming it; its `workflow.run.started` writes over it, and the fold's close removes it where the
+// rebuild read no such event.
 const CLEAR_RUNS_SQL: &str = "DELETE FROM workflow_runs WHERE session_id = ?
     AND NOT EXISTS (SELECT 1 FROM workflow_gate_resolutions AS gate
       WHERE gate.workflow_run_id = workflow_runs.id)
@@ -77,7 +81,7 @@ const WORKFLOW_RUN_EVENT_TYPES: [SessionEventType; 21] = [
     SessionEventType::WorkflowRunCanceled,
     SessionEventType::WorkflowRunCrashed,
     SessionEventType::WorkflowGateResolved,
-    SessionEventType::WorkflowPhaseWaitingOnPool,
+    SessionEventType::WorkflowPhaseWaitingOnMemory,
     SessionEventType::WorkflowPhaseAdmitted,
     SessionEventType::WorkflowPhaseSuspended,
     SessionEventType::WorkflowPhaseResumed,
@@ -115,14 +119,21 @@ impl SessionProjection for WorkflowRunsProjection {
             .collect()
     }
 
-    fn fold(&self, _session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
-        Box::new(WorkflowRunsFold::default())
+    fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
+        Box::new(WorkflowRunsFold {
+            session_id: *session_id,
+            started: Vec::new(),
+            runs: HashMap::new(),
+            steps: HashMap::new(),
+        })
     }
 }
 
-// What the fold keeps of each run and step that its events alone do not carry.
-#[derive(Default)]
+// What the fold keeps of each run and step that its events alone do not carry, and every run of
+// its session it read the start of.
 struct WorkflowRunsFold {
+    session_id: SessionId,
+    started: Vec<WorkflowRunId>,
     runs: HashMap<WorkflowRunId, RunFold>,
     steps: HashMap<(WorkflowRunId, u64), StepFold>,
 }
@@ -240,7 +251,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
                     statements.push(kept_going_statement(&resolved.workflow_run_id));
                 }
             }
-            SessionEvent::WorkflowPhaseWaitingOnPool(waiting) => {
+            SessionEvent::WorkflowPhaseWaitingOnMemory(waiting) => {
                 let step = step_key!(waiting);
                 let held = self.step(&step);
                 // A report naming another sequence than the open hold's starts a new hold, as a
@@ -250,7 +261,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
                     != Some(waiting.waiting_since_seq);
                 statements.push(match held.last_hold_report_at.replace(at.clone()) {
                     Some(since) if !is_new_hold => {
-                        add_step_pool_wait(&step, whole_milliseconds_between(&since, &at))
+                        add_step_memory_wait(&step, whole_milliseconds_between(&since, &at))
                     }
                     _ => hold_step(&step),
                 });
@@ -304,7 +315,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
             }
             SessionEvent::WorkflowStepFailed(failed) => {
                 let step = step_key!(failed);
-                let pool_wait_ms = self.cut_hold(&step, &at);
+                let memory_wait_ms = self.cut_hold(&step, &at);
                 self.steps.remove(&fold_key(&step));
                 let passed_on = failed.passed_on.as_ref().map(|passed_on| {
                     (
@@ -322,16 +333,21 @@ impl SessionProjectionFold for WorkflowRunsFold {
                             .as_ref()
                             .map(|(output_ref, lengths)| (*output_ref, lengths.as_slice())),
                         log_ref: &failed.log_ref,
-                        pool_wait_ms,
+                        memory_wait_ms,
                     },
                 ));
                 ready(step.workflow_run_id, &failed.readied, &at, statements);
             }
             SessionEvent::WorkflowStepCanceled(canceled) => {
                 let step = step_key!(canceled);
-                let pool_wait_ms = self.cut_hold(&step, &at);
+                let memory_wait_ms = self.cut_hold(&step, &at);
                 self.steps.remove(&fold_key(&step));
-                statements.push(cancel_step(&step, &at, pool_wait_ms));
+                statements.push(cancel_step(
+                    &step,
+                    &at,
+                    memory_wait_ms,
+                    canceled.cancellation_reason,
+                ));
                 ready(step.workflow_run_id, &canceled.readied, &at, statements);
             }
             SessionEvent::WorkflowStepSkipped(skipped) => {
@@ -350,6 +366,12 @@ impl SessionProjectionFold for WorkflowRunsFold {
             _ => {}
         }
         Ok(())
+    }
+
+    // A run the clear kept whose start the rebuild did not read, one started past the point a
+    // bounded rebuild stops at, goes with its rows, so the tables read as the log up to that point.
+    fn closing_statements(&self) -> Vec<WriteStatement> {
+        unlisted_session_run_deletion_statements(self.session_id, &self.started)
     }
 }
 
@@ -378,8 +400,9 @@ impl WorkflowRunsFold {
             node_run: started.node_run.clone(),
             retried_run_id: started.retried_workflow_run_id,
         };
-        statements.push(run_row_statement(&creation));
+        statements.push(rebuilt_run_row_statement(&creation));
         statements.extend(trigger_step_statement(&creation));
+        self.started.push(started.workflow_run_id);
         self.runs.insert(
             started.workflow_run_id,
             RunFold {
@@ -516,13 +539,13 @@ impl WorkflowRunsFold {
                 resume_at,
                 ..
             } => {
-                let pool_wait_ms = self.cut_hold(&step, at);
+                let memory_wait_ms = self.cut_hold(&step, at);
                 statements.push(wait_step_on_account(
                     &step,
                     provider_account_id,
                     at,
                     resume_at.as_ref(),
-                    pool_wait_ms,
+                    memory_wait_ms,
                 ));
                 (WorkflowWaitCause::Account, None)
             }
