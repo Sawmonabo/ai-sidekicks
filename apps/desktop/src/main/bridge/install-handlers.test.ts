@@ -1,5 +1,5 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
-// documents. A system failure reaches the page as the channel's own sentence, with no path, channel
+// documents; a page's port to the client helper reaches the helper only from one of them. A system failure reaches the page as the channel's own sentence, with no path, channel
 // or code in it, and main's log keeps it whole; a failure main wrote crosses as it is.
 
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import {
   BRIDGE_CHANNELS,
   BRIDGE_MEMBER_CHANNELS,
+  OPEN_DAEMON_PORT_CHANNEL,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "#shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
@@ -26,13 +27,13 @@ let userData: string;
 /** The pasted pictures' folder under `userData`. */
 let pastedImagesFolder: string;
 let log: { readonly write: Mock<MainDiagnosticLog["write"]> };
+let adoptWindowPort: Mock;
 
 beforeEach(async () => {
   electronMock.reset();
   userData = await mkdtemp(path.join(tmpdir(), "sidekicks-bridge-handlers-test-"));
   vi.resetModules();
   const { installBridgeHandlers } = await import("./install-handlers.js");
-  const { DaemonForwarding } = await import("./daemon.js");
   const { DaemonLink } = await import("../services/daemon/link/status.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
@@ -46,18 +47,13 @@ beforeEach(async () => {
     filePathRefs,
     log,
   });
+  adoptWindowPort = vi.fn();
   installBridgeHandlers({
     userData,
-    daemonForwarding: new DaemonForwarding({
-      link,
-      supervisor: { endService: vi.fn() },
-      log,
-      filePathRefs,
-      pastedImages,
-    }),
     filePathRefs,
     pastedImages,
     supervisor: { requestStart: vi.fn() },
+    helperProcess: { adoptWindowPort },
     daemonLink: link,
     log,
     appDiagnosticRelay: { reportFromWindow: vi.fn() },
@@ -101,7 +97,10 @@ describe("the bridge's channels", () => {
     const invokedChannels = new Set(
       Object.values(BRIDGE_MEMBER_CHANNELS)
         .flat()
-        .filter((channel) => channel !== OPEN_DAEMON_SUBSCRIPTION_CHANNEL),
+        .filter(
+          (channel) =>
+            channel !== OPEN_DAEMON_SUBSCRIPTION_CHANNEL && channel !== OPEN_DAEMON_PORT_CHANNEL,
+        ),
     );
     for (const channel of invokedChannels) {
       await expect(invokeFrom("https://example.com/", channel)).rejects.toThrow(
@@ -129,6 +128,27 @@ describe("the bridge's channels", () => {
         message: `${channel} answers only the app's own renderer documents.`,
       });
     }
+  });
+
+  it("hands an app document's port to the client helper, and closes one from another origin", () => {
+    const openPort = electronMock.ipcListeners.get(OPEN_DAEMON_PORT_CHANNEL);
+    if (openPort === undefined) {
+      throw new Error(`nothing answers ${OPEN_DAEMON_PORT_CHANNEL}`);
+    }
+    const portFrom = (frameUrl: string) => {
+      const port = { close: vi.fn() };
+      const sender = { id: 1 };
+      openPort({ senderFrame: { url: frameUrl }, sender, ports: [port] } as never);
+      return { port, sender };
+    };
+
+    const foreign = portFrom("https://example.com/");
+    expect(foreign.port.close).toHaveBeenCalledTimes(1);
+    expect(adoptWindowPort).not.toHaveBeenCalled();
+
+    const own = portFrom(INDEX_URL);
+    expect(own.port.close).not.toHaveBeenCalled();
+    expect(adoptWindowPort).toHaveBeenCalledWith(own.sender, own.port);
   });
 
   it("negative control: answers the app's own document", async () => {

@@ -10,12 +10,9 @@ import {
   type ClientHelperParentPort,
   type ClientHelperWindowPort,
 } from "./helper.js";
-import type {
-  ClientHelperAnswer,
-  ClientHelperRequest,
-  ClientHelperToMainMessage,
-  MainToClientHelperMessage,
-} from "./messages.js";
+import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+
+import type { ClientHelperToMainMessage, MainToClientHelperMessage } from "./messages.js";
 
 const WINDOW_ID = 3;
 
@@ -44,6 +41,7 @@ function fakeDaemonClient() {
         }),
     ),
     cancelStream: vi.fn<(addonStreamId: number) => void>(),
+    close: vi.fn(() => Promise.resolve()),
   } satisfies ClientHelperDaemonClient;
   return { client, calls, callAnswers };
 }
@@ -212,19 +210,11 @@ describe("the client helper", () => {
       params: {},
       attachments: [],
     });
-    await vi.waitFor(() => {
-      expect(helper.toMain.some((message) => message.kind === "filePaths.swap")).toBe(true);
-    });
-    const ask = helper.toMain.find((message) => message.kind === "filePaths.swap")!;
-    helper.sendFromMain({
-      kind: "filePaths.swapped",
-      askId: ask.kind === "filePaths.swap" ? ask.askId : -1,
-      params: {},
-      readsReply: false,
-    });
+    // A method that carries no file path makes no round trip to main.
     await vi.waitFor(() => {
       expect(helper.daemon.calls).toHaveLength(1);
     });
+    expect(helper.toMain.filter((message) => message.kind === "filePaths.swap")).toHaveLength(0);
 
     helper.closeWindow();
     await vi.waitFor(() => {

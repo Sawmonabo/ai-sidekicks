@@ -9,8 +9,8 @@
 // which main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
 // never appear.
 //
-// The daemon's calls and subscriptions are typed by the daemon's method map in
-// `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
+// The daemon's calls and subscriptions ride a port the preload hands the page, straight to the
+// client helper, and are typed by the daemon's method map in `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
 // `src/shared/`, with no dependency on the `electron` package.
 //
 // `PreloadApi` carries the members main answers and the members the renderer already calls.
@@ -382,19 +382,21 @@ export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonEvent
   : MainProcessState;
 
 /**
- * What a served daemon call answers: the daemon's result, and the token main minted for each path
- * the result offers to open, keyed by the path; absent when it offers none.
+ * What a served daemon call answers: the daemon's result, the bytes its `{"$bytes": n}` members
+ * name, and the token main minted for each path the result offers to open, keyed by the path. The
+ * bytes and the tokens are absent when it carries none.
  */
 export interface ServedDaemonCall<Value> {
   readonly value: Value;
+  readonly attachments?: readonly Uint8Array[];
   readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
 }
 
 /**
- * The daemon's own wire: its JSON-RPC calls, and its subscriptions, each opened with the
- * request its method registers. A call the daemon refuses rejects with the wire error itself
- * (`{code, message, data}`), and any other failed call with an `Error`; a subscription that
- * cannot open throws.
+ * The daemon's own wire as the page holds it: its calls, and its subscriptions, each opened with
+ * the request its method registers. A call the daemon or the client helper refuses rejects with
+ * the wire error itself (`{code, message, data}`), and any other failed call, one cut off by a
+ * helper that exited among them, with an `Error`.
  */
 export interface DaemonWire {
   call<M extends DaemonMethod>(
@@ -404,13 +406,14 @@ export interface DaemonWire {
   /**
    * Open one subscription. `daemon.status` is main's own topic: it opens while no service
    * answers, its first delivery is the current state, and it never ends. A daemon subscription
-   * that ends after it opened, because the daemon completed or refused it or the link under it
+   * that ends, because the daemon completed or refused it or the link or the helper under it
    * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
+   * Each value comes with the bytes its `{"$bytes": n}` members name.
    */
   subscribe<E extends DaemonWireTopic>(
     event: E,
     params: DaemonWireRequest<E>,
-    handler: (payload: DaemonWirePayload<E>) => void,
+    handler: (payload: DaemonWirePayload<E>, attachments: readonly Uint8Array[]) => void,
     onEnded?: (end: DaemonSubscriptionEnd) => void,
   ): Unsubscribe;
   /**
@@ -421,13 +424,33 @@ export interface DaemonWire {
 }
 
 /**
- * The one object the preload exposes on `window.desktopBridge`: the daemon's wire, the OS calls
+ * The preload's daemon members, from which the page builds its `DaemonWire`: the port to the
+ * client helper, main's status topic, and the boot card's `Retry`.
+ */
+export interface DaemonPreload {
+  /**
+   * Ask for a new channel to the client helper. The page's end arrives as a window message whose
+   * data is `DAEMON_PORT_MESSAGE`, carrying the port; main hands the other end to the helper, or
+   * holds it until the helper is running again.
+   */
+  openPort(): void;
+  /** Main's `daemon.status` topic: the current state first, then each new one; it never ends. */
+  subscribeStatus(handler: (state: MainProcessState) => void): Unsubscribe;
+  /**
+   * Start the background service again with a full set of attempts: the boot card's `Retry`.
+   * Resolves once main has begun; the service's state reports how the start goes.
+   */
+  requestStart(): Promise<void>;
+}
+
+/**
+ * The one object the preload exposes on `window.desktopBridge`: the daemon's members, the OS calls
  * main makes for the renderer, the updater, the machine settings, the keyboard map, and build
  * facts. A member's rejection carries a message for the log, never words for a screen: the
  * renderer says what failed in its own words.
  */
 export interface PreloadApi {
-  readonly daemon: DaemonWire;
+  readonly daemon: DaemonPreload;
 
   readonly native: {
     showOpenDialog<Purpose extends OpenDialogPurpose>(
@@ -632,8 +655,8 @@ function stubThrow(member: string): never {
 export function createStubBridge(app: AppFacts, lastUsedWindowId: string): PreloadApi {
   return {
     daemon: {
-      call: () => stubThrow("daemon.call"),
-      subscribe: () => stubThrow("daemon.subscribe"),
+      openPort: () => stubThrow("daemon.openPort"),
+      subscribeStatus: () => stubThrow("daemon.subscribeStatus"),
       requestStart: () => stubThrow("daemon.requestStart"),
     },
     native: {

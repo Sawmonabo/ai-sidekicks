@@ -2,33 +2,36 @@
 // every change of theme or scheme and on every new link, never twice for the same state, and a
 // failed report is logged and sent again at the next change.
 
-import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 import {
-  PtyReportTerminalAppearanceRequestSchema,
-  type PtyReportTerminalAppearanceRequest,
-} from "@ai-sidekicks/contracts/pty";
+  validateTerminalAppearanceReportRequest,
+  type TerminalAppearanceReportRequest,
+} from "@ai-sidekicks/contracts/terminal";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
 import type { ColorScheme } from "#shared/color-scheme.js";
 
+import type { MainDaemonClient } from "../services/daemon/client/process.js";
 import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
 import { DaemonLink, unlinkedState } from "../services/daemon/link/status.js";
 import { ConsoleThemeReport } from "./console-theme-report.js";
 
 /** A daemon client that records each report and answers with `answer`. */
 function createClient(answer: () => Promise<null> = () => Promise.resolve(null)): {
-  readonly client: JsonRpcClient;
-  readonly reports: PtyReportTerminalAppearanceRequest[];
+  readonly client: MainDaemonClient;
+  readonly reports: TerminalAppearanceReportRequest[];
 } {
-  const reports: PtyReportTerminalAppearanceRequest[] = [];
+  const reports: TerminalAppearanceReportRequest[] = [];
   const client = {
-    call: (method: string, params: unknown) => {
-      expect(method).toBe("pty.reportTerminalAppearance");
-      reports.push(PtyReportTerminalAppearanceRequestSchema.parse(params));
+    call: (method: { readonly method: string }, params: unknown) => {
+      expect(method.method).toBe("terminal.appearance.report");
+      if (!validateTerminalAppearanceReportRequest(params)) {
+        throw new Error("the report breaks its contract");
+      }
+      reports.push(params);
       return answer();
     },
-  } as unknown as JsonRpcClient;
+  } as unknown as MainDaemonClient;
   return { client, reports };
 }
 
@@ -78,7 +81,7 @@ describe("ConsoleThemeReport", () => {
     appearance.change({ record: { ...DEFAULT_APPEARANCE_RECORD, textSize: 18 } });
     expect(first.reports).toHaveLength(1);
     const [light] = first.reports;
-    if (light?.source !== "console_theme") {
+    if (light?.source !== "consoleTheme") {
       throw new Error("expected a console theme report");
     }
     // Black and white sit at the ends of the reading scale: bright white is the text, and white and

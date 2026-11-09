@@ -1,27 +1,25 @@
-// The machine's settings from the page's bridge, through main, to the service and back: the read,
-// the write answered with the file as written, a refusal the settings page reads, and the feed,
+// The machine's settings from the page's bridge, through main and the client helper, to the
+// service and back: the read, the write answered with the file as written, a refusal the settings
+// page reads, a change off its contract refused by the helper with nothing sent, and the feed,
 // whose readings main checks against the settings contract.
 
 import { setImmediate } from "node:timers/promises";
 
-import { type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   PROJECT_ENVIRONMENT_NAME_REFUSED_CODE,
-  type MachineSettingsReading,
   type ProjectEnvironmentNameRefusedDetails,
 } from "@ai-sidekicks/contracts/machine/settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
-import { bridgeOver, scriptedConnection } from "./daemon.test-support.js";
+import { bridgeOver, scriptedDaemon } from "./daemon.test-support.js";
 
 const electronMock = createElectronMock();
 
 vi.mock("electron", () => electronMock.moduleExports);
-
-const SUBSCRIPTION_ID = "6f4a0a43-6f1f-4b8f-9d50-2b0e4bb0b001";
 
 /** A row name the contract's own rule refuses. */
 const REFUSED_NAME = "OPENAI_API_KEY";
@@ -52,35 +50,36 @@ beforeEach(() => {
 describe("the machine's settings through main", () => {
   it("reads the file, writes a change answered with the file as written, and returns a refusal", async () => {
     const written = { ...MACHINE_SETTINGS_DEFAULTS, editorId: "zed" };
-    const connection = scriptedConnection((request) => {
-      if (request.method === "daemon.machineSettingsRead") {
+    let isRefusing = false;
+    const daemon = scriptedDaemon((request) => {
+      if (request.method === "machine.settings.read") {
         return { result: { settings: MACHINE_SETTINGS_DEFAULTS } };
       }
-      const { change } = request.params as { readonly change: Record<string, unknown> };
-      return "environmentRows" in change ? { error: REFUSAL } : { result: { settings: written } };
+      return isRefusing ? { error: REFUSAL } : { result: { settings: written } };
     });
-    const bridge = await bridgeOver(connection);
+    const bridge = await bridgeOver(daemon);
 
     await expect(bridge.machineSettings.read()).resolves.toEqual({
       settings: MACHINE_SETTINGS_DEFAULTS,
     });
     await expect(bridge.machineSettings.write({ editorId: "zed" })).resolves.toEqual(written);
-    await expect(
-      bridge.machineSettings.write({
-        environmentRows: [{ name: REFUSED_NAME, value: "sk-not-a-real-key" }],
-      }),
-    ).rejects.toEqual(REFUSAL);
-    expect(connection.requests.map((request) => request.method)).toEqual([
-      "daemon.machineSettingsRead",
-      "daemon.machineSettingsUpdate",
-      "daemon.machineSettingsUpdate",
+    isRefusing = true;
+    await expect(bridge.machineSettings.write({ editorId: "zed" })).rejects.toEqual(REFUSAL);
+    // A change off its contract is refused at the helper, before the service.
+    await expect(bridge.machineSettings.write({ editorId: 7 } as never)).rejects.toMatchObject({
+      data: { type: "request.paramsInvalid" },
+    });
+    expect(daemon.requests).toEqual([
+      { method: "machine.settings.read", params: {} },
+      { method: "machine.settings.update", params: { change: { editorId: "zed" } } },
+      { method: "machine.settings.update", params: { change: { editorId: "zed" } } },
     ]);
   });
 
   it("delivers the feed's readings and ends it on one the contract refuses", async () => {
-    const reading: MachineSettingsReading = { settings: MACHINE_SETTINGS_DEFAULTS };
-    const connection = scriptedConnection(() => ({ result: { subscriptionId: SUBSCRIPTION_ID } }));
-    const bridge = await bridgeOver(connection);
+    const reading = { settings: MACHINE_SETTINGS_DEFAULTS };
+    const daemon = scriptedDaemon(() => ({ result: { subscriptionId: "feed" } }));
+    const bridge = await bridgeOver(daemon);
     const readings: unknown[] = [];
     const ends: unknown[] = [];
 
@@ -88,16 +87,18 @@ describe("the machine's settings through main", () => {
       (delivered) => readings.push(delivered),
       (end) => ends.push(end),
     );
-    await setImmediate();
-    connection.notify(SUBSCRIPTION_ID, reading);
-    connection.notify(SUBSCRIPTION_ID, { settings: { ...MACHINE_SETTINGS_DEFAULTS, editorId: 7 } });
-    await setImmediate();
-
-    expect(readings).toEqual([reading]);
-    expect(ends).toMatchObject([{ reason: "failed" }]);
-    expect(connection.requests[0]).toEqual({
-      method: "daemon.machineSettingsSubscribe",
-      params: {},
+    await vi.waitFor(() => {
+      expect(daemon.requests).toEqual([{ method: "machine.settings.subscribe", params: {} }]);
     });
+    await setImmediate();
+    daemon.notify("machine.settings.subscribe", reading);
+    daemon.notify("machine.settings.subscribe", {
+      settings: { ...MACHINE_SETTINGS_DEFAULTS, editorId: 7 },
+    });
+
+    await vi.waitFor(() => {
+      expect(ends).toMatchObject([{ reason: "failed" }]);
+    });
+    expect(readings).toEqual([reading]);
   });
 });

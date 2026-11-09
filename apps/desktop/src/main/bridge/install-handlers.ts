@@ -1,5 +1,6 @@
 // Every channel answers only the app's own renderer documents: the asking frame must be on an
-// origin an app window may navigate within. Any other frame is refused before its request is
+// origin an app window may navigate within. A page's port to the client helper arrives on its own
+// channel and is handed to the helper, which serves the page's daemon calls and streams on it. Any other frame is refused before its request is
 // read; this is a backstop, as only a navigation the policy failed to stop could put another
 // origin in a window.
 
@@ -10,21 +11,24 @@ import { getNotificationStatus } from "notify-status";
 
 import {
   BRIDGE_CHANNELS,
+  OPEN_DAEMON_PORT_CHANNEL,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
   type InvokedBridgeChannel,
   type UpdaterBridgeChannel,
 } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
+import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import type { MainOperatingSystem } from "../operating-system/contract.js";
+import type { ClientHelperProcess } from "../services/daemon/client/process.js";
 import type { DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import type { AppDiagnosticRelay } from "../services/app-diagnostic/relay.js";
-import type { DaemonForwarding } from "./daemon.js";
+import { MainTopics } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
 import { ClipboardCopies } from "./native/clipboard/copies.js";
@@ -32,7 +36,7 @@ import { clipboardHostsOn } from "./native/clipboard/host.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
-import { machineSettingsAnswers } from "./machine-settings.js";
+import { machineSettingsAnswers, machineSettingsFeed } from "./machine-settings.js";
 import { refForDroppedFile, type PastedImages } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
@@ -47,13 +51,14 @@ type AnsweredChannel = Exclude<InvokedBridgeChannel, UpdaterBridgeChannel>;
 export interface BridgeHandlerServices {
   /** Main's own folder under the profile, `app.getPath("userData")`. */
   readonly userData: string;
-  readonly daemonForwarding: DaemonForwarding;
   /** Main's one table of the file tokens it handed the pages, the one the daemon relay reads. */
   readonly filePathRefs: FilePathRefs;
   /** The pictures pasted into the composer, the ones the daemon relay removes once copied. */
   readonly pastedImages: PastedImages;
   readonly supervisor: Pick<DaemonSupervisor, "requestStart">;
-  readonly daemonLink: Pick<DaemonLink, "client">;
+  /** Main's side of the client helper, which each page's port is handed to. */
+  readonly helperProcess: Pick<ClientHelperProcess, "adoptWindowPort">;
+  readonly daemonLink: Pick<DaemonLink, "client" | "subscribe">;
   readonly log: Pick<MainDiagnosticLog, "write">;
   /** Where what a window records about itself goes, on to the background service's diagnostic log. */
   readonly appDiagnosticRelay: Pick<AppDiagnosticRelay, "reportFromWindow">;
@@ -75,10 +80,10 @@ export interface BridgeHandlerServices {
 export function installBridgeHandlers(services: BridgeHandlerServices): void {
   const {
     userData,
-    daemonForwarding,
     filePathRefs,
     pastedImages,
     supervisor,
+    helperProcess,
     daemonLink,
     log,
     appDiagnosticRelay,
@@ -92,6 +97,24 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     operatingSystem,
   });
 
+  const topics = new MainTopics({
+    link: daemonLink,
+    topics: { [MACHINE_SETTINGS_STREAM]: machineSettingsFeed(daemonLink) },
+    log,
+  });
+  // The page's end of a new channel to the client helper, sent when it opens and again whenever
+  // its last one closed; a frame not the app's own gets nothing.
+  ipcMain.on(OPEN_DAEMON_PORT_CHANNEL, (event) => {
+    const port = event.ports[0];
+    if (port === undefined) {
+      return;
+    }
+    if (!isAppRendererFrame(event)) {
+      port.close();
+      return;
+    }
+    helperProcess.adoptWindowPort(event.sender, port);
+  });
   // A synchronous channel answers through `returnValue` and must always set it, or the page
   // waits forever, so a refused frame and a failed opening get an answer rather than a throw.
   ipcMain.on(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, (event, request: unknown) => {
@@ -103,7 +126,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
       };
     } else {
       try {
-        opening = daemonForwarding.open(event.sender, request);
+        opening = topics.open(event.sender, request);
       } catch (failure) {
         recordFailure(log, OPEN_DAEMON_SUBSCRIPTION_CHANNEL, failure);
         opening = {
@@ -116,9 +139,8 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
   });
   // Keyed by every answered channel, so one with no answer fails the build.
   const answers: Readonly<Record<AnsweredChannel, ChannelAnswer>> = {
-    [BRIDGE_CHANNELS.daemonCall]: (event, request) => daemonForwarding.call(event.sender, request),
     [BRIDGE_CHANNELS.closeDaemonSubscription]: (event, subscriptionId) => {
-      daemonForwarding.close(event.sender, subscriptionId);
+      topics.close(event.sender, subscriptionId);
     },
     [BRIDGE_CHANNELS.requestDaemonStart]: () => {
       supervisor.requestStart();
@@ -195,7 +217,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.reportWindowDiagnostics]: (_event, reports) => {
       appDiagnosticRelay.reportFromWindow(parseWindowDiagnosticReports(reports));
     },
-    ...machineSettingsAnswers(daemonForwarding),
+    ...machineSettingsAnswers(daemonLink),
     ...windowAnswers(windowContext, operatingSystem),
   };
   for (const channel of Object.keys(answers) as AnsweredChannel[]) {

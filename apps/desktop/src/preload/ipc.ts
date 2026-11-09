@@ -5,5 +5,7 @@
 export interface PreloadIpc {
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   sendSync(channel: string, ...args: unknown[]): unknown;
+  /** Sends `message` to main with `transfer`'s ports moved, not copied. */
+  postMessage(channel: string, message: unknown, transfer: unknown[]): void;
   on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): unknown;
 }

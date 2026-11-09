@@ -1,26 +1,17 @@
-// The supervisor over a scripted service and a fake clock: it starts the service when none
-// answers and waits 10 seconds for the handshake, through a token not written yet and no longer
-// once the started service exits, and ends a started service that never answers the handshake or
-// the status read after it. A service found on its socket is waited for while its token is not
-// written yet, and a started or found one for as long as it answers it is repairing its database
-// file, reporting the count each answer carries, and while it binds its socket again after. It
-// asks a quiet link to answer after 5 seconds and counts it dead after 20, brings a lost link back
-// at the backoff's waits and stops after five failed starts, reads an unrecognized loss as
-// `unknown`, starts again on `Retry` as a fresh start, and starts nothing once it is let go at
-// quit. It reads the service's process as each link comes up, on another protocol too, so a
+// The supervisor over a scripted service behind a fake client helper and a fake clock: it starts
+// the service when none answers and waits 10 seconds for the connect, through a token not written
+// yet and no longer once the started service exits, and ends a started service that never answers
+// the connect or the status read after it. A service found on its socket is waited for while its
+// token is not written yet, and a started or found one for as long as it answers it is repairing
+// its database file, reporting the count each answer carries, and while it binds its socket again
+// after. It brings a link the client reports lost, or a helper that exited, back at the backoff's
+// waits and stops after five failed starts, starts again on `Retry` as a fresh start, and starts
+// nothing once it is let go at quit. It reads the service's process as each link comes up, so a
 // hung service is ended whether this app started it or found it running, and a failed ending is
 // recorded.
 
-import {
-  JsonRpcRemoteError,
-  JsonRpcTransportPeerClosedError,
-  JsonRpcTransportUnavailableError,
-} from "@ai-sidekicks/client-sdk";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import {
-  CURRENT_PROTOCOL_VERSION,
-  NEGOTIATION_TOKEN_INVALID_CODE,
-} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { AUTH_TOKEN_INVALID_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
@@ -28,15 +19,25 @@ import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import type { DaemonLink } from "./link/status.js";
 import { SERVICE_HELLO_WAIT_MS, type DaemonSupervisor } from "./supervisor.js";
 import {
-  COMPATIBLE_HELLO,
-  FOUND_SERVICE_PROCESS_ID,
-  INCOMPATIBLE_HELLO,
-  SERVICE_DEVICE_ID,
+  NO_SOCKET,
   linkToRunningService,
   supervisorOverScriptedService,
   type ScriptedService,
   type SupervisorUnderTest,
 } from "./supervisor.test-support.js";
+
+/** The connect's failure while the token file is not written yet, which carries no refusal code. */
+const NO_TOKEN_FILE = {
+  code: JsonRpcErrorCode.InternalError,
+  message: "the token file could not be read: No such file or directory",
+};
+
+/** The connect's refusal of the last start's token. */
+const STALE_TOKEN = {
+  code: JsonRpcErrorCode.DomainRefusal,
+  message: "token invalid",
+  data: { type: AUTH_TOKEN_INVALID_CODE, category: "unauthenticated" },
+};
 
 let under: SupervisorUnderTest;
 let service: ScriptedService;
@@ -63,16 +64,7 @@ describe("starting the service", () => {
 
     expect(service.startTimes).toStrictEqual([0]);
     expect(link.client).toBeDefined();
-    expect(link.state).toMatchObject({
-      connection: { kind: "connected" },
-      startedByApp: true,
-      // The hello's device is this app's own, which the terminal compares a shell's holder with.
-      negotiation: {
-        compatible: true,
-        deviceId: SERVICE_DEVICE_ID,
-        appProtocolVersion: CURRENT_PROTOCOL_VERSION,
-      },
-    });
+    expect(link.state).toMatchObject({ connection: { kind: "connected" }, startedByApp: true });
     expect(connections.map((connection) => connection.kind)).toStrictEqual([
       "connecting",
       "connecting",
@@ -88,62 +80,36 @@ describe("starting the service", () => {
     expect(link.state.startedByApp).toBe(false);
   });
 
-  it("waits 10 seconds for the handshake, closes the unanswered socket, and tries again", async () => {
+  it("waits 10 seconds for the connect, and tries again", async () => {
     service.connectAnswer = { kind: "silent" };
     supervisor.start();
 
     await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS - 1);
     expect(service.connectTimes).toStrictEqual([0]);
-    expect(service.connectSignals[0]?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(service.connectSignals[0]?.aborted).toBe(true);
     // The start after a failed one waits the backoff's first 100 ms.
     await vi.advanceTimersByTimeAsync(100);
     expect(service.connectTimes).toStrictEqual([0, SERVICE_HELLO_WAIT_MS + 100]);
     expect(link.client).toBeUndefined();
   });
 
-  it("reads a refused handshake as version_incompatible, naming the side that is behind", async () => {
-    service.connectAnswer = { kind: "answering", hello: INCOMPATIBLE_HELLO, answersPing: true };
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(link.state).toMatchObject({
-      connection: { kind: "version_incompatible" },
-      negotiation: { compatible: false, behind: "app", daemonProtocolVersion: "2027-01-01" },
-    });
-  });
-
-  it("still links to a service on another protocol that does not name its process", async () => {
-    service.connectAnswer = { kind: "answering", hello: INCOMPATIBLE_HELLO, answersPing: true };
+  it("still links to a service that does not name its process", async () => {
+    service.connectAnswer = { kind: "answering" };
     service.isIdentityReported = false;
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(link.state.connection).toStrictEqual({ kind: "version_incompatible" });
+    expect(link.state.connection).toStrictEqual({ kind: "connected" });
     expect(log.write).toHaveBeenCalledWith(
       expect.objectContaining({
         level: "warning",
-        message: expect.stringContaining(
-          "The background service on another protocol did not name its process",
-        ),
+        message: expect.stringContaining("The background service did not name its process"),
       }),
     );
   });
 
   it("keeps trying a just-started service with no token file yet, or the last start's token", async () => {
-    service.connectFailures.push(
-      new JsonRpcTransportUnavailableError(
-        "/run/daemon.sock",
-        Object.assign(new Error("no"), { code: "ENOENT" }),
-      ),
-      Object.assign(new Error("ENOENT: no such file, open '/run/daemon.token'"), {
-        code: "ENOENT",
-      }),
-      new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "token invalid", {
-        type: NEGOTIATION_TOKEN_INVALID_CODE,
-      }),
-    );
+    service.connectFailures.push(NO_SOCKET, NO_TOKEN_FILE, STALE_TOKEN);
     supervisor.start();
     await vi.advanceTimersByTimeAsync(1_000);
 
@@ -165,7 +131,7 @@ describe("starting the service", () => {
       expect.objectContaining({
         message:
           "The background service did not start: The background service exited before it " +
-          "answered daemon.hello (exit code 1)",
+          "answered its connect (exit code 1)",
       }),
     );
     // The next attempt comes at the backoff's first 100 ms, not after the hello wait.
@@ -174,21 +140,11 @@ describe("starting the service", () => {
   });
 
   it.each([
-    [
-      "no token file yet",
-      Object.assign(new Error("ENOENT: no such file, open '/run/daemon.token'"), {
-        code: "ENOENT",
-      }),
-    ],
-    [
-      "the last start's token",
-      new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "token invalid", {
-        type: NEGOTIATION_TOKEN_INVALID_CODE,
-      }),
-    ],
+    ["no token file yet", NO_TOKEN_FILE],
+    ["the last start's token", STALE_TOKEN],
   ])("waits for a found service with %s rather than starting another", async (_case, failure) => {
     service.connectFailures.push(failure);
-    service.connectAnswer = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: true };
+    service.connectAnswer = { kind: "answering" };
     supervisor.start();
     await vi.advanceTimersByTimeAsync(1_000);
 
@@ -197,7 +153,7 @@ describe("starting the service", () => {
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 
-  it("ends a started service that never answers the handshake, and waits for it to exit", async () => {
+  it("ends a started service that never answers the connect, and waits for it to exit", async () => {
     service.afterStart = { kind: "silent" };
     supervisor.start();
 
@@ -227,7 +183,7 @@ describe("starting the service", () => {
       // The repair is done and the socket is gone until the service binds it again.
       service.connectAnswer = { kind: "absent" };
       await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS / 2);
-      service.connectAnswer = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: true };
+      service.connectAnswer = { kind: "answering" };
       await vi.advanceTimersByTimeAsync(1_000);
 
       expect(service.endedServices).toStrictEqual([]);
@@ -279,68 +235,12 @@ describe("starting the service", () => {
 });
 
 describe("watching the link", () => {
-  it("asks a quiet link to answer at 5 seconds, and an answer of any kind keeps it", async () => {
-    await linkToRunningService(under);
-    const [current] = service.links;
-
-    await vi.advanceTimersByTimeAsync(4_999);
-    expect(current?.requests).toStrictEqual(["daemon.status.read"]);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(current?.requests).toStrictEqual(["daemon.status.read", "daemon.ping"]);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(link.state.connection).toStrictEqual({ kind: "connected" });
-    expect(current?.isClosedByMain()).toBe(false);
-  });
-
-  it.each([
-    ["started", 4001],
-    ["found running", FOUND_SERVICE_PROCESS_ID],
-  ])(
-    "counts a link with no frame for 20 seconds dead, drops it and ends the hung service it %s",
-    async (way, hungProcessId) => {
-      if (way === "started") {
-        service.afterStart = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: false };
-        supervisor.start();
-        await vi.advanceTimersByTimeAsync(0);
-      } else {
-        await linkToRunningService(under, false);
-      }
-      const [current] = service.links;
-
-      await vi.advanceTimersByTimeAsync(19_999);
-      expect(link.state.connection).toStrictEqual({ kind: "connected" });
-      service.connectAnswer = { kind: "silent" };
-      await vi.advanceTimersByTimeAsync(1);
-
-      expect(current?.isClosedByMain()).toBe(true);
-      expect(link.client).toBeUndefined();
-      expect(link.state.connection).toStrictEqual({
-        kind: "transient_disconnect",
-        attempt: 1,
-        attemptLimit: 5,
-      });
-      expect(service.endedServices).toStrictEqual([`${String(hungProcessId)} unanswered`]);
-    },
-  );
-
-  it("ends a hung service on another protocol by the process it named", async () => {
-    service.connectAnswer = { kind: "answering", hello: INCOMPATIBLE_HELLO, answersPing: false };
-    supervisor.start();
-    await vi.advanceTimersByTimeAsync(0);
-    service.connectAnswer = { kind: "silent" };
-
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    expect(service.endedServices).toStrictEqual([`${String(FOUND_SERVICE_PROCESS_ID)} unanswered`]);
-  });
-
   it("records an ending that fails, as a failed look at the system would", async () => {
-    await linkToRunningService(under, false);
-    service.connectAnswer = { kind: "silent" };
+    service.statusReadAnswer = "silent";
     service.isEndingFailing = true;
+    supervisor.start();
 
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS);
 
     expect(log.write).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -350,11 +250,12 @@ describe("watching the link", () => {
     );
   });
 
-  it("notices a killed service when its socket closes, and starts it again after 100 ms", async () => {
+  it("brings back a link the client reports lost, closing it and starting again after 100 ms", async () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };
 
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
+    expect(service.links[0]?.isClosedByMain()).toBe(true);
     expect(link.client).toBeUndefined();
     expect(link.state.connection.kind).toBe("transient_disconnect");
     await vi.advanceTimersByTimeAsync(99);
@@ -365,17 +266,20 @@ describe("watching the link", () => {
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 
-  it("reads a loss it does not recognize as unknown, never connected, and still brings it back", async () => {
+  it("reconnects at the backoff's first wait when the client helper exits", async () => {
     await linkToRunningService(under);
-    service.connectAnswer = { kind: "absent" };
 
-    service.links[0]?.closeWith(new Error("the frame header was malformed"));
-
+    service.exitHelper();
+    expect(link.client).toBeUndefined();
     expect(link.state.connection).toStrictEqual({
-      kind: "unknown",
-      lastError: "the frame header was malformed",
+      kind: "transient_disconnect",
+      attempt: 1,
+      attemptLimit: 5,
     });
     await vi.advanceTimersByTimeAsync(100);
+
+    expect(service.connectTimes).toStrictEqual([0, 100]);
+    expect(service.startTimes).toStrictEqual([]);
     expect(link.state.connection).toStrictEqual({ kind: "connected" });
   });
 });
@@ -386,7 +290,7 @@ describe("bringing the service back", () => {
     service.connectAnswer = { kind: "absent" };
     service.afterStart = undefined;
 
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(service.startTimes).toStrictEqual([100, 400, 1_400, 4_400, 14_400]);
@@ -404,7 +308,7 @@ describe("bringing the service back", () => {
     expect(service.startTimes).toHaveLength(5);
     expect(link.state.connection.kind).toBe("degraded");
 
-    service.afterStart = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: true };
+    service.afterStart = { kind: "answering" };
     supervisor.requestStart();
     await vi.advanceTimersByTimeAsync(0);
 
@@ -415,14 +319,15 @@ describe("bringing the service back", () => {
     expect(service.startTimes).toHaveLength(6);
   });
 
-  it("starts nothing once let go at quit, even with a start pending, and closes its connection", async () => {
+  it("starts nothing once let go at quit, even with a start pending, and ends the helper", async () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
 
     await supervisor.dispose();
     await vi.advanceTimersByTimeAsync(60_000);
 
+    expect(service.isHelperDisposed).toBe(true);
     expect(service.connectTimes).toStrictEqual([0]);
     expect(service.startTimes).toStrictEqual([]);
   });
@@ -442,7 +347,7 @@ describe("bringing the service back", () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };
     service.afterStart = undefined;
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(link.state.connection.kind).toBe("degraded");
     connections.length = 0;

@@ -1,31 +1,34 @@
 // The client helper: the desktop's one connection to the daemon, run in its own utility process.
 // Main's requests come over the parentPort and each window's over the port main hands the helper
-// for it; both pass the one method allowlist and the method's params check before the addon. A
-// window's call has its file tokens swapped for their paths by asking main, which keeps them, and
-// main mints tokens for the paths a reply offers. A window port that closes cancels every call and
-// stream it left open. The link's state goes to main as the addon reports it; the addon pings and
-// times the link itself, so the helper keeps no timer.
+// for it; each passes its channel's method allowlist and the method's params check before the
+// addon. A window's call to a method that carries file paths has its tokens swapped for their paths
+// by asking main, which keeps them, and main mints tokens for the paths a reply offers. A window
+// port that closes cancels every call and stream it left open. Main connects the link and closes
+// it; a request waits for the connect under way, and one made once the link is closed fails. The
+// link's state goes to main as the addon reports it; the addon pings and times the link itself, so
+// the helper keeps no timer.
 
 import type { DaemonClient, StreamEvent, WireReply } from "@ai-sidekicks/client-sdk";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
+import { FILE_PATH_METHODS } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 
+import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+
 import type {
-  ClientHelperAnswer,
   ClientHelperLinkState,
-  ClientHelperRequest,
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
-import { paramsRefusal, requestRefusal } from "./method-allowlist.js";
+import { paramsRefusal, requestRefusal, type ClientHelperChannelKind } from "./method-allowlist.js";
 
 /** What the helper uses of the daemon client the addon connects. */
 export type ClientHelperDaemonClient = Pick<
   DaemonClient,
-  "call" | "cancelCall" | "subscribe" | "cancelStream"
+  "call" | "cancelCall" | "subscribe" | "cancelStream" | "close"
 >;
 
 /** What the helper uses of the addon: its connect, answering a client or the wire's error. */
@@ -68,21 +71,33 @@ export function serveClientHelper(
   });
 }
 
-/** How the one connect ended: the client, or the wire's error every request is answered with. */
-type LinkOutcome = { readonly client: ClientHelperDaemonClient } | { readonly error: JsonRpcError };
+/**
+ * Where the link stands for a request: the client, the wire's error a failed connect answers every
+ * request with, or closed by main, which fails every request until the next connect.
+ */
+type LinkOutcome =
+  | { readonly client: ClientHelperDaemonClient }
+  | { readonly error: JsonRpcError }
+  | { readonly isClosed: true };
+
+/** The link main closed. */
+const CLOSED_LINK: LinkOutcome = Object.freeze({ isClosed: true as const });
 
 /** A file-path answer from main, by the kind the helper waits for. */
 type FilePathAnswer = Extract<MainToClientHelperMessage, { readonly kind: `filePaths.${string}` }>;
 
-/** One call an asker holds open: the addon's id for it once it has one. */
+/** One call an asker holds open: the client it went to and the addon's id, once it has them. */
 interface HeldCall {
-  addonCallId: number | undefined;
+  addon: { readonly client: ClientHelperDaemonClient; readonly callId: number } | undefined;
   isCanceled: boolean;
 }
 
-/** One stream an asker holds open: the addon's id for it once the subscribe answered. */
+/**
+ * One stream an asker holds open: the client it went to and the addon's id, once the subscribe
+ * answered. A cancel goes to that client, since a later link numbers its own streams afresh.
+ */
 interface HeldStream {
-  addonStreamId: number | undefined;
+  addon: { readonly client: ClientHelperDaemonClient; readonly streamId: number } | undefined;
   /** Events the addon sent before the subscribe's answer was told, in order. */
   readonly early: StreamEvent[];
   isOpened: boolean;
@@ -98,6 +113,11 @@ class Channel {
     public readonly windowId: number | undefined,
     public readonly post: (answer: ClientHelperAnswer) => void,
   ) {}
+
+  /** Which allowlist the channel's requests pass. */
+  public get kind(): ClientHelperChannelKind {
+    return this.windowId === undefined ? "main" : "window";
+  }
 }
 
 /** The helper's state: the link, main's channel, and the asks main has yet to answer. */
@@ -105,7 +125,12 @@ class ClientHelper {
   readonly #parentPort: ClientHelperParentPort;
   readonly #addon: ClientHelperAddon;
   readonly #mainChannel: Channel;
-  readonly #link = Promise.withResolvers<LinkOutcome>();
+  /** The connect requests wait on while none has settled since main last asked for one. */
+  #pendingLink = Promise.withResolvers<LinkOutcome>();
+  #linkOutcome: LinkOutcome | undefined;
+  #isConnecting = false;
+  /** Counts connects and closes, so a state the addon reports for a closed link is not told. */
+  #linkGeneration = 0;
   readonly #asks = new Map<number, (answer: FilePathAnswer) => void>();
   #nextAskId = 0;
   #nextAddonCallId = 0;
@@ -125,7 +150,10 @@ class ClientHelper {
   ): void {
     switch (message.kind) {
       case "link.connect":
-        void this.#connect(!(message.isPackaged && message.platform === "darwin"));
+        this.#startConnect(!(message.isPackaged && message.platform === "darwin"));
+        return;
+      case "link.close":
+        void this.#closeLink();
         return;
       case "window.port":
         for (const port of ports) {
@@ -145,11 +173,29 @@ class ClientHelper {
     }
   }
 
+  /** Connects unless a connect is under way or a client is held. */
+  #startConnect(presentsToken: boolean): void {
+    if (this.#isConnecting || (this.#linkOutcome !== undefined && "client" in this.#linkOutcome)) {
+      return;
+    }
+    if (this.#linkOutcome !== undefined) {
+      this.#linkOutcome = undefined;
+      this.#pendingLink = Promise.withResolvers<LinkOutcome>();
+    }
+    this.#isConnecting = true;
+    void this.#connect(presentsToken);
+  }
+
   async #connect(presentsToken: boolean): Promise<void> {
+    const generation = ++this.#linkGeneration;
     const connected = await this.#addon.connect(presentsToken, (state) => {
+      if (generation !== this.#linkGeneration) {
+        return;
+      }
       // The addon reports only the four states it names.
       this.#parentPort.postMessage({ kind: "link.state", state: state as ClientHelperLinkState });
     });
+    this.#isConnecting = false;
     const outcome: LinkOutcome =
       connected.client === undefined
         ? { error: wireErrorOf(connected.error) }
@@ -159,7 +205,30 @@ class ClientHelper {
         ? { kind: "link.connected" }
         : { kind: "link.connectFailed", error: outcome.error },
     );
-    this.#link.resolve(outcome);
+    this.#settleLink(outcome);
+  }
+
+  /** Closes the client held: every call and stream on it ends, and later requests fail. */
+  async #closeLink(): Promise<void> {
+    const outcome = this.#linkOutcome;
+    if (outcome === undefined || !("client" in outcome)) {
+      return;
+    }
+    this.#linkGeneration += 1;
+    this.#settleLink(CLOSED_LINK);
+    await outcome.client.close();
+  }
+
+  #settleLink(outcome: LinkOutcome): void {
+    this.#linkOutcome = outcome;
+    this.#pendingLink.resolve(outcome);
+  }
+
+  /** The link a request goes over: the one settled, or the connect under way. */
+  #link(): Promise<LinkOutcome> {
+    return this.#linkOutcome === undefined
+      ? this.#pendingLink.promise
+      : Promise.resolve(this.#linkOutcome);
   }
 
   #serveWindow(windowId: number, port: ClientHelperWindowPort): void {
@@ -208,16 +277,22 @@ class ClientHelper {
     request: Extract<ClientHelperRequest, { readonly kind: "call" }>,
   ): Promise<void> {
     const { callId, method } = request;
-    const refusal = requestRefusal(method, request.params, request.attachments, false);
+    const refusal = requestRefusal(
+      channel.kind,
+      method,
+      request.params,
+      request.attachments,
+      false,
+    );
     if (refusal !== undefined) {
       channel.post({ kind: "call.refused", callId, refusal });
       return;
     }
-    const held: HeldCall = { addonCallId: undefined, isCanceled: false };
+    const held: HeldCall = { addon: undefined, isCanceled: false };
     channel.calls.set(callId, held);
     let params = request.params;
     let replyAsk: number | undefined;
-    if (channel.windowId !== undefined) {
+    if (channel.windowId !== undefined && FILE_PATH_METHODS.has(method)) {
       const askId = this.#nextAskId++;
       const swap = await this.#askMain<"filePaths.swapped" | "filePaths.swapRefused">({
         kind: "filePaths.swap",
@@ -237,8 +312,16 @@ class ClientHelper {
       params = swap.params;
       replyAsk = swap.readsReply ? askId : undefined;
     }
-    const link = await this.#link.promise;
+    const link = await this.#link();
     if (channel.isClosed) {
+      return;
+    }
+    if ("isClosed" in link) {
+      this.#settleCall(channel, callId, {
+        kind: "call.failed",
+        callId,
+        message: NOT_ANSWERING_MESSAGE,
+      });
       return;
     }
     if ("error" in link) {
@@ -255,7 +338,7 @@ class ClientHelper {
         JSON.stringify(params),
         request.attachments.map(bufferOf),
       );
-      held.addonCallId = addonCallId;
+      held.addon = { client: link.client, callId: addonCallId };
       // A cancel that came while the call waited reaches it now, so the addon settles it canceled.
       if (held.isCanceled) {
         link.client.cancelCall(addonCallId);
@@ -264,7 +347,7 @@ class ClientHelper {
       answer =
         reply === undefined
           ? { kind: "call.refused", callId, refusal: wireErrorOf(error) }
-          : await this.#served(channel, callId, method, reply, replyAsk);
+          : await this.#served(channel, callId, method, params, reply, replyAsk);
     } catch (failure) {
       answer = {
         kind: "call.failed",
@@ -280,6 +363,7 @@ class ClientHelper {
     channel: Channel,
     callId: number,
     method: string,
+    params: unknown,
     reply: WireReply,
     replyAsk: number | undefined,
   ): Promise<ClientHelperAnswer> {
@@ -297,6 +381,7 @@ class ClientHelper {
       askId: replyAsk,
       windowId: channel.windowId,
       method,
+      params,
       value: JSON.parse(reply.json),
     });
     return { ...served, fileRefs: minted.fileRefs };
@@ -315,11 +400,7 @@ class ClientHelper {
       return;
     }
     held.isCanceled = true;
-    void this.#link.promise.then((link) => {
-      if ("client" in link && held.addonCallId !== undefined) {
-        link.client.cancelCall(held.addonCallId);
-      }
-    });
+    held.addon?.client.cancelCall(held.addon.callId);
   }
 
   async #openStream(
@@ -327,14 +408,21 @@ class ClientHelper {
     request: Extract<ClientHelperRequest, { readonly kind: "stream.open" }>,
   ): Promise<void> {
     const { streamId, method } = request;
-    const refusal = requestRefusal(method, request.params, request.attachments, true);
+    const refusal = requestRefusal(channel.kind, method, request.params, request.attachments, true);
     if (refusal !== undefined) {
       channel.post({ kind: "stream.ended", streamId, end: { reason: "refused", refusal } });
       return;
     }
-    const held: HeldStream = { addonStreamId: undefined, early: [], isOpened: false };
+    const held: HeldStream = { addon: undefined, early: [], isOpened: false };
     channel.streams.set(streamId, held);
-    const link = await this.#link.promise;
+    const link = await this.#link();
+    if ("isClosed" in link) {
+      this.#endStream(channel, streamId, held, {
+        reason: "failed",
+        message: NOT_ANSWERING_MESSAGE,
+      });
+      return;
+    }
     if ("error" in link) {
       this.#endStream(channel, streamId, held, { reason: "refused", refusal: link.error });
       return;
@@ -359,7 +447,7 @@ class ClientHelper {
         });
         return;
       }
-      held.addonStreamId = opened.streamId;
+      held.addon = { client: link.client, streamId: opened.streamId };
       if (channel.isClosed || channel.streams.get(streamId) !== held) {
         link.client.cancelStream(opened.streamId);
         return;
@@ -430,15 +518,7 @@ class ClientHelper {
 
   /** Cancels a stream at the addon once it has an id; one still opening is canceled as it opens. */
   #cancelAddonStream(held: HeldStream): void {
-    const addonStreamId = held.addonStreamId;
-    if (addonStreamId === undefined) {
-      return;
-    }
-    void this.#link.promise.then((link) => {
-      if ("client" in link) {
-        link.client.cancelStream(addonStreamId);
-      }
-    });
+    held.addon?.client.cancelStream(held.addon.streamId);
   }
 
   /** A window's port closed: every call and stream it held is canceled, and nothing more is told. */
@@ -449,14 +529,7 @@ class ClientHelper {
     channel.isClosed = true;
     for (const held of channel.calls.values()) {
       held.isCanceled = true;
-      const addonCallId = held.addonCallId;
-      if (addonCallId !== undefined) {
-        void this.#link.promise.then((link) => {
-          if ("client" in link) {
-            link.client.cancelCall(addonCallId);
-          }
-        });
-      }
+      held.addon?.client.cancelCall(held.addon.callId);
     }
     channel.calls.clear();
     for (const held of channel.streams.values()) {

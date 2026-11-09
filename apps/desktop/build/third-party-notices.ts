@@ -77,23 +77,23 @@ type BuildPlugin = ReturnType<typeof license>;
 
 /**
  * The build plugins that write one bundle's notices to `<name>.txt` when the bundle is generated,
- * the name given by `nameBundle` for the bundle's one entry module as the build starts. A worker's
- * plugins are made afresh for each worker, so each worker names and writes its own file. Throws
- * when the bundle has other than one entry, or when `nameBundle` does.
+ * covering every entry the bundle builds (main's bundle builds main and the client helper), the
+ * name given by `nameBundle` for the bundle's entry modules as the build starts. A worker's plugins
+ * are made afresh for each worker, so each worker names and writes its own file. Throws when the
+ * bundle has no entry, or when `nameBundle` does.
  */
 export function thirdPartyNoticesPlugins(
-  nameBundle: (entryModuleId: string) => string,
+  nameBundle: (entryModuleIds: readonly string[]) => string,
 ): BuildPlugin[] {
   let bundleName: string | undefined;
   const naming: BuildPlugin = {
     name: "third-party-notices-bundle-name",
     buildStart(options) {
       const entries = Object.values(options.input);
-      const [entry] = entries;
-      if (entry === undefined || entries.length !== 1) {
-        throw new Error(`a bundle's notices need one entry, and it has ${String(entries.length)}`);
+      if (entries.length === 0) {
+        throw new Error("a bundle's notices need an entry, and it has none");
       }
-      bundleName = nameBundle(entry);
+      bundleName = nameBundle(entries);
     },
   };
   const notices = license({

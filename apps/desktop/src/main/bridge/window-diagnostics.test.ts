@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WINDOW_DIAGNOSTIC_BATCH_BOUND } from "#shared/app-diagnostic/report.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
-import { bridgeOver, scriptedConnection } from "./daemon.test-support.js";
+import { bridgeOver, scriptedDaemon } from "./daemon.test-support.js";
 
 const electronMock = createElectronMock();
 
@@ -29,7 +29,7 @@ beforeEach(() => {
 
 describe("a window's diagnostics through main", () => {
   it("reach the service bounded, quoted values and the stack's message taken out", async () => {
-    const connection = scriptedConnection(() => ({ result: {} }));
+    const connection = scriptedDaemon(() => ({ result: {} }));
     const bridge = await bridgeOver(connection);
     const frameCount = Math.ceil((2 * APP_DIAGNOSTIC_TEXT_BOUNDS.stack) / FRAME.length);
 
@@ -97,7 +97,7 @@ describe("a window's diagnostics through main", () => {
   });
 
   it("refuses a batch that is not one and sends nothing", async () => {
-    const connection = scriptedConnection(() => ({ result: {} }));
+    const connection = scriptedDaemon(() => ({ result: {} }));
     const bridge = await bridgeOver(connection);
     const report = {
       kind: "uncaught-error",

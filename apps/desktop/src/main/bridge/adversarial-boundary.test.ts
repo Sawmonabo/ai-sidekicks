@@ -1,14 +1,14 @@
 // The bridge treats every page payload as untrusted. Intake parity: a payload outside a member's
 // contract never passes main, so its act never runs and nothing reaches the service, while one
-// inside it does. The subscribe channel opens only the daemon streams the app opens, so a page
-// cannot reach a daemon method by naming it as a stream.
+// inside it does. The subscribe channel opens only the topics main serves, so a page cannot reach
+// a daemon method by naming it as a topic.
 //
 // Every channel that carries a payload has a case. The ones that carry none are left out:
 // `native.listEditors`, `native.getNotificationPermission`, `keyboardMap.read`,
 // `machineSettings.read`, `window.readAppearance`, `window.endSafeStart` and `daemon.requestStart`
 // read nothing from the page. Each case sends what crosses IPC itself, past the preload, as a page
-// that got around it would; the two daemon-backed members go through the page's bridge, which
-// turns main's failed answer into a rejection.
+// that got around it would; the settings write goes through the page's bridge, which turns the
+// helper's refusal into a rejection.
 
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -18,12 +18,10 @@ import { setImmediate } from "node:timers/promises";
 
 import {
   MACHINE_SETTINGS_DEFAULTS,
-  MachineSettingsChangeSchema,
-  MachineSettingsSubscribeRequestSchema,
-} from "@ai-sidekicks/contracts/machine-settings";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+  validateMachineSettingsChange,
+} from "@ai-sidekicks/contracts/machine/settings";
+import { validateEmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import type { ZodType } from "zod";
 
 import {
   BRIDGE_CHANNELS,
@@ -35,14 +33,17 @@ import {
   REQUEST_UNSENDABLE_MESSAGE,
   type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
+import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import type { ClipboardSnapshot, PreloadApi } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   bridgeOverLink,
   linkOver,
-  scriptedConnection,
-  type ScriptedConnection,
+  scriptedDaemon,
+  type ScriptedDaemon,
 } from "./daemon.test-support.js";
+import { FilePathRefs } from "./file-path/refs.js";
+import { pageOwner } from "./file-path/refs.test-support.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { PASTED_IMAGES_FOLDER_NAME } from "./native/file-intake.js";
 import type { WindowHandlerContext } from "./window.js";
@@ -89,9 +90,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
-
-/** The file a served `session.memoryRead` offers to open. */
+/** The file a token main minted for the page opens. */
 const MEMORY_FILE = "/Users/person/.claude/projects/app/CLAUDE.md";
 
 /** A digest of the right shape for a payload refused before any clipboard is read. */
@@ -100,14 +99,11 @@ const ANY_DIGEST = "0";
 /** A refusal from a member's schema: a Zod issue list, never a runtime error from main's code. */
 const SCHEMA_REFUSAL = /"code": "[a-z_]+"/;
 
-/** The id the daemon acknowledges a `session.subscribe` under. */
-const DAEMON_SUBSCRIPTION_ID = randomUUID();
-
 /** One member's payloads outside its contract, one inside it, and what its act did. */
 interface IntakeCase {
   readonly member: string;
-  /** The contract's schema, where one is written, which must refuse each refused payload too. */
-  readonly contract?: ZodType;
+  /** The contract's check, where one is written, which must refuse each refused payload too. */
+  readonly contract?: (payload: unknown) => boolean;
   readonly refused: readonly unknown[];
   /** What main refuses each refused payload with: its one message, or what its messages match. */
   readonly refusal: string | RegExp;
@@ -119,8 +115,10 @@ interface IntakeCase {
 
 /** One case's bridge over a scripted daemon, and what main's window owner was asked to do. */
 interface BoundarySubject {
-  readonly connection: ScriptedConnection;
+  readonly daemon: ScriptedDaemon;
   readonly bridge: PreloadApi;
+  /** Main's table of the tokens it handed the page. */
+  readonly filePathRefs: FilePathRefs;
   /** The app's data folder, removed when the test finishes. */
   readonly userData: string;
   readonly windowActs: WindowActs;
@@ -160,27 +158,11 @@ async function openBoundary(): Promise<BoundarySubject> {
   onTestFinished(async () => {
     await rm(userData, { recursive: true, force: true });
   });
-  const connection = scriptedConnection((request) => {
-    switch (request.method) {
-      case "session.memoryRead":
-        return {
-          result: {
-            sessionId: SESSION_ID,
-            home: "/Users/person/.claude",
-            autoMemory: { enabled: true },
-            entries: [{ path: MEMORY_FILE, kind: "file" }],
-          },
-        };
-      case "presence.read":
-        return { result: { devices: [] } };
-      case "session.subscribe":
-        return { result: { subscriptionId: DAEMON_SUBSCRIPTION_ID } };
-      case "$/subscription/cancel":
-        return { result: { canceled: true } };
-      default:
-        return { result: { settings: MACHINE_SETTINGS_DEFAULTS } };
-    }
-  });
+  const daemon = scriptedDaemon((request) =>
+    request.method === "machine.settings.subscribe"
+      ? { result: { subscriptionId: "feed" } }
+      : { result: { settings: MACHINE_SETTINGS_DEFAULTS } },
+  );
   const windowContext: WindowHandlerContext = {
     appearance: {
       choose: (choice, grounds) => {
@@ -223,8 +205,14 @@ async function openBoundary(): Promise<BoundarySubject> {
       readNavigationRequest: () => null,
     },
   };
-  const bridge = await bridgeOverLink(await linkOver(connection), userData, windowContext);
-  return { connection, bridge, userData, windowActs };
+  const filePathRefs = new FilePathRefs();
+  const bridge = await bridgeOverLink(
+    await linkOver(daemon),
+    userData,
+    windowContext,
+    filePathRefs,
+  );
+  return { daemon, bridge, filePathRefs, userData, windowActs };
 }
 
 /** Send `payload` on `channel` as the page's IPC would, past the preload. */
@@ -243,16 +231,7 @@ function openSubscription(request: DaemonSubscriptionRequest): unknown {
   return ipcRenderer.sendSync(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, request);
 }
 
-/** A token to open the memory file, as a served `session.memoryRead` hands it to the page. */
-async function openToken(): Promise<string> {
-  const served = (await invoke(BRIDGE_CHANNELS.daemonCall, {
-    method: "session.memoryRead",
-    params: { sessionId: SESSION_ID },
-  })) as { readonly fileRefs: Readonly<Record<string, string>> };
-  return served.fileRefs[MEMORY_FILE] ?? expect.fail("the read offered no token");
-}
-
-/** Why main refused: the call's rejection, or the message main answered it as failed with. */
+/** Why main or the helper refused: the call's rejection, or the message it failed with. */
 async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> {
   try {
     const value = (await answer) as { outcome?: unknown; message?: unknown } | undefined;
@@ -262,7 +241,9 @@ async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> 
     }
     return value?.outcome === "failed" ? String(value.message) : undefined;
   } catch (error: unknown) {
-    return describeFailure(error);
+    // A refusal crosses as the wire error itself, a plain object with its message.
+    const message = (error as { readonly message?: unknown } | null)?.message;
+    return typeof message === "string" ? message : describeFailure(error);
   }
 }
 
@@ -301,7 +282,7 @@ async function pastedPictures(userData: string): Promise<string[]> {
 
 /** The cases whose accepted payload is built in the case: a token, a real file. */
 async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCase[]> {
-  const { connection, bridge, userData, windowActs } = subject;
+  const { daemon, bridge, userData, windowActs } = subject;
   // Its snapshot is taken as it is sent, after the writes the cases before it made.
   const acceptedLateWrite = { copyId: "late", since: { digest: ANY_DIGEST } };
   const acceptedFormatting = { copyId: "formatted" };
@@ -321,48 +302,28 @@ async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCas
   return [
     {
       member: "machineSettings.write",
-      contract: MachineSettingsChangeSchema,
-      refused: [
-        { editorId: 7 },
-        { notASetting: true },
-        { environmentRows: [{ name: "", value: "x" }] },
-        "editorId",
-        null,
-        [],
-      ],
-      refusal: "Request params for daemon.machineSettingsUpdate failed schema validation",
+      contract: validateMachineSettingsChange,
+      refused: [{ editorId: 7 }, { notASetting: true }, "editorId", null, []],
+      refusal: "The params of machine.settings.update break its contract",
       accepted: { editorId: "zed" },
       send: (payload) => bridge.machineSettings.write(payload as never),
-      acted: () => connection.requests.length,
+      acted: () => daemon.requests.length,
     },
     {
       member: "the machine settings feed",
-      contract: MachineSettingsSubscribeRequestSchema,
+      contract: validateEmptyPayload,
       refused: [{ everyDevice: true }, "all", null],
       refusal: REQUEST_UNSENDABLE_MESSAGE,
       accepted: {},
-      send: async (payload) =>
-        bridge.daemon.subscribe(
-          "daemon.machineSettingsSubscribe" as never,
-          payload as never,
-          () => undefined,
+      send: (payload) =>
+        Promise.resolve(
+          openSubscription({
+            subscriptionId: randomUUID(),
+            event: MACHINE_SETTINGS_STREAM,
+            params: payload,
+          }),
         ),
-      acted: () => connection.requests.length,
-    },
-    {
-      member: "daemon.call",
-      refused: [
-        { method: "session.read", params: { sessionId: 7 } },
-        { method: "daemon.machineSettingsUpdate", params: { change: { editorId: 7 } } },
-        { method: 7, params: {} },
-        "session.read",
-        null,
-      ],
-      refusal:
-        /failed schema validation|could not be sent to the background service|"code": "invalid_type"/,
-      accepted: { method: "presence.read", params: {} },
-      send: (payload) => invoke(BRIDGE_CHANNELS.daemonCall, payload),
-      acted: () => connection.requests.length,
+      acted: () => daemon.requests.length,
     },
     {
       member: "native.showOpenDialog",
@@ -411,7 +372,7 @@ async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCas
       ],
       refusal: /not one this window was given|"code": "(invalid_type|too_small|unrecognized_keys)"/,
       accepted: { ref: "the-token" },
-      send: async (payload) => invoke(BRIDGE_CHANNELS.openInEditor, await withToken(payload)),
+      send: (payload) => invoke(BRIDGE_CHANNELS.openInEditor, withToken(subject, payload)),
       acted: () => electronMock.pathOpens.length,
     },
     {
@@ -535,8 +496,7 @@ async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCas
       refused: [MEMORY_FILE, attachToken, randomUUID(), 7, null],
       refusal: "That file reference is not one this window was given",
       accepted: "the-token",
-      send: async (payload) =>
-        invoke(BRIDGE_CHANNELS.revealInFileExplorer, await withToken(payload)),
+      send: (payload) => invoke(BRIDGE_CHANNELS.revealInFileExplorer, withToken(subject, payload)),
       acted: () => revealedPaths.length,
     },
     {
@@ -612,13 +572,15 @@ async function intakeCases(subject: BoundarySubject): Promise<readonly IntakeCas
   ];
 }
 
-/** `payload` with each `"the-token"` replaced by a token main minted to open the memory file. */
-async function withToken(payload: unknown): Promise<unknown> {
+/** `payload` with each `"the-token"` replaced by a token main minted the page to open the file. */
+function withToken(subject: BoundarySubject, payload: unknown): unknown {
+  // The page main's mocked IPC speaks for.
+  const token = (): string => subject.filePathRefs.mint(pageOwner(1), "open", MEMORY_FILE);
   if (payload === "the-token") {
-    return openToken();
+    return token();
   }
   if (typeof payload === "object" && payload !== null && "ref" in payload) {
-    return payload.ref === "the-token" ? { ...payload, ref: await openToken() } : payload;
+    return payload.ref === "the-token" ? { ...payload, ref: token() } : payload;
   }
   return payload;
 }
@@ -626,82 +588,58 @@ async function withToken(payload: unknown): Promise<unknown> {
 describe("intake parity", () => {
   it("refuses in main every payload outside each member's contract, and takes one inside it", async () => {
     const subject = await openBoundary();
-    const { connection } = subject;
+    const { daemon } = subject;
     for (const intake of await intakeCases(subject)) {
       const before = await intake.acted();
-      const requestsBefore = connection.requests.length;
+      const requestsBefore = daemon.requests.length;
       for (const payload of intake.refused) {
         const named = `${intake.member} ${JSON.stringify(payload)}`;
         if (intake.contract !== undefined) {
-          expect(intake.contract.safeParse(payload).success, named).toBe(false);
+          expect(intake.contract(payload), named).toBe(false);
         }
         expect(await refusalOf(intake.send(payload)), named).toMatch(intake.refusal);
         expect(await intake.acted(), named).toStrictEqual(before);
       }
-      // Minting a token reads the memory file's reply; nothing a refused payload carried is sent.
-      const sentByRefused = connection.requests
+      // Opening an editor reads the chosen one; nothing a refused payload carried is sent.
+      const sentByRefused = daemon.requests
         .slice(requestsBefore)
-        .filter((request) => request.method !== "session.memoryRead");
+        .filter((request) => request.method !== "machine.settings.read");
       expect(sentByRefused, intake.member).toEqual([]);
 
       // Negative control: a payload inside the contract is taken and acted on.
       expect(await refusalOf(intake.send(intake.accepted)), intake.member).toBeUndefined();
-      await setImmediate();
-      expect(await intake.acted(), intake.member).not.toStrictEqual(before);
+      await vi.waitFor(async () => {
+        expect(await intake.acted(), intake.member).not.toStrictEqual(before);
+      });
     }
   });
 
-  it("refuses a status topic opened with a request, and a subscription with no new id", async () => {
-    const { connection, bridge } = await openBoundary();
-    expect(() =>
-      bridge.daemon.subscribe(
-        "daemon.status",
-        { sessionId: randomUUID() } as never,
-        () => undefined,
-      ),
-    ).toThrow(REQUEST_UNSENDABLE_MESSAGE);
-
-    expect(openSubscription({ subscriptionId: "1", event: "daemon.status", params: {} })).toEqual({
-      outcome: "unsendable",
-    });
-    expect(connection.requests).toEqual([]);
-  });
-
-  it("opens only the daemon streams the app opens, sending nothing for any other method", async () => {
-    const { connection } = await openBoundary();
+  it("opens only the topics main serves, sending nothing for a daemon method named as one", async () => {
+    const { daemon } = await openBoundary();
     for (const [event, params] of [
+      ["daemon.status", { sessionId: randomUUID() }],
       ["daemon.stop", {}],
-      ["session.attachmentAdd", { sessionId: SESSION_ID, items: [{ path: "/etc/passwd" }] }],
+      ["session.attachment.add", { items: [{ path: "/etc/passwd" }] }],
     ] as const) {
       expect(openSubscription({ subscriptionId: randomUUID(), event, params }), event).toEqual({
         outcome: "unsendable",
       });
     }
     await setImmediate();
-    expect(connection.requests).toEqual([]);
+    expect(daemon.requests).toEqual([]);
 
-    // Negative control: a stream the app opens is opened on the daemon, and closes by its id.
-    const subscriptionId = randomUUID();
+    // Negative control: the settings feed opens on the daemon.
     expect(
       openSubscription({
-        subscriptionId,
-        event: "session.subscribe",
-        params: { sessionId: SESSION_ID },
+        subscriptionId: randomUUID(),
+        event: MACHINE_SETTINGS_STREAM,
+        params: {},
       }),
     ).toEqual({ outcome: "opened" });
-    await setImmediate();
-    expect(connection.requests.map((request) => request.method)).toEqual(["session.subscribe"]);
-
-    for (const refusedId of [7, "not-an-id", null]) {
-      await expect(invoke(BRIDGE_CHANNELS.closeDaemonSubscription, refusedId)).rejects.toThrow(
-        SCHEMA_REFUSAL,
-      );
-    }
-    await invoke(BRIDGE_CHANNELS.closeDaemonSubscription, subscriptionId);
-    await setImmediate();
-    expect(connection.requests.map((request) => request.method)).toEqual([
-      "session.subscribe",
-      "$/subscription/cancel",
-    ]);
+    await vi.waitFor(() => {
+      expect(daemon.requests.map((request) => request.method)).toEqual([
+        "machine.settings.subscribe",
+      ]);
+    });
   });
 });

@@ -30,7 +30,7 @@ import { ConsoleThemeReport } from "./appearance/console-theme-report.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { readAppFacts } from "./bridge/app-facts.js";
-import { DaemonForwarding } from "./bridge/daemon.js";
+import { answerFilePathAsk } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/refs.js";
 import { installBridgeHandlers } from "./bridge/install-handlers.js";
 import { PASTED_IMAGES_FOLDER_NAME, PastedImages } from "./bridge/native/file-intake.js";
@@ -44,7 +44,9 @@ import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke.js";
 import { installAppLinkHandler } from "./services/app-link.js";
 import { createCrashReporterDependencies, startCrashReporter } from "./services/crash-reporter.js";
 import { DaemonLink } from "./services/daemon/link/status.js";
-import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/supervisor.js";
+import { ClientHelperProcess } from "./services/daemon/client/process.js";
+import { clientHelperConnect, startClientHelper } from "./services/daemon/client/start.js";
+import { DaemonSupervisor } from "./services/daemon/supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
 import {
   attachToServiceProcess,
@@ -308,15 +310,6 @@ function startApplication(): void {
       const readServiceProcessIdentity = operatingSystem.createProcessIdentityReader(
         NODE_PROCESS_IDENTITY_SYSTEM,
       );
-      const supervisor = new DaemonSupervisor({
-        link: daemonLink,
-        connect: (observer, signal) => connectMainToDaemon(operatingSystem, observer, signal),
-        startService: () =>
-          startServiceDetached(resolveServiceProgram(installLocation), process.env),
-        attachServiceProcess: (identity) =>
-          attachToServiceProcess(identity, readServiceProcessIdentity),
-        log,
-      });
       // One table of the file tokens handed to the pages: the native members mint them and the
       // daemon relay swaps them for paths.
       const filePathRefs = new FilePathRefs();
@@ -327,18 +320,32 @@ function startApplication(): void {
         filePathRefs,
         log,
       });
+      // The one connection to the service, held in its own utility process for main and every
+      // window; the supervisor forks it again after it exits.
+      const helperProcess = new ClientHelperProcess({
+        start: startClientHelper,
+        connect: clientHelperConnect(),
+        answerFilePathAsk: (window, ask) =>
+          answerFilePathAsk({ filePathRefs, pastedImages }, window, ask),
+        logWarning: (message) => {
+          log.write({ level: "warning", source: "main/client-helper", message });
+        },
+      });
+      const supervisor = new DaemonSupervisor({
+        link: daemonLink,
+        helper: helperProcess,
+        startService: () =>
+          startServiceDetached(resolveServiceProgram(installLocation), process.env),
+        attachServiceProcess: (identity) =>
+          attachToServiceProcess(identity, readServiceProcessIdentity),
+        log,
+      });
       installBridgeHandlers({
         userData: app.getPath("userData"),
-        daemonForwarding: new DaemonForwarding({
-          link: daemonLink,
-          filePathRefs,
-          pastedImages,
-          supervisor,
-          log,
-        }),
         filePathRefs,
         pastedImages,
         supervisor,
+        helperProcess,
         daemonLink,
         log,
         appDiagnosticRelay,
@@ -389,11 +396,12 @@ function startApplication(): void {
 
       // A fixture launch plays its scenario against the fixture bridge, so no service is
       // reached. Otherwise main looks for the service and starts it when none answers; a quit
-      // waits for the service's flush, at most 10 seconds, and leaves it, every run and every
-      // shell running.
+      // waits for the service's flush, within the client's flush bound, and leaves it, every run
+      // and every shell running.
       if (fixtureLaunch === undefined) {
         supervisor.start();
         installQuitFlush(app, () => supervisor.flushAtQuit(), {
+          flushWaitMs: helperProcess.flushWaitMs,
           log,
           reportUnwrittenLog: (message) => {
             console.error(message);

@@ -1,5 +1,5 @@
 // A quit held for the background service's flush: it goes ahead at once when the flush answers and
-// at 10 seconds when it never does, a failed flush is recorded and the app still quits, a second
+// at the flush bound it is given when it never does, a failed flush is recorded and the app still quits, a second
 // quit while the flush runs waits on that one flush, and the quit asked for again passes through
 // once while a quit a peer cancels flushes again. Main's log drains before the quit goes on, and a
 // log that stopped writing is reported.
@@ -10,8 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 
-import { SERVICE_FLUSH_WAIT_MS } from "./supervisor.js";
 import { installQuitFlush } from "./quit-flush.js";
+
+/** The flush bound the tests hand the quit, as main hands it the client's. */
+const FLUSH_WAIT_MS = 7_000;
 
 /** An Electron `App` stand-in: `quit` re-emits `before-quit` at once, as Electron does. */
 function quittingApp(): {
@@ -60,6 +62,7 @@ afterEach(() => {
 
 function install(app: Parameters<typeof installQuitFlush>[0], flush: () => Promise<void>): void {
   installQuitFlush(app, flush, {
+    flushWaitMs: FLUSH_WAIT_MS,
     log,
     reportUnwrittenLog: (message) => {
       unwrittenReports.push(message);
@@ -101,26 +104,25 @@ describe("a quit held for the service's flush", () => {
 
     expect(flush).toHaveBeenCalledOnce();
     expect(quit).toHaveBeenCalledOnce();
-    // The wait's timer went with the answer, so nothing fires at 10 seconds.
+    // The wait's timer went with the answer, so nothing fires at the bound.
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("quits at 10 seconds when the flush never answers, and records it", async () => {
+  it("quits at the flush bound when the flush never answers, and records it", async () => {
     const { app, quit, emitBeforeQuit } = quittingApp();
     install(app, () => new Promise<void>(() => undefined));
 
     expect(emitBeforeQuit()).toBe(true);
-    await vi.advanceTimersByTimeAsync(SERVICE_FLUSH_WAIT_MS - 1);
+    await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS - 1);
     expect(quit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(SERVICE_FLUSH_WAIT_MS).toBe(10_000);
     expect(quit).toHaveBeenCalledOnce();
     expect(log.write).toHaveBeenCalledWith(
       expect.objectContaining({
         level: "error",
         message:
-          "The background service's flush did not answer within 10 seconds; the app quit without it.",
+          "The background service's flush did not answer within 7 seconds; the app quit without it.",
       }),
     );
   });

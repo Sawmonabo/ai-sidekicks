@@ -6,18 +6,15 @@
 // for it to exit. A loss before the stop's answer reads as stopped and ends a service that fell
 // silent, and a refusal of the stop does not.
 
-import {
-  JsonRpcRemoteError,
-  JsonRpcTransportClosedError,
-  JsonRpcTransportPeerClosedError,
-} from "@ai-sidekicks/client-sdk";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { DaemonRefusal } from "./client/process.js";
 import type { DaemonLink } from "./link/status.js";
-import { SERVICE_FLUSH_WAIT_MS, type DaemonSupervisor } from "./supervisor.js";
+import type { DaemonSupervisor } from "./supervisor.js";
 import {
-  COMPATIBLE_HELLO,
+  FLUSH_WAIT_MS,
   FOUND_SERVICE_PROCESS_ID,
   linkToRunningService,
   linkToStartedService,
@@ -55,7 +52,7 @@ describe("the person's Stop and Restart", () => {
     ]);
     expect(service.endedServices).toStrictEqual(["4001 stopAsked"]);
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(link.state.connection).toStrictEqual({ kind: "stopped" });
     expect(service.startTimes).toStrictEqual([0]);
@@ -66,7 +63,7 @@ describe("the person's Stop and Restart", () => {
 
     await supervisor.endService("daemon.restart");
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
 
     expect(service.links[0]?.requests).toStrictEqual([
       "daemon.status.read",
@@ -86,7 +83,7 @@ describe("the person's Stop and Restart", () => {
 
     await supervisor.endService("daemon.restart");
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
 
     expect(service.endedServices).toStrictEqual([`${String(FOUND_SERVICE_PROCESS_ID)} stopAsked`]);
     // Not at the first backoff's 100 ms, while the found service still holds the data folder.
@@ -107,10 +104,10 @@ describe("waiting on the service's answers", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     await vi.advanceTimersByTimeAsync(60_000);
 
-    await expect(stopping).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
+    await expect(stopping).rejects.toThrow(NOT_ANSWERING_MESSAGE);
     expect(link.state.connection).toStrictEqual({ kind: "stopped" });
     expect(service.startTimes).toStrictEqual([0]);
   });
@@ -119,8 +116,8 @@ describe("waiting on the service's answers", () => {
     await linkToStartedService(under);
     service.stopAnswer = "refused";
 
-    await expect(supervisor.endService("daemon.stop")).rejects.toBeInstanceOf(JsonRpcRemoteError);
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    await expect(supervisor.endService("daemon.stop")).rejects.toBeInstanceOf(DaemonRefusal);
+    service.loseLink();
 
     expect(link.state.connection.kind).toBe("transient_disconnect");
     expect(service.endedServices).toStrictEqual([]);
@@ -131,12 +128,12 @@ describe("waiting on the service's answers", () => {
     service.flushAnswer = "silent";
     const stopping = supervisor.endService("daemon.stop");
 
-    await vi.advanceTimersByTimeAsync(SERVICE_FLUSH_WAIT_MS - 1);
+    await vi.advanceTimersByTimeAsync(FLUSH_WAIT_MS - 1);
     expect(service.stopsReceivedAt).toStrictEqual([]);
     await vi.advanceTimersByTimeAsync(1);
 
     await expect(stopping).resolves.toStrictEqual({ accepted: true });
-    expect(service.stopsReceivedAt).toStrictEqual([SERVICE_FLUSH_WAIT_MS]);
+    expect(service.stopsReceivedAt).toStrictEqual([FLUSH_WAIT_MS]);
   });
 
   it("counts the service's drain from when the stop was sent, not from its answer", async () => {
@@ -178,22 +175,6 @@ describe("waiting on the service's answers", () => {
     ]);
     expect(service.endedServices).toStrictEqual(["4001 stopAsked"]);
   });
-
-  it("ends a service that falls silent under the stop's flush, and reads it stopped", async () => {
-    service.afterStart = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: false };
-    await linkToStartedService(under);
-    await vi.advanceTimersByTimeAsync(15_000);
-    service.flushAnswer = "silent";
-    service.connectAnswer = { kind: "absent" };
-    const stopping = supervisor.endService("daemon.stop");
-    void stopping.catch(() => undefined);
-
-    await vi.advanceTimersByTimeAsync(5_000);
-
-    expect(link.state.connection).toStrictEqual({ kind: "stopped" });
-    expect(service.endedServices).toStrictEqual(["4001 unanswered"]);
-    await expect(stopping).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
-  });
 });
 
 describe("the quit", () => {
@@ -222,7 +203,7 @@ describe("the quit", () => {
     expect(service.links[0]?.isClosedByMain()).toBe(false);
     // A link that closes under the flush fails it, which the quit records before it goes ahead.
     await supervisor.dispose();
-    await expect(quitting).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
+    await expect(quitting).rejects.toThrow(NOT_ANSWERING_MESSAGE);
   });
 
   it("takes a refused flush as its answer, and lets go", async () => {
@@ -238,7 +219,7 @@ describe("the quit", () => {
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
     await supervisor.endService("daemon.stop");
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
 
     let isSettled = false;
     const quitting = supervisor.flushAtQuit().finally(() => {
@@ -262,9 +243,9 @@ describe("the quit", () => {
     const quitting = supervisor.flushAtQuit().finally(() => {
       isSettled = true;
     });
-    const quitOutcome = expect(quitting).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
+    const quitOutcome = expect(quitting).rejects.toThrow(NOT_ANSWERING_MESSAGE);
     // The stopping service closes the link under the quit's flush, which fails it.
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     await vi.advanceTimersByTimeAsync(999);
     expect(isSettled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
@@ -287,7 +268,7 @@ describe("the quit", () => {
     await linkToStartedService(under);
     await supervisor.endService("daemon.restart");
     service.connectAnswer = { kind: "absent" };
-    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    service.loseLink();
     // The new start is already waiting for the old service to exit when the quit comes.
     await vi.advanceTimersByTimeAsync(500);
 

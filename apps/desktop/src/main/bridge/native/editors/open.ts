@@ -3,9 +3,10 @@
 // open, so a change made from another device holds here at once. With no editor chosen, or with the
 // chosen one no longer on this machine, the open lands in the system default rather than failing.
 
-import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
-import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
+import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
 import * as z from "zod/mini";
+
+import type { MainDaemonClient } from "../../../services/daemon/client/process.js";
 
 import { findEditor } from "./catalog.js";
 import type { InstalledEditors } from "./installed.js";
@@ -36,18 +37,15 @@ export interface EditorOpenRequest {
  * not connected or refuses the read, since without it main cannot know which editor was chosen.
  */
 export async function readChosenEditorId(link: {
-  readonly client: JsonRpcClient | undefined;
+  readonly client: MainDaemonClient | undefined;
 }): Promise<string | null> {
   const client = link.client;
   if (client === undefined) {
     throw new Error("The background service is not connected, so the chosen editor is unknown.");
   }
-  const descriptor = MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsRead"];
   const reading = await client.call(
-    descriptor.method,
+    MACHINE_SETTINGS_METHOD_DESCRIPTORS["machine.settings.read"],
     {},
-    descriptor.requestSchema,
-    descriptor.responseSchema,
   );
   return reading.settings.editorId;
 }

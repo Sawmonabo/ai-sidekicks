@@ -1,7 +1,7 @@
-// What the preload and main send each other to carry the daemon's wire. Electron keeps only an
-// error's message across IPC, so main answers a call with an outcome rather than throwing, the
-// preload turns a refusal back into a rejection the renderer can read, and a subscription that
-// ends is told to the page as an end rather than left to go quiet.
+// How a call or subscription the app carries to the daemon ends, as the page, main and the client
+// helper pass it to each other: a message port keeps no error, so a call ends with an outcome
+// rather than a throw, and a subscription that ends is told as an end rather than left to go
+// quiet.
 
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
@@ -14,12 +14,6 @@ export const REQUEST_UNSENDABLE_CODE = "request-unsendable";
 /** What the page reads for a {@link REQUEST_UNSENDABLE_CODE} refusal. */
 export const REQUEST_UNSENDABLE_MESSAGE =
   "This request could not be sent to the background service.";
-
-/** A daemon call the renderer asks main to forward. */
-export interface DaemonCallRequest {
-  readonly method: string;
-  readonly params: unknown;
-}
 
 /**
  * A daemon subscription the renderer asks main to open. The preload names it, so values pushed

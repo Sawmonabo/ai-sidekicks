@@ -1,5 +1,5 @@
 // The object the preload exposes: every member carried over IPC, beside the build facts main
-// passed at start and the machine clock it pushes after.
+// passed at start, the machine clock it pushes after, and the port the page's daemon wire rides.
 
 import { ipcRenderer, webFrame, webUtils } from "electron";
 
@@ -18,7 +18,7 @@ import {
   type PreloadApi,
 } from "#shared/preload-api.js";
 import { createAppBridge } from "./app.js";
-import { createDaemonWire, DaemonSubscriptions } from "./daemon.js";
+import { createDaemonPreload, DaemonSubscriptions, type PagePortTarget } from "./daemon.js";
 import { createMachineSettingsBridge } from "./machine-settings.js";
 import { createUpdateBridge } from "./update.js";
 import { createWindowBridge } from "./window.js";
@@ -27,7 +27,12 @@ import { createWindowBridge } from "./window.js";
 export function createPreloadApi(argv: readonly string[]): PreloadApi {
   const subscriptions = new DaemonSubscriptions(ipcRenderer);
   return {
-    daemon: createDaemonWire(ipcRenderer, subscriptions),
+    // The preload runs in the page's renderer, whose global object is the page's window.
+    daemon: createDaemonPreload(
+      ipcRenderer,
+      subscriptions,
+      globalThis as unknown as PagePortTarget,
+    ),
     machineSettings: createMachineSettingsBridge(ipcRenderer, subscriptions),
     native: {
       showOpenDialog: async <Purpose extends OpenDialogPurpose>(

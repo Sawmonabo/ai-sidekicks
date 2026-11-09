@@ -1,7 +1,6 @@
-// The daemon subscriptions the app opens, closed. The daemon runs whatever method a subscription
-// names, so main opens a subscription for a page only under one of these names and refuses every
-// other before anything is sent. The renderer's `services/daemon/session/event/streams.ts` routes
-// each one, and the preload names the machine settings feed from here.
+// The daemon subscriptions the app opens, closed. The renderer's
+// `services/daemon/session/event/streams.ts` routes each one, and the preload and main name the
+// machine settings feed from here.
 //
 // The names are written as strings so the sandboxed preload loads none of the contract's schemas;
 // the set is checked against the daemon's method map, so each must be one of its subscriptions.
@@ -48,21 +47,3 @@ export type DaemonStream = Extract<
   | typeof MACHINE_SETTINGS_STREAM,
   DaemonEvent
 >;
-
-/** Whether `name` is one of the daemon subscriptions the app opens. */
-export function isDaemonStream(name: string): name is DaemonStream {
-  return Object.hasOwn(OPENED_STREAMS, name);
-}
-
-/** Keyed by every stream, so a name missing here, or one the method map lacks, fails the build. */
-const OPENED_STREAMS: Readonly<Record<DaemonStream, true>> = {
-  [SESSION_EVENT_STREAM]: true,
-  [RUN_STATE_EVENT_STREAM]: true,
-  [RUN_QUEUE_EVENT_STREAM]: true,
-  [PRESENCE_EVENT_STREAM]: true,
-  [MCP_NOTICE_STREAM]: true,
-  [PROVIDER_ACCOUNT_NOTICE_STREAM]: true,
-  [WORKFLOW_NOTICE_STREAM]: true,
-  [SESSION_LIST_STREAM]: true,
-  [MACHINE_SETTINGS_STREAM]: true,
-};

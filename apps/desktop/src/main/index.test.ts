@@ -30,7 +30,6 @@ vi.mock("electron", () => electronMock.moduleExports);
 // The supervisor reaches the person's real background service, and starts one when none
 // answers; here it only records when the composition starts it and flushes it at quit.
 vi.mock("./services/daemon/supervisor.js", () => ({
-  connectMainToDaemon: vi.fn(),
   DaemonSupervisor: class {
     public start(): void {
       electronMock.record("supervisor.start");

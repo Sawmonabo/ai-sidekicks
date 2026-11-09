@@ -9,8 +9,8 @@
 //
 // Module system per target:
 //
-//   • main: `format: "es"` (`index.js`, and the client helper's `client-helper.js`). The package is `"type": "module"` and Electron runs an
-//     ESM main process.
+//   • main: `format: "es"` (`index.js`, and the client helper's `client-helper.js`). The package
+//     is `"type": "module"` and Electron runs an ESM main process.
 //   • preload: `format: "cjs"` (`index.cjs`). The sandboxed preload (`sandbox: true` in
 //     `src/main/windows/factory.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
 //     import statement outside a module". The `.cjs` extension is what lets Node load it as CJS
@@ -153,8 +153,15 @@ const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
   [PARSER_THREAD_WORKER_ENTRY]: "markdown-parser-thread-worker",
 };
 
-/** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
-function workerBundleNameOf(entryModuleId: string): string {
+/**
+ * A worker's bundle name, by its one entry module. Throws for a worker with other than one entry,
+ * or one the table does not name.
+ */
+function workerBundleNameOf(entryModuleIds: readonly string[]): string {
+  const [entryModuleId] = entryModuleIds;
+  if (entryModuleId === undefined || entryModuleIds.length !== 1) {
+    throw new Error(`a worker builds one entry, and it has ${String(entryModuleIds.length)}`);
+  }
   const sourceEntry = path
     .relative(RENDERER_SOURCE_DIRECTORY, entryModuleId)
     .split(path.sep)

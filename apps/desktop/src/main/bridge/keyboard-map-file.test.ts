@@ -69,7 +69,7 @@ for (const { title, operatingSystem, canRunHere } of folderFlushAnswers()) {
           await writeFile(filePath, "{ not json", "utf8");
           const file = keyboardMapFile(operatingSystem);
 
-          const repaired = { repairedAt: REPAIRED_AT.toISOString(), cause: "unparseable" };
+          const repaired = { repairedAt: REPAIRED_AT.toISOString(), cause: "unparsable" };
           await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });
           expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual({});
           await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });

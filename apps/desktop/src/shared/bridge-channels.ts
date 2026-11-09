@@ -6,7 +6,6 @@ import type { PreloadApi } from "./preload-api.js";
 
 /** The channels the preload invokes, by bridge member; main answers each but the updater's. */
 export const BRIDGE_CHANNELS = {
-  daemonCall: "daemon.call",
   closeDaemonSubscription: "daemon.unsubscribe",
   requestDaemonStart: "daemon.requestStart",
   readMachineSettings: "machineSettings.read",
@@ -52,11 +51,20 @@ export type InvokedBridgeChannel = (typeof BRIDGE_CHANNELS)[keyof typeof BRIDGE_
 export type UpdaterBridgeChannel = Extract<InvokedBridgeChannel, `update.${string}`>;
 
 /**
- * The channel a daemon subscription opens on. Synchronous, because `daemon.subscribe` answers its
- * caller before it returns: an open that returned means main holds a link to the daemon, and one
- * that threw means it does not.
+ * The channel a topic main serves opens on: the daemon's status and the machine settings' feed.
+ * Synchronous, because a subscribe answers its caller before it returns: an open that returned
+ * means main opened it, and one that threw means it did not.
  */
 export const OPEN_DAEMON_SUBSCRIPTION_CHANNEL = "daemon.subscribe";
+
+/**
+ * The channel the preload posts the page's end of a new channel to the client helper on, carried
+ * in the message's ports; main hands it to the helper and answers nothing.
+ */
+export const OPEN_DAEMON_PORT_CHANNEL = "daemon.openPort";
+
+/** The data of the window message that carries the page's end of a channel to the client helper. */
+export const DAEMON_PORT_MESSAGE = "sidekicks.daemonPort";
 
 /** The channel main pushes each daemon subscription's values on, tagged with the subscription. */
 export const DAEMON_SUBSCRIPTION_VALUE_CHANNEL = "daemon.subscriptionValue";
@@ -109,11 +117,18 @@ type UpdaterMember = Extract<BridgeMember, `update.${string}`>;
 export const BRIDGE_MEMBER_CHANNELS: Readonly<
   Record<
     Exclude<BridgeMember, UpdaterMember>,
-    readonly (InvokedBridgeChannel | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL)[]
+    readonly (
+      | InvokedBridgeChannel
+      | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL
+      | typeof OPEN_DAEMON_PORT_CHANNEL
+    )[]
   >
 > = {
-  "daemon.call": [BRIDGE_CHANNELS.daemonCall],
-  "daemon.subscribe": [OPEN_DAEMON_SUBSCRIPTION_CHANNEL, BRIDGE_CHANNELS.closeDaemonSubscription],
+  "daemon.openPort": [OPEN_DAEMON_PORT_CHANNEL],
+  "daemon.subscribeStatus": [
+    OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
+    BRIDGE_CHANNELS.closeDaemonSubscription,
+  ],
   "daemon.requestStart": [BRIDGE_CHANNELS.requestDaemonStart],
   "native.showOpenDialog": [BRIDGE_CHANNELS.showOpenDialog],
   "native.getDroppedFileRef": [BRIDGE_CHANNELS.getDroppedFileRef],

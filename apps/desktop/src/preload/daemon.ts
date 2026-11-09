@@ -1,56 +1,65 @@
-// The daemon's wire as the preload carries it to main. A call answers with main's outcome, a
-// refusal rejecting with the wire error itself as a plain object: an Error would lose the error's
-// code and data crossing to the page. A subscription is named here, opened synchronously so its
-// open can throw, and fed by one listener for every value main pushes and one for every end.
-
-import type { DaemonMethod, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
+// The preload's daemon members. A new channel to the client helper is made here: one end goes to
+// main, which hands it to the helper, and the other to the page as a window message, so the page's
+// calls and streams ride it with no copy through the context bridge. Main's own topics, the
+// daemon's status and the machine settings' feed, are subscribed here over IPC, each named here,
+// opened synchronously so its open can throw, and fed by one listener for every value main pushes
+// and one for every end. A call main answers with an outcome rejects, for a refusal, with the wire
+// error itself as a plain object: an Error would lose the error's code and data crossing to the
+// page.
 
 import {
   BRIDGE_CHANNELS,
+  DAEMON_PORT_MESSAGE,
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
+  OPEN_DAEMON_PORT_CHANNEL,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "#shared/bridge-channels.js";
 import {
   REQUEST_UNSENDABLE_CODE,
   REQUEST_UNSENDABLE_MESSAGE,
   type DaemonCallOutcome,
-  type DaemonCallRequest,
   type DaemonSubscriptionEnd,
   type DaemonSubscriptionOpening,
   type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
-import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
+import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
+import type { DaemonPreload, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
 import type { PreloadIpc } from "./ipc.js";
 
+/** Where the page's end of a new channel goes: the page's own window. */
+export interface PagePortTarget {
+  postMessage(message: unknown, targetOrigin: string, transfer: unknown[]): void;
+}
+
 /**
- * The `daemon` member the preload exposes, carried over `ipc`, its subscriptions opened through
- * `subscriptions`.
+ * The `daemon` member the preload exposes, carried over `ipc`, main's status topic opened through
+ * `subscriptions`, each new channel's page end posted to `page`.
  */
-export function createDaemonWire(ipc: PreloadIpc, subscriptions: DaemonSubscriptions): DaemonWire {
+export function createDaemonPreload(
+  ipc: Pick<PreloadIpc, "invoke" | "postMessage">,
+  subscriptions: DaemonSubscriptions,
+  page: PagePortTarget,
+): DaemonPreload {
   return {
-    call: async <M extends DaemonMethod>(
-      method: M,
-      params: unknown,
-    ): Promise<ServedDaemonCall<DaemonResult<M>>> =>
-      settleDaemonCall(
-        await ipc.invoke(BRIDGE_CHANNELS.daemonCall, {
-          method,
-          params,
-        } satisfies DaemonCallRequest),
-      ) as ServedDaemonCall<DaemonResult<M>>,
+    openPort: () => {
+      const channel = new MessageChannel();
+      ipc.postMessage(OPEN_DAEMON_PORT_CHANNEL, null, [channel.port1]);
+      // Posted to the page's own window, which alone can receive it.
+      page.postMessage(DAEMON_PORT_MESSAGE, "*", [channel.port2]);
+    },
+    subscribeStatus: (handler) =>
+      subscriptions.open(DAEMON_STATUS_TOPIC, {}, handler as (value: unknown) => void, undefined),
     requestStart: async (): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.requestDaemonStart);
     },
-    subscribe: (event, params, handler, onEnded) =>
-      subscriptions.open(event, params, handler as (value: unknown) => void, onEnded),
   };
 }
 
 /**
- * What a call main forwarded was served with: the value, and the file tokens main minted beside
- * it. Throws the daemon's refusal itself, the app's `request-unsendable` refusal for a request
- * main did not send, and an `Error` carrying the message of any other failure.
+ * What a call main answered was served with: the value, and the file tokens main minted beside it.
+ * Throws the refusal itself, the app's `request-unsendable` refusal for a request main did not
+ * send, and an `Error` carrying the message of any other failure.
  */
 export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
   const ended = answer as DaemonCallOutcome;
@@ -68,12 +77,12 @@ export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
   throw new Error(ended.message);
 }
 
-/** The page's open daemon subscriptions: each opened on main by an id named here. */
+/** The page's open subscriptions to main's topics: each opened on main by an id named here. */
 export class DaemonSubscriptions {
-  readonly #ipc: PreloadIpc;
+  readonly #ipc: Pick<PreloadIpc, "invoke" | "sendSync">;
   readonly #byId = new Map<string, SubscriptionHandlers>();
 
-  public constructor(ipc: PreloadIpc) {
+  public constructor(ipc: Pick<PreloadIpc, "invoke" | "sendSync" | "on">) {
     this.#ipc = ipc;
     ipc.on(DAEMON_SUBSCRIPTION_VALUE_CHANNEL, (_event, subscriptionId, value) => {
       // One closed while the value was in flight drops it.
@@ -90,8 +99,8 @@ export class DaemonSubscriptions {
   }
 
   /**
-   * Open one subscription on main and hand its values to `deliver` until it is closed or ends.
-   * Throws when main could not open it. Closing it twice, or after it ended, sends nothing.
+   * Open one topic on main and hand its values to `deliver` until it is closed or ends. Throws
+   * when main could not open it. Closing it twice, or after it ended, sends nothing.
    */
   public open(
     event: string,
@@ -101,7 +110,7 @@ export class DaemonSubscriptions {
   ): Unsubscribe {
     const subscriptionId = crypto.randomUUID();
     this.#byId.set(subscriptionId, { deliver, onEnded });
-    // Synchronous because `subscribe` must return or throw before the caller goes on.
+    // Synchronous because a subscribe must return or throw before the caller goes on.
     const opening = this.#ipc.sendSync(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, {
       subscriptionId,
       event,
@@ -122,7 +131,7 @@ export class DaemonSubscriptions {
         this.#ipc
           .invoke(BRIDGE_CHANNELS.closeDaemonSubscription, subscriptionId)
           .catch((failure: unknown) => {
-            console.error(`The daemon subscription ${subscriptionId} did not close:`, failure);
+            console.error(`The subscription ${subscriptionId} did not close:`, failure);
           });
       }
     };

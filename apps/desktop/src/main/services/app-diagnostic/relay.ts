@@ -16,7 +16,6 @@ import {
   type AppErrorThrown,
   type AppCapturedDiagnostic,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
-import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { DiagnosticRateLimit, fingerprintOf } from "#shared/app-diagnostic/rate-limit.js";
@@ -27,6 +26,7 @@ import {
   type WindowDiagnosticReport,
 } from "#shared/app-diagnostic/report.js";
 
+import type { MainDaemonClient } from "../daemon/client/process.js";
 import type { DaemonLink } from "../daemon/link/status.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { boundAppError, boundCapturedDiagnostic } from "./record.js";
@@ -140,9 +140,8 @@ export class AppDiagnosticRelay {
       }
       return;
     }
-    const descriptor = DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS["daemon.appDiagnostic.record"];
     client
-      .call(descriptor.method, record, descriptor.requestSchema, descriptor.responseSchema)
+      .call(DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS["daemon.appDiagnostic.record"], record)
       .then(
         () => {
           this.#isRefusalLogged = false;
@@ -182,7 +181,7 @@ export class AppDiagnosticRelay {
     }
   }
 
-  #connectedClient(): JsonRpcClient | undefined {
+  #connectedClient(): MainDaemonClient | undefined {
     const { link } = this.#options;
     return link.state.connection.kind === "connected" ? link.client : undefined;
   }

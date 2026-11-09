@@ -5,7 +5,8 @@
 // clears itself, so if another listener cancels that quit the next attempt flushes again. A quit
 // asked for while the flush runs waits on that same flush. The flush is raced against the quit's
 // wait, so a service that never answers cannot keep the app open; the wait's timer is cleared once
-// the race settles and is `unref()`'d so it never keeps the event loop alive. The one wait bounds
+// the race settles and is `unref()`'d so it never keeps the event loop alive. The wait is the
+// daemon client's own flush bound, which the caller reads from the client. The one wait bounds
 // the flush and the wait for a service a stop is ending together. Main's log is drained before the
 // quit goes on, so its last lines reach the file, and a log that stopped writing is reported.
 
@@ -17,19 +18,23 @@ import {
   type MainDiagnosticLog,
 } from "../diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
-import { SERVICE_FLUSH_WAIT_MS } from "./supervisor.js";
 
 const LOG_SOURCE = "main/services/daemon";
 
-/** Where a flush that failed or ran out of time is recorded, and a log that could not be. */
+/**
+ * How long the flush may take, where a flush that failed or ran out of time is recorded, and a log
+ * that could not be.
+ */
 export interface QuitFlushOptions {
+  /** The daemon client's flush bound, in milliseconds. */
+  readonly flushWaitMs: number;
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
   /** Told once when the log stopped writing; main passes `console.error`. */
   readonly reportUnwrittenLog: DiagnosticLogFailureReporter;
 }
 
 /**
- * Hold every quit until `flush` settles or {@link SERVICE_FLUSH_WAIT_MS} passes and main's log has
+ * Hold every quit until `flush` settles or `options.flushWaitMs` passes and main's log has
  * drained, then quit. A flush that rejects is recorded and the quit still goes ahead, so a person
  * is never left in an app that will not close.
  */
@@ -58,7 +63,7 @@ export function installQuitFlush(
         const waitEnded = new Promise<"wait-ended">((resolve) => {
           waitTimer = setTimeout(() => {
             resolve("wait-ended");
-          }, SERVICE_FLUSH_WAIT_MS).unref();
+          }, options.flushWaitMs).unref();
         });
         if ((await Promise.race([flush(), waitEnded])) === "wait-ended") {
           options.log.write({
@@ -66,7 +71,7 @@ export function installQuitFlush(
             source: LOG_SOURCE,
             message:
               `The background service's flush did not answer within ` +
-              `${String(SERVICE_FLUSH_WAIT_MS / 1000)} seconds; the app quit without it.`,
+              `${String(options.flushWaitMs / 1000)} seconds; the app quit without it.`,
           });
         }
       } catch (failure: unknown) {

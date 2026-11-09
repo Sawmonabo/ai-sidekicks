@@ -1,10 +1,10 @@
 // Main's link to the background service: what main knows about the service and the link, and the
-// daemon client while a link is up. The supervisor is its one writer; the bridge reads it for every
-// call the renderer forwards, and the service's status topic delivers it to every window.
-
-import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
+// client main calls through while a link is up. The supervisor is its one writer; main's own callers
+// read the client from it, and the service's status topic delivers its state to every window.
 
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
+
+import type { MainDaemonClient } from "../client/process.js";
 
 /** What a call that needs the link answers while none is up. */
 export const NOT_CONNECTED_MESSAGE = "The background service is not connected.";
@@ -28,12 +28,12 @@ const CONNECTING_STATE: MainProcessState = unlinkedState({ kind: "connecting" })
 
 /** The service's state as main knows it, and the daemon client while a link is up. */
 export class DaemonLink {
-  #client: JsonRpcClient | undefined;
+  #client: MainDaemonClient | undefined;
   #state: MainProcessState = CONNECTING_STATE;
   readonly #listeners = new Set<DaemonLinkListener>();
 
   /** The client of the link that is up, or `undefined` while none is. */
-  public get client(): JsonRpcClient | undefined {
+  public get client(): MainDaemonClient | undefined {
     return this.#client;
   }
 
@@ -55,7 +55,7 @@ export class DaemonLink {
   }
 
   /** A link came up: hold its client and report the state it came up in. */
-  public attach(client: JsonRpcClient, state: MainProcessState): void {
+  public attach(client: MainDaemonClient, state: MainProcessState): void {
     this.#client = client;
     this.#publish(state);
   }

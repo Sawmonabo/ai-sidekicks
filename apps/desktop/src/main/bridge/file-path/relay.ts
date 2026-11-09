@@ -6,10 +6,14 @@
 // take, so the page shows a path as text and never holds one as a capability.
 //
 // Where each verb carries a path is named here once, by the contract's member names: a member is
-// a key, and `*` is each element of a list. Only verbs the app calls are named, since `call()`
-// refuses every other before the relay runs.
+// a key, and `*` is each element of a list. The client helper asks main for these swaps only on
+// the verbs `FILE_PATH_METHODS` names, so a window call that carries no path never reaches main.
 
 import nodePath from "node:path";
+
+import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
+import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
+import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 
@@ -27,7 +31,7 @@ interface RequestPathMember {
 }
 
 /** The verb that stages files for the next message, which the service copies into its store. */
-const ATTACHMENT_ADD_METHOD = "session.attachmentAdd";
+const ATTACHMENT_ADD_METHOD = SESSION_DRAFT_METHOD_DESCRIPTORS["session.attachment.add"].method;
 
 /**
  * The request members that hold a file or folder the person picked, dropped or pasted, by verb.
@@ -35,15 +39,32 @@ const ATTACHMENT_ADD_METHOD = "session.attachmentAdd";
  */
 const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = new Map([
   // A human form's `path` field, answered with a folder picked by the platform's chooser.
-  ["workflow.humanFormSubmit", [{ location: ["paths", "*", "path"], purpose: "folder" }]],
+  [
+    WORKFLOW_STEP_METHOD_DESCRIPTORS["workflow.humanForm.submit"].method,
+    [{ location: ["paths", "*", "path"], purpose: "folder" }],
+  ],
   // A staged file: picked, dropped or pasted into the composer.
   [ATTACHMENT_ADD_METHOD, [{ location: ["items", "*", "path"], purpose: "attach" }]],
 ]);
 
 /** The reply members that hold a path the page offers to open, by verb. */
 const REPLY_PATH_LOCATIONS: ReadonlyMap<string, readonly PathLocation[]> = new Map([
-  ["session.memoryRead", [["entries", "*", "path"]]],
+  [SESSION_INSPECTOR_METHOD_DESCRIPTORS["session.memory.read"].method, [["entries", "*", "path"]]],
 ]);
+
+/** Every verb whose request or reply carries a path main swaps or mints a token for. */
+export const FILE_PATH_METHODS: ReadonlySet<string> = new Set([
+  ...REQUEST_PATH_MEMBERS.keys(),
+  ...REPLY_PATH_LOCATIONS.keys(),
+]);
+
+/**
+ * Whether main reads `method`'s reply: to mint tokens for the paths it offers, or to remove the
+ * pasted pictures the service copied.
+ */
+export function readsReplyPaths(method: string): boolean {
+  return REPLY_PATH_LOCATIONS.has(method) || method === ATTACHMENT_ADD_METHOD;
+}
 
 /**
  * `params` with each token `method` takes in place of a path swapped for the path, for a page

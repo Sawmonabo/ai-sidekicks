@@ -8,6 +8,7 @@ import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "#shared/fixture-launc
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./bridge.js";
 import { ClockLocale } from "./clock-locale.js";
+import { createDaemonPortWire } from "./daemon-port-client.js";
 import { PendingClipboardCopies } from "./clipboard/pending-copies.js";
 import { TransportReconnectSignal } from "../transport/reconnect.js";
 
@@ -33,6 +34,8 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
 export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
+    // Each window holds its own port to the client helper.
+    daemon: createDaemonPortWire(preloadApi.daemon, window),
     // Reported into by main's `daemon.status` topic (`daemon/status.ts`) and by every
     // subscription any window opens (`transport/observed-subscription.ts`). One for the app: every
     // window reaches the service through main's one connection, so they share one reading.

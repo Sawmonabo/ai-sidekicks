@@ -1,11 +1,11 @@
 // The `machineSettings` members as the preload carries them to main. The read and the write answer
-// with main's outcome, as a daemon call does; the feed is a daemon subscription main checks
-// against the settings contract.
+// with main's outcome; the feed is one of main's topics, whose readings main checks against the
+// settings contract.
 
 import type {
   MachineSettings,
   MachineSettingsReading,
-} from "@ai-sidekicks/contracts/machine-settings";
+} from "@ai-sidekicks/contracts/machine/settings";
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";

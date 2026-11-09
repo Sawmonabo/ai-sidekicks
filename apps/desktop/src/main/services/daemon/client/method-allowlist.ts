@@ -1,8 +1,10 @@
-// The daemon methods the desktop calls and opens, and the check every request takes before the
-// addon sees it: a method off these tables, or called as the other kind, is refused as
-// `request.methodNotAllowed`, and params that fail the method's generated check as
-// `request.paramsInvalid`, each in the wire's error shape a daemon refusal takes. The addon checks
-// the params against the method's whole contract again as the last line.
+// The daemon methods the desktop calls and opens, one list per channel, and the check every request
+// takes before the addon sees it: a method off its channel's list, or called as the other kind, is
+// refused as `request.methodNotAllowed`, and params that fail the method's generated check as
+// `request.paramsInvalid`, each in the wire's error shape a daemon refusal takes. A window's list
+// holds no method that ends or restarts the daemon: those go through main's supervisor, which
+// flushes first. The addon checks the params against the method's whole contract again as the
+// last line.
 
 import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";
 import { DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
@@ -47,8 +49,11 @@ interface AllowedMethod {
   readonly requestCheck: SchemaCheck<unknown>;
 }
 
-/** Every method the desktop calls or opens, by name, from the generated tables it binds. */
-const ALLOWED_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze({
+/** Who sends a request: main over the parentPort, or a window over the port main handed it. */
+export type ClientHelperChannelKind = "main" | "window";
+
+/** Every method main calls or opens, by name, from the generated tables the desktop binds. */
+const MAIN_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze({
   ...ARTIFACT_METHOD_DESCRIPTORS,
   ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
   ...DAEMON_LIFECYCLE_METHOD_DESCRIPTORS,
@@ -78,25 +83,46 @@ const ALLOWED_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze({
   ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
 });
 
+/** The methods that end or restart the daemon, which only main's supervisor sends. */
+const DAEMON_ENDING_METHODS: readonly string[] = [
+  DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.stop"].method,
+  DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.restart"].method,
+];
+
+/** Every method a window calls or opens: main's list without the ones that end the daemon. */
+const WINDOW_METHODS: Readonly<Record<string, AllowedMethod>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(MAIN_METHODS).filter(([method]) => !DAEMON_ENDING_METHODS.includes(method)),
+  ),
+);
+
+/** Each channel's list. */
+const ALLOWED_METHODS_BY_CHANNEL: Readonly<
+  Record<ClientHelperChannelKind, Readonly<Record<string, AllowedMethod>>>
+> = Object.freeze({ main: MAIN_METHODS, window: WINDOW_METHODS });
+
 /**
- * Why a request for `method` may not go to the addon, in the wire's error shape, or `undefined`
- * when it may: a method off the allowlist or made as the other kind (`isSubscription` says which
- * the asker makes), or params, read with their byte `attachments`, that fail the method's check.
+ * Why a request for `method` from `channel` may not go to the addon, in the wire's error shape, or
+ * `undefined` when it may: a method off the channel's list or made as the other kind
+ * (`isSubscription` says which the asker makes), or params, read with their byte `attachments`,
+ * that fail the method's check.
  */
 export function requestRefusal(
+  channel: ClientHelperChannelKind,
   method: string,
   params: unknown,
   attachments: readonly Uint8Array[],
   isSubscription: boolean,
 ): JsonRpcError | undefined {
-  if (!Object.hasOwn(ALLOWED_METHODS, method)) {
+  const allowedMethods = ALLOWED_METHODS_BY_CHANNEL[channel];
+  if (!Object.hasOwn(allowedMethods, method)) {
     return refusal(
       JsonRpcErrorCode.DomainRefusal,
       "request.methodNotAllowed",
       `The app does not call ${method}`,
     );
   }
-  const allowed = ALLOWED_METHODS[method]!;
+  const allowed = allowedMethods[method]!;
   if ((allowed.procedureType === "subscription") !== isSubscription) {
     return refusal(
       JsonRpcErrorCode.DomainRefusal,

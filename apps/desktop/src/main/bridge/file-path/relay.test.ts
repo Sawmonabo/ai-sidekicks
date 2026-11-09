@@ -2,23 +2,33 @@
 // path a reply offers to open comes back with one token the page can open it by, and a path that
 // is not absolute comes back with none.
 
-import { SessionMemoryReadResponseSchema } from "@ai-sidekicks/contracts/session/inspector";
+import {
+  SESSION_INSPECTOR_METHOD_DESCRIPTORS,
+  validateSessionMemoryReadResponse,
+} from "@ai-sidekicks/contracts/session/inspector";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
 import { mintTokensForPaths } from "./relay.js";
 import { FilePathRefs } from "./refs.js";
 import { pageOwner } from "./refs.test-support.js";
 
-const SESSION_ID = "00000000-0000-4000-8000-000000000001";
+const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 
-/** A memory read whose entries sit at `paths`, as the contract parses it. */
+const MEMORY_READ = SESSION_INSPECTOR_METHOD_DESCRIPTORS["session.memory.read"].method;
+
+/** A memory read whose entries sit at `paths`, as the contract checks it. */
 function memoryReadAt(paths: readonly string[]): unknown {
-  return SessionMemoryReadResponseSchema.parse({
+  const reply = {
     sessionId: SESSION_ID,
     home: "/Users/person/.claude",
+    homeScope: "account",
     autoMemory: { enabled: true },
-    entries: paths.map((path) => ({ path, kind: "file" })),
-  });
+    entries: paths.map((path) => ({ path, kind: "file" as const })),
+    listedAtNextStart: false,
+  };
+  expect(validateSessionMemoryReadResponse(reply)).toBe(true);
+  return reply;
 }
 
 describe("a reply that offers a path to open", () => {
@@ -31,7 +41,7 @@ describe("a reply that offers a path to open", () => {
     const minted = mintTokensForPaths(
       refs,
       page,
-      "session.memoryRead",
+      MEMORY_READ,
       memoryReadAt([memoryFile, memoryFolder]),
     );
 
@@ -50,8 +60,8 @@ describe("a reply that offers a path to open", () => {
     const page = pageOwner(1);
     const memoryFile = "/Users/person/.claude/CLAUDE.md";
 
-    const first = mintTokensForPaths(refs, page, "session.memoryRead", memoryReadAt([memoryFile]));
-    const again = mintTokensForPaths(refs, page, "session.memoryRead", memoryReadAt([memoryFile]));
+    const first = mintTokensForPaths(refs, page, MEMORY_READ, memoryReadAt([memoryFile]));
+    const again = mintTokensForPaths(refs, page, MEMORY_READ, memoryReadAt([memoryFile]));
 
     expect(again).toStrictEqual(first);
   });
@@ -61,7 +71,7 @@ describe("a reply that offers a path to open", () => {
     const minted = mintTokensForPaths(
       refs,
       pageOwner(1),
-      "session.memoryRead",
+      MEMORY_READ,
       memoryReadAt(["-a Terminal", "notes/CLAUDE.md", "/Users/person/CLAUDE.md"]),
     );
 

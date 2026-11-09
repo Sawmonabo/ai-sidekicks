@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import {
   linkOver,
-  scriptedConnection,
+  scriptedDaemon,
   type ScriptedAnswer,
-  type ScriptedConnection,
+  type ScriptedDaemon,
 } from "../../bridge/daemon.test-support.js";
 import { DaemonLink } from "../daemon/link/status.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
@@ -32,7 +32,7 @@ const REFUSED: ScriptedAnswer = {
 };
 
 /** What the service was handed, in order: each error's message, or a count and its cause. */
-function recordsOn(connection: ScriptedConnection): string[] {
+function recordsOn(connection: ScriptedDaemon): string[] {
   return connection.requests.map(({ params }) => {
     const record = params as { kind: string; message?: string; count?: number; cause?: string };
     return record.kind === "held-back"
@@ -69,7 +69,7 @@ afterEach(() => {
 
 describe("the app diagnostic relay", () => {
   it("writes a repeat three times and thirty errors a minute, and counts the rest", async () => {
-    const connection = scriptedConnection(() => TAKEN);
+    const connection = scriptedDaemon(() => TAKEN);
     const relay = new AppDiagnosticRelay({
       link: await linkOver(connection),
       log,
@@ -104,7 +104,7 @@ describe("the app diagnostic relay", () => {
   });
 
   it("keeps every record a count stood for when the count is held back again", async () => {
-    const connection = scriptedConnection(() => TAKEN);
+    const connection = scriptedDaemon(() => TAKEN);
     const relay = new AppDiagnosticRelay({
       link: await linkOver(connection),
       log,
@@ -138,7 +138,7 @@ describe("the app diagnostic relay", () => {
     }
 
     let answer: ScriptedAnswer = TAKEN;
-    const connection = scriptedConnection(() => answer);
+    const connection = scriptedDaemon(() => answer);
     const back = await linkOver(connection);
     link.attach(back.client!, back.state);
     await settle();

@@ -28,6 +28,8 @@ adin = "adin"
 ond = "ond"
 # `axe-core`, the accessibility engine the accessibility tier runs.
 axe = "axe"
+# `anser`, the ANSI escape parser the transcript's shell output rows use.
+anser = "anser"
 
 [files]
 extend-exclude = [

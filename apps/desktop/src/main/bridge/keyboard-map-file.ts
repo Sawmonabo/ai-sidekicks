@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import type {
   SettingsFileRepair,
   SettingsFileRepairCause,
-} from "@ai-sidekicks/contracts/machine-settings";
+} from "@ai-sidekicks/contracts/machine/settings";
 import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
@@ -105,7 +105,7 @@ export class KeyboardMapFile {
     try {
       fileJson = JSON.parse(fileText);
     } catch {
-      return this.#repairWithEmptyMap("unparseable");
+      return this.#repairWithEmptyMap("unparsable");
     }
     const parsed = keyboardMapSchema.safeParse(fileJson);
     if (!parsed.success) {

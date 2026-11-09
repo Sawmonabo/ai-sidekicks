@@ -1,25 +1,15 @@
-// Main's supervisor of the background service: it finds the service where it listens, starts it
-// detached when none answers, handshakes with `daemon.hello`, watches the link, and brings a lost
-// link back with backoff. It never owns the service's life: a quit sends `daemon.flush` alone and
-// closes main's connection, leaving the service, every run and every shell running. Only the
-// person's `Stop` and `Restart` end it: each flushes first, waiting at most as long as a quit
-// does, then asks, and a service still running once its drain bound has passed since the request
-// went out gets SIGTERM and, 2 seconds later, SIGKILL. A service that stops answering, or never
-// answers the request, gets SIGTERM at once, which starts its drain, and SIGKILL only once the
-// drain bound and 2 seconds have passed. Main knows the service's process by the identity the
-// service reports when the link comes up, so a service it found running is ended as one it
-// started. What the supervisor knows is published on main's `DaemonLink`.
+// Main's supervisor of the background service: it connects to the service through the client
+// helper, starts the service detached when none answers, and brings a lost link back with backoff,
+// forking the helper again when it exited. It never owns the service's life: a quit sends
+// `daemon.flush` alone and ends the helper, leaving the service, every run and every shell running.
+// Only the person's `Stop` and `Restart` end it: each flushes first, waiting at most as long as a
+// quit does, then asks, and a service still running once its drain bound has passed since the
+// request went out gets SIGTERM and, 2 seconds later, SIGKILL. A service that never answers the
+// request gets SIGTERM at once, which starts its drain, and SIGKILL only once the drain bound and 2
+// seconds have passed. Main knows the service's process by the identity the service reports when
+// the link comes up, so a service it found running is ended as one it started. What the supervisor
+// knows is published on main's `DaemonLink`.
 
-import * as os from "node:os";
-
-import {
-  connectToDaemon,
-  JsonRpcRemoteError,
-  JsonRpcTransportClosedError,
-  JsonRpcTransportUnavailableError,
-  type DaemonConnection as DaemonClientConnection,
-  type DaemonConnectionObserver,
-} from "@ai-sidekicks/client-sdk";
 import {
   DAEMON_LIFECYCLE_METHOD_DESCRIPTORS,
   DAEMON_STOP_DRAIN_BOUND_MS,
@@ -27,54 +17,35 @@ import {
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   DAEMON_REPAIRING_CODE,
-  DaemonRepairingDetailsSchema,
+  validateDaemonRepairingDetails,
   type DaemonRepairProgress,
 } from "@ai-sidekicks/contracts/daemon/recovery";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
-  CURRENT_PROTOCOL_VERSION,
-  NEGOTIATION_REASON_CEILING_EXCEEDED,
-  NEGOTIATION_REASON_FLOOR_EXCEEDED,
-  NEGOTIATION_TOKEN_INVALID_CODE,
-  type DaemonHelloAck,
-} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
-import {
-  ProcessIdentitySchema,
-  type ProcessIdentity,
-} from "@ai-sidekicks/contracts/process-identity";
-import { z } from "zod";
+  CONNECTION_UNAVAILABLE_CODE,
+  type JsonRpcError,
+} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { AUTH_TOKEN_INVALID_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import { SERVICE_START_BACKOFF_MS } from "#shared/daemon/restart-backoff.js";
-import type {
-  DaemonConnection,
-  MainProcessNegotiation,
-  MainProcessState,
-} from "#shared/daemon/status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import type { MainOperatingSystem } from "../../operating-system/contract.js";
 import { describeFailure } from "#shared/failure-message.js";
+import {
+  DaemonRefusal,
+  type ClientHelperListener,
+  type ClientHelperProcess,
+} from "./client/process.js";
+import type { ClientHelperLinkState } from "./client/messages.js";
 import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/status.js";
-import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
 
 /**
- * How long main waits for a started or found service to answer `daemon.hello`, counted from the
+ * How long main waits for a started or found service to answer its connect, counted from the
  * start, or from the service's latest answer that it is repairing its database file.
  */
 export const SERVICE_HELLO_WAIT_MS = 10_000;
-
-/**
- * How long main waits for the service's flush, at a quit and before a stop or restart, before it
- * goes ahead without the answer: a service that never answers cannot hold the app open or keep
- * the person's `Stop` from ending it.
- */
-export const SERVICE_FLUSH_WAIT_MS = 10_000;
-
-/**
- * The most values one forwarded subscription holds while main hands the previous one to the page.
- * Main forwards each value as it arrives, so the queue holds only what lands during one send.
- */
-const MAIN_SUBSCRIPTION_QUEUE_LIMIT = 256;
 
 const LOG_SOURCE = "main/services/daemon";
 
@@ -84,53 +55,20 @@ const SOCKET_WAIT_FIRST_PAUSE_MS = 50;
 /** The longest pause between those connects. */
 const SOCKET_WAIT_LONGEST_PAUSE_MS = 1_000;
 
-/**
- * The part of the status read a link needs: the service's process. Read whatever else the reply
- * holds, so a service on a protocol main cannot speak still names its process.
- */
-const LINKED_SERVICE_SCHEMA: z.ZodType<{ processIdentity: ProcessIdentity }> = z.object({
-  processIdentity: ProcessIdentitySchema,
-});
-
 /** What the supervisor reaches the service through, and where it records what went wrong. */
 export interface DaemonSupervisorOptions {
   /** Where the supervisor publishes the service's state and the connected client. */
   readonly link: DaemonLink;
-  /**
-   * Opens one connection, handshake included, reporting its frames and close to `observer`; an
-   * abort of `signal` closes its socket and rejects.
-   */
-  readonly connect: (
-    observer: DaemonConnectionObserver,
-    signal: AbortSignal,
-  ) => Promise<DaemonClientConnection>;
+  /** The client helper, which holds the one connection to the service. */
+  readonly helper: Pick<
+    ClientHelperProcess,
+    "connect" | "closeLink" | "dispose" | "listen" | "call" | "subscribe" | "flushWaitMs"
+  >;
   /** Starts the service detached; rejects when it cannot start. */
   readonly startService: () => Promise<ServiceProcess>;
   /** The service process with `identity`, for a service main found running rather than started. */
   readonly attachServiceProcess: (identity: ProcessIdentity) => ServiceProcess;
   readonly log: Pick<MainDiagnosticLog, "write">;
-}
-
-/**
- * Connect main to this account's service over its socket in the run folder `operatingSystem`
- * resolves at this connect, the handshake presenting the session token read from its file. An
- * abort of `signal` closes the socket and rejects; a system with no run folder rejects.
- */
-export async function connectMainToDaemon(
-  operatingSystem: Pick<MainOperatingSystem, "platform" | "resolveDaemonRunFolder">,
-  observer: DaemonConnectionObserver,
-  signal: AbortSignal,
-): Promise<DaemonClientConnection> {
-  return await connectToDaemon({
-    runFolder: operatingSystem.resolveDaemonRunFolder({
-      platform: operatingSystem.platform,
-      runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
-      homeDirectory: os.homedir(),
-    }),
-    maxQueuedValuesPerSubscription: MAIN_SUBSCRIPTION_QUEUE_LIMIT,
-    observer,
-    signal,
-  });
 }
 
 /** The person's two requests that end the service's work. */
@@ -147,18 +85,16 @@ type SupervisorPhase =
   | "quitting"
   | "disposed";
 
-/** One link that is up: its connection, its watch, and the service process it reaches. */
+/** One link that is up: the service process it reaches. */
 interface CurrentLink {
-  readonly connection: DaemonClientConnection;
-  readonly lifetime: LinkLifetime;
-  /** Absent only for a service on a protocol main cannot speak, which this app did not start. */
+  /** Absent only for a service that would not name its process, which this app did not start. */
   readonly service: ServiceProcess | undefined;
 }
 
 /** Main's supervisor of the background service. */
-export class DaemonSupervisor {
+export class DaemonSupervisor implements ClientHelperListener {
   readonly #link: DaemonLink;
-  readonly #connect: DaemonSupervisorOptions["connect"];
+  readonly #helper: DaemonSupervisorOptions["helper"];
   readonly #startService: () => Promise<ServiceProcess>;
   readonly #attachServiceProcess: (identity: ProcessIdentity) => ServiceProcess;
   readonly #log: Pick<MainDiagnosticLog, "write">;
@@ -173,15 +109,14 @@ export class DaemonSupervisor {
   #startWaitsInARow = 0;
   /** Whether a link has been lost since the service last answered, so starts read as a return. */
   #isBringingBack = false;
-  /** Set when the loss being brought back had a cause main does not recognize. */
-  #isLossUnrecognized = false;
   #lastError: string | undefined;
   #isStopRequested = false;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   public constructor(options: DaemonSupervisorOptions) {
     this.#link = options.link;
-    this.#connect = options.connect;
+    this.#helper = options.helper;
+    options.helper.listen(this);
     this.#startService = options.startService;
     this.#attachServiceProcess = options.attachServiceProcess;
     this.#log = options.log;
@@ -209,12 +144,26 @@ export class DaemonSupervisor {
     this.#isStopRequested = false;
     // A fresh start reads as one, not as the return of a link lost before it.
     this.#isBringingBack = false;
-    this.#isLossUnrecognized = false;
     void this.#attemptStart();
   }
 
+  /** The link is reconnecting or down: main brings it back through its own start. */
+  public linkStateChanged(state: ClientHelperLinkState): void {
+    if (this.#phase === "linked" && (state === "reconnecting" || state === "down")) {
+      this.#helper.closeLink();
+      this.#linkLost(`the link reported ${state}`);
+    }
+  }
+
+  /** The helper exited: a link it held is lost, and the next start forks it again. */
+  public exited(): void {
+    if (this.#phase === "linked") {
+      this.#linkLost("the client helper exited");
+    }
+  }
+
   /**
-   * The person's `Stop` or `Restart`: flush, waiting at most {@link SERVICE_FLUSH_WAIT_MS}, then
+   * The person's `Stop` or `Restart`: flush, waiting at most the client's flush bound, then
    * ask, then end the service if it still runs once its drain bound has passed since the request
    * went out, whether this app started it or found it running. After a stop the loss that follows
    * reads as stopped and nothing starts the service again until `requestStart`; after a restart
@@ -228,28 +177,28 @@ export class DaemonSupervisor {
     if (current === undefined) {
       throw new Error(NOT_CONNECTED_MESSAGE);
     }
-    const { client } = current.connection;
+    const helper = this.#helper;
     // Set before anything is sent, so a loss that lands before an answer reads as the stop.
     this.#isStopRequested = method === "daemon.stop";
     try {
-      const flushOutcome = await settleWithin(flushService(client), SERVICE_FLUSH_WAIT_MS);
+      const flushWaitMs = helper.flushWaitMs;
+      const flushOutcome = await settleWithin(flushService(helper), flushWaitMs);
       if (!flushOutcome.isSettled) {
         this.#log.write({
           level: "warning",
           source: LOG_SOURCE,
           message:
             `The background service's flush did not answer within ` +
-            `${String(SERVICE_FLUSH_WAIT_MS / 1000)} seconds; ${method} went ahead without it.`,
+            `${String(flushWaitMs / 1000)} seconds; ${method} went ahead without it.`,
         });
       }
-      const ending = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS[method];
       // The service's drain runs from this request, so its bound is counted from the send.
       const askedAt = performance.now();
       const reply = await settleWithin(
-        client.call(ending.method, {}, ending.requestSchema, ending.responseSchema),
+        helper.call(DAEMON_LIFECYCLE_METHOD_DESCRIPTORS[method], {}),
         DAEMON_STOP_DRAIN_BOUND_MS,
       ).catch((failure: unknown) => {
-        if (!(failure instanceof JsonRpcRemoteError)) {
+        if (!(failure instanceof DaemonRefusal)) {
           this.#endServiceProcess(current.service, { cause: "unanswered" });
         }
         throw failure;
@@ -266,7 +215,7 @@ export class DaemonSupervisor {
       return reply.value;
     } catch (failure) {
       // A refusal leaves the service running and the link up.
-      if (failure instanceof JsonRpcRemoteError) {
+      if (failure instanceof DaemonRefusal) {
         this.#isStopRequested = false;
       }
       throw failure;
@@ -282,10 +231,9 @@ export class DaemonSupervisor {
   public async flushAtQuit(): Promise<void> {
     this.#phase = "quitting";
     this.#clearRetry();
-    const client = this.#current?.connection.client;
     try {
-      if (client !== undefined) {
-        await flushService(client);
+      if (this.#current !== undefined) {
+        await flushService(this.#helper);
       }
     } finally {
       try {
@@ -305,18 +253,16 @@ export class DaemonSupervisor {
   }
 
   /**
-   * Let the service go at quit: stop every timer, cancel a pending start and close main's
-   * connection. The service is never signaled, and nothing starts afterward.
+   * Let the service go at quit: stop every timer, cancel a pending start and end the client
+   * helper, which closes main's connection. The service is never signaled, and nothing starts
+   * afterward.
    */
-  public async dispose(): Promise<void> {
+  public dispose(): Promise<void> {
     this.#phase = "disposed";
     this.#clearRetry();
-    const current = this.#current;
     this.#current = undefined;
-    if (current !== undefined) {
-      current.lifetime.end();
-      await current.connection.close();
-    }
+    this.#helper.dispose();
+    return Promise.resolve();
   }
 
   async #attemptStart(): Promise<void> {
@@ -342,20 +288,12 @@ export class DaemonSupervisor {
         return;
       }
     }
-    // The watch's close reads the connection once the handshake hands it over.
-    let opened: DaemonClientConnection | undefined;
-    const lifetime = new LinkLifetime(
-      this.#linkEvents(() => opened),
-      () => {
-        void opened?.close();
-      },
-    );
     let startedByApp: boolean;
     try {
-      opened = await this.#connectWithin(lifetime, false);
+      await this.#connectWithin(false);
       startedByApp = this.#startedService !== undefined && !this.#startedService.hasExited();
     } catch (probeFailure) {
-      if (!(probeFailure instanceof JsonRpcTransportUnavailableError)) {
+      if (!isNoService(probeFailure)) {
         this.#startFailed(probeFailure);
         return;
       }
@@ -364,7 +302,7 @@ export class DaemonSupervisor {
         return;
       }
       try {
-        opened = await this.#startAndConnect(lifetime);
+        await this.#startAndConnect();
         startedByApp = true;
       } catch (startFailure) {
         this.#startFailed(startFailure);
@@ -373,15 +311,15 @@ export class DaemonSupervisor {
     }
     let service: ServiceProcess | undefined;
     try {
-      // Bounded like the handshake: until the read answers, no silence watch runs on the link.
+      // Bounded like the connect, so a service that answers it and then nothing fails the start.
       const linked = await settleWithin(
-        this.#linkedServiceProcess(opened, startedByApp),
+        this.#linkedServiceProcess(startedByApp),
         SERVICE_HELLO_WAIT_MS,
       );
       if (!linked.isSettled) {
-        await opened.close();
-        // It answered the handshake and then nothing: one this app started is ended, so the
-        // next start does not meet it on the socket again.
+        this.#helper.closeLink();
+        // It answered the connect and then nothing: one this app started is ended, so the next
+        // start does not meet it on the socket again.
         if (startedByApp) {
           this.#endServiceProcess(this.#startedService, { cause: "unanswered" });
         }
@@ -395,57 +333,48 @@ export class DaemonSupervisor {
       }
       service = linked.value;
     } catch (readFailure) {
-      await opened.close();
+      this.#helper.closeLink();
       this.#startFailed(readFailure);
       return;
     }
     if (this.#isLettingGo()) {
-      await opened.close();
+      this.#helper.closeLink();
       return;
     }
-    this.#current = { connection: opened, lifetime, service };
+    this.#current = { service };
     this.#phase = "linked";
     this.#consecutiveFailedStarts = 0;
     this.#startWaitsInARow = 0;
     this.#isBringingBack = false;
-    this.#isLossUnrecognized = false;
-    this.#link.attach(
-      opened.client,
-      this.#linkedState(opened.hello, service !== undefined && service === this.#startedService),
-    );
-    lifetime.open();
+    this.#log.write({
+      level: "notice",
+      source: LOG_SOURCE,
+      message: "The link to the background service is up.",
+    });
+    this.#link.attach(this.#helper, {
+      ...unlinkedState({ kind: "connected" }),
+      startedByApp: service !== undefined && service === this.#startedService,
+    });
   }
 
   /**
    * The process behind a link that just came up, by the identity the service reports: the one this
-   * app started when the id is its, otherwise the one found running. A service on a protocol main
-   * cannot speak still answers the read; when even its identity cannot be read, the link comes up
-   * and only the service this app started is known.
+   * app started when the id is its, otherwise the one found running. When the service does not
+   * name its process, the link comes up and only the service this app started is known.
    */
-  async #linkedServiceProcess(
-    opened: DaemonClientConnection,
-    isStartedByApp: boolean,
-  ): Promise<ServiceProcess | undefined> {
+  async #linkedServiceProcess(isStartedByApp: boolean): Promise<ServiceProcess | undefined> {
     const started = this.#startedService;
-    const statusRead = DAEMON_STATUS_METHOD_DESCRIPTORS["daemon.status.read"];
     let identity: ProcessIdentity;
     try {
-      ({ processIdentity: identity } = await opened.client.call(
-        statusRead.method,
+      ({ processIdentity: identity } = await this.#helper.call(
+        DAEMON_STATUS_METHOD_DESCRIPTORS["daemon.status.read"],
         {},
-        statusRead.requestSchema,
-        LINKED_SERVICE_SCHEMA,
       ));
     } catch (failure) {
-      if (opened.hello.compatible) {
-        throw failure;
-      }
       this.#log.write({
         level: "warning",
         source: LOG_SOURCE,
-        message:
-          "The background service on another protocol did not name its process: " +
-          describeFailure(failure),
+        message: "The background service did not name its process: " + describeFailure(failure),
       });
       return isStartedByApp ? started : undefined;
     }
@@ -455,12 +384,12 @@ export class DaemonSupervisor {
   }
 
   /** Start the service, then connect once it has bound its socket, all within the hello wait. */
-  async #startAndConnect(lifetime: LinkLifetime): Promise<DaemonClientConnection> {
+  async #startAndConnect(): Promise<void> {
     if (!this.#isBringingBack) {
       this.#reportUnlinked({ kind: "starting" });
     }
     this.#startedService = await this.#startService();
-    return this.#connectWithin(lifetime, true);
+    await this.#connectWithin(true);
   }
 
   /**
@@ -475,10 +404,7 @@ export class DaemonSupervisor {
    * running when the wait runs out is ended as one that never answered, since it would hold the
    * socket against every later start.
    */
-  async #connectWithin(
-    lifetime: LinkLifetime,
-    isServiceStarting: boolean,
-  ): Promise<DaemonClientConnection> {
+  async #connectWithin(isServiceStarting: boolean): Promise<void> {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let hasTimedOut = false;
     const deadline = Promise.withResolvers<never>();
@@ -489,7 +415,7 @@ export class DaemonSupervisor {
         hasTimedOut = true;
         deadline.reject(
           new Error(
-            `The background service did not answer daemon.hello within ` +
+            `The background service did not answer its connect within ` +
               `${String(SERVICE_HELLO_WAIT_MS / 1000)} seconds`,
           ),
         );
@@ -503,41 +429,40 @@ export class DaemonSupervisor {
       void started?.whenExited().then((exit) => {
         reject(
           new Error(
-            `The background service exited before it answered daemon.hello (${describeExit(exit)})`,
+            `The background service exited before it answered its connect (${describeExit(exit)})`,
           ),
         );
       });
     });
-    // An exit after the link is up is the link's loss, which its watch reports.
+    // An exit after the link is up is the link's loss, which the helper reports.
     exitedFirst.catch(() => undefined);
-    let connecting: Promise<DaemonClientConnection> | undefined;
-    const handshakeAbort = new AbortController();
+    let connecting: Promise<JsonRpcError | undefined> | undefined;
     let isLinked = false;
     try {
       let pauseMs = SOCKET_WAIT_FIRST_PAUSE_MS;
       for (;;) {
-        connecting = this.#connect(lifetime, handshakeAbort.signal);
-        try {
-          const opened = await Promise.race([connecting, deadline.promise, exitedFirst]);
+        connecting = this.#helper.connect();
+        const refused = await Promise.race([connecting, deadline.promise, exitedFirst]);
+        if (refused === undefined) {
           isLinked = true;
-          return opened;
-        } catch (failure) {
-          // No socket at a found service's place means none is running, so one is started, unless
-          // it answered that it is repairing; a found one still writing its token is waited for.
-          const isNoSocket = failure instanceof JsonRpcTransportUnavailableError;
-          if (isServiceRepairing(failure)) {
-            // Alive and busy for as long as the repair takes: it binds its socket again after.
-            isSocketExpected = true;
-            armDeadline();
-            if (!this.#isBringingBack) {
-              this.#reportUnlinked({
-                kind: "repairing",
-                progress: this.#repairProgressOf(failure),
-              });
-            }
-          } else if (!isServiceNotReadyYet(failure) || (isNoSocket && !isSocketExpected)) {
-            throw failure;
+          return;
+        }
+        const failure = new DaemonRefusal(refused);
+        // No socket at a found service's place means none is running, so one is started, unless
+        // it answered that it is repairing; a found one still writing its token is waited for.
+        const isNoSocket = isNoService(failure);
+        if (isServiceRepairing(failure)) {
+          // Alive and busy for as long as the repair takes: it binds its socket again after.
+          isSocketExpected = true;
+          armDeadline();
+          if (!this.#isBringingBack) {
+            this.#reportUnlinked({
+              kind: "repairing",
+              progress: this.#repairProgressOf(failure),
+            });
           }
+        } else if (!isServiceNotReadyYet(failure) || (isNoSocket && !isSocketExpected)) {
+          throw failure;
         }
         await Promise.race([pause(pauseMs), deadline.promise, exitedFirst]);
         pauseMs = Math.min(pauseMs * 2, SOCKET_WAIT_LONGEST_PAUSE_MS);
@@ -550,12 +475,14 @@ export class DaemonSupervisor {
     } finally {
       clearTimeout(deadlineTimer);
       if (!isLinked) {
-        // A service that took the socket and never answered would keep it open past the wait.
-        handshakeAbort.abort(new Error("The wait for the background service's handshake ended."));
-        // A handshake that answers after the wait ended without it has lost, to the deadline or
-        // to the service's exit: its connection is closed unused. Its failure was the race's.
+        // A connect that answers after the wait ended without it has lost, to the deadline or to
+        // the service's exit: its link is closed unused. Its failure was the race's.
         void connecting?.then(
-          (late) => late.close(),
+          (late) => {
+            if (late === undefined) {
+              this.#helper.closeLink();
+            }
+          },
           () => undefined,
         );
       }
@@ -566,85 +493,29 @@ export class DaemonSupervisor {
    * The count a repairing answer carries, read from its fields. Fields the app cannot read are
    * logged, and the repair is reported without a count.
    */
-  #repairProgressOf(failure: JsonRpcRemoteError): DaemonRepairProgress | undefined {
-    const details = DaemonRepairingDetailsSchema.safeParse(failure.data?.fields ?? {});
-    if (!details.success) {
+  #repairProgressOf(failure: DaemonRefusal): DaemonRepairProgress | undefined {
+    const fields: unknown = failure.refusal.data?.fields ?? {};
+    if (!validateDaemonRepairingDetails(fields)) {
       this.#log.write({
         level: "warning",
         source: LOG_SOURCE,
-        message: `The background service's repair count could not be read: ${details.error.message}`,
+        message: "The background service's repair count could not be read.",
       });
       return undefined;
     }
-    return details.data.progress;
+    return fields.progress;
   }
 
-  #linkEvents(currentConnection: () => DaemonClientConnection | undefined): LinkEvents {
-    return {
-      connected: () => {
-        this.#log.write({
-          level: "notice",
-          source: LOG_SOURCE,
-          message: "The link to the background service is up.",
-        });
-      },
-      quiet: () => {
-        const client = currentConnection()?.client;
-        if (client !== undefined) {
-          this.#ping(client);
-        }
-      },
-      errored: (message) => {
-        this.#lastError = message;
-        this.#log.write({
-          level: "error",
-          source: LOG_SOURCE,
-          message: `The link to the background service failed: ${message}`,
-        });
-      },
-      lost: (cause) => {
-        this.#linkLost(cause);
-      },
-    };
-  }
-
-  #ping(client: DaemonClientConnection["client"]): void {
-    const descriptor = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.ping"];
-    client
-      .call(descriptor.method, {}, descriptor.requestSchema, descriptor.responseSchema)
-      .catch((failure: unknown) => {
-        // A refusal is an answer: it arrived as a frame, which is all the ping asks. A closed
-        // transport is the link's loss, which its watch reports.
-        if (
-          failure instanceof JsonRpcRemoteError ||
-          failure instanceof JsonRpcTransportClosedError
-        ) {
-          return;
-        }
-        this.#log.write({
-          level: "error",
-          source: LOG_SOURCE,
-          message: `The ping to the background service failed: ${describeFailure(failure)}`,
-        });
-      });
-  }
-
-  #linkLost(cause: LinkLossCause): void {
-    const lost = this.#current;
+  #linkLost(cause: string): void {
     this.#current = undefined;
+    this.#lastError = cause;
     this.#log.write({
       level: "warning",
       source: LOG_SOURCE,
-      message: `The link to the background service was lost (${cause.kind}).`,
+      message: `The link to the background service was lost: ${cause}.`,
     });
-    if (this.#isLettingGo() || cause.kind === "closedByMain") {
+    if (this.#isLettingGo()) {
       return;
-    }
-    if (cause.kind === "silence") {
-      // A service that stopped answering cannot be asked to stop, so SIGTERM asks it, whether this
-      // app started it or found it, and the next start can take its place. A stop under way
-      // ends it too: its own request may never have been sent.
-      this.#endServiceProcess(lost?.service, { cause: "unanswered" });
     }
     if (this.#isStopRequested) {
       this.#phase = "stopped";
@@ -652,7 +523,6 @@ export class DaemonSupervisor {
       return;
     }
     this.#isBringingBack = true;
-    this.#isLossUnrecognized = cause.kind === "unrecognized";
     this.#consecutiveFailedStarts = 0;
     this.#startWaitsInARow = 0;
     this.#link.detach(unlinkedState(this.#returningConnection()));
@@ -710,22 +580,12 @@ export class DaemonSupervisor {
     }, waitMs);
   }
 
-  /** How a link being brought back reads: by its attempt, or `unknown` for a cause not known. */
+  /** How a link being brought back reads: by its attempt. */
   #returningConnection(): DaemonConnection {
-    return this.#isLossUnrecognized
-      ? { kind: "unknown", lastError: this.#lastError }
-      : {
-          kind: "transient_disconnect",
-          attempt: this.#consecutiveFailedStarts + 1,
-          attemptLimit: SERVICE_START_BACKOFF_MS.length,
-        };
-  }
-
-  #linkedState(hello: DaemonHelloAck, startedByApp: boolean): MainProcessState {
     return {
-      ...unlinkedState(hello.compatible ? { kind: "connected" } : { kind: "version_incompatible" }),
-      negotiation: negotiationOf(hello),
-      startedByApp,
+      kind: "transient_disconnect",
+      attempt: this.#consecutiveFailedStarts + 1,
+      attemptLimit: SERVICE_START_BACKOFF_MS.length,
     };
   }
 
@@ -745,24 +605,6 @@ export class DaemonSupervisor {
   #isLettingGo(): boolean {
     return this.#phase === "quitting" || this.#phase === "disposed";
   }
-}
-
-/** What the handshake settled, in the topic's terms. */
-function negotiationOf(hello: DaemonHelloAck): MainProcessNegotiation {
-  return {
-    compatible: hello.compatible,
-    deviceId: hello.deviceId,
-    daemonProtocolVersion: hello.protocolVersion,
-    appProtocolVersion: CURRENT_PROTOCOL_VERSION,
-    daemonSupportedProtocols: hello.daemonSupportedProtocols ?? [],
-    reason: hello.reason,
-    behind:
-      hello.reason === NEGOTIATION_REASON_FLOOR_EXCEEDED
-        ? "app"
-        : hello.reason === NEGOTIATION_REASON_CEILING_EXCEEDED
-          ? "service"
-          : undefined,
-  };
 }
 
 /**
@@ -793,31 +635,35 @@ async function settleWithin<T>(
  * Send `daemon.flush` and settle once it is answered; a refusal is an answer. Rejects when the
  * link fails under it.
  */
-async function flushService(client: DaemonClientConnection["client"]): Promise<void> {
-  const flush = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"];
+async function flushService(helper: DaemonSupervisorOptions["helper"]): Promise<void> {
   try {
-    await client.call(flush.method, {}, flush.requestSchema, flush.responseSchema);
+    await helper.call(DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"], {});
   } catch (failure) {
-    if (!(failure instanceof JsonRpcRemoteError)) {
+    if (!(failure instanceof DaemonRefusal)) {
       throw failure;
     }
   }
 }
 
-// A just-started service binds its socket, then writes its session token: a connect in between
-// finds no socket, no token file, or the previous start's token.
-function isServiceNotReadyYet(failure: unknown): boolean {
+// No socket answers where the service listens.
+function isNoService(failure: unknown): boolean {
   return (
-    failure instanceof JsonRpcTransportUnavailableError ||
-    (failure instanceof JsonRpcRemoteError &&
-      failure.data?.type === NEGOTIATION_TOKEN_INVALID_CODE) ||
-    (failure instanceof Error && (failure as NodeJS.ErrnoException).code === "ENOENT")
+    failure instanceof DaemonRefusal && failure.refusal.data?.type === CONNECTION_UNAVAILABLE_CODE
   );
 }
 
-// A service repairing its database file answers the hello with this until it is done.
-function isServiceRepairing(failure: unknown): failure is JsonRpcRemoteError {
-  return failure instanceof JsonRpcRemoteError && failure.data?.type === DAEMON_REPAIRING_CODE;
+// A just-started service binds its socket, then writes its session token: a connect in between
+// finds no socket, no token file (an error with no refusal code), or the previous start's token.
+function isServiceNotReadyYet(failure: DaemonRefusal): boolean {
+  const type = failure.refusal.data?.type;
+  return (
+    type === undefined || type === CONNECTION_UNAVAILABLE_CODE || type === AUTH_TOKEN_INVALID_CODE
+  );
+}
+
+// A service repairing its database file refuses the connect with this until it is done.
+function isServiceRepairing(failure: DaemonRefusal): boolean {
+  return failure.refusal.data?.type === DAEMON_REPAIRING_CODE;
 }
 
 function describeExit(exit: ServiceExit): string {

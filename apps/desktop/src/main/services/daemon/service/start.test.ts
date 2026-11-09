@@ -1,27 +1,17 @@
-// The supervisor over a real background service: none answers, so it starts the daemon detached
-// through the start module, completes the handshake, reads the process the daemon reports as the
-// one the system shows main for its child, and notices a SIGKILL the moment the socket closes
-// rather than when the link falls silent. The daemon runs from source in a home and run folder of
-// the test's own, and every process it started is killed when the test settles. Ending a service
-// that ignores SIGTERM signals it once the drain bound passes and kills it 2 seconds later,
-// whether main started it or found it by its identity.
+// Ending a service that ignores SIGTERM signals it once the drain bound passes and kills it 2
+// seconds later, whether main started it or found it by its identity. Every process a test
+// started is killed when the test settles.
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
-import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
 import { selectMainOperatingSystem } from "../../../operating-system/selection.js";
-import { DaemonLink } from "../link/status.js";
-import { connectMainToDaemon, DaemonSupervisor } from "../supervisor.js";
-import { LINK_QUIET_MS } from "../link/lifetime.js";
 import {
   attachToServiceProcess,
   NODE_PROCESS_IDENTITY_SYSTEM,
@@ -29,140 +19,26 @@ import {
 } from "./process.js";
 import { startServiceDetached } from "./start.js";
 
-const DAEMON_ENTRY = fileURLToPath(import.meta.resolve("@ai-sidekicks/runtime-daemon/main"));
-const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescript-source-loader");
-// The daemon's start runs the login shell under its own 5 s deadline before it binds its socket.
-const LINK_WITHIN_MS = 20_000;
-
-/** The system the test runs on. */
-const HOST_SYSTEM = selectMainOperatingSystem(process.platform);
-
 /** A reader of the processes of the system the test runs on. */
-const readProcessIdentity = HOST_SYSTEM.createProcessIdentityReader(NODE_PROCESS_IDENTITY_SYSTEM);
+const readProcessIdentity = selectMainOperatingSystem(process.platform).createProcessIdentityReader(
+  NODE_PROCESS_IDENTITY_SYSTEM,
+);
 
 const trail = new TemporaryDirectoryTrail();
 let started: ServiceProcess[];
-// Every start the supervisor asked for, settled or not.
-let starts: Promise<ServiceProcess>[];
-let supervisor: DaemonSupervisor | undefined;
 
 beforeEach(() => {
   started = [];
-  starts = [];
-  supervisor = undefined;
 });
 
-afterEach(async () => {
-  await supervisor?.dispose();
-  // A start still running when a test fails lands its service here only once it settles.
-  await Promise.allSettled(starts);
+afterEach(() => {
   for (const service of started) {
     if (!service.hasExited()) {
       process.kill(service.processId, "SIGKILL");
     }
   }
-  vi.unstubAllEnvs();
   trail.removeAll();
 });
-
-it(
-  "starts the service detached when none answers, and notices a SIGKILL on the socket's close",
-  async () => {
-    // A short root: the socket path under it is bounded at 104 bytes on macOS.
-    const root = trail.create("aisk-");
-    const homeDirectory = path.join(root, "home");
-    const runtimeDirectory = path.join(root, "run");
-    mkdirSync(homeDirectory);
-    mkdirSync(runtimeDirectory, { mode: 0o700 });
-    // Main's own connect resolves the run folder from these, as the app's does.
-    vi.stubEnv("HOME", homeDirectory);
-    vi.stubEnv("XDG_RUNTIME_DIR", runtimeDirectory);
-
-    const link = new DaemonLink();
-    const logged: unknown[] = [];
-    const activeSupervisor = new DaemonSupervisor({
-      link,
-      connect: (observer, signal) => connectMainToDaemon(HOST_SYSTEM, observer, signal),
-      startService: () => {
-        const start = startServiceDetached(
-          {
-            command: process.execPath,
-            args: ["--conditions=@ai-sidekicks/source", "--import", SOURCE_LOADER, DAEMON_ENTRY],
-          },
-          { ...process.env, HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory },
-        ).then((service) => {
-          started.push(service);
-          return service;
-        });
-        starts.push(start);
-        return start;
-      },
-      attachServiceProcess: (identity) => attachToServiceProcess(identity, readProcessIdentity),
-      log: { write: (entry) => logged.push(entry) },
-    });
-    supervisor = activeSupervisor;
-
-    const linked = stateReached(link, (state) => state.connection.kind === "connected");
-    activeSupervisor.start();
-    const linkedState = await linked;
-
-    expect(linkedState.startedByApp, JSON.stringify(logged)).toBe(true);
-    expect(linkedState.negotiation?.compatible).toBe(true);
-    expect(started).toHaveLength(1);
-    const service = started[0]!;
-    // Detached: the service leads a process group of its own, which the app's exit leaves alone.
-    expect(() => process.kill(-service.processId, 0)).not.toThrow();
-    // The process the daemon reports is the one the system shows main for the child it started.
-    const statusRead = DAEMON_STATUS_METHOD_DESCRIPTORS["daemon.status.read"];
-    const { processIdentity } = await link.client!.call(
-      statusRead.method,
-      {},
-      statusRead.requestSchema,
-      statusRead.responseSchema,
-    );
-    expect(processIdentity).toStrictEqual(await readProcessIdentity(service.processId));
-
-    const killedAt = Date.now();
-    const lost = stateReached(link, (state) => state.connection.kind === "transient_disconnect");
-    process.kill(service.processId, "SIGKILL");
-    await lost;
-    // Disposed once the loss is published and before the supervisor's wait to start again runs
-    // out, so it brings no service back.
-    await activeSupervisor.dispose();
-
-    expect(Date.now() - killedAt).toBeLessThan(LINK_QUIET_MS);
-    expect(link.client).toBeUndefined();
-  },
-  LINK_WITHIN_MS + 5_000,
-);
-
-/** Resolves with the first published state `isReached` accepts; rejects when the link degrades. */
-function stateReached(
-  link: DaemonLink,
-  isReached: (state: MainProcessState) => boolean,
-): Promise<MainProcessState> {
-  return new Promise<MainProcessState>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      unsubscribe();
-      reject(new Error(`The link did not reach the state within ${String(LINK_WITHIN_MS)} ms`));
-    }, LINK_WITHIN_MS);
-    const unsubscribe = link.subscribe((state) => {
-      if (isReached(state)) {
-        clearTimeout(timer);
-        queueMicrotask(() => {
-          unsubscribe();
-        });
-        resolve(state);
-      } else if (state.connection.kind === "degraded") {
-        clearTimeout(timer);
-        queueMicrotask(() => {
-          unsubscribe();
-        });
-        reject(new Error(`The link degraded: ${String(state.connection.lastError)}`));
-      }
-    });
-  });
-}
 
 it.each([
   ["started", (service: ServiceProcess): Promise<ServiceProcess> => Promise.resolve(service)],

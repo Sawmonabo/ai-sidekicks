@@ -1,11 +1,10 @@
 // Main's report of the console theme's terminal colors to the background service, which answers a
 // program asking its terminal for colors from them until a pane holding the shell reports its own.
 // Sent once a link is up and again at every change of theme or of the scheme in force; a link that
-// comes back is a new client and is told again. A report that fails is logged, and the next change
-// or link sends again.
+// comes back is a new daemon connection and is told again. A report that fails is logged, and the
+// next change or link sends again.
 
-import { PTY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pty";
-import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
+import { TERMINAL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/terminal";
 
 import type { ColorScheme } from "#shared/color-scheme.js";
 import { describeFailure } from "#shared/failure-message.js";
@@ -25,9 +24,8 @@ export interface ConsoleThemeReportOptions {
   readonly log: Pick<MainDiagnosticLog, "write">;
 }
 
-/** The colors last sent, and the link they were sent on. */
+/** The colors last sent on the link that is up. */
 interface SentReport {
-  readonly client: JsonRpcClient;
   readonly theme: AppearanceTheme;
   readonly scheme: ColorScheme;
 }
@@ -55,24 +53,23 @@ export class ConsoleThemeReport {
     const { link, appearance, log } = this.#options;
     const client = link.client;
     if (client === undefined || link.state.connection.kind !== "connected") {
+      // The next link is told again.
+      this.#sent = undefined;
       return;
     }
     const theme = appearance.record.theme;
     const scheme = appearance.resolvedScheme;
     const last = this.#sent;
-    if (last?.client === client && last.theme === theme && last.scheme === scheme) {
+    if (last?.theme === theme && last.scheme === scheme) {
       return;
     }
-    const sent: SentReport = { client, theme, scheme };
+    const sent: SentReport = { theme, scheme };
     this.#sent = sent;
-    const descriptor = PTY_METHOD_DESCRIPTORS["pty.reportTerminalAppearance"];
     client
-      .call(
-        descriptor.method,
-        { source: "console_theme", colors: composeTerminalColors(theme, scheme) },
-        descriptor.requestSchema,
-        descriptor.responseSchema,
-      )
+      .call(TERMINAL_METHOD_DESCRIPTORS["terminal.appearance.report"], {
+        source: "consoleTheme",
+        colors: composeTerminalColors(theme, scheme),
+      })
       .catch((failure: unknown) => {
         if (this.#sent === sent) {
           this.#sent = undefined;
