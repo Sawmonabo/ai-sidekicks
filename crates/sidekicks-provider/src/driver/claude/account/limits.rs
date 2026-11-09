@@ -418,6 +418,7 @@ done
             Arc::clone(&services.processes),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
             Arc::clone(&services.ports.telemetry_target),
+            Arc::clone(&services.ports.raw_provider_messages),
             &services.data_folder,
         );
         ScriptedRead {

@@ -36,6 +36,7 @@ use crate::driver::claude::session::process::{
 use crate::driver::claude::session::rules::ClaudeRulesError;
 use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
 use crate::driver::contract::error::DriverError;
+use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::pricing::receiver::TelemetryTarget;
 use crate::process_registry::ProviderProcessRegistry;
 
@@ -133,6 +134,7 @@ pub(crate) struct ClaudeProcessLauncher {
     processes: Arc<ProviderProcessRegistry>,
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
+    raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
     control_only_folder: PathBuf,
     settings_folder: PathBuf,
     live: Mutex<LiveProcesses>,
@@ -148,15 +150,16 @@ struct LiveProcesses {
 impl ClaudeProcessLauncher {
     /// A launcher spawning on `spawner`'s thread, recording each process in `child_records` and
     /// counting each spawn in `processes`, reading each account's sealed token through
-    /// `provider_accounts` and the export's target through `telemetry_target`, whose processes
-    /// that keep nothing run in a folder under `data_folder` and whose settings files sit in
-    /// another.
+    /// `provider_accounts` and the export's target through `telemetry_target` and handing every
+    /// line a process writes to `raw_messages`, whose processes that keep nothing run in a folder
+    /// under `data_folder` and whose settings files sit in another.
     pub(crate) fn new(
         spawner: Spawner,
         child_records: Arc<dyn DaemonChildRecords>,
         processes: Arc<ProviderProcessRegistry>,
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
         telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
+        raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
         data_folder: &Path,
     ) -> Self {
         Self {
@@ -165,6 +168,7 @@ impl ClaudeProcessLauncher {
             processes,
             provider_accounts,
             telemetry_target,
+            raw_messages,
             control_only_folder: CLAUDE_CONTROL_ONLY_FOLDER
                 .iter()
                 .fold(data_folder.to_path_buf(), |folder, name| folder.join(name)),
@@ -207,6 +211,7 @@ impl ClaudeProcessLauncher {
                 &self.settings_folder,
                 listener,
                 turn_holds,
+                Arc::clone(&self.raw_messages),
             )
             .await?,
         );

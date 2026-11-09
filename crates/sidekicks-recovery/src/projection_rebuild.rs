@@ -56,11 +56,14 @@ pub(crate) const REBUILD_PAGE_SIZE: u32 = 1_000;
 pub const PROJECTION_REBUILD_STATEMENT_CAPACITY: usize = 3;
 
 // Every session with events has a cursor, written with each event, and a current one is at its
-// newest sequence, so the sessions to rebuild are those whose cursor is not current.
+// newest sequence, so the sessions to rebuild are those whose cursor is not current. They go in id
+// order, which is the order they were minted in, so a fork's parent has its row again before the
+// fork's row names it.
 static SELECT_SESSIONS_TO_REBUILD_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT session_id FROM projection_cursors
-  WHERE state <> '{}' AND session_id <> ?",
+  WHERE state <> '{}' AND session_id <> ?
+  ORDER BY session_id",
         <&str>::from(ProjectionCursorState::Current)
     )
 });
@@ -310,6 +313,26 @@ impl ProjectionRebuildService {
             }
         };
         self.reported(rebuilt)
+    }
+
+    /// Rebuilds every projection of `session_id` from its log, current or not, under a hold of
+    /// its appends the rebuild takes. Fails as [`ProjectionRebuildService::rebuild`] does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn rebuild_session(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), ProjectionRebuildError> {
+        self.rebuild(
+            ProjectionRebuildRequest {
+                session_id,
+                is_forced: true,
+                before_sequence: None,
+                stop: None,
+            },
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
     // The rebuild, run while the session's append lock is held.

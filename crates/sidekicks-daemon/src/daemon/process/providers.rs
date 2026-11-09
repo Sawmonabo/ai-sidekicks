@@ -82,6 +82,7 @@ use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
+use crate::observability::diagnostic_buckets::recorders::{RawMessageRecorder, ToolTraceRecorder};
 use crate::program::dispatches_hook_mode;
 
 pub(crate) mod pricing;
@@ -353,6 +354,10 @@ pub(crate) struct DriverPortOwners {
     pub(crate) session_account_moves: Arc<dyn SessionAccountMoveRecorder>,
     /// The one lock on account homes, which a driver's renewal in an account's home holds.
     pub(crate) account_home_lock: Arc<AccountHomeLock>,
+    /// The `driver_raw_events` recorder, which each driver's reader hands every provider message.
+    pub(crate) raw_provider_messages: Arc<RawMessageRecorder>,
+    /// The `tool_traces` recorder, which each driver hands every tool call it delivers.
+    pub(crate) tool_traces: Arc<ToolTraceRecorder>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -427,6 +432,10 @@ pub(crate) fn register_driver_ports(
         .session_account_moves
         .register(owners.session_account_moves)?;
     ports.account_home_lock.register(owners.account_home_lock)?;
+    ports
+        .raw_provider_messages
+        .register(owners.raw_provider_messages)?;
+    ports.tool_traces.register(owners.tool_traces)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 

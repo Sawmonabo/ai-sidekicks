@@ -3,11 +3,13 @@
 // are recoverable from a stored edge alone. The parse is tolerant so a document always opens;
 // whether the string named a declared type is kept, so the daemon's check at save can refuse it.
 
-const WORKFLOW_HANDLE_MODES = ["inputs", "outputs"] as const;
+/** Every side a handle can stand on, in the order the grammar names them. */
+export const WORKFLOW_HANDLE_MODES = ["inputs", "outputs"] as const;
 /** The side of a node a handle stands on. */
 export type WorkflowHandleMode = (typeof WORKFLOW_HANDLE_MODES)[number];
 
-const WORKFLOW_HANDLE_TYPES = ["main", "tool"] as const;
+/** Every connection type a handle string may declare. */
+export const WORKFLOW_HANDLE_TYPES = ["main", "tool"] as const;
 /** What a handle carries: items on `main`, a capability an agent can call on `tool`. */
 export type WorkflowHandleType = (typeof WORKFLOW_HANDLE_TYPES)[number];
 

@@ -9,7 +9,9 @@
 mod backgrounded;
 mod body;
 pub(crate) mod daemon_ends;
+pub(crate) mod dependencies;
 mod goals;
+mod helper_messages;
 mod helper_runs;
 mod message_frames;
 pub(crate) mod resumes;
@@ -21,7 +23,7 @@ mod tasks;
 
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
@@ -31,24 +33,19 @@ use sidekicks_contracts::session::controls::events::{
     ProviderWarningSource, SessionNotice, SessionNoticePostedPayload,
 };
 use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::Instant;
 
 use self::body::{ClaudeFrameBody, read_frame_members};
-use self::daemon_ends::ClaudeStreamDialogPorts;
+use self::dependencies::ClaudeStreamDependencies;
 use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
-use crate::command::running_set::RunningCommandSets;
+use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::without_larger_window_mark;
-use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCall;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
-use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::system::{
     is_claude_goal_check_cap, read_claude_api_retry, read_claude_model_reroute,
     read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
@@ -56,73 +53,19 @@ use crate::driver::claude::delivery::system::{
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::driver::claude::goals::endings::{ClaudeGoalEndings, GoalEndingInput};
-use crate::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::driver::claude::rate_limit_windows::{
-    ClaudeUsageProbeModels, read_claude_quota_windows,
-};
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
+use crate::driver::claude::rate_limit_windows::read_claude_quota_windows;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::arrivals::ClaudeRoutedFrame;
-use crate::driver::claude::session::context_reading::{
-    ClaudeContextReadings, claude_exceeded_window_row,
-};
+use crate::driver::claude::session::context_reading::claude_exceeded_window_row;
 use crate::driver::claude::spent_retries_signal::classify_claude_spent_retries;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
-use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
-use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
-use crate::port::turn_reading_publisher::TurnReadingPublisher;
-use crate::port::usage_sink::UsageSink;
-use crate::pricing::live::LivePricing;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::thread_frame_router::ThreadFrameRoute;
-
-/// Reports that Claude Code took a message the daemon handed: the session, the message's own id
-/// and the run it was taken by.
-pub(crate) type ClaudeMessageTaken = Arc<dyn Fn(SessionId, &str, RunId) + Send + Sync>;
-
-/// What the stream delivers through and reads each session's state from.
-pub(crate) struct ClaudeStreamDependencies {
-    /// The run engine, which opens, counts and ends each turn.
-    pub(crate) engine: Arc<dyn RunHost>,
-    /// The run engine's dispatch, which takes each delivery.
-    pub(crate) dispatch: Arc<dyn InboundDispatch>,
-    /// The runs bound to each session.
-    pub(crate) routes: Arc<ClaudeRunRoutes>,
-    /// The choices Claude Code holds a run on.
-    pub(crate) dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
-    /// Each run's pause.
-    pub(crate) pauses: Arc<Mutex<ClaudeRunPauses>>,
-    /// The reviewer's blocks, captured at a reviewed turn's end.
-    pub(crate) reviewer: Arc<ClaudeReviewerCapture>,
-    /// The queue's report that a handed message was taken.
-    pub(crate) message_taken: ClaudeMessageTaken,
-    /// Where the account's quota windows go once the usage record is registered.
-    pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
-    /// The model each account's latest limits read named for its weekly window over one model.
-    pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
-    /// Every session's running commands, which the task frames report to once registered.
-    pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
-    /// Where the working line's readings go once registered.
-    pub(crate) turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
-    /// Each session's context reads, which a lead message's usage reads mid-turn on.
-    pub(crate) context: Arc<ClaudeContextReadings>,
-    /// Where a held tool-server call's status line goes once registered.
-    pub(crate) tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
-    /// Each session's goal, which the goal lines, records and turn ends classify against.
-    pub(crate) goal_endings: Arc<ClaudeGoalEndings>,
-    /// Where the messages other sessions sent, and a refused one, are published once registered.
-    pub(crate) session_message_readings:
-        Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
-    /// Claude's live pricing, which prices each turn's rows and marks a rerouted model in use.
-    pub(crate) pricing: Arc<LivePricing>,
-}
 
 /// What a frame left for the session's task to do beyond its deliveries.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -234,18 +177,9 @@ impl ClaudeDeliveryStream {
         };
         self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
             .await;
-        // A helper's own message carries no row of the session's, only the lines of its calls;
-        // a goal line of its own draws no goal row.
-        if is_helper_frame {
-            if kind == ClaudeWireFrameKind::Assistant
-                && let ClaudeFrameBody::Message(message) = &body
-            {
-                session.lock().command_tasks.observe_calls(message);
-                if let Some(text) = message.text() {
-                    self.classify_goal(session, GoalEndingInput::HelperText(text), frame_kind)
-                        .await;
-                }
-            }
+        if let ThreadFrameRoute::ChildTranscript { child_thread_id } = &routed.route {
+            self.take_helper_message(session, child_thread_id, &kind, frame_kind, body)
+                .await;
             return after;
         }
         let (members, message) = match body {
@@ -458,14 +392,14 @@ impl ClaudeDeliveryStream {
             }
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
-                if let Some(message) = message {
+                if let Some(mut message) = message {
                     // An answered request is heard at its `message_start`, since a reply begun
                     // before an account move goes on streaming its messages after it.
                     if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
                         session.settle_first_request(ClaudeFirstRequest::LoginRefused);
                     }
                     let usage = frame.observation.message_usage.as_ref();
-                    self.assistant(session, &lead, &message, usage).await;
+                    self.assistant(session, &lead, &mut message, usage).await;
                 }
             }
             ClaudeWireFrameKind::User => {
@@ -537,12 +471,9 @@ impl ClaudeDeliveryStream {
     }
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
-    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls still
-    /// held, each by its task, which the caller settles.
-    pub(crate) async fn end_session(
-        &self,
-        session: &ClaudeSessionStream,
-    ) -> Vec<(String, ClaudeHeldCall)> {
+    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls the
+    /// lead and its helpers still hold, each by its task, which the caller settles.
+    pub(crate) async fn end_session(&self, session: &ClaudeSessionStream) -> ClaudeExitHolds {
         let (pieces, released, turn) = {
             let mut readings = session.lock();
             (
@@ -562,7 +493,10 @@ impl ClaudeDeliveryStream {
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
-            let held = readings.tool_server_tasks.take_held();
+            let held = ClaudeExitHolds {
+                tool_server_calls: readings.tool_server_tasks.take_held(),
+                helper_calls: readings.helper_tool_calls.take_held(),
+            };
             readings.tool_server_tasks.forget();
             held
         };

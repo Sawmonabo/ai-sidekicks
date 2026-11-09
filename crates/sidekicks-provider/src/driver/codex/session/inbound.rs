@@ -7,6 +7,9 @@
 //! item before the next, so the session's events keep their order, and the driver's calls on the
 //! session's record take their place among its frames.
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -333,10 +336,12 @@ impl CodexSessionInboundSender {
 
     /// Queues `item`; `false` when the session's task has ended, so nothing reads it.
     pub(crate) fn push(&self, item: CodexSessionInbound) -> bool {
+        // Counted before the send, so the task's count of the item taken never comes first.
+        let depth = self.depth.items.fetch_add(1, Ordering::Relaxed) + 1;
         if self.sender.send(item).is_err() {
+            self.depth.items.fetch_sub(1, Ordering::Relaxed);
             return false;
         }
-        let depth = self.depth.items.fetch_add(1, Ordering::Relaxed) + 1;
         let mark = self.depth.next_mark.load(Ordering::Relaxed);
         if depth >= mark
             && self

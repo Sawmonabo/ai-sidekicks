@@ -63,6 +63,7 @@ pub(super) fn one_turn_reply(text: &str) -> ClaudeOneTurnReply {
     ClaudeOneTurnReply {
         text: text.to_owned(),
         provider_message_id: None,
+        provider_block: None,
         refusal: None,
         compaction_summary: None,
     }

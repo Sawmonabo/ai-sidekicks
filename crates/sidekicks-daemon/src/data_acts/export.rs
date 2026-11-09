@@ -45,6 +45,7 @@ use sidekicks_store::events::session::read::{
     malformed_body,
 };
 use tokio::sync::watch;
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -133,6 +134,8 @@ enum ExportError {
     Json(#[from] serde_json::Error),
     #[error("the export's folder could not be measured")]
     Measure(#[source] io::Error),
+    #[error("a write into the export's folder ended before it finished")]
+    Interrupted(#[source] JoinError),
 }
 
 // The running export's hold on the one export slot: dropped, it frees the slot before the export's
@@ -330,8 +333,10 @@ async fn write_export(
     let total = SafeInt::from_usize(session_ids.len());
     let sessions_folder = destination.join(SESSIONS_FOLDER_NAME);
     let files_folder = destination.join(FILES_FOLDER_NAME);
-    fs::create_dir_all(&sessions_folder)?;
-    fs::create_dir_all(&files_folder)?;
+    let made_folders = [sessions_folder.clone(), files_folder.clone()];
+    tokio::task::spawn_blocking(move || made_folders.iter().try_for_each(fs::create_dir_all))
+        .await
+        .map_err(ExportError::Interrupted)??;
     for (exported, session_id) in session_ids.into_iter().enumerate() {
         if stop.is_cancelled() {
             return Ok(SafeInt::from_usize(exported));
@@ -361,11 +366,14 @@ async fn write_export(
     let accounts = deps.reads.read(ReadLength::Short, read_accounts).await?;
     let mut accounts_json = serde_json::to_vec_pretty(&accounts)?;
     accounts_json.push(b'\n');
-    fs::write(destination.join(ACCOUNTS_FILE_NAME), accounts_json)?;
-    fs::write(
-        destination.join(README_FILE_NAME),
-        README_LINES.join("\n\n") + "\n",
-    )?;
+    let accounts_file = destination.join(ACCOUNTS_FILE_NAME);
+    let readme_file = destination.join(README_FILE_NAME);
+    tokio::task::spawn_blocking(move || {
+        fs::write(accounts_file, accounts_json)?;
+        fs::write(readme_file, README_LINES.join("\n\n") + "\n")
+    })
+    .await
+    .map_err(ExportError::Interrupted)??;
     Ok(total)
 }
 

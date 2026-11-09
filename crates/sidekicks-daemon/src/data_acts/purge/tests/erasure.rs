@@ -30,8 +30,8 @@ use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
 use tokio::time::timeout;
 
 use super::{
-    MARKER, append_event, event_count, only_outcome, purge_fixture, receipts, state_of,
-    store_session,
+    MARKER, append_activation, append_event, event_count, only_outcome, purge_fixture, receipts,
+    state_of, store_session,
 };
 use crate::data_acts::purge::rows::PurgeCaller;
 use crate::data_acts::purge::{SessionPurgeError, SessionPurgeOutcome};
@@ -418,33 +418,76 @@ async fn a_purge_closes_the_sessions_tool_server_connections() {
         .expect("the session's connection reads closed");
 }
 
-// Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
-// from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
-// cleared after the rows went.
+// Each session is damaged, so a removed one must leave the recovery state too, and holds one event,
+// its activation where the case says, else a tool call. Kills: a caller's from-states widened or
+// narrowed, the unfinished create's mark taking an activated session, a refused mark that changes
+// the row, and the recovery state not cleared after the rows went.
 #[rstest]
-#[case::retention_of_an_archived_session(PurgeCaller::Retention, SessionState::Archived, true)]
-#[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false)]
+#[case::retention_of_an_archived_session(
+    PurgeCaller::Retention,
+    SessionState::Archived,
+    false,
+    true
+)]
+#[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false, false)]
 #[case::damaged_history_of_an_active_session(
     PurgeCaller::DamagedHistory,
     SessionState::Active,
+    false,
     true
 )]
 #[case::damaged_history_of_a_provisioning_session(
     PurgeCaller::DamagedHistory,
     SessionState::Provisioning,
+    false,
     false
+)]
+#[case::unfinished_create_of_a_provisioning_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::Provisioning,
+    false,
+    true
+)]
+#[case::unfinished_create_of_an_activated_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::Provisioning,
+    true,
+    false
+)]
+#[case::unfinished_create_of_an_archived_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::Archived,
+    false,
+    true
+)]
+#[case::unfinished_create_of_a_closed_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::Closed,
+    false,
+    true
+)]
+#[case::unfinished_create_of_a_marked_session(
+    PurgeCaller::UnfinishedCreate,
+    SessionState::PurgeRequested,
+    false,
+    true
 )]
 #[tokio::test]
 async fn a_purge_marks_a_session_only_from_its_callers_states(
     #[case] caller: PurgeCaller,
     #[case] state: SessionState,
+    #[case] is_activated: bool,
     #[case] is_removed: bool,
 ) {
     let fixture = purge_fixture().await;
     let reader = fixture.database.reader();
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
     store_session(&reader, session_id, state);
-    append_event(&fixture.log, session_id, "Read").await;
+    if is_activated {
+        append_activation(&fixture.log, session_id).await;
+    } else {
+        append_event(&fixture.log, session_id, "Read").await;
+    }
     fixture.recovery.mark_session_unreadable(&session_id);
 
     let outcome = only_outcome(

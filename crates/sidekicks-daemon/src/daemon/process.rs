@@ -50,6 +50,7 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
+use sidekicks_provider::tool_call_arguments::remove_left_tool_call_arguments;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::restart_settle::RestartSettle;
@@ -253,7 +254,7 @@ impl DaemonProcess {
             Err(error) => {
                 let error = DaemonStartError::Spawner(error);
                 // The lock `options` holds goes only once this returns, after the record.
-                record_start_failure(&options.run_folder, &error);
+                record_start_failure(&options.run_folder, &error).await;
                 return Err(DaemonStartFailure {
                     failures: Box::new(CleanupFailures::new(error, Vec::new(), START_OPERATION)),
                     release_started: Instant::now(),
@@ -552,7 +553,8 @@ impl DaemonProcess {
                 data_folder: data_folder.clone(),
                 clock: Arc::clone(&wall_clock),
             },
-        )?;
+        )
+        .await?;
         let providers = build_providers(
             provider_registrations,
             ProviderStart {
@@ -598,6 +600,14 @@ impl DaemonProcess {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "a command channel folder a previous run left was not removed"
+            );
+        }
+        // A file of tool call arguments a previous run left belonged to a process that ended
+        // with it.
+        if let Err(error) = remove_left_tool_call_arguments(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the tool call arguments a previous run left on disk were not removed"
             );
         }
         // Before the socket, any session's recovery and the capability reads, so a lasting provider
@@ -718,10 +728,8 @@ impl DaemonProcess {
             )
             .await?,
         );
-        let status_run_folder = run_folder.clone();
-        tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
+        remove_service_status(run_folder)
             .await
-            .map_err(|ended| DaemonStartError::ServiceStatus(std::io::Error::other(ended)))?
             .map_err(DaemonStartError::ServiceStatus)?;
         self.check_stop("binding the socket")?;
         // A stop settles the wait, so the registration never waits on an index that cannot open.
@@ -860,7 +868,7 @@ impl DaemonProcess {
         let reason = DaemonStopReason::of_failed_start(&error);
         let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder_contents(&mut self).await);
-        record_start_failure(&self.stop_record.run_folder, &error);
+        record_start_failure(&self.stop_record.run_folder, &error).await;
         drop(self.data_folder_lock.take());
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),

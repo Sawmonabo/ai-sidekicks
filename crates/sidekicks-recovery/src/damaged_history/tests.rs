@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use rusqlite::params;
@@ -14,16 +15,18 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
 use sidekicks_session::run::engine::test_fixture::stored_run_state;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use tokio_util::sync::CancellationToken;
 
-use super::RecoveryActionError;
+use super::{RecoveryActionError, SessionDeletion};
 use crate::session_write_refusal::refuse_call_naming_session;
 use crate::stop_intent::{StopIntent, StopIntentFile};
 use crate::test_pass::PassFixture;
@@ -248,10 +251,16 @@ enum Target {
     Healthy,
     Unknown,
     Unreadable,
+    UnfinishedCreate(SessionState),
+    // A session whose create never finished, whose purge then finds it left the states it takes.
+    FinishedDuringDelete,
 }
 
 // Killed by the two refusal reasons swapped, by a delete that purges a session before refusing
-// it, and by a delete that answers done without purging.
+// it, by a delete that answers done without purging, by a delete of a session whose create never
+// finished, archived or closed since, refused or purged as damaged, by one of a damaged session
+// purged as such a create, and by a purge that found the session left its states answered as a
+// fault rather than the not-damaged refusal.
 #[rstest]
 #[case::continue_a_healthy_session(
     Target::Healthy,
@@ -271,6 +280,31 @@ enum Target {
     ActionEnd::Refused(SessionRecoveryRefusedReason::NoReadableEvent)
 )]
 #[case::delete_an_unreadable_session(Target::Unreadable, false, ActionEnd::Done)]
+#[case::continue_an_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Provisioning),
+    true,
+    ActionEnd::Refused(SessionRecoveryRefusedReason::NotDamaged)
+)]
+#[case::delete_an_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Provisioning),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_an_archived_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Archived),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_a_closed_unfinished_create(
+    Target::UnfinishedCreate(SessionState::Closed),
+    false,
+    ActionEnd::Done
+)]
+#[case::delete_a_create_finished_meanwhile(
+    Target::FinishedDuringDelete,
+    false,
+    ActionEnd::Refused(SessionRecoveryRefusedReason::NotDamaged)
+)]
 #[tokio::test]
 async fn a_recovery_action_fits_only_a_damaged_session(
     #[case] target: Target,
@@ -282,6 +316,11 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Target::Healthy => fixture.store.session_id,
         Target::Unknown => test_session_id(),
         Target::Unreadable => fixture.stale_session(2, Some(0)).await.0,
+        Target::UnfinishedCreate(state) => insert_unfinished_create(&fixture, state),
+        Target::FinishedDuringDelete => {
+            fixture.purges.is_refusing.store(true, Ordering::SeqCst);
+            insert_unfinished_create(&fixture, SessionState::Provisioning)
+        }
     };
     fixture
         .pass(Arc::clone(&fixture.status))
@@ -294,7 +333,7 @@ async fn a_recovery_action_fits_only_a_damaged_session(
             .continue_from_last_good_point(session_id)
             .await
     } else {
-        damaged_history.delete_damaged_session(session_id).await
+        damaged_history.delete_session(session_id).await
     };
 
     let ended = match ended {
@@ -304,17 +343,81 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Err(failure) => panic!("the action failed: {failure}"),
     };
     assert_eq!(ended, expected);
-    let purged = if !is_continue && matches!(expected, ActionEnd::Done) {
-        vec![session_id]
-    } else {
-        Vec::new()
+    let purged = match target {
+        Target::FinishedDuringDelete => vec![(session_id, SessionDeletion::UnfinishedCreate)],
+        _ if is_continue || !matches!(expected, ActionEnd::Done) => Vec::new(),
+        Target::UnfinishedCreate(_) => vec![(session_id, SessionDeletion::UnfinishedCreate)],
+        Target::Healthy | Target::Unknown | Target::Unreadable => {
+            vec![(session_id, SessionDeletion::DamagedHistory)]
+        }
     };
     assert_eq!(
         *fixture
             .purges
-            .session_ids
+            .deletions
             .lock()
             .expect("no purge panics while it records"),
         purged
     );
+}
+
+// A delete of an unfinished create whose purge failed after its mark leaves the session
+// `purgeRequested`; pressing `Delete session` again purges it as the first press did. Killed by
+// the lookup leaving out `purgeRequested`, which refuses the second press `notDamaged`.
+#[tokio::test]
+async fn a_second_delete_finishes_an_unfinished_create_a_failed_purge_left_marked() {
+    let fixture = PassFixture::new().await;
+    let session_id = insert_unfinished_create(&fixture, SessionState::Provisioning);
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+    let damaged_history = fixture.damaged_history();
+    damaged_history
+        .delete_session(session_id)
+        .await
+        .expect("the first press purges it");
+    fixture
+        .store
+        .database
+        .reader()
+        .execute(
+            "UPDATE sessions SET state = ?1 WHERE id = ?2",
+            params![
+                <&'static str>::from(SessionState::PurgeRequested),
+                session_id.text().as_str()
+            ],
+        )
+        .expect("the failed purge leaves its mark");
+
+    damaged_history
+        .delete_session(session_id)
+        .await
+        .expect("the second press purges it again");
+
+    assert_eq!(
+        *fixture
+            .purges
+            .deletions
+            .lock()
+            .expect("no purge panics while it records"),
+        vec![
+            (session_id, SessionDeletion::UnfinishedCreate),
+            (session_id, SessionDeletion::UnfinishedCreate)
+        ]
+    );
+}
+
+// A session row in `state` whose create never finished: no event of it was ever written.
+fn insert_unfinished_create(fixture: &PassFixture, state: SessionState) -> SessionId {
+    let session_id = test_session_id();
+    let reader = fixture.store.database.reader();
+    insert_session_row(&reader, session_id.text().as_str(), None, None);
+    reader
+        .execute(
+            "UPDATE sessions SET state = ?1 WHERE id = ?2",
+            params![<&'static str>::from(state), session_id.text().as_str()],
+        )
+        .expect("the session is left in its state");
+    session_id
 }

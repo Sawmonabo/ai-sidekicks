@@ -79,6 +79,7 @@ use sidekicks_workspace::git::worktree::removed_store::REMOVED_WORKTREE_STORE_ST
 use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::status::WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::watch::WORKING_FOLDER_WATCH_STATEMENT_CAPACITY;
 use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::reattach::REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY;
@@ -186,6 +187,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
     + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
     + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
+    + WORKING_FOLDER_WATCH_STATEMENT_CAPACITY
     + WORKSPACE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
     + WORKTREE_SERVICE_STATEMENT_CAPACITY

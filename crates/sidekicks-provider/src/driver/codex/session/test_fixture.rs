@@ -45,6 +45,7 @@ use crate::driver::codex::lifecycle::intake::routed_frames::{
 };
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
 use crate::driver::codex::run::faster_model_retry::{
     CodexFasterModelRetries, CodexFasterModelRetryDependencies,
@@ -85,6 +86,9 @@ use crate::driver::codex::session::inbound::{
     CodexSessionInboundSender, codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::recovery::{
+    CodexServiceRecovery, CodexServiceRecoveryDependencies,
+};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
 use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
@@ -93,12 +97,13 @@ use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::codex::{DESCRIPTOR, pricing::CodexRequestPricer};
 use crate::driver::contract::error::DriverError;
-use crate::driver::ports::DriverPorts;
+use crate::driver::ports::{DriverPorts, ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::run_control::{DaemonTurnBindingResolver, RunToolBoundary};
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use crate::driver::test_registry::{RecordedQueue, new_agent_id, new_session_id};
 use crate::port::question::ProviderQuestion;
+use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::pricing::live::LivePricing;
@@ -200,6 +205,7 @@ impl TestCodexSession {
             effects: Arc::new(NoEffects),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
             pricing: Arc::clone(&pricing),
+            tool_traces: Arc::new(PortRegistration::new("tool traces")),
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();
@@ -371,6 +377,33 @@ impl TestCodexSession {
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
             command_channel_root: folder.join("command-channels"),
         })
+    }
+
+    /// A recovery over the session's slots, service, engine and [`Self::establishment`] in
+    /// `folder`, telling `reviewer_denials`, `process_gone` and `session_relaunched`.
+    pub(crate) fn recovery(
+        &self,
+        folder: &Path,
+        reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
+        process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
+        session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
+    ) -> Arc<CodexServiceRecovery> {
+        Arc::new(CodexServiceRecovery::new(
+            CodexServiceRecoveryDependencies {
+                slots: Arc::clone(&self.slots),
+                establishment: Arc::new(self.establishment(folder)),
+                services: CodexServiceRegistry::holding(&self.scripted),
+                release: Arc::clone(&self.scripted.dependencies.release),
+                run_ends: Arc::clone(&self.engine) as _,
+                dispatch: Arc::clone(&self.engine) as _,
+                answer_steers: self.answer_steers(),
+                reviewer_denials,
+                process_gone,
+                session_relaunched,
+                rate_limits: CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
+                tasks: TaskTracker::new(),
+            },
+        ))
     }
 }
 

@@ -26,7 +26,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
     MessageContent, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
-    QueueItemNotDeliveredReason, QueueItemState,
+    QueueItemNotDeliveredReason, QueueItemState, QueuedSkillPick,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
@@ -96,9 +96,13 @@ pub struct QueueMessageBody {
     /// The message's files in staging order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<AttachmentReferenceList>,
-    /// The skills the person picked for it, in the order picked.
+    /// The skills the person picked for it, in the order picked, as its provider loads them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<PickedSkill>>,
+    /// The same picks as the person sent them, which a Stop writes back into the draft without
+    /// asking a driver.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_picks: Option<Vec<QueuedSkillPick>>,
     /// The question it answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answers_question_id: Option<QuestionId>,
@@ -856,3 +860,6 @@ fn session_statement(
         expected_row_count: Some(expected_row_count),
     }
 }
+
+#[cfg(test)]
+mod tests;

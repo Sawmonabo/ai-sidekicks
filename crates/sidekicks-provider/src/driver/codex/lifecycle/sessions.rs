@@ -194,13 +194,16 @@ impl CodexDriver {
     }
 
     /// Deletes every conversation the session opened from its account's home, and its helpers'
-    /// role files. Fails with every step that failed, after the rest were tried.
+    /// role files; a service that leaves a delete unanswered is restarted through the recovery,
+    /// its other sessions' conversations resumed on the new process. Fails with every step that
+    /// failed, after the rest were tried, and as the session pieces cannot be composed.
     pub(crate) async fn purge_session(
         &self,
         params: PurgeSessionParams,
     ) -> Result<(), DriverError> {
         purge_codex_conversations(
             &self.registry,
+            &self.parts()?.recovery,
             &self.helper_roles_folder,
             CODEX_SERVICE_STARTUP_TIMEOUT,
             &params,

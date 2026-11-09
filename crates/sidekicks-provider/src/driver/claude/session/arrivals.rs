@@ -27,7 +27,9 @@ use crate::driver::claude::delivery::stream::{
     ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams,
 };
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
+use crate::driver::claude::frame_routing::{
+    ClaudeFrameRouting, ClaudeRoutedFrames, ClaudeRoutedObservation,
+};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
@@ -377,14 +379,14 @@ impl ClaudeSessionListener {
 
 impl ClaudeProcessListener for ClaudeSessionListener {
     fn take_frame(&self, frame: ClaudeStreamFrame) {
-        let routed = {
+        let ClaudeRoutedFrames {
+            frame,
+            routed,
+            released_helper_frames,
+        } = {
             let mut band = lock(&self.band);
-            self.routing.route_frame(
-                &mut band,
-                self.session_id,
-                &self.provider_session_id,
-                &frame.observation,
-            )
+            self.routing
+                .route_frame(&mut band, self.session_id, &self.provider_session_id, frame)
         };
         let is_lead_result = frame.observation.subagent_id.is_none()
             && is_claude_result_frame_kind(&frame.observation.frame_kind);
@@ -404,8 +406,18 @@ impl ClaudeProcessListener for ClaudeSessionListener {
                 frame,
                 routed,
                 is_turn_ending,
-                turn_at_read,
+                turn_at_read: turn_at_read.clone(),
             })));
+        // A helper's frames its start released follow the start, which binds the helper's run.
+        for (frame, routed) in released_helper_frames {
+            self.arrivals
+                .push(ClaudeSessionArrival::Frame(Box::new(ClaudeRoutedFrame {
+                    frame,
+                    routed,
+                    is_turn_ending: false,
+                    turn_at_read: turn_at_read.clone(),
+                })));
+        }
         if is_turn_ending {
             self.arrivals.push(ClaudeSessionArrival::Terminal);
         }

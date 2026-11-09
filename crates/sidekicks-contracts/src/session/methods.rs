@@ -24,7 +24,7 @@ use crate::session::controls::methods::{PermissionLevel, SessionMode};
 use crate::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
-use crate::session::draft::SessionAttachmentSummary;
+use crate::session::draft::{HeldSessionDraft, SessionAttachmentSummary};
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::session::name::SESSION_NAME_MAX_LEN;
@@ -151,8 +151,9 @@ pub struct SessionRecord {
     /// When it last changed.
     #[garde(dive)]
     pub updated_at: WireInstant,
-    /// The unsent composer draft, whole; empty when none is held.
-    pub draft: String,
+    /// The unsent composer draft, whole, with the revision a save carries back; an empty draft at
+    /// revision 0 before any draft was held.
+    pub held_draft: HeldSessionDraft,
     /// The whole staged set of files, so every device opens the same half-written message.
     pub attachments: Vec<SessionAttachmentSummary>,
     /// The session's own bound on the steps one turn may take; absent where the person set none,
@@ -802,8 +803,8 @@ methods! {
             result: EmptyPayload,
             refusals: [SessionNotFound, SessionRecoveryRefused],
         },
-        /// `Delete session` on a session whose history is damaged: every row of it goes, the copy
-        /// set aside before the repair stays.
+        /// `Delete session` on a session whose history is damaged, whose copy set aside before the
+        /// repair stays, or on one whose create never finished: every row of it goes at once.
         SessionRecoveryDelete = mutation "session.recovery.delete" {
             mutating: true,
             params: SessionTargetRequest,

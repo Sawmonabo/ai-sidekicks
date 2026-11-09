@@ -28,6 +28,7 @@ use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAt
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::tool_call_arguments::ToolCallArgumentStore;
 
 /// Claude Code's error word for a request refused for its login.
 pub(crate) const CLAUDE_LOGIN_REFUSAL: &str = "authentication_failed";
@@ -78,14 +79,16 @@ pub(crate) struct ClaudeSessionStream {
     // The rows the process recorded that wait for their price, behind a lock never held across an
     // await.
     pub(super) result_pricing: Mutex<ClaudeResultPricing>,
+    // The arguments of the process's calls awaiting their results, kept for their traces.
+    pub(super) tool_call_arguments: ToolCallArgumentStore,
 }
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound`, queuing onto `arrivals`, taking the mode reports into
     /// `permission_mode`, the process's record the live session shares, reading the goal of
-    /// `goal`'s lead from its conversation file, and reading its background calls' kept files from
-    /// `kept_calls`.
+    /// `goal`'s lead from its conversation file, reading its background calls' kept files from
+    /// `kept_calls`, and keeping its calls' arguments for their traces in `tool_call_arguments`.
     #[expect(
         clippy::too_many_arguments,
         reason = "the account, the bound and each part of the process the stream reads and shares"
@@ -99,6 +102,7 @@ impl ClaudeSessionStream {
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
         permission_mode: Arc<ClaudePermissionModeRecord>,
         kept_calls: ClaudeKeptCallsSource,
+        tool_call_arguments: ToolCallArgumentStore,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -116,6 +120,7 @@ impl ClaudeSessionStream {
             first_request: Mutex::new(None),
             kept_calls,
             result_pricing: Mutex::default(),
+            tool_call_arguments,
         }
     }
 

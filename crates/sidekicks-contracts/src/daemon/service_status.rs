@@ -118,7 +118,7 @@ impl DaemonStopStep {
                 "finishing the chats' updates"
             }
             Self::Terminals => "closing the terminals",
-            Self::SignIns => "finishing the sign-ins under way",
+            Self::SignIns => "ending the sign-ins under way",
             Self::Scheduler => "stopping the background jobs",
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",

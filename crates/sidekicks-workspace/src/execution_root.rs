@@ -59,6 +59,7 @@ use crate::git::worktree::creation::{
     NameCollision, WorktreeCreationError, WorktreeCreator, WorktreeNameRequest,
 };
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::rows::{newest_branch_context_join, standing_worktree_state_predicate};
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceError};
 use crate::git::worktree::setup::WorktreeSetupRunner;
 use crate::repo::errors::RepoRefusal;
@@ -72,22 +73,16 @@ pub const EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY: usize = 2;
 
 // The daemon's trees on the mount that stand ready to work in, each with the branches its newest
 // context recorded, which a workspace moving in carries over; the tree's own stand in before any.
-// A tree still being made is no move target, so the live predicate's `creating` is left out.
 static SELECT_STANDING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT tree.id, tree.fs_root,
         COALESCE(newest.base_branch, tree.base_ref),
         COALESCE(newest.head_branch, tree.branch_name)
    FROM worktrees AS tree
-   LEFT JOIN branch_contexts AS newest
-     ON newest.id = (SELECT context.id FROM branch_contexts AS context
-                      WHERE context.worktree_id = tree.id
-                      ORDER BY context.updated_at DESC, context.id DESC
-                      LIMIT 1)
-  WHERE tree.repo_mount_id = @repo_mount_id AND tree.state IN ('{}', '{}', '{}')",
-        <&'static str>::from(WorktreeState::Ready),
-        <&'static str>::from(WorktreeState::Dirty),
-        <&'static str>::from(WorktreeState::Merged),
+   {newest}
+  WHERE tree.repo_mount_id = @repo_mount_id AND {standing}",
+        newest = newest_branch_context_join("tree"),
+        standing = standing_worktree_state_predicate("tree"),
     )
 });
 

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sidekicks_contracts::event::declared_variants::ProviderBlock;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -16,6 +17,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
+use crate::driver::claude::delivery::streamed_blocks::{
+    ClaudeFrameBlocks, ClaudeStreamedResponses, read_stream_event,
+};
 use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
@@ -70,8 +74,12 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
 // What the lead frames so far say about the turn's reply.
 #[derive(Debug, Default)]
 struct OneTurnReading {
+    // The responses the lead streamed and the block each last started.
+    responses: ClaudeStreamedResponses,
     // The id of the last assistant message.
     provider_message_id: Option<String>,
+    // The block of the last assistant message the reply is.
+    provider_block: Option<ProviderBlock>,
     // The last refusal.
     refusal: Option<RunFailureCause>,
     // The text of the last compaction summary.
@@ -85,6 +93,8 @@ pub(crate) struct ClaudeOneTurnReply {
     pub(crate) text: String,
     /// The lead's last assistant message, the one the `result` text repeats.
     pub(crate) provider_message_id: Option<String>,
+    /// The block of that message the `result` text repeats.
+    pub(crate) provider_block: Option<ProviderBlock>,
     /// The turn's last refusal, as Claude Code reads a turn.
     pub(crate) refusal: Option<RunFailureCause>,
     /// The text of the summary a compaction in the turn wrote, where one did.
@@ -315,9 +325,10 @@ async fn answer_unwatched(
     .await;
 }
 
-// What a lead frame says of the reply, as Claude Code reads a turn: an assistant message's id and
-// the refusal it ends on, a refusal no other model took, and another model taking the refused
-// turn, which retracts the refusal.
+// What a lead frame says of the reply, as Claude Code reads a turn: an assistant message's id, its
+// block and the refusal it ends on, a refusal no other model took, and another model taking the
+// refused turn, which retracts the refusal. A streamed message's frame is the block the response
+// last started; a whole message's is its last text block.
 fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
     let frame_kind = frame.observation.frame_kind.as_str();
     if frame_kind == "system/model_refusal_fallback" {
@@ -330,12 +341,24 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
                 reading.compaction_summary = Some(summary);
             }
         }
+        "stream_event" => {
+            if let Some(event) = read_stream_event(&frame.text) {
+                reading.responses.observe(&event);
+            }
+        }
         "assistant" => {
             let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text) else {
                 return;
             };
             if let Some(id) = message.provider_message_id() {
                 reading.provider_message_id = Some(id.to_owned());
+                reading.provider_block =
+                    match reading.responses.take_frame(id, message.block_count()) {
+                        ClaudeFrameBlocks::Started(started) => started.provider_block(),
+                        ClaudeFrameBlocks::Unstarted { offset, attempt } => message
+                            .last_text_index()
+                            .and_then(|index| ProviderBlock::new(offset + index, attempt)),
+                    };
             }
             if let Some(refusal) = message.refusal() {
                 reading.refusal = Some(refusal);
@@ -381,6 +404,7 @@ fn read_reply(
     Ok(ClaudeOneTurnReply {
         text,
         provider_message_id: reading.provider_message_id,
+        provider_block: reading.provider_block,
         refusal: reading.refusal,
         compaction_summary: reading.compaction_summary,
     })

@@ -1,17 +1,22 @@
-//! WSL facts every system reads the same way: the WSL 2 distribution a Windows path names, and the
-//! path inside it. A distribution's folders are reached from Windows at `\\wsl.localhost\<distro>\`
-//! or `\\wsl$\<distro>\`, so the path's form says which distribution holds it and where.
+//! WSL facts every system reads the same way: the WSL 2 distribution a Windows path names and the
+//! path inside it, and the Windows drive path a `/mnt/<drive>` path names. A distribution's folders
+//! are reached from Windows at `\\wsl.localhost\<distro>\` or `\\wsl$\<distro>\`, so the path's
+//! form says which distribution holds it and where.
 //!
 //! Windows shows a Linux name holding a character NTFS forbids with that character moved into the
 //! private-use range from U+F000, and WSL moves it back when it turns such a path into a Linux one.
 //! `unescape_name` does the same, read from WSL 3.0.3's `src/linux/init/escape.cpp`: the
 //! character table at lines 27 to 156 and `UnescapePathInplace` at lines 298 to 340, which
 //! `UtilWinPathTranslateInternal` in `src/linux/init/util.cpp` runs on a `\\wsl.localhost\` or
-//! `\\wsl$\` path.
+//! `\\wsl$\` path. `drive_path_of` is the other way, read from the same release: `CollapsePath` in
+//! `src/linux/init/wslpath.cpp`, the drive folders `config.cpp` mounts, and `EscapePathForNt` in
+//! `escape.cpp`.
 
 use std::path::Path;
 
 use typed_path::{WindowsComponent, WindowsPath, WindowsPrefix};
+
+use crate::path::rules::PathRules;
 
 /// A folder inside a WSL distribution, read from its Windows form: the distribution's name and
 /// the folder's Linux path.
@@ -58,6 +63,55 @@ pub fn distribution_of(folder_path: &Path) -> Option<DistributionPath> {
     Some(DistributionPath { distro, linux_path })
 }
 
+/// The Windows drive path a `/mnt/<drive>/…` path names, as `wslpath -w` reads it under WSL's
+/// default drive mounts, or `None` for any other path. The path is folded first (`..` above the
+/// root refused), the drive is one lower-case letter, and each character WSL escapes moves to the
+/// private-use range: `/mnt/c/a:b` gives `C:\a\u{F03A}b`.
+pub fn drive_path_of(path: &str) -> Option<String> {
+    // A `//` start is a UNC share to Windows, never a drive mount.
+    let rooted = path
+        .strip_prefix('/')
+        .filter(|rest| !rest.starts_with('/'))?;
+    let mut names = Vec::new();
+    for name in rooted.split('/') {
+        match name {
+            "" | "." => {}
+            ".." => {
+                names.pop()?;
+            }
+            name => names.push(name),
+        }
+    }
+    let [mount, drive, rest @ ..] = names.as_slice() else {
+        return None;
+    };
+    let [letter @ b'a'..=b'z'] = drive.as_bytes() else {
+        return None;
+    };
+    if *mount != "mnt" {
+        return None;
+    }
+    let separator = PathRules::Windows.separator();
+    let mut drive_path = format!("{}:{separator}", char::from(letter.to_ascii_uppercase()));
+    for (index, name) in rest.iter().enumerate() {
+        if index > 0 {
+            drive_path.push(separator);
+        }
+        drive_path.extend(name.chars().map(escape_for_windows));
+    }
+    Some(drive_path)
+}
+
+// `character` as WSL writes it into a Windows name: moved to U+F000 plus itself where WSL escapes
+// it, else as it is.
+fn escape_for_windows(character: char) -> char {
+    match u8::try_from(character) {
+        Ok(byte) if is_escaped_by_wsl(byte) => char::from_u32(0xF000 | u32::from(byte))
+            .expect("U+F001 to U+F07F are Unicode scalar values"),
+        _ => character,
+    }
+}
+
 /// Whether WSL moves `byte` into the private-use range on Windows: a control character other than
 /// NUL, which a Linux name cannot hold, or one of `"*:<>?\|`.
 const fn is_escaped_by_wsl(byte: u8) -> bool {
@@ -94,7 +148,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{DistributionPath, distribution_of};
+    use super::{DistributionPath, distribution_of, drive_path_of};
 
     #[rstest]
     #[case::wsl_localhost(r"\\wsl.localhost\Ubuntu\home\me\x", Some(("Ubuntu", "/home/me/x")))]
@@ -119,5 +173,38 @@ mod tests {
             linux_path: linux_path.to_owned(),
         });
         assert_eq!(distribution_of(Path::new(path)), expected);
+    }
+
+    // Killed by the `/` to `\` join dropped (the first case), the root's `\` dropped (`/mnt/c`),
+    // the fold dropped (the two `..` cases that land, and `/mnt/c/..`), `..` let stop at the root
+    // (`/../mnt/c/x`), the escape dropped (`a:b`, `a\b`), any one character or either case taken
+    // (`/mnt/1/x`, `/mnt/C/x`), any name taken (`cc`, `wsl`), any first folder taken (`/home/c/x`,
+    // `/MNT/c/x`), or `//` read as the form.
+    #[rstest]
+    #[case::drive_path("/mnt/c/repos/app", Some(r"C:\repos\app"))]
+    #[case::drive_alone("/mnt/c", Some("C:\\"))]
+    #[case::drive_with_slash("/mnt/d/", Some("D:\\"))]
+    #[case::folded("/mnt/c/a/./b//c/../d/", Some(r"C:\a\b\d"))]
+    #[case::folded_into_another_drive("/mnt/c/../d/x", Some(r"D:\x"))]
+    #[case::escaped_colon("/mnt/c/a:b", Some("C:\\a\u{F03A}b"))]
+    #[case::escaped_backslash(r"/mnt/c/a\b", Some("C:\\a\u{F05C}b"))]
+    #[case::folded_out_of_the_drive("/mnt/c/..", None)]
+    #[case::above_the_root("/../mnt/c/x", None)]
+    #[case::mount_folder_alone("/mnt/", None)]
+    #[case::upper_case_drive("/mnt/C/x", None)]
+    #[case::two_letters("/mnt/cc/x", None)]
+    #[case::wsl_folder("/mnt/wsl/x", None)]
+    #[case::digit("/mnt/1/x", None)]
+    #[case::another_folder("/home/c/x", None)]
+    #[case::upper_case_mount("/MNT/c/x", None)]
+    #[case::unc_start("//mnt/c/x", None)]
+    #[case::relative("mnt/c/x", None)]
+    #[case::windows_drive(r"C:\repos", None)]
+    #[case::windows_share(r"\\server\share\x", None)]
+    fn reads_the_drive_path_a_drive_mount_path_names(
+        #[case] path: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(drive_path_of(path).as_deref(), expected);
     }
 }

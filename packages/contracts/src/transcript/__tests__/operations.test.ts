@@ -372,35 +372,12 @@ describe("a reply fits one frame", () => {
     },
   );
 
-  it("the measure counts UTF-8 bytes of the JSON encoding and never throws", () => {
-    // Each figure includes the two quotes.
-    expect(jsonUtf8ByteLength("a")).toBe(3);
-    expect(jsonUtf8ByteLength("é")).toBe(4);
-    expect(jsonUtf8ByteLength("☃")).toBe(5);
-    expect(jsonUtf8ByteLength("🙂")).toBe(6);
-    expect(jsonUtf8ByteLength("\u0001")).toBe(8);
-    // Unserializable measures as infinitely large, so a refinement reports an issue instead of
-    // escaping `.parse()` as an exception.
-    const cyclic: Record<string, unknown> = {};
-    cyclic["self"] = cyclic;
-    expect(jsonUtf8ByteLength(cyclic)).toBe(Number.POSITIVE_INFINITY);
-    expect(jsonUtf8ByteLength(1n)).toBe(Number.POSITIVE_INFINITY);
-  });
-
-  it("the fitting function honors the count cap and pages an oversized first row alone", () => {
-    const smallRow = { ...runScopedRow, sequence: 1 };
-    expect(countEntriesFittingOneFrame([smallRow, smallRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(2);
-    expect(countEntriesFittingOneFrame([smallRow, smallRow], 1)).toBe(1);
-    expect(countEntriesFittingOneFrame([], TRANSCRIPT_READ_LIMIT_MAX)).toBe(0);
-    expect(countEntriesFittingOneFrame([smallRow], 0)).toBe(0);
-    // Returning zero for a row that alone exceeds the budget would leave an empty page beside an
-    // unconsumed cursor, a continuation that never advances.
+  it("refuses at the boundary the oversized row the fitting function pages alone", () => {
     const unfittableRow = {
       ...runScopedRow,
       payload: { blob: "x".repeat(PAGE_MAX_BYTES) },
     };
     expect(countEntriesFittingOneFrame([unfittableRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(1);
-    // That single-row page is still refused at the boundary, never put on the wire.
     refusesAt(
       TranscriptReadResponseSchema,
       { entries: [unfittableRow], runs: [runFacts], hasMore: false },

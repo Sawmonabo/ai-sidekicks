@@ -26,6 +26,7 @@ use crate::driver::claude::event_normalizer::{
 use crate::driver::claude::handshake_register::{
     ClaudeHandshakeRegister, ClaudeSettledOutputSpeed,
 };
+use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::state::{
     ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeUsageEstablishment,
 };
@@ -59,6 +60,18 @@ pub(crate) struct ClaudeRoutedObservation {
     pub(crate) metered: Vec<ClaudeMeteredReading>,
     /// The output speed the session thread's handshake settled, for the run engine.
     pub(crate) settled_output_speed: Option<ClaudeSettledOutputSpeed>,
+}
+
+/// One frame handed back by the routing band with what it read off it, and each helper frame the
+/// frame's start of that helper released from its hold, with what was read off that frame, in
+/// arrival order, so the stream reads it as it would have been read unheld.
+pub(crate) struct ClaudeRoutedFrames {
+    /// The frame.
+    pub(crate) frame: ClaudeStreamFrame,
+    /// What the band read off it.
+    pub(crate) routed: ClaudeRoutedObservation,
+    /// The helper frames it released, each routed as its helper's.
+    pub(crate) released_helper_frames: Vec<(ClaudeStreamFrame, ClaudeRoutedObservation)>,
 }
 
 /// One metered change of a thread's usage, by the helper it came from.
@@ -235,20 +248,23 @@ impl ClaudeFrameRouting {
         let released = band
             .router
             .register_session_thread(provider_session_id.to_owned());
+        // The frames held for the session's own thread route as its own, so none is a helper's.
         Self::route_released(band, released);
     }
 
-    /// Routes one frame of `session_id`'s process and answers what the band read off it. A
-    /// helper's start registers its child before the frame routes, or the frame would be held for
-    /// its own registration; a helper's end completes it after, so the end is still kept out of
-    /// the session's transcript.
+    /// Routes one `frame` of `session_id`'s process and hands it back with what the band read off
+    /// it and the helper frames it released. A helper's start registers its child before the
+    /// frame routes, or the frame would be held for its own registration; a helper's end completes
+    /// it after, so the end is still kept out of the session's transcript.
     pub(crate) fn route_frame(
         &self,
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
-        observation: &declarations::ClaudeInboundFrameObservation,
-    ) -> ClaudeRoutedObservation {
+        frame: ClaudeStreamFrame,
+    ) -> ClaudeRoutedFrames {
+        let observation = &frame.observation;
+        let mut released_helper_frames = Vec::new();
         let mut routed = ClaudeRoutedObservation {
             route: ThreadFrameRoute::Quarantined,
             helper_lifecycle: Vec::new(),
@@ -294,7 +310,7 @@ impl ClaudeFrameRouting {
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart
         {
-            Self::register_helper(
+            released_helper_frames = Self::register_helper(
                 band,
                 session_id,
                 provider_session_id,
@@ -316,31 +332,36 @@ impl ClaudeFrameRouting {
                 &observation.frame_kind,
                 observation.cumulative_usage.is_some(),
             ),
-            observation: observation.clone(),
+            frame,
         };
         let route = band.router.route_frame(&frame, Instant::now());
         apply_route(band, &frame, &route, &mut routed);
         routed.route = route;
-        routed
+        ClaudeRoutedFrames {
+            frame: frame.frame,
+            routed,
+            released_helper_frames,
+        }
     }
 
-    // Registers a started helper's child thread at a zero usage base and reports its start once;
-    // a repeat announcement is recorded and starts nothing.
+    // Registers a started helper's child thread at a zero usage base and reports its start once,
+    // answering the helper's frames its registration released; a repeat announcement is recorded
+    // and starts nothing.
     fn register_helper(
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
         observation: &declarations::ClaudeInboundFrameObservation,
         routed: &mut ClaudeRoutedObservation,
-    ) {
+    ) -> Vec<(ClaudeStreamFrame, ClaudeRoutedObservation)> {
         let Some(signal) = observation.subagent_lifecycle.clone() else {
-            return;
+            return Vec::new();
         };
         let normalized = normalize_claude_subagent_lifecycle(signal, provider_session_id, |id| {
             band.router.child_attribution_for(id).is_some()
         });
         let Some(mut announcement) = normalized.announcement else {
-            return;
+            return Vec::new();
         };
         if announcement
             .waiting_call_id
@@ -355,7 +376,7 @@ impl ClaudeFrameRouting {
             ..
         } = band.router.register_child_thread(announcement)
         else {
-            return;
+            return Vec::new();
         };
         if band.accountant.has_thread(&child_thread_id) {
             // Establishing again would zero its register and count its spend twice.
@@ -376,13 +397,17 @@ impl ClaudeFrameRouting {
                 parent_tool_call_id: normalized.parent_tool_use_id,
             });
         }
-        Self::route_released(band, released_frames);
+        Self::route_released(band, released_frames)
     }
 
-    // Routes again each frame a registration released; what it metered waits for the next
-    // frame's routing to carry it, and its rows were a helper's own, which the session's
-    // transcript never shows.
-    fn route_released(band: &mut ClaudeSessionRoutingBand, released: Vec<ClaudeRoutableFrame>) {
+    // Routes again each frame a registration released, answering each that routes as a helper's
+    // own with what was read off it; what it metered waits for the next frame's routing to carry
+    // it.
+    fn route_released(
+        band: &mut ClaudeSessionRoutingBand,
+        released: Vec<ClaudeRoutableFrame>,
+    ) -> Vec<(ClaudeStreamFrame, ClaudeRoutedObservation)> {
+        let mut helper_frames = Vec::new();
         for frame in released {
             let route = band.router.route_frame(&frame, Instant::now());
             let mut released_routed = ClaudeRoutedObservation {
@@ -392,8 +417,15 @@ impl ClaudeFrameRouting {
                 settled_output_speed: None,
             };
             apply_route(band, &frame, &route, &mut released_routed);
-            band.usage_tally.unrouted.extend(released_routed.metered);
+            band.usage_tally
+                .unrouted
+                .extend(std::mem::take(&mut released_routed.metered));
+            if matches!(route, ThreadFrameRoute::ChildTranscript { .. }) {
+                released_routed.route = route;
+                helper_frames.push((frame.frame, released_routed));
+            }
         }
+        helper_frames
     }
 }
 
@@ -426,7 +458,7 @@ fn meter(
     band: &mut ClaudeSessionRoutingBand,
     frame: &ClaudeRoutableFrame,
 ) -> Option<ClaudeMeteredReading> {
-    let observation = &frame.observation;
+    let observation = &frame.frame.observation;
     let base = band.accountant.base_registers(&frame.thread_id)?;
     let messages = band
         .usage_tally
@@ -514,7 +546,7 @@ fn complete_ended_helpers(
     frame: &ClaudeRoutableFrame,
     routed: &mut ClaudeRoutedObservation,
 ) {
-    let observation = &frame.observation;
+    let observation = &frame.frame.observation;
     if let Some(signal) = &observation.subagent_lifecycle
         && signal.signal == ClaudeSubagentSignal::SubagentStop
     {

@@ -423,9 +423,9 @@ impl ClaudeSessionTask {
     }
 
     // The process is gone: its MCP server leg ends, what it held is forgotten, its stream's last
-    // rows sent, its held tool-server calls settled unless the daemon stops, and its slot let go
-    // unless a close or rewind already took it. An exit nothing asked for restarts the session; a
-    // rewind's fork that took the session keeps what it holds, its held calls included.
+    // rows sent, its held tool-server calls settled, or only traced as the daemon stops, and its
+    // slot let go unless a close or rewind already took it. An exit nothing asked for restarts the
+    // session; a rewind's fork that took the session keeps what it holds, its held calls included.
     async fn end(&self, end: &ClaudeProcessEnd) {
         let services = &self.services;
         let session_id = self.live.session_id;
@@ -455,7 +455,12 @@ impl ClaudeSessionTask {
         if is_superseded {
             return;
         }
-        if !services.restarts.is_stopped() {
+        if services.restarts.is_stopped() {
+            services
+                .delivery
+                .trace_stop_endings(&self.stream, held)
+                .await;
+        } else {
             services.delivery.settle_exit(&self.stream, held).await;
         }
         services.idle_sleep.note_process_ended(session_id);

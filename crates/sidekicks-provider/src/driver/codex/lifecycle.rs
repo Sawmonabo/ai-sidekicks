@@ -254,6 +254,7 @@ impl CodexDriver {
             command_capture: Arc::clone(&services.ports.command_capture),
             wrapper_program: command_wrapper_program_path(&link_folder),
             askpass_program: command_askpass_program_path(&link_folder),
+            tasks: tasks.clone(),
         });
         let exports = Arc::new(CodexExports::new(Arc::clone(&services.scheduler)));
         // One drain takes every service's exported responses to their sessions.
@@ -290,6 +291,7 @@ impl CodexDriver {
             provider_accounts: Arc::clone(&services.ports.provider_accounts),
             telemetry_target: Arc::clone(&services.ports.telemetry_target),
             exports: Arc::clone(&exports),
+            raw_messages: Arc::clone(&services.ports.raw_provider_messages),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
@@ -404,6 +406,7 @@ impl CodexDriver {
             effects,
             provider_accounts: Arc::clone(&ports.provider_accounts),
             pricing: Arc::clone(&self.pricing),
+            tool_traces: Arc::clone(&ports.tool_traces),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),

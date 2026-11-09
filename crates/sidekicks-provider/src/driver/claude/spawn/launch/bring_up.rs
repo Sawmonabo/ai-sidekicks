@@ -288,6 +288,7 @@ mod tests {
     use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
     use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
     use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+    use crate::driver::ports::DriverPorts;
     use crate::driver::test_registry::new_session_id;
     use crate::driver::test_registry::registered_test_accounts;
     use crate::process_registry::ProviderProcessRegistry;
@@ -415,6 +416,7 @@ mod tests {
             Arc::new(ProviderProcessRegistry::default()),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
             Arc::new(PortRegistration::new("telemetry target")),
+            DriverPorts::new().raw_provider_messages,
             folder.path(),
         );
 

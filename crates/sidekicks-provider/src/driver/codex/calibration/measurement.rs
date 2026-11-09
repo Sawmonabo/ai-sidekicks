@@ -379,6 +379,7 @@ async fn ask_one_turn(
             events,
             responder: None,
             token_refresher: None,
+            raw_messages: Arc::clone(&dependencies.raw_messages),
         },
         CODEX_CLIENT_NAME,
         dependencies.startup_timeout,

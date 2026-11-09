@@ -13,9 +13,7 @@ use sidekicks_mcp::client::McpClient;
 use sidekicks_platforms::volume_free_bytes;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
-use sidekicks_recovery::damaged_history::{
-    DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge,
-};
+use sidekicks_recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps, SessionDeletePurge};
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::RestartSettle;
 use sidekicks_recovery::stop_intent::StopIntentFile;
@@ -151,7 +149,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         writer: Arc::clone(&database.writer),
         projection_rebuild,
         restart_settle,
-        purge: Arc::clone(&purge) as Arc<dyn DamagedSessionPurge>,
+        purge: Arc::clone(&purge) as Arc<dyn SessionDeletePurge>,
         status: Arc::clone(&database.status),
         stop_intent,
     }));

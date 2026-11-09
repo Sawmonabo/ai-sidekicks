@@ -400,6 +400,7 @@ mod tests {
         TelemetrySignal, receive,
     };
     use crate::port::raw_provider_messages::RawProviderMessages;
+    use crate::port::raw_provider_messages::test_port::KeptRawMessages;
     use crate::pricing::receiver::bearers::{TelemetryBearer, TelemetryBearers, TelemetryHolderId};
 
     // A reader that keeps each export it takes, with the holder it was presented under.
@@ -413,24 +414,6 @@ mod tests {
             export: TelemetryExport,
         ) -> BoxFuture<'_, ()> {
             lock(&self.0).push((holder, export));
-            Box::pin(std::future::ready(()))
-        }
-    }
-
-    // A raw-messages port whose switch a test sets, keeping each message it records.
-    #[derive(Default)]
-    struct KeptRawMessages {
-        is_recording: AtomicBool,
-        messages: Mutex<Vec<(ProviderId, String)>>,
-    }
-
-    impl RawProviderMessages for KeptRawMessages {
-        fn is_recording(&self) -> bool {
-            self.is_recording.load(Ordering::SeqCst)
-        }
-
-        fn record(&self, provider: ProviderId, message: String) -> BoxFuture<'_, ()> {
-            lock(&self.messages).push((provider, message));
             Box::pin(std::future::ready(()))
         }
     }
@@ -737,9 +720,8 @@ mod tests {
     }
 
     // While raw messages are off the export reaches its reader and nothing is recorded; once on,
-    // the whole export is recorded once as OTLP JSON under its provider. Killed by recording the
-    // export while the switch is off. Reading the switch after the JSON is built is equivalent
-    // here and held by review.
+    // the whole export is recorded once as OTLP JSON under its provider. The fake keeps every
+    // message it is handed, so deleting the receiver's switch check kills it.
     #[tokio::test]
     async fn the_whole_export_is_recorded_only_while_raw_messages_are_on() {
         let served = serve().await;
@@ -751,12 +733,9 @@ mod tests {
             .expect("an answer");
         assert_eq!(off.status(), StatusCode::OK);
         assert_eq!(lock(&served.exports.0).len(), 1);
-        assert!(lock(&served.raw_messages.messages).is_empty());
+        assert_eq!(served.raw_messages.messages(), []);
 
-        served
-            .raw_messages
-            .is_recording
-            .store(true, Ordering::SeqCst);
+        served.raw_messages.set_recording(true);
         let on = served
             .export("/telemetry/codex/v1/logs")
             .body(logs_body())
@@ -764,7 +743,7 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(on.status(), StatusCode::OK);
-        let messages = lock(&served.raw_messages.messages);
+        let messages = served.raw_messages.messages();
         assert_eq!(messages.len(), 1);
         let (provider, message) = &messages[0];
         assert_eq!(provider, &codex());

@@ -1,9 +1,11 @@
 //! The sender over a test database, a test wall clock its retries are due on, the delivery
-//! secrets' keychain in memory and a receiver on a loopback port.
+//! secrets' keychain in memory and a receiver on a loopback port, on tokio's real clock, paused
+//! only to run out a timer. Each wait reads a signal: the machine's change count, the sender's
+//! passes, the settings' reads or the receiver's arrivals.
 
 use std::error::Error;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,11 +30,12 @@ use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use tempfile::TempDir;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::{RETRY_DELAYS, WebAddressSender, WebAddressSenderDependencies};
+use super::{Passes, RETRY_DELAYS, WebAddressSender, WebAddressSenderDependencies};
+use crate::attention::delivery::web_address::post::ANSWER_TIMEOUT;
 use crate::attention::delivery::web_address::queue::MAX_WAITING_MESSAGES;
 use crate::attention::delivery::web_address::receiver_double::{
     Answer, ReceivedRequests, closed_port, serve_answers,
@@ -44,8 +47,9 @@ use crate::attention::test_log::AttentionTestLog;
 
 mod settings_reads;
 
-// Long enough for a write and a read on a loaded machine, and for an attempt's 15 s timeout.
-const WAIT: Duration = Duration::from_secs(30);
+/// How long a wait runs before it fails naming what never came: short of nextest's two-minute
+/// kill, so a hang names itself, and no passing test comes near it.
+const WAIT_BOUND: Duration = Duration::from_secs(110);
 
 const DECIDE_SENT_SQL: &str = "INSERT INTO attention_deliveries
     (entry_id, banner_state, web_address_state, web_address_attempt_count)
@@ -55,7 +59,7 @@ const DECIDE_SENT_SQL: &str = "INSERT INTO attention_deliveries
 /// when the test says so, and the announcement of each change.
 struct TestSettings {
     settings: Mutex<MachineSettings>,
-    reads: AtomicUsize,
+    reads: watch::Sender<usize>,
     fails_next_read: AtomicBool,
     announce: watch::Sender<MachineSettings>,
 }
@@ -64,7 +68,7 @@ impl MachineSettingsReader for TestSettings {
     fn read_machine_settings(
         &self,
     ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.reads.send_modify(|reads| *reads += 1);
         let read = if self.fails_next_read.swap(false, Ordering::SeqCst) {
             Err("the test's settings file does not read".into())
         } else {
@@ -116,7 +120,7 @@ impl Fixture {
         machine_settings.notifications.web_address.enabled = true;
         let settings = Arc::new(TestSettings {
             settings: Mutex::new(machine_settings.clone()),
-            reads: AtomicUsize::new(0),
+            reads: watch::Sender::new(0),
             fails_next_read: AtomicBool::new(false),
             announce: watch::Sender::new(machine_settings),
         });
@@ -294,15 +298,25 @@ impl Fixture {
         read(&self.log.database.reader()).expect("the test's read runs")
     }
 
-    /// Waits until `holds` reads true, naming `what` when it never does.
+    fn passes(&self) -> Passes {
+        *self.sender().passes.borrow()
+    }
+
+    /// Waits until `holds` reads true, read again at each raise of the machine's count, which every
+    /// settle and try raises, and as each of the sender's passes begins and ends; `what` names the
+    /// wait if it never comes.
     async fn until(&self, what: &str, holds: impl Fn(&Self) -> bool) {
-        tokio::time::timeout(WAIT, async {
+        let mut count = self.log.changes.follow(None);
+        let mut passes = self.sender().passes.subscribe();
+        bounded(what, async {
             while !holds(self) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::select! {
+                    changed = count.changed() => changed.expect("the counts live with the fixture"),
+                    changed = passes.changed() => changed.expect("the passes live with the sender"),
+                }
             }
         })
-        .await
-        .unwrap_or_else(|_elapsed| panic!("{what}"));
+        .await;
     }
 
     /// Waits until `entry`'s delivery reads `state` after `tries` tries.
@@ -312,6 +326,34 @@ impl Fixture {
             |fixture| fixture.delivery(entry) == (Some(state.to_owned()), Some(tries)),
         )
         .await;
+    }
+
+    /// Waits until the settings file was read more than `reads` times.
+    async fn until_read(&self, reads: usize) {
+        bounded(
+            &format!("the settings file is read more than {reads} times"),
+            self.settings
+                .reads
+                .subscribe()
+                .wait_for(|read| *read > reads),
+        )
+        .await
+        .expect("the settings live with the fixture");
+    }
+
+    /// Waits until the sender rests between passes with more than `ended` of them ended, and
+    /// returns how many ended. A test's runtime runs one task at a time, so a wake the sender
+    /// already holds when a pass ends starts the next pass before the test reads the count.
+    async fn until_resting(&self, ended: u64) -> u64 {
+        self.until(
+            &format!("the sender rests past {ended} passes"),
+            |fixture| {
+                let passes = fixture.passes();
+                passes.begun == passes.ended && passes.ended > ended
+            },
+        )
+        .await;
+        self.passes().ended
     }
 }
 
@@ -328,7 +370,31 @@ fn delivery_keychain(folder: &Path, access: Arc<TestStoreAccess>) -> Arc<dyn Sec
 }
 
 fn requests(received: &ReceivedRequests) -> usize {
-    lock(received).len()
+    lock(&received.requests).len()
+}
+
+/// Waits until the address received `count` requests, read again as each one arrives.
+async fn until_received(received: &ReceivedRequests, count: usize) {
+    bounded(&format!("the address receives {count} requests"), async {
+        loop {
+            let arrived = received.arrived.notified();
+            tokio::pin!(arrived);
+            // Registered before the read, so an arrival between the read and the wait wakes it.
+            arrived.as_mut().enable();
+            if requests(received) >= count {
+                return;
+            }
+            arrived.await;
+        }
+    })
+    .await;
+}
+
+/// Runs `wait` to its end, failing naming `what` if it outlasts `WAIT_BOUND`.
+async fn bounded<Output>(what: &str, wait: impl Future<Output = Output>) -> Output {
+    tokio::time::timeout(WAIT_BOUND, wait)
+        .await
+        .unwrap_or_else(|_| panic!("waited {WAIT_BOUND:?} for what never came: {what}"))
 }
 
 fn result_row(
@@ -346,7 +412,7 @@ fn result_row(
 }
 
 /// How the address answers each try in a case of the attempt table.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 enum Address {
     Answering(Answer),
     Closed,
@@ -356,9 +422,10 @@ enum Address {
 // Every try's ending as the delivery, its message and the outcome row record it: a 2xx delivers,
 // any other ending is retried 5 s, 5 min and 30 min after it ended and the fourth gives up,
 // counted, its entry left present and unresolved. The address that never answers holds its try
-// while the wall clock moves 15 s on. Mutations: a redirect followed; a retry past the third, on
-// another schedule or due from the try's start; a keychain that does not open left uncounted; a
-// give-up left uncounted or its entry resolved; the sender woken by its own write.
+// while the wall clock moves 15 s on; tokio's clock, paused for that step alone, runs out the
+// answer's timeout. Mutations: a redirect followed; a retry past the third, on another schedule,
+// due from the try's start or tried before it is due; a keychain that does not open left uncounted;
+// a give-up left uncounted or its entry resolved; the sender woken by its own write.
 #[rstest]
 #[case::delivered(
     Address::Answering(Answer::Status(StatusCode::OK)),
@@ -389,9 +456,9 @@ async fn each_try_ends_as_the_address_answers(
     #[case] status: Option<i64>,
 ) {
     let (port, received) = match address {
-        Address::Answering(answer) => serve_answers(vec![answer]).await,
+        Address::Answering(ref answer) => serve_answers(vec![answer.clone()]).await,
         Address::Closed | Address::InAKeychainThatDoesNotOpen => {
-            (closed_port().await, ReceivedRequests::default())
+            (closed_port().await, Arc::default())
         }
     };
     let mut fixture = Fixture::new(port).await;
@@ -403,12 +470,11 @@ async fn each_try_ends_as_the_address_answers(
     let (run_id, entry) = fixture.waiting().await;
     fixture.start().await;
     if let Address::Answering(Answer::Hang) = address {
-        fixture
-            .until("the attempt reaches the address", |_| {
-                requests(&received) == 1
-            })
-            .await;
-        fixture.advance(Duration::from_secs(15));
+        until_received(&received, 1).await;
+        fixture.advance(ANSWER_TIMEOUT);
+        tokio::time::pause();
+        tokio::time::advance(ANSWER_TIMEOUT).await;
+        tokio::time::resume();
     }
 
     for tried in 1..=tries {
@@ -444,21 +510,26 @@ async fn each_try_ends_as_the_address_answers(
             "try {tried} is retried after {delay:?}"
         );
         if tried < tries {
-            fixture.advance(delay.saturating_sub(Duration::from_millis(1)));
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Once the pass rests, the timer wakes the sender at the due instant and no sooner.
+            fixture.until_resting(0).await;
             assert_eq!(
                 fixture.delivery(&entry).1,
                 Some(tried),
                 "no try before its delay"
             );
-            fixture.advance(Duration::from_millis(1));
+            assert_eq!(
+                fixture.sender().timer.instant(),
+                Some(fixture.clock.now() + delay),
+                "the retry is armed at its due instant"
+            );
+            fixture.advance(delay);
         }
     }
     if result == "delivered" {
         // The start's one pass, reading the switch once and again before its one attempt, delivered
         // it; the sender's own write woke no other.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(fixture.settings.reads.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture.until_resting(0).await, 1);
+        assert_eq!(*fixture.settings.reads.borrow(), 2);
     }
     if let Address::Answering(_) = address {
         assert_eq!(
@@ -466,7 +537,7 @@ async fn each_try_ends_as_the_address_answers(
             usize::try_from(tries).expect("a few tries")
         );
         assert!(
-            lock(&received)
+            lock(&received.requests)
                 .iter()
                 .all(|request| request.path_and_query == "/hook"),
             "a redirect is never followed"
@@ -600,8 +671,8 @@ async fn a_restart_sends_a_waiting_message_at_once_with_its_frozen_bytes() {
     fixture.start().await;
 
     fixture.until_delivery(&retried, "delivered", 2).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let requests = lock(&received).clone();
+    fixture.until_resting(0).await;
+    let requests = lock(&received.requests).clone();
     let [first, failed, resent] = requests.as_slice() else {
         panic!("three tries reached the address: {requests:?}");
     };
@@ -617,24 +688,19 @@ async fn a_restart_sends_a_waiting_message_at_once_with_its_frozen_bytes() {
 
 // Abandoning the attempt in flight under the secrets' lock returns once it ended, with nothing
 // written; with the address removed, its message is dropped uncounted. Mutations: the attempt not
-// abandoned, or its outcome written after the abandon.
+// abandoned, which holds the abandon until the answer's 15 s timeout writes `timedOut`; its outcome
+// written after the abandon.
 #[tokio::test]
 async fn an_abandoned_attempt_writes_nothing_and_a_removed_address_drops_its_message() {
     let (port, received) = serve_answers(vec![Answer::Hang]).await;
     let mut fixture = Fixture::new(port).await;
     fixture.start().await;
     let (_, entry) = fixture.waiting().await;
-    fixture
-        .until("the attempt reaches the address", |_| {
-            requests(&received) == 1
-        })
-        .await;
+    until_received(&received, 1).await;
 
     let sender = Arc::clone(fixture.sender());
     let held = sender.lock_secrets().await;
-    tokio::time::timeout(Duration::from_secs(5), sender.abandon_attempt(&held))
-        .await
-        .expect("the attempt is abandoned at once");
+    bounded("the attempt is abandoned", sender.abandon_attempt(&held)).await;
     assert_eq!(
         fixture.outcome(),
         None,
@@ -738,39 +804,35 @@ async fn a_waiting_message_whose_entry_went_is_dropped_uncounted() {
         Some(result_row("unreachable", None, None, 0)),
         "the drop counts nothing"
     );
-    fixture
-        .until("nothing is armed", |fixture| {
-            fixture.sender().timer.instant().is_none()
-        })
-        .await;
+    fixture.until_resting(0).await;
+    assert_eq!(fixture.sender().timer.instant(), None, "nothing is armed");
     fixture.stop().await;
 }
 
 // Removing the address while an attempt is in flight abandons it: no outcome and no message stay,
-// and the delivery reads undelivered, uncounted. Mutation: the removal leaving the attempt to end
-// and write its outcome.
+// and the delivery reads undelivered, uncounted. The address answers only once the removal
+// returned. Mutations: the removal leaving the attempt to end, which writes its `refused` outcome
+// once the answer comes; the removal waiting on the attempt without ending it, which returns only
+// at the answer's timeout, its try counted.
 #[tokio::test]
 async fn removing_the_address_abandons_the_attempt_in_flight() {
-    let (port, received) = serve_answers(vec![Answer::After(
-        Duration::from_secs(2),
+    let release = Arc::new(Notify::new());
+    let (port, received) = serve_answers(vec![Answer::Released(
+        Arc::clone(&release),
         StatusCode::INTERNAL_SERVER_ERROR,
     )])
     .await;
     let mut fixture = Fixture::new(port).await;
     fixture.start().await;
     let (_, entry) = fixture.waiting().await;
-    fixture
-        .until("the attempt reaches the address", |_| {
-            requests(&received) == 1
-        })
-        .await;
+    until_received(&received, 1).await;
 
-    tokio::time::timeout(Duration::from_secs(5), fixture.sender().remove_address())
+    bounded("the removal returns", fixture.sender().remove_address())
         .await
-        .expect("the removal ends the attempt at once")
         .expect("the removal is kept");
-    // Past the moment the address answers.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    release.notify_one();
+    // An attempt left running ends only after the answer, so the rest waits it out.
+    fixture.until_resting(0).await;
     assert_eq!(
         fixture.outcome(),
         None,

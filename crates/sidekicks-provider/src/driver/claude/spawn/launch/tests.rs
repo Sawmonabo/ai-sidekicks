@@ -28,6 +28,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::settings::private_file::compose_claude_settings_folder;
+use crate::driver::ports::DriverPorts;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
@@ -167,6 +168,7 @@ fn compose_launcher(
         Arc::new(ProviderProcessRegistry::default()),
         Arc::new(provider_accounts),
         Arc::new(telemetry_target),
+        DriverPorts::new().raw_provider_messages,
         folder,
     )
 }

@@ -2,6 +2,7 @@
 //! announcement, a read that fails during an attempt leaves it to run, and a pass whose read fails
 //! is passed again a minute later.
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -10,8 +11,9 @@ use rstest::rstest;
 use sidekicks_platforms::WallClock as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::armed_instant::ARM_RETRY_DELAY;
+use tokio::sync::Notify;
 
-use super::{Fixture, requests, result_row};
+use super::{Fixture, requests, result_row, until_received};
 use crate::attention::delivery::web_address::receiver_double::{Answer, serve_answers};
 use crate::attention::delivery::web_address::sender::{RETRY_DELAYS, SEND_RETRY_JOB};
 
@@ -67,9 +69,10 @@ async fn the_switch_off_drops_every_waiting_message_uncounted(#[case] when: Swit
         fixture.outcome(),
         Some(result_row("refused", None, Some(500), 0))
     );
+    let ended = fixture.until_resting(0).await;
     fixture.switch(true);
     fixture.advance(Duration::from_hours(1));
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    fixture.until_resting(ended).await;
     assert_eq!(requests(&received), 1, "nothing dropped is sent");
     fixture.stop().await;
 }
@@ -88,10 +91,10 @@ async fn the_file_decides_the_switch_over_its_announcement() {
     fixture.start().await;
 
     fixture.until_delivery(&entry, "delivered", 1).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    fixture.until_resting(0).await;
     assert_eq!(requests(&received), 1);
     assert_eq!(
-        fixture.settings.reads.load(Ordering::SeqCst),
+        *fixture.settings.reads.borrow(),
         2,
         "one pass and its one attempt read the file"
     );
@@ -99,32 +102,33 @@ async fn the_file_decides_the_switch_over_its_announcement() {
 }
 
 // A settings read that fails while an attempt is in flight is no change: the post completes once
-// and its message is delivered. Mutation: the failed read ending the attempt and failing the pass,
-// which leaves the message to a later post.
+// and its message is delivered. The address answers only once the failed read is done. Mutation:
+// the failed read ending the attempt and failing the pass, which leaves the message to a post a
+// minute later, a second request.
 #[tokio::test]
 async fn a_failed_read_during_an_attempt_leaves_it_to_run() {
+    let release = Arc::new(Notify::new());
     let (port, received) =
-        serve_answers(vec![Answer::After(Duration::from_secs(2), StatusCode::OK)]).await;
+        serve_answers(vec![Answer::Released(Arc::clone(&release), StatusCode::OK)]).await;
     let mut fixture = Fixture::new(port).await;
     fixture.start().await;
     let (_, entry) = fixture.waiting().await;
-    fixture
-        .until("the attempt reaches the address", |_| {
-            requests(&received) == 1
-        })
-        .await;
+    until_received(&received, 1).await;
     fixture
         .settings
         .fails_next_read
         .store(true, Ordering::SeqCst);
+    let reads = *fixture.settings.reads.borrow();
     // The same settings announced again, which the attempt reads the file for.
     fixture.switch(true);
-
-    fixture.until_delivery(&entry, "delivered", 1).await;
+    fixture.until_read(reads).await;
     assert!(
         !fixture.settings.fails_next_read.load(Ordering::SeqCst),
         "the attempt read the file at the announcement"
     );
+    release.notify_one();
+
+    fixture.until_delivery(&entry, "delivered", 1).await;
     assert_eq!(requests(&received), 1);
     fixture.stop().await;
 }

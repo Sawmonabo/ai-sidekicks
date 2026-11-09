@@ -10,7 +10,7 @@ use tokio::time::Instant;
 use super::{ClaudeDeliveryStream, ClaudeFirstRequest, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
-    read_claude_user_rows,
+    read_claude_user_rows, record_claude_traces,
 };
 use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
@@ -19,6 +19,7 @@ use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::goals::endings::{GoalEndingInput, is_goal_line};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::transport::declarations::ClaudeMessageUsageObservation;
+use crate::port::tool_traces::is_recording_tool_traces;
 use crate::run::delivery::LateAppendableRow;
 
 impl ClaudeDeliveryStream {
@@ -28,7 +29,7 @@ impl ClaudeDeliveryStream {
         &self,
         session: &ClaudeSessionStream,
         lead: &ClaudeBoundRun,
-        frame: &ClaudeMessageFrame,
+        frame: &mut ClaudeMessageFrame,
         usage: Option<&ClaudeMessageUsageObservation>,
     ) {
         self.dependencies
@@ -50,6 +51,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 lead,
                 &mut readings.open_tool_calls,
+                &session.tool_call_arguments,
                 Timestamp::now(),
             );
             // A goal line draws the goal row alone, never a message in the agent's own words.
@@ -74,6 +76,7 @@ impl ClaudeDeliveryStream {
                 .collect::<Vec<_>>();
             (pieces, rows, counts_step, tasks)
         };
+        session.tool_call_arguments.spill_past_bounds().await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }
@@ -102,7 +105,8 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
-        let (rows, tasks, stand_ins, arrival) = {
+        let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
+        let (rows, tasks, stand_ins, arrival, traces) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let is_turn_start = !readings.has_turn_message;
@@ -116,6 +120,7 @@ impl ClaudeDeliveryStream {
                 &mut readings.open_tool_calls,
                 &readings.tool_server_tasks,
                 Timestamp::now(),
+                is_tracing,
             );
             readings.failed_call_words.extend(reading.failed_results);
             let tasks = readings.turn_readings.observe_results(frame);
@@ -127,7 +132,7 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks, reading.held_stand_ins, arrival)
+            (rows, tasks, reading.held_stand_ins, arrival, reading.traces)
         };
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -152,6 +157,7 @@ impl ClaudeDeliveryStream {
         }
         publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
         self.admit_rows(session, rows, "user").await;
+        record_claude_traces(&self.dependencies.tool_traces, traces).await;
         self.send_backgrounded(session, stand_ins).await;
     }
 

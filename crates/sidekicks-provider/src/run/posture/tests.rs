@@ -157,6 +157,7 @@ fn run_context(session_id: SessionId, execution_posture: ExecutionPosture) -> Ru
         session_id,
         opening_words: None,
         workspace_id: None,
+        parent_run: None,
         execution_posture,
     }
 }

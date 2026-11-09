@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import { readCaseTable } from "./case-table.test-support.js";
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
-import { SCHEMA_FORMATS, wireByteLength } from "../schema-check.js";
+import { SCHEMA_FORMATS, ucs2length, wireByteLength } from "../schema-check.js";
+import { WEB_ADDRESS_FAULTS, webAddressFault } from "../web-address.js";
 
 describe("wireByteLength", () => {
   it("counts every attachment a nested placeholder names beside the JSON", () => {
@@ -21,37 +22,46 @@ describe("wireByteLength", () => {
   });
 });
 
-// The web-address case table the Rust checks read too, so the two sides cannot drift.
-interface WebAddressCaseTable {
-  readonly faults: readonly { readonly address: string; readonly fault: string | null }[];
-  readonly texts: readonly {
-    readonly name: string;
-    readonly text: string;
-    readonly web: string | null;
-    readonly https: string | null;
-  }[];
-}
+// The web-address case table the Rust checks read too, so the two sides cannot drift. Parsed, not
+// cast, so a fault outside the closed set fails here as it fails the Rust suite.
+const webAddressText = z
+  .object({
+    name: z.string(),
+    text: z.string(),
+    web: z.string().nullable(),
+    https: z.string().nullable(),
+  })
+  .strict();
 
-const webAddressCases = JSON.parse(
-  readFileSync(
-    new URL(
-      "../../../../crates/sidekicks-contracts/tests/fixtures/web-address.json",
-      import.meta.url,
-    ),
-    "utf8",
-  ),
-) as WebAddressCaseTable;
+const webAddressCases = readCaseTable(
+  z
+    .object({
+      faults: z.array(
+        z.object({ address: z.string(), fault: z.enum(WEB_ADDRESS_FAULTS).nullable() }).strict(),
+      ),
+      texts: z.array(webAddressText),
+      httpsCap: z.int().positive(),
+      capped: z.array(webAddressText.omit({ web: true })),
+    })
+    .strict(),
+  "web-address.json",
+);
 
 describe("SCHEMA_FORMATS", () => {
   // Each format is the parse half of its schema; a `pattern` beside it holds the rest (the
-  // `http` start of a web address, the NUL an https: address may not carry).
-  it("takes a web address only when it parses with an http: or https: scheme", () => {
-    const isWebAddress = SCHEMA_FORMATS["web-url"];
-    for (const { address, fault } of webAddressCases.faults) {
-      expect(isWebAddress(address), address).toBe(fault === null);
-    }
+  // `http` start of a web address, the NUL an https: address may not carry), and `maxLength`
+  // the cap, counted in code points.
+  it.each(webAddressCases.faults)(
+    "judges $address as a web address exactly when it draws no fault",
+    ({ address, fault }) => {
+      expect(webAddressFault(new URL(address))).toBe(fault);
+      expect(SCHEMA_FORMATS["web-url"](address)).toBe(fault === null);
+    },
+  );
+
+  it("takes every text the Rust web address type keeps", () => {
     for (const { name, text } of webAddressCases.texts.filter(({ web }) => web !== null)) {
-      expect(isWebAddress(text), name).toBe(true);
+      expect(SCHEMA_FORMATS["web-url"](text), name).toBe(true);
     }
   });
 
@@ -62,6 +72,15 @@ describe("SCHEMA_FORMATS", () => {
       expect(SCHEMA_FORMATS["https-url"](text), name).toBe(https !== null);
     }
   });
+
+  it.each(webAddressCases.capped)(
+    "takes $name as an https: address under the cap exactly where the Rust type keeps it",
+    ({ text, https }) => {
+      expect(
+        SCHEMA_FORMATS["https-url"](text) && ucs2length(text) <= webAddressCases.httpsCap,
+      ).toBe(https !== null);
+    },
+  );
 
   it("holds a number to its Rust integer type's range", () => {
     expect(SCHEMA_FORMATS.uint32.validate(0xffff_ffff)).toBe(true);

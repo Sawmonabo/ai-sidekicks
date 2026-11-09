@@ -7,6 +7,13 @@
     "expected": "running"
   },
   {
+    "note": "a waiting reading renewed at the stale bound still stands",
+    "activity": "waiting",
+    "activityRenewedAt": "2026-10-06T12:00:00.000Z",
+    "nowMs": 1791288045000,
+    "expected": "waiting"
+  },
+  {
     "note": "a running reading one millisecond past the stale bound reads idle",
     "activity": "running",
     "activityRenewedAt": "2026-10-06T12:00:00.000Z",

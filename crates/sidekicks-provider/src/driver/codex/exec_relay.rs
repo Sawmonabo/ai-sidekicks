@@ -5,11 +5,13 @@
 //! passes unchanged but two: a command's start, rewritten to run under the command wrapper, and a
 //! terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
-//! since the new service never reports the old one's items.
+//! since the new service never reports the old one's items. Once the executor ends, the relay
+//! answers its client itself, as `executor_end` says, and asks its service to start again.
 
 mod command_acts;
 mod endpoint;
 mod executor;
+mod executor_end;
 mod start_rewrite;
 mod terminate_hold;
 
@@ -30,9 +32,11 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
+use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd};
+use self::executor_end::compose_executor_ended_answer;
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
 use crate::command::running_set::RunningCommandSets;
@@ -93,6 +97,8 @@ pub(crate) struct CodexExecRelayDependencies {
     pub(crate) wrapper_program: PathBuf,
     /// The command askpass's link, absolute.
     pub(crate) askpass_program: PathBuf,
+    /// The driver's tracked tasks, which run what each executor's end does.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// The session a conversation of the relay's service belongs to and what kind it is; `None` for
@@ -152,6 +158,15 @@ struct ClientMessage<'message> {
     #[serde(borrow)]
     id: Option<&'message RawValue>,
     method: Option<String>,
+    #[serde(borrow)]
+    params: Option<&'message RawValue>,
+}
+
+// The process a start names.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartedProcess {
+    process_id: String,
 }
 
 /// One service's relay.
@@ -322,6 +337,12 @@ impl CodexExecRelay {
         }
     }
 
+    /// Acts as the relay does once its running executor ended, without ending one.
+    #[cfg(test)]
+    pub(crate) fn report_executor_ended(&self) {
+        (self.on_executor_ended)();
+    }
+
     /// How many process starts Codex sent through the relay.
     #[cfg(test)]
     pub(crate) fn process_starts(&self) -> u64 {
@@ -386,7 +407,8 @@ impl CodexExecRelay {
     }
 
     // Makes `executor` the relay's: every open channel admits the parties under it, and its end
-    // starts the service again. The former executor's commands end as its connection did.
+    // starts the service again and settles the client. The former executor's commands end as its
+    // connection did.
     fn take_executor(&self, executor: Arc<CodexExecutor>) {
         if let Some(process_id) = executor.process_id() {
             for channel in lock(&self.channels).values().filter_map(|cell| cell.get()) {
@@ -394,11 +416,22 @@ impl CodexExecRelay {
             }
         }
         let mut ended = executor.ended();
+        // Weak, so a relay let go of with its executor running still drops it, which ends it.
+        let watched = Arc::downgrade(&executor);
         let on_executor_ended = Arc::clone(&self.on_executor_ended);
+        let tasks = self.dependencies.tasks.clone();
+        // The wait itself is no tracked task, since an executor outlives the driver's shutdown,
+        // which waits for its tracked tasks; what the end does is one, so a shutdown waits for it.
         tokio::spawn(async move {
-            if ended.wait_for(|is_ended| *is_ended).await.is_ok() {
-                on_executor_ended();
+            if ended.wait_for(|is_ended| *is_ended).await.is_err() {
+                return;
             }
+            tasks.spawn(async move {
+                on_executor_ended();
+                if let Some(executor) = watched.upgrade() {
+                    executor.settle_client().await;
+                }
+            });
         });
         *lock(&self.executor) = Some(executor);
     }
@@ -411,8 +444,9 @@ impl CodexExecRelay {
     }
 
     /// Carries one of the client's messages to `executor`: an `initialize` is answered with the
-    /// executor's own, an `initialized` is already sent, a start and a terminate go through their
-    /// tasks, and everything else passes as it came.
+    /// executor's own, an `initialized` is already sent, a request once the executor ended is
+    /// answered with the error naming its end, a start and a terminate go through their tasks, and
+    /// everything else passes as it came.
     async fn take_client_message(&self, executor: &Arc<CodexExecutor>, text: String) {
         let line = one_line(text);
         let Ok(message) = serde_json::from_str::<ClientMessage<'_>>(&line) else {
@@ -422,18 +456,35 @@ impl CodexExecRelay {
         let Some(relay) = self.me.upgrade() else {
             return;
         };
-        match (message.id, message.method.as_deref()) {
-            (Some(id), Some(INITIALIZE_METHOD)) => {
-                let answer = json!({ "id": id, "result": executor.initialize_result() });
-                executor.answer_client(answer.to_string()).await;
+        let (Some(id), Some(method)) = (message.id, message.method.as_deref()) else {
+            if message.method.as_deref() != Some(INITIALIZED_METHOD) {
+                forward(executor, line).await;
             }
-            (None, Some(INITIALIZED_METHOD)) => {}
-            (Some(_), Some(PROCESS_START_METHOD)) => {
+            return;
+        };
+        if method == INITIALIZE_METHOD {
+            let answer = json!({ "id": id, "result": executor.initialize_result() });
+            executor.answer_client(answer.to_string()).await;
+            return;
+        }
+        let started_process = message
+            .params
+            .filter(|_params| method == PROCESS_START_METHOD)
+            .and_then(|params| serde_json::from_str::<StartedProcess>(params.get()).ok())
+            .map(|started| started.process_id);
+        if !executor.open_client_request(id.get(), started_process) {
+            executor
+                .answer_client(compose_executor_ended_answer(id.get()))
+                .await;
+            return;
+        }
+        match method {
+            PROCESS_START_METHOD => {
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
             }
-            (Some(_), Some(PROCESS_TERMINATE_METHOD)) => {
+            PROCESS_TERMINATE_METHOD => {
                 tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
             _ => forward(executor, line).await,
