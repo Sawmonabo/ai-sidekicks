@@ -6,11 +6,4 @@ pub(crate) mod account_switch;
 pub(crate) mod binding_switch;
 pub(crate) mod goal_service;
 pub(crate) mod provider_switch;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the session tools' handlers and the daemon's start"
-    )
-)]
 pub(crate) mod session_directory;

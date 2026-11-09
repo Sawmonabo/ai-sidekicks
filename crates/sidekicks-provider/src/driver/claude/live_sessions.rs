@@ -3,13 +3,7 @@
 //! Claude Code's, written while the daemon reads it and shaped by its version, so it is read at
 //! each call, never cached or watched, every field is optional, and a file that cannot be read
 //! still says a session is running there.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the send states read a status, and a terminal session's reply its folder"
-    )
-)]
+#![cfg_attr(not(test), expect(dead_code, reason = "the send states read a status"))]
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -23,7 +17,9 @@ use sidekicks_std::file::real_location::resolve_real_location;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::inbox::address::is_inbox_socket_name;
 use crate::driver::claude::spawn::environment::claude_config_folder;
+use crate::driver::contract::params_and_results::StandaloneTerminalSession;
 use crate::inbound_json::decode_inbound_json;
 use crate::lenient_json::read_lenient;
 
@@ -115,6 +111,37 @@ pub(crate) async fn read_live_sessions(config_folders: &[PathBuf]) -> Vec<Claude
         }
     }
     sessions
+}
+
+/// The sessions the registries under `config_folders` name that a person runs on their own, in
+/// [`read_live_sessions`]' order. A session the daemon hosts listens on a socket the daemon named,
+/// so one whose socket carries such a name is left out, as is one whose file names no id, which
+/// nothing could address.
+pub(crate) async fn read_standalone_sessions(
+    config_folders: &[PathBuf],
+) -> Vec<StandaloneTerminalSession> {
+    read_live_sessions(config_folders)
+        .await
+        .into_iter()
+        .filter(|session| !is_hosted(session))
+        .filter_map(|session| {
+            Some(StandaloneTerminalSession {
+                id: session.session_id?,
+                name: session.name,
+                folder: session.working_folder,
+            })
+        })
+        .collect()
+}
+
+// Whether `session` listens on a socket the daemon named, which only a process it started does.
+fn is_hosted(session: &ClaudeLiveSession) -> bool {
+    session
+        .socket
+        .as_deref()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .is_some_and(is_inbox_socket_name)
 }
 
 /// The sessions in `sessions` named `name`, in their order there; a name several sessions share
@@ -249,7 +276,8 @@ mod tests {
     use serde_json::json;
     use sidekicks_platforms::{make_folder_link, real_path};
 
-    use super::{by_name, by_socket, read_live_sessions};
+    use super::{by_name, by_socket, read_live_sessions, read_standalone_sessions};
+    use crate::driver::contract::params_and_results::StandaloneTerminalSession;
 
     // Writes `contents` as the registry file of `process_id` under `config_folder`.
     fn write_registry_file(config_folder: &Path, process_id: u32, contents: &str) {
@@ -339,6 +367,38 @@ mod tests {
                 .expect("the sockets' folders resolve")
                 .map(|session| session.process_id),
             Some(4101)
+        );
+    }
+
+    // Killed by the daemon's own sessions kept (the session on a daemon-named socket is answered
+    // too) and by a file with no id kept.
+    #[tokio::test]
+    async fn a_standalone_read_leaves_out_the_daemon_s_sessions_and_any_without_an_id() {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let config_folder = scratch.path().join("person");
+        write_registry_file(
+            &config_folder,
+            4301,
+            r#"{"sessionId":"s-hosted","name":"planner","cwd":"/work/app",
+                "messagingSocketPath":"/tmp/cc-socks/a0123456789abcde.sock"}"#,
+        );
+        write_registry_file(
+            &config_folder,
+            4302,
+            r#"{"sessionId":"s-typed","name":"tax-fix","cwd":"/work/tax",
+                "messagingSocketPath":"/tmp/cc-socks/4302.sock"}"#,
+        );
+        write_registry_file(&config_folder, 4303, r#"{"name":"no-id"}"#);
+
+        let sessions = read_standalone_sessions(&[config_folder]).await;
+
+        assert_eq!(
+            sessions,
+            vec![StandaloneTerminalSession {
+                id: "s-typed".to_owned(),
+                name: Some("tax-fix".to_owned()),
+                folder: Some(Path::new("/work/tax").to_path_buf()),
+            }]
         );
     }
 

@@ -37,7 +37,8 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
-    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StandaloneTerminalSession,
+    StartRunParams,
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{
@@ -707,6 +708,16 @@ pub trait ProviderDriver: Send + Sync {
     fn list_terminal_sessions(
         &self,
     ) -> BoxFuture<'_, Result<Vec<TerminalProviderSession>, DriverError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// The sessions a person typed in a terminal that run on their own, outside any service the
+    /// daemon runs, read as they are now; the sessions the daemon hosts are never among them.
+    /// Empty for a provider whose terminal sessions run only inside its shared service. Fails when
+    /// the provider's record of them cannot be read.
+    fn list_standalone_terminal_sessions(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<StandaloneTerminalSession>, DriverError>> {
         Box::pin(async { Ok(Vec::new()) })
     }
 

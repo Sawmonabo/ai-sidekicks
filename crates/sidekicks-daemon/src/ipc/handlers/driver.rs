@@ -1,8 +1,9 @@
 //! The driver methods a client calls: each installed provider's models and modes, the compaction
 //! of one run's context, the commands an agent's providers publish, and the provider sessions
-//! typed in a terminal with each one's provider words. A call that names a session is refused by
-//! the session first, then the run or agent it names, then the binding, and only then by a driver;
-//! the terminal sessions' list names none and is refused by none but a driver.
+//! typed in a terminal that a provider's shared service holds, with each one's provider words. A
+//! call that names a session is refused by the session first, then the run or agent it names, then
+//! the binding, and only then by a driver; the terminal sessions' list names none and is refused by
+//! none but a driver.
 
 use std::sync::Arc;
 
@@ -24,11 +25,12 @@ use sidekicks_contracts::provider::driver::methods::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{
-    ProviderTerminalSessionList, ProviderTerminalSessionListResponse, TerminalSessionProvider,
+    ProviderTerminalSessionList, ProviderTerminalSessionListResponse, TerminalProviderSession,
+    TerminalSessionProvider,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::agent::agent_not_found;
 use sidekicks_ipc::not_found::session::session_not_found;
@@ -54,10 +56,14 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
+use crate::orchestration::session_directory::{
+    SessionDirectory, SessionDirectoryError, SessionOrigin,
+};
+
 /// The statements the driver methods prepare on a read connection: the session's row, the lead's
-/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row
-/// and whether the log names an agent.
-pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 8;
+/// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row,
+/// whether the log names an agent, and the session directory's list of sessions.
+pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 9;
 
 /// What the driver methods read and act through.
 pub(crate) struct DriverMethodSources {
@@ -141,51 +147,80 @@ pub(crate) fn register_driver_methods(
         let sources = Arc::clone(&command_sources);
         async move { list_provider_commands(&sources, request).await }.boxed()
     })?;
-    let terminal_sources = Arc::clone(sources);
+    let directory = Arc::new(SessionDirectory {
+        pool: Arc::clone(&sources.pool),
+        providers: Arc::clone(&sources.providers),
+        read_damaged_from_sequence: Arc::clone(&sources.read_damaged_from_sequence),
+    });
+    let terminal_providers = Arc::clone(&sources.providers);
     registry.register::<ProviderTerminalSessionList, _>(
         move |_: EmptyPayload, _context: HandlerContext| {
-            let sources = Arc::clone(&terminal_sources);
-            async move { list_terminal_sessions(&sources).await }.boxed()
+            let directory = Arc::clone(&directory);
+            let providers = Arc::clone(&terminal_providers);
+            async move { list_terminal_sessions(&directory, &providers).await }.boxed()
         },
     )
 }
 
-// Every driver's sessions typed in a terminal, in the table's order, with the name and resume
-// command of each provider that has one; one driver's failed read fails the call, so a service
-// that is on never reads as holding none.
+// The directory's sessions typed in a terminal that a provider's shared service holds, in the
+// table's order, with the name and resume command of each provider that has one; a failed read of
+// the directory fails the call, so a service that is on never reads as holding none.
 async fn list_terminal_sessions(
-    sources: &DriverMethodSources,
+    directory: &SessionDirectory,
+    providers: &ProviderRegistry,
 ) -> Result<ProviderTerminalSessionListResponse, HandlerError> {
-    let lists = try_join_all(
-        sources
-            .providers
-            .drivers()
-            .map(|(provider, driver)| async move {
-                driver
-                    .list_terminal_sessions()
-                    .await
-                    .map(|sessions| (provider, sessions))
-            }),
-    )
-    .await?;
-    let mut providers = Vec::new();
-    let mut all_sessions = Vec::new();
-    for (provider, sessions) in lists {
-        if sessions.is_empty() {
+    let sessions: Vec<TerminalProviderSession> = directory
+        .read_entries()
+        .await
+        .map_err(directory_failure)?
+        .into_iter()
+        .filter_map(|entry| {
+            let SessionOrigin::TypedInTerminal {
+                shared_service_state: Some(state),
+            } = entry.origin
+            else {
+                return None;
+            };
+            let name = entry
+                .name
+                .expect("a shared service's session carries the name it listed");
+            Some(TerminalProviderSession {
+                provider: entry.provider,
+                name: ComposedText::new(name).expect("the name was listed as composed text"),
+                thread_id: ComposedText::new(entry.id)
+                    .expect("the thread id was listed as composed text"),
+                state,
+            })
+        })
+        .collect();
+    let mut terminal_providers = Vec::new();
+    for (provider, _) in providers.drivers() {
+        if !sessions.iter().any(|session| session.provider == *provider) {
             continue;
         }
-        let descriptor = sources.providers.descriptor(provider)?;
-        providers.push(TerminalSessionProvider {
+        let descriptor = providers.descriptor(provider)?;
+        terminal_providers.push(TerminalSessionProvider {
             provider: provider.clone(),
             name: declaration_text(descriptor.name()),
             resume_command: declaration_text(descriptor.terminal_resume_command()),
         });
-        all_sessions.extend(sessions);
     }
     Ok(ProviderTerminalSessionListResponse {
-        sessions: all_sessions,
-        providers,
+        sessions,
+        providers: terminal_providers,
     })
+}
+
+// A failed read of the directory as the call's answer: a driver's refusal under its own code, any
+// other failure a fault in the daemon.
+fn directory_failure(error: SessionDirectoryError) -> HandlerError {
+    match error {
+        SessionDirectoryError::TerminalSessions(failure) => HandlerError::from(failure),
+        fault @ (SessionDirectoryError::Read(_)
+        | SessionDirectoryError::Query(_)
+        | SessionDirectoryError::LocalMachine(_)
+        | SessionDirectoryError::NoLocalMachine) => HandlerError::Internal(Box::new(fault)),
+    }
 }
 
 // A descriptor's fixed words on the wire; the provider table's build check holds them to the

@@ -1,22 +1,27 @@
 //! The session directory: every session a session tool can name, the ones this daemon hosts on any
-//! provider and the ones a person typed in a terminal that a provider's shared service holds, and
-//! the one resolution of a name or id a model passes to the session it names.
+//! provider and the ones a person typed in a terminal, whether a provider's shared service holds
+//! them or they run on their own, and the one resolution of a name or id a model passes to the
+//! session it names.
 //!
 //! The directory keeps nothing between lookups: each lookup reads the sessions' rows, every
 //! driver's terminal sessions and this computer's name as they are then, so a session started or
 //! renamed, a terminal that left or a computer renamed since the daemon started is seen, and a
 //! restart has nothing to rebuild.
 
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use futures::future::try_join_all;
 use sidekicks_agent::tools::session::SessionReference;
 use sidekicks_agent::tools::session::errors::{SharedNameHolder, shared_name};
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
+use sidekicks_contracts::session::controls::methods::{
+    TerminalProviderSession, TerminalProviderSessionState,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::StandaloneTerminalSession;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_messages::no_session_named;
 use sidekicks_session::run::agent::read_session_lead;
@@ -29,10 +34,18 @@ use sidekicks_store::machine::local::{LocalMachineError, read_local_machine};
 use sidekicks_workspace::project::records::session_project_sql;
 
 /// The word `session_update` and `session_group` read as the calling session.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the session tools' handlers resolve a reference")
+)]
 const THIS_SESSION: &str = "this";
 
 /// Where the shared-name refusal places a session that belongs to no project: a chat, or a session
 /// typed in a terminal.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the session tools' handlers resolve a reference")
+)]
 const NO_PROJECT: &str = "no project";
 
 // Every session this daemon hosts that is not being purged, in the table's order, with its
@@ -53,7 +66,8 @@ static HOSTED_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct SessionDirectory {
     /// The daemon's read connections, which read the sessions' rows, their leads and this machine.
     pub(crate) pool: Arc<DatabaseReadPool>,
-    /// The drivers, each asked for the sessions a person typed in a terminal.
+    /// The drivers, each asked for the sessions a person typed in a terminal, those its shared
+    /// service holds and those that run on their own.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Where each session's log reads as damaged, so a lead is read from its readable part only.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
@@ -64,17 +78,21 @@ pub(crate) struct SessionDirectory {
 pub(crate) enum SessionOrigin {
     /// This daemon hosts it.
     Hosted,
-    /// A person typed it in a terminal, and a provider's shared service holds it.
-    TypedInTerminal,
+    /// A person typed it in a terminal.
+    TypedInTerminal {
+        /// Where it stands in the provider's shared service the daemon runs, where that service
+        /// holds it; `None` for a session that runs on its own.
+        shared_service_state: Option<TerminalProviderSessionState>,
+    },
 }
 
 /// One session a session tool can name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionDirectoryEntry {
-    /// The id a model names it by: the session's id, or the provider's thread id for a session
-    /// typed in a terminal.
+    /// The id a model names it by: the session's id, or the provider's id for a session typed in
+    /// a terminal.
     pub(crate) id: String,
-    /// Its name; `None` while a hosted session is unnamed, which only its id reaches.
+    /// Its name; `None` while it is unnamed, which only its id reaches.
     pub(crate) name: Option<String>,
     /// The provider it runs on.
     pub(crate) provider: ProviderId,
@@ -82,6 +100,9 @@ pub(crate) struct SessionDirectoryEntry {
     pub(crate) model: Option<String>,
     /// Its project's name; `None` for a chat and for a session typed in a terminal.
     pub(crate) project: Option<String>,
+    /// The folder a session typed in a terminal runs in, where its provider names it; `None` for a
+    /// hosted session.
+    pub(crate) folder: Option<PathBuf>,
     /// The name of the computer it runs on.
     pub(crate) computer: Arc<str>,
     /// Whether the person archived it.
@@ -92,6 +113,10 @@ pub(crate) struct SessionDirectoryEntry {
 
 /// How a tool reads a reference to the session calling it.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the session tools' handlers resolve a reference")
+)]
 pub(crate) enum CallerReference {
     /// The tool cannot act on the calling session and refuses it with this text, given the
     /// caller's name (`session_wait`, `session_stop`, `session_ask`).
@@ -117,17 +142,17 @@ pub(crate) enum SessionDirectoryError {
     /// This machine has no row, so its sessions have no computer to name.
     #[error("this machine's row is not recorded")]
     NoLocalMachine,
-    /// A driver's list of sessions typed in a terminal could not be read.
+    /// A driver's lists of sessions typed in a terminal could not be read.
     #[error(transparent)]
     TerminalSessions(#[from] DriverError),
 }
 
 impl SessionDirectory {
     /// Every session in the directory as it is now: the hosted ones in the table's order, then
-    /// each driver's sessions typed in a terminal in the drivers' order. A hosted session whose
-    /// readable log names no lead is bound to no provider here and is left out. Fails when a read
-    /// fails or a driver's terminal list cannot be read, so a lookup never misses a session it
-    /// would have named.
+    /// each driver's sessions typed in a terminal in the drivers' order, those its shared service
+    /// holds before those that run on their own. A hosted session whose readable log names no lead
+    /// is bound to no provider here and is left out. Fails when a read fails or a driver's terminal
+    /// lists cannot be read, so a lookup never misses a session it would have named.
     pub(crate) async fn read_entries(
         &self,
     ) -> Result<Vec<SessionDirectoryEntry>, SessionDirectoryError> {
@@ -138,16 +163,7 @@ impl SessionDirectory {
                     .ok_or(SessionDirectoryError::NoLocalMachine)
             },
             self.read_hosted_sessions(),
-            async {
-                Ok::<_, SessionDirectoryError>(
-                    try_join_all(
-                        self.providers
-                            .drivers()
-                            .map(|(_, driver)| driver.list_terminal_sessions()),
-                    )
-                    .await?,
-                )
-            },
+            self.read_terminal_sessions(),
         )?;
         let computer: Arc<str> = machine.name.into();
         let mut entries: Vec<SessionDirectoryEntry> = hosted
@@ -158,27 +174,77 @@ impl SessionDirectory {
                 provider: session.provider,
                 model: Some(session.model),
                 project: session.project,
+                folder: None,
                 computer: Arc::clone(&computer),
                 is_archived: session.state == SessionState::Archived,
                 origin: SessionOrigin::Hosted,
             })
             .collect();
-        entries.extend(
-            terminal
-                .into_iter()
-                .flatten()
-                .map(|session: TerminalProviderSession| SessionDirectoryEntry {
-                    id: session.thread_id.as_str().to_owned(),
-                    name: Some(session.name.as_str().to_owned()),
-                    provider: session.provider,
-                    model: None,
-                    project: None,
-                    computer: Arc::clone(&computer),
-                    is_archived: false,
-                    origin: SessionOrigin::TypedInTerminal,
-                }),
-        );
+        for DriverTerminalSessions {
+            provider,
+            in_service,
+            standalone,
+        } in terminal
+        {
+            entries.extend(
+                in_service
+                    .into_iter()
+                    .map(|session: TerminalProviderSession| SessionDirectoryEntry {
+                        id: session.thread_id.as_str().to_owned(),
+                        name: Some(session.name.as_str().to_owned()),
+                        provider: session.provider,
+                        model: None,
+                        project: None,
+                        folder: None,
+                        computer: Arc::clone(&computer),
+                        is_archived: false,
+                        origin: SessionOrigin::TypedInTerminal {
+                            shared_service_state: Some(session.state),
+                        },
+                    }),
+            );
+            entries.extend(
+                standalone
+                    .into_iter()
+                    .map(|session: StandaloneTerminalSession| SessionDirectoryEntry {
+                        id: session.id,
+                        name: session.name,
+                        provider: provider.clone(),
+                        model: None,
+                        project: None,
+                        folder: session.folder,
+                        computer: Arc::clone(&computer),
+                        is_archived: false,
+                        origin: SessionOrigin::TypedInTerminal {
+                            shared_service_state: None,
+                        },
+                    }),
+            );
+        }
         Ok(entries)
+    }
+
+    // Each driver's sessions typed in a terminal in the drivers' order, read together.
+    async fn read_terminal_sessions(
+        &self,
+    ) -> Result<Vec<DriverTerminalSessions<'_>>, SessionDirectoryError> {
+        let lists = try_join_all(
+            self.providers
+                .drivers()
+                .map(|(provider, driver)| async move {
+                    let (in_service, standalone) = tokio::try_join!(
+                        driver.list_terminal_sessions(),
+                        driver.list_standalone_terminal_sessions(),
+                    )?;
+                    Ok::<_, DriverError>(DriverTerminalSessions {
+                        provider,
+                        in_service,
+                        standalone,
+                    })
+                }),
+        )
+        .await?;
+        Ok(lists)
     }
 
     // The hosted sessions with a lead, each with its lead's provider and model, in one read.
@@ -218,6 +284,14 @@ impl SessionDirectory {
     }
 }
 
+// One driver's sessions typed in a terminal: those its shared service holds and those that run on
+// their own.
+struct DriverTerminalSessions<'registry> {
+    provider: &'registry ProviderId,
+    in_service: Vec<TerminalProviderSession>,
+    standalone: Vec<StandaloneTerminalSession>,
+}
+
 // One hosted session's directory facts as its row and its lead's binding give them.
 struct HostedSession {
     id: SessionId,
@@ -233,6 +307,10 @@ struct HostedSession {
 /// session has; a name several share is refused with each holder, and anything else, an address
 /// among it, is a name no session has. An id is matched before any name, and a name is never
 /// guessed among several. The error is the refusal's text for the model.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the session tools' handlers resolve a reference")
+)]
 pub(crate) fn resolve_session_reference<'directory>(
     entries: &'directory [SessionDirectoryEntry],
     caller: &SessionId,
@@ -285,6 +363,7 @@ pub(crate) fn resolve_session_reference<'directory>(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use futures::FutureExt as _;
@@ -301,6 +380,7 @@ mod tests {
     use sidekicks_contracts::wire::text::ComposedText;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::contract::params_and_results::StandaloneTerminalSession;
     use sidekicks_provider::driver::session_messages::no_session_named;
     use sidekicks_provider::driver::test_registry::registry_of_first_providers;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -326,6 +406,7 @@ mod tests {
             provider: provider(0),
             model: None,
             project: Some(project.to_owned()),
+            folder: None,
             computer: Arc::from("this Mac"),
             is_archived: false,
             origin: SessionOrigin::Hosted,
@@ -436,6 +517,18 @@ mod tests {
         first
             .expect_list_terminal_sessions()
             .returning(|| async { Ok(Vec::new()) }.boxed());
+        first
+            .expect_list_standalone_terminal_sessions()
+            .returning(|| {
+                async {
+                    Ok(vec![StandaloneTerminalSession {
+                        id: "s-typed".to_owned(),
+                        name: None,
+                        folder: Some(PathBuf::from("/work/tax")),
+                    }])
+                }
+                .boxed()
+            });
         let mut second = MockProviderDriver::new();
         second.expect_list_terminal_sessions().returning(|| {
             async {
@@ -448,6 +541,9 @@ mod tests {
             }
             .boxed()
         });
+        second
+            .expect_list_standalone_terminal_sessions()
+            .returning(|| async { Ok(Vec::new()) }.boxed());
         let directory = SessionDirectory {
             pool: Arc::new(DatabaseReadPool::new(database.path(), 8)),
             providers: Arc::new(registry_of_first_providers(vec![
@@ -467,6 +563,7 @@ mod tests {
                     entry.provider.clone(),
                     entry.model.as_deref(),
                     entry.project.as_deref(),
+                    entry.folder.as_deref().and_then(|folder| folder.to_str()),
                     &*entry.computer,
                     entry.is_archived,
                     entry.origin,
@@ -484,6 +581,7 @@ mod tests {
                     provider(0),
                     Some("test-model"),
                     None,
+                    None,
                     "this Mac",
                     false,
                     SessionOrigin::Hosted,
@@ -494,9 +592,23 @@ mod tests {
                     provider(1),
                     Some("test-model"),
                     None,
+                    None,
                     "this Mac",
                     true,
                     SessionOrigin::Hosted,
+                ),
+                (
+                    "s-typed",
+                    None,
+                    provider(0),
+                    None,
+                    None,
+                    Some("/work/tax"),
+                    "this Mac",
+                    false,
+                    SessionOrigin::TypedInTerminal {
+                        shared_service_state: None,
+                    },
                 ),
                 (
                     "thread-1",
@@ -504,9 +616,12 @@ mod tests {
                     provider(1),
                     None,
                     None,
+                    None,
                     "this Mac",
                     false,
-                    SessionOrigin::TypedInTerminal,
+                    SessionOrigin::TypedInTerminal {
+                        shared_service_state: Some(TerminalProviderSessionState::Idle),
+                    },
                 ),
             ]
         );

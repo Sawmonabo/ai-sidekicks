@@ -296,3 +296,15 @@ pub struct LeadBindingCheckParams {
     /// The session options, where the binding sets any.
     pub options: Option<ProviderOptionSettings>,
 }
+
+/// One session a person typed in a terminal that runs on its own, outside any service the daemon
+/// runs, as the provider's own record of its running sessions names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandaloneTerminalSession {
+    /// The provider's id for the session.
+    pub id: String,
+    /// The name other sessions address it by, where the record gives one.
+    pub name: Option<String>,
+    /// The folder it runs in, where the record gives one.
+    pub folder: Option<PathBuf>,
+}

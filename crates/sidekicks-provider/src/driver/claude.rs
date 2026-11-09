@@ -27,6 +27,9 @@ use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::live_sessions::{
+    read_claude_registry_folders, read_standalone_sessions,
+};
 use crate::driver::claude::mcp::config::compose_claude_mcp_entry;
 use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp_statuses};
 use crate::driver::claude::session::establishment::context::{
@@ -39,7 +42,8 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
-    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StandaloneTerminalSession,
+    StartRunParams,
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{
@@ -681,6 +685,24 @@ impl ProviderDriver for ClaudeDriver {
                 run_id,
                 tool_call_id: ToolCallId::new(tool_use_id.to_owned()).ok(),
             })
+        }
+        .boxed()
+    }
+
+    fn list_standalone_terminal_sessions(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<StandaloneTerminalSession>, DriverError>> {
+        async move {
+            let accounts = self
+                .sources
+                .ports
+                .provider_account_registry
+                .require_port()
+                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            let folders = read_claude_registry_folders(&self.sources.base_environment, accounts)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            Ok(read_standalone_sessions(&folders).await)
         }
         .boxed()
     }
