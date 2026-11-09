@@ -8,8 +8,8 @@
 // transcript's and each pane's frame at its place and width, with no body, since each reads the
 // session, and the composer's resting space held empty below them, so nothing moves when the store
 // opens. A pane another screen asked this session for (Review from a workflow run's page) opens
-// once the restore has landed. A save that failed raises one banner under the header; its code goes
-// to the window's diagnostic capture, as does every part of a saved arrangement the restore left
+// once the restore has landed. A save that failed raises one banner under the header, beside the
+// banners the session's standing notices raise; its code goes to the window's diagnostic capture, as does every part of a saved arrangement the restore left
 // closed. The screen is not remounted between two open sessions, so banners are scoped to (bridge,
 // session): the arriving session reads an empty column, and a bridge replacement clears it too.
 //
@@ -20,7 +20,7 @@
 
 import "./SessionScreen.css";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   diagnosticStampAt,
@@ -40,7 +40,9 @@ import { isUnreadableRecordRefusal } from "#renderer/store/persistence/durable-v
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 
 import { SessionHeader } from "./header/components/SessionHeader.js";
-import { SessionBannerRow } from "./components/SessionBannerRow.js";
+import { SessionBannerRow } from "./banners/components/SessionBannerRow.js";
+import { SessionNoticeBanners } from "./banners/components/SessionNoticeBanners.js";
+import { DismissedSessionNotices } from "./banners/dismissed-notices.js";
 import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
 import { PaneBody } from "./pane-layout/components/PaneBody.js";
@@ -60,7 +62,7 @@ import {
   raiseSessionBanner,
   sessionBannerKey,
   type SessionBanner,
-} from "./banners.js";
+} from "./banners/column.js";
 
 /** What the session screen is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
@@ -109,6 +111,16 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       );
     },
     [clock, settleBanners],
+  );
+
+  // Held by the screen, which is not remounted between sessions, so a notice put away stays away
+  // when the person comes back to its session.
+  const [dismissedNotices] = useState(() => new DismissedSessionNotices());
+  const folderReadRefused = useCallback(
+    (repoMountId: string, refusal: Refusal) => {
+      recordRefusal(clock, "lost-folder-not-read", `mount ${repoMountId}`, refusal);
+    },
+    [clock],
   );
 
   const dismiss = useCallback(
@@ -221,8 +233,23 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       <div className="meridian-session-screen__head">
         <SessionHeader sessionId={sessionId} />
         {banners.map((banner) => (
-          <SessionBannerRow key={sessionBannerKey(banner)} banner={banner} onDismiss={dismiss} />
+          <SessionBannerRow
+            key={sessionBannerKey(banner)}
+            words={banner.words}
+            onDismiss={() => {
+              dismiss(sessionBannerKey(banner));
+            }}
+          />
         ))}
+        {props.sessionStore === undefined || sessionId === undefined ? null : (
+          <SessionNoticeBanners
+            bridge={props.bridge}
+            sessionId={sessionId}
+            sessionStore={props.sessionStore}
+            dismissed={dismissedNotices}
+            onFolderReadRefused={folderReadRefused}
+          />
+        )}
         {props.sessionStore === undefined ? null : (
           <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
         )}

@@ -1,6 +1,7 @@
 // The newest event of each kind a standing fact is read from, held apart from the window: a run's
 // newest window measurement and compaction, a shell's newest change of holder, each event that
-// brought an agent into the session, and each agent's newest switch of provider binding. The window
+// brought an agent into the session, each agent's newest switch of provider binding, the newest
+// notice a session banner stands on, and each mount's newest change of health. The window
 // lets go of rows far from the reader and the tail detaches, but these facts stand until a newer
 // event of the same kind and subject replaces them, so the store keeps the events and every reader
 // folds them as it would the log.
@@ -22,6 +23,14 @@ import {
 } from "./events/context-window-reading.js";
 import { readResolvedAgentId } from "./events/run/entity-body.js";
 import { RUN_QUEUED_EVENT_KIND } from "./events/run/state-kinds.js";
+
+/** The event a session's notice arrives as. */
+export const SESSION_NOTICE_EVENT_KIND: Extract<SessionEventType, "session.notice.posted"> =
+  "session.notice.posted";
+
+/** The event a mount's changed health arrives as, on the stream of every session on it. */
+export const MOUNT_HEALTH_EVENT_KIND: Extract<SessionEventType, "repoMount.health.changed"> =
+  "repoMount.health.changed";
 
 /**
  * The event kind of the session's birth, which brings the lead into the session. Typed against the
@@ -86,6 +95,27 @@ function standingSubjectOf(event: ProjectedSessionEvent): string | undefined {
       return readResolvedAgentId(event.payload);
     case AGENT_PROVIDER_BINDING_CHANGED_EVENT:
       return readWireString(event.payload?.["agentId"]);
+    // The notices a banner stands on, newest per kind and provider: a crash loop, the restart that
+    // ends it, and settings the provider ignored.
+    case SESSION_NOTICE_EVENT_KIND:
+      return standingNoticeSubjectOf(event.payload);
+    case MOUNT_HEALTH_EVENT_KIND:
+      return readWireString(event.payload?.["repoMountId"]);
+    default:
+      return undefined;
+  }
+}
+
+// A notice's kind and provider, for the kinds a session banner stands on.
+function standingNoticeSubjectOf(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  const kind = payload?.["kind"];
+  switch (kind) {
+    case "providerCrashLoop":
+    case "providerRestarted":
+    case "settingsIgnored":
+      return `${kind} ${readWireString(payload?.["provider"]) ?? UNNAMED_SUBJECT}`;
     default:
       return undefined;
   }

@@ -133,10 +133,19 @@ pub struct SettingsIgnoredAtLineNotice {
     )]
     #[schemars(with = "Never")]
     pub key: Option<Never>,
+    /// The provider's own words for what it ignored, quoted from its report, where it gave any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub text: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 /// A provider started without part of its own settings, by a report naming a file and the key with
-/// the bad value, each where known and never a line; quoted from the provider's report.
+/// the bad value, each where known and never a line, or neither, where its own words alone say
+/// what it ignored; quoted from the provider's report.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
@@ -171,6 +180,14 @@ pub struct SettingsIgnoredAtKeyNotice {
     )]
     #[schemars(with = "Never")]
     pub line: Option<Never>,
+    /// The provider's own words for what it ignored, quoted from its report, where it gave any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub text: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
 }
 
 /// Which kind of notice a provider warning came from: a warning, a deprecation notice, or the
@@ -451,14 +468,14 @@ impl SessionNotice {
 
 /// The `session.notice.posted` payload. Its kinds are a closed set, each drawn as one plain
 /// sentence; `settingsIgnored` takes one shape per kind of report: a file and a line, or a file and
-/// a key.
+/// a key, each where known.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
 pub enum SessionNoticePostedPayload {
     /// A provider ignored part of its settings, by a report naming a file and a line.
     SettingsIgnoredAtLine(SettingsIgnoredAtLineNotice),
-    /// A provider ignored part of its settings, by a report naming a file and a key.
+    /// A provider ignored part of its settings, by a report naming a file and a key where known.
     SettingsIgnoredAtKey(SettingsIgnoredAtKeyNotice),
     /// Every other notice.
     Notice(#[garde(dive)] SessionNotice),

@@ -10,7 +10,7 @@ import {
   raiseSessionBanner,
   sessionBannerKey,
   type SessionBanner,
-} from "./banners.js";
+} from "./column.js";
 
 const OTHER_BANNER: SessionBanner = { words: ["Pane layout not saved", "it will save later"] };
 

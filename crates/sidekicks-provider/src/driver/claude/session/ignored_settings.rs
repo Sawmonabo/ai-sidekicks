@@ -72,6 +72,8 @@ pub(crate) async fn find_ignored_setting_notice(
                     .expect("the retention key is a word"),
             ),
             line: None,
+            // The retention check reads a number back; no report gives words for it.
+            text: None,
         }),
         failures,
     }

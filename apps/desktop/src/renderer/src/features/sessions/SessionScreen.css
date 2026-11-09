@@ -94,6 +94,11 @@
   color: var(--meridian-text);
 }
 
+/* A refused act, said beside its word. */
+.meridian-session-screen__banner-refusal {
+  color: var(--meridian-red-text);
+}
+
 /* A column, so the composer inside gives way to the row's height on a short window. */
 .meridian-session-screen__composer {
   display: flex;

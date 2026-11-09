@@ -11,8 +11,8 @@ use sidekicks_contracts::event::usage::{
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::session::controls::events::{
-    ProviderWarningSource, SessionNotice, SessionNoticePostedPayload, SettingsIgnoredAtLineNotice,
-    SettingsIgnoredKind,
+    ProviderWarningSource, SessionNotice, SessionNoticePostedPayload, SettingsIgnoredAtKeyNotice,
+    SettingsIgnoredAtLineNotice, SettingsIgnoredKind,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -138,9 +138,9 @@ pub(crate) fn read_codex_deprecation_notice(
     ))
 }
 
-/// Reads a `configWarning` as the setting Codex ignored, by its file and first line; one that
-/// names no file and line is a warning in Codex's own words. `None` when it carries no words
-/// either.
+/// Reads a `configWarning` as the settings Codex ignored, in Codex's own summary: by its file and
+/// first line where it names both, by its file alone where it names no line, and by its words alone
+/// where it names no file. `None` when it carries neither a file nor words.
 pub(crate) fn read_codex_config_warning(
     session_id: SessionId,
     params: &Map<String, Value>,
@@ -153,25 +153,33 @@ pub(crate) fn read_codex_config_warning(
         .and_then(Value::as_object)
         .and_then(|start| read_count(start, "line"))
         .and_then(SafeInt::new);
-    if let Some((file, line)) = file.zip(line) {
-        return Some(SessionNoticePostedPayload::SettingsIgnoredAtLine(
+    let text = read_non_empty_string(params, "summary").and_then(provider_words);
+    let provider = DESCRIPTOR.provider_id();
+    match (file, line) {
+        (Some(file), Some(line)) => Some(SessionNoticePostedPayload::SettingsIgnoredAtLine(
             SettingsIgnoredAtLineNotice {
                 session_id,
                 kind: SettingsIgnoredKind::Value,
-                provider: DESCRIPTOR.provider_id(),
+                provider,
                 file,
                 line,
                 key: None,
+                text,
             },
-        ));
+        )),
+        (None, _) if text.is_none() => None,
+        (file, _) => Some(SessionNoticePostedPayload::SettingsIgnoredAtKey(
+            SettingsIgnoredAtKeyNotice {
+                session_id,
+                kind: SettingsIgnoredKind::Value,
+                provider,
+                file,
+                key: None,
+                line: None,
+                text,
+            },
+        )),
     }
-    let summary = read_non_empty_string(params, "summary").and_then(provider_words)?;
-    Some(provider_warning(
-        session_id,
-        ProviderWarningSource::Warning,
-        summary,
-        params,
-    ))
 }
 
 // The session's provider warning in `text`, with the frame's `details` where it sent some.
@@ -187,4 +195,53 @@ fn provider_warning(
         text,
         details: read_non_empty_string(params, "details").and_then(provider_words),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+
+    use super::read_codex_config_warning;
+
+    // A config warning names its file and line where Codex gives both, and otherwise carries
+    // Codex's own summary as the notice's words, so a warning naming no file still reaches the
+    // session as settings it ignored rather than as a generic warning.
+    #[rstest]
+    #[case::file_and_line(
+        json!({"summary": "Invalid configuration; using defaults", "path": "/home/a/config.toml",
+            "range": {"start": {"line": 4, "column": 1}}}),
+        Some(json!({"kind": "settingsIgnored", "provider": "codex", "file": "/home/a/config.toml",
+            "line": 4, "text": "Invalid configuration; using defaults"}))
+    )]
+    #[case::file_alone(
+        json!({"summary": "Invalid configuration; using defaults", "path": "/home/a/config.toml"}),
+        Some(json!({"kind": "settingsIgnored", "provider": "codex", "file": "/home/a/config.toml",
+            "text": "Invalid configuration; using defaults"}))
+    )]
+    #[case::words_alone(
+        json!({"summary": "Invalid configuration; using defaults"}),
+        Some(json!({"kind": "settingsIgnored", "provider": "codex",
+            "text": "Invalid configuration; using defaults"}))
+    )]
+    #[case::nothing(json!({"details": "unknown field"}), None)]
+    fn a_config_warning_reads_as_the_settings_codex_ignored(
+        #[case] params: Value,
+        #[case] expected: Option<Value>,
+    ) {
+        let session_id =
+            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let Value::Object(params) = params else {
+            unreachable!("each case's params are an object")
+        };
+        let notice = read_codex_config_warning(session_id, &params)
+            .map(|notice| serde_json::to_value(notice).expect("a notice serializes"));
+        let expected = expected.map(|mut expected| {
+            expected["sessionId"] = json!(session_id);
+            expected
+        });
+        assert_eq!(notice, expected);
+    }
 }
