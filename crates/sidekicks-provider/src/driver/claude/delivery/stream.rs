@@ -44,6 +44,9 @@ use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::file_tool_writes::{
+    open_file_tool_writes, settle_file_tool_writes,
+};
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows, record_claude_traces,
@@ -495,6 +498,7 @@ impl ClaudeDeliveryStream {
             self.send_pieces(session, &turn.binding_id, pieces).await;
         }
         self.send_rows(session, released, None).await;
+        self.settle_open_file_tool_writes(session).await;
         let held = {
             let mut readings = session.lock();
             readings.daemon_ended.clear();
@@ -515,6 +519,15 @@ impl ClaudeDeliveryStream {
         }
         self.dependencies.context.forget_session(session.session_id);
         held
+    }
+
+    // Settles every file-tool call still open on the session `Unread`, as no result will come.
+    async fn settle_open_file_tool_writes(&self, session: &ClaudeSessionStream) {
+        let settled = session
+            .lock()
+            .file_tool_writes
+            .settle_all_unread(session.session_id);
+        settle_file_tool_writes(&self.dependencies.file_tool_writes, settled).await;
     }
 
     async fn mark_initialized(
@@ -571,9 +584,13 @@ impl ClaudeDeliveryStream {
             .observe_assistant_error(lead.run_id, frame.error())
             .await;
         let provider_account_id = session.provider_account_id();
-        let (pieces, rows, counts_step, tasks) = {
+        let (pieces, rows, counts_step, tasks, opened_writes) = {
             let mut readings = session.lock();
             readings.has_turn_message = true;
+            // Read before the rows move each call's input off the frame.
+            let opened_writes = readings
+                .file_tool_writes
+                .open_calls(frame, session.session_id);
             readings.command_tasks.observe_calls(frame);
             let tasks = readings.turn_readings.observe_calls(frame);
             // As Claude Code reads a turn, its last refused message is the turn's refusal.
@@ -608,8 +625,9 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (pieces, rows, counts_step, tasks)
+            (pieces, rows, counts_step, tasks, opened_writes)
         };
+        open_file_tool_writes(&self.dependencies.file_tool_writes, opened_writes).await;
         session.tool_call_arguments.spill_past_bounds().await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -640,7 +658,7 @@ impl ClaudeDeliveryStream {
         frame: &ClaudeMessageFrame,
     ) {
         let is_tracing = is_recording_tool_traces(&self.dependencies.tool_traces);
-        let (rows, tasks, stand_ins, arrival, traces) = {
+        let (rows, tasks, stand_ins, arrival, traces, settled_writes) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let is_turn_start = !readings.has_turn_message;
@@ -653,6 +671,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 &mut readings.open_tool_calls,
                 &readings.tool_server_tasks,
+                &mut readings.file_tool_writes,
                 Timestamp::now(),
                 is_tracing,
             );
@@ -666,8 +685,16 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks, reading.held_stand_ins, arrival, reading.traces)
+            (
+                rows,
+                tasks,
+                reading.held_stand_ins,
+                arrival,
+                reading.traces,
+                reading.file_tool_writes,
+            )
         };
+        settle_file_tool_writes(&self.dependencies.file_tool_writes, settled_writes).await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }

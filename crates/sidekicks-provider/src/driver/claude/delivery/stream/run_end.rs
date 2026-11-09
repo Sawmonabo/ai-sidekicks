@@ -115,10 +115,10 @@ impl ClaudeDeliveryStream {
     }
 
     // The turn's end, through the gate once per turn: the calls a resume rebuilt that no list has
-    // left out and the process has not restored end with the process first, what streamed and
-    // what the buffer holds go out next, the reviewer's blocks are captured at Reviewed, and the
-    // composed end is delivered, held, carried or written alone. Answers the run whose turn did
-    // not fit even after compaction.
+    // left out and the process has not restored end with the process first, every file-tool call
+    // still open settles unread, what streamed and what the buffer holds go out next, the
+    // reviewer's blocks are captured at Reviewed, and the composed end is delivered, held, carried
+    // or written alone. Answers the run whose turn did not fit even after compaction.
     pub(super) async fn end_turn(
         &self,
         session: &ClaudeSessionStream,
@@ -136,6 +136,7 @@ impl ClaudeDeliveryStream {
                 .end_unrestored(restored.iter().map(String::as_str))
         };
         self.close_held_calls(session, unrestored, "result").await;
+        self.settle_open_file_tool_writes(session).await;
         // Read to the file's end first, so an outcome written just before the `result` counts.
         let has_goal_record = self.read_goal_records(session).await;
         let (turn_number, run_version, pieces, released, failed_call_words) = {

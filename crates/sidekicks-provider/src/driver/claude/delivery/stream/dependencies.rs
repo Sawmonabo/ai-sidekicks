@@ -16,6 +16,7 @@ use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
+use crate::port::file_tool_write::FileToolWritePort;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
@@ -63,4 +64,6 @@ pub(crate) struct ClaudeStreamDependencies {
         Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     /// Where each answered tool call's trace goes once registered.
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
+    /// Where each file-tool call is opened and settled once the chat versions are registered.
+    pub(crate) file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
 }

@@ -9,6 +9,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeMessageFrame, ClaudeMessageRowKind, ClaudeOpenToolCall, read_claude_user_rows};
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::run::delivery::LateAppendableRow;
@@ -48,6 +49,7 @@ fn a_patch_completion_names_its_file_in_omitted_patches() {
         SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
         &mut open_tool_calls,
         &ClaudeToolServerTasks::default(),
+        &mut ClaudeFileToolWrites::default(),
         Timestamp::now(),
         false,
     );

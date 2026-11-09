@@ -20,6 +20,7 @@ use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandTasks;
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::mcp_tasks::restored_calls::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::messages::{
@@ -181,6 +182,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) open_tool_calls: HashMap<String, ClaudeOpenToolCall>,
     /// The tool calls the helpers started and have not answered, kept for their traces.
     pub(crate) helper_tool_calls: ClaudeHelperToolCalls,
+    /// The file-tool calls the lead and the helpers opened on a path and have not settled.
+    pub(crate) file_tool_writes: ClaudeFileToolWrites,
     /// The rows held for their tool call's start.
     pub(crate) buffer: NormalizedEventReorderBuffer<ClaudeRowDelivery>,
     /// The turn the stream opened, until its end.
@@ -253,6 +256,7 @@ impl ClaudeStreamSession {
         Self {
             open_tool_calls: HashMap::new(),
             helper_tool_calls: ClaudeHelperToolCalls::default(),
+            file_tool_writes: ClaudeFileToolWrites::default(),
             buffer: NormalizedEventReorderBuffer::new(
                 DESCRIPTOR.provider_id(),
                 CLAUDE_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,

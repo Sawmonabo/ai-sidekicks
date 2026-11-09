@@ -447,6 +447,44 @@ async fn the_started_client_reads_prompts_and_stops_before_the_database_closes()
     stopped.expect("the stop fails nothing");
 }
 
+// The started daemon hands the drivers' file-tool port the chats' file versions, so a chat's
+// version of a write its agent's own file tool made is taken from the call, verified against the
+// disk. Killed by the port left unregistered, or registered over any other intake.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_started_daemon_takes_file_tool_writes_into_the_chats_versions() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+    let intake = process
+        .providers
+        .as_ref()
+        .expect("the start keeps the providers")
+        .ports
+        .file_tool_writes
+        .port()
+        .map(Arc::clone)
+        .expect("the start registers the file-tool intake");
+    let chat_versions = &process
+        .session
+        .as_ref()
+        .expect("the start keeps the session services")
+        .chat_versions;
+
+    assert!(
+        std::ptr::addr_eq(Arc::as_ptr(&intake), Arc::as_ptr(chat_versions)),
+        "the file-tool intake is the chats' file versions"
+    );
+    process
+        .stop(DaemonStopReason::Stop)
+        .await
+        .expect("the stop fails nothing");
+}
+
 // A call on the served socket before its handshake is refused as the handshake's gate refuses
 // it, the same call past the handshake answers with this start's data folder, and the stop leaves
 // no socket and the data folder free to hold at once. Killed by the chain dispatching past the

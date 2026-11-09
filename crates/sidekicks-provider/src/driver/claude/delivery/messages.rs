@@ -30,6 +30,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::transcript::whole_patch::{WholePatchFile, omitted_patches_of};
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
@@ -42,6 +43,7 @@ use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
     skip_other_shapes,
 };
+use crate::port::file_tool_write::FileToolWriteSettled;
 use crate::port::tool_traces::{ToolTrace, ToolTraces, record_tool_traces};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 use crate::tool_call_arguments::{KeptToolCallArguments, ToolCallArgumentStore};
@@ -324,6 +326,8 @@ pub(crate) struct ClaudeUserFrameReading {
     pub(crate) held_stand_ins: Vec<(String, String)>,
     /// The trace of each call the frame answered, while `Record traces` is on.
     pub(crate) traces: Vec<ClaudeKeptTrace>,
+    /// Each open file-tool call the frame answered, settled by its result.
+    pub(crate) file_tool_writes: Vec<FileToolWriteSettled>,
 }
 
 impl ClaudeMessageFrame {
@@ -594,12 +598,14 @@ pub(crate) fn read_claude_assistant_rows(
 /// timed from its start to `now` and closed on the run that started it. A file-changing call's
 /// lone result carries its patch. A call `tool_server_tasks` holds stays open: its result is a
 /// stand-in, kept with its words, and the real one comes later. While `is_tracing`, a closed call
-/// that holds its arguments is traced with the result's content as Claude Code sent it.
+/// that holds its arguments is traced with the result's content as Claude Code sent it. Each call
+/// open in `file_tool_writes` settles by its result.
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     tool_server_tasks: &ClaudeToolServerTasks,
+    file_tool_writes: &mut ClaudeFileToolWrites,
     now: Timestamp,
     is_tracing: bool,
 ) -> ClaudeUserFrameReading {
@@ -608,6 +614,7 @@ pub(crate) fn read_claude_user_rows(
         failed_results: Vec::new(),
         held_stand_ins: Vec::new(),
         traces: Vec::new(),
+        file_tool_writes: Vec::new(),
     };
     let results: Vec<&ClaudeContentBlock> = frame
         .blocks()
@@ -628,16 +635,37 @@ pub(crate) fn read_claude_user_rows(
         if is_error {
             reading.failed_results.push((call_id.clone(), text.clone()));
         }
-        let Some(mut opened) = open_tool_calls.remove(call_id) else {
+        let opened = open_tool_calls.remove(call_id);
+        let is_file_change = opened
+            .as_ref()
+            .is_some_and(|opened| is_claude_file_changing_tool(opened.tool_name.as_str()));
+        // Claude Code's structured result rides the frame beside a lone tool result, read once
+        // for the patch and the file tool's write.
+        let is_read = is_file_change || file_tool_writes.is_open(call_id);
+        let tool_use_result: Option<serde_json::Value> = if !is_error && is_lone_result && is_read {
+            frame
+                .tool_use_result
+                .as_deref()
+                .and_then(|result| serde_json::from_str(result.get()).ok())
+        } else {
+            None
+        };
+        reading
+            .file_tool_writes
+            .extend(file_tool_writes.settle_result(
+                session_id,
+                call_id,
+                is_error,
+                is_lone_result,
+                tool_use_result.as_ref(),
+            ));
+        let Some(mut opened) = opened else {
             continue;
         };
-        // Claude Code's structured result rides the frame beside a lone tool result.
-        let is_file_change = is_claude_file_changing_tool(opened.tool_name.as_str());
-        let patch = (!is_error && is_lone_result && is_file_change)
-            .then_some(frame.tool_use_result.as_deref())
+        let patch = is_file_change
+            .then_some(tool_use_result.as_ref())
             .flatten()
-            .and_then(|result| serde_json::from_str(result.get()).ok())
-            .and_then(|result| read_claude_patch_file(&result));
+            .and_then(read_claude_patch_file);
         if is_tracing
             && let Some(trace) = opened.take_trace(session_id, call_id, || {
                 read_raw_value(block.content.as_deref())
