@@ -10,7 +10,10 @@ use sidekicks_contracts::wire::text::ComposedText;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::test_service::start_scripted_terminal_service;
+use crate::driver::codex::service::supervisor::test_service::{
+    ScriptedCodexService, start_scripted_terminal_service,
+};
+use crate::driver::codex::terminal_session::TERMINAL_RECONNECT_WINDOW;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::test_registry::new_session_id;
 
@@ -37,6 +40,12 @@ const SILENT: &str = "silent-thread";
 
 /// How long a listing is given to ask the service what it holds loaded.
 const ASK_WAIT: Duration = Duration::from_secs(5);
+
+/// The folder `NAMED`'s terminal runs in.
+const RELEASE_FOLDER: &str = "/work/release";
+
+/// How long a test gives the listing to send a request it must not send.
+const QUIET: Duration = Duration::from_millis(200);
 
 // Fails when the list names a conversation a session holds, a helper's, a one-off run's or one
 // another app-server client started, when one failed read fails the whole list, when a name falls
@@ -143,17 +152,7 @@ async fn a_terminal_session_leaves_the_list_at_its_close() {
         let registry = Arc::clone(&registry);
         async move { registry.list_terminal_sessions().await }
     });
-    let loaded = scripted.next_request("thread/loaded/list").await;
-    scripted
-        .script
-        .answer(&loaded, &json!({"data": [NAMED], "nextCursor": null}));
-    let read = scripted.next_request("thread/read").await;
-    answer_thread(
-        &scripted.script,
-        &read,
-        json!({"name": "Release notes", "preview": "", "source": "cli", "ephemeral": false,
-            "status": {"type": "idle"}}),
-    );
+    answer_named_listing(&mut scripted).await;
     let first_listed = first_listing.await.expect("the first listing ends");
     scripted
         .script
@@ -174,10 +173,86 @@ async fn a_terminal_session_leaves_the_list_at_its_close() {
             NAMED,
             "Release notes",
             TerminalProviderSessionState::Idle,
-            None
+            Some(RELEASE_FOLDER)
         )]
     );
     assert_eq!(second_listed.expect("the second list reads"), Vec::new());
+}
+
+// Fails when a listing while the service is away fails whole or asks the service, when a session
+// stranded past the terminal's reconnect window keeps its last state, and when what was remembered
+// outlives the service's next listing.
+#[tokio::test(start_paused = true)]
+async fn a_terminal_session_its_service_left_lists_from_memory_as_last_seen() {
+    let mut scripted = start_scripted_terminal_service();
+    let registry = CodexServiceRegistry::holding(&scripted);
+    let first_listing = tokio::spawn({
+        let registry = Arc::clone(&registry);
+        async move { registry.list_terminal_sessions().await }
+    });
+    answer_named_listing(&mut scripted).await;
+    let named = terminal_session(
+        NAMED,
+        "Release notes",
+        TerminalProviderSessionState::Idle,
+        Some(RELEASE_FOLDER),
+    );
+    assert_eq!(
+        first_listing
+            .await
+            .expect("the first listing ends")
+            .expect("the first list reads"),
+        vec![named.clone()]
+    );
+
+    let connection = scripted.publish_reconnecting();
+    let within_window = registry.list_terminal_sessions().await;
+    assert_eq!(
+        within_window.expect("a service away lists what it held"),
+        vec![named]
+    );
+    tokio::time::advance(TERMINAL_RECONNECT_WINDOW).await;
+    let past_window = registry.list_terminal_sessions().await;
+    assert_eq!(
+        past_window.expect("a service away lists what it held"),
+        vec![terminal_session(
+            NAMED,
+            "Release notes",
+            TerminalProviderSessionState::Unreachable,
+            Some(RELEASE_FOLDER)
+        )]
+    );
+    let asked = scripted.script.next_sent_within(QUIET).await;
+    assert!(asked.is_none(), "nothing reaches a service away: {asked:?}");
+
+    scripted.publish_up(connection);
+    let back_listing = tokio::spawn(async move { registry.list_terminal_sessions().await });
+    let loaded = scripted.next_request("thread/loaded/list").await;
+    scripted
+        .script
+        .answer(&loaded, &json!({"data": [], "nextCursor": null}));
+    assert_eq!(
+        back_listing
+            .await
+            .expect("the listing ends")
+            .expect("the list reads"),
+        Vec::new()
+    );
+}
+
+// Answers a listing's reads as a service holding the idle `NAMED` alone, in `RELEASE_FOLDER`.
+async fn answer_named_listing(scripted: &mut ScriptedCodexService) {
+    let loaded = scripted.next_request("thread/loaded/list").await;
+    scripted
+        .script
+        .answer(&loaded, &json!({"data": [NAMED], "nextCursor": null}));
+    let read = scripted.next_request("thread/read").await;
+    answer_thread(
+        &scripted.script,
+        &read,
+        json!({"name": "Release notes", "preview": "", "source": "cli", "ephemeral": false,
+            "status": {"type": "idle"}, "cwd": RELEASE_FOLDER}),
+    );
 }
 
 // Answers the `thread/read` request `read` with a thread of `members`, its own id and session id

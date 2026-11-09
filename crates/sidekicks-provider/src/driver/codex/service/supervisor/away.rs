@@ -27,14 +27,6 @@ impl CodexService {
 
     /// How long the service has been anything but up; `None` while it is up, and before anything
     /// was published for it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver method that delivers a message into a Codex session typed in a \
-                      terminal reads it"
-        )
-    )]
     pub(crate) fn away_for(&self) -> Option<Duration> {
         lock(&self.away_since).as_ref().map(Instant::elapsed)
     }

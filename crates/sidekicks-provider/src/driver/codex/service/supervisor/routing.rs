@@ -4,7 +4,9 @@
 //! service, and the frames of a conversation a session moved off only while its commands still
 //! run. A frame naming a conversation not registered yet, a start's or a fork's in flight or a
 //! spawned helper's ahead of its spawn item, is held until it is, within a frame count, a byte
-//! bound and a timeout.
+//! bound and a timeout. On a service terminals join, a status change, close or item end of a
+//! conversation no session holds also reaches the terminal-session code, which watches the
+//! conversations people typed in a terminal with no seat on them.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,9 +24,11 @@ use crate::driver::codex::delivery::rows::{
 };
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_ITEM_METHOD_PREFIX, CODEX_ITEM_STARTED_METHOD,
-    CODEX_THREAD_STARTED_METHOD, resolve_codex_frame_emission_route,
+    CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_STATUS_CHANGED_METHOD,
+    resolve_codex_frame_emission_route,
 };
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
 use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameRoute};
@@ -39,6 +43,14 @@ pub(crate) const CODEX_THREAD_CLOSED_METHOD: &str = "thread/closed";
 
 /// The service-wide config warning, which names no conversation and goes to every session.
 pub(crate) const CODEX_CONFIG_WARNING_METHOD: &str = "configWarning";
+
+// The frames of a conversation no session holds that the terminal-session code reads: a status
+// change, a close, and an item's end, among them a command's.
+const TERMINAL_WATCHED_METHODS: [&str; 3] = [
+    CODEX_THREAD_STATUS_CHANGED_METHOD,
+    CODEX_THREAD_CLOSED_METHOD,
+    CODEX_ITEM_COMPLETED_METHOD,
+];
 
 /// What one service's routing keeps beside its thread index: each session's queue, the waits on a
 /// conversation's unload, the config warnings and the account's rate-limit readings.
@@ -372,6 +384,16 @@ impl CodexService {
         let Some(thread_id) = thread_id else {
             return;
         };
+        // Held as any other after, since a helper's frame can come ahead of its spawn item.
+        if TERMINAL_WATCHED_METHODS.contains(&method)
+            && matches!(
+                self.kind(),
+                CodexServiceKind::Terminal | CodexServiceKind::Joined
+            )
+            && self.session_of_thread(&thread_id).is_none()
+        {
+            self.watch_terminal_frame(method, &params, &thread_id);
+        }
         let frame = CodexHeldThreadFrame {
             method: method.to_owned(),
             params,

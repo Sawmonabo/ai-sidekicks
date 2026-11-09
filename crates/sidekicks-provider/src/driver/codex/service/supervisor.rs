@@ -78,6 +78,7 @@ use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionIn
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::telemetry::exports::CodexExports;
+use crate::driver::codex::terminal_session::conversations::CodexTerminalConversations;
 use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
     CodexConnectionHandlers, open_codex_connection,
@@ -231,6 +232,8 @@ pub(crate) struct CodexService {
     routing: Arc<Mutex<CodexServiceRouting>>,
     // The executor relay its first account start made; a terminal service never has one.
     exec_relay: OnceLock<Arc<CodexExecRelay>>,
+    // What the daemon last saw of the conversations people typed in a terminal on it.
+    terminal_conversations: Arc<CodexTerminalConversations>,
 }
 
 impl CodexService {
@@ -278,6 +281,7 @@ impl CodexService {
             ))),
             routing: Arc::default(),
             exec_relay: OnceLock::new(),
+            terminal_conversations: Arc::default(),
         });
         let held_frame_expiry = service.lock_threads().watch_expiry();
         tokio::spawn(
@@ -747,6 +751,12 @@ impl CodexService {
     /// What the service starts, connects and reports through.
     pub(crate) fn dependencies(&self) -> &CodexServiceDependencies {
         &self.dependencies
+    }
+
+    /// What the daemon last saw of the conversations people typed in a terminal on this service,
+    /// and which of them a seat holds.
+    pub(crate) fn terminal_conversations(&self) -> &Arc<CodexTerminalConversations> {
+        &self.terminal_conversations
     }
 
     /// The service's executor relay, once its first account start made it.

@@ -1,5 +1,6 @@
-//! The Codex sessions a person typed in a terminal inside the terminal service, as an agent's
-//! message reaches one: whether its terminal can still be reached, and the exchange itself.
+//! The Codex sessions a person typed in a terminal inside the terminal service: what the daemon
+//! remembers of them, the seat that keeps a command of one running, and, as an agent's message
+//! reaches one, whether its terminal can still be reached and the exchange itself.
 
 #![cfg_attr(
     not(test),
@@ -10,7 +11,9 @@
     )
 )]
 
+pub(crate) mod conversations;
 pub(super) mod exchanges;
+pub(super) mod seat;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +24,7 @@ use crate::driver::codex::session::errors::CodexError;
 
 /// How long a terminal joined to the service tries to reconnect once the service is away, Codex's
 /// own window; past it the terminal never rejoins, even when the service comes back.
-const TERMINAL_RECONNECT_WINDOW: Duration = Duration::from_secs(120);
+pub(crate) const TERMINAL_RECONNECT_WINDOW: Duration = Duration::from_secs(120);
 
 /// Why an agent's message did not reach a Codex session typed in a terminal.
 #[derive(Debug, thiserror::Error)]

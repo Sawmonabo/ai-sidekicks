@@ -2,31 +2,22 @@
 //! to the terminal service that resumes the conversation for this exchange alone, writes the
 //! message as a turn of its own when the conversation is idle or steers it into the turn running,
 //! hands back the end of a turn it started, and lets the conversation go once the exchange's turn
-//! ended and no command of it still runs, since Codex ends a running command once no client holds
-//! its conversation. Each command's end and each turn's end reads the commands again, with no
-//! timer.
+//! ended and no command of it still runs.
 
 use serde_json::Value;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
+use super::seat::{TerminalSeat, hold_while_commands_run, let_go};
 use super::{CodexTerminalExchangeError, require_terminal_session};
-use crate::driver::codex::app_server_protocol::{
-    ThreadUnsubscribeParams, TurnSteerParams, UserInput,
-};
+use crate::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::codex::messages::{CodexArrivalMoment, compose_codex_arrival_text};
 use crate::driver::codex::run::steer::CODEX_TURN_STEER_METHOD;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
-use crate::driver::codex::session::background_terminals::list_codex_running_commands;
-use crate::driver::codex::session::conversation_release::is_list_change;
-use crate::driver::codex::session::detached_conversation::{
-    CodexDetachedFrame, CodexDetachedFrames,
-};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::adoption::request_bare_thread_resume;
 use crate::driver::codex::session::history::read_codex_resumed_newest_turn;
@@ -34,11 +25,8 @@ use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::side_questions::copy_turn::{
     CopyFrameReading, CopyTurn, CopyTurnMeter,
 };
-use crate::driver::codex::session::slots::{CODEX_LET_GO_TIMEOUT, THREAD_UNSUBSCRIBE_METHOD};
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_steered_turn_id, read_turn_id};
-use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 
 /// An agent's message to a Codex session typed in a terminal.
 pub(crate) struct CodexTerminalMessage {
@@ -71,27 +59,6 @@ pub(crate) struct CodexTerminalTurnEnd {
     pub(crate) error: Option<Value>,
 }
 
-// The daemon's seat on one terminal conversation: a connection of its own on the terminal service,
-// where that connection's notifications arrive, and the conversation.
-struct TerminalSeat {
-    connection: CodexAppServerConnection,
-    frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
-    thread_id: String,
-}
-
-impl TerminalSeat {
-    // The next notification of the seat's conversation, `None` once its connection dropped.
-    async fn next_frame(&mut self) -> Option<CodexDetachedFrame> {
-        while let Some((method, params)) = self.frames.recv().await {
-            let frame_thread_id = read_codex_frame_thread_id(&method, &params);
-            if frame_thread_id.as_deref() == Some(self.thread_id.as_str()) {
-                return Some((method, params));
-            }
-        }
-        None
-    }
-}
-
 impl CodexServiceRegistry {
     /// Delivers `message` into `thread_id`, a conversation a person typed in a terminal inside the
     /// terminal service, on a seat the service's tasks hold until the exchange is over; a service
@@ -104,13 +71,9 @@ impl CodexServiceRegistry {
         message: &CodexTerminalMessage,
     ) -> Result<CodexTerminalDelivery, CodexTerminalExchangeError> {
         let service = require_terminal_session(self, thread_id).await?;
-        let (events, frames) = CodexDetachedFrames::new();
-        let connection = service.open_detached_connection(events).await?;
-        let seat = TerminalSeat {
-            connection,
-            frames,
-            thread_id: thread_id.to_owned(),
-        };
+        // A seat the conversation's turn end took keeps holding it beside this one.
+        let claim = service.terminal_conversations().claim_seat(thread_id);
+        let seat = TerminalSeat::open(&service, thread_id, claim).await?;
         let tasks = &service.dependencies().tasks;
         Ok(deliver_on_seat(seat, message, tasks).await?)
     }
@@ -235,58 +198,6 @@ async fn read_turn_end(seat: &mut TerminalSeat, turn_id: &str) -> Option<CodexTe
     None
 }
 
-// Holds the seat while a command of its conversation runs: reads the running commands now, again
-// at each command's end and each turn's end, and at the next frame after a read that failed, since
-// letting go would end a command that may still run. `true` once none runs, `false` once the
-// seat's connection dropped first.
-async fn hold_while_commands_run(seat: &mut TerminalSeat) -> bool {
-    loop {
-        let listed = list_codex_running_commands(&seat.connection, &seat.thread_id).await;
-        let is_read_owed = match listed {
-            Ok(process_ids) if process_ids.is_empty() => return true,
-            Ok(_running) => false,
-            Err(error) => {
-                report_step_failed(CodexTeardownStep::BackgroundTerminalList, error);
-                true
-            }
-        };
-        loop {
-            let Some((method, params)) = seat.next_frame().await else {
-                return false;
-            };
-            if is_read_owed || is_list_change(&method, &params) {
-                break;
-            }
-        }
-    }
-}
-
-// Unsubscribes the seat from its conversation within a short bound, a refusal reported, and drops
-// its connection.
-async fn let_go(seat: TerminalSeat) {
-    let unsubscribed = seat
-        .connection
-        .request_within(
-            THREAD_UNSUBSCRIBE_METHOD,
-            &ThreadUnsubscribeParams {
-                thread_id: seat.thread_id,
-            },
-            CODEX_LET_GO_TIMEOUT,
-        )
-        .await;
-    if let Err(error) = unsubscribed {
-        report_step_failed(CodexTeardownStep::ThreadUnsubscribe, error);
-    }
-}
-
-fn report_step_failed(step: CodexTeardownStep, error: CodexError) {
-    CodexTransportDiagnostic::TeardownStepFailed {
-        step,
-        error: Box::new(error),
-    }
-    .report();
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -339,6 +250,7 @@ mod tests {
             connection,
             frames,
             thread_id: THREAD.to_owned(),
+            _claim: None,
         };
         let tasks = TaskTracker::new();
         let message = message();
