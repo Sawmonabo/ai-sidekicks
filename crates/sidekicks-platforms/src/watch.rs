@@ -5,12 +5,12 @@
 
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::atomic_write::TEMPORARY_SUFFIX;
 #[cfg(target_os = "linux")]
@@ -133,30 +133,38 @@ fn take_arrivals(
     arrivals
 }
 
-/// A watch on a file a command writes, handing back each byte appended to it once, from its start;
-/// it follows the open file, so the bytes written after its name is removed or replaced still come.
+/// A watch on a file a command writes, handing back each byte appended to it once, from the byte
+/// it starts at; it follows the open file, so the bytes written after its name is removed or
+/// replaced still come.
 pub struct FileAppendWatch {
     file: File,
-    // The bytes handed back so far, which the file's length never falls under while only appended.
+    // The bytes read or passed over so far, which the file's length never falls under while only
+    // appended.
     offset: u64,
     wake: ChangeWake,
 }
 
 impl FileAppendWatch {
-    /// Watches the file at `path`, whose bytes so far are read first. Fails with the system's error
-    /// when the file cannot be opened or watched, `NotFound` when its name is already gone, and
-    /// with `Unsupported` on Windows.
+    /// Watches the file at `path`, whose bytes so far are read first. Fails as
+    /// [`FileAppendWatch::watch_from`] does.
     pub async fn watch(path: &Path) -> io::Result<Self> {
+        Self::watch_from(path, 0).await
+    }
+
+    /// Watches the file at `path` from byte `offset`, the bytes before it never read, so a caller
+    /// that measured the file gets every byte written since. Fails with the system's error when
+    /// the file cannot be opened, watched or moved to `offset`, `NotFound` when its name is
+    /// already gone, and with `Unsupported` on Windows; a file shorter than `offset` fails the
+    /// first read with `InvalidData`.
+    pub async fn watch_from(path: &Path, offset: u64) -> io::Result<Self> {
         // Opened once and watched through that descriptor, so the wakes and the reads follow one
         // file whatever is renamed over its name meanwhile; a file no read has used yet hands its
         // descriptor back at once.
         let file = File::open(path).await?.into_std().await;
         let wake = ChangeWake::on_file_appends(&file)?;
-        Ok(Self {
-            file: File::from_std(file),
-            offset: 0,
-            wake,
-        })
+        let mut file = File::from_std(file);
+        file.seek(SeekFrom::Start(offset)).await?;
+        Ok(Self { file, offset, wake })
     }
 
     /// The bytes appended since the last call, at most 64 KiB, waiting until there are some. Fails
@@ -336,6 +344,41 @@ mod tests {
                 .expect("the append is seen in time")
                 .expect("the file reads"),
             b"second"
+        );
+    }
+
+    // Fails when a watch from the file's length hands back a byte written before it, or misses
+    // one appended after it.
+    #[tokio::test]
+    async fn file_append_watch_from_the_files_length_hands_back_only_later_bytes() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        writer
+            .write_all(b"before ")
+            .expect("the first bytes are written");
+        let length = fs::metadata(&path).expect("the file is measured").len();
+        let mut watch = FileAppendWatch::watch_from(&path, length)
+            .await
+            .expect("the file is watched");
+
+        let quiet = timeout(SEEN_WITHIN, watch.drain()).await;
+        let (after, ()) = tokio::join!(timeout(SEEN_WITHIN, watch.next_appended()), async {
+            sleep(CHANGE_DELAY).await;
+            writer.write_all(b"after").expect("the append is written");
+        });
+
+        assert_eq!(
+            quiet
+                .expect("the watch drains in time")
+                .expect("the file reads"),
+            b""
+        );
+        assert_eq!(
+            after
+                .expect("the append is seen in time")
+                .expect("the file reads"),
+            b"after"
         );
     }
 

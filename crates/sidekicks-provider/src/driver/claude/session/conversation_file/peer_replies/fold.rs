@@ -9,10 +9,10 @@ use std::ops::ControlFlow;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::driver::claude::session::conversation_file::ConversationEntry;
 use crate::driver::claude::session::conversation_file::lines::{
     ConversationLine, ConversationLines,
 };
+use crate::driver::claude::session::conversation_file::{ContentBlock, ConversationEntry};
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::port::session_message_reading_publisher::SessionMessageReading;
 
@@ -109,15 +109,7 @@ struct PeerMessage {
     content: Option<LenientList<ContentBlock>>,
 }
 
-#[derive(Deserialize)]
-struct ContentBlock {
-    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
-    block_type: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    text: Option<String>,
-}
-
-lenient_object!(PeerEntry, PeerAttachment, PeerMessage, ContentBlock);
+lenient_object!(PeerEntry, PeerAttachment, PeerMessage);
 
 /// One message awaited in a transcript, and what its lines so far tell of it.
 pub(super) struct AwaitedMessage {

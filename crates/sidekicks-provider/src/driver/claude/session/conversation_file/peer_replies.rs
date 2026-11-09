@@ -178,15 +178,19 @@ impl ClaudePeerReplies {
             .is_none_or(mpsc::Sender::is_closed)
             && let Some(source) = source
         {
-            // The new watch reads every message's lines again from the lowest start.
+            // The new watch reads every message's lines again from the lowest start, the bytes
+            // before it never read.
+            let mut watch_start = start_offset;
             for (_, message) in &mut transcript.messages {
                 message.reread();
+                watch_start = watch_start.min(message.start_offset);
             }
             let (drains, drain_requests) = mpsc::channel(1);
             tokio::spawn(watch_transcript(
                 Arc::downgrade(self),
                 key.clone(),
                 source,
+                watch_start,
                 drain_requests,
             ));
             transcript.drains = Some(drains);
@@ -366,16 +370,17 @@ async fn drain_watch(drains: Option<mpsc::Sender<oneshot::Sender<()>>>) -> bool 
     drains.send(drained).await.is_ok() && answer.await.is_ok()
 }
 
-// Follows one transcript while a message is awaited in it. A missing config folder and a platform
-// with no watch end it quietly, any other failure is logged; its messages are then read
-// once at their notices.
+// Follows one transcript from byte `start` while a message is awaited in it. A missing config
+// folder and a platform with no watch end it quietly, any other failure is logged; its messages
+// are then read once at their notices.
 async fn watch_transcript(
     replies: Weak<ClaudePeerReplies>,
     key: TranscriptKey,
     source: TranscriptSource,
+    start: u64,
     mut drain_requests: mpsc::Receiver<oneshot::Sender<()>>,
 ) {
-    if let Err(error) = follow_transcript(&replies, &key, source, &mut drain_requests).await
+    if let Err(error) = follow_transcript(&replies, &key, source, start, &mut drain_requests).await
         && !matches!(
             error.kind(),
             io::ErrorKind::NotFound | io::ErrorKind::Unsupported
@@ -390,13 +395,15 @@ async fn watch_transcript(
     }
 }
 
-// Folds each chunk appended to the transcript, waiting for it to appear first where it is not
-// there yet, and at each drain asked folds everything appended so far before answering. Ends once
-// no message is awaited in it; fails as the folder or the file cannot be watched or read.
+// Folds each chunk appended to the transcript from byte `start`, waiting for it to appear first
+// where it is not there yet, and at each drain asked folds everything appended so far before
+// answering. Ends once no message is awaited in it; fails as the folder or the file cannot be
+// watched or read.
 async fn follow_transcript(
     replies: &Weak<ClaudePeerReplies>,
     key: &TranscriptKey,
     source: TranscriptSource,
+    start: u64,
     drain_requests: &mut mpsc::Receiver<oneshot::Sender<()>>,
 ) -> io::Result<()> {
     let (file, mut pending) = match source {
@@ -415,8 +422,8 @@ async fn follow_transcript(
             Arrival::Unawaited => return Ok(()),
         },
     };
-    let mut watch = FileAppendWatch::watch(&file).await?;
-    let mut lines = ConversationLines::new(&file, 0);
+    let mut watch = FileAppendWatch::watch_from(&file, start).await?;
+    let mut lines = ConversationLines::new(&file, start);
     loop {
         let drained = if let Some(drained) = pending.take() {
             drained

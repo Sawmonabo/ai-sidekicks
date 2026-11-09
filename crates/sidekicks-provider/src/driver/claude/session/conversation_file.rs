@@ -398,11 +398,14 @@ enum MessageContent {
     Blocks { has_tool_result: bool },
 }
 
-// One content block's `type`.
+// One content block of a message, as the outline reads its `type` and a reply wait a text
+// block's text.
 #[derive(Deserialize)]
 struct ContentBlock {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     block_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    text: Option<String>,
 }
 
 impl<'de> Visitor<'de> for LenientVisitor<MessageContent> {
