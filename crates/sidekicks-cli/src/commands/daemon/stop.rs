@@ -27,7 +27,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
-use crate::commands::daemon::service_status::{describe_failed_stop, read_status_file_at};
+use crate::commands::daemon::service_status::{
+    StopRecordReader, describe_failed_stop, read_status_file_at,
+};
 use crate::confirmation::{ConfirmationArgs, confirm};
 use crate::connected_command::{cancel_on_ctrl_c, run_listening_for_ctrl_c};
 use crate::exit_codes::ExitCode;
@@ -135,28 +137,26 @@ pub(crate) fn stop<Output: Write, ErrorOutput: Write>(
     }
 }
 
-/// What the stop that ended as `ended` says, read from the status file at `path`, a torn file's
-/// warning written to `stderr`. Fails as that read or the record's process pin fails.
+/// What the stop that ended as `ended` says: nothing running reads as such, whatever an earlier
+/// stop left in the status file; otherwise the status file at `path` says whether the stop
+/// happened, a torn file's warning written to `stderr`. Fails as that read or the record's process
+/// pin fails.
 fn report_stop(
     ended: DaemonEnd,
     path: &Path,
     stderr: &mut impl Write,
 ) -> anyhow::Result<StopReport> {
+    if ended == DaemonEnd::NotRunning {
+        return Ok(StopReport::Done(NOT_RUNNING_LINE));
+    }
     let failed = match read_status_file_at(path, stderr)? {
-        Some(file) => describe_failed_stop(&file)
+        Some(file) => describe_failed_stop(&file, StopRecordReader::Stop)
             .context("could not read whether the background service's stop happened")?,
         None => None,
     };
-    Ok(match (failed, ended) {
-        (Some(lines), _) => StopReport::CouldNotStop(lines),
-        (None, DaemonEnd::NotRunning) => StopReport::Done(NOT_RUNNING_LINE),
-        (
-            None,
-            DaemonEnd::StoppedWhileRepairing
-            | DaemonEnd::Exited
-            | DaemonEnd::Ended(_)
-            | DaemonEnd::ProcessNotFound,
-        ) => StopReport::Done(STOPPED_LINE),
+    Ok(match failed {
+        Some(lines) => StopReport::CouldNotStop(lines),
+        None => StopReport::Done(STOPPED_LINE),
     })
 }
 
@@ -341,6 +341,11 @@ mod tests {
         DaemonEnd::NotRunning,
         StopReport::Done(NOT_RUNNING_LINE)
     )]
+    #[case::not_running_after_a_failed_stop(
+        StatusFile::CannotStop,
+        DaemonEnd::NotRunning,
+        StopReport::Done(NOT_RUNNING_LINE)
+    )]
     #[case::intent_unsaved(
         StatusFile::CannotStop,
         DaemonEnd::Exited,
@@ -359,7 +364,7 @@ mod tests {
     #[case::step_within_the_bound(
         StatusFile::Stopping(RecordedProcess::Running, StopStarted::Now),
         DaemonEnd::ProcessNotFound,
-        StopReport::Done(STOPPED_LINE)
+        StopReport::CouldNotStop(STILL_CLOSING_THE_SEARCH_INDEX.to_owned())
     )]
     fn a_stop_reports_what_the_status_file_says(
         #[case] status_file: StatusFile,

@@ -201,7 +201,8 @@ enum SecretsOnSave {
 }
 
 impl SignInCustody {
-    /// The custody of sign-ins kept in `keychain`, the `ai-sidekicks-mcp-sign-ins` service.
+    /// The custody of sign-ins kept in `keychain`, the `ai-sidekicks-mcp-sign-ins` service, which
+    /// the operating system's store files under that word and the install's mark.
     pub fn new(keychain: Arc<dyn SecretKeychain>) -> Arc<Self> {
         Arc::new(Self {
             keys: ServerAddressKeys::new(Arc::clone(&keychain)),

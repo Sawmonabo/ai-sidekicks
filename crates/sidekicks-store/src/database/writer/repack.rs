@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::Connection;
+use sidekicks_platforms::sqlite_temporary_folder;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
@@ -330,34 +331,6 @@ async fn has_room_to_repack(deps: &RepackJobDeps) -> bool {
             false
         }
     }
-}
-
-// The folder SQLite writes a `VACUUM`'s temporary copy to, picked as SQLite picks it on Unix: the
-// first of `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp` and `/tmp` that is a folder whose mode
-// lets it be written, else the working folder. SQLite asks the system whether it can write there;
-// the mode bits stand in for that ask.
-#[cfg(unix)]
-fn sqlite_temporary_folder() -> PathBuf {
-    let named = ["SQLITE_TMPDIR", "TMPDIR"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .map(PathBuf::from);
-    let fixed = ["/var/tmp", "/usr/tmp", "/tmp"]
-        .into_iter()
-        .map(PathBuf::from);
-    named
-        .chain(fixed)
-        .find(|folder| {
-            std::fs::metadata(folder)
-                .is_ok_and(|metadata| metadata.is_dir() && !metadata.permissions().readonly())
-        })
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-// The folder SQLite writes a `VACUUM`'s temporary copy to elsewhere: the system's temporary folder.
-#[cfg(not(unix))]
-fn sqlite_temporary_folder() -> PathBuf {
-    std::env::temp_dir()
 }
 
 #[cfg(test)]

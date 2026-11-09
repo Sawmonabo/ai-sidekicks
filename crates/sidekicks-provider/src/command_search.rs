@@ -416,51 +416,55 @@ fn log_unlisted_folder(folder: &Path, error: &io::Error) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rstest::rstest;
-    use sidekicks_platforms::{ProgramFolder, Spawner};
-    use sidekicks_std::file::atomic_write::write_file_atomically;
+    use sidekicks_platforms::{
+        ProgramFolder, Spawner, StandInAnswer, StandInProgram, write_stand_in_program,
+    };
 
     use super::ProviderCommandSearch;
 
-    // A build whose first version read sleeps past its deadline and whose later ones print 2.0.0.
-    const SLOW_ON_FIRST_READ: &str = "marker=\"$(dirname \"$0\")/read\"
-if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30; fi";
+    // Past any version read's deadline, so a first read that waits it out times out.
+    const SLOW_FIRST_READ: Option<Duration> = Some(Duration::from_secs(30));
 
     // Fails when an older build beats a newer one (by folder order or by text order of versions),
     // when a build that prints no version beats one that does, when the later of two builds of
     // equal version wins, or when a read that timed out is kept, so no later search reads that
-    // build again. Each build runs its script; each search in turn finds the build `winners` names.
+    // build again. Each build prints its version line, after its first call's wait where it has
+    // one; each search in turn finds the build `winners` names.
     #[rstest]
-    #[case::newest_last(&["echo 'tool 1.2.3'", "echo 'tool 1.10.0'"], &[1])]
-    #[case::newest_first(&["echo 'tool 2.0.0'", "echo 'tool 1.9.9'"], &[0])]
-    #[case::unreadable_first(&["echo 'tool '", "echo 'tool 0.0.1'"], &[1])]
-    #[case::equal_versions(&["echo 'tool 1.2.3'", "echo 'tool 1.2.3'"], &[0])]
-    #[case::timed_out_read_again(&[SLOW_ON_FIRST_READ, "echo 'tool 1.0.0'"], &[1, 0])]
+    #[case::newest_last(&[("tool 1.2.3", None), ("tool 1.10.0", None)], &[1])]
+    #[case::newest_first(&[("tool 2.0.0", None), ("tool 1.9.9", None)], &[0])]
+    #[case::unreadable_first(&[("tool ", None), ("tool 0.0.1", None)], &[1])]
+    #[case::equal_versions(&[("tool 1.2.3", None), ("tool 1.2.3", None)], &[0])]
+    #[case::timed_out_read_again(&[("tool 2.0.0", SLOW_FIRST_READ), ("tool 1.0.0", None)], &[1, 0])]
     #[tokio::test]
     async fn the_newest_readable_build_wins_and_ties_keep_the_earlier_folder(
-        #[case] scripts: &[&str],
+        #[case] builds: &[(&str, Option<Duration>)],
         #[case] winners: &[usize],
     ) {
         let root = tempfile::tempdir().expect("the temporary folder is made");
         let mut folders = Vec::new();
-        for (index, script) in scripts.iter().enumerate() {
+        for (index, &(version_line, first_call_delay)) in builds.iter().enumerate() {
             let folder = root.path().join(index.to_string());
-            tokio::fs::create_dir(&folder)
-                .await
-                .expect("the folder is made");
-            write_file_atomically(
-                &folder.join("tool"),
-                format!("#!/bin/sh\n{script}\n"),
-                0o755,
-            )
-            .await
-            .expect("the build is written");
+            std::fs::create_dir(&folder).expect("the folder is made");
+            let program = StandInProgram {
+                answers_by_first_argument: Vec::new(),
+                otherwise: StandInAnswer {
+                    standard_output: format!("{version_line}\n"),
+                    exit_code: 0,
+                    argument_record: None,
+                    first_call_delay,
+                },
+            };
+            write_stand_in_program(&folder, "tool", &program).expect("the build is written");
             folders.push(folder);
         }
         let search = ProviderCommandSearch::new(
             Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts"),
         );
-        let environment = vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())];
+        let environment: Vec<(String, String)> = std::env::vars().collect();
 
         for &winner in winners {
             let hit = search
@@ -477,7 +481,7 @@ if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30;
             assert_eq!(
                 Some(hit.folder.as_str()),
                 folders[winner].to_str(),
-                "{scripts:?}"
+                "{builds:?}"
             );
         }
     }

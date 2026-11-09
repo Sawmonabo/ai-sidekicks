@@ -181,7 +181,8 @@ pub struct SessionAutoCompactUpdateResponse {
     pub session_override: bool,
 }
 
-/// One tool server this session was started with. `enabled` is the session's own switch;
+/// One tool server this session was started with. `enabled` is the session's own switch, off
+/// too where every live leg reporting the server had its provider switch it off;
 /// `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next turn. `reason` is
 /// the failure or sign-in reason, carried for a server that is not working.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -199,7 +200,8 @@ pub struct SessionMcpServer {
     )]
     #[schemars(with = "ComposedText")]
     pub reason: Option<ComposedText>,
-    /// The session's own switch.
+    /// Whether the server is on: the session's own switch, unless every live leg reporting it
+    /// had its provider switch it off.
     pub enabled: bool,
     /// Whether a switch flipped mid-turn waits for the next turn.
     pub pending_until_next_turn: bool,

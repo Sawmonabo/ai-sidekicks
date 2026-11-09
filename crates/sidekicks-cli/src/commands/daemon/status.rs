@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 use crate::command_context::CommandContext;
 use crate::commands::daemon::registration::{LoginStart, read_login_start};
 use crate::commands::daemon::service_status::{
-    describe_cannot_start, describe_failed_stop, read_status_file,
+    StopRecordReader, describe_cannot_start, describe_failed_stop, read_status_file,
 };
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
@@ -239,7 +239,7 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
     let lines = match &file {
         ServiceStatusFile::CannotStart(cannot_start) => describe_cannot_start(cannot_start),
         ServiceStatusFile::Stopping(_) | ServiceStatusFile::CannotStop(_) => {
-            match describe_failed_stop(&file) {
+            match describe_failed_stop(&file, StopRecordReader::Status) {
                 Ok(Some(lines)) => lines,
                 Ok(None) => return Err(failure),
                 Err(unpinned) => {

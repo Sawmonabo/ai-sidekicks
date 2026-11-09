@@ -320,11 +320,25 @@ pub(crate) fn is_goal_line(text: &str) -> bool {
     .any(|prefix| text.starts_with(prefix))
 }
 
-/// Every session's goal while its process runs: the condition of each active goal, by session.
+/// Every session's goal while its process runs: the condition of each active goal, by session,
+/// and the newest goal each session's conversation file recorded set.
 #[derive(Default)]
 pub(crate) struct ClaudeGoalEndings {
     active_by_session: Mutex<HashMap<SessionId, String>>,
+    recorded_sets: Mutex<RecordedGoalSets>,
 }
+
+// The newest set record read on each session, numbered in the order every session's were read.
+#[derive(Default)]
+struct RecordedGoalSets {
+    count: u64,
+    newest_by_session: HashMap<SessionId, (u64, String)>,
+}
+
+/// A point in the order of the goal sets the conversation files recorded, which a later
+/// [`ClaudeGoalEndings::was_set_since`] reads from.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GoalSetMark(u64);
 
 impl ClaudeGoalEndings {
     /// Takes the goal a session's process restored from its conversation file as it came up: the
@@ -346,6 +360,25 @@ impl ClaudeGoalEndings {
         lock(&self.active_by_session).get(&session_id).cloned()
     }
 
+    /// The point a later read of what the conversation files recorded set starts from.
+    pub(crate) fn set_mark(&self) -> GoalSetMark {
+        GoalSetMark(lock(&self.recorded_sets).count)
+    }
+
+    /// Whether the conversation file of `session_id` recorded `condition` set after `mark`, as its
+    /// newest set: a goal Claude Code set and met before anything read it back.
+    pub(crate) fn was_set_since(
+        &self,
+        session_id: SessionId,
+        mark: GoalSetMark,
+        condition: &str,
+    ) -> bool {
+        lock(&self.recorded_sets)
+            .newest_by_session
+            .get(&session_id)
+            .is_some_and(|(number, set)| *number > mark.0 && set == condition)
+    }
+
     /// Classifies `input` against the goal of `session_id`, whose lead is `agent_id`.
     pub(crate) fn classify(
         &self,
@@ -353,6 +386,21 @@ impl ClaudeGoalEndings {
         agent_id: AgentId,
         input: GoalEndingInput<'_>,
     ) -> GoalEnding {
+        if let GoalEndingInput::Record(GoalStatusRecord {
+            is_met: false,
+            is_failed: false,
+            is_sentinel: true,
+            condition: Some(condition),
+            ..
+        }) = input
+        {
+            let mut recorded_sets = lock(&self.recorded_sets);
+            recorded_sets.count += 1;
+            let number = recorded_sets.count;
+            recorded_sets
+                .newest_by_session
+                .insert(session_id, (number, condition.clone()));
+        }
         let mut active = lock(&self.active_by_session);
         let mut session = ClaudeSessionGoal {
             session_id,
@@ -399,6 +447,9 @@ impl ClaudeGoalEndings {
     /// Forgets a session's goal once its process is gone; a later process's bring-up seeds it.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         lock(&self.active_by_session).remove(&session_id);
+        lock(&self.recorded_sets)
+            .newest_by_session
+            .remove(&session_id);
     }
 }
 

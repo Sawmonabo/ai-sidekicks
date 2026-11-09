@@ -89,7 +89,7 @@ enum WorktreeCleanupWorkUnit {
 
 // A cleanup pass's processor budget on its own threads: 5 ms for the work every pass does, 2 ms
 // per row it acted on, 50 ms per folder it removed and 120 ms per 1,000 index entries in them,
-// from one pass that removed a tree of 54,011 entries in 4.85 s, about 90 µs an entry.
+// from one pass that removed a tree of 54,011 entries in 4,154 ms, about 77 µs an entry.
 const WORKTREE_CLEANUP_BUDGET: JobBudget<WorktreeCleanupWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(5),

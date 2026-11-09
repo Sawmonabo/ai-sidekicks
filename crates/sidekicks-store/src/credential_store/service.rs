@@ -1,7 +1,9 @@
 //! The keychain services the daemon files its items under: one closed set, so a move and an erase
-//! find every item the app made, orphans included, since no store keeps an attribute shared across
-//! the app. No name holds a `.`, which the Windows Credential Manager reads as the line between the
-//! account and the service.
+//! find every item this install made, orphans included, since no store keeps an attribute shared
+//! across the app. In the operating system's store each name carries the install's mark
+//! (`items::os_service_name`), so another install's items on the same account are never touched.
+//! No name holds a `.`, which the Windows Credential Manager reads as the line between the account
+//! and the service.
 
 /// A keychain service the daemon files items under; each feature that keeps a secret has its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,7 +37,8 @@ impl KeychainService {
         Self::McpReceiptKey,
     ];
 
-    /// The service's name in the store.
+    /// The service's plain name: the key in the items file, and the word the operating system's
+    /// store files it under before the install's mark.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::WorkflowSecrets => "ai-sidekicks-workflow-secrets",
@@ -48,8 +51,8 @@ impl KeychainService {
         }
     }
 
-    /// Whether a move, and the rewrite of an item another writer made, carry the service's items:
-    /// the probe's item belongs to one start's check and an erase sweeps any left behind.
+    /// Whether a move carries the service's items: the probe's item belongs to one start's check and
+    /// an erase sweeps any left behind.
     pub(crate) const fn is_moved(self) -> bool {
         match self {
             Self::WorkflowSecrets

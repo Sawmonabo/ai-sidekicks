@@ -24,7 +24,7 @@ use serde_json::json;
 use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::place::Place;
+use sidekicks_contracts::place::wsl_place;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -91,7 +91,7 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a resume that would land inside a close is given to land there.
 const CLOSE_HELD: Duration = Duration::from_millis(500);
 
-/// The place the fixture's session runs in, as its directory row stores it.
+/// The place the fixture's session runs in, `wsl_place("Ubuntu")`, as its directory row stores it.
 const TEST_PLACE: &str = r#"{"distro":"Ubuntu"}"#;
 
 /// What runs inside the fixture's driver resume, given the params it was handed.
@@ -421,7 +421,7 @@ impl Opening {
         SessionNotice::ProviderMissing {
             session_id: self.session_id,
             provider,
-            place: Some(serde_json::from_str::<Place>(TEST_PLACE).expect("the test's place")),
+            place: Some(wsl_place("Ubuntu")),
         }
     }
 }

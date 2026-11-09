@@ -115,21 +115,39 @@ pub(crate) async fn read_claude_reply_reserve(
     Ok(read?)
 }
 
+// The `env` of a flag-settings patch that sets `pairs` over the settings `document`'s own, an empty
+// value putting the document's back, or none.
+fn compose_environment_patch(
+    document: &BTreeMap<&'static str, String>,
+    pairs: &[(&str, &str)],
+) -> BTreeMap<String, String> {
+    let mut env: BTreeMap<String, String> = document
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), value.clone()))
+        .collect();
+    for &(key, value) in pairs {
+        let value = match value {
+            "" => document.get(key).cloned().unwrap_or_default(),
+            value => value.to_owned(),
+        };
+        env.insert(key.to_owned(), value);
+    }
+    env
+}
+
 // Two context reads on the window key's window, the second with the maximum reply key added, and
-// both keys removed after, so nothing the process does later is capped. A refusal is the answer.
+// both keys removed after, so nothing the process does later is capped. Each patch carries the
+// settings document's whole `env` with its keys over it, since a patch's `env` replaces the
+// document's, and a removed key goes back to the document's value. A refusal is the answer.
 async fn read_reply_reserve(
     short: &ClaudeShortProcess,
 ) -> Result<ClaudeReplyReserveReads, ClaudeSessionError> {
     let window = CLAUDE_RESERVE_READ_WINDOW_TOKENS.to_string();
     let maximum_output = CLAUDE_RESERVE_READ_MAXIMUM_OUTPUT_TOKENS.to_string();
+    let document = short.process.document_environment();
     let environment = |pairs: &[(&str, &str)]| ClaudeControlRequest::ApplyFlagSettings {
         settings: ClaudeFlagSettings {
-            env: Some(
-                pairs
-                    .iter()
-                    .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-                    .collect::<BTreeMap<_, _>>(),
-            ),
+            env: Some(compose_environment_patch(document, pairs)),
             ..ClaudeFlagSettings::default()
         },
     };
@@ -333,5 +351,52 @@ async fn read_command_reply(
             let result = serde_json::from_str(&frame.text).unwrap_or(Value::Null);
             return Ok((result, outcome));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::compose_environment_patch;
+
+    // A patch keeps every variable the settings document set, since Claude Code replaces the
+    // document's `env` with the patch's, and its emptied keys put the document's value back. Killed
+    // by a patch of its own keys alone (the document's variables gone) and by an emptied key sent
+    // empty where the document holds it.
+    #[test]
+    fn a_patch_keeps_the_documents_variables_and_puts_its_values_back() {
+        let document = BTreeMap::from([
+            ("DISABLE_AUTOUPDATER", "1".to_owned()),
+            ("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "32000".to_owned()),
+        ]);
+
+        let set = compose_environment_patch(&document, &[("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "8")]);
+        let removed = compose_environment_patch(
+            &document,
+            &[("CLAUDE_CODE_MAX_OUTPUT_TOKENS", ""), ("WINDOW", "")],
+        );
+
+        let owned = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect()
+        };
+        assert_eq!(
+            set,
+            owned(&[
+                ("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "8"),
+                ("DISABLE_AUTOUPDATER", "1"),
+            ])
+        );
+        assert_eq!(
+            removed,
+            owned(&[
+                ("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "32000"),
+                ("DISABLE_AUTOUPDATER", "1"),
+                ("WINDOW", ""),
+            ])
+        );
     }
 }

@@ -33,7 +33,8 @@ enum CheckWorkUnit {
 }
 
 /// The check's processor budget on its own threads: 1 ms for the work every check does and
-/// 200 µs per session it looks at, its state and hold reads.
+/// 100 µs per session it looks at, its state, driver and hold reads and its schedule write; a
+/// check of 20 sessions measured 1.4 to 1.8 ms under the meter in a test build.
 const CHECK_BUDGET: JobBudget<CheckWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(1),
@@ -41,7 +42,7 @@ const CHECK_BUDGET: JobBudget<CheckWorkUnit> = JobBudget::new(&[
         unit: CheckWorkUnit::Runs,
     },
     BudgetTerm {
-        figure: Duration::from_micros(200),
+        figure: Duration::from_micros(100),
         per: 1,
         unit: CheckWorkUnit::Sessions,
     },

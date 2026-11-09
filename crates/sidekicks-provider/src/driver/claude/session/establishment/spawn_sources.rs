@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
@@ -151,30 +152,33 @@ impl ClaudeSpawnSources {
     }
 
     /// The repository of `working_folder` as Claude Code places its project settings; `None`
-    /// outside git, or where the daemon's repository read cannot place the folder.
+    /// outside git, or before the daemon registers its repository reads. Fails with the refusal
+    /// of a read that could not place the folder.
     pub(crate) async fn read_repository(
         &self,
         working_folder: &Path,
-    ) -> Option<(RepositoryReading, bool)> {
-        let repositories = self.ports.repositories.port()?;
+    ) -> Result<Option<(RepositoryReading, bool)>, DomainError> {
+        let Some(repositories) = self.ports.repositories.port() else {
+            return Ok(None);
+        };
         read_claude_repository(&**repositories, working_folder).await
     }
 
     /// Where the settings of a Claude Code process started with `environment` in
-    /// `working_folder` are read from. It fails nothing; a folder outside git, or one whose
-    /// repository cannot be read, reads with no repository.
+    /// `working_folder` are read from; a folder outside git reads with no repository. Fails as
+    /// [`Self::read_repository`] does.
     pub(crate) async fn read_settings_sources(
         &self,
         environment: &[(String, String)],
         working_folder: &Path,
-    ) -> ClaudeSettingsSourcesReading {
-        ClaudeSettingsSourcesReading {
+    ) -> Result<ClaudeSettingsSourcesReading, DomainError> {
+        Ok(ClaudeSettingsSourcesReading {
             managed_settings_folder: DESCRIPTOR.managed_settings_folder(),
             working_folder: working_folder.to_path_buf(),
-            repository: self.read_repository(working_folder).await,
+            repository: self.read_repository(working_folder).await?,
             home_folder: self.home_folder.clone(),
             account_settings_file: claude_account_settings_file(environment),
-        }
+        })
     }
 }
 

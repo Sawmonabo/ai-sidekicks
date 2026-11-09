@@ -2,7 +2,8 @@
 //!
 //! - It starts on the daemon's spawner thread, leading a process group of its own so a stop
 //!   reaches what it started too, prepared as every child of the daemon is, in the environment a
-//!   conversation's commands get with the server's own values laid over it, its program joined
+//!   conversation's commands get, or a provider process's own, with the server's own values laid
+//!   over it, its program joined
 //!   onto its folder when it is a relative path and found along that environment's `PATH` when it
 //!   is a bare name.
 //! - Its error output goes to the service log line by line and into the bounded tail its exit
@@ -22,7 +23,7 @@ use rmcp::transport::async_rw::AsyncRwTransport;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ChildEnd, Spawner, ask_child_to_stop, find_executables, read_child_exit,
+    ChildEnd, PathRules, Spawner, ask_child_to_stop, find_executables, read_child_exit,
     wrap_group_child_command,
 };
 use sidekicks_provider::process_exit::compose_process_exit;
@@ -67,7 +68,7 @@ pub(crate) struct McpStdioServer {
     pub(crate) program: PathBuf,
     /// Its arguments.
     pub(crate) arguments: Vec<String>,
-    /// The environment values its entry holds, laid over a conversation command's environment.
+    /// The environment values its entry holds, laid over its base environment.
     pub(crate) environment: Vec<(String, String)>,
     /// The folder it starts in, where the entry names one.
     pub(crate) working_folder: Option<PathBuf>,
@@ -75,21 +76,36 @@ pub(crate) struct McpStdioServer {
     pub(crate) startup_timeout: Option<Duration>,
 }
 
+/// The environment a stdio server's own values are laid over.
+#[derive(Clone, Copy)]
+pub(crate) enum McpServerBaseEnvironment<'a> {
+    /// A conversation command's, built for the session.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the session's tool-server connection opener starts its servers in it"
+        )
+    )]
+    Conversation(&'a ProviderEnvironmentRequest<'a>),
+    /// A provider process's whole environment, which that provider starts its own servers in.
+    ProviderProcess(&'a [(String, String)]),
+}
+
 impl McpServerConnection {
-    /// Starts `server` on `spawner`'s thread in the environment `environment` builds for a
-    /// conversation's commands, with the server's own values over it, and opens a connection over
-    /// its standard streams, its output teed into the raw copy. Fails when the environment cannot
-    /// be built, the process cannot start (`NotFound` for a program no search finds), or the
-    /// server does not complete its start in time or its first tools read; past the spawn, the
-    /// error carries the process's exit.
+    /// Starts `server` on `spawner`'s thread in `base` with the server's own values over it, and
+    /// opens a connection over its standard streams, its output teed into the raw copy. Fails when
+    /// the environment cannot be built, the process cannot start (`NotFound` for a program no
+    /// search finds), or the server does not complete its start in time or its first tools read;
+    /// past the spawn, the error carries the process's exit.
     pub(crate) async fn start_stdio(
         spawner: &Spawner,
         server: McpStdioServer,
-        environment: &ProviderEnvironmentRequest<'_>,
+        base: McpServerBaseEnvironment<'_>,
         scope: McpConnectionScope,
     ) -> Result<Self, McpConnectionError> {
         let mut start = McpConnectionStart::stdio(server.startup_timeout, None);
-        let environment = compose_server_environment(environment, &server.environment)?;
+        let environment = compose_server_environment(base, &server.environment)?;
         let daemon_pid = std::process::id();
         let mut child = spawner
             .run(move || {
@@ -175,19 +191,27 @@ fn find_server_program(
         })
 }
 
-/// The server's environment: a conversation command's, with every value starting with `()` left
-/// out, as a shell exports a function, then the server's own values over it.
+/// The server's environment: `base`, with every value starting with `()` left out, as a shell
+/// exports a function, then the server's own values over it.
 fn compose_server_environment(
-    request: &ProviderEnvironmentRequest<'_>,
+    base: McpServerBaseEnvironment<'_>,
     server_environment: &[(String, String)],
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
-    let mut environment = build_conversation_command_environment(request)?;
+    let (mut environment, rules) = match base {
+        McpServerBaseEnvironment::Conversation(request) => (
+            build_conversation_command_environment(request)?,
+            request.session.rules,
+        ),
+        McpServerBaseEnvironment::ProviderProcess(environment) => {
+            (environment.to_vec(), PathRules::NATIVE)
+        }
+    };
     environment.retain(|(_, value)| !value.starts_with("()"));
     let server_names: Vec<&str> = server_environment
         .iter()
         .map(|(name, _)| name.as_str())
         .collect();
-    remove_environment_names(&mut environment, &server_names, request.session.rules);
+    remove_environment_names(&mut environment, &server_names, rules);
     environment.extend(server_environment.iter().cloned());
     Ok(environment)
 }
@@ -391,7 +415,10 @@ mod tests {
     };
     use tokio::io::AsyncReadExt as _;
 
-    use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
+    use super::{
+        LOGGED_LINE_MAX_BYTES, McpServerBaseEnvironment, McpStdioServer, StdioProcess,
+        error_output_line_text,
+    };
     use crate::client::connection::{McpConnectionError, McpConnectionStart, McpServerConnection};
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
@@ -407,7 +434,7 @@ mod tests {
         let reserved_names = ReservedEnvironmentNames::of_providers(PROVIDERS);
         let base = [
             ("EXPORTED_FUNCTION".to_owned(), "() {  :\n}".to_owned()),
-            ("TRACKER_TOKEN".to_owned(), "from-the-shell".to_owned()),
+            ("TRACKER_REGION".to_owned(), "from-the-shell".to_owned()),
         ];
         let environment = ProviderEnvironmentRequest {
             session: SessionEnvironment {
@@ -426,19 +453,23 @@ mod tests {
             arguments: vec![
                 "-c".to_owned(),
                 concat!(
-                    r#"echo "missing API key token=$TRACKER_TOKEN "#,
+                    r#"echo "missing API key region=$TRACKER_REGION "#,
                     r#"function=${EXPORTED_FUNCTION-unset}" >&2; exit 1"#,
                 )
                 .to_owned(),
             ],
-            environment: vec![("TRACKER_TOKEN".to_owned(), "from-the-entry".to_owned())],
+            environment: vec![("TRACKER_REGION".to_owned(), "from-the-entry".to_owned())],
             working_folder: None,
             startup_timeout: None,
         };
 
-        let started =
-            McpServerConnection::start_stdio(&spawner, server, &environment, test_scope(&client))
-                .await;
+        let started = McpServerConnection::start_stdio(
+            &spawner,
+            server,
+            McpServerBaseEnvironment::Conversation(&environment),
+            test_scope(&client),
+        )
+        .await;
 
         let Err(McpConnectionError::ProcessFailedStart { exit, .. }) = started else {
             panic!("the start fails with the process's exit");
@@ -448,7 +479,7 @@ mod tests {
         };
         assert_eq!(
             exit.output_tail.as_str().trim_end(),
-            "missing API key token=from-the-entry function=unset"
+            "missing API key region=from-the-entry function=unset"
         );
     }
 

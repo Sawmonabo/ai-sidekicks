@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use futures::future::BoxFuture;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// A working folder's repository, as the daemon's git reads found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,13 +17,14 @@ pub struct RepositoryReading {
 
 /// Reads repositories and the owner of their entries, registered through a `PortRegistration`.
 pub trait RepositoryReader: Send + Sync {
-    /// The repository of `working_folder`, `None` outside git.
+    /// The repository of `working_folder`, `None` outside git. Fails with the refusal the read
+    /// gave, such as git's error or a folder that cannot be read.
     fn read_repository<'a>(
         &'a self,
         working_folder: &'a Path,
-    ) -> BoxFuture<'a, Option<RepositoryReading>>;
+    ) -> BoxFuture<'a, Result<Option<RepositoryReading>, DomainError>>;
 
-    /// Whether the person the daemon runs as owns the entry at `path`; `false` for an entry that
-    /// is absent or cannot be read.
-    fn is_owned_by_user<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, bool>;
+    /// Whether the person the daemon runs as owns the entry at `path`; `false` for an absent
+    /// entry. Fails with the refusal the owner's read gave.
+    fn is_owned_by_user<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, Result<bool, DomainError>>;
 }

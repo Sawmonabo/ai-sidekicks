@@ -444,3 +444,39 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
         "the key was handed over the later switch"
     );
 }
+
+// A key hand-back waits for every other turn running on the service, a copy's among them, since
+// its sign-out and login cut that turn's requests. Killed by the key's task taking the hand without
+// waiting for the turns to end, which sends the sign-out while the copy's turn runs.
+#[tokio::test]
+async fn a_key_hand_back_waits_for_the_turns_running_on_the_service() {
+    let mut fixture = Fixture::new(true).await;
+    let named_move = fixture.switch(switching_person()).await;
+    let check = fixture.switching.next_request("account/read").await;
+    let switching = Arc::clone(&fixture.switching.dependencies.switching);
+    let lease = switching.lease_copy_turn(&fixture.switching.service).await;
+
+    refuse_the_renewal(&mut fixture).await;
+    let mut sent_while_running = Vec::new();
+    while let Some(sent) = fixture
+        .switching
+        .script
+        .next_sent_within(Duration::from_millis(300))
+        .await
+    {
+        sent_while_running.push(sent);
+    }
+    drop(lease);
+    let handed = answer_through_login(&mut fixture.switching, false).await;
+    fixture.switching.script.answer(&check, &signed_in());
+    let named = settle(named_move).await;
+
+    assert!(
+        sent_while_running
+            .iter()
+            .all(|sent| sent.get("method").is_none()),
+        "a request went while the copy's turn ran: {sent_while_running:?}"
+    );
+    assert_eq!(handed.methods, ["account/logout", CODEX_LOGIN_START_METHOD]);
+    assert_eq!(named, FirstRequestAfterMove::HandedBack);
+}

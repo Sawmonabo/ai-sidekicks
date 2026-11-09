@@ -10,7 +10,6 @@ use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::mcp::config::ClaudeServerEntryReader;
@@ -22,7 +21,6 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::resources::{
     McpResourceSource, McpServerReach, not_a_session_server,
 };
-use crate::spawn_environment::remove_environment_names;
 
 impl ClaudeDriver {
     /// How the daemon reaches `server_name`, a server `session_id`'s live process runs, to list
@@ -61,18 +59,16 @@ impl ClaudeDriver {
                 RefusalCode::ProviderUnavailable,
             ))
         };
-        let mut environment = live.spawn_bound_legs.spawn_environment.clone();
+        let environment = live.spawn_bound_legs.spawn_environment.clone();
         let working_folder = &live.spawn_bound_legs.working_directory;
         let project = working_folder.to_string_lossy().into_owned();
         let reach = match compose_sent_entry(declared, &environment, Some(project)) {
             SentEntry::Sent(ClaudeToolServerEntry::Stdio { command, args, env }) => {
-                let names: Vec<&str> = env.keys().map(String::as_str).collect();
-                remove_environment_names(&mut environment, &names, PathRules::NATIVE);
-                environment.extend(env);
                 McpServerReach::Stdio {
                     program: command,
                     arguments: args,
-                    environment,
+                    process_environment: environment,
+                    server_environment: env.into_iter().collect(),
                     working_folder: Some(working_folder.clone()),
                 }
             }

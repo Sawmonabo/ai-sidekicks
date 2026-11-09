@@ -1,10 +1,13 @@
 //! The disk on macOS and Linux: the free room on a folder's volume, whether that volume is a
-//! network file system, a read at a file offset, and a written file (by path, or through a handle
-//! already open with `flush_open_file`) or a changed folder flushed so it survives a power loss.
+//! network file system, the folder SQLite writes its temporary files to, a read at a file offset,
+//! and a written file (by path, or through a handle already open with `flush_open_file`) or a
+//! changed folder flushed so it survives a power loss.
 
 use std::fs::File;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use nix::unistd::{AccessFlags, access};
 
 /// The bytes an unprivileged process may still write on the volume holding `folder`. Fails with
 /// the system's error when the volume cannot be read, and with `Other` when the count passes
@@ -14,6 +17,26 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
     available_blocks
         .checked_mul(block_bytes)
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
+}
+
+/// The folder SQLite writes its temporary files to, a `VACUUM`'s copy among them, picked as SQLite
+/// picks it: the first of `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp` and `/tmp` that is a
+/// folder this process may write and search, else the working folder.
+pub fn sqlite_temporary_folder() -> PathBuf {
+    let named = ["SQLITE_TMPDIR", "TMPDIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from);
+    let fixed = ["/var/tmp", "/usr/tmp", "/tmp"]
+        .into_iter()
+        .map(PathBuf::from);
+    named
+        .chain(fixed)
+        .find(|folder| {
+            std::fs::metadata(folder).is_ok_and(|metadata| metadata.is_dir())
+                && access(folder, AccessFlags::W_OK | AccessFlags::X_OK).is_ok()
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,

@@ -285,7 +285,7 @@ impl ProviderDescriptor {
     }
 
     /// The provider's id as the wire carries it; the table's build check holds its pattern.
-    pub(crate) fn provider_id(&self) -> ProviderId {
+    pub fn provider_id(&self) -> ProviderId {
         ProviderId::new(self.id.to_owned()).expect("a table id matches the provider id pattern")
     }
 

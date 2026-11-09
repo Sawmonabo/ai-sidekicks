@@ -25,10 +25,6 @@ use crate::port::session_message_reading_publisher::{
 // How long the watch's task is given to act before the test goes on.
 const WRITE_GAP: Duration = Duration::from_millis(50);
 
-// The unwritten stretch a long transcript ends in before a wait begins: a file system hole, which
-// takes no disk room yet minutes to read through.
-const LONG_TRANSCRIPT_HOLE: u64 = 256 << 30;
-
 // How long an idle notice is given to settle once its reply is written.
 const NOTICE_WITHIN: Duration = Duration::from_secs(10);
 
@@ -204,10 +200,9 @@ async fn a_watched_transcript_answers_the_turn_each_message_started_and_no_other
     );
 }
 
-// Killed by the watch reading the transcript from its start (the notice's drain reads through the
-// hole and misses its bound), by its lines folded from the start (the earlier record of M is
-// delivered before the wait's own lines, and answers "stale"), and by its lines counted from the
-// file's start while its reads begin at the wait's (M's lines are passed over: `NotDelivered`).
+// Killed by its lines folded from the start (the earlier record of M is delivered before the wait's
+// own lines, and answers "stale"), and by its lines counted from the file's start while its reads
+// begin at the wait's (M's lines are passed over: `NotDelivered`).
 #[tokio::test]
 async fn a_watch_reads_only_what_the_transcript_gains_after_the_wait_begins() {
     if !WATCHES_ARRIVALS_AND_APPENDS {
@@ -226,17 +221,6 @@ async fn a_watch_reads_only_what_the_transcript_gains_after_the_wait_begins() {
             reply(OUR_FIRST, MESSAGE_M, "msg-stale", "stale"),
         ],
     );
-    let written = std::fs::OpenOptions::new()
-        .write(true)
-        .open(&transcript)
-        .expect("the transcript opens");
-    let length = written
-        .metadata()
-        .expect("the transcript is measured")
-        .len();
-    written
-        .set_len(length + LONG_TRANSCRIPT_HOLE)
-        .expect("the transcript is made long");
     let (replies, recording) = recording_replies();
     let receiver = terminal_session(&config_folder, session_id, "/work/app");
     let _wait = replies

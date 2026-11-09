@@ -647,3 +647,64 @@ async fn an_item_round_trips_through_this_machines_credential_store() {
     );
     assert_eq!(removed.map_err(|refusal| refusal.cause()), Ok(true));
 }
+
+/// One data folder names the same items however its path is spelled: a doubled separator, a `.`
+/// segment or a trailing separator changes nothing, while another folder names others. Mutation:
+/// hash the path's bytes as spelled.
+#[test]
+fn a_data_folder_spelled_another_way_names_the_same_items() {
+    let name = |folder: &str| {
+        os_service_name(
+            std::path::Path::new(folder),
+            KeychainService::WorkflowSecrets,
+        )
+    };
+    let plain = name("/home/person/.local/share/ai-sidekicks");
+    for spelled in [
+        "/home//person/.local/share/ai-sidekicks",
+        "/home/person/./.local/share/ai-sidekicks",
+        "/home/person/.local/share/ai-sidekicks/",
+    ] {
+        assert_eq!(name(spelled), plain, "{spelled}");
+    }
+    assert_ne!(name("/home/other/.local/share/ai-sidekicks"), plain);
+}
+
+/// A first call whose settle meets another call's open prompt at the store waits its turn there
+/// and is served once that prompt ends, however long it stayed open. Mutation: time the settle
+/// from the call's issue, which refuses it `locked` while the other prompt is still open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_settle_behind_another_calls_prompt_is_served_once_it_ends() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let access = TestStoreAccess::new(CredentialStore::in_memory());
+    let items = secret_items(folder.path(), &access, false, HELD_CALL_TIMEOUT);
+    let (prompt_answered, answer) = tokio::sync::oneshot::channel::<()>();
+    let turn = items.keychain_turn();
+    let prompt = tokio::spawn(async move {
+        turn.run(
+            "another provider's item",
+            async move { answer.await.ok() },
+            |_| true,
+        )
+        .await
+    });
+    tokio::time::sleep(HELD_CALL_TIMEOUT / 4).await;
+
+    let call = tokio::spawn({
+        let items = Arc::clone(&items);
+        async move { write_and_read(&items, "secret", "value").await }
+    });
+    tokio::time::sleep(2 * HELD_CALL_TIMEOUT).await;
+    assert!(!call.is_finished(), "the settle waits for its turn");
+    prompt_answered
+        .send(())
+        .expect("the held call waits for its answer");
+
+    let served = tokio::time::timeout(Duration::from_secs(5), call)
+        .await
+        .expect("the call answers once the prompt ends")
+        .expect("the call's task ends");
+    assert_eq!(served, Ok(Some("value".to_owned())));
+    // The other call's own answer is not what this test proves; only that it ended.
+    let _other_answer = prompt.await.expect("the held call's task ends");
+}

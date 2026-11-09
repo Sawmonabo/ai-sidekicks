@@ -74,6 +74,8 @@ pub(crate) fn start_service(home: &Path) -> Child {
         .arg(ISOLATED_SERVICE_MODE)
         .env(PathRules::NATIVE.home_environment_name(), home)
         .env_remove("XDG_RUNTIME_DIR")
+        // zsh reads its startup files from the test's home, never the person's own `ZDOTDIR`.
+        .env_remove("ZDOTDIR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

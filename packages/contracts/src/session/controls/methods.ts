@@ -156,9 +156,10 @@ export const SessionAutoCompactUpdateResponseSchema: z.ZodType<SessionAutoCompac
   .strict();
 
 /**
- * One tool server this session was started with. `enabled` is the session's own switch;
- * `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next turn. `reason` is the
- * failure or sign-in reason, carried for a server that is not working.
+ * One tool server this session was started with. `enabled` is the session's own switch, off too
+ * where every live leg reporting the server had its provider switch it off; `pendingUntilNextTurn`
+ * says a switch flipped mid-turn waits for the next turn. `reason` is the failure or sign-in
+ * reason, carried for a server that is not working.
  */
 export interface SessionMcpServer {
   serverName: string;

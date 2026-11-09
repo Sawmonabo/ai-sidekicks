@@ -189,8 +189,8 @@ pub use code_signature::{CodeSignatureError, SignatureCheck};
 pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::seal::{CredentialSeal, SealFailure, SealHeader, SealKey};
 pub use credential_store::{
-    CredentialStore, CredentialStoreError, SecretStoreOffer, StoreAccount, StoreOpener,
-    secret_store_offer,
+    CredentialStore, CredentialStoreError, KEYCHAIN_CALL_TIMEOUT, SecretStoreOffer, StoreAccount,
+    StoreOpener, secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use environment_value_limits::EnvironmentValueLimits;
@@ -253,10 +253,7 @@ pub use linux::volume::read_volume;
 #[cfg(target_os = "linux")]
 pub use linux::windowless_app::launch_app_windowless;
 #[cfg(target_os = "linux")]
-pub use linux::{
-    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
-    windows_drive_mounts,
-};
+pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
@@ -317,10 +314,7 @@ pub use macos::wake_helper::{WakeHelper, wake_helper};
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]
-pub use macos::{
-    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
-    windows_drive_mounts,
-};
+pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 #[cfg(not(target_os = "macos"))]
@@ -374,7 +368,7 @@ pub use posix::current_user::{current_user_id, current_user_name};
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
-    volume_free_bytes,
+    sqlite_temporary_folder, volume_free_bytes,
 };
 #[cfg(unix)]
 pub use posix::entry_identity::{entry_identity, open_file_identity};
@@ -602,8 +596,6 @@ pub use windows::command_wrapper::{
     take_inherited_secret, wait_for_exit, wait_for_terminal_command,
 };
 #[cfg(target_os = "windows")]
-pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
-#[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c, wait_through_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::current_user::{current_user_id, current_user_name};
@@ -612,7 +604,8 @@ pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
-    is_on_network_file_system, read_exact_at, volume_free_bytes, windows_drive_mounts,
+    is_on_network_file_system, read_exact_at, sqlite_temporary_folder, volume_free_bytes,
+    windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
 pub use windows::entry_identity::{entry_identity, open_file_identity};

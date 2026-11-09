@@ -9,11 +9,9 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use rstest::rstest;
-use secrecy::zeroize::Zeroizing;
 
-use super::keychain_item::{AddForm, add_form, item_from_printed};
 use super::sign_in_move;
-use crate::macos::keychain_tool::{INTERACTIVE_LINE_LIMIT, ToolAnswer, tool_answer};
+use crate::macos::keychain_tool::{INTERACTIVE_LINE_LIMIT, ToolAnswer, add_line, tool_answer};
 use crate::spawner::Spawner;
 use crate::stand_in_keychain::split_line;
 use crate::test_program::harness_test_name;
@@ -92,10 +90,9 @@ async fn the_sign_in_move_puts_each_sign_in_in_a_private_file_and_back() {
         );
     }
     let mover = keychain.sign_in_move().expect("macOS supplies the move");
-    let spawner = spawner();
 
     mover
-        .move_into_files(&spawner, &sign_ins, STEP_BOUND)
+        .move_into_files(&spawner(), &sign_ins, STEP_BOUND)
         .await
         .expect("the sign-ins move into files");
 
@@ -109,7 +106,7 @@ async fn the_sign_in_move_puts_each_sign_in_in_a_private_file_and_back() {
     }
 
     mover
-        .move_into_keychain(&spawner, &sign_ins, STEP_BOUND)
+        .move_into_keychain(&spawner(), &sign_ins, STEP_BOUND)
         .await
         .expect("the sign-ins move back");
 
@@ -133,9 +130,10 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
         );
     }
     let mover = keychain.sign_in_move().expect("macOS supplies the move");
-    let spawner = spawner();
 
-    let stopped = mover.move_into_files(&spawner, &sign_ins, STEP_BOUND).await;
+    let stopped = mover
+        .move_into_files(&spawner(), &sign_ins, STEP_BOUND)
+        .await;
 
     let stopped_at = match &stopped {
         Err(SignInMoveError::Keychain {
@@ -147,7 +145,7 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
     };
     assert_eq!(stopped_at, Some("second"), "{stopped:?}");
     mover
-        .move_into_files(&spawner, &sign_ins, STEP_BOUND)
+        .move_into_files(&spawner(), &sign_ins, STEP_BOUND)
         .await
         .expect("the next call finishes the move");
     assert_each_held_once(&keychain, &sign_ins, true);
@@ -160,7 +158,7 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
         sign_in_text(first).as_bytes(),
     );
     mover
-        .move_into_keychain(&spawner, &sign_ins, STEP_BOUND)
+        .move_into_keychain(&spawner(), &sign_ins, STEP_BOUND)
         .await
         .expect("the next call finishes the move back");
     assert_each_held_once(&keychain, &sign_ins, false);
@@ -319,14 +317,14 @@ async fn a_step_past_its_bound_stops_the_move_and_ends_its_child() {
 
 /// A name's `"` and `\` are escaped so the tool's line reader reads the name back whole, and a
 /// line of exactly the tool's bound, its newline included, goes on standard input while one byte
-/// more takes the arguments. Mutations: an unescaped quote; the bound off by one.
+/// more is no line at all. Mutations: an unescaped quote; the bound off by one.
 #[test]
 fn the_add_line_quotes_its_names_and_keeps_within_the_tools_line() {
     let service = r#"Provider "quoted" \ service"#;
     let account = r"person\";
-    let Ok(AddForm::Line(line)) = add_form(service, account, "00ff") else {
-        unreachable!("a short add is a line");
-    };
+    let line = add_line(&["-U"], service, account, "00ff")
+        .expect("the names are writable")
+        .expect("a short add is a line");
     let line_text = std::str::from_utf8(&line).expect("the line is text");
     assert_eq!(
         line_text,
@@ -348,44 +346,47 @@ fn the_add_line_quotes_its_names_and_keeps_within_the_tools_line() {
         ]
     );
 
-    let Ok(AddForm::Line(empty)) = add_form(SERVICE, "person", "") else {
-        unreachable!("an empty add is a line");
-    };
+    let line_of =
+        |hex: &str| add_line(&["-U"], SERVICE, "person", hex).expect("the names are writable");
+    let empty = line_of("").expect("an empty add is a line");
     let at_bound = "a".repeat(INTERACTIVE_LINE_LIMIT - empty.len());
-    let Ok(AddForm::Line(longest)) = add_form(SERVICE, "person", &at_bound) else {
-        unreachable!("a line at the bound goes on standard input");
-    };
+    let longest = line_of(&at_bound).expect("a line at the bound goes on standard input");
     assert_eq!(longest.len(), INTERACTIVE_LINE_LIMIT);
-    let past_bound = format!("{at_bound}a");
-    assert!(matches!(
-        add_form(SERVICE, "person", &past_bound),
-        Ok(AddForm::Arguments)
-    ));
+    assert!(line_of(&format!("{at_bound}a")).is_none());
     for name in ["line\nbreak", "nul\0byte"] {
         assert!(matches!(
-            add_form(SERVICE, name, "00"),
+            add_line(&["-U"], SERVICE, name, "00"),
             Err(KeychainItemRefusal::UnwritableName)
         ));
     }
 }
 
-/// The item is read back whether the tool printed it as it is or as hex, with only the tool's
-/// one newline dropped. Killed by hex never decoded, by printable hex decoded, and by a trim in
-/// place of the one newline.
-#[rstest]
-#[case::json_text(b"{\"token\":\"t\"}\n".to_vec(), b"{\"token\":\"t\"}".to_vec())]
-#[case::json_past_ascii_as_hex(
-    format!("{}\n", base16ct::lower::encode_string("{\"note\":\"café\"}".as_bytes())).into_bytes(),
-    "{\"note\":\"café\"}".as_bytes().to_vec()
-)]
-#[case::printable_hex_kept_as_text(b"7b7d\n".to_vec(), b"7b7d".to_vec())]
-#[case::trailing_space_kept(b"{} \n".to_vec(), b"{} ".to_vec())]
-#[case::own_newline_kept(b"{}\n\n".to_vec(), b"{}\n".to_vec())]
-fn a_read_takes_the_items_bytes_whether_printed_raw_or_as_hex(
-    #[case] printed: Vec<u8>,
-    #[case] item: Vec<u8>,
-) {
-    assert_eq!(item_from_printed(&printed), Zeroizing::new(item));
+/// A sign-in too long for the tool's input line is refused by a move into the keychain and stays
+/// in its file, with nothing sent to the tool. Mutation: the add sent as arguments past the line.
+#[tokio::test]
+async fn a_sign_in_past_the_tools_line_stays_in_its_file() {
+    let keychain = stand_in_keychain(&[]);
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let [sign_in, _] = two_sign_ins(folder.path());
+    let long = "x".repeat(INTERACTIVE_LINE_LIMIT);
+    fs::write(&sign_in.file, &long).expect("the sign-in file is written");
+
+    let refused = keychain
+        .sign_in_move()
+        .expect("macOS supplies the move")
+        .move_into_keychain(&spawner(), std::slice::from_ref(&sign_in), STEP_BOUND)
+        .await;
+
+    assert!(
+        matches!(
+            refused,
+            Err(SignInMoveError::TooLongForTheKeychainTool { .. })
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(fs::read_to_string(&sign_in.file).ok(), Some(long));
+    assert_eq!(keychain.item(&sign_in.service, &sign_in.account), None);
+    assert!(keychain.calls().is_empty(), "{:?}", keychain.calls());
 }
 
 /// The tool's exits read as the keychain's answers: 44 is no item, which a read answers as none

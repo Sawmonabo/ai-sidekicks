@@ -134,7 +134,7 @@ struct ClaudeKeychainItems {
 
 impl ClaudeSignInReader {
     /// The reader of the file, then of the keychain item through `tool`, the keychain tool where
-    /// the system has one (macOS), started on `spawner`, each call taking `turn`.
+    /// the platform supplies one, started on `spawner`, each call taking `turn`.
     pub(crate) fn new(tool: Option<SignInMove>, spawner: &Spawner, turn: &KeychainTurn) -> Self {
         Self {
             keychain: tool.map(|tool| ClaudeKeychainItems {
@@ -239,7 +239,7 @@ impl ClaudeSignInReader {
         }
     }
 
-    /// Whether this reader reaches a keychain, which only macOS has.
+    /// Whether this reader reaches a keychain, where the platform supplies a keychain tool.
     pub(crate) fn has_keychain(&self) -> bool {
         self.keychain.is_some()
     }

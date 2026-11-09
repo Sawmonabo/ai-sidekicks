@@ -254,11 +254,16 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
 // Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on
 // either, which would cut the session's running turns; a draining answer's reason not read (the
 // case whose words say nothing of draining) or, where it carries no reason, its words not read
-// (the case of a release that sends none).
+// (the case of a release that sends none); a key the answer quotes carried unscrubbed.
 #[rstest]
 #[case::overloaded(
     json!({ "code": -32001, "message": "Server overloaded; retry later." }),
     Some("Server overloaded; retry later."),
+    false
+)]
+#[case::overloaded_quoting_a_key(
+    json!({ "code": -32001, "message": "Overloaded for sk-qqqqqqqqqqqqqqqqqqqqqqqq; retry later." }),
+    Some("retry later."),
     false
 )]
 #[case::draining(
@@ -327,6 +332,7 @@ async fn overloaded_and_draining_answers_refuse_the_request_and_keep_the_connect
                 .as_str()
                 .expect("the detail is text");
             assert!(carried.contains(words), "{carried}");
+            assert!(!carried.contains("sk-q"), "{carried}");
         }
         (None, DriverError::Internal(_)) => {}
         (_, other) => panic!("the driver error is {other:?}"),

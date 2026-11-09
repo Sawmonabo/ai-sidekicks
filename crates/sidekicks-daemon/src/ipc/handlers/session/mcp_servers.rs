@@ -31,7 +31,7 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::{Feed, SendGate};
 use sidekicks_mcp::client::McpClient;
-use sidekicks_mcp::client::resources::{McpServerCopyStart, McpServerResources};
+use sidekicks_mcp::client::resources::McpServerResources;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeFeed;
 use sidekicks_platforms::Spawner;
@@ -39,7 +39,6 @@ use sidekicks_provider::driver::mcp_server::resources::{McpResourceSource, not_a
 use sidekicks_provider::driver::mcp_server::session_switch::McpSessionSwitch;
 use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::session_control::SessionToolServer;
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
@@ -58,8 +57,6 @@ pub(crate) struct McpServerMethods {
     pub(crate) client: Arc<McpClient>,
     /// The thread a second copy of a program server starts on.
     pub(crate) spawner: Spawner,
-    /// The names no person's row may set, which a copy's environment is built under.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
     /// The event log's followers, on which a session's close drops its switch state.
     pub(crate) followers: Arc<SessionEventFollowers>,
 }
@@ -345,7 +342,7 @@ async fn read_session_tool_servers(
 
 /// The session's list: one row per server of its stored set, its status folded over the legs
 /// that report it by severity, `unknown` where none does; off where the session's switch is off
-/// or a live leg's provider switched it off; and waiting while the driver's last answer left the
+/// or every live leg reporting it switched it off; and waiting while the driver's last answer left the
 /// switch for a next turn or start and the legs still disagree with it. Fails as the stored leg's
 /// read fails.
 async fn compose_session_servers(
@@ -375,7 +372,7 @@ async fn compose_session_servers(
             });
             let is_running = statuses.clone().next().is_some();
             let status = McpServerStatus::most_severe(statuses).unwrap_or(McpServerStatus::Unknown);
-            let enabled = tool_server.is_enabled && !legs.contains(&McpServerReading::SwitchedOff);
+            let enabled = is_shown_enabled(tool_server, &legs);
             SessionMcpServer {
                 server_name: server_name.clone(),
                 status,
@@ -394,10 +391,21 @@ async fn compose_session_servers(
     })
 }
 
+// Whether `tool_server`'s row reads on: the session's switch is on and not every leg of `legs`
+// reporting it has its provider switch it off.
+fn is_shown_enabled(tool_server: &SessionToolServer, legs: &[McpServerReading]) -> bool {
+    tool_server.is_enabled
+        && (legs.is_empty()
+            || !legs
+                .iter()
+                .all(|reading| *reading == McpServerReading::SwitchedOff))
+}
+
 // Switches `server_name` on or off for the session alone: refused `session.notFound` for a
 // session the daemon does not hold and `mcp.server.notRunning` for a server its stored set does
-// not hold, the switch only narrowing that set; the same state changes nothing; a new state goes
-// to the driver with the whole set and the stored leg's run, and the session's feeds send again.
+// not hold, the switch only narrowing that set; the state the row shows changes nothing; another
+// goes to the driver with the whole set and the stored leg's run, and the session's feeds send
+// again.
 async fn switch_session_server(
     methods: &McpServerMethods,
     switches: &SessionMcpSwitches,
@@ -417,7 +425,14 @@ async fn switch_session_server(
         .iter_mut()
         .find(|tool_server| tool_server.binding.server_name() == &server_name)
         .ok_or_else(|| not_a_session_server(&server_name))?;
-    if switched.is_enabled != enabled {
+    let legs: Vec<McpServerReading> = methods
+        .statuses
+        .session_server_readings(session_id)
+        .into_iter()
+        .filter(|(name, _)| name == &server_name)
+        .map(|(_, reading)| reading)
+        .collect();
+    if is_shown_enabled(switched, &legs) != enabled {
         switched.is_enabled = enabled;
         let answer = driver
             .switch_session_mcp_servers(session_id, run_id, tool_servers)
@@ -444,8 +459,7 @@ async fn list_resources(
         session_id,
         server_name,
     } = request;
-    let sources = &methods.sources;
-    let (provider, driver) = sources.resolve_driver(session_id).await?;
+    let (_, driver) = methods.sources.resolve_driver(session_id).await?;
     let is_working = methods
         .statuses
         .session_server_readings(session_id)
@@ -475,28 +489,21 @@ async fn list_resources(
             resources,
             complete,
         },
-        McpResourceSource::Reach { binding, reach } => {
-            let copy_start = McpServerCopyStart {
-                spawner: &methods.spawner,
-                descriptor: sources.providers.descriptor(&provider)?,
-                reserved_names: &methods.reserved_names,
-            };
-            methods
-                .client
-                .list_server_resources(session_id, &binding, reach, copy_start)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        server_name = server_name.as_str(),
-                        "a session's tool server's resources could not be read"
-                    );
-                    DomainError::new(
-                        format!("{}'s resources could not be read", server_name.as_str()),
-                        RefusalCode::ProviderUnavailable,
-                    )
-                })?
-        }
+        McpResourceSource::Reach { binding, reach } => methods
+            .client
+            .list_server_resources(session_id, &binding, reach, &methods.spawner)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    server_name = server_name.as_str(),
+                    "a session's tool server's resources could not be read"
+                );
+                DomainError::new(
+                    format!("{}'s resources could not be read", server_name.as_str()),
+                    RefusalCode::ProviderUnavailable,
+                )
+            })?,
         McpResourceSource::SignedInByProvider => {
             return Err(DomainError::new(
                 format!(

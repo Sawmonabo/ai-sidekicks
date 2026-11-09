@@ -1,8 +1,19 @@
-//! What every call of Apple's `security` tool shares, whoever makes it: the tool's path, how its
-//! exit reads as the keychain's answer, the line `security -i` reads an add from, and the buffer a
-//! value read from its output grows in.
+//! What every call of Apple's `security` tool shares, whoever makes it: the tool's path, the one
+//! runner that starts it, feeds its input and reads its output within a bound, ending it past the
+//! bound, how its exit reads as the keychain's answer, the line `security -i` reads an add from,
+//! and what it prints of an item (`printed_form`).
+//!
+//! A call blocks until the tool ends, and a prompt the person leaves open holds it only until its
+//! bound.
 
-use std::process::ExitStatus;
+pub(crate) mod printed_form;
+
+use std::ffi::OsStr;
+use std::io::{self, Read, Write as _};
+use std::path::Path;
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use secrecy::zeroize::Zeroizing;
 
@@ -14,9 +25,6 @@ pub(crate) const SECURITY_PROGRAM: &str = "/usr/bin/security";
 /// The longest line, its newline included, `security -i` reads as one command: it reads each line
 /// into a 4096-byte buffer and splits a longer one silently, so a line past this is never sent.
 pub(crate) const INTERACTIVE_LINE_LIMIT: usize = 4095;
-
-/// The tool's exit for `errSecDuplicateItem`: an add without `-U` met an item already there.
-pub(crate) const DUPLICATE_ITEM: i32 = 45;
 
 // The tool's exit for `errSecItemNotFound`: a read or a delete found no item.
 const ITEM_NOT_FOUND: i32 = 44;
@@ -88,18 +96,128 @@ pub(crate) fn add_line(
     Ok((line.len() <= INTERACTIVE_LINE_LIMIT).then_some(line))
 }
 
-/// An empty buffer for the tool's output, wiped when dropped.
-pub(crate) fn output_buffer() -> Zeroizing<Vec<u8>> {
-    Zeroizing::new(Vec::with_capacity(OUTPUT_START_CAPACITY))
+/// Which of the tool's streams a call reads to its end; the other output stream is closed.
+#[derive(Clone, Copy)]
+pub(crate) enum Capture {
+    /// Its standard output, where a dump and a delete's or an add's words go.
+    Output,
+    /// Its standard error, where `find-generic-password -g` prints the password line.
+    Errors,
 }
 
-/// Makes room in `held` for the next read: a full buffer is copied into one of twice its size and
-/// wiped, so no copy of the output is left behind in freed memory.
-pub(crate) fn make_room(held: &mut Zeroizing<Vec<u8>>) {
-    if held.len() == held.capacity() {
-        let mut larger = Zeroizing::new(Vec::with_capacity(held.capacity() * 2));
-        larger.extend_from_slice(held);
-        *held = larger;
+/// How one run of the tool ended: its exit and the stream it was asked for, wiped when dropped.
+pub(crate) struct ToolEnd {
+    /// The tool's exit.
+    pub(crate) status: ExitStatus,
+    /// What it printed on the stream the call named.
+    pub(crate) printed: Zeroizing<Vec<u8>>,
+}
+
+/// Starts the tool from the thread the call runs on: a credential-store call's tool, which is
+/// waited on before the call returns.
+pub(crate) fn start_here(mut command: Command) -> io::Result<Child> {
+    command.spawn()
+}
+
+/// Runs `program` through `start` with `arguments`, `line` written to its standard input and
+/// closed, and reads the stream `capture` names to its end, all within `bound`. Blocks. Fails with
+/// [`KeychainItemRefusal::Unanswered`] past the bound, the tool ended and reaped first, as while a
+/// prompt stays open, and with [`KeychainItemRefusal::Unreachable`] when the tool cannot be started
+/// or a stream fails.
+pub(crate) fn run_tool(
+    start: impl FnOnce(Command) -> io::Result<Child>,
+    program: &Path,
+    arguments: &[&OsStr],
+    line: Option<&[u8]>,
+    capture: Capture,
+    bound: Duration,
+) -> Result<ToolEnd, KeychainItemRefusal> {
+    let piped_if = |is_piped: bool| {
+        if is_piped {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        }
+    };
+    let mut command = Command::new(program);
+    command
+        .args(arguments)
+        .stdin(piped_if(line.is_some()))
+        .stdout(piped_if(matches!(capture, Capture::Output)))
+        .stderr(piped_if(matches!(capture, Capture::Errors)));
+    let mut child = start(command).map_err(KeychainItemRefusal::Unreachable)?;
+    let input = child.stdin.take();
+    let printed: Box<dyn Read + Send> = match capture {
+        Capture::Output => Box::new(child.stdout.take().expect("the output is piped")),
+        Capture::Errors => Box::new(child.stderr.take().expect("the errors are piped")),
+    };
+    std::thread::scope(|scope| {
+        let (sender, talked) = mpsc::sync_channel(1);
+        // The stream closes when the tool exits, or once it is ended past the bound, so this
+        // thread always ends before the scope does.
+        scope.spawn(move || {
+            // A call past its bound has stopped listening.
+            sender.send(talk(input, line, printed)).unwrap_or(());
+        });
+        match talked.recv_timeout(bound) {
+            Ok(talked) => {
+                let status = child.wait().map_err(KeychainItemRefusal::Unreachable)?;
+                Ok(ToolEnd {
+                    status,
+                    printed: talked.map_err(KeychainItemRefusal::Unreachable)?,
+                })
+            }
+            Err(_unanswered) => {
+                end_child(&mut child);
+                Err(KeychainItemRefusal::Unanswered)
+            }
+        }
+    })
+}
+
+// Writes `line` to the tool's standard input and closes it, then reads `printed` to its end.
+fn talk(
+    input: Option<ChildStdin>,
+    line: Option<&[u8]>,
+    mut printed: Box<dyn Read + Send>,
+) -> io::Result<Zeroizing<Vec<u8>>> {
+    if let (Some(mut input), Some(line)) = (input, line) {
+        input.write_all(line)?;
+    }
+    read_wiped(&mut printed)
+}
+
+// Ends and reaps a run past its bound; a failure is logged, since the call already answers.
+fn end_child(child: &mut Child) {
+    if let Err(error) = child.kill().and_then(|()| child.wait().map(drop)) {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a keychain call past its bound could not be ended"
+        );
+    }
+}
+
+// Reads `reader` to its end into a buffer wiped when dropped; a full buffer is copied into one of
+// twice its size and wiped, so no copy of the output is left behind in freed memory.
+fn read_wiped(reader: &mut impl Read) -> io::Result<Zeroizing<Vec<u8>>> {
+    let mut held = Zeroizing::new(Vec::with_capacity(OUTPUT_START_CAPACITY));
+    loop {
+        if held.len() == held.capacity() {
+            let mut larger = Zeroizing::new(Vec::with_capacity(held.capacity() * 2));
+            larger.extend_from_slice(&held);
+            held = larger;
+        }
+        let filled = held.len();
+        let capacity = held.capacity();
+        held.resize(capacity, 0);
+        let read = reader.read(&mut held[filled..]);
+        held.truncate(filled + read.as_ref().map_or(0, |read| *read));
+        match read {
+            Ok(0) => return Ok(held),
+            Ok(_) => {}
+            Err(interrupted) if interrupted.kind() == io::ErrorKind::Interrupted => {}
+            Err(failure) => return Err(failure),
+        }
     }
 }
 

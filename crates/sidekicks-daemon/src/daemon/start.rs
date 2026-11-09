@@ -15,10 +15,10 @@ use std::time::Instant;
 
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
-    CodeSignatureError, CredentialSeal, ProgramLinkError, SecretStoreOffer, StopRequest,
-    contain_daemon_descendants, create_missing_private_folders, daemon_run_folder,
-    install_tree_sitter_allocator, link_program, process_identity, restrict_library_search,
-    secret_store_offer, stable_working_folder, turn_off_transparent_huge_pages,
+    CodeSignatureError, ProgramLinkError, StopRequest, contain_daemon_descendants,
+    create_missing_private_folders, daemon_run_folder, install_tree_sitter_allocator, link_program,
+    process_identity, restrict_library_search, secret_store_offer, stable_working_folder,
+    turn_off_transparent_huge_pages,
 };
 use sidekicks_provider::command::askpass::command_askpass_program_path;
 use sidekicks_provider::command::wrapper::command_wrapper_program_path;
@@ -26,7 +26,9 @@ use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
-use sidekicks_store::credential_store::os::SystemCredentialStore;
+use sidekicks_store::credential_store::os::{
+    CredentialStoreAccess, PlainItemsFile, SystemCredentialStore,
+};
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::events::session::insert::monotonic_ns_now;
@@ -46,10 +48,6 @@ use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
 
 // The runtime's worker threads.
 const RUNTIME_WORKER_THREADS: usize = 2;
-
-// The socket in the data folder the isolated start names as systemd's credential service, where
-// nothing listens, so its secrets take the plain items file and no call reaches a keychain.
-const ISOLATED_SEAL_SOCKET_NAME: &str = "isolated-seal.sock";
 
 /// Why the service could not start or stop cleanly.
 #[derive(Debug, thiserror::Error)]
@@ -233,15 +231,18 @@ fn run_daemon(
     )?;
     let caller_process_reader =
         Arc::new(ProcessTableReader::for_this_program().map_err(ServiceStartError::CallerReader)?);
-    let (base_environment, offer) = match start {
-        ServiceStart::LoginSession | ServiceStart::SystemService => {
-            (ProviderBaseEnvironment::Capture, secret_store_offer())
-        }
+    let (base_environment, credential_store): (_, Arc<dyn CredentialStoreAccess>) = match start {
+        ServiceStart::LoginSession | ServiceStart::SystemService => (
+            ProviderBaseEnvironment::Capture,
+            Arc::new(SystemCredentialStore {
+                offer: secret_store_offer(),
+            }),
+        ),
+        // The test's service keeps its secrets plain in its own items file, so no call reaches
+        // the person's keychain.
         ServiceStart::Isolated => (
             ProviderBaseEnvironment::Given(Arc::from(service_environment())),
-            SecretStoreOffer::SealService(CredentialSeal::at(
-                data_folder(&home_folder).join(ISOLATED_SEAL_SOCKET_NAME),
-            )),
+            Arc::new(PlainItemsFile),
         ),
     };
     let (exit_code, drain_started) = runtime.block_on(async {
@@ -270,7 +271,7 @@ fn run_daemon(
             caller_process_reader,
             stop,
             base_environment,
-            credential_store: Arc::new(SystemCredentialStore { offer }),
+            credential_store,
             runs_while_logged_out: start == ServiceStart::SystemService,
             service_log_files,
             provider_registrations: PROVIDER_REGISTRATIONS,

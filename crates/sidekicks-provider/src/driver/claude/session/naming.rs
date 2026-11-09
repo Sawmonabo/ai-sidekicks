@@ -47,7 +47,7 @@ use crate::port::usage_sink::MeteredUsageOwner;
 
 /// The model a process on a session with no live process runs on, a naming pass's among them: the
 /// small model Claude Code's own title pass runs on.
-const CLAUDE_NAMING_MODEL: &str = "haiku";
+const CLAUDE_RESTING_PROCESS_MODEL: &str = "haiku";
 
 /// How long a whole naming pass may run, its title verb and its one-turn pass together: as long
 /// as one request to the process may wait.
@@ -235,7 +235,7 @@ pub(crate) async fn compose_resting_legs(
     build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id,
-            model: CLAUDE_NAMING_MODEL.to_owned(),
+            model: CLAUDE_RESTING_PROCESS_MODEL.to_owned(),
             execution_posture,
             subagent_policy: Some(SubagentPolicy::Disabled {}),
             tool_servers,

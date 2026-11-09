@@ -283,8 +283,9 @@ fn priced_message(message_id: &str, model: &str, input: u64, output: u64) -> Val
 // Killed by pricing from `modelUsage`, which a resumed process starts at its earlier turns' totals
 // (5,100,000 first), by subtracting the previous result's figure (25,000 and 25,000), by pricing
 // in dollars rather than micro-dollars, by keeping the larger-window mark on an entry's model (each
-// turn priced from the table instead), and by charging a turn's rows to one account after its
-// account moved. The record writes one cost event per account a priced request's rows name.
+// turn priced from the table instead), and by a result's spend charged whole to one account where
+// its rows name two. The double moves the binding between two rows of one result, which only it
+// does; the record writes one cost event per account a priced request's rows name.
 #[tokio::test]
 async fn each_result_prices_the_spend_it_states_since_the_previous_result() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");

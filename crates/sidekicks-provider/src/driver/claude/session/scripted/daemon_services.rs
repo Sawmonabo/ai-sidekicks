@@ -495,12 +495,12 @@ impl RepositoryReader for NoRepositories {
     fn read_repository<'a>(
         &'a self,
         _working_folder: &'a Path,
-    ) -> BoxFuture<'a, Option<RepositoryReading>> {
-        async { None }.boxed()
+    ) -> BoxFuture<'a, Result<Option<RepositoryReading>, DomainError>> {
+        async { Ok(None) }.boxed()
     }
 
-    fn is_owned_by_user<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, bool> {
-        async { false }.boxed()
+    fn is_owned_by_user<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, Result<bool, DomainError>> {
+        async { Ok(false) }.boxed()
     }
 }
 

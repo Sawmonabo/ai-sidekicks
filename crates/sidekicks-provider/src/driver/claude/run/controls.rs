@@ -56,6 +56,26 @@ use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::running_command_publisher::RunningCommandParams;
 
+/// Takes back `message_uuid`, a message written onto `live`'s process that Claude Code has not
+/// read yet; answers whether it was taken back, `false` once Claude Code had read it. Fails as the
+/// request fails.
+pub(crate) async fn cancel_written_message(
+    live: &LiveClaudeSession,
+    message_uuid: &str,
+) -> Result<bool, DriverError> {
+    let answer = live
+        .channel
+        .send_control_request(ClaudeControlRequest::CancelAsyncMessage {
+            message_uuid: message_uuid.to_owned(),
+        })
+        .await?;
+    let reply: CancelAsyncMessageReply = answer
+        .response
+        .and_then(|response| serde_json::from_str(response.get()).ok())
+        .unwrap_or_default();
+    Ok(reply.cancelled == Some(true))
+}
+
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {
     #[serde(default, deserialize_with = "read_lenient")]
@@ -353,17 +373,7 @@ impl ClaudeRunControls {
         }
         let live = self.start.live_session(params.session_id)?;
         let message_uuid = params.client_idempotency_key.to_string();
-        let answer = live
-            .channel
-            .send_control_request(ClaudeControlRequest::CancelAsyncMessage {
-                message_uuid: message_uuid.clone(),
-            })
-            .await?;
-        let reply: CancelAsyncMessageReply = answer
-            .response
-            .and_then(|response| serde_json::from_str(response.get()).ok())
-            .unwrap_or_default();
-        if reply.cancelled != Some(true) {
+        if !cancel_written_message(&live, &message_uuid).await? {
             return Ok(WithdrawQueuedMessageResult::AlreadyDelivered {});
         }
         let steered_run_id = lock(&self.start.prompts).withdraw(params.session_id, &message_uuid);

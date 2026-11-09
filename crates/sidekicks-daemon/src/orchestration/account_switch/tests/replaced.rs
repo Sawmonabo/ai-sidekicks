@@ -1,5 +1,6 @@
 //! Two switches by the person while the driver holds the first's moves for a turn to end: the
-//! second joins the held moves and the transcript records each session's landing once.
+//! second joins the held moves, a switch back among them, and the transcript records each
+//! session's landing once.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -133,4 +134,46 @@ async fn two_switches_during_held_moves_record_each_landing_once_on_the_newest_a
         assert_eq!(kinds, ["agent.providerBinding.changed"], "{events:?}");
         assert_eq!(events[0].1["landedProviderAccountId"], newest.as_str());
     }
+}
+
+// A switch back onto the account the sessions still run on, asked while the driver holds their
+// move away from it, names them and lands them back: each records one `changed` onto the account
+// it never left. Killed by the switch back reading each session by its binding alone, which skips
+// them, so the held move never joins and lands nowhere.
+#[tokio::test]
+async fn a_switch_back_during_held_moves_lands_each_session_on_the_account_it_ran_on() {
+    let legs = Arc::new(HoldingSwitchLegs::default());
+    let fixture = fixture_switching_through(Some(legs as Arc<dyn ProviderSwitchLegs>)).await;
+    let ran_on = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let other = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let session = fixture
+        .session(PROVIDERS[0].id, &ran_on, None, PermissionLevel::Ask, true)
+        .await;
+
+    let away = fixture
+        .switch
+        .make_current(other, actor())
+        .await
+        .expect("the switch away is made");
+    let back = fixture
+        .switch
+        .make_current(ran_on.clone(), actor())
+        .await
+        .expect("the switch back is made");
+    assert_eq!(back.moving_sessions, [session]);
+    for settled in [away.settled, back.settled] {
+        tokio::time::timeout(Duration::from_secs(10), settled)
+            .await
+            .expect("every move lands")
+            .expect("the switch's task ends");
+    }
+
+    let events = fixture.appended(session);
+    let kinds: Vec<&str> = events.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(kinds, ["agent.providerBinding.changed"], "{events:?}");
+    assert_eq!(events[0].1["landedProviderAccountId"], ran_on.as_str());
 }

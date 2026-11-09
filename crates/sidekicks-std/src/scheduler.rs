@@ -439,8 +439,9 @@ impl Scheduler {
                 }
             },
         };
-        // Only the scheduler's task hands work over, so once it ended no owner task starts.
-        let owner_tasks = std::mem::take(&mut *lock(&self.shared.owner_tasks));
+        // Closed under its lock, so a hand-over an aborted task was still making starts no task
+        // the stop would not wait for.
+        let owner_tasks = lock(&self.shared.owner_tasks).close();
         let owner_tasks_ended = owner_tasks.stop(deadline).await;
         task_ended.and(owner_tasks_ended)
     }

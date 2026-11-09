@@ -39,11 +39,12 @@
 //!   weaker leaves the plain file accepted for the run, a first start then recording the plain file
 //!   for the seal's failure.
 //!
-//! Every call answers within its one time, its waits for the place and a check included; a call
-//! with no answer in that time reads `locked` from the operating system's store, where a prompt
-//! can hold it, and `unavailable` from either file. A call served by the operating system's store
-//! counts its time there from its turn at the store, so one waiting behind another call's prompt
-//! is delayed, never refused. A sealed write that runs out of time may still land; the items file
+//! A call waits for the place as for a turn, untimed, and then has its one time: a call with no
+//! answer in that time reads `locked` from the operating system's store, where a prompt can hold
+//! it, and `unavailable` from either file. A settle of the place keeps each step's own time: the
+//! operating system's store counts its calls' time from their turn there, and the probe and the
+//! open check take their share of a call's, so a call or a settle waiting behind another call's
+//! prompt is delayed, never refused. A sealed write that runs out of time may still land; the items file
 //! holds the item from its seal through the file write, so a retry waits for it and is never
 //! overwritten by it.
 
@@ -93,9 +94,12 @@ const INSTALL_MARK_BYTES: usize = 4;
 
 /// The name `service`'s items are filed under in the operating system's store for the install
 /// whose data folder is `data_folder`: the service's name, a dash and a digest of the folder's
-/// path, so the same folder always names the same items and another folder never does.
+/// path, so the same folder always names the same items and another folder never does. The path is
+/// read by its components, so a doubled separator, a `.` segment or a trailing separator names the
+/// same items, and never resolved on disk, so a removed folder still names its items.
 pub fn os_service_name(data_folder: &Path, service: KeychainService) -> String {
-    let digest = blake3::hash(data_folder.as_os_str().as_encoded_bytes());
+    let components: PathBuf = data_folder.components().collect();
+    let digest = blake3::hash(components.as_os_str().as_encoded_bytes());
     let mark = base16ct::lower::encode_string(&digest.as_bytes()[..INSTALL_MARK_BYTES]);
     format!("{}-{mark}", service.as_str())
 }
@@ -173,6 +177,7 @@ impl SecretItems {
                 None,
             ),
             SecretsOffer::SealService(seal) => (None, Some(seal)),
+            SecretsOffer::PlainFile => (None, None),
         };
         let view = Arc::new(Mutex::new(PlaceView::default()));
         Ok(Arc::new(Self {
@@ -216,10 +221,12 @@ impl SecretItems {
         }
     }
 
-    // Serves one call within the call's time: waits for the place, settles it when it is not, then
-    // runs `call` on the keychain of the place while no move can start. The operating system's
-    // store times its own calls from their turn there, so a call waiting behind another's prompt is
-    // not refused here.
+    // Serves one call: waits for the place, settles it when it is not, then runs `call` on the
+    // keychain of the place while no move can start, a file's call within the call's time. The
+    // wait for the place is a turn, untimed, and a settle's steps each keep their own time: the
+    // operating system's store times its calls from their turn there and the seal service's
+    // probe and the sealed file's check take their share, so a call or a settle waiting behind
+    // another's prompt is delayed, never refused.
     async fn serve<'call, Answer: Send>(
         self: &'call Arc<Self>,
         keychain: &'call ItemsKeychain,
@@ -228,28 +235,23 @@ impl SecretItems {
         ) -> BoxFuture<'call, Result<Answer, KeychainRefusal>>
         + Send,
     ) -> Result<Answer, KeychainRefusal> {
-        let deadline = tokio::time::Instant::now() + self.call_timeout;
         let answer = async {
-            let (state, place) = tokio::time::timeout_at(deadline, async {
-                loop {
-                    let state = self.state.read().await;
-                    match state.readiness() {
-                        Readiness::Ready(place) => return Ok((state, place)),
-                        Readiness::Refused(refusal) => return Err(refusal),
-                        Readiness::Unsettled => {}
-                    }
-                    drop(state);
-                    let mut state = self.state.write().await;
-                    self.settle_held(&mut state).await?;
+            let (state, place) = loop {
+                let state = self.state.read().await;
+                match state.readiness() {
+                    Readiness::Ready(place) => break (state, place),
+                    Readiness::Refused(refusal) => return Err(refusal),
+                    Readiness::Unsettled => {}
                 }
-            })
-            .await
-            .map_err(|_elapsed| self.out_of_time())??;
+                drop(state);
+                let mut state = self.state.write().await;
+                self.settle_held(&mut state).await?;
+            };
             let place_call = call(keychain.at(place)?);
             let answer = if place == SecretsPlace::OperatingSystem {
                 place_call.await
             } else {
-                tokio::time::timeout_at(deadline, place_call)
+                tokio::time::timeout(self.call_timeout, place_call)
                     .await
                     .unwrap_or_else(|_elapsed| Err(self.out_of_time()))
             };
@@ -331,40 +333,7 @@ impl SecretItems {
             store = self.description,
             "the daemon's secrets have their place"
         );
-        if place == SecretsPlace::OperatingSystem {
-            self.adopt_os_items().await;
-        }
         Ok(place)
-    }
-
-    // Rewrites through the operating system's store each item of this install another writer
-    // made, so no later call on it meets an access prompt; one already written through the store
-    // is left, so a later start finds nothing to do. A service the store refuses is logged and
-    // left for the next start, and each of its items' own calls answers that refusal itself.
-    async fn adopt_os_items(&self) {
-        let Some(os_store) = &self.os_store else {
-            return;
-        };
-        for service in KeychainService::ALL
-            .into_iter()
-            .filter(|service| service.is_moved())
-        {
-            let name = os_service_name(&self.data_folder, service);
-            match os_store.adopt_items(&name).await {
-                Ok(0) => {}
-                Ok(adopted) => tracing::info!(
-                    service = name.as_str(),
-                    adopted,
-                    "items another writer made were written again through the store"
-                ),
-                Err(refusal) => tracing::warn!(
-                    service = name.as_str(),
-                    error = &refusal as &(dyn Error + 'static),
-                    "items another writer made could not be written again through the store; the \
-                     next start tries again"
-                ),
-            }
-        }
     }
 
     // Picks the place at a first start, checks it and records it once it passes.
@@ -439,8 +408,12 @@ impl SecretItems {
                     return Err(mismatch());
                 }
             }
-        } else {
+        } else if self.os_store.is_some() {
             SecretsPlace::OperatingSystem
+        } else {
+            SecretsPlace::PlainFile {
+                reason: DaemonSecretsPlainReason::NoSealService,
+            }
         };
         self.check_written(state, place).await?;
         self.record(state, place).await?;

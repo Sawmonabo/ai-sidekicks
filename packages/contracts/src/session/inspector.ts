@@ -182,7 +182,10 @@ export const SessionAutoMemoryUpdateRequestSchema: z.ZodType<
   SessionAutoMemoryUpdateRequest
 > = z.object({ sessionId: SessionIdSchema, enabled: z.boolean() }).strict();
 
-/** The switch, and when it takes effect: at once on Codex, from the next turn on Claude Code. */
+/**
+ * The switch, and when it takes effect: at once, or from the session's next turn where a running
+ * provider takes it between turns.
+ */
 export interface SessionAutoMemoryUpdateResponse {
   sessionId: SessionId;
   enabled: boolean;

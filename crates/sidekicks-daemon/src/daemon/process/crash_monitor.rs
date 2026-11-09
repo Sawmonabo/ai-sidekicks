@@ -196,7 +196,9 @@ impl MonitorStart {
 
     // Starts a monitor on the socket, which its server takes over from an ended one, and connects
     // to it until it answers, its child ends or `end` fires; a failed attempt drops, and so kills,
-    // a child still running. Fails naming the step.
+    // a child still running. A child alive and still unreached `RESTART_GAP_MIN` after its start is
+    // warned of once, the attempt kept open, since the service runs with no crash monitor until
+    // it answers. Fails naming the step.
     async fn start_connected(
         &self,
         end: &CancellationToken,
@@ -215,14 +217,27 @@ impl MonitorStart {
         // Canceled however the attempt ends, so the blocking connect stops trying.
         let connect_stop = end.child_token();
         let _connect_stop_on_drop = connect_stop.clone().drop_guard();
-        let reached = tokio::select! {
-            biased;
-            () = end.cancelled() => return Ok(MonitorAttempt::Stopped(Some(child))),
-            exit = child.wait() => Err(match exit {
-                Ok(status) => MonitorAttemptError::Ended(status),
-                Err(error) => MonitorAttemptError::Wait(error),
-            }),
-            handler = connect_handler(&self.socket_path, &connect_stop) => handler,
+        let mut connecting = std::pin::pin!(connect_handler(&self.socket_path, &connect_stop));
+        let mut unreached = std::pin::pin!(tokio::time::sleep(RESTART_GAP_MIN));
+        let mut is_unreached_told = false;
+        let reached = loop {
+            tokio::select! {
+                biased;
+                () = end.cancelled() => return Ok(MonitorAttempt::Stopped(Some(child))),
+                exit = child.wait() => break Err(match exit {
+                    Ok(status) => MonitorAttemptError::Ended(status),
+                    Err(error) => MonitorAttemptError::Wait(error),
+                }),
+                handler = &mut connecting => break handler,
+                () = &mut unreached, if !is_unreached_told => {
+                    is_unreached_told = true;
+                    tracing::warn!(
+                        waited_seconds = RESTART_GAP_MIN.as_secs(),
+                        "the crash monitor started but has not answered, so the service runs \
+                         without one until it does"
+                    );
+                }
+            }
         };
         let handler = reached?;
         tracing::info!(
@@ -237,8 +252,9 @@ impl MonitorStart {
     }
 }
 
-// Connects to the monitor at `socket_path` until it answers or `stop` fires, attaches the crash
-// handler to it and sends later panics to it. Fails naming the step.
+// Connects to the monitor at `socket_path` until it answers or `stop` fires, trying every
+// `CONNECT_RETRY_INTERVAL` (100 ms) on one blocking thread, attaches the crash handler to it and
+// sends later panics to it. Fails naming the step.
 async fn connect_handler(
     socket_path: &Path,
     stop: &CancellationToken,

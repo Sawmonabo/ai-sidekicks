@@ -357,10 +357,14 @@ async fn a_second_switch_during_a_held_turn_replaces_the_waiting_one() {
     let (replaced, newer) = tokio::join!(replaced, newer);
     settle().await;
 
-    assert!(matches!(
-        newer.expect("the newer move lands").outcome,
-        SessionAccountMoveOutcome::Landed { provider_account_id, .. } if provider_account_id == newest
-    ));
+    let SessionAccountMoveOutcome::Landed {
+        provider_account_id: landed_on,
+        ..
+    } = newer.expect("the newer move lands").outcome
+    else {
+        panic!("the newer move lands rather than being replaced");
+    };
+    assert_eq!(landed_on, newest);
     assert!(matches!(
         replaced.expect("the replaced move is answered with the landing").outcome,
         SessionAccountMoveOutcome::Replaced { landed_on } if landed_on == newest

@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -28,9 +28,10 @@ use crate::driver::codex::app_server_protocol::{
     ThreadGoalClearParams, ThreadGoalGetParams, ThreadGoalMutationOrigin, ThreadGoalSetParams,
     ThreadGoalStatus,
 };
+use crate::driver::codex::event_normalizer::CODEX_THREAD_GOAL_UPDATED_METHOD;
 use crate::driver::codex::run::control::interrupt_codex_run;
 use crate::driver::codex::run::routes::{
-    CodexGoalReplace, CodexGoalRunEndGuard, CodexRunBinding, CodexRunRoutes,
+    CodexGoalReplace, CodexGoalReplaceEnd, CodexGoalRunEndGuard, CodexRunBinding, CodexRunRoutes,
 };
 use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
 use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
@@ -39,7 +40,9 @@ use crate::driver::codex::session::calls::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::driver::codex::session::inbound::{
+    CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
+};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::transport::connection::{
     CodexAnswerHook, CodexAppServerConnection, read_codex_object,
@@ -294,13 +297,14 @@ impl CodexSessionGoals {
     // Sets the goal on the conversation `reading` read and waits for a turn to run, within the
     // turn-start deadline; `turn_started` settles from the wait whether one did, before anything
     // more is asked. A goal already there is cleared first, as Codex's own terminal replaces one,
-    // so the new goal starts with fresh usage and none of the old one's budget; the clear draws no
-    // row, nor does an update of the new objective but the one carrying the goal the set answered,
-    // which draws the replace's row. A set Codex refuses after that clear, or a clear it never
-    // answered, puts the old goal back, drawing no row either, and answers the failure. With no
-    // turn, Codex's goal is put back with its objective, status and budget, and the answer is
-    // `false`. Fails as a request fails, the put-back's included. A failed turn wait puts the goal
-    // back too, where the connection still takes requests, and answers the wait's failure.
+    // so the new goal starts with fresh usage and none of the old one's budget. The change draws
+    // one row, the new goal's as the set answered it, and only once its turn started: the clear
+    // and every update of the new objective before that fold. A set Codex refuses after that
+    // clear, or a clear it never answered, puts the old goal back, drawing no row either, and
+    // answers the failure. With no turn, Codex's goal is put back with its objective, status and
+    // budget, or cleared where none was held, the put-back drawing no row, and the answer is
+    // `false`. Fails as a request fails, the put-back's included. A failed turn wait puts the
+    // goal back too, where the connection still takes requests, and answers the wait's failure.
     async fn set_goal(
         &self,
         session_id: SessionId,
@@ -314,47 +318,19 @@ impl CodexSessionGoals {
         let previous = read_goal(&connection, &thread_id).await?;
         let objective = goal_text.trim().to_owned();
         let params = new_goal_params(thread_id.clone(), goal_text);
-        let sent = if let Some(replaced) = &previous {
-            let replace = CodexGoalReplace {
+        self.run_routes.begin_goal_replace(
+            session_id,
+            CodexGoalReplace {
                 absorbed_objectives: vec![objective.clone()],
                 awaited_goal: None,
-                is_drawn: true,
-            };
-            self.run_routes.begin_goal_replace(session_id, replace);
-            if let Err(error) = clear_goal(&connection, thread_id.clone()).await {
-                // A clear written with no answer may have gone through.
-                if matches!(error, CodexError::Unanswered { .. }) {
-                    self.put_refused_replace_back(
-                        session_id,
-                        &connection,
-                        thread_id,
-                        replaced,
-                        &objective,
-                    )
-                    .await?;
-                } else {
-                    self.run_routes.end_goal_replace(session_id);
-                }
-                return Err(error);
-            }
-            // A refused set re-marks the replace at its answer, so the old goal's updates after
-            // it draw no row before the put-back goes.
-            let refused = absorbed_refused_replace(replaced, &objective);
-            let on_refused = move |run_routes: &CodexRunRoutes| {
-                run_routes.begin_goal_replace(session_id, refused);
-            };
-            connection
-                .request_ordered(
-                    THREAD_GOAL_SET_METHOD,
-                    &params,
-                    self.goal_replace_hook(session_id, on_refused),
-                )
-                .await
-        } else {
-            connection.request(THREAD_GOAL_SET_METHOD, &params).await
-        };
-        if let Err(error) = sent {
-            if let Some(replaced) = &previous {
+                end: CodexGoalReplaceEnd::HeldForTurn,
+            },
+        );
+        if let Some(replaced) = &previous
+            && let Err(error) = clear_goal(&connection, thread_id.clone()).await
+        {
+            // A clear written with no answer may have gone through.
+            if matches!(error, CodexError::Unanswered { .. }) {
                 self.put_refused_replace_back(
                     session_id,
                     &connection,
@@ -363,9 +339,49 @@ impl CodexSessionGoals {
                     &objective,
                 )
                 .await?;
+            } else {
+                self.run_routes.end_goal_replace(session_id);
             }
             return Err(error);
         }
+        // A refused replace re-marks at its answer, so the old goal's updates after it draw no row
+        // before the put-back goes; a refused set with no goal before changed nothing.
+        let refused = previous
+            .as_ref()
+            .map(|replaced| absorbed_refused_replace(replaced, &objective));
+        let on_refused = move |run_routes: &CodexRunRoutes| match refused {
+            Some(refused) => run_routes.begin_goal_replace(session_id, refused),
+            None => run_routes.end_goal_replace(session_id),
+        };
+        let sent = connection
+            .request_ordered(
+                THREAD_GOAL_SET_METHOD,
+                &params,
+                self.goal_replace_hook(session_id, on_refused),
+            )
+            .await;
+        let answer = match sent {
+            Ok(answer) => answer,
+            Err(error) => {
+                match &previous {
+                    Some(replaced) => {
+                        self.put_refused_replace_back(
+                            session_id,
+                            &connection,
+                            thread_id,
+                            replaced,
+                            &objective,
+                        )
+                        .await?;
+                    }
+                    // An unanswered set ran no hook.
+                    None => self.run_routes.end_goal_replace(session_id),
+                }
+                return Err(error);
+            }
+        };
+        let answered_goal =
+            read_codex_object::<ThreadGoalSetAnswer>(answer.get()).and_then(|answer| answer.goal);
         // A turn sent before the goal's own turn starts would fold into it or race it; a turn
         // already running answers at once.
         let waited = wait_for_codex_turns(
@@ -389,13 +405,98 @@ impl CodexSessionGoals {
                         "the codex goal a failed turn wait refused could not be put back"
                     );
                 }
+                self.run_routes.end_goal_replace(session_id);
                 return Err(error);
             }
         };
-        if !has_turn {
-            restore_goal(&connection, thread_id, previous.as_ref()).await?;
+        if has_turn {
+            // An answer with no readable goal ended the change at its hook, so the next update
+            // draws.
+            if let Some(goal) = answered_goal {
+                self.draw_applied_goal(session_id, &inbound, &thread_id, &goal);
+            }
+            return Ok(true);
         }
-        Ok(has_turn)
+        match &previous {
+            Some(replaced) => {
+                self.put_refused_replace_back(
+                    session_id,
+                    &connection,
+                    thread_id,
+                    replaced,
+                    &objective,
+                )
+                .await?;
+            }
+            None => {
+                self.clear_refused_set(session_id, &connection, thread_id, &objective)
+                    .await?;
+            }
+        }
+        Ok(false)
+    }
+
+    // Draws the row of `goal`, the goal a set whose turn started answered: Codex's own update of it
+    // ends the change and draws, and where that update already went by, folded while the set
+    // waited for its turn, it goes to the session again among its frames.
+    fn draw_applied_goal(
+        &self,
+        session_id: SessionId,
+        inbound: &CodexSessionInboundSender,
+        thread_id: &str,
+        goal: &Value,
+    ) {
+        if !self
+            .run_routes
+            .draw_goal_set_at_turn(session_id, goal.clone())
+        {
+            return;
+        }
+        let params = serde_json::value::to_raw_value(&json!({"threadId": thread_id, "goal": goal}))
+            .expect("a goal Codex sent serializes");
+        // A session whose task ended draws no row.
+        inbound.push(CodexSessionInbound::Frame {
+            method: CODEX_THREAD_GOAL_UPDATED_METHOD.to_owned(),
+            params,
+        });
+    }
+
+    // Clears the goal a set of `refused_objective` made where no goal was held before, drawing no
+    // row, since the goal the daemon refused never held: its updates and the clear fold until the
+    // clear's answer. Fails as the clear fails.
+    async fn clear_refused_set(
+        &self,
+        session_id: SessionId,
+        connection: &CodexAppServerConnection,
+        thread_id: String,
+        refused_objective: &str,
+    ) -> Result<(), CodexError> {
+        self.run_routes.begin_goal_replace(
+            session_id,
+            CodexGoalReplace {
+                absorbed_objectives: vec![refused_objective.to_owned()],
+                awaited_goal: None,
+                end: CodexGoalReplaceEnd::Undrawn,
+            },
+        );
+        let cleared = connection
+            .request_ordered(
+                THREAD_GOAL_CLEAR_METHOD,
+                &ThreadGoalClearParams {
+                    thread_id,
+                    origin: Some(ThreadGoalMutationOrigin::User),
+                },
+                Box::new({
+                    let run_routes = Arc::clone(&self.run_routes);
+                    move |_answer| run_routes.end_goal_replace(session_id)
+                }),
+            )
+            .await;
+        // An unanswered clear ran no hook.
+        if cleared.is_err() {
+            self.run_routes.end_goal_replace(session_id);
+        }
+        cleared.map(drop)
     }
 
     // Puts back `previous`, the goal a replace to `refused_objective` cleared, drawing no row,
@@ -512,7 +613,7 @@ fn absorbed_refused_replace(previous: &HeldGoal, refused_objective: &str) -> Cod
     CodexGoalReplace {
         absorbed_objectives: vec![previous.objective.clone(), refused_objective.to_owned()],
         awaited_goal: None,
-        is_drawn: false,
+        end: CodexGoalReplaceEnd::Undrawn,
     }
 }
 

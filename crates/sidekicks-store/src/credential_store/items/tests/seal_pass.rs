@@ -22,11 +22,11 @@ use crate::credential_store::os::TestStoreAccess;
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 
-/// A pass sealing a plain file that runs past a call's time keeps running once that call refuses,
-/// and a later call waits for it and is served from the sealed file, one pass having run.
+/// A pass sealing a plain file keeps running once its caller stops waiting, and a later call waits
+/// for it and is served from the sealed file, one pass having run.
 /// Mutation: run the pass inside the call's time, so each call drops it and starts it over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_seal_pass_longer_than_a_call_lands_once() {
+async fn a_seal_pass_its_caller_left_lands_once() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), NO_SEAL_SERVICE).expect("the test writes it");
     let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW, None);
@@ -37,8 +37,8 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
             .expect("the test fills the file");
     }
     let seal = TestSeal::new();
-    // Five items' seals, each inside the check's 400 ms and 1.5 s in all, outlast the 1.2 s
-    // call; the probe's are not delayed.
+    // Five items' seals, each inside the check's 400 ms and 1.5 s in all, outlast the caller's
+    // 1.2 s wait; the probe's are not delayed.
     seal.delay_seals_under(WORKFLOW, Duration::from_millis(300));
     let items = secret_items(
         folder.path(),
@@ -49,10 +49,9 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
     let scenario = async {
-        let first = keychain
-            .read(EARLIER)
+        let first = tokio::time::timeout(Duration::from_millis(1_200), keychain.read(EARLIER))
             .await
-            .map_err(|refusal| refusal.cause());
+            .is_ok();
         seal.wait_for_seals(6).await;
         let later = keychain
             .read(EARLIER)
@@ -64,7 +63,7 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
         .await
         .expect("every call answers within its time");
 
-    assert_eq!(first.err(), Some(KeychainRefusalCause::Unavailable));
+    assert!(!first, "the caller stopped waiting while the pass ran");
     assert_eq!(
         later.map(|kept| kept.map(|kept| kept.expose_secret().to_owned())),
         Ok(Some("earlier value".to_owned()))
@@ -230,9 +229,9 @@ async fn a_refused_seal_pass_starts_no_other_this_run(
     assert_eq!(status(&items).await, status_after);
 }
 
-/// A cause the run checks again is forgotten once every sampled item opens, so a call that runs out
-/// of time while its pass seals the items again leaves the status naming none. Mutation: drop
-/// `clear_opening` from `open_sealed`, so the status keeps the cause from the earlier call.
+/// A cause the run checks again is forgotten once every sampled item opens, so a call whose pass
+/// seals the items again leaves the status naming none. Mutation: drop `clear_opening` from
+/// `open_sealed`, so the status keeps the cause from the earlier call.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cause_is_forgotten_once_the_items_open_again() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
@@ -260,18 +259,18 @@ async fn a_cause_is_forgotten_once_the_items_open_again() {
     let status_missing = status(&items).await;
     seal.answer(TestSealAnswer::Serves);
     seal.seal_with(SealKey::Chip, 0);
-    // Five items' seals again, each inside the check's 400 ms and 1.5 s in all, outlast the 1.2 s
-    // call; the probe's are not delayed.
-    seal.delay_seals_under(WORKFLOW, Duration::from_millis(300));
-    let ran_out = tokio::time::timeout(Duration::from_secs(5), keychain.read(EARLIER))
+    let opened = tokio::time::timeout(Duration::from_secs(5), keychain.read(EARLIER))
         .await
-        .expect("the call answers within its time")
-        .err();
+        .expect("the call answers within its time");
     let status_after = status(&items).await.expect("the file holds items");
 
     assert!(
-        missing.is_some() && ran_out.is_some(),
-        "both calls are refused"
+        missing.is_some(),
+        "the call with no seal service is refused"
+    );
+    assert!(
+        opened.is_ok(),
+        "the call once the items open again is served"
     );
     assert_eq!(
         status_missing,
@@ -299,8 +298,8 @@ async fn an_erase_refuses_within_its_time_while_a_pass_holds_the_file() {
             .expect("the test fills the file");
     }
     let seal = TestSeal::new();
-    // Ten items' seals, each inside the check's 200 ms and 1.5 s in all, outlast the 600 ms
-    // call and the erase's own 600 ms after it; the probe's is not delayed.
+    // Ten items' seals, each inside the check's 200 ms and 1.5 s in all, outlast the caller's
+    // 600 ms wait and the erase's own 600 ms after it; the probe's is not delayed.
     seal.delay_seals_under(WORKFLOW, Duration::from_millis(150));
     let items = secret_items(
         folder.path(),
@@ -311,7 +310,9 @@ async fn an_erase_refuses_within_its_time_while_a_pass_holds_the_file() {
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
     let scenario = async {
-        let first = keychain.read(EARLIER).await.err();
+        let first = tokio::time::timeout(HELD_CALL_TIMEOUT, keychain.read(EARLIER))
+            .await
+            .is_ok();
         let erased = items.erase_all().await.err();
         let is_file_kept = folder.path().join(ITEMS).is_file();
         seal.wait_for_seals(accounts.len() + 1).await;
@@ -321,10 +322,7 @@ async fn an_erase_refuses_within_its_time_while_a_pass_holds_the_file() {
         .await
         .expect("every call answers within its time");
 
-    assert_eq!(
-        first.map(|refusal| refusal.cause()),
-        Some(KeychainRefusalCause::Unavailable)
-    );
+    assert!(!first, "the caller stopped waiting while the pass ran");
     let erased = erased.expect("the erase refuses while the pass holds the file");
     assert_eq!(erased.cause(), KeychainRefusalCause::Unavailable);
     assert!(

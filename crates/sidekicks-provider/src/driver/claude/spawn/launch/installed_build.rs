@@ -604,7 +604,7 @@ mod tests {
     // driver supplying none: either starts a build's `--version` with neither update pin. Two
     // builds, since a lone build is never read.
     #[tokio::test]
-    async fn each_builds_version_read_carries_the_export_off_document() {
+    async fn each_build_s_version_read_carries_the_export_off_document() {
         let root = tempfile::tempdir().expect("the temporary folder is made");
         let empty_search_path = root.path().join("empty");
         std::fs::create_dir(&empty_search_path).expect("the folder is made");
@@ -623,6 +623,7 @@ mod tests {
                         standard_output: format!("{version} (Claude Code)\n"),
                         exit_code: 0,
                         argument_record: Some(record.clone()),
+                        first_call_delay: None,
                     },
                 },
             )

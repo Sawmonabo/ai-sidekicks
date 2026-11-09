@@ -66,14 +66,16 @@ impl PassFixture {
 
 // Four sessions each hold a call moved to the background with no close: one at rest, one with a
 // run in progress, one closed and one stale with a run in progress; the pass resumes the two with
-// work. Each is settled through its driver once, the closed one as closed, the three that are not
-// stale before any resume, and the stale one after its rebuild, before its own resume. Killed by
-// the listing without the held-call read (no settle at all), by the settle moved after the resumes
-// (at the first resume, none settled yet), by the stale loop's settle dropped (none for the stale
-// session), by the stale session settled in the first step too (two settles, one before the first
-// resume), and by the closed state not read (it reads restarted).
+// work. Each is settled through its driver once: the two open ones that are not stale before any
+// resume, the stale one after its rebuild, before its own resume, and the closed one, as closed,
+// after every resume, since it never resumes. Killed by the listing without the held-call read
+// (no settle at all), by the settle moved after the resumes (at the first resume, none settled
+// yet), by the stale loop's settle dropped (none for the stale session), by the stale session
+// settled in the first step too (two settles, one before the first resume), by the closed one
+// settled before the resumes (it is in their snapshots), and by the closed state not read (it
+// reads restarted).
 #[tokio::test]
-async fn a_session_holding_a_background_call_is_settled_before_any_resume() {
+async fn a_held_call_settles_before_its_sessions_resume_and_a_closed_sessions_after_all() {
     let settled: Arc<Mutex<Settles>> = Arc::default();
     let resumes: ResumesAfterSettles = Arc::default();
     let mut driver = MockProviderDriver::new();
@@ -123,18 +125,26 @@ async fn a_session_holding_a_background_call_is_settled_before_any_resume() {
     let mut before_any_resume = vec![
         (resting, HeldCallsSettle::Restarted),
         (resumed, HeldCallsSettle::Restarted),
-        (closed, HeldCallsSettle::Closed),
     ];
     before_any_resume.sort_by_key(|(session_id, _)| *session_id);
-    let mut every_session = [
+    let mut before_the_stale_resume = [
         before_any_resume.clone(),
         vec![(stale, HeldCallsSettle::Restarted)],
+    ]
+    .concat();
+    before_the_stale_resume.sort_by_key(|(session_id, _)| *session_id);
+    let mut every_session = [
+        before_the_stale_resume.clone(),
+        vec![(closed, HeldCallsSettle::Closed)],
     ]
     .concat();
     every_session.sort_by_key(|(session_id, _)| *session_id);
     assert_eq!(
         *lock(&resumes),
-        [(resumed, before_any_resume), (stale, every_session.clone())]
+        [
+            (resumed, before_any_resume),
+            (stale, before_the_stale_resume)
+        ]
     );
     let mut settled = lock(&settled).clone();
     settled.sort_by_key(|(session_id, _)| *session_id);

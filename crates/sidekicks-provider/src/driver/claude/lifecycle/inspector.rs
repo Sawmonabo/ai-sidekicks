@@ -60,7 +60,7 @@ impl ClaudeDriver {
         let reading = self
             .sources
             .read_settings_sources(&environment, &session.working_folder)
-            .await;
+            .await?;
         let setting = read_claude_setting(
             &reading.sources(),
             &[CLAUDE_AUTO_MEMORY_SETTING],

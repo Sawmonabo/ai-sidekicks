@@ -283,6 +283,16 @@ fn edit_document(
             })?;
     match edit {
         CodexProjectServerEdit::Set(members) => {
+            // A server added to an inline servers table takes the space before its closing brace
+            // from the entry that ended it, so none is left before the comma between them.
+            if let Some(inline) = document
+                .get_mut(MCP_SERVERS_KEY)
+                .and_then(Item::as_inline_table_mut)
+                && !inline.contains_key(server_name)
+                && let Some((_, last)) = inline.iter_mut().last()
+            {
+                last.decor_mut().set_suffix("");
+            }
             // Implicit, so a servers' table the edit makes renders no header of its own.
             let servers = document
                 .entry(MCP_SERVERS_KEY)
@@ -505,7 +515,8 @@ network_access = false
 
     // An inline servers table takes the new server inside it, keeps the person's other entry, every
     // other line and the comment after it, and the file still reads as TOML the way Codex reads it.
-    // Killed by the servers looked up as a table only, which refuses an inline one as no table.
+    // Killed by the servers looked up as a table only, which refuses an inline one as no table, and
+    // by the old last entry keeping its space before the closing brace, left before the comma.
     #[tokio::test]
     async fn an_inline_servers_table_takes_the_new_server_inside_it() {
         let root = tempfile::tempdir().expect("a scratch project");
@@ -531,7 +542,10 @@ network_access = false
             "the servers stay on one line: {text}"
         );
         let other = r#"other = { command = "other-server", args = ["--port", "4000"] }"#;
-        assert!(servers_lines[0].contains(other), "{text}");
+        assert!(
+            servers_lines[0].contains(&format!("{other}, github = {{")),
+            "{text}"
+        );
         assert!(servers_lines[0].ends_with(" # per session"), "{text}");
         let read: toml::Table = toml::from_str(&text).expect("Codex reads it");
         let servers = &read["mcp_servers"];

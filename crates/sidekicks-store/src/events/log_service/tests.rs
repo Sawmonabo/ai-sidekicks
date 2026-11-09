@@ -8,7 +8,7 @@ use serde_json::json;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::instant::{WireInstant, instant};
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
@@ -465,7 +465,6 @@ async fn each_preceding_event_keeps_its_own_instant_and_answers_its_id() {
     let appender = SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone());
     let session_id = test_session_id();
     let run_id = mint_uuid_v7().to_string();
-    let instant = |text: &str| WireInstant::try_from(text.to_owned()).expect("an instant");
     let invoked = || {
         let event = serde_json::from_value(json!({
             "type": "agent.toolCall.invoked",

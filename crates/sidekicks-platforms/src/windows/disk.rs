@@ -1,5 +1,5 @@
 //! The disk on Windows: the free room on a folder's volume, whether that volume is a network share,
-//! a read at a file offset, a written file
+//! the folder SQLite writes its temporary files to, a read at a file offset, a written file
 //! (by path, or through a handle open for writing with `flush_open_file`) flushed so it survives a
 //! power loss, and no Windows drive mounts; a folder has no flush there, and `rename_replacing` is
 //! on disk when it returns.
@@ -76,6 +76,12 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
     free_units
         .checked_mul(unit_bytes)
         .ok_or_else(|| io::Error::other("the volume's free room passes 64 bits"))
+}
+
+/// The folder SQLite writes its temporary files to, a `VACUUM`'s copy among them: the system's
+/// temporary folder.
+pub fn sqlite_temporary_folder() -> PathBuf {
+    std::env::temp_dir()
 }
 
 /// Whether `path` sits on a network share, a mapped drive included, where a change another

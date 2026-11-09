@@ -31,8 +31,9 @@ use tokio::sync::oneshot;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
-/// How long one keychain call may take from its turn at the store, a prompt included.
-pub const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long one keychain call may take from its turn at the store, a prompt included; the
+/// platform's keychain tool is ended past it too, so it lives with the platform's store.
+pub use sidekicks_platforms::KEYCHAIN_CALL_TIMEOUT;
 
 /// How many times shorter than a keychain call the seal service's probe and the sealed file's open
 /// check each are: one that does not answer runs out with the call's time still left to record why
@@ -56,6 +57,8 @@ pub enum SecretsOffer {
     OperatingSystem(StoreOpen),
     /// systemd's credential service, which seals each secret into the items file.
     SealService(Arc<dyn SecretSeal>),
+    /// Neither: the secrets are kept plain in the items file.
+    PlainFile,
 }
 
 /// Opens the operating system's credential store, blocking while it does. Fails with
@@ -90,6 +93,20 @@ impl CredentialStoreAccess for SystemCredentialStore {
                 seal.socket_path().display()
             ),
         }
+    }
+}
+
+/// The items file kept plain, reaching no credential store and no seal: the isolated service a
+/// test starts, which never touches the person's keychain.
+pub struct PlainItemsFile;
+
+impl CredentialStoreAccess for PlainItemsFile {
+    fn offer(&self) -> SecretsOffer {
+        SecretsOffer::PlainFile
+    }
+
+    fn description(&self) -> String {
+        String::from("the items file, kept plain")
     }
 }
 
@@ -217,20 +234,6 @@ impl OsCredentialStore {
                 item.remove()?;
             }
             Ok(())
-        })
-        .await
-    }
-
-    /// Rewrites through the store, in one turn, every item filed under `service` another writer
-    /// made, so each serves with no access prompt from then on, and answers how many it rewrote.
-    /// Fails with [`KeychainRefusal`] when the store is locked or cannot be used, or an item
-    /// cannot be read or written again, the items before it rewritten.
-    pub(crate) async fn adopt_items(
-        self: &Arc<Self>,
-        service: &str,
-    ) -> Result<usize, KeychainRefusal> {
-        self.call(service, "", |credentials, service, _| {
-            credentials.adopt_items(service)
         })
         .await
     }

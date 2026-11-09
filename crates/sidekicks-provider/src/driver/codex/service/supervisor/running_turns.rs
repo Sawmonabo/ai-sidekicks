@@ -3,22 +3,26 @@
 //! turn the daemon starts, counted from just before its start is sent until the copy is done.
 //! A change of the service's sign-in waits until none runs, since it cuts every request in flight.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::value::RawValue;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
-use tokio::time::Instant;
 
+use crate::driver::codex::event_normalizer::{
+    CODEX_TURN_COMPLETED_METHOD, CODEX_TURN_STARTED_METHOD,
+};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::CodexServiceRouting;
-use crate::driver::codex::session::thread_turns::CodexThreadTurns;
+use crate::driver::codex::session::thread_turns::TurnFrame;
+use crate::driver::codex::transport::connection::read_codex_object;
 
 /// The turns running on a service, kept with its routing.
 #[derive(Default)]
 pub(super) struct CodexRunningTurns {
-    // The live turn of each conversation the routed connection carries.
-    routed: CodexThreadTurns,
+    // The id of the live turn of each conversation the routed connection carries, by thread.
+    live: HashMap<String, String>,
     // The copies' turns counted by their leases.
     leased: usize,
     // `true` while any turn runs.
@@ -28,7 +32,27 @@ pub(super) struct CodexRunningTurns {
 impl CodexRunningTurns {
     /// Reads a frame of the routed connection: a turn's start or end on any of its conversations.
     pub(super) fn observe(&mut self, method: &str, params: &RawValue) {
-        let _ended = self.routed.observe(method, params, Instant::now());
+        let is_start = match method {
+            CODEX_TURN_STARTED_METHOD => true,
+            CODEX_TURN_COMPLETED_METHOD => false,
+            _ => return,
+        };
+        let Some(frame) = read_codex_object::<TurnFrame>(params.get()) else {
+            return;
+        };
+        let turn_id = frame
+            .turn
+            .and_then(|turn| turn.id)
+            .filter(|id| !id.is_empty());
+        let (Some(thread_id), Some(turn_id)) = (frame.thread_id, turn_id) else {
+            return;
+        };
+        if is_start {
+            self.live.insert(thread_id, turn_id);
+        } else if self.live.get(&thread_id) == Some(&turn_id) {
+            // A completion of a turn the thread has since replaced ends nothing.
+            self.live.remove(&thread_id);
+        }
         self.publish();
     }
 
@@ -37,15 +61,15 @@ impl CodexRunningTurns {
     pub(super) fn end(&mut self, thread_id: Option<&str>) {
         match thread_id {
             Some(thread_id) => {
-                let _ended = self.routed.end_live_turn(thread_id);
+                self.live.remove(thread_id);
             }
-            None => self.routed.take_live_turns().for_each(drop),
+            None => self.live.clear(),
         }
         self.publish();
     }
 
     fn publish(&self) {
-        let is_running = self.leased > 0 || self.routed.has_live_turn();
+        let is_running = self.leased > 0 || !self.live.is_empty();
         self.is_running.send_if_modified(|was_running| {
             let is_changed = *was_running != is_running;
             *was_running = is_running;

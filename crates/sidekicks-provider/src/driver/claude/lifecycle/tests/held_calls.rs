@@ -589,15 +589,15 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
 }
 
 // Fails when the start after a restart or a Stop settles a resting session's held calls other than
-// by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one only
-// recorded stays open for the next resume, while a closed session, with no process scripted to
+// by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one
+// only recorded stays open for the next resume, while a closed session, with no process scripted to
 // stop its surviving task in, ends every call kept nowhere or only recorded with its process. The
-// driver is new and no session call composed its pieces, as at
-// a real start. Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1
-// reads it after a restart); the record ignored after a restart (call-3 closed); `Restart` passed
-// for a closed session (no close for call-3 when closed); `Stop` read as `Restart` (call-1 reads
-// `daemonRestart` after a Stop); a recorded call ended under a Stop (call-3 closed); `Stopped`
-// mapped to another settle (call-1's cause, or call-3 closed).
+// driver is new and no session call composed its pieces, as at a real start. Mutations: the
+// `Restart` column's `Unkept` cell answering `processExit` (call-1 reads it after a restart); the
+// record ignored after a restart (call-3 closed); `Restart` passed for a closed session (no close
+// for call-3 when closed); `Stop` read as `Restart` (call-1 reads `daemonRestart` after a Stop); a
+// recorded call ended under a Stop (call-3 closed); `Stopped` mapped to another settle (call-1's
+// cause, or call-3 closed).
 #[rstest]
 #[case::restarted(HeldCallsSettle::Restarted)]
 #[case::closed(HeldCallsSettle::Closed)]

@@ -20,10 +20,12 @@ use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
 use tokio::sync::watch;
 
+use super::unfinished::{
+    RUNNING_EXPORT_RECORD_FILE_NAME, UNFINISHED_MARKER_FILE_NAME, record_running_export,
+    set_aside_cut_short_export,
+};
 use super::{
-    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs,
-    RUNNING_EXPORT_RECORD_FILE_NAME, RunningExport, UNFINISHED_MARKER_FILE_NAME, is_finished,
-    record_running_export, remove_cut_short_export,
+    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
 };
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
@@ -484,10 +486,11 @@ async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
     wait_until_finished(&exports, again).await;
 }
 
-// At the start, the folder of an export a restart cut short is removed while its marker is still
-// in it, and kept with every file in it once the marker is gone, as when the person reused the
-// folder; the record goes either way. Killed by a removal that does not look for the marker, by
-// one that never removes, and by a record left behind.
+// At the start, the folder of an export a restart cut short is set aside while its marker is still
+// in it, so its name is free at once, and removed after; it is kept with every file in it once the
+// marker is gone, as when the person reused the folder; the record goes either way. Killed by a
+// set-aside that does not look for the marker, by a removal that never removes, and by a record
+// left behind.
 #[rstest]
 #[case::marked(true)]
 #[case::reused(false)]
@@ -510,13 +513,18 @@ async fn a_start_removes_a_cut_short_export_only_while_its_marker_is_in_it(
             .expect("the marker is removed");
     }
 
-    remove_cut_short_export(data_folder.path()).await;
+    let set_aside = set_aside_cut_short_export(data_folder.path()).await;
+    let is_name_free = !destination.exists();
+    if let Some(set_aside) = set_aside {
+        set_aside.remove().await;
+    }
 
+    assert_eq!(is_name_free, is_marked);
     if is_marked {
-        assert!(
-            !destination.exists(),
-            "the cut-short export's folder is gone"
-        );
+        let left: Vec<_> = fs::read_dir(outside.path())
+            .expect("the person's folder lists")
+            .collect();
+        assert!(left.is_empty(), "the set-aside folder is gone: {left:?}");
     } else {
         assert_eq!(
             fs::read_to_string(destination.join("notes.txt")).expect("the file is kept"),

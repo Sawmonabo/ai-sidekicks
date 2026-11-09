@@ -335,8 +335,8 @@ mod tests {
 
     // A held restart that began meanwhile still runs on the account left, so the lead's binding
     // goes back there: spend metered before the live process starts again on the new account
-    // stays on the account that served it. Killed by the binding left on the new account when the held restart did not
-    // move.
+    // stays on the account that served it. Killed by the binding left on the new account when the
+    // held restart did not move.
     #[tokio::test]
     async fn a_held_restart_that_began_meanwhile_takes_the_binding_back() {
         let bindings = TakenBindingWrites::default();

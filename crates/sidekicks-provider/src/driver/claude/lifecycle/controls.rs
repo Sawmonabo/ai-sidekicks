@@ -130,6 +130,7 @@ impl ClaudeDriver {
             self.sources
                 .read_settings_sources(&environment, &params.working_folder),
         );
+        let settings = settings?;
         let starting = read_claude_starting_level(&settings.sources(), |level| {
             offered.offers(level, params.model.as_str())
         })
@@ -277,7 +278,7 @@ impl ClaudeDriver {
                     self.sources.account_environment(&account).await?
                 };
             let config_folder = claude_account_config_folder(&spawn_environment);
-            let repository = self.sources.read_repository(project_folder).await;
+            let repository = self.sources.read_repository(project_folder).await?;
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
             revoke_claude_project_rule(
                 &params.rule,

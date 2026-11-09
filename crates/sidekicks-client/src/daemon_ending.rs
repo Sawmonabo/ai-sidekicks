@@ -23,6 +23,7 @@ use sidekicks_contracts::daemon::status::DaemonStatusRead;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_platforms::{ChildEnd, PinnedProcess, pin_identified_process};
+use sidekicks_std::file::run_on_blocking_thread;
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_util::sync::CancellationToken;
 
@@ -139,7 +140,9 @@ pub async fn end_daemon(
 ) -> Result<DaemonEnd, DaemonEndingError> {
     let status_path = endpoint.status_path().to_path_buf();
     let ended = end_reached_daemon(endpoint, verb, terms).await?;
-    remove_stale_stopping(&status_path).map_err(DaemonEndingError::StaleStopRecord)?;
+    run_on_blocking_thread(move || remove_stale_stopping(&status_path))
+        .await
+        .map_err(DaemonEndingError::StaleStopRecord)?;
     Ok(ended)
 }
 

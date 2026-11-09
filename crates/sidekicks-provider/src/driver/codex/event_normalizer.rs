@@ -31,6 +31,9 @@ use crate::thread_frame_router::{ThreadFrameFamilyClass, ThreadScopedFrameCapabi
 /// helper's.
 pub(crate) const CODEX_THREAD_STARTED_METHOD: &str = "thread/started";
 
+/// The `thread/goal/updated` method, which reports a conversation's goal as it now stands.
+pub(crate) const CODEX_THREAD_GOAL_UPDATED_METHOD: &str = "thread/goal/updated";
+
 /// The `thread/tokenUsage/updated` method, metered by the usage accountant.
 pub(crate) const CODEX_THREAD_TOKEN_USAGE_METHOD: &str = "thread/tokenUsage/updated";
 
@@ -221,7 +224,7 @@ impl CodexInboundMethod {
             Self::ServerRequestResolved => "serverRequest/resolved",
             Self::HookCompleted => "hook/completed",
             Self::SkillsChanged => CODEX_SKILLS_CHANGED_METHOD,
-            Self::ThreadGoalUpdated => "thread/goal/updated",
+            Self::ThreadGoalUpdated => CODEX_THREAD_GOAL_UPDATED_METHOD,
             Self::ThreadGoalCleared => "thread/goal/cleared",
             Self::AccountRateLimitsUpdated => "account/rateLimits/updated",
             Self::McpServerStartupStatusUpdated => CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD,

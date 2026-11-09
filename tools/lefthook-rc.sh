@@ -5,7 +5,9 @@
 #
 # The hooks are shared by the main checkout and every linked worktree, and a worktree may have no
 # `node_modules` of its own. Then lefthook and the programs its jobs run (lint-staged, commitlint,
-# ESLint, Prettier, tombi) come from the main checkout's install.
+# ESLint, Prettier, tombi) come from the main checkout's install, but only while the two
+# `pnpm-lock.yaml` files match, so a branch that moves one of them to another release runs its own
+# install's, after `pnpm install` in the worktree.
 #
 # For `pre-commit` this takes a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) and
 # releases it from an EXIT trap, so two linked worktrees never sit inside that backup at once.
@@ -14,13 +16,15 @@
 # `$0` is the hook path even in a sourced file, which is how one hook is told from another.
 
 # Git runs a hook from the top of the committing worktree. Without its own install, the hook's own
-# lookup would try `node_modules/.bin/lefthook` there, so `LEFTHOOK_BIN` names the main checkout's;
-# the jobs run in shells of their own and find their programs through `PATH` (`pnpm exec` keeps the
-# inherited `PATH` after its own `node_modules/.bin` folders).
-if [ ! -x node_modules/.bin/lefthook ]; then
-  __lefthook_main_checkout="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+# lookup would try `node_modules/.bin/lefthook` there, so `LEFTHOOK_BIN` names the main checkout's,
+# unless the person set it; the jobs run in shells of their own and find their programs through
+# `PATH` (`pnpm exec` keeps the inherited `PATH` after its own `node_modules/.bin` folders). The
+# main checkout is the first `worktree` line `git worktree list --porcelain` prints.
+if [ ! -x node_modules/.bin/lefthook ] && [ -z "${LEFTHOOK_BIN:-}" ]; then
+  __lefthook_main_checkout="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
   __lefthook_main_bin="$__lefthook_main_checkout/node_modules/.bin"
-  if [ -x "$__lefthook_main_bin/lefthook" ]; then
+  if [ -x "$__lefthook_main_bin/lefthook" ] &&
+    cmp -s pnpm-lock.yaml "$__lefthook_main_checkout/pnpm-lock.yaml"; then
     LEFTHOOK_BIN="$__lefthook_main_bin/lefthook"
     PATH="$__lefthook_main_bin:$PATH"
     export LEFTHOOK_BIN PATH

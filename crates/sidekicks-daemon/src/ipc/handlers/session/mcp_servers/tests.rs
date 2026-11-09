@@ -32,7 +32,6 @@ use sidekicks_provider::driver::session_control::SessionToolServer;
 use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::{open_store, resumable_binding_input};
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -136,7 +135,6 @@ async fn session_reading(
             .expect("the client builds"),
         ),
         spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
-        reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(&[])),
         followers: Arc::new(SessionEventFollowers::default()),
     });
     Fixture {
@@ -331,5 +329,108 @@ async fn a_server_the_provider_switched_off_lists_off_with_nothing_waiting() {
     assert_eq!(
         waiting, off,
         "a waiting switch leaves the server off and not waiting"
+    );
+}
+
+// A press of on for a server the provider switched off, which the row shows off while the
+// session's own switch is on, goes to the driver once with the set holding it on. Killed by the
+// request compared with the session's stored switch, which reads on and sends nothing.
+#[tokio::test]
+async fn on_for_a_server_the_provider_switched_off_reaches_the_driver() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&calls);
+    let fixture = session_reading(
+        move |_| {
+            let mut driver = MockProviderDriver::new();
+            driver
+                .expect_switch_session_mcp_servers()
+                .times(1)
+                .returning(move |_session_id, _run_id, tool_servers| {
+                    lock(&recorded).push(tool_servers);
+                    Box::pin(async { Ok(McpSessionSwitch::Applied) })
+                });
+            driver
+        },
+        McpServerReading::SwitchedOff,
+    )
+    .await;
+    let switches = SessionMcpSwitches::new(&fixture.methods.followers);
+
+    let switched = switch_session_server(
+        &fixture.methods,
+        &switches,
+        SessionMcpServerEnabledUpdateRequest {
+            session_id: fixture.session_id,
+            server_name: fixture.server_name.clone(),
+            enabled: true,
+        },
+    )
+    .await
+    .expect("the switch is made");
+
+    assert!(switched.enabled);
+    let on = vec![SessionToolServer {
+        binding: fixture.binding.clone(),
+        is_enabled: true,
+    }];
+    assert_eq!(*lock(&calls), vec![on]);
+}
+
+// A server one leg's provider switched off while another leg runs it lists on with that leg's
+// status and nothing waiting while a switch waits. Killed by any leg's switch-off reading the row
+// off (it lists off and waiting beside a connected status).
+#[tokio::test]
+async fn a_server_off_on_one_leg_and_running_on_another_lists_on() {
+    let fixture =
+        session_reading(|_| MockProviderDriver::new(), McpServerReading::SwitchedOff).await;
+    let attribution = McpSessionAttribution::new(
+        Arc::new(McpAttributionTable::default()),
+        first_provider(),
+        None,
+        &[SessionToolServer {
+            binding: fixture.binding.clone(),
+            is_enabled: true,
+        }],
+    )
+    .expect("a session in no root attributes");
+    let running_leg = open_mcp_leg_status_producer(
+        &fixture.methods.statuses,
+        attribution,
+        fixture.session_id,
+        RuntimeBindingId::new("leg-b".to_owned()).expect("a binding id"),
+    );
+    running_leg.report_status(McpServerStatusEmission::new(
+        fixture.server_name.clone(),
+        McpServerReading::Observed(Connected),
+        None,
+        None,
+    ));
+    let switches = SessionMcpSwitches::new(&fixture.methods.followers);
+    switches.note_switched(fixture.session_id, Some(McpSessionSwitch::AtNextTurn));
+    let mut feed = follow_session_servers(
+        Arc::clone(&fixture.methods),
+        Arc::clone(&switches),
+        fixture.session_id,
+    )
+    .await
+    .expect("the feed opens");
+
+    let listed = feed
+        .next(&CreditGate::with_credit(1))
+        .await
+        .expect("the feed reads");
+
+    assert_eq!(
+        listed,
+        Some(SessionMcpServerList {
+            session_id: fixture.session_id,
+            servers: vec![SessionMcpServer {
+                server_name: fixture.server_name.clone(),
+                status: Connected,
+                reason: None,
+                enabled: true,
+                pending_until_next_turn: false,
+            }],
+        })
     );
 }

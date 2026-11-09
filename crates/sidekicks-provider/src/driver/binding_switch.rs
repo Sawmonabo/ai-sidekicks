@@ -185,7 +185,7 @@ mod tests {
     use crate::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::driver::registry::test_token;
     use crate::driver::test_registry::{
-        fixed_session_id, new_agent_id, registry_of_first_providers,
+        first_provider, fixed_session_id, new_agent_id, registry_of_first_providers,
     };
 
     fn row(model_id: &str, effort_levels: &[&str]) -> ProviderModel {
@@ -340,7 +340,7 @@ mod tests {
                 .expect("the provider is registered");
         }
         let current = AgentProviderBinding {
-            provider_name: PROVIDERS[0].provider_id(),
+            provider_name: first_provider(),
             model_id: test_token("model-a"),
             effort: None,
             output_speed: None,
@@ -396,7 +396,7 @@ mod tests {
             .returning(|_| Ok(()));
         let providers = registry_of_first_providers(vec![Arc::new(driver) as _]);
         let current = AgentProviderBinding {
-            provider_name: PROVIDERS[0].provider_id(),
+            provider_name: first_provider(),
             model_id: test_token("model-a"),
             effort: None,
             output_speed: None,

@@ -113,7 +113,7 @@ impl SeamFixture {
                 .iter()
                 .find(|descriptor| descriptor.callback_tools_asked == asks_itself)
                 .expect("the table holds a provider of each kind");
-            ProviderId::new(descriptor.id.to_owned()).expect("a table id")
+            descriptor.provider_id()
         };
         Self {
             seam,

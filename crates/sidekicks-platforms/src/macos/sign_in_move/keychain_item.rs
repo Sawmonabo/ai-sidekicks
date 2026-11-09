@@ -1,23 +1,22 @@
 //! A sign-in's keychain item, reached only through Apple's `security` tool: read with
-//! `find-generic-password -w`, written with `add-generic-password -U` on the tool's standard input,
+//! `find-generic-password -g`, written with `add-generic-password -U` on the tool's standard input,
 //! and deleted with `delete-generic-password`. The provider reaches the item the same way, so the
 //! item keeps the access list the tool's writes give it, which trusts the tool, and neither side
-//! meets a prompt.
+//! meets a prompt. A sign-in too long for the tool's input line is never written: it is never sent
+//! as arguments, which every process on the machine can read.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::Path;
-use std::process::{ExitStatus, Stdio};
+use std::process::{Child, Command};
 use std::time::Duration;
 
 use secrecy::zeroize::Zeroizing;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::process::{Child, Command};
-use tokio::time::Instant;
+use tokio::runtime::Handle;
 
 use super::SignInPlace;
-use crate::macos::keychain_tool::{ToolAnswer, add_line, make_room, output_buffer, tool_answer};
-use crate::posix::child_command::prepare_child_command;
+use crate::macos::keychain_tool::printed_form::password_from_errors;
+use crate::macos::keychain_tool::{Capture, ToolAnswer, ToolEnd, add_line, run_tool, tool_answer};
 use crate::spawner::Spawner;
 use crate::{KeychainItemRefusal, SignInMoveError};
 
@@ -28,23 +27,6 @@ pub(super) struct KeychainItem<'a> {
     spawner: &'a Spawner,
     security_program: &'a Path,
     step_bound: Duration,
-}
-
-// How one call of the tool ended: its exit and what it printed, wiped when dropped.
-struct ToolEnd {
-    status: ExitStatus,
-    printed: Zeroizing<Vec<u8>>,
-}
-
-/// How an add reaches the tool: one line on its standard input, or, for a sign-in too long for
-/// that line, its own arguments.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum AddForm {
-    /// The line for `security -i`, its newline included, wiped when dropped.
-    Line(Zeroizing<Vec<u8>>),
-    /// `add-generic-password` run with the item's names and hex as its arguments, as the
-    /// provider's own write does past the line.
-    Arguments,
 }
 
 impl<'a> KeychainItem<'a> {
@@ -73,43 +55,58 @@ impl<'a> KeychainItem<'a> {
     ) -> Result<Option<Zeroizing<Vec<u8>>>, KeychainItemRefusal> {
         let ended = self
             .run(
-                &self.named_arguments("find-generic-password", &["-w"]),
+                self.named_arguments("find-generic-password", &["-g"]),
                 None,
+                Capture::Errors,
             )
             .await?;
         match tool_answer(ended.status)? {
-            ToolAnswer::Done => Ok(Some(item_from_printed(&ended.printed))),
+            ToolAnswer::Done => password_from_errors(&ended.printed)
+                .map(Some)
+                .ok_or_else(|| {
+                    KeychainItemRefusal::Unreachable(io::Error::other(
+                        "the keychain tool printed no password line",
+                    ))
+                }),
             ToolAnswer::NoItem => Ok(None),
-        }
-    }
-
-    /// Holds `value` in the item, in place of anything held before, its access list kept. Fails
-    /// as [`Self::read_value`] does.
-    pub(super) async fn write_value(&self, value: &[u8]) -> Result<(), KeychainItemRefusal> {
-        let mut hex_buffer = Zeroizing::new(vec![0; value.len() * 2]);
-        let hex = base16ct::lower::encode_str(value, &mut hex_buffer)
-            .expect("the buffer holds twice the value's bytes");
-        let ended = match add_form(self.service, self.account, hex)? {
-            AddForm::Line(line) => self.run(&[OsStr::new("-i")], Some(line)).await?,
-            AddForm::Arguments => {
-                let arguments = self.named_arguments("add-generic-password", &["-U", "-X", hex]);
-                self.run(&arguments, None).await?
-            }
-        };
-        match tool_answer(ended.status)? {
-            ToolAnswer::Done => Ok(()),
-            ToolAnswer::NoItem => Err(KeychainItemRefusal::Ended(ended.status)),
         }
     }
 
     /// Deletes the item, answering whether there was one. Fails as [`Self::read_value`] does.
     pub(super) async fn delete_value(&self) -> Result<bool, KeychainItemRefusal> {
         let ended = self
-            .run(&self.named_arguments("delete-generic-password", &[]), None)
+            .run(
+                self.named_arguments("delete-generic-password", &[]),
+                None,
+                Capture::Output,
+            )
             .await?;
         match tool_answer(ended.status)? {
             ToolAnswer::Done => Ok(true),
             ToolAnswer::NoItem => Ok(false),
+        }
+    }
+
+    // Holds `value` in the item, in place of anything held before, its access list kept. Fails
+    // with `TooLongForTheKeychainTool` when the add's line would run past the tool's, nothing
+    // written, and as `read_value` does.
+    async fn write_value(&self, value: &[u8]) -> Result<(), SignInMoveError> {
+        let mut hex_buffer = Zeroizing::new(vec![0; value.len() * 2]);
+        let hex = base16ct::lower::encode_str(value, &mut hex_buffer)
+            .expect("the buffer holds twice the value's bytes");
+        let line = add_line(&["-U"], self.service, self.account, hex)
+            .map_err(|refusal| self.refused(refusal))?
+            .ok_or_else(|| SignInMoveError::TooLongForTheKeychainTool {
+                service: self.service.to_owned(),
+                account: self.account.to_owned(),
+            })?;
+        let ended = self
+            .run(vec![OsString::from("-i")], Some(line), Capture::Output)
+            .await
+            .map_err(|refusal| self.refused(refusal))?;
+        match tool_answer(ended.status).map_err(|refusal| self.refused(refusal))? {
+            ToolAnswer::Done => Ok(()),
+            ToolAnswer::NoItem => Err(self.refused(KeychainItemRefusal::Ended(ended.status))),
         }
     }
 
@@ -131,55 +128,34 @@ impl<'a> KeychainItem<'a> {
     }
 
     // `command` with the item's names, then `rest`.
-    fn named_arguments<'b>(&'b self, command: &'b str, rest: &[&'b str]) -> Vec<&'b OsStr> {
-        let names = [command, "-a", self.account, "-s", self.service];
-        names.iter().chain(rest).copied().map(OsStr::new).collect()
+    fn named_arguments(&self, command: &str, rest: &[&str]) -> Vec<OsString> {
+        [command, "-a", self.account, "-s", self.service]
+            .iter()
+            .chain(rest)
+            .map(OsString::from)
+            .collect()
     }
 
-    // Runs the tool with `arguments` and `line` on its standard input, or none, on the spawner
-    // within the step bound; past it the child is ended and reaped before the call answers.
+    // Runs the tool with `arguments` and `line` on its standard input, or none, started on the
+    // spawner and waited for on a blocking thread within the step bound; past it the tool is
+    // ended and reaped before the call answers.
     async fn run(
         &self,
-        arguments: &[&OsStr],
+        arguments: Vec<OsString>,
         line: Option<Zeroizing<Vec<u8>>>,
+        capture: Capture,
     ) -> Result<ToolEnd, KeychainItemRefusal> {
-        let deadline = Instant::now() + self.step_bound;
-        let mut command = Command::new(self.security_program);
-        command
-            .args(arguments)
-            .stdin(if line.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        prepare_child_command(&mut command, std::process::id());
-        let started = match tokio::time::timeout_at(
-            deadline,
-            self.spawner.run(move || command.spawn()),
-        )
+        let program = self.security_program.to_owned();
+        let bound = self.step_bound;
+        let (spawner, runtime) = (self.spawner.clone(), Handle::current());
+        tokio::task::spawn_blocking(move || {
+            let arguments: Vec<&OsStr> = arguments.iter().map(OsString::as_os_str).collect();
+            let start = |command| start_on_spawner(&runtime, &spawner, command);
+            let line = line.as_deref().map(Vec::as_slice);
+            run_tool(start, &program, &arguments, line, capture, bound)
+        })
         .await
-        {
-            Ok(started) => started,
-            Err(_elapsed) => return Err(KeychainItemRefusal::Unanswered),
-        };
-        let mut child = started
-            .and_then(|spawned| spawned)
-            .map_err(KeychainItemRefusal::Unreachable)?;
-        match tokio::time::timeout_at(deadline, talk(&mut child, line)).await {
-            Ok(ended) => ended.map_err(KeychainItemRefusal::Unreachable),
-            Err(_elapsed) => {
-                if let Err(error) = child.kill().await {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "a keychain call past its bound could not be ended"
-                    );
-                }
-                Err(KeychainItemRefusal::Unanswered)
-            }
-        }
+        .map_err(|stopped| KeychainItemRefusal::Unreachable(io::Error::other(stopped)))?
     }
 }
 
@@ -191,9 +167,7 @@ impl SignInPlace for KeychainItem<'_> {
     }
 
     async fn write(&self, sign_in: &[u8]) -> Result<(), SignInMoveError> {
-        self.write_value(sign_in)
-            .await
-            .map_err(|refusal| self.refused(refusal))
+        self.write_value(sign_in).await
     }
 
     async fn delete(&self) -> Result<(), SignInMoveError> {
@@ -208,71 +182,13 @@ impl SignInPlace for KeychainItem<'_> {
     }
 }
 
-// Writes `line` to the child's standard input and closes it, drains its standard error, which is
-// never kept, and reads its standard output until it exits.
-async fn talk(child: &mut Child, line: Option<Zeroizing<Vec<u8>>>) -> io::Result<ToolEnd> {
-    let input = child.stdin.take();
-    let mut output = child.stdout.take().expect("the tool's output is piped");
-    let mut errors = child.stderr.take().expect("the tool's errors are piped");
-    let send = async move {
-        if let (Some(mut input), Some(line)) = (input, line) {
-            input.write_all(&line).await?;
-            input.shutdown().await?;
-        }
-        Ok::<(), io::Error>(())
-    };
-    let mut discarded = tokio::io::sink();
-    let (sent, printed, drained, status) = tokio::join!(
-        send,
-        read_wiped(&mut output),
-        tokio::io::copy(&mut errors, &mut discarded),
-        child.wait()
-    );
-    sent?;
-    drained?;
-    Ok(ToolEnd {
-        status: status?,
-        printed: printed?,
-    })
-}
-
-// Reads `reader` to its end into a buffer wiped when dropped; a full buffer is copied into one of
-// twice its size and wiped, so no copy of the output is left behind in freed memory.
-async fn read_wiped(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<Zeroizing<Vec<u8>>> {
-    let mut held = output_buffer();
-    loop {
-        make_room(&mut held);
-        if reader.read_buf(&mut *held).await? == 0 {
-            return Ok(held);
-        }
-    }
-}
-
-/// The item's bytes from what `find-generic-password -w` printed: the tool prints an item whose
-/// every byte is printable (0x20 to 0x7E) as it is, else as lowercase hex, then one newline. So
-/// printed text that is lowercase hex of even length decoding to a byte outside that range is the
-/// decoded bytes, and anything else is the text itself, one trailing newline dropped and nothing
-/// else trimmed.
-pub(super) fn item_from_printed(printed: &[u8]) -> Zeroizing<Vec<u8>> {
-    let text = printed.strip_suffix(b"\n").unwrap_or(printed);
-    let mut decoded = Zeroizing::new(vec![0; text.len() / 2]);
-    let is_hex_of_unprintable = base16ct::lower::decode(text, &mut decoded)
-        .is_ok_and(|bytes| bytes.iter().any(|byte| !(0x20..=0x7E).contains(byte)));
-    if is_hex_of_unprintable {
-        decoded
-    } else {
-        Zeroizing::new(text.to_vec())
-    }
-}
-
-/// How the add of `hex` under `service` and `account` reaches the tool: the line
-/// `add-generic-password -U -a "<account>" -s "<service>" -X "<hex>"` while it fits the tool's
-/// line, else its own arguments. Fails with [`KeychainItemRefusal::UnwritableName`] when a name
-/// holds a line break or a NUL.
-pub(super) fn add_form(
-    service: &str,
-    account: &str,
-    hex: &str,
-) -> Result<AddForm, KeychainItemRefusal> {
-    Ok(add_line(&["-U"], service, account, hex)?.map_or(AddForm::Arguments, AddForm::Line))
+// Starts `command` on the spawner's thread, waiting from the blocking thread the call runs on.
+fn start_on_spawner(
+    runtime: &Handle,
+    spawner: &Spawner,
+    mut command: Command,
+) -> io::Result<Child> {
+    runtime
+        .block_on(spawner.run(move || command.spawn()))
+        .and_then(|spawned| spawned)
 }

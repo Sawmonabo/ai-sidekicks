@@ -2,10 +2,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -31,7 +28,8 @@ use crate::driver::codex::transport::connection::scripted_service::ScriptedServi
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::test_registry::new_run_id;
-use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::port::reviewer_denial::recording::RecordingReviewerDenials;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
@@ -83,21 +81,6 @@ fn gone_steps(steps: &Steps, session_id: SessionId) -> usize {
         .count()
 }
 
-struct HeardDenials(Arc<Steps>);
-
-impl ReviewerDenialPort for HeardDenials {
-    fn take_denial(
-        &self,
-        _denial: ProviderReviewerDenial,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
-    }
-
-    fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
-        self.0.push(format!("release {binding_id:?}"));
-    }
-}
-
 struct HeardGone(Arc<Steps>);
 
 impl ProcessGoneListener for HeardGone {
@@ -117,7 +100,10 @@ fn test_recovery(
 ) -> Arc<CodexServiceRecovery> {
     let reviewer_denials = Arc::new(PortRegistration::new("reviewer denial"));
     reviewer_denials
-        .register(Arc::new(HeardDenials(Arc::clone(steps))) as Arc<dyn ReviewerDenialPort>)
+        .register(Arc::new(RecordingReviewerDenials::new({
+            let steps = Arc::clone(steps);
+            move |binding_id| steps.push(format!("release {binding_id:?}"))
+        })) as Arc<dyn ReviewerDenialPort>)
         .expect("the port registers once");
     let process_gone = Arc::new(PortRegistration::new("process gone"));
     process_gone

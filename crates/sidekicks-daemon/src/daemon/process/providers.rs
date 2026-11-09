@@ -4,6 +4,7 @@
 //! lasting service answers by connecting to it.
 
 use std::error::Error;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -15,10 +16,12 @@ use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
 use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id, is_owned_by_user};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
@@ -82,7 +85,7 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use sidekicks_workspace::repo::errors::RepoRefusal;
-use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use sidekicks_workspace::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -478,42 +481,51 @@ struct ResolvedRepositories(RepoRootResolver);
 
 impl RepositoryReader for ResolvedRepositories {
     /// The resolver's main checkout and common git folder of `working_folder`; `None` on git's
-    /// not-a-repository verdict, and on any other refusal, which is logged.
+    /// not-a-repository verdict. Fails with any other refusal the resolver gave.
     fn read_repository<'a>(
         &'a self,
         working_folder: &'a Path,
-    ) -> BoxFuture<'a, Option<RepositoryReading>> {
+    ) -> BoxFuture<'a, Result<Option<RepositoryReading>, DomainError>> {
         async move {
             match self.0.resolve_canonical_root(working_folder).await {
-                Ok(resolution) => Some(RepositoryReading {
+                Ok(resolution) => Ok(Some(RepositoryReading {
                     root: resolution.canonical_root,
                     common_git_folder: resolution.common_folder,
-                }),
+                })),
                 Err(RepoRefusal::RootResolutionFailed {
                     reason: RepoMountRootResolutionReason::NotARepository,
                     ..
-                }) => None,
-                Err(refusal) => {
-                    tracing::warn!(
-                        error = &refusal as &(dyn Error + 'static),
-                        "a working folder's repository could not be read; it reads as outside git"
-                    );
-                    None
-                }
+                }) => Ok(None),
+                Err(refusal) => Err(refusal.into()),
             }
         }
         .boxed()
     }
 
-    /// Reads the owner on a blocking thread; an entry whose owner cannot be read is not owned.
-    fn is_owned_by_user<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, bool> {
+    /// Reads the owner on a blocking thread, as [`read_entry_owner`] does.
+    fn is_owned_by_user<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, Result<bool, DomainError>> {
         let path = path.to_path_buf();
         async move {
-            tokio::task::spawn_blocking(move || is_owned_by_user(&path))
+            tokio::task::spawn_blocking(move || read_entry_owner(&path))
                 .await
-                .is_ok_and(|owned| owned.unwrap_or(false))
+                .map_err(|stopped| {
+                    DomainError::new(
+                        "the read of an entry's owner stopped",
+                        RefusalCode::SystemInternalError,
+                    )
+                    .with_source(stopped)
+                })?
         }
         .boxed()
+    }
+}
+
+// Whether this user owns the entry at `path`, `false` where there is none. Fails with the
+// `notReadable` refusal and the system's own reason where the owner cannot be read.
+fn read_entry_owner(path: &Path) -> Result<bool, DomainError> {
+    match is_owned_by_user(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        owned => owned.map_err(|error| refusal_of_filesystem_failure(&error).into()),
     }
 }
 
@@ -697,6 +709,36 @@ mod tests {
 
     use super::hydrate_capabilities;
     use super::test_start::TestStart;
+
+    // An entry's owner reads as the person's for their own file and as no one's for an absent
+    // entry, and a read the system refuses fails as `notReadable` rather than reading as not
+    // owned. Killed by turning every failed read into `false`, and by refusing an absent entry.
+    #[cfg(unix)]
+    #[test]
+    fn an_owner_read_the_system_refuses_fails_and_an_absent_entry_is_not_owned() {
+        use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+        use sidekicks_platforms::{is_superuser, make_unreadable};
+
+        use super::read_entry_owner;
+
+        if is_superuser() {
+            return;
+        }
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let shut = folder.path().join("shut");
+        std::fs::create_dir(&shut).expect("the folder is made");
+        let file = shut.join("settings.json");
+        std::fs::write(&file, "{}").expect("the file is written");
+
+        let owned = read_entry_owner(&file).expect("the person's file reads");
+        let absent = read_entry_owner(&shut.join("absent")).expect("an absent entry reads");
+        let _unreadable = make_unreadable(&shut).expect("the folder is made unreadable");
+        let refused = read_entry_owner(&file).expect_err("the system refuses the read");
+
+        assert!(owned);
+        assert!(!absent);
+        assert_eq!(refused.code, RefusalCode::RepoMountRootResolutionFailed);
+    }
 
     // A gated call the stored reading allows passes at a cold start, before any refresh pass has
     // read the driver. Killed by leaving the gate unseeded, which refuses it until a pass lands.

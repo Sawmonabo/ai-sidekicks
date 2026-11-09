@@ -425,7 +425,7 @@ async fn an_opening_sends_the_persons_servers_at_its_root(#[case] takes_tool_ser
         "2026-10-14T09:30:00.000Z",
     );
     insert_lead(&database, session_id, descriptor.id);
-    let provider = ProviderId::new(descriptor.id.to_owned()).expect("a table id is a provider id");
+    let provider = descriptor.provider_id();
     let project_binding = |root: &str, name: &str| McpServerBindingRef::Project {
         provider: provider.clone(),
         scope_ref: FilesystemPath::new(root.to_owned()).expect("a test path is a path"),
@@ -753,7 +753,7 @@ async fn compose_opening_carries_the_leads_providers_helpers_at_once(
     let database = TestDatabase::new(schema_parts());
     let session_id = test_session_id();
     let settings = helpers_at_once(
-        ProviderId::new(PROVIDERS[knob_provider].id.to_owned()).expect("a registered provider id"),
+        PROVIDERS[knob_provider].provider_id(),
         SafeInt::new(limit).expect("a small count is a limit"),
     );
     let PortOverLeg { port, .. } = port_over_a_leg(

@@ -13,18 +13,14 @@ use rmcp::service::ServiceError;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::session::controls::methods::SessionMcpResource;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::{PathRules, Spawner};
-use sidekicks_provider::driver::ProviderDescriptor;
+use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::mcp_server::resources::{McpServerReach, read_listed_mcp_resource};
-use sidekicks_provider::spawn_environment::{
-    ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
-};
 
 use crate::binding::store::McpBindingKey;
 use crate::client::McpClient;
 use crate::client::connection::McpServerConnection;
 use crate::client::http::NoAuthorization;
-use crate::client::stdio::McpStdioServer;
+use crate::client::stdio::{McpServerBaseEnvironment, McpStdioServer};
 
 /// What a server offers to attach.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,17 +29,6 @@ pub struct McpServerResources {
     pub resources: Vec<SessionMcpResource>,
     /// Whether every page was read; `false` where the page cap stopped the read.
     pub complete: bool,
-}
-
-/// What a second copy of a program server starts from: the thread every child starts on, and the
-/// provider and reserved names its environment is built under.
-pub struct McpServerCopyStart<'a> {
-    /// The thread every child of the daemon starts on.
-    pub spawner: &'a Spawner,
-    /// The session's provider, whose withheld names the copy's environment leaves out.
-    pub descriptor: &'a ProviderDescriptor,
-    /// The names no person's row may set, with every provider's background-work switches.
-    pub reserved_names: &'a ReservedEnvironmentNames,
 }
 
 /// Why a server's resources could not be read.
@@ -59,51 +44,44 @@ pub enum McpResourceListError {
 
 impl McpClient {
     /// The resources of `binding`'s server, one of `session_id`'s, reached as `reach` says: a
-    /// program started as a copy from `copy_start`, one at a time per binding, or the server at
-    /// its address with no sign-in; the connection is closed, and a copy ended, before this
-    /// answers. Fails as [`McpResourceListError`] says.
+    /// program started on `spawner` as a copy in its provider process's environment, one at a time
+    /// per binding, or the server at its address with no sign-in; the connection is closed, and a
+    /// copy ended, before this answers. Fails as [`McpResourceListError`] says.
     pub async fn list_server_resources(
         &self,
         session_id: SessionId,
         binding: &McpServerBindingRef,
         reach: McpServerReach,
-        copy_start: McpServerCopyStart<'_>,
+        spawner: &Spawner,
     ) -> Result<McpServerResources, McpResourceListError> {
         let scope = self.connection_scope(session_id, binding.server_name().clone());
         let connection = match reach {
             McpServerReach::Stdio {
                 program,
                 arguments,
-                environment,
+                process_environment,
+                server_environment,
                 working_folder,
             } => {
                 let _copy = self
                     .resource_copies
                     .acquire(McpBindingKey::of(binding))
                     .await;
-                let request = ProviderEnvironmentRequest {
-                    session: SessionEnvironment {
-                        base: &environment,
-                        every_project_rows: &[],
-                        project_rows: &[],
-                        reserved_names: copy_start.reserved_names,
-                        rules: PathRules::NATIVE,
-                    },
-                    descriptor: copy_start.descriptor,
-                    deny_env_vars: &[],
-                    credential_homes: &[],
-                };
                 let server = McpStdioServer {
                     program: PathBuf::from(program),
                     arguments,
-                    environment: Vec::new(),
+                    environment: server_environment,
                     working_folder,
                     startup_timeout: None,
                 };
-                let connection =
-                    McpServerConnection::start_stdio(copy_start.spawner, server, &request, scope)
-                        .await
-                        .map_err(|error| McpResourceListError::Reach(Box::new(error)))?;
+                let connection = McpServerConnection::start_stdio(
+                    spawner,
+                    server,
+                    McpServerBaseEnvironment::ProviderProcess(&process_environment),
+                    scope,
+                )
+                .await
+                .map_err(|error| McpResourceListError::Reach(Box::new(error)))?;
                 return list_and_close(&connection).await;
             }
             McpServerReach::Address { address, headers } => {
@@ -171,11 +149,9 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::{POSIX_SHELL, Spawner};
-    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::mcp_server::resources::McpServerReach;
-    use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 
-    use super::{McpServerCopyStart, list_and_close};
+    use super::list_and_close;
     use crate::client::connection::McpConnectionStart;
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, v1_initialize_result,
@@ -211,7 +187,6 @@ done"#;
     async fn two_lists_of_one_binding_run_one_copy_at_a_time() {
         let (client, _card) = test_client();
         let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-        let reserved_names = ReservedEnvironmentNames::of_providers(PROVIDERS);
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let binding = McpServerBindingRef::User {
@@ -228,21 +203,17 @@ done"#;
                 "sh".to_owned(),
                 log.to_string_lossy().into_owned(),
             ],
-            environment: vec![(
+            process_environment: vec![(
                 "PATH".to_owned(),
                 std::env::var("PATH").expect("the test runs with a PATH"),
             )],
+            server_environment: Vec::new(),
             working_folder: None,
-        };
-        let copy_start = || McpServerCopyStart {
-            spawner: &spawner,
-            descriptor: PROVIDERS[0],
-            reserved_names: &reserved_names,
         };
 
         let (first, second) = tokio::join!(
-            client.list_server_resources(session_id, &binding, reach(), copy_start()),
-            client.list_server_resources(session_id, &binding, reach(), copy_start()),
+            client.list_server_resources(session_id, &binding, reach(), &spawner),
+            client.list_server_resources(session_id, &binding, reach(), &spawner),
         );
 
         first.expect("the first copy lists");

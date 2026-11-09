@@ -9,7 +9,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::future::join_all;
+use futures::future::try_join_all;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
@@ -31,6 +31,7 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::session_rules::SessionRulePort;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 
 // The input members a file tool names its file or folder by, in the order they are read.
@@ -271,6 +272,10 @@ pub(crate) enum ClaudeAnswerRuleError {
     /// The daemon's repository reads are not registered, so no project rule's file is known.
     #[error(transparent)]
     RepositoriesUnregistered(#[from] PortRegistrationError),
+    /// A working folder's repository, or the owner of an entry it is placed by, could not be read,
+    /// so where the project rule's file lies is not known.
+    #[error("a project folder's repository could not be read")]
+    RepositoryUnreadable(#[source] DomainError),
 }
 
 impl ClaudeAnswerRules {
@@ -291,13 +296,14 @@ impl ClaudeAnswerRules {
         }
         let repositories = self.repositories.require_port()?;
         let own_path = &live.spawn_bound_legs.working_directory;
-        let readings = join_all(
+        let readings = try_join_all(
             made.project_folders
                 .iter()
                 .chain(std::iter::once(own_path))
                 .map(|folder| read_claude_repository(&**repositories, folder)),
         )
-        .await;
+        .await
+        .map_err(ClaudeAnswerRuleError::RepositoryUnreadable)?;
         let mut folders: Vec<ClaudeProjectFolder<'_>> = made
             .project_folders
             .iter()
@@ -339,13 +345,16 @@ pub(crate) fn claude_project_folder<'a>(
 }
 
 /// The repository of `working_folder`, with whether the person owns its root and the `.git` and
-/// `.claude` entries Claude Code reads its project settings beside; `None` outside git.
+/// `.claude` entries Claude Code reads its project settings beside; `None` outside git. Fails with
+/// the refusal of the repository's read or of an owner's read.
 pub(crate) async fn read_claude_repository(
     repositories: &dyn RepositoryReader,
     working_folder: &Path,
-) -> Option<(RepositoryReading, bool)> {
-    let reading = repositories.read_repository(working_folder).await?;
-    let owned = join_all(
+) -> Result<Option<(RepositoryReading, bool)>, DomainError> {
+    let Some(reading) = repositories.read_repository(working_folder).await? else {
+        return Ok(None);
+    };
+    let owned = try_join_all(
         [
             reading.root.clone(),
             reading.root.join(GIT_ENTRY_NAME),
@@ -353,7 +362,7 @@ pub(crate) async fn read_claude_repository(
         ]
         .map(|entry| async move { repositories.is_owned_by_user(&entry).await }),
     )
-    .await;
+    .await?;
     let is_owned_by_user = owned.into_iter().all(|is_owned| is_owned);
-    Some((reading, is_owned_by_user))
+    Ok(Some((reading, is_owned_by_user)))
 }

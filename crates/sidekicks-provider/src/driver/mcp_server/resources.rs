@@ -47,9 +47,10 @@ pub enum McpServerReach {
         program: String,
         /// Its arguments.
         arguments: Vec<String>,
-        /// The whole environment the provider starts it in, the entry's own values over the
-        /// provider's process's.
-        environment: Vec<(String, String)>,
+        /// The environment of the provider's process, which the provider starts it in.
+        process_environment: Vec<(String, String)>,
+        /// The entry's own values, laid over the process's.
+        server_environment: Vec<(String, String)>,
         /// The folder it starts in.
         working_folder: Option<PathBuf>,
     },

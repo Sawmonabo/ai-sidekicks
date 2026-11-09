@@ -255,6 +255,7 @@ fn sign_in_refusal_cause(refusal: &SignInMoveError) -> KeychainRefusalCause {
         | SignInMoveError::File(_)
         | SignInMoveError::Write(_)
         | SignInMoveError::CopyDiffers { .. }
+        | SignInMoveError::TooLongForTheKeychainTool { .. }
         | SignInMoveError::Overran
         | SignInMoveError::Stopped(_) => KeychainRefusalCause::Unavailable,
     }

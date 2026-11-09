@@ -389,6 +389,7 @@ mod tests {
                     standard_output: String::new(),
                     exit_code: 0,
                     argument_record: None,
+                    first_call_delay: None,
                 },
             },
         )

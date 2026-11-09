@@ -5,10 +5,6 @@
 use std::error::Error;
 use std::sync::Arc;
 
-/// Whether the daemon's credential store keeps its items in a file in the data folder: no, since
-/// they go into the Credential Manager, the account's own.
-pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
-
 /// What holds the items, for the service log.
 pub(crate) const DESCRIPTION: &str =
     "the Credential Manager, each item kept at local-machine persistence";
@@ -20,9 +16,6 @@ pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[("persistence", "local")];
 /// The most bytes one entry holds: the Credential Manager's per-entry cap,
 /// `CRED_MAX_CREDENTIAL_BLOB_SIZE`, past which the store refuses a write.
 pub(crate) const ENTRY_CAPACITY: Option<usize> = Some(2560);
-
-/// No check of who wrote a listed entry: every item serves as it is, whoever wrote it.
-pub(crate) const ADOPTION: Option<fn(&keyring_core::Entry) -> bool> = None;
 
 /// The Credential Manager. Fails only when the store cannot be built.
 pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {

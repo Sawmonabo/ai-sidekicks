@@ -85,10 +85,6 @@ fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
     }
 }
 
-fn provider(index: usize) -> ProviderId {
-    ProviderId::new(PROVIDERS[index].id.to_owned()).expect("a table id")
-}
-
 fn model(id: &str) -> ProviderModel {
     serde_json::from_value(json!({
         "id": id,
@@ -120,14 +116,14 @@ impl SecondRead {
                     .with_detail(json!({ "providerFailureDetail": "provider down" })),
             ),
             Self::NotInstalled => DriverError::from(ExecutableUnresolvable {
-                provider: provider(1),
+                provider: PROVIDERS[1].provider_id(),
                 requested_command: "missing".to_owned(),
                 is_typed_path: false,
                 is_build_found: false,
                 cause: io::Error::from(io::ErrorKind::NotFound),
             }),
             Self::TypedPathNotRunnable => DriverError::from(ExecutableUnresolvable {
-                provider: provider(1),
+                provider: PROVIDERS[1].provider_id(),
                 requested_command: "/opt/provider/missing".to_owned(),
                 is_typed_path: true,
                 is_build_found: false,
@@ -202,23 +198,23 @@ async fn one_providers_failed_read_never_hides_the_others(#[case] second: Second
         .expect("the mode list answers");
 
     let mut expected_models = vec![ProviderModelReport::Listed(ProviderModelsListed {
-        provider_name: provider(0),
+        provider_name: PROVIDERS[0].provider_id(),
         models: vec![model("model-a")],
         failure: None,
     })];
     let mut expected_modes = vec![ProviderModeReport::Listed(ProviderModesListed {
-        provider_name: provider(0),
+        provider_name: PROVIDERS[0].provider_id(),
         modes: vec![mode("mode-a")],
         failure: None,
     })];
     if let Some(failure) = second.failure() {
         expected_models.push(ProviderModelReport::Failed(ProviderModelsFailed {
-            provider_name: provider(1),
+            provider_name: PROVIDERS[1].provider_id(),
             failure: failure.clone(),
             models: None,
         }));
         expected_modes.push(ProviderModeReport::Failed(ProviderModesFailed {
-            provider_name: provider(1),
+            provider_name: PROVIDERS[1].provider_id(),
             failure,
             modes: None,
         }));
@@ -305,7 +301,10 @@ async fn the_sessions_own_provider_lists_first_on_its_own_account() {
             ProviderModelReport::Failed(failed) => failed.provider_name.clone(),
         })
         .collect();
-    assert_eq!(names, [provider(1), provider(0)]);
+    assert_eq!(
+        names,
+        [PROVIDERS[1].provider_id(), PROVIDERS[0].provider_id()]
+    );
     let mut reads = reads.lock().expect("the reads are not poisoned").clone();
     reads.sort_by_key(|(index, _)| *index);
     assert_eq!(
@@ -340,7 +339,10 @@ async fn the_sessions_own_provider_lists_first_on_its_own_account() {
             ProviderModeReport::Failed(failed) => failed.provider_name.clone(),
         })
         .collect();
-    assert_eq!(names, [provider(1), provider(0)]);
+    assert_eq!(
+        names,
+        [PROVIDERS[1].provider_id(), PROVIDERS[0].provider_id()]
+    );
     let mut mode_reads = mode_reads
         .lock()
         .expect("the reads are not poisoned")
@@ -387,7 +389,7 @@ async fn every_binding_is_admitted_before_any_command_list_is_read() {
             .sources
             .providers
             .record_capabilities(
-                &provider(index),
+                &PROVIDERS[index].provider_id(),
                 DriverCapabilities {
                     flags: DriverCapabilityFlags::from_fn(|flag| {
                         offers_commands && flag == DriverCapabilityFlag::ProviderCommands

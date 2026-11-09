@@ -16,6 +16,7 @@ use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_provider::port::held_tool_calls::{
     HELD_TOOL_CALLS_READ_MAX, HeldToolCall, HeldToolCallReads,
 };
@@ -103,14 +104,18 @@ LIMIT {HELD_TOOL_CALLS_READ_MAX}",
     )
 });
 
-// Every session with a background row and no close of its call after it. The type is written as
-// a literal so the planner can match the background index.
+// Every session with a background row and no close of its call after it, and whether the session
+// is closed. The type is written as a literal so the planner can match the background index.
 static SELECT_SESSIONS_HOLDING_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT DISTINCT held.session_id FROM session_events AS held
+        "SELECT DISTINCT held.session_id,
+    EXISTS (SELECT 1 FROM sessions
+      WHERE sessions.id = held.session_id AND sessions.state = '{closed}')
+  FROM session_events AS held
   WHERE held.type = '{backgrounded}'
     AND NOT EXISTS (SELECT 1 FROM session_events AS close WHERE {closes_held_call})
   ORDER BY held.session_id",
+        closed = <&'static str>::from(SessionState::Closed),
         backgrounded = SessionEventType::AgentToolCallBackgrounded.as_str(),
         closes_held_call = closes_held_call_sql(),
     )
@@ -178,12 +183,28 @@ impl HeldToolCallReads for StoredHeldToolCalls {
     }
 }
 
+/// A session holding a call moved to the background with no close after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SessionHoldingToolCalls {
+    /// The session.
+    pub session_id: SessionId,
+    /// Whether the session itself closed, so no resume of it settles the call.
+    pub is_closed: bool,
+}
+
 /// Every session that holds a call moved to the background with no close after it, read on
 /// `reader`, uncapped. Fails when SQLite refuses the read or a stored session id is not one.
-pub fn read_sessions_holding_tool_calls(reader: &Connection) -> rusqlite::Result<Vec<SessionId>> {
+pub fn read_sessions_holding_tool_calls(
+    reader: &Connection,
+) -> rusqlite::Result<Vec<SessionHoldingToolCalls>> {
     reader
         .prepare_cached(&SELECT_SESSIONS_HOLDING_TOOL_CALLS_SQL)?
-        .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
+        .query_map([], |row| {
+            Ok(SessionHoldingToolCalls {
+                session_id: text_column(row, 0, |text| SessionId::new(&text))?,
+                is_closed: row.get(1)?,
+            })
+        })?
         .collect()
 }
 
@@ -199,13 +220,15 @@ mod tests {
     use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_provider::port::held_tool_calls::HeldToolCall;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, insert_test_event, test_run_id, test_session_id,
     };
 
-    use super::{read_held_tool_calls, read_sessions_holding_tool_calls};
+    use super::{SessionHoldingToolCalls, read_held_tool_calls, read_sessions_holding_tool_calls};
     use crate::questions::schema::schema_parts;
 
     // The instant every row is stored at but the opening whose time the read carries.
@@ -301,7 +324,7 @@ mod tests {
     // Killed by the last close's rule reversed or dropped (`call-3` and `call-4` answered), by
     // daemon-settled calls left out (`call-2` missing), by the background row's time read for the
     // opening's (`call-1` at 09:01), by a sessions list that counts a closed call (`B` listed) or a
-    // daemon-settled one (`D` listed), by the binding read without its run or its lineage's origin
+    // daemon-settled one (`D` listed), or reads no session's own close (`C` open), by the binding read without its run or its lineage's origin
     // (`binding-a2`, the newest of all, answered for `call-1` and `call-9`), by its order reversed
     // (`binding-a-older` answered), and by the lineage left unclimbed (the helper's `call-9` reads
     // no binding and fails the read).
@@ -414,12 +437,31 @@ mod tests {
                 ),
             ]
         );
+        insert_session_row(&writer, session_c.0.text().as_str(), None, None);
+        writer
+            .execute(
+                "UPDATE sessions SET state = ?1 WHERE id = ?2",
+                params![
+                    <&'static str>::from(SessionState::Closed),
+                    session_c.0.text().as_str()
+                ],
+            )
+            .expect("the test closes the session");
         assert_eq!(
             read_sessions_holding_tool_calls(&reader)
                 .expect("the sessions holding calls read")
                 .into_iter()
                 .collect::<HashSet<_>>(),
-            HashSet::from([session_a.0, session_c.0])
+            HashSet::from([
+                SessionHoldingToolCalls {
+                    session_id: session_a.0,
+                    is_closed: false,
+                },
+                SessionHoldingToolCalls {
+                    session_id: session_c.0,
+                    is_closed: true,
+                },
+            ])
         );
     }
 }

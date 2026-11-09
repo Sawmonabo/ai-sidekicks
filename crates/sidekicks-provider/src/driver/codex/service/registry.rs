@@ -457,7 +457,8 @@ impl CodexServiceRegistry {
     /// in the first's place, Codex's managed daemon in use, holds the link; where the system
     /// refuses to move it, the path being the socket itself, the first is stopped once no
     /// terminal session is inside it and no command left on it runs, and the second takes the
-    /// home's own socket, terminals reconnecting by themselves. Fails as the start does, the
+    /// home's own socket, terminals reconnecting by themselves. On the switching home the second
+    /// starts once any held switch has landed. Fails as the start does, the
     /// first then kept as the home's service; when the first's record could not be marked or the
     /// home's service changed while the second started, the second then stopped; and when the
     /// home's socket could not be pointed at the second, which then runs on unreached.
@@ -482,6 +483,13 @@ impl CodexServiceRegistry {
             service.stop().await;
             home_socket.clone()
         };
+        if home.kind == CodexHomeKind::Switching {
+            // Outside the start's bound, since a held switch waits for the running turns to end.
+            self.dependencies
+                .switching
+                .wait_for_held_switch_to_land()
+                .await;
+        }
         let replacement = CodexService::new(
             home.clone(),
             CodexServiceSocket {

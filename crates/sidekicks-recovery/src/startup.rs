@@ -60,7 +60,9 @@ use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
 use sidekicks_session::questions::service::{QuestionError, QuestionsService};
-use sidekicks_session::run::held_tool_calls::read_sessions_holding_tool_calls;
+use sidekicks_session::run::held_tool_calls::{
+    SessionHoldingToolCalls, read_sessions_holding_tool_calls,
+};
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::elapsed::elapsed_ms_since;
@@ -217,8 +219,10 @@ struct PassListing {
     current: BTreeSet<SessionId>,
     // Of those, the ones with a run still live past its queue, which refuse calls until settled.
     current_listed: BTreeSet<SessionId>,
-    // Every session the log shows holding a call moved to the background with no close.
+    // Every open session the log shows holding a call moved to the background with no close.
     holding_tool_calls: BTreeSet<SessionId>,
+    // Every closed one, whose close a restart cut short before its calls settled.
+    closed_holding_tool_calls: BTreeSet<SessionId>,
 }
 
 impl StartupRecovery {
@@ -386,6 +390,18 @@ impl StartupRecovery {
                 stopped.push((session_id, ending));
             }
         }
+        // After every resume, since no closed session resumes: each settle stops the surviving
+        // tasks in a process resumed for that alone, which takes its bring-up, at most 2 s for the
+        // stops and the close's wait, up to the request deadline, one session at a time.
+        for &session_id in &listing.closed_holding_tool_calls {
+            if stop.is_cancelled() {
+                return Err(PassFailure::Stopped);
+            }
+            if !damaged.contains(&session_id) {
+                self.settle_held_tool_calls(session_id, is_named(&session_id))
+                    .await;
+            }
+        }
 
         if stop.is_cancelled() {
             return Err(PassFailure::Stopped);
@@ -462,15 +478,13 @@ impl StartupRecovery {
             .projection_rebuild
             .list_sessions_to_rebuild()
             .await?;
-        let ((mut current, mut current_listed), mut holding_tool_calls) = self
+        let ((mut current, mut current_listed), holding) = self
             .deps
             .reads
             .read(ReadLength::Short, |reader| {
                 Ok::<_, PassFailure>((
                     read_sessions_with_leftovers(reader)?,
-                    read_sessions_holding_tool_calls(reader)?
-                        .into_iter()
-                        .collect::<BTreeSet<_>>(),
+                    read_sessions_holding_tool_calls(reader)?,
                 ))
             })
             .await?;
@@ -478,12 +492,22 @@ impl StartupRecovery {
             current.remove(session_id);
             current_listed.remove(session_id);
         }
-        holding_tool_calls.remove(&*DAEMON_SCOPE_SENTINEL_SESSION_ID);
+        let (closed, open): (Vec<_>, Vec<_>) = holding
+            .into_iter()
+            .filter(|holding| holding.session_id != *DAEMON_SCOPE_SENTINEL_SESSION_ID)
+            .partition(|holding| holding.is_closed);
+        let session_ids = |holding: Vec<SessionHoldingToolCalls>| {
+            holding
+                .into_iter()
+                .map(|holding| holding.session_id)
+                .collect()
+        };
         Ok(PassListing {
             stale,
             current,
             current_listed,
-            holding_tool_calls,
+            holding_tool_calls: session_ids(open),
+            closed_holding_tool_calls: session_ids(closed),
         })
     }
 

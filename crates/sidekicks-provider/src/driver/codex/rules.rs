@@ -27,6 +27,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
@@ -94,6 +95,10 @@ pub(crate) enum CodexRulesError {
     /// which Codex never reads as a project's.
     #[error("the project's .codex folder is the Codex home, which holds the person's own rules")]
     ProjectIsCodexHome,
+    /// The project folder's repository could not be read, so where its rule file is kept out of
+    /// commits is not known.
+    #[error("the project folder's repository could not be read")]
+    RepositoryUnreadable(#[source] DomainError),
     /// A rule file or its folder could not be read.
     #[error("reading {} failed", path.display())]
     Read {
@@ -292,7 +297,10 @@ impl CodexProjectRules for CodexProjectRuleFiles {
     ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>> {
         async move {
             let repository = match self.repositories.port() {
-                Some(repositories) => repositories.read_repository(project_folder).await,
+                Some(repositories) => repositories
+                    .read_repository(project_folder)
+                    .await
+                    .map_err(CodexRulesError::RepositoryUnreadable)?,
                 None => None,
             };
             let common_git_folder = repository.map(|reading| reading.common_git_folder);

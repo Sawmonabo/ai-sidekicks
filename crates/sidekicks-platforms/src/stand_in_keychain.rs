@@ -1,5 +1,5 @@
 //! A stand-in for Apple's keychain tool that a test runs in its place: a folder of items, one file
-//! each beside a file of its creator code where an add named one, and a script that runs the
+//! each, and a script that runs the
 //! test's own program as `security` over it, its body [`run_keychain_tool_stand_in`], each call's
 //! arguments recorded. Only macOS runs the tool, so elsewhere the stand-in's folder holds items no
 //! move, read or store reaches.
@@ -115,18 +115,10 @@ impl StandInKeychain {
         fs::read(item_path(self.folder.path(), service, account)).ok()
     }
 
-    /// The creator code of the item filed under `service` and `account`, `None` where its add
-    /// named none or there is no item.
-    pub fn creator(&self, service: &str, account: &str) -> Option<Vec<u8>> {
-        fs::read(creator_path(self.folder.path(), service, account)).ok()
-    }
-
-    /// Files `value` under `service` and `account` with no creator code, in place of any value
-    /// there, as a writer other than the tool leaves an item.
+    /// Files `value` under `service` and `account`, in place of any value there.
     pub fn put_item(&self, service: &str, account: &str, value: &[u8]) {
         fs::write(item_path(self.folder.path(), service, account), value)
             .expect("the item is written");
-        remove_if_there(&creator_path(self.folder.path(), service, account));
     }
 
     /// The arguments of every call the tool answered, in order; none before the first call.
@@ -185,11 +177,6 @@ fn item_path(folder: &Path, service: &str, account: &str) -> PathBuf {
     folder.join(format!("item-{}", item_name(service, account)))
 }
 
-// The file holding the creator code of the item filed under `service` and `account`.
-fn creator_path(folder: &Path, service: &str, account: &str) -> PathBuf {
-    folder.join(format!("creator-{}", item_name(service, account)))
-}
-
 // The item's names in a file name: each in hex, a dash between.
 fn item_name(service: &str, account: &str) -> String {
     format!(
@@ -197,17 +184,6 @@ fn item_name(service: &str, account: &str) -> String {
         base16ct::lower::encode_string(service.as_bytes()),
         base16ct::lower::encode_string(account.as_bytes())
     )
-}
-
-// Removes the file at `path` where there is one.
-fn remove_if_there(path: &Path) {
-    if let Err(failure) = fs::remove_file(path) {
-        assert_eq!(
-            failure.kind(),
-            io::ErrorKind::NotFound,
-            "the file is removed"
-        );
-    }
 }
 
 // Writes `printed` to the stand-in's own standard output, the script's descriptor 3.
@@ -252,13 +228,10 @@ fn print_dump(folder: &Path) {
             String::from_utf8(base16ct::lower::decode_vec(hex).expect("an item's name is hex"))
                 .expect("an item's name is text")
         });
-        let creator = fs::read(creator_path(folder, &service, &account))
-            .ok()
-            .map_or_else(|| String::from("<NULL>"), |code| printed_value(&code));
         write!(
             dump,
             "keychain: \"{}/login.keychain-db\"\nversion: 512\nclass: \"genp\"\nattributes:\n    \
-             \"acct\"<blob>={}\n    \"crtr\"<uint32>={creator}\n    \"svce\"<blob>={}\n",
+             \"acct\"<blob>={}\n    \"svce\"<blob>={}\n",
             folder.display(),
             printed_value(account.as_bytes()),
             printed_value(service.as_bytes()),
@@ -313,7 +286,6 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
         return KEYCHAIN_LOCKED;
     }
     let item = item_path(folder, &service, &account);
-    let creator = creator_path(folder, &service, &account);
     match command.as_str() {
         "find-generic-password" => {
             let value = match fs::read(&item) {
@@ -323,23 +295,13 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
                     return ITEM_NOT_FOUND;
                 }
             };
-            if options.iter().any(|word| word == "-g") {
-                io::stderr()
-                    .write_all(format!("password: {}\n", printed_value(&value)).as_bytes())
-                    .expect("the password line is printed");
-                return 0;
-            }
             assert!(
-                options.iter().any(|word| word == "-w"),
-                "the read prints the item"
+                options.iter().any(|word| word == "-g"),
+                "the read prints the password line"
             );
-            let mut printed = if value.iter().all(|byte| (0x20..=0x7E).contains(byte)) {
-                value
-            } else {
-                base16ct::lower::encode_string(&value).into_bytes()
-            };
-            printed.push(b'\n');
-            print(&printed);
+            io::stderr()
+                .write_all(format!("password: {}\n", printed_value(&value)).as_bytes())
+                .expect("the password line is printed");
             0
         }
         "add-generic-password" => {
@@ -353,9 +315,6 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
                 value.pop();
             }
             fs::write(&item, value).expect("the item is written");
-            if let Some(code) = option("-c") {
-                fs::write(&creator, code).expect("the creator code is written");
-            }
             0
         }
         "delete-generic-password"
@@ -366,10 +325,7 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
             KEYCHAIN_LOCKED
         }
         "delete-generic-password" => match fs::remove_file(&item) {
-            Ok(()) => {
-                remove_if_there(&creator);
-                0
-            }
+            Ok(()) => 0,
             Err(missing) => {
                 assert_eq!(
                     missing.kind(),

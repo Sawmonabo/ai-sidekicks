@@ -529,6 +529,89 @@ async fn a_job_released_from_parking_waits_for_the_running_job() {
         .expect("the task ends");
 }
 
+// A job its wall-clock bound released from parking while another job ran is queued behind it, and
+// goes first once that job ends, though the count is still busy, ahead of a job queued after it
+// that the count allows. Killed by the queued job's bound left unread, which parks it again and
+// runs the later job first.
+#[tokio::test(start_paused = true)]
+async fn a_queued_job_past_its_bound_runs_before_the_jobs_queued_after_it() {
+    let wall_clock = Arc::new(TestWallClock::default());
+    let (_busy, busy_count) = watch::channel(1);
+    let scheduler = Scheduler::start(wall_clock.clone(), None, busy_count);
+    let started_at = wall_clock.now();
+    let (started, held_started) = oneshot::channel();
+    let (release, released) = oneshot::channel::<()>();
+    let mut held = Some((started, released));
+    let _held = scheduler
+        .schedule_job(
+            "held test job",
+            JobCondition::Always,
+            JobCadence::Delay(Duration::ZERO),
+            move |_token| {
+                let (started, released) = held.take().expect("the job runs once");
+                Box::pin(async move {
+                    started.send(()).expect("the test waits for the start");
+                    released.await.expect("the test releases the job");
+                    Ok(())
+                })
+            },
+        )
+        .expect("the job is scheduled");
+    tokio::time::timeout(RUN_BOUND, held_started)
+        .await
+        .expect("the held job starts")
+        .expect("the held job reports its start");
+    let (run_order, mut runs) = tokio::sync::mpsc::unbounded_channel();
+    let naming_job = |name: &'static str| {
+        let run_order = run_order.clone();
+        move |_token| -> BoxFuture<'static, ScheduledJobOutcome> {
+            run_order.send(name).expect("the test reads the runs");
+            Box::pin(async { Ok(()) })
+        }
+    };
+    let _bounded = scheduler
+        .schedule_job(
+            "bounded test job",
+            JobCondition::WhileIdleUntil(started_at + Duration::from_hours(1)),
+            JobCadence::Delay(Duration::ZERO),
+            naming_job("bounded"),
+        )
+        .expect("the job is scheduled");
+    wall_clock.set_now(started_at + Duration::from_hours(2));
+    tokio::time::sleep(IDLE_SPAN).await;
+    let _always = scheduler
+        .schedule_job(
+            "always test job",
+            JobCondition::Always,
+            JobCadence::Delay(Duration::ZERO),
+            naming_job("always"),
+        )
+        .expect("the job is scheduled");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        scheduler.waiting_job_names(),
+        ["bounded test job", "always test job"]
+    );
+
+    release
+        .send(())
+        .expect("the held job waits for its release");
+    let mut order = Vec::new();
+    for _ in 0..2 {
+        order.push(
+            tokio::time::timeout(RUN_BOUND, runs.recv())
+                .await
+                .expect("both queued jobs run")
+                .expect("the jobs report their runs"),
+        );
+    }
+    assert_eq!(order, ["bounded", "always"]);
+    scheduler
+        .stop(Instant::now() + STOP_BOUND)
+        .await
+        .expect("the task ends");
+}
+
 // A job that panics ends the scheduler's task as a timer's panic does, and the stop answers it.
 // Killed by the job's panic logged and dropped, which leaves the task running and the stop `Ok`.
 #[tokio::test(start_paused = true)]

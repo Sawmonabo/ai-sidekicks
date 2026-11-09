@@ -11,6 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 
 use super::{CodexSessionGoals, no_turn_words};
+use crate::driver::codex::run::routes::CodexGoalReplaceEnd;
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
@@ -223,9 +224,12 @@ async fn a_goal_set_while_a_turn_runs_goes_out_at_once() {
     );
 }
 
-// Kills: the turn Codex starts for the goal opening a run of its own beside the goal's (two
-// runs for one goal); the goal's run claiming no turn; a set on a session with no process
-// sent with no run to open it (the slot holds no record).
+// The set's own update, which Codex sends before the goal's turn starts, draws the goal's one row
+// only once that turn started. Kills: the turn Codex starts for the goal opening a run of its own
+// beside the goal's (two runs for one goal); the goal's run claiming no turn; a set on a session
+// with no process sent with no run to open it (the slot holds no record); the set's update drawn
+// as it came, before any turn; the row of a set whose update went by never drawn once the turn
+// started, or drawn twice.
 #[tokio::test]
 async fn a_goal_on_a_session_with_no_process_opens_it_and_its_turn_is_the_goal_run() {
     let mut session = TestCodexSession::start().await;
@@ -242,7 +246,8 @@ async fn a_goal_on_a_session_with_no_process_opens_it_and_its_turn_is_the_goal_r
         script.answer(&read, &json!({ "goal": null }));
         let sent = script.next_sent().await;
         assert_eq!(sent["method"], "thread/goal/set");
-        script.answer(&sent, &json!({}));
+        script.answer(&sent, &json!({ "goal": new_goal("ship the checkout fix") }));
+        script.send(&goal_updated(&new_goal("ship the checkout fix")));
         // Codex starts the goal's turn by itself once it answered.
         script.send(&turn_started("turn-1"));
     };
@@ -276,11 +281,56 @@ async fn a_goal_on_a_session_with_no_process_opens_it_and_its_turn_is_the_goal_r
         Some(goal_run_id),
         "the goal's run took the turn Codex started"
     );
+    tokio::time::timeout(SET_BOUND, async {
+        while goal_rows(&session).is_empty() {
+            session.task.handle_next().await;
+        }
+    })
+    .await
+    .expect("the applied goal draws its row");
+    let rows = goal_rows(&session);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["goal"]["text"], "ship the checkout fix");
+    assert_eq!(rows[0]["status"], "active");
+}
+
+// The goal Codex answers a set of `objective` with, fresh and active.
+fn new_goal(objective: &str) -> Value {
+    json!({
+        "threadId": TEST_THREAD,
+        "objective": objective,
+        "status": "active",
+        "tokenBudget": null,
+        "tokensUsed": 0,
+        "timeUsedSeconds": 0,
+        "createdAt": 3,
+        "updatedAt": 3,
+    })
+}
+
+// Codex's update of the session's goal to `goal`.
+fn goal_updated(goal: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "thread/goal/updated",
+        "params": {"threadId": TEST_THREAD, "goal": goal},
+    })
+}
+
+// The goal rows the session drew.
+fn goal_rows(session: &TestCodexSession) -> Vec<Value> {
+    session
+        .session_event_payloads()
+        .into_iter()
+        .filter(|row| row.get("goal").is_some())
+        .collect()
 }
 
 // On a paused clock, which jumps to the earliest timer, so this bound has to outlast the
 // turn-start deadline. Kills: a set whose turn never started answered `Applied` on either
-// path; Codex's goal left as the refused set made it, or put back other than it was.
+// path; Codex's goal left as the refused set made it, or put back other than it was; the put-back
+// sent with no replace mark, or one that draws its row; the refused set's own update drawn as it
+// came, before the turn wait ended.
 #[rstest]
 #[case::open_with_a_goal_before(SetPath::Open, true)]
 #[case::open_with_no_goal_before(SetPath::Open, false)]
@@ -293,8 +343,9 @@ async fn a_goal_set_whose_turn_never_starts_is_not_applied_and_puts_the_goal_bac
 ) {
     let mut session = TestCodexSession::start().await;
     let goals = goals_for(&session, path).await;
+    let session_id = session.task.record.session_id;
     let set = goals.set(SetSessionGoalParams {
-        session_id: session.task.record.session_id,
+        session_id,
         goal_text: "ship the checkout fix".to_owned(),
     });
     let previous = had_goal.then(previous_goal);
@@ -313,14 +364,16 @@ async fn a_goal_set_whose_turn_never_starts_is_not_applied_and_puts_the_goal_bac
             sent = script.next_sent().await;
         }
         assert_eq!(sent["method"], "thread/goal/set");
-        script.answer(&sent, &json!({}));
+        script.answer(&sent, &json!({ "goal": new_goal("ship the checkout fix") }));
+        script.send(&goal_updated(&new_goal("ship the checkout fix")));
         // Codex starts no turn; the put-back comes once the turn-start deadline passed.
         let restore = script.next_sent().await;
+        let mark = goals.run_routes.goal_replace(session_id);
         script.answer(&restore, &json!({}));
-        restore
+        (restore, mark)
     };
     let bound = CODEX_TURN_START_TIMEOUT * 2;
-    let (answered, restore) = tokio::time::timeout(
+    let (answered, (restore, mark)) = tokio::time::timeout(
         bound,
         Box::pin(async { tokio::join!(task.drive(set), service) }),
     )
@@ -337,6 +390,11 @@ async fn a_goal_set_whose_turn_never_starts_is_not_applied_and_puts_the_goal_bac
     );
     assert_eq!(restore["params"]["threadId"], TEST_THREAD);
     assert_eq!(restore["params"]["origin"], "user");
+    assert!(
+        mark.is_some_and(|mark| mark.end == CodexGoalReplaceEnd::Undrawn),
+        "the put-back went with no mark that keeps its rows undrawn"
+    );
+    assert_eq!(goal_rows(&session), Vec::<Value>::new());
     if had_goal {
         assert_eq!(restore["method"], "thread/goal/set");
         assert_eq!(restore["params"]["objective"], "keep the build green");
@@ -409,22 +467,9 @@ async fn a_goal_replacing_another_clears_it_first_and_draws_one_row(
         assert_eq!(sent["method"], "thread/goal/set");
         assert_eq!(sent["params"]["objective"], goal_text);
         assert!(sent["params"].get("tokenBudget").is_none(), "{sent}");
-        let new_goal = json!({
-            "threadId": TEST_THREAD,
-            "objective": goal_text,
-            "status": "active",
-            "tokenBudget": null,
-            "tokensUsed": 0,
-            "timeUsedSeconds": 0,
-            "createdAt": 3,
-            "updatedAt": 3,
-        });
+        let new_goal = new_goal(goal_text);
         script.answer(&sent, &json!({ "goal": new_goal }));
-        script.send(&json!({
-            "jsonrpc": "2.0",
-            "method": "thread/goal/updated",
-            "params": {"threadId": TEST_THREAD, "goal": new_goal},
-        }));
+        script.send(&goal_updated(&new_goal));
     };
     let (answered, ()) = tokio::time::timeout(
         SET_BOUND,

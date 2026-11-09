@@ -46,20 +46,31 @@ pub(crate) struct CodexHelperRoute {
     pub(crate) is_interrupted_by_daemon: bool,
 }
 
-/// A replace of a session's goal the driver is making: the clear that goes first draws no row, nor
-/// does an update of a goal whose objective is one of `absorbed_objectives`; the update carrying
-/// `awaited_goal`, the goal the replace's set or put-back answered, ends the replace and draws its
-/// row only when `is_drawn`. An update of any other goal draws its row as any does.
+/// A change of a session's goal the driver is making, a set or a replace: the clear a replace
+/// sends first draws no row, nor does an update of a goal whose objective is one of
+/// `absorbed_objectives`; the update carrying `awaited_goal`, the goal the set or put-back
+/// answered, settles as `end` says. An update of any other goal draws its row as any does.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CodexGoalReplace {
     /// The objectives whose updates draw no row, trimmed as Codex keeps them.
     pub(crate) absorbed_objectives: Vec<String>,
-    /// The goal the set or the put-back answered, once it answered; Codex's update carries the
-    /// same value.
+    /// The goal the set or the put-back answered, once it answered and until its update went by;
+    /// Codex's update carries the same value.
     pub(crate) awaited_goal: Option<Value>,
-    /// Whether the awaited goal's update draws its row: the new goal's does, while the old goal's
-    /// after a refused replace does not, since the goal did not change.
-    pub(crate) is_drawn: bool,
+    /// What the awaited goal's update does.
+    pub(crate) end: CodexGoalReplaceEnd,
+}
+
+/// What the update of a goal change's awaited goal does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CodexGoalReplaceEnd {
+    /// It ends the change and draws its row: the goal changed and Codex took it.
+    Drawn,
+    /// It ends the change and draws no row: the old goal put back after a refused change.
+    Undrawn,
+    /// It draws no row and the change holds: a set waiting for its turn, which is refused and
+    /// draws nothing where no turn starts.
+    HeldForTurn,
 }
 
 /// Ends a session's goal run's ending once dropped: as the run's start returned, or as the goal's
@@ -246,6 +257,42 @@ impl CodexRunRoutes {
         if let Some(replace) = self.lock().goal_replaces.get_mut(&session_id) {
             replace.awaited_goal = Some(goal);
         }
+    }
+
+    /// Settles an update of `session_id`'s goal carrying `goal` against its replace: `None` when
+    /// it is not the awaited goal's, else whether it draws its row, ending the replace unless the
+    /// replace holds for its turn.
+    pub(crate) fn settle_awaited_goal_update(
+        &self,
+        session_id: SessionId,
+        goal: &Value,
+    ) -> Option<bool> {
+        let mut routes = self.lock();
+        let replace = routes.goal_replaces.get_mut(&session_id)?;
+        if replace.awaited_goal.as_ref() != Some(goal) {
+            return None;
+        }
+        let end = replace.end;
+        if end == CodexGoalReplaceEnd::HeldForTurn {
+            replace.awaited_goal = None;
+        } else {
+            routes.goal_replaces.remove(&session_id);
+        }
+        Some(end == CodexGoalReplaceEnd::Drawn)
+    }
+
+    /// Lets `session_id`'s set draw its row once its turn started: the update carrying `goal`
+    /// ends the change and draws. `true` when Codex's own update of it already went by, so the
+    /// caller hands the update to the session again.
+    pub(crate) fn draw_goal_set_at_turn(&self, session_id: SessionId, goal: Value) -> bool {
+        let mut routes = self.lock();
+        let Some(replace) = routes.goal_replaces.get_mut(&session_id) else {
+            return false;
+        };
+        let is_gone_by = replace.awaited_goal.is_none();
+        replace.awaited_goal = Some(goal);
+        replace.end = CodexGoalReplaceEnd::Drawn;
+        is_gone_by
     }
 
     /// The replace of `session_id`'s goal the driver is making, if any.

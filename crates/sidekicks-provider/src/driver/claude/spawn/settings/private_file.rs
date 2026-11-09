@@ -1,5 +1,5 @@
 //! The file a Claude Code process reads its settings document from, named on its command line by
-//! path alone, so the telemetry token in the document is never on a command line: written private
+//! path alone, so the document's values are never on a command line: written private
 //! to the daemon's user in the driver's settings folder before the process starts, removed once
 //! the process is reaped or its start failed, and swept at the daemon's start where a stopped
 //! daemon left one.

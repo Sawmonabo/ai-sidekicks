@@ -214,9 +214,11 @@ impl ClaudeDriver {
 
     // Stops, in a process resumed on `conversation` that runs no turn, the task of each open call
     // in `calls` that `kept` reads as recorded, one outliving the session's last process, and
-    // answers what Claude Code keeps once that process closed. Answers `kept` itself when no task
-    // survives, and, each logged, when the session has no stored leg, its legs cannot be
-    // composed, the process cannot start, or the new read fails.
+    // answers what Claude Code keeps once that process closed. It takes the process's bring-up,
+    // then at most `HELD_TASK_STOP_BOUND` for the stops, then the close's own wait, up to the
+    // request deadline, while the process's requests are still answered. Answers `kept` itself
+    // when no task survives, and, each logged, when the session has no stored leg, its legs cannot
+    // be composed, the process cannot start, or the new read fails.
     async fn stop_surviving_tasks_at_rest(
         &self,
         session_id: SessionId,
@@ -332,7 +334,7 @@ impl ClaudeDriver {
             );
         }
         tool_calls.cancel_all();
-        channel.close().await;
+        close_answering(&tool_calls, &context, &mut arrivals).await;
         ClaudeKeptCallsSource::of_conversation(conversation)
             .read()
             .await
@@ -369,24 +371,59 @@ async fn stop_restored_tasks(
                         stops.push(stop_held_tasks(&*context.channel, restored));
                     }
                 }
-                Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(
-                    asked,
-                ))) => {
-                    let context = ClaudeToolServerCallContext {
-                        session_id: context.session_id,
-                        provider_account_id: context.provider_account_id.clone(),
-                        channel: Arc::clone(&context.channel),
-                        servers: context.servers.clone(),
-                    };
-                    answer_unwatched(tool_calls, context, asked).await;
-                }
-                Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Cancel {
-                    request_id,
-                })) => {
-                    tool_calls.cancel(&request_id);
+                Some(ClaudeShortProcessArrival::Request(event)) => {
+                    answer_request_event(tool_calls, context, event).await;
                 }
                 Some(ClaudeShortProcessArrival::Exit) | None => return,
             },
+        }
+    }
+}
+
+// Closes `context`'s process, answering what it asks meanwhile as `stop_restored_tasks` does, so
+// a turn Claude Code starts on its tasks' notifications ends rather than holding the close.
+async fn close_answering(
+    tool_calls: &ClaudeToolServerCalls,
+    context: &ClaudeToolServerCallContext,
+    arrivals: &mut mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
+) {
+    let mut closing = std::pin::pin!(context.channel.close());
+    loop {
+        tokio::select! {
+            () = &mut closing => return,
+            arrival = arrivals.recv() => match arrival {
+                Some(ClaudeShortProcessArrival::Request(event)) => {
+                    answer_request_event(tool_calls, context, event).await;
+                }
+                Some(ClaudeShortProcessArrival::Frame(_)) => {}
+                Some(ClaudeShortProcessArrival::Exit) | None => {
+                    closing.await;
+                    return;
+                }
+            },
+        }
+    }
+}
+
+// Answers a request the process asks as a process no one watches does, its in-process tool-server
+// calls held in `tool_calls`, or withdraws the call a cancel names.
+async fn answer_request_event(
+    tool_calls: &ClaudeToolServerCalls,
+    context: &ClaudeToolServerCallContext,
+    event: ClaudeInboundRequestEvent,
+) {
+    match event {
+        ClaudeInboundRequestEvent::Request(asked) => {
+            let context = ClaudeToolServerCallContext {
+                session_id: context.session_id,
+                provider_account_id: context.provider_account_id.clone(),
+                channel: Arc::clone(&context.channel),
+                servers: context.servers.clone(),
+            };
+            answer_unwatched(tool_calls, context, asked).await;
+        }
+        ClaudeInboundRequestEvent::Cancel { request_id } => {
+            tool_calls.cancel(&request_id);
         }
     }
 }

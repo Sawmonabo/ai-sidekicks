@@ -36,39 +36,51 @@ pub enum ServiceStatusReadError {
 pub fn read_service_status(
     path: &Path,
 ) -> Result<Option<ServiceStatusFile>, ServiceStatusReadError> {
-    let text = match std::fs::read(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => {
-            return Err(ServiceStatusReadError::Read {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-    serde_json::from_slice(&text)
-        .map(Some)
-        .map_err(|source| ServiceStatusReadError::Unparsed {
-            path: path.to_path_buf(),
-            source,
-        })
+    read_status_bytes(path)?
+        .map(|bytes| parse_status(path, &bytes))
+        .transpose()
 }
 
 /// Removes the status file at `path` where it holds a `stopping` record whose process no longer
-/// runs with the identity it names; any other fact, and bytes that do not parse, are left as they
-/// are. Blocking; fails as the read other than a parse, the process's pin, or the removal fails.
+/// runs with the identity it names, and still holds the same bytes once that is known, so a record
+/// a new service wrote meanwhile stays; any other fact, and bytes that do not parse, are left as
+/// they are. Blocking; fails as the read other than a parse, the process's pin, or the removal
+/// fails.
 pub(crate) fn remove_stale_stopping(path: &Path) -> io::Result<()> {
-    let stopping = match read_service_status(path) {
-        Ok(Some(ServiceStatusFile::Stopping(stopping))) => stopping,
-        Ok(None | Some(ServiceStatusFile::CannotStart(_) | ServiceStatusFile::CannotStop(_)))
-        | Err(ServiceStatusReadError::Unparsed { .. }) => return Ok(()),
-        Err(error @ ServiceStatusReadError::Read { .. }) => return Err(io::Error::other(error)),
+    let read = |path: &Path| read_status_bytes(path).map_err(io::Error::other);
+    let Some(bytes) = read(path)? else {
+        return Ok(());
     };
-    if pin_identified_process(&stopping.process)?.is_some() {
+    let stopping = match parse_status(path, &bytes) {
+        Ok(ServiceStatusFile::Stopping(stopping)) => stopping,
+        Ok(ServiceStatusFile::CannotStart(_) | ServiceStatusFile::CannotStop(_)) | Err(_) => {
+            return Ok(());
+        }
+    };
+    if pin_identified_process(&stopping.process)?.is_some() || read(path)? != Some(bytes) {
         return Ok(());
     }
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }
+}
+
+// The status file's bytes, `None` where there is none.
+fn read_status_bytes(path: &Path) -> Result<Option<Vec<u8>>, ServiceStatusReadError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(ServiceStatusReadError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn parse_status(path: &Path, bytes: &[u8]) -> Result<ServiceStatusFile, ServiceStatusReadError> {
+    serde_json::from_slice(bytes).map_err(|source| ServiceStatusReadError::Unparsed {
+        path: path.to_path_buf(),
+        source,
+    })
 }

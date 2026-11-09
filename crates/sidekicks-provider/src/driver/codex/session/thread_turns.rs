@@ -156,11 +156,6 @@ impl CodexThreadTurns {
         }))
     }
 
-    /// Whether a turn is live on any thread.
-    pub(crate) fn has_live_turn(&self) -> bool {
-        !self.live.is_empty()
-    }
-
     /// The turn live on `thread_id`, `None` where none is.
     pub(crate) fn live_turn(&self, thread_id: &str) -> Option<&str> {
         self.live.get(thread_id).map(|live| live.turn_id.as_str())

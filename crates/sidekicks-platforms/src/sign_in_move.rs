@@ -42,6 +42,15 @@ pub enum SignInMoveError {
         #[source]
         refusal: KeychainItemRefusal,
     },
+    /// The sign-in is too long for the one line the keychain tool reads an add from, so it stays
+    /// where it is: it is never sent to the tool as arguments, which every process can read.
+    #[error("the sign-in for the keychain item {service} for {account} is too long to write")]
+    TooLongForTheKeychainTool {
+        /// The item's service.
+        service: String,
+        /// The item's account.
+        account: String,
+    },
     /// The sign-in's file could not be read, removed or flushed.
     #[error("the sign-in file could not be used")]
     File(#[source] io::Error),

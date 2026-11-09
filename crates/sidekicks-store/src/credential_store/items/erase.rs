@@ -73,13 +73,14 @@ impl SecretItems {
     /// Empties the items file and the place record when the sealed file cannot be opened, for any
     /// cause, then picks the place again as at a first start; a place that opens is kept and
     /// answered. A cause this run already holds empties the place without checking it again. The
-    /// wait for the place, the check, each removal and the new pick each take their own call time.
-    /// Fails with [`KeychainRefusal`] when the file or the record cannot be removed, when the new
-    /// pick is refused, or when a step runs out of its time.
+    /// wait for the place is a turn, untimed; the check and the new pick keep their steps' own
+    /// times, and each removal takes a call's time. Fails with [`KeychainRefusal`] when the file or
+    /// the record cannot be removed, when the new pick is refused, or when a step runs out of its
+    /// time.
     pub(crate) async fn empty_place(&self) -> Result<SecretsPlace, KeychainRefusal> {
-        let mut state = self.within_call_time(self.state.write()).await?;
+        let mut state = self.state.write().await;
         if state.view().cannot_open.is_none() {
-            match self.within_call_time(self.settle_held(&mut state)).await? {
+            match self.settle_held(&mut state).await {
                 Ok(place) => return Ok(place),
                 Err(refusal) if state.view().cannot_open.is_none() => return Err(refusal),
                 Err(_cannot_open) => {}
@@ -96,10 +97,11 @@ impl SecretItems {
         self.within_call_time(place::remove_record(&self.record_path))
             .await??;
         state.reset(RecordState::Absent);
-        self.within_call_time(self.settle_held(&mut state)).await?
+        self.settle_held(&mut state).await
     }
 
-    // Runs `step` within one call's time. Fails with [`KeychainRefusal`] when it runs out.
+    // Runs `step`, a file step nothing else bounds, within one call's time. Fails with
+    // [`KeychainRefusal`] when it runs out.
     async fn within_call_time<Answer>(
         &self,
         step: impl Future<Output = Answer>,

@@ -525,7 +525,7 @@ impl ClaudeDriver {
             .resolve_spawn_context(session_id, first.provider_account_id.clone())
             .await
             .map_err(DriverError::Internal)?;
-        let repository = sources.read_repository(&context.working_directory).await;
+        let repository = sources.read_repository(&context.working_directory).await?;
         let project_folder = claude_project_folder(&context.working_directory, repository.as_ref());
         let data_folder = sources.data_folder.to_string_lossy();
         let place = ClaudePurgePlace {

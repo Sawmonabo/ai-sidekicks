@@ -17,6 +17,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 use sidekicks_contracts::jsonrpc::message::JsonRpcId;
+use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -698,8 +699,10 @@ impl ConnectionShared {
                         .as_ref()
                         .and_then(|error| read_member::<i64>(error.code.as_deref()))
                         .unwrap_or(0),
+                    // A refusal can quote the key it refused, so its words are scrubbed here.
                     message: error
                         .and_then(|error| read_member::<String>(error.message.as_deref()))
+                        .map(|message| scrub_credentials(&message))
                         .unwrap_or_default(),
                     reason,
                     data: data.map(Box::new),

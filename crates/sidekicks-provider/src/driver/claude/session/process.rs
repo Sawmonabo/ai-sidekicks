@@ -7,6 +7,7 @@ pub(crate) mod account;
 mod stdin;
 mod stdout;
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -148,6 +149,9 @@ pub(crate) struct ClaudeCodeProcess {
     ends: Arc<ChildEnds>,
     end: watch::Receiver<Option<ClaudeProcessEnd>>,
     startup_hooks: watch::Receiver<usize>,
+    // The `env` of the settings document the process started with, which a flag-settings patch
+    // replaces whole.
+    document_environment: BTreeMap<&'static str, String>,
 }
 
 impl ClaudeCodeProcess {
@@ -197,6 +201,7 @@ impl ClaudeCodeProcess {
                 .as_ref()
                 .map(|(target, bearer)| (target.as_ref(), bearer)),
         );
+        let document_environment = settings.env.clone();
         let settings_file = ClaudeSpawnSettingsFile::write(
             settings_folder,
             &settings,
@@ -298,7 +303,14 @@ impl ClaudeCodeProcess {
             ends: ends_sender,
             end,
             startup_hooks,
+            document_environment,
         })
+    }
+
+    /// The `env` of the settings document the process started with: a flag-settings patch that
+    /// sends `env` replaces it whole, so one carries it over with its own keys.
+    pub(crate) fn document_environment(&self) -> &BTreeMap<&'static str, String> {
+        &self.document_environment
     }
 
     /// Sends `initialize` and settles on its answer, waiting at most 60 s outside the

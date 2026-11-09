@@ -3,7 +3,9 @@
 //! account they started on and no turn starts while the switch is held. A person's switch asked
 //! meanwhile takes the held one's account, so one login lands both; a session start's carry and a
 //! re-supplied key join it as it is. A session two switches name lands by the newer one, which
-//! reports it, and the older one's caller is told so.
+//! reports it, and the older one's caller is told so. A switch lands on the switching service
+//! signed in last, read under the hand, and a service started beside another signs in only once
+//! any held switch has landed, so neither carries an account the other left.
 
 use std::sync::Arc;
 
@@ -131,6 +133,14 @@ impl CodexSwitchingAccount {
         }
     }
 
+    /// Waits until no switch is held, so a switching service started next signs in with the
+    /// account any held switch lands on.
+    pub(crate) async fn wait_for_held_switch_to_land(&self) {
+        let mut is_held = self.is_switch_held.subscribe();
+        // The sender lives as long as `self`, so the wait ends only once none is held.
+        drop(is_held.wait_for(|is_held| !*is_held).await);
+    }
+
     // Holds the switch onto `to` for `asker`, joining any held already, telling `accepted` once
     // it is held; the first hold starts the task that lands it. Answers as its login does.
     pub(super) async fn hold_switch(
@@ -182,13 +192,15 @@ impl CodexSwitchingAccount {
         })
     }
 
-    // Lands the held switch once no turn runs on `service`: its one login under the hand, then,
+    // Lands the held switch once no turn runs on the switching service, `held_on` or the one
+    // signed in beside it since: its one login under the hand, then,
     // with the hand let go, the check of the hand-back window it opened, whose refresh is answered
     // under the hand. A switch asking only to carry the account the service carries sends
     // nothing, unless a re-supplied key asks it handed again. The turn starts go on once the login
     // is answered and no newer switch is held, and every caller is answered.
-    async fn land_held_switch(&self, service: &Arc<CodexService>) {
-        let hand = self.take_hand_between_turns(service).await;
+    async fn land_held_switch(&self, held_on: &Arc<CodexService>) {
+        let (hand, service) = self.take_hand_on_serving_service(held_on).await;
+        let service = &service;
         let HeldSwitch {
             to,
             named,
@@ -232,6 +244,26 @@ impl CodexSwitchingAccount {
             Err(error) => Err(error),
         };
         answer_held_switch(callers, &to, landed);
+    }
+
+    // Takes the hand between turns on the switching service signed in last, read under the hand,
+    // else on `held_on`, waiting out the turns of each it reads, and answers that service.
+    async fn take_hand_on_serving_service(
+        &self,
+        held_on: &Arc<CodexService>,
+    ) -> (tokio::sync::MutexGuard<'_, ()>, Arc<CodexService>) {
+        let mut service = Arc::clone(held_on);
+        loop {
+            let hand = self.take_hand_between_turns(&service).await;
+            let serving = lock(&self.serving)
+                .upgrade()
+                .unwrap_or_else(|| Arc::clone(&service));
+            if Arc::ptr_eq(&serving, &service) || !serving.is_turn_running() {
+                return (hand, serving);
+            }
+            drop(hand);
+            service = serving;
+        }
     }
 
     /// Takes the hand once no turn runs on `service`, with turn starts held from then until

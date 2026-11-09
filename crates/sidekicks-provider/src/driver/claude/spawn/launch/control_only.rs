@@ -292,14 +292,14 @@ impl ClaudeSignInSources {
         self.has_email
     }
 
-    /// How the process is signed in, by the first source named: its token's, else a claude.ai
-    /// subscription, else its API key's. Fails with `AuthenticationRequired` when that source is
-    /// `none` or no source is named.
+    /// How the process is signed in, by the first source named: a claude.ai subscription, else its
+    /// token's, else its API key's, the order the account's sign-in mode reads them in. Fails with
+    /// `AuthenticationRequired` when that source is `none` or no source is named.
     pub(crate) fn into_signed_in_detail(self) -> Result<String, ClaudeLaunchError> {
         let subscription = self
             .has_subscription
             .then(|| CLAUDE_SUBSCRIPTION_SOURCE.to_owned());
-        match self.token_source.or(subscription).or(self.api_key_source) {
+        match subscription.or(self.token_source).or(self.api_key_source) {
             Some(source) if source != CLAUDE_NO_SIGN_IN_SOURCE => {
                 Ok(format!("signed in through {source}"))
             }
@@ -314,8 +314,8 @@ impl ClaudeSignInSources {
 // The source an `initialize` reply names for a sign-in it does not have.
 const CLAUDE_NO_SIGN_IN_SOURCE: &str = "none";
 
-// Claude Code's own word for a claude.ai subscription's sign-in, as its `auth status` names it.
-const CLAUDE_SUBSCRIPTION_SOURCE: &str = "claude.ai";
+/// Claude Code's own word for a claude.ai subscription's sign-in, as its `auth status` names it.
+pub(crate) const CLAUDE_SUBSCRIPTION_SOURCE: &str = "claude.ai";
 
 /// Brings a process up on the executable's home with nothing kept, under `provider_account_id`'s
 /// account where given and handed `token` as [`ClaudeShortProcess::start`] hands it, and answers

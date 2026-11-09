@@ -17,9 +17,11 @@ use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::server_requests::CodexTokenRefresher as _;
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, start_scripted_switching_service,
+    ScriptedCodexService, script_codex_service, start_scripted_switching_service,
 };
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::service::switching::test_moves::{
     RecordedMoves, SessionQueue, switching_person,
 };
@@ -375,9 +377,7 @@ async fn a_resupplied_key_during_a_turn_waits_for_its_end() {
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     fixture.scripted.script.send(&turn_started("turn-1"));
-    while !service.is_turn_running() {
-        tokio::task::yield_now().await;
-    }
+    wait_until_a_turn_runs(&service).await;
 
     let key_account = fixture.key_account.clone();
     let scripted = &mut fixture.scripted;
@@ -554,6 +554,17 @@ async fn answer_until(script: &mut ScriptedService, methods: &[&str]) -> Vec<Val
     sent
 }
 
+// Waits until a turn runs on `service`, within a bound past which the turn never started.
+async fn wait_until_a_turn_runs(service: &CodexService) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !service.is_turn_running() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the turn runs on the service");
+}
+
 // Where `method`'s request is among `sent`.
 fn position_of(sent: &[Value], method: &str) -> Option<usize> {
     sent.iter().position(|request| request["method"] == method)
@@ -711,9 +722,7 @@ async fn a_copy_turn_running_alone_holds_the_switch_until_it_ends() {
         .scripted
         .script
         .send(&copy_turn_frame("turn/started"));
-    while !service.is_turn_running() {
-        tokio::task::yield_now().await;
-    }
+    wait_until_a_turn_runs(&service).await;
     let to = fixture.to[0].clone();
     let switch = switching.hand_switch(
         &service,
@@ -745,6 +754,113 @@ async fn a_copy_turn_running_alone_holds_the_switch_until_it_ends() {
         compose_access_token(WORKSPACES_TO[0])
     );
     assert_eq!(service.provider_account_id(), Some(to));
+}
+
+// A copy's turn leased before its start is sent holds a switch's login until the lease goes, with
+// no frame of the copy's on the connection yet. Killed by the lease counting nothing, which lets
+// the login go before the copy's turn starts.
+#[tokio::test]
+async fn a_copy_turn_leased_holds_the_switch_until_the_lease_goes() {
+    let mut fixture = TurnFixture::new().await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    let lease = switching.lease_copy_turn(&service).await;
+    let to = fixture.to[0].clone();
+    let switch = switching.hand_switch(
+        &service,
+        to.clone(),
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(switch, async {
+            let sent_while_leased = script.next_sent_within(NOTHING_SENT_WAIT).await;
+            drop(lease);
+            let sent = answer_until(script, &[CODEX_LOGIN_START_METHOD, "account/read"]).await;
+            (sent_while_leased, sent)
+        })
+    };
+    let (switched, (sent_while_leased, sent)) = drive(&mut fixture.session.task, flow).await;
+
+    assert_eq!(
+        sent_while_leased, None,
+        "the login went while the copy's lease stood"
+    );
+    switched.expect("the switch lands");
+    assert!(
+        position_of(&sent, CODEX_LOGIN_START_METHOD).is_some(),
+        "{sent:?}"
+    );
+    assert_eq!(service.provider_account_id(), Some(to));
+}
+
+// A switching service signed in beside the one a switch is held on, as a planned restart starts
+// one, takes the held switch's login, so it never runs on the account the switch left. Killed by
+// the landing kept on the service the switch was held on.
+#[tokio::test]
+async fn a_held_switch_lands_on_the_service_signed_in_beside_since() {
+    let mut fixture = TurnFixture::new().await;
+    fixture.run_a_turn("turn-1").await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    let to = fixture.to[0].clone();
+    let switch = switching.hand_switch(
+        &service,
+        to,
+        Vec::new(),
+        switching_person(),
+        oneshot::channel().0,
+    );
+    let mut switch = std::pin::pin!(switch);
+    assert!(futures::poll!(switch.as_mut()).is_pending());
+    let beside_socket = service.socket_path().with_file_name("beside.sock");
+    let (beside, mut beside_script) = script_codex_service(
+        service.home().clone(),
+        CodexServiceSocket {
+            path: beside_socket.clone(),
+            home_socket: beside_socket,
+        },
+        CodexServiceKind::Account,
+        Arc::clone(&fixture.session.scripted.dependencies),
+    );
+    let beside_connection = beside.connection().expect("the service beside is up");
+    let (signed_in, _) = tokio::join!(
+        switching.hand_at_start(&beside, &beside_connection),
+        answer_until(&mut beside_script, &[CODEX_LOGIN_START_METHOD])
+    );
+    signed_in.expect("the service beside signs in");
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(switch, async {
+            script.send(&turn_completed(TEST_THREAD, "turn-1", "completed"));
+            let sent_beside = answer_until(
+                &mut beside_script,
+                &[CODEX_LOGIN_START_METHOD, "account/read"],
+            )
+            .await;
+            (
+                sent_beside,
+                script.next_sent_within(NOTHING_SENT_WAIT).await,
+            )
+        })
+    };
+    let (switched, (sent_beside, sent_held_on)) = drive(&mut fixture.session.task, flow).await;
+
+    switched.expect("the switch lands");
+    let login_at =
+        position_of(&sent_beside, CODEX_LOGIN_START_METHOD).expect("a login went beside");
+    assert_eq!(
+        sent_beside[login_at]["params"]["accessToken"],
+        compose_access_token(WORKSPACES_TO[0])
+    );
+    assert_eq!(
+        sent_held_on, None,
+        "the login went to the service being left"
+    );
 }
 
 // A copy's turn frame of `method`, on a thread no session holds.

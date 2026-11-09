@@ -74,6 +74,10 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The session's command channel could not be opened.
     #[error("the session's command channel could not be opened")]
     CommandChannel(#[source] io::Error),
+    /// The repository of the session's working folder, which places its project settings, could
+    /// not be read (`repoMount.rootResolutionFailed` with the read's reason).
+    #[error(transparent)]
+    RepositoryUnreadable(DomainError),
 }
 
 impl ClaudeEstablishmentError {
@@ -96,7 +100,8 @@ impl ClaudeEstablishmentError {
             | Self::Closed
             | Self::LevelNotOffered(_)
             | Self::AxisNotOffered(_)
-            | Self::CommandChannel(_) => RecoveryCondition::RecoveryNeeded,
+            | Self::CommandChannel(_)
+            | Self::RepositoryUnreadable(_) => RecoveryCondition::RecoveryNeeded,
         }
     }
 }
@@ -110,7 +115,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
         match error {
             ClaudeEstablishmentError::Session(error) => error.into(),
             ClaudeEstablishmentError::Launch(error) => error.into(),
-            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::from(refusal),
+            ClaudeEstablishmentError::LevelNotOffered(refusal)
+            | ClaudeEstablishmentError::RepositoryUnreadable(refusal) => Self::from(refusal),
             ClaudeEstablishmentError::AxisNotOffered(invalid) => Self::from(invalid),
             error @ ClaudeEstablishmentError::Port(PortRegistrationError::NotRegistered(_)) => {
                 Self::from(provider_failure_refusal(

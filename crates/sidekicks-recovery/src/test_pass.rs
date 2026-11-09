@@ -692,8 +692,7 @@ impl PassFixture {
         bind_resumable(
             &self.bindings,
             run_id,
-            ProviderId::new(PROVIDERS[provider_index].id.to_owned())
-                .expect("a table id is a provider id"),
+            PROVIDERS[provider_index].provider_id(),
         )
         .await
     }

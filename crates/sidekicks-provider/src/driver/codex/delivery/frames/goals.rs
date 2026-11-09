@@ -1,9 +1,9 @@
 //! Codex's reports of a change to the goal of the session's own conversation, the daemon's own set
 //! and clear among them, as the goal row of the session's lead agent: an update draws the goal at
-//! its status, a clear draws the clear, except while the driver replaces the goal, whose clear and
-//! interim updates fold into the row of the goal the replace answered. A helper's goal draws no
-//! row until the agent tree names helpers; it and a report this reader cannot place are logged and
-//! dropped.
+//! its status, a clear draws the clear, except while the driver changes the goal, whose clear and
+//! interim updates fold into the row of the goal the change answered, drawn only once Codex took
+//! it. A helper's goal draws no row until the agent tree names helpers; it and a report this
+//! reader cannot place are logged and dropped.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::goal::{
@@ -39,19 +39,22 @@ impl CodexFrameDelivery {
             if is_cleared {
                 return;
             }
-            let goal = members.get("goal");
-            if replace.awaited_goal.is_some() && goal == replace.awaited_goal.as_ref() {
-                run_routes.end_goal_replace(record.session_id);
-                if !replace.is_drawn {
-                    return;
+            let awaited = members
+                .get("goal")
+                .and_then(|goal| run_routes.settle_awaited_goal_update(record.session_id, goal));
+            match awaited {
+                Some(true) => {}
+                Some(false) => return,
+                None => {
+                    if read_goal_objective(members).is_some_and(|objective| {
+                        replace
+                            .absorbed_objectives
+                            .iter()
+                            .any(|absorbed| absorbed == objective)
+                    }) {
+                        return;
+                    }
                 }
-            } else if read_goal_objective(members).is_some_and(|objective| {
-                replace
-                    .absorbed_objectives
-                    .iter()
-                    .any(|absorbed| absorbed == objective)
-            }) {
-                return;
             }
         }
         let row = if !is_own_thread {

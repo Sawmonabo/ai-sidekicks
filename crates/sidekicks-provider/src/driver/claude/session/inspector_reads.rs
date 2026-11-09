@@ -110,29 +110,40 @@ impl ClaudeInspectorReads {
         {
             Ok(answer) => {
                 let legs = &live.spawn_bound_legs;
-                let reading = sources
-                    .read_settings_sources(&legs.spawn_environment, &legs.working_directory)
-                    .await;
                 // An unreadable reply is not recorded, as the context read leaves one.
-                match read_claude_hook_listing(
-                    live.session_id,
-                    answer.response.as_deref(),
-                    &reading.sources(),
-                )
-                .await
+                match sources
+                    .read_settings_sources(&legs.spawn_environment, &legs.working_directory)
+                    .await
                 {
-                    Some(listing) => {
-                        for unread in &listing.unread {
-                            record_unheard_claude_failure(
-                                DriverDiagnosticKind::ProcessReportFailed,
-                                live.session_id,
-                                "a hooks listing's settings read",
-                                unread,
-                            );
-                        }
-                        ClaudeKeptHookListing::Listed(listing.response)
+                    Err(refusal) => {
+                        record_unheard_claude_failure(
+                            DriverDiagnosticKind::ProcessReportFailed,
+                            live.session_id,
+                            "a hooks listing's repository read",
+                            &refusal,
+                        );
+                        ClaudeKeptHookListing::Unread
                     }
-                    None => ClaudeKeptHookListing::Unread,
+                    Ok(reading) => match read_claude_hook_listing(
+                        live.session_id,
+                        answer.response.as_deref(),
+                        &reading.sources(),
+                    )
+                    .await
+                    {
+                        Some(listing) => {
+                            for unread in &listing.unread {
+                                record_unheard_claude_failure(
+                                    DriverDiagnosticKind::ProcessReportFailed,
+                                    live.session_id,
+                                    "a hooks listing's settings read",
+                                    unread,
+                                );
+                            }
+                            ClaudeKeptHookListing::Listed(listing.response)
+                        }
+                        None => ClaudeKeptHookListing::Unread,
+                    },
                 }
             }
             Err(error) => {

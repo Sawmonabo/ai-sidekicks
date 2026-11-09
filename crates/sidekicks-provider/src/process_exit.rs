@@ -5,12 +5,13 @@ use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode, ProcessExitWithSignal};
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::redaction::{cap_text, scrub_credentials};
 use sidekicks_platforms::ChildExit;
 use sidekicks_std::output_tail::OutputTail;
 
 /// The exit a process crosses the wire with: the name of the signal that ended it, or that the
-/// daemon asked, where there is one, else its exit code, with its output tail. `CAP` is at most
-/// the wire's failure-detail cap, which the build checks.
+/// daemon asked, where there is one, else its exit code, with its output tail, any credential in it
+/// scrubbed. `CAP` is at most the wire's failure-detail cap, which the build checks.
 pub fn compose_process_exit<const CAP: usize>(
     exit: ChildExit,
     output_tail: OutputTail<CAP>,
@@ -21,7 +22,12 @@ pub fn compose_process_exit<const CAP: usize>(
             "a tail's cap fits the failure-detail cap"
         );
     }
-    let output_tail = FreeFormText::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new(output_tail.into_text())
+    // A scrub can lengthen a short credential to its mask, so the tail is capped again.
+    let scrubbed = cap_text(
+        scrub_credentials(&output_tail.into_text()),
+        PROVIDER_FAILURE_DETAIL_MAX_LEN,
+    );
+    let output_tail = FreeFormText::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new(scrubbed)
         .expect("a tail is never blank, holds no NUL and is within the failure-detail cap");
     match exit.signal_name {
         Some(signal) => ProcessExit::Signal(ProcessExitWithSignal {
@@ -64,5 +70,30 @@ mod tests {
         };
 
         assert_eq!(exit.output_tail.as_str(), "failed\u{FFFD}here");
+    }
+
+    // Kills the tail sent unscrubbed.
+    #[test]
+    fn a_key_in_the_tail_is_scrubbed_before_the_wire() {
+        let key = format!("sk-{}", "q".repeat(24));
+        let mut tail = OutputTail::<128>::new();
+        tail.push(format!("refused: {key}").as_bytes());
+
+        let exit = ChildExit {
+            exit_code: 1,
+            signal_number: None,
+            signal_name: None,
+        };
+
+        let ProcessExit::Code(exit) = compose_process_exit(exit, tail) else {
+            panic!("an exit with no signal carries its code");
+        };
+
+        assert!(
+            !exit.output_tail.as_str().contains(&key),
+            "{}",
+            exit.output_tail.as_str()
+        );
+        assert!(exit.output_tail.as_str().starts_with("refused: "));
     }
 }

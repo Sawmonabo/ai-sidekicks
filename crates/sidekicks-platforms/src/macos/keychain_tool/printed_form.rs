@@ -9,21 +9,18 @@ use secrecy::zeroize::Zeroizing;
 // What leads the password line on the tool's standard error.
 const PASSWORD_LEAD: &[u8] = b"password: ";
 
-/// One generic password a dump lists, by its service and account, with whether its creator code
-/// is `creator`.
+/// One generic password a dump lists, by its service and account.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct ListedItem {
+pub(crate) struct ListedItem {
     /// The service the item is filed under.
-    pub(super) service: String,
+    pub(crate) service: String,
     /// The account the item is filed under.
-    pub(super) account: String,
-    /// Whether the item carries the creator code asked about.
-    pub(super) has_creator: bool,
+    pub(crate) account: String,
 }
 
 /// The item's bytes from the password line on `errors`, the tool's standard error, the last such
 /// line where several are; `None` where no line reads as a printed value.
-pub(super) fn password_from_errors(errors: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
+pub(crate) fn password_from_errors(errors: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
     let line = errors
         .split(|byte| *byte == b'\n')
         .filter_map(|line| line.strip_prefix(PASSWORD_LEAD))
@@ -32,13 +29,13 @@ pub(super) fn password_from_errors(errors: &[u8]) -> Option<Zeroizing<Vec<u8>>> 
 }
 
 /// Every generic password `dump` lists, the tool's `dump-keychain` output, whose service and
-/// account are text, each with whether its creator code is `creator`.
-pub(super) fn listed_items(dump: &[u8], creator: &[u8]) -> Vec<ListedItem> {
+/// account are text.
+pub(crate) fn listed_items(dump: &[u8]) -> Vec<ListedItem> {
     let mut items = Vec::new();
     let mut item = PrintedItem::default();
     for line in dump.split(|byte| *byte == b'\n') {
         if line.starts_with(b"keychain: ") {
-            items.extend(item.listed(creator));
+            items.extend(item.listed());
             item = PrintedItem::default();
         } else if let Some(class) = line.strip_prefix(b"class: ") {
             item.is_generic_password = class == b"\"genp\"";
@@ -46,11 +43,9 @@ pub(super) fn listed_items(dump: &[u8], creator: &[u8]) -> Vec<ListedItem> {
             item.service = printed_value(value);
         } else if let Some(value) = attribute(line, b"\"acct\"<blob>=") {
             item.account = printed_value(value);
-        } else if let Some(value) = attribute(line, b"\"crtr\"<uint32>=") {
-            item.creator = printed_value(value);
         }
     }
-    items.extend(item.listed(creator));
+    items.extend(item.listed());
     items
 }
 
@@ -60,13 +55,12 @@ struct PrintedItem {
     is_generic_password: bool,
     service: Option<Zeroizing<Vec<u8>>>,
     account: Option<Zeroizing<Vec<u8>>>,
-    creator: Option<Zeroizing<Vec<u8>>>,
 }
 
 impl PrintedItem {
     // The item as listed, `None` unless it is a generic password whose service and account are
     // text.
-    fn listed(self, creator: &[u8]) -> Option<ListedItem> {
+    fn listed(self) -> Option<ListedItem> {
         if !self.is_generic_password {
             return None;
         }
@@ -74,7 +68,6 @@ impl PrintedItem {
             name.and_then(|name| String::from_utf8(name.to_vec()).ok())
         };
         Some(ListedItem {
-            has_creator: self.creator.is_some_and(|code| code.as_slice() == creator),
             service: text(self.service)?,
             account: text(self.account)?,
         })
@@ -108,10 +101,10 @@ mod tests {
     use super::{ListedItem, listed_items, password_from_errors};
 
     /// A dump in the tool's form lists each generic password by its service and account, a
-    /// name printed as hex decoded, its creator code read, and a key or an internet password left
-    /// out. Mutations: drop the class check; read a hex name as its text copy.
+    /// name printed as hex decoded, and a key or an internet password left out. Mutations: drop
+    /// the class check; read a hex name as its text copy.
     #[test]
-    fn a_dump_lists_each_generic_password_with_its_creator() {
+    fn a_dump_lists_each_generic_password() {
         let dump = concat!(
             "keychain: \"/Users/person/Library/Keychains/login.keychain-db\"\n",
             "version: 512\n",
@@ -137,17 +130,15 @@ mod tests {
             "attributes:\n",
         );
         assert_eq!(
-            listed_items(dump.as_bytes(), b"aisk"),
+            listed_items(dump.as_bytes()),
             [
                 ListedItem {
                     service: "service".to_owned(),
                     account: "plain".to_owned(),
-                    has_creator: true,
                 },
                 ListedItem {
                     service: "service".to_owned(),
                     account: "a\\b".to_owned(),
-                    has_creator: false,
                 },
             ]
         );

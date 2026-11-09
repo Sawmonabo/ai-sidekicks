@@ -81,12 +81,25 @@ pub(crate) fn describe_cannot_start(cannot_start: &DaemonCannotStart) -> String 
     ended_lines(&lines)
 }
 
+/// Who reads a stop's record: `status`, for which a step within the stop's drain bound is a stop
+/// still under way, or `stop`, which waited for its stop to end, so any step still running failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StopRecordReader {
+    /// `sidekicks daemon status`.
+    Status,
+    /// `sidekicks daemon stop`, once its stop ended.
+    Stop,
+}
+
 /// `Could not stop.` over its reason, each line ended by a newline, where `file` holds a stop that
 /// did not happen: a stop that could not keep the person's Stop, whatever its process, or a step
-/// still running past the stop's bound in the process the record names; `None` for any other
-/// fact, and for a step whose process has ended or whose stop is still within its bound. Fails as
-/// the process's pin does.
-pub(crate) fn describe_failed_stop(file: &ServiceStatusFile) -> io::Result<Option<String>> {
+/// still running in the process the record names, for `status` only once past the stop's bound;
+/// `None` for any other fact, and for a step whose process has ended. Fails as the process's pin
+/// does.
+pub(crate) fn describe_failed_stop(
+    file: &ServiceStatusFile,
+    reader: StopRecordReader,
+) -> io::Result<Option<String>> {
     let reason = match file {
         ServiceStatusFile::CannotStart(_) => return Ok(None),
         ServiceStatusFile::CannotStop(DaemonCannotStop::StopIntent {}) => {
@@ -95,8 +108,8 @@ pub(crate) fn describe_failed_stop(file: &ServiceStatusFile) -> io::Result<Optio
                 .to_owned()
         }
         ServiceStatusFile::Stopping(stopping) => {
-            if !is_past_stop_bound(stopping) || pin_identified_process(&stopping.process)?.is_none()
-            {
+            let is_under_way = reader == StopRecordReader::Status && !is_past_stop_bound(stopping);
+            if is_under_way || pin_identified_process(&stopping.process)?.is_none() {
                 return Ok(None);
             }
             format!(

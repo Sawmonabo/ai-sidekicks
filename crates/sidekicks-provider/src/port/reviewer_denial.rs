@@ -1,6 +1,9 @@
 //! Where a driver hands a block the provider's own reviewer made at Reviewed, so the approval
 //! pipeline records it once and can later allow it once through the driver's `override_denial`.
 
+#[cfg(test)]
+pub(crate) mod recording;
+
 use std::error::Error;
 
 use futures::future::BoxFuture;

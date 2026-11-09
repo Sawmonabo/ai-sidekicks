@@ -364,7 +364,7 @@ pub(crate) fn require_unicode_path(path: &Path) -> Result<&str, RepoRefusal> {
 /// The refusal a failed read of a picked path gives: `pathNotFound` when the path names nothing,
 /// `notReadable` for any other failure (a permission refusal of the path or a folder above it, a
 /// link loop), each with the system's own reason, which names no path.
-pub(crate) fn refusal_of_filesystem_failure(error: &io::Error) -> RepoRefusal {
+pub fn refusal_of_filesystem_failure(error: &io::Error) -> RepoRefusal {
     let reason = if is_missing_entry(error) {
         RepoMountRootResolutionReason::PathNotFound
     } else {

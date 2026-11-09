@@ -252,8 +252,8 @@ export const ProviderAccountSetCurrentRequestSchema: z.ZodType<
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
 /**
- * One running session the switch is moving. The move is in place and takes effect at the
- * session's next provider request; it settles on that session's own transcript.
+ * One running session the switch is moving between its turns; the move settles on that session's
+ * own transcript.
  */
 export interface ProviderAccountMovingSession {
   sessionId: SessionId;

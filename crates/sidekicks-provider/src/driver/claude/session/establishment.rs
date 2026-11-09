@@ -515,7 +515,8 @@ impl ClaudeSessionEstablishment {
         };
         let settings = sources
             .read_settings_sources(&legs.spawn_environment, &legs.working_directory)
-            .await;
+            .await
+            .map_err(ClaudeEstablishmentError::RepositoryUnreadable)?;
         let (goal_file, restored_goal) = ClaudeGoalFile::open(
             &legs.spawn_environment,
             &provider_session_id,

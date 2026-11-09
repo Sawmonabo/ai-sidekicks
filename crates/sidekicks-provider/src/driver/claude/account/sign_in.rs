@@ -41,7 +41,7 @@ use crate::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
 };
 use crate::driver::claude::spawn::launch::control_only::{
-    ClaudeSignInSources, probe_claude_sign_in,
+    CLAUDE_SUBSCRIPTION_SOURCE, ClaudeSignInSources, probe_claude_sign_in,
 };
 use crate::driver::claude::spawn::one_shot_command::compose_claude_subcommand_arguments;
 use crate::driver::contract::account::{
@@ -229,7 +229,7 @@ fn read_claude_sign_in_mode(sources: &ClaudeSignInSources) -> Option<ProviderAut
         return Some(ProviderAuthMode::OauthSubscription);
     }
     match sources.token_source() {
-        Some("claude.ai") => Some(ProviderAuthMode::OauthSubscription),
+        Some(CLAUDE_SUBSCRIPTION_SOURCE) => Some(ProviderAuthMode::OauthSubscription),
         Some("apiKeyHelper") => Some(ProviderAuthMode::External),
         Some(_) => Some(ProviderAuthMode::OauthToken),
         None => match sources.api_key_source() {

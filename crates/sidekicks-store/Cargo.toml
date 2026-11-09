@@ -42,6 +42,8 @@ zstd.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+# The instants the event log's tests spell out.
+sidekicks-contracts = { workspace = true, features = ["test-support"] }
 # The in-memory and sealed credential stores and the unreadable files the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The pause point the machine keys' test holds a read at.

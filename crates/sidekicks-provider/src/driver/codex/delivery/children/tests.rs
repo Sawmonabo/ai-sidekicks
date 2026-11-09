@@ -1,17 +1,14 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use super::{ChildRunLookup, CodexHelperStart};
@@ -24,7 +21,8 @@ use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
 use crate::driver::registry::test_token;
 use crate::driver::run_control::HelperStopReason;
-use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::port::reviewer_denial::recording::RecordingReviewerDenials;
 use crate::port::run_host::test_host::RecordedDelivery;
 use crate::run::delivery::{ChildRunSubagent, LateAppendableRow, RunSetupRefusal};
 use crate::run::state_entry::RunStateEntry;
@@ -575,22 +573,6 @@ async fn a_daemon_interrupted_helpers_end_is_marked_and_its_route_retired() {
     }
 }
 
-/// The approval service's intake, keeping whether each block it takes may be allowed once.
-#[derive(Default)]
-struct KeptDenials(Mutex<Vec<bool>>);
-
-impl ReviewerDenialPort for KeptDenials {
-    fn take_denial(
-        &self,
-        denial: ProviderReviewerDenial,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        lock(&self.0).push(denial.is_overridable);
-        Box::pin(async { Ok(()) })
-    }
-
-    fn release_held_presses(&self, _binding_id: &RuntimeBindingId) {}
-}
-
 /// The `thread/read` answer of a loaded helper spawned at `agent_path`, with Codex's own answer.
 fn helper_thread_answer(agent_path: &Value, can_accept_direct_input: bool) -> Value {
     json!({"result": {"thread": {
@@ -651,7 +633,7 @@ async fn a_block_inside_a_v2_helper_may_not_be_allowed_once(
         json!({"result": {"thread": {"id": HELPER_THREAD}}}),
     )
     .await;
-    let denials = Arc::new(KeptDenials::default());
+    let denials = Arc::new(RecordingReviewerDenials::new(|_released| {}));
     session
         .task
         .calls
@@ -677,5 +659,5 @@ async fn a_block_inside_a_v2_helper_may_not_be_allowed_once(
         None => session.task.handle(review).await,
     }
 
-    assert_eq!(*lock(&denials.0), [is_overridable]);
+    assert_eq!(denials.overridable(), [is_overridable]);
 }

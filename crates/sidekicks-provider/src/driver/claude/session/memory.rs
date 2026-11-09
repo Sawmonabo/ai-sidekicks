@@ -50,7 +50,7 @@ pub(crate) struct ClaudeAutoMemorySources<'a> {
 /// The session's `Auto memory` switch: the first source holding a value decides it, in the order
 /// the running process, the stored switch (a managed file's value outranks it), the kept value,
 /// the variable, the settings files, then on. A stored switch that differs from a running process
-/// waits for the next start.
+/// waits for the session's next turn.
 #[cfg_attr(
     not(test),
     expect(

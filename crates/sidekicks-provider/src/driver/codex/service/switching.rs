@@ -34,7 +34,7 @@ pub(crate) mod test_sign_in;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use secrecy::SecretString;
 use serde_json::value::RawValue;
@@ -106,6 +106,9 @@ pub(crate) struct CodexSwitchingAccount {
     // `true` from a switch's hold until its login is answered and no other is held, while every
     // turn start on the switching service waits.
     is_switch_held: watch::Sender<bool>,
+    // The switching service last signed in at its start, set under the hand: the one a held switch
+    // lands on, so a service started beside another takes the landing.
+    serving: Mutex<Weak<CodexService>>,
 }
 
 // The account the service carries and the kind of sign-in last handed for it.
@@ -194,6 +197,7 @@ impl CodexSwitchingAccount {
             windows: Arc::default(),
             held: Mutex::default(),
             is_switch_held: watch::channel(false).0,
+            serving: Mutex::default(),
         }
     }
 
@@ -221,41 +225,50 @@ impl CodexSwitchingAccount {
     /// account it carries, else of Codex's current account, and carries that account; a service
     /// that carried none moves every session attached to it onto that account, as a switch does.
     /// An API-key account's key is handed once the service is signed out of any other kind of
-    /// sign-in; a key refused after that sign-out leaves it carrying none. Fails with the refusal
-    /// of an account with no current one, no `ChatGPT` sign-in in its home or no key sealed, as
-    /// its home or key cannot be read, and with Codex's refusal of the sign-out or the login.
+    /// sign-in; a key refused after that sign-out leaves it carrying none. Signed in, the service
+    /// is the one a held switch lands on. Fails with the refusal of an account with no current
+    /// one, no `ChatGPT` sign-in in its home or no key sealed, as its home or key cannot be read,
+    /// and with Codex's refusal of the sign-out or the login.
     pub(crate) async fn hand_at_start(
         &self,
         service: &Arc<CodexService>,
         connection: &CodexAppServerConnection,
     ) -> Result<(), CodexError> {
         let hand = self.hands.lock().await;
-        let Some(provider_account_id) = self.carried_account() else {
-            let current = read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
-                .await
-                .map_err(CodexError::Driver)?;
-            // Carrying none, the service has no account to hand back to, so no window opens.
-            return self
-                .hand_switch_holding(&hand, service, connection, current, Vec::new(), None)
-                .await
-                .map(drop);
-        };
-        let login = self.read_login(&provider_account_id).await?;
-        let prepared = self.prepare_login(connection, login).await?;
-        self.windows.close();
-        self.settle_handed_login(
-            connection
-                .request(CODEX_LOGIN_START_METHOD, &prepared.params)
-                .await,
-            prepared.is_signed_out,
-        )?;
-        carry(
-            &self.carried,
-            &self.switches,
-            provider_account_id,
-            prepared.sign_in,
-        );
-        Ok(())
+        let handed = async {
+            let Some(provider_account_id) = self.carried_account() else {
+                let current =
+                    read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
+                        .await
+                        .map_err(CodexError::Driver)?;
+                // Carrying none, the service has no account to hand back to, so no window opens.
+                return self
+                    .hand_switch_holding(&hand, service, connection, current, Vec::new(), None)
+                    .await
+                    .map(drop);
+            };
+            let login = self.read_login(&provider_account_id).await?;
+            let prepared = self.prepare_login(connection, login).await?;
+            self.windows.close();
+            self.settle_handed_login(
+                connection
+                    .request(CODEX_LOGIN_START_METHOD, &prepared.params)
+                    .await,
+                prepared.is_signed_out,
+            )?;
+            carry(
+                &self.carried,
+                &self.switches,
+                provider_account_id,
+                prepared.sign_in,
+            );
+            Ok(())
+        }
+        .await;
+        if handed.is_ok() {
+            *lock(&self.serving) = Arc::downgrade(service);
+        }
+        handed
     }
 
     /// Hands the switching `service` the sign-in of `to`'s account, the switch's one call for
@@ -313,11 +326,11 @@ impl CodexSwitchingAccount {
         .map(drop)
     }
 
-    // The switch's login, sent on `connection` under `_hand`, its answer the place among the
-    // service's frames that moves the service and every session attached to it onto `to`, those `named` not reported as
-    // moved by `actor`, the person whose switch it is, or else by no one; a key's sign-out before
-    // it moves nothing. A switch off another account opens the hand-back window over every session
-    // it moved, whose serial it answers.
+    // The switch's login, sent on `connection` under `_hand`. Its answer is the place among the
+    // service's frames where the service and every session attached to it move onto `to`; each
+    // session not in `named` is reported as moved by `actor`, the person whose switch it is, or
+    // else by no one. A key's sign-out before it moves nothing. A switch off another account opens
+    // the hand-back window over every session it moved, whose serial it answers.
     async fn hand_switch_holding(
         &self,
         _hand: &tokio::sync::MutexGuard<'_, ()>,
@@ -410,9 +423,11 @@ impl CodexSwitchingAccount {
         provider_account_id: &ProviderAccountId,
         api_key: SecretString,
     ) -> Result<(), CodexError> {
-        if lock(&self.held).is_none()
-            && !matches!(self.carried_token(), Some((carried, None)) if carried == *provider_account_id)
-        {
+        let is_carried_on_its_key = matches!(
+            self.carried_token(),
+            Some((carried, None)) if carried == *provider_account_id
+        );
+        if lock(&self.held).is_none() && !is_carried_on_its_key {
             return Ok(());
         }
         self.hold_switch(
@@ -580,8 +595,9 @@ impl CodexSwitchingAccount {
     }
 }
 
-// Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`, keeping the token its home could not
-// renew while the account stays the same on its tokens and forgetting it otherwise. Answers the
+// Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`,
+// keeping the token its home could not renew while the account stays the same on its tokens and
+// forgetting it otherwise. Answers the
 // account carried before, `None` where none was.
 fn carry(
     carried: &Mutex<Option<CarriedAccount>>,

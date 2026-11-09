@@ -1,9 +1,8 @@
 //! Where this machine keeps the daemon's secrets, and the operating system's credential store as
 //! one interface. macOS and Windows offer their store, the login keychain and the Credential
 //! Manager, each platform's module supplying its store, the settings an entry is built with, how
-//! its search names a service, the name of what holds the items, the reading of a locked store
-//! from the store's own error, and, where an item another writer made needs the store's own write
-//! to be read with no prompt, how a listed item shows it was written through the store. Linux
+//! its search names a service, the name of what holds the items, and the reading of a locked store
+//! from the store's own error. Linux
 //! offers systemd's credential service, which seals each secret to this computer (`seal`); the
 //! store itself stays on every system for the tests' stores.
 //!
@@ -25,6 +24,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
@@ -36,6 +36,10 @@ use crate::credential_store::seal::CredentialSeal;
 use crate::macos::credential_store as native;
 #[cfg(target_os = "windows")]
 use crate::windows::credential_store as native;
+
+/// How long one call on the operating system's credential store may take from its turn at the
+/// store, a prompt included; a call of the keychain tool held past it is ended.
+pub const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 // The socket systemd's credential service listens on.
 #[cfg(target_os = "linux")]
@@ -98,9 +102,6 @@ pub struct CredentialStore {
     search_spec: fn(&str) -> Vec<(&'static str, String)>,
     // The most bytes one entry holds, none when the store sets no cap.
     entry_capacity: Option<usize>,
-    // Whether a listed entry was written through this store, where an item another writer made
-    // is rewritten through it; none where every item serves as it is.
-    adoption: Option<fn(&Entry) -> bool>,
 }
 
 impl CredentialStore {
@@ -120,7 +121,6 @@ impl CredentialStore {
             modifiers: native::ENTRY_MODIFIERS,
             search_spec: native::search_spec,
             entry_capacity: native::ENTRY_CAPACITY,
-            adoption: native::ADOPTION,
         }
     }
 
@@ -128,7 +128,12 @@ impl CredentialStore {
     /// every piece of the system's store but the tool.
     #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
     pub(crate) fn over_keychain_tool(program: std::path::PathBuf) -> Self {
-        Self::native(crate::macos::credential_store::KeychainToolStore::over_program(program))
+        Self::native(
+            crate::macos::credential_store::KeychainToolStore::over_program(
+                program,
+                KEYCHAIN_CALL_TIMEOUT,
+            ),
+        )
     }
 
     /// A credential store over `store`, which a test supplies in place of the system's, its entries
@@ -140,7 +145,6 @@ impl CredentialStore {
             modifiers: &[],
             search_spec: service_search_spec,
             entry_capacity: None,
-            adoption: None,
         }
     }
 
@@ -241,35 +245,6 @@ impl CredentialStore {
         let is_removed = remove_entry(&self.entry(service, account)?)?;
         self.remove_pieces(service, account, None)?;
         Ok(is_removed)
-    }
-
-    /// Rewrites through this store every item under `service` another writer made, so each takes
-    /// the access this store's writes give it, and answers how many it rewrote; a store whose items
-    /// all serve as they are rewrites none and lists nothing. Each item's value is read whole, its
-    /// head and pieces removed and the value written again as a write here writes it, so the access
-    /// an item's read prompts for is asked once. Fails with [`CredentialStoreError`] at the first
-    /// item that cannot be read, removed or written, every one before it rewritten; a write that
-    /// fails after its removal loses that one value, which the error says.
-    pub fn adopt_items(&self, service: &str) -> Result<usize, CredentialStoreError> {
-        let Some(is_adopted) = self.adoption else {
-            return Ok(0);
-        };
-        let mut adopted = 0;
-        for item in self.accounts(service)? {
-            if is_adopted(&item.entry) {
-                continue;
-            }
-            let Some(value) = self.read(service, &item.account)? else {
-                continue;
-            };
-            self.remove(service, &item.account)?;
-            self.write(service, &item.account, &value)
-                .map_err(|failure| {
-                    CredentialStoreError::lost_in_rewrite(service, &item.account, &failure)
-                })?;
-            adopted += 1;
-        }
-        Ok(adopted)
     }
 
     /// Every item filed under exactly `service`, each with the handle that removes it, the pieces
@@ -427,20 +402,6 @@ impl CredentialStoreError {
                 message: format!(
                     "the item under {service} and {account} does not match its head: \
                      a write was cut short"
-                ),
-            },
-        }
-    }
-
-    // The refusal of the rewrite of the item under `service` and `account` whose write failed with
-    // `failure` after its old item was deleted, so its value is gone.
-    fn lost_in_rewrite(service: &str, account: &str, failure: &Self) -> Self {
-        Self {
-            is_locked: failure.is_locked,
-            failure: StoreFailure::Refused {
-                message: format!(
-                    "the item under {service} and {account} was deleted to be written again \
-                     through this store, and the write failed, so its value is lost: {failure}"
                 ),
             },
         }

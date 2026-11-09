@@ -221,7 +221,7 @@ pub struct ProviderAccountCurrentUpdateRequest {
     pub account_id: ProviderAccountId,
 }
 
-/// One running session the switch is moving, in place, at its next provider request.
+/// One running session the switch is moving between its turns.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderAccountMovingSession {
