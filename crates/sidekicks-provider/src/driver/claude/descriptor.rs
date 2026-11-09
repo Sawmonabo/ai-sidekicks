@@ -10,6 +10,9 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::driver::agent_tools::{
+    AgentToolInstructions, AgentToolLoading, AgentToolLongCall, AgentToolWait,
+};
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
 };
@@ -115,6 +118,8 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         ("DISABLE_UPDATES", "1"),
         // A tool-server call or a helper still running after 120 s moves to the background.
         ("CLAUDE_AUTO_BACKGROUND_TASKS", "1"),
+        // Set, the variable decides the cross-session inbox, so a remote flag cannot close it.
+        ("CLAUDE_CODE_HARBOR_KITE", "1"),
         // A waiting dialog arms no deadline.
         ("CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "0"),
         // A background command's `timeout` is honored up to Claude Code's own cap.
@@ -180,6 +185,19 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "auto-accept",
     ],
     callback_tools_asked: true,
+    // A tool whose listing carries this `_meta` key set to `true` is sent in full, never deferred
+    // behind its tool search.
+    agent_tool_loading: AgentToolLoading::MarkedOnListing {
+        meta_key: "anthropic/alwaysLoad",
+    },
+    // It reads a tool server's `instructions` from the connection's `initialize` answer.
+    agent_tool_instructions: AgentToolInstructions::OnConnection,
+    // A held call costs it no model pass, so a wait holds the call open.
+    agent_tool_wait: AgentToolWait::Held,
+    // A tool-server call still running after 120 s moves to its own background task.
+    agent_tool_long_call: AgentToolLongCall::ProviderBackgrounds,
+    // Its own wake-up tool, so it is not offered the daemon's reminder tool.
+    own_wake_up_tool: Some("ScheduleWakeup"),
     // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
     can_mcp_sign_in_return_to_daemon_receiver: true,
     background_work: Some(BackgroundWork {

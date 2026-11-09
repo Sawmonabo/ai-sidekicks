@@ -377,6 +377,9 @@ mod tests {
         SpawnEnvironmentError, WithheldEnvironmentNames, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
     };
+    use crate::driver::agent_tools::{
+        AgentToolInstructions, AgentToolLoading, AgentToolLongCall, AgentToolWait,
+    };
     use crate::driver::{
         BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
         ProviderMemoryEstimates, ProviderSwitchBoundaries,
@@ -439,6 +442,11 @@ mod tests {
         permission_identifiers: &[],
         background_work: None,
         callback_tools_asked: false,
+        agent_tool_loading: AgentToolLoading::EntryPerLoading,
+        agent_tool_instructions: AgentToolInstructions::OnConversation,
+        agent_tool_wait: AgentToolWait::AnsweredThenWoken,
+        agent_tool_long_call: AgentToolLongCall::DaemonHandle,
+        own_wake_up_tool: None,
         can_mcp_sign_in_return_to_daemon_receiver: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],

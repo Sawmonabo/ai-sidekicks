@@ -7,7 +7,7 @@
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
-use crate::messaging::waits::AgentToolWait;
+use sidekicks_provider::driver::agent_tools::AgentToolWait;
 
 /// The store's own list, which holds the session directory every write here is checked against,
 /// and the messaging part.

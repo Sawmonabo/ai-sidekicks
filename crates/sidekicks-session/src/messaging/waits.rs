@@ -7,15 +7,14 @@ use std::sync::Arc;
 
 use rusqlite::types::Value;
 use rusqlite::{Row, named_params};
-use serde::{Deserialize, Serialize};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_provider::driver::agent_tools::AgentToolWait;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::database::writer::DatabaseWriter;
-use strum::{IntoStaticStr, VariantArray};
 
 use crate::directory::lookups::write_while_session_exists;
 use crate::messaging::SessionMessagingError;
@@ -53,20 +52,6 @@ const SELECT_EVERY_SQL: &str = "SELECT session_id, tool_call_id, awaited_session
 
 const DELETE_CALL_SQL: &str =
     "DELETE FROM session_waits WHERE session_id = @sessionId AND tool_call_id = @toolCallId";
-
-/// How a provider waits on another session for a tool call: the call held open until the awaited
-/// session finishes or needs the person, or answered at once and its session woken then.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, VariantArray, IntoStaticStr,
-)]
-#[serde(rename_all = "camelCase")]
-#[strum(serialize_all = "camelCase")]
-pub enum AgentToolWait {
-    /// The call is held open and answered with the awaited session's result.
-    Held,
-    /// The call is answered at once, and the waiting session is woken with a new turn.
-    AnsweredThenWoken,
-}
 
 /// One awaited session of one waiting call.
 #[derive(Clone, Debug, PartialEq, Eq)]

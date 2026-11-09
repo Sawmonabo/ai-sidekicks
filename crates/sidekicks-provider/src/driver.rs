@@ -39,6 +39,9 @@ use crate::background_work::BackgroundWorkForms;
 use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::agent_tools::{
+    AgentToolInstructions, AgentToolLoading, AgentToolLongCall, AgentToolWait,
+};
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
@@ -53,6 +56,7 @@ use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::tool_server_name::McpServerNameRule;
 
+pub mod agent_tools;
 pub mod attachments;
 pub mod binding_switch;
 pub mod callback_tool;
@@ -177,6 +181,17 @@ pub struct ProviderDescriptor {
     /// Whether the driver sets up the daemon's tool server so the provider asks before each call of
     /// the app's own tools itself; where it does not, the daemon raises the call's card.
     pub callback_tools_asked: bool,
+    /// How the provider loads the daemon's agent tools up front rather than behind its tool search.
+    pub agent_tool_loading: AgentToolLoading,
+    /// Where the provider takes the shared rules of the daemon's agent tools.
+    pub agent_tool_instructions: AgentToolInstructions,
+    /// How the provider waits on another session for a call of the daemon's agent tools.
+    pub agent_tool_wait: AgentToolWait,
+    /// What happens to a call of the daemon's agent tools past the provider's time limit.
+    pub agent_tool_long_call: AgentToolLongCall,
+    /// The provider's own tool for waking itself later, in its own spelling; a provider with one is
+    /// not offered the daemon's reminder tool.
+    pub own_wake_up_tool: Option<&'static str>,
     /// Whether the provider's own MCP sign-in can take the browser's return at the daemon's
     /// loopback receiver; where it cannot, its own listener takes it and the daemon binds none.
     pub can_mcp_sign_in_return_to_daemon_receiver: bool,

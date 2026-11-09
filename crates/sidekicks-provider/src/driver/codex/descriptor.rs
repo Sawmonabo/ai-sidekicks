@@ -10,6 +10,9 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::driver::agent_tools::{
+    AgentToolInstructions, AgentToolLoading, AgentToolLongCall, AgentToolWait,
+};
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
 use crate::driver::codex::release_notes::release_notes_address;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
@@ -162,6 +165,18 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     ],
     background_work: None,
     callback_tools_asked: false,
+    // Its tool search defers a whole tool-server entry, never one tool of it.
+    agent_tool_loading: AgentToolLoading::EntryPerLoading,
+    // It pastes a server's `instructions` into every tool's description, so the rules go as the
+    // conversation's `developerInstructions`.
+    agent_tool_instructions: AgentToolInstructions::OnConversation,
+    // A held call costs it a model pass about a minute, so a wait answers at once and wakes it.
+    agent_tool_wait: AgentToolWait::AnsweredThenWoken,
+    // It cuts a call at its entry's `tool_timeout_sec`, so the daemon answers a long one with a
+    // task handle.
+    agent_tool_long_call: AgentToolLongCall::DaemonHandle,
+    // It has no wake-up tool of its own.
+    own_wake_up_tool: None,
     // Its login runs its own loopback listener for the browser's return.
     can_mcp_sign_in_return_to_daemon_receiver: false,
     // Codex's log folder; the rows its service logs into the home's database the driver's own
