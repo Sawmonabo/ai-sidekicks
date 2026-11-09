@@ -5,8 +5,8 @@
 // per child run (children expand independently) and per session (session stores outlive a
 // navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
-import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { TranscriptChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
@@ -137,7 +137,7 @@ export class ChildRunExpansionState {
   /** What the daemon's answer leaves on screen, over the state the press replaced. */
   #settlementOf(
     held: ChildRunExpansion,
-    reply: DaemonReply<ChildRunExpandResponse>,
+    reply: DaemonReply<TranscriptChildRunExpandResponse>,
   ): ChildRunExpansion {
     if (reply.status === "refused") {
       return { ...held, status: "expand-failed", refusal: reply.refusal };
@@ -173,6 +173,6 @@ async function readChildRunEntries(
   bridge: PlatformBridge,
   childRunId: RunId,
   signal: AbortSignal,
-): Promise<DaemonReply<ChildRunExpandResponse>> {
-  return callDaemon(bridge, "transcript.childRunExpand", { runId: childRunId }, { signal });
+): Promise<DaemonReply<TranscriptChildRunExpandResponse>> {
+  return callDaemon(bridge, "transcript.childRun.expand", { runId: childRunId }, { signal });
 }

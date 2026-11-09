@@ -14,7 +14,6 @@ import {
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type ArtifactManifestRow } from "../model.js";
-import { ARTIFACT_STATE_TONES } from "../copy.js";
 
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
@@ -40,7 +39,6 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           label={codeWords(row.artifactType)}
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
-        <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={codeWords(row.state)} />
         <span>
           {/* A scaled size's hover label gives the whole byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} hoverLabel={formattedSize.exactText} />

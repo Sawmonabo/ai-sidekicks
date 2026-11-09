@@ -7,10 +7,13 @@ import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
-import type { AgentListAck, AgentListRequest } from "@ai-sidekicks/contracts/agent/methods";
 import type {
-  ChildRunLinkReadRequest,
-  ChildRunLinkReadResponse,
+  AgentSubscribeRequest,
+  AgentSubscribeResponse,
+} from "@ai-sidekicks/contracts/agent/methods";
+import type {
+  AgentChildRunLinkListRequest,
+  AgentChildRunLinkListResponse,
 } from "@ai-sidekicks/contracts/orchestration";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { Clock } from "#renderer/lib/clock.js";
@@ -30,12 +33,12 @@ const AGENT_LIST_EVENT_KINDS: readonly SessionEventType[] = [
 ];
 
 /**
- * The two kinds that move the session's child links: `run.queued` for a new child, and
- * `orchestration.rejected`, the only record of a refused create (no link row is left).
+ * The two kinds that move the session's child links: a run queued for a new child, and
+ * `agent.run.rejected`, the only record of a refused create (no link row is left).
  */
 const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
   RUN_QUEUED_EVENT_KIND,
-  "orchestration.rejected",
+  "agent.run.rejected",
 ];
 
 /** Names the agent-list read in a refusal, so a failed read says which read failed. */
@@ -43,16 +46,16 @@ export const AGENT_LIST_ORIGIN = "agent-list";
 /** Names the child-run links read in a refusal. */
 export const CHILD_RUN_LINKS_ORIGIN = "child-run-links";
 
-/** What the agent list reads off `agent.list`'s acknowledgment: the session's agents. */
-export type AgentListReading = Pick<AgentListAck, "agents">;
+/** What the agent list reads off `agent.subscribe`'s answer: the session's agents. */
+export type AgentListReading = Pick<AgentSubscribeResponse, "agents">;
 
 /** Lists the agents of one session. */
-export type ListSessionAgents = (request: AgentListRequest) => Promise<AgentListReading>;
+export type ListSessionAgents = (request: AgentSubscribeRequest) => Promise<AgentListReading>;
 
 /** Reads the session's child-run tree, its counts and its refused creates. */
 export type ReadChildRunLinks = (
-  request: ChildRunLinkReadRequest,
-) => Promise<ChildRunLinkReadResponse>;
+  request: AgentChildRunLinkListRequest,
+) => Promise<AgentChildRunLinkListResponse>;
 
 /** Lists the saved agent definitions. */
 export type ListAgentDefinitions = () => Promise<readonly AgentDefinition[]>;
@@ -66,7 +69,7 @@ export interface AgentsPaneCalls {
 /** The agent-list read. */
 export type AgentListRead = PushDrivenRead<AgentListReading>;
 /** The child-run links read. */
-export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReadResponse>;
+export type ChildRunLinksRead = PushDrivenRead<AgentChildRunLinkListResponse>;
 
 /** The agent-list read, refreshed by the two events that settle a provider switch. */
 export function createAgentList(
@@ -92,7 +95,7 @@ export function createChildRunLinks(
   clock: Clock,
   readChildRunLinks: ReadChildRunLinks,
 ): ChildRunLinksRead {
-  return new PushDrivenRead<ChildRunLinkReadResponse>({
+  return new PushDrivenRead<AgentChildRunLinkListResponse>({
     clock,
     origin: CHILD_RUN_LINKS_ORIGIN,
     read: async () =>

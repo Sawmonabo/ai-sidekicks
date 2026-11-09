@@ -2,8 +2,9 @@
 // Main's requests come over the parentPort and each window's over the port main hands the helper
 // for it; each passes its channel's method allowlist and the method's params check before the
 // addon. A window's call to a method that carries file paths has its tokens swapped for their paths
-// by asking main, which keeps them, and main mints tokens for the paths a reply offers. A window
-// port that closes cancels every call and stream it left open. Main connects the link and closes
+// by asking main, which keeps them, and main mints tokens for the paths a reply offers, and for
+// those a window's stream frame offers, the frame held back until they come so frames keep their
+// order. A window port that closes cancels every call and stream it left open. Main connects the link and closes
 // it; a request waits for the connect under way, and one made once the link is closed fails. A
 // connect main closed before it settled is dropped, its link closed unused. The link's state, and
 // a starting daemon's answers that it is repairing, go to main as the addon reports them; the addon
@@ -14,12 +15,13 @@ import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/reco
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import { FILE_PATH_METHODS } from "#main/bridge/file-path/relay.js";
+import { FILE_PATH_METHODS, mayOfferPathsToOpen } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type { FilePathRef } from "#shared/preload-api.js";
 
 import type {
   ClientHelperLinkState,
@@ -115,10 +117,15 @@ interface HeldCall {
  * answered. A cancel goes to that client, since a later link numbers its own streams afresh.
  */
 interface HeldStream {
+  readonly method: string;
+  /** The params the stream was opened with, for main's mint on a frame offering a path. */
+  readonly params: unknown;
   addon: { readonly client: ClientHelperDaemonClient; readonly streamId: number } | undefined;
   /** Events the addon sent before the subscribe's answer was told, in order. */
   readonly early: StreamEvent[];
   isOpened: boolean;
+  /** The delivery waiting on main's mint, which every later event waits behind. */
+  waiting: Promise<void> | undefined;
 }
 
 /** One asker: main, or a window by its id, with the calls and streams it holds open. */
@@ -457,7 +464,14 @@ class ClientHelper {
       channel.post({ kind: "stream.ended", streamId, end: { reason: "refused", refusal } });
       return;
     }
-    const held: HeldStream = { addon: undefined, early: [], isOpened: false };
+    const held: HeldStream = {
+      method,
+      params: request.params,
+      addon: undefined,
+      early: [],
+      isOpened: false,
+      waiting: undefined,
+    };
     channel.streams.set(streamId, held);
     const link = await this.#link();
     if ("isClosed" in link) {
@@ -514,8 +528,60 @@ class ClientHelper {
     }
   }
 
-  /** Hands one of the addon's stream events to the asker while it still holds the stream. */
+  /**
+   * Hands one of the addon's stream events to the asker while it still holds the stream: at once,
+   * or behind main's mint for a window's frame that may offer a path to open, and behind any
+   * delivery still waiting on one, so the asker gets them in the order the daemon sent them.
+   */
   #deliver(channel: Channel, streamId: number, held: HeldStream, event: StreamEvent): void {
+    const windowId = channel.windowId;
+    const minted =
+      windowId !== undefined &&
+      event.value !== undefined &&
+      mayOfferPathsToOpen(held.method, event.value.json)
+        ? this.#mintFramePaths(windowId, held, event.value.json)
+        : undefined;
+    if (minted === undefined && held.waiting === undefined) {
+      this.#tell(channel, streamId, held, event, undefined);
+      return;
+    }
+    const waiting = (async () => {
+      await held.waiting;
+      this.#tell(channel, streamId, held, event, await minted);
+    })();
+    held.waiting = waiting;
+    void waiting.then(() => {
+      if (held.waiting === waiting) {
+        held.waiting = undefined;
+      }
+    });
+  }
+
+  /** Main's tokens for the paths one of a window's stream frames offers, keyed by the path. */
+  async #mintFramePaths(
+    windowId: number,
+    held: HeldStream,
+    json: string,
+  ): Promise<Readonly<Record<string, FilePathRef>>> {
+    const minted = await this.#askMain<"filePaths.minted">({
+      kind: "filePaths.mint",
+      askId: this.#nextAskId++,
+      windowId,
+      method: held.method,
+      params: held.params,
+      value: JSON.parse(json),
+    });
+    return minted.fileRefs;
+  }
+
+  /** Tells the asker one stream event, with the tokens main minted for a frame's paths. */
+  #tell(
+    channel: Channel,
+    streamId: number,
+    held: HeldStream,
+    event: StreamEvent,
+    fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
+  ): void {
     if (event.isEnd) {
       this.#endStream(
         channel,
@@ -533,6 +599,7 @@ class ClientHelper {
         streamId,
         json: event.value.json,
         attachments: event.value.attachments,
+        ...(fileRefs === undefined || Object.keys(fileRefs).length === 0 ? {} : { fileRefs }),
       });
     }
   }

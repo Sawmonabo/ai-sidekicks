@@ -1,11 +1,11 @@
-// The rule in force every Rules suite starts from, parsed through the contract's schema so no
-// suite asserts against a rule the daemon could not send, and the one render of the list the
-// suites drive.
+// The rule in force every Rules suite starts from, held to the contract's check so no suite
+// asserts against a rule the daemon could not send, and the one render of the list the suites
+// drive.
 
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 
-import { RememberedRuleSchema, type RememberedRule } from "@ai-sidekicks/contracts/approval";
+import { validateRememberedRule, type RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 import { RememberedRules } from "./components/RememberedRules.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -17,13 +17,19 @@ export const SECOND_RULE_ID = "019b7a33-3300-7e01-8120-d1a4c1150582";
 
 /** One session allow on `pnpm test`, with the members named in `overrides` replaced. */
 export function rule(overrides: Readonly<Record<string, unknown>> = {}): RememberedRule {
-  return RememberedRuleSchema.parse({
+  const candidate: unknown = {
     ruleId: FIRST_RULE_ID,
-    category: "tool_execution",
+    category: "toolExecution",
     scope: { kind: "session", pattern: "pnpm test", sense: "allow" },
     grantedAt: "2026-01-01T10:00:00.000Z",
     ...overrides,
-  });
+  };
+  if (!validateRememberedRule(candidate)) {
+    throw new Error(
+      `not a rule the daemon sends: ${JSON.stringify(validateRememberedRule.errors)}`,
+    );
+  }
+  return candidate;
 }
 
 /** Render the list over these rules; every member not named falls back to a quiet default. */

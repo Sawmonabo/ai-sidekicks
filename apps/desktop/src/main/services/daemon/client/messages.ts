@@ -68,13 +68,13 @@ export type ClientHelperToMainMessage =
     }
   | {
       readonly kind: "filePaths.mint";
-      /** The id of the swap the call's params went through. */
+      /** The id of the swap a call's params went through, or a stream frame's own. */
       readonly askId: number;
       readonly windowId: number;
       readonly method: string;
       /** The params the daemon was sent, each token swapped for its path. */
       readonly params: unknown;
-      /** The served reply, parsed. */
+      /** The served reply or the stream frame, parsed. */
       readonly value: unknown;
     }
   | { readonly kind: "window.portDropped"; readonly windowId: number; readonly reason: string };

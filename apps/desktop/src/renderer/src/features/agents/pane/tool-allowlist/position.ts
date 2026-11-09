@@ -10,7 +10,7 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../caps.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
+import type { AgentSubscribeEntry } from "@ai-sidekicks/contracts/agent/methods";
 
 /**
  * What the resolved configuration says this agent may reach. A union so the "no configuration"
@@ -96,7 +96,7 @@ export function namedToolAllowlistSentence(toolNames: readonly string[]): string
  * agent not started from a saved definition; `toolAllowlist` null inside a present configuration
  * is the registry's "provider's default set".
  */
-export function agentToolAllowlistPosition(agent: AgentListEntry): AgentToolAllowlistPosition {
+export function agentToolAllowlistPosition(agent: AgentSubscribeEntry): AgentToolAllowlistPosition {
   const resolved = agent.resolvedConfiguration;
   if (resolved === undefined) {
     return { kind: "not-reported" };

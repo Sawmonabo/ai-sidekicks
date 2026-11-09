@@ -39,6 +39,17 @@ describe("the emulator wrapper", () => {
     expect(adapter.serialize()).toContain("printed before the move");
     expect(adapter.isEmulatorLive).toBe(true);
   });
+
+  it("joins a character whose bytes the shell's output split across two chunks", async () => {
+    // Output arrives as the daemon read it, so a chunk may end inside a character.
+    const { adapter } = mountedAdapter();
+    const bytes = new TextEncoder().encode("café\n");
+    await new Promise<void>((resolve) => {
+      adapter.write(bytes.subarray(0, 4));
+      adapter.write(bytes.subarray(4), resolve);
+    });
+    expect(adapter.serialize()).toContain("café");
+  });
 });
 
 describe("teardown", () => {

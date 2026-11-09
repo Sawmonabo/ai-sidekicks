@@ -5,7 +5,7 @@
 // overlap, and a superseded completion is dropped. A rejected list call is not caught here:
 // with no `onError`, the scheduler re-throws it.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { Clock } from "#renderer/lib/clock.js";
@@ -27,7 +27,7 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  * Every registered frame in the `artifact.` namespace.
  *
  * Derived from `SESSION_EVENT_CATEGORY_BY_TYPE`, so a newly registered artifact kind is
- * watched without an edit here. Selected by namespace, not category: `artifact_publication`
+ * watched without an edit here. Selected by namespace, not category: `artifactPublication`
  * also holds `git.settled`, which changes neither read.
  */
 export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [

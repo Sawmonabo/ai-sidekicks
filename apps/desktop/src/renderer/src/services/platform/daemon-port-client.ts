@@ -14,6 +14,7 @@ import { DAEMON_STATUS_TOPIC, NOT_ANSWERING_MESSAGE } from "#shared/daemon/statu
 import type {
   DaemonPreload,
   DaemonWire,
+  FilePathRef,
   ServedDaemonCall,
   Unsubscribe,
 } from "#shared/preload-api.js";
@@ -81,13 +82,14 @@ export class DaemonPortClient {
   }
 
   /**
-   * Open a stream of `event`, delivering each value and its bytes until it is closed or ends; its
-   * end is told once, unless the page closed it first.
+   * Open a stream of `event`, delivering each value, its bytes and the tokens main minted for the
+   * paths it offers until it is closed or ends; its end is told once, unless the page closed it
+   * first.
    */
   public subscribe(
     event: string,
     params: unknown,
-    deliver: (value: unknown, attachments: readonly Uint8Array[]) => void,
+    deliver: StreamDelivery,
     onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined,
   ): Unsubscribe {
     const streamId = this.#nextId++;
@@ -168,7 +170,7 @@ export class DaemonPortClient {
       case "stream.value":
         this.#streams
           .get(answer.streamId)
-          ?.deliver(JSON.parse(answer.json) as unknown, answer.attachments);
+          ?.deliver(JSON.parse(answer.json) as unknown, answer.attachments, answer.fileRefs);
         return;
       case "stream.ended": {
         const stream = this.#streams.get(answer.streamId);
@@ -215,15 +217,17 @@ export function createDaemonPortWire(preload: DaemonPreload, page: DaemonPortWin
     subscribe: (event, params, handler, onEnded) =>
       event === DAEMON_STATUS_TOPIC
         ? preload.subscribeStatus(handler as (state: unknown) => void)
-        : client.subscribe(
-            event,
-            params,
-            handler as (value: unknown, attachments: readonly Uint8Array[]) => void,
-            onEnded,
-          ),
+        : client.subscribe(event, params, handler as StreamDelivery, onEnded),
     requestStart: () => preload.requestStart(),
   };
 }
+
+/** What a stream's handler is handed for each value. */
+type StreamDelivery = (
+  value: unknown,
+  attachments: readonly Uint8Array[],
+  fileRefs?: Readonly<Record<string, FilePathRef>>,
+) => void;
 
 /** A call waiting for its answer. */
 interface PendingCall {
@@ -233,7 +237,7 @@ interface PendingCall {
 
 /** A stream the page holds open. */
 interface OpenStream {
-  readonly deliver: (value: unknown, attachments: readonly Uint8Array[]) => void;
+  readonly deliver: StreamDelivery;
   readonly onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined;
 }
 

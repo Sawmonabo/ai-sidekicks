@@ -3,14 +3,19 @@
 // the token stands for in its place on the way to the daemon; anything else in that member, a raw
 // path above all, is refused before anything is sent. A reply that offers a path to open has a
 // token minted for each such path, which `native.openInEditor` and `native.revealInFileExplorer`
-// take, so the page shows a path as text and never holds one as a capability.
+// take, so the page shows a path as text and never holds one as a capability. A session event
+// that offers a path to open, as a provider's notice that it ignored a settings file, has its
+// token minted the same way, on the frame of the session's event stream that carries it.
 //
 // Where each verb carries a path is named here once, by the contract's member names: a member is
 // a key, and `*` is each element of a list. The client helper asks main for these swaps only on
-// the verbs `FILE_PATH_METHODS` names, so a window call that carries no path never reaches main.
+// the verbs `FILE_PATH_METHODS` names, so a window call that carries no path never reaches main,
+// and for a mint on a stream frame only where `mayOfferPathsToOpen` finds one may sit.
 
 import nodePath from "node:path";
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
 import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
@@ -52,6 +57,16 @@ const REPLY_PATH_LOCATIONS: ReadonlyMap<string, readonly PathLocation[]> = new M
   [SESSION_INSPECTOR_METHOD_DESCRIPTORS["session.memory.read"].method, [["entries", "*", "path"]]],
 ]);
 
+/** The stream whose frames carry the session's events, each change's `event` one of them. */
+const SESSION_EVENT_SUBSCRIBE_METHOD =
+  SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.event.subscribe"].method;
+
+/** The session events that offer a path to open, by type, and where in the payload it sits. */
+const EVENT_PATH_LOCATIONS: ReadonlyMap<SessionEventType, readonly PathLocation[]> = new Map([
+  // A provider's notice that it ignored its settings names the file, which the banner opens.
+  ["session.notice.posted", [["file"]]],
+]);
+
 /** Every verb whose request or reply carries a path main swaps or mints a token for. */
 export const FILE_PATH_METHODS: ReadonlySet<string> = new Set([
   ...REQUEST_PATH_MEMBERS.keys(),
@@ -64,6 +79,23 @@ export const FILE_PATH_METHODS: ReadonlySet<string> = new Set([
  */
 export function readsReplyPaths(method: string): boolean {
   return REPLY_PATH_LOCATIONS.has(method) || method === ATTACHMENT_ADD_METHOD;
+}
+
+/**
+ * Whether a frame of the stream `method`, as the JSON text the daemon sent, may offer a path to
+ * open, so the client helper asks main to mint its tokens. A screen over the text before anyone
+ * parses it: a frame it passes that offers none costs one parse, and one it stops offers none.
+ */
+export function mayOfferPathsToOpen(method: string, json: string): boolean {
+  if (method !== SESSION_EVENT_SUBSCRIBE_METHOD) {
+    return false;
+  }
+  for (const type of EVENT_PATH_LOCATIONS.keys()) {
+    if (json.includes(`"${type}"`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -86,10 +118,10 @@ export function swapTokensForPaths(
 }
 
 /**
- * A token to open each absolute path `method`'s reply `value` offers, minted for `owner` and keyed
- * by the path, so the page opens what it shows. A path that is not absolute is shown and never
- * opened: a program handed one could read it as an option. Empty for a verb whose reply offers
- * none.
+ * A token to open each absolute path `method`'s reply or stream frame `value` offers, minted for
+ * `owner` and keyed by the path, so the page opens what it shows. A path that is not absolute is
+ * shown and never opened: a program handed one could read it as an option. Empty for a verb whose
+ * value offers none.
  */
 export function mintTokensForPaths(
   filePathRefs: FilePathRefs,
@@ -98,11 +130,9 @@ export function mintTokensForPaths(
   value: unknown,
 ): Readonly<Record<string, FilePathRef>> {
   const refsByPath = new Map<string, FilePathRef>();
-  for (const location of REPLY_PATH_LOCATIONS.get(method) ?? []) {
-    for (const path of valuesAt(value, location)) {
-      if (typeof path === "string" && isAbsolutePath(path) && !refsByPath.has(path)) {
-        refsByPath.set(path, filePathRefs.mint(owner, "open", path));
-      }
+  for (const path of offeredPaths(method, value)) {
+    if (typeof path === "string" && isAbsolutePath(path) && !refsByPath.has(path)) {
+      refsByPath.set(path, filePathRefs.mint(owner, "open", path));
     }
   }
   return Object.fromEntries(refsByPath);
@@ -130,6 +160,26 @@ export function copiedFilePaths(method: string, sent: unknown, value: unknown): 
     }
   }
   return copied;
+}
+
+/** Every value `method`'s reply or stream frame `value` holds where it offers a path to open. */
+function* offeredPaths(method: string, value: unknown): Generator<unknown> {
+  for (const location of REPLY_PATH_LOCATIONS.get(method) ?? []) {
+    yield* valuesAt(value, location);
+  }
+  if (method !== SESSION_EVENT_SUBSCRIBE_METHOD) {
+    return;
+  }
+  for (const event of valuesAt(value, ["changes", "*", "event"])) {
+    if (!isPlainObject(event) || typeof event["type"] !== "string") {
+      continue;
+    }
+    // A type no entry names offers no path, so the lookup by an unchecked string is safe.
+    const type = event["type"] as SessionEventType;
+    for (const location of EVENT_PATH_LOCATIONS.get(type) ?? []) {
+      yield* valuesAt(event["payload"], location);
+    }
+  }
 }
 
 /** `value` with what sits at `location` replaced by `replace`'s answer; a copy where it changed. */

@@ -10,7 +10,7 @@ import {
 } from "@ai-sidekicks/contracts/terminal";
 
 /** Read a `terminal.control.changed` payload, or `undefined` where the wire's is off contract. */
-export function readPtyControlChangedPayload(
+export function readTerminalControlChangedPayload(
   payload: unknown,
 ): TerminalControlChangedPayload | undefined {
   return validateTerminalControlChangedPayload(payload) ? payload : undefined;

@@ -4,9 +4,10 @@
 // structured builder is expressed over the raw one, so there is one answer to what an event's
 // id, session and instant look like.
 
-import { PTY_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/pty";
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import { TERMINAL_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/terminal";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
@@ -19,9 +20,9 @@ import { eventOfKind } from "#test/helpers/session/events.js";
  * This device, taken from the scenario. The fold treats a device id as an opaque string, so a
  * placeholder would pass every case yet be a holder no daemon could emit.
  */
-export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.owner;
+export const THIS_DEVICE_ID = TERMINAL_SCENARIO_ROLES.owner as DeviceId;
 /** A second device, taken from the scenario for the same reason. */
-export const OTHER_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.otherDevice;
+export const OTHER_DEVICE_ID = TERMINAL_SCENARIO_ROLES.otherDevice as DeviceId;
 
 /** The shell every transition below names unless a case names another. */
 export const SHELL_ID = "shell-1" as TerminalId;
@@ -33,7 +34,7 @@ export const RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0199" as RunId;
 export const COMMAND_ID = "command-1" as CommandId;
 
 /**
- * A `pty.control_changed` carrying exactly the payload a case hands it. The reader's suites
+ * A `terminal.control.changed` carrying exactly the payload a case hands it. The reader's suites
  * decide the member set, including an absent payload.
  */
 export function leaseEventWithPayload(
@@ -44,7 +45,12 @@ export function leaseEventWithPayload(
   return {
     // The app's one admitted-event builder, plus the actor a lease move is attributed to,
     // which it does not take.
-    ...eventOfKind(TERMINAL_LEASE_SCENARIO.sessionId, PTY_CONTROL_CHANGED_EVENT, sequence, payload),
+    ...eventOfKind(
+      TERMINAL_LEASE_SCENARIO.sessionId,
+      TERMINAL_CONTROL_CHANGED_EVENT,
+      sequence,
+      payload,
+    ),
     ...(actorId === undefined ? {} : { actorId }),
   };
 }

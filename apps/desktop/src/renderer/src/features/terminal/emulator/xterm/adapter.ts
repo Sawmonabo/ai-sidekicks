@@ -139,8 +139,12 @@ export class XtermTerminalAdapter {
     return this.#mountBinding.isStdinDisabled;
   }
 
-  /** Write daemon output into the buffer. The only way bytes reach the screen. */
-  public write(chunk: string, onWritten?: (() => void) | undefined): void {
+  /**
+   * Write the shell's output bytes into the buffer, as the daemon sent them. The only way output
+   * reaches the screen; the emulator decodes UTF-8 itself, so a character split across two chunks
+   * is joined.
+   */
+  public write(chunk: Uint8Array, onWritten?: (() => void) | undefined): void {
     this.#terminal?.write(chunk, onWritten);
   }
 

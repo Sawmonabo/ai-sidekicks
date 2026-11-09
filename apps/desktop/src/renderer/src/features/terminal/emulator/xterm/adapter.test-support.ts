@@ -42,12 +42,12 @@ export function mountedAdapter(options: AdapterOptions = {}): {
 }
 
 /**
- * One write, awaited through the library's own completion callback, which is the only honest
- * way to read after.
+ * One write of the text's UTF-8 bytes, as the shell's output arrives, awaited through the
+ * library's own completion callback, which is the only honest way to read after.
  */
 export async function writeText(adapter: XtermTerminalAdapter, text: string): Promise<void> {
   await new Promise<void>((resolve) => {
-    adapter.write(text, resolve);
+    adapter.write(new TextEncoder().encode(text), resolve);
   });
 }
 

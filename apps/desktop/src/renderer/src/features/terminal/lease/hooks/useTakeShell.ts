@@ -12,7 +12,8 @@
 
 import { useCallback } from "react";
 
-import type { SessionTakeControlRequest } from "@ai-sidekicks/contracts/pty";
+import type { TerminalControlTakeRequest } from "@ai-sidekicks/contracts/terminal";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -22,7 +23,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** The shell a take is for, and the pane's output subscription the hold is bound to. */
 export type TakeShellTarget = Pick<
-  SessionTakeControlRequest,
+  TerminalControlTakeRequest,
   "sessionId" | "terminalId" | "outputSubscriptionId"
 >;
 
@@ -57,7 +58,7 @@ const CONFIRMING_TAKE_SHELL: TakeShellPhase = {
 };
 
 /**
- * Drive `Take the shell`, its confirm and the forced `session.takeControl` it sends, against the
+ * Drive `Take the shell`, its confirm and the forced `terminal.control.take` it sends, against the
  * shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A served
  * take closes the confirm and sets no holder: the daemon accepting a take is not this device now
  * holding the shell. A refused take keeps the confirm open with the refusal beside it.
@@ -65,7 +66,7 @@ const CONFIRMING_TAKE_SHELL: TakeShellPhase = {
 export function useTakeShell(
   bridge: PlatformBridge,
   target: TakeShellTarget,
-  holderDeviceId: string | null,
+  holderDeviceId: DeviceId | null,
 ): UseTakeShellResult {
   const { sessionId, terminalId, outputSubscriptionId } = target;
   const { value: phase, publish } = useSubjectScopedState(
@@ -84,7 +85,7 @@ export function useTakeShell(
       return;
     }
     publish({ isConfirming: true, isInFlight: true, refusal: undefined });
-    const reply = await callDaemon(bridge, "session.takeControl", {
+    const reply = await callDaemon(bridge, "terminal.control.take", {
       sessionId,
       terminalId,
       outputSubscriptionId,

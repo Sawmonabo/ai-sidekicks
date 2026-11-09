@@ -6,7 +6,7 @@
 // register exists to prevent.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
+import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/intervention";
 
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
@@ -33,7 +33,7 @@ export function runIdOf(event: ProjectedSessionEvent): string | undefined {
   return correlationIdOf(event, RUN_CORRELATION_MEMBER);
 }
 
-const INTERVENTION_OPENED_BY: SessionEventType = "intervention.requested";
+const INTERVENTION_OPENED_BY: SessionEventType = "agent.intervention.requested";
 
 /**
  * Every intervention state's event but the opening one, read from the contract's closed state
@@ -41,7 +41,7 @@ const INTERVENTION_OPENED_BY: SessionEventType = "intervention.requested";
  */
 const INTERVENTION_CLOSED_BY: readonly SessionEventType[] = INTERVENTION_STATES.filter(
   (state) => state !== "requested",
-).map((state) => `intervention.${state}` as const);
+).map((state) => `agent.intervention.${state}` as const);
 
 /**
  * The approval and intervention lifecycles. A provider's permission ask opens an approval, so it

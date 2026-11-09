@@ -408,12 +408,17 @@ export interface DaemonWire {
    * answers, its first delivery is the current state, and it never ends. A daemon subscription
    * that ends, because the daemon completed or refused it or the link or the helper under it
    * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
-   * Each value comes with the bytes its `{"$bytes": n}` members name.
+   * Each value comes with the bytes its `{"$bytes": n}` members name, and the token main minted
+   * for each path it offers to open, keyed by the path, where it offers one.
    */
   subscribe<E extends DaemonWireTopic>(
     event: E,
     params: DaemonWireRequest<E>,
-    handler: (payload: DaemonWirePayload<E>, attachments: readonly Uint8Array[]) => void,
+    handler: (
+      payload: DaemonWirePayload<E>,
+      attachments: readonly Uint8Array[],
+      fileRefs?: Readonly<Record<string, FilePathRef>>,
+    ) => void,
     onEnded?: (end: DaemonSubscriptionEnd) => void,
   ): Unsubscribe;
   /**

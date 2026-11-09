@@ -30,23 +30,20 @@ function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactLis
 }
 
 describe("artifact list reader — what makes it read again", () => {
-  it.each(["artifact.published", "artifact.superseded"])(
-    "reads again when a %s frame arrives",
-    async (kind) => {
-      const clock = new ManualClock();
-      const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-      const reader = readerOver(sessionStore, clock);
-      reader.start();
-      await readThrough(clock);
-      expect(reader.performCount).toBe(1);
+  it("reads again when an artifact.published frame arrives", async () => {
+    const clock = new ManualClock();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const reader = readerOver(sessionStore, clock);
+    reader.start();
+    await readThrough(clock);
+    expect(reader.performCount).toBe(1);
 
-      sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
-      sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
-      await readThrough(clock);
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
+    await readThrough(clock);
 
-      expect(reader.performCount).toBe(2);
-    },
-  );
+    expect(reader.performCount).toBe(2);
+  });
 
   it("reads again on the repair edge that stands for a reconnect", async () => {
     // Nothing publishes a bridge-level "reconnected", so the observed edge is the store's

@@ -1,8 +1,8 @@
-// Folds a session's `pty.control_changed` events into one shell's lease state, from this
+// Folds a session's `terminal.control.changed` events into one shell's lease state, from this
 // device's point of view.
 //
 // The holder is a wire field and is never derived from the last observed take, so nothing
-// here reads the outcome of a `session.takeControl` call. A take that succeeded and one whose
+// here reads the outcome of a `terminal.control.take` call. A take that succeeded and one whose
 // broadcast never arrived look identical at the call site, and only one means the person may
 // type; the lease line changes only when the transition comes back on the log.
 //
@@ -12,13 +12,14 @@
 // given the same events, listing, shell and device it gives the same state, so a rebuild is
 // deterministic and a reconnect heals by re-running it.
 
-import {
-  PTY_CONTROL_CHANGED_EVENT,
-  type PtyListEntry,
-  type TerminalId,
-} from "@ai-sidekicks/contracts/pty";
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import {
+  TERMINAL_CONTROL_CHANGED_EVENT,
+  type TerminalId,
+  type TerminalListEntry,
+} from "@ai-sidekicks/contracts/terminal";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
@@ -59,7 +60,7 @@ export type DrawnLeaseHolder = Exclude<TerminalLeaseHolder, (typeof UNDRAWN_LEAS
 export interface TerminalLeaseState {
   readonly holder: TerminalLeaseHolder;
   /** The device the wire named as the holder, or `null` for a free lease. Never inferred. */
-  readonly holderDeviceId: string | null;
+  readonly holderDeviceId: DeviceId | null;
   /** The run the wire named as the holder, while an agent's run holds the shell. */
   readonly holderRunId: RunId | undefined;
   /** The run's command the wire named as the holder; the run's hold ends when it ends. */
@@ -67,7 +68,7 @@ export interface TerminalLeaseState {
 }
 
 /** A holder read off the shell list or the shell's scrollback, at its lease version. */
-export type ListedTerminalLease = Pick<PtyListEntry, "holder" | "leaseVersion">;
+export type ListedTerminalLease = Pick<TerminalListEntry, "holder" | "leaseVersion">;
 
 /** What the fold needs beyond the events. */
 export interface TerminalLeaseProjectionInput {
@@ -111,11 +112,12 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * Fold a session's events into one shell's lease state. Total and pure.
  *
  * Other event kinds and transitions naming another shell are skipped, and of the listed holder and
- * the readable transitions the one at the newest lease version holds. A `pty.control_changed` the
- * reader cannot read (an unknown reason, no payload, or a holder shape that contradicts its reason)
- * is not skipped unless it plainly names another shell: until a readable transition follows it,
- * the holder is `not-checked`, which shows no holder and writes nothing. Skipping it would leave
- * the previous holder standing, and stdin open for someone who no longer holds the shell.
+ * the readable transitions the one at the newest lease version holds. A `terminal.control.changed`
+ * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts its
+ * reason) is not skipped unless it plainly names another shell: until a readable transition
+ * follows it, the holder is `not-checked`, which shows no holder and writes nothing. Skipping it
+ * would leave the previous holder standing, and stdin open for someone who no longer holds the
+ * shell.
  */
 export function projectTerminalLease(
   events: readonly ProjectedSessionEvent[],
@@ -128,7 +130,7 @@ export function projectTerminalLease(
   let isNewestUnread = false;
 
   for (const event of events) {
-    if (event.kind !== PTY_CONTROL_CHANGED_EVENT) {
+    if (event.kind !== TERMINAL_CONTROL_CHANGED_EVENT) {
       continue;
     }
     const transition = readTerminalLeaseTransition(event);
@@ -190,7 +192,7 @@ function readListedLease(listed: ListedTerminalLease): LeaseReading {
 // so neither a live body nor `Take the shell` is shown for a hold that may be this device's.
 function readHolder(state: {
   readonly hasReadHolder: boolean;
-  readonly holderDeviceId: string | null;
+  readonly holderDeviceId: DeviceId | null;
   readonly holderRunId: RunId | undefined;
   readonly thisDeviceId: string | undefined;
 }): TerminalLeaseHolder {

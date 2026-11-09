@@ -63,7 +63,7 @@ describe("taking the shell from another device", () => {
     fireEvent.click(screen.getByRole("button", { name: "Take it" }));
     await settle();
     expect(takes.takes).toStrictEqual([
-      { method: "session.takeControl", params: { ...TAKE_TARGET, force: true } },
+      { method: "terminal.control.take", params: { ...TAKE_TARGET, force: true } },
     ]);
     // While it is out both buttons say they are unavailable yet stay focusable, and neither a press
     // nor Escape sends again or cancels.
@@ -101,7 +101,7 @@ describe("taking the shell from another device", () => {
     fireEvent.click(screen.getByRole("button", { name: "Take it" }));
     await settle();
     await settle(() => {
-      takes.refuse(0, "pty.control_held_by_other", reason);
+      takes.refuse(0, "terminal.control.heldByOther", reason);
     });
     expect(screen.getByRole("group", { name: QUESTION })).toBeTruthy();
     expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toContain(reason);
@@ -114,7 +114,7 @@ describe("taking the shell from another device", () => {
     fireEvent.click(takeIt);
     await settle();
     await settle(() => {
-      takes.refuse(1, "pty.control_held_by_other", reason);
+      takes.refuse(1, "terminal.control.heldByOther", reason);
     });
     expect(said.spokenOn("assertive")).toStrictEqual([reason, reason]);
     expect(said.spokenOn("polite")).toStrictEqual([]);

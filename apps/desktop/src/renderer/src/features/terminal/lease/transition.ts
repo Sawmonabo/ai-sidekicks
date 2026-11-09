@@ -1,4 +1,4 @@
-// Reads one `pty.control_changed` event on its own, with no ordering and no device.
+// Reads one `terminal.control.changed` event on its own, with no ordering and no device.
 //
 // The holder is a wire field and is never derived from the last observed take. The holder shape
 // each reason requires (a take names its holder, every release names the holder it ended, a
@@ -8,20 +8,21 @@
 // a lease state.
 
 import type { CommandId } from "@ai-sidekicks/contracts/command";
-import type { PtyControlChangedReason, TerminalId } from "@ai-sidekicks/contracts/pty";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { TerminalControlChangedReason, TerminalId } from "@ai-sidekicks/contracts/terminal";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
-import { readPtyControlChangedPayload } from "#renderer/services/daemon/payload/pty-control-changed.js";
+import { readTerminalControlChangedPayload } from "#renderer/services/daemon/payload/terminal-control-changed.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One transition, as the fold reads it. */
 export interface TerminalLeaseTransition {
   /** The shell whose holder changed. */
   readonly terminalId: TerminalId;
-  readonly reason: PtyControlChangedReason;
+  readonly reason: TerminalControlChangedReason;
   /** The device holding the shell after this transition; `null` is the free lease. */
-  readonly holderDeviceId: string | null;
+  readonly holderDeviceId: DeviceId | null;
   /** The run holding the shell after this transition, while an agent's run holds it. */
   readonly holderRunId: RunId | undefined;
   /** The run's command holding the shell, named whenever the run is. */
@@ -38,7 +39,7 @@ export interface TerminalLeaseTransition {
 export function readTerminalLeaseTransition(
   event: ProjectedSessionEvent,
 ): TerminalLeaseTransition | undefined {
-  const payload = readPtyControlChangedPayload(event.payload);
+  const payload = readTerminalControlChangedPayload(event.payload);
   if (payload === undefined) {
     return undefined;
   }

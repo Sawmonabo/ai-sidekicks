@@ -18,7 +18,6 @@ describe("artifact list reads — a served list", () => {
         artifactType: "diff",
         digest: "sha256:2b4c",
         size: 4096,
-        state: "published",
         // Freeform provenance is `unknown` on the wire and drawn as a string.
         metadata: { mediaType: "text/x-patch", turnOrdinal: "12" },
         createdAt: "2026-09-02T07:00:00.000Z",

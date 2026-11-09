@@ -11,7 +11,7 @@
 
 import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { PTY_CONTROL_CHANGED_EVENT } from "@ai-sidekicks/contracts/pty";
+import { TERMINAL_CONTROL_CHANGED_EVENT } from "@ai-sidekicks/contracts/terminal";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
@@ -78,7 +78,7 @@ function standingSubjectOf(event: ProjectedSessionEvent): string | undefined {
     case CONTEXT_COMPACTED_EVENT_KIND:
       return readWireString(event.payload?.["runId"]);
     // Readable or not: an unreadable change is what keeps a shell's lease unread.
-    case PTY_CONTROL_CHANGED_EVENT:
+    case TERMINAL_CONTROL_CHANGED_EVENT:
       return readWireString(event.payload?.["terminalId"]) ?? UNNAMED_SUBJECT;
     case SESSION_CREATED_EVENT_KIND:
       return UNNAMED_SUBJECT;

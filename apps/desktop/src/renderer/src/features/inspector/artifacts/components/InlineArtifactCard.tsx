@@ -14,7 +14,6 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../model.js";
-import { ARTIFACT_STATE_TONES } from "../copy.js";
 import type { ArtifactInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
@@ -52,14 +51,13 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
   );
 }
 
-/** The card's body: the manifest's type, state and size. */
+/** The card's body: the manifest's type and size. */
 function renderManifestFace(manifest: ArtifactManifestRow): React.JSX.Element {
   const size = formatByteQuantity(manifest.size);
   return (
     <div className="meridian-artifact-card__body">
       <div className="meridian-artifact-card__face">
         <Chip label={codeWords(manifest.artifactType)} />
-        <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={codeWords(manifest.state)} />
         <WireFigure value={size.text} hoverLabel={size.exactText} />
       </div>
     </div>

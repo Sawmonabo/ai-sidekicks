@@ -60,6 +60,8 @@ export type ClientHelperAnswer =
       readonly streamId: number;
       readonly json: string;
       readonly attachments: readonly Uint8Array[];
+      /** Each path the value offers to open, and the token main minted for it. */
+      readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
     }
   | {
       readonly kind: "stream.ended";

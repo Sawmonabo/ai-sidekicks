@@ -13,6 +13,7 @@ import {
   type ClientHelperWindowPort,
 } from "./helper.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type { FilePathRef } from "#shared/preload-api.js";
 
 import type { ClientHelperToMainMessage, MainToClientHelperMessage } from "./messages.js";
 
@@ -242,6 +243,53 @@ describe("the client helper", () => {
     });
     await Promise.resolve();
     expect(helper.toWindow.filter((answer) => answer.kind === "call.served")).toHaveLength(0);
+  });
+
+  it("holds a frame behind main's tokens for the file it offers, keeping the frames in order", async () => {
+    const helper = servedHelper();
+    helper.sendFromWindow({
+      kind: "stream.open",
+      streamId: 8,
+      method: "session.event.subscribe",
+      params: { sessionId: "0199f0a4-5c2e-7a3b-8c1d-2e3f4a5b6c7d" },
+      attachments: [],
+    });
+    await vi.waitFor(() => {
+      expect(helper.toWindow).toContainEqual(expect.objectContaining({ kind: "stream.opened" }));
+    });
+    const onEvent = helper.daemon.client.subscribe.mock.calls[0]![3];
+    const noticeJson = JSON.stringify({
+      kind: "changes",
+      changes: [{ event: { type: "session.notice.posted", payload: { file: "/Users/me/a" } } }],
+    });
+    onEvent({ isEnd: false, value: { json: noticeJson, attachments: [] } });
+    onEvent({ isEnd: false, value: { json: '{"kind":"behind"}', attachments: [] } });
+    await vi.waitFor(() => {
+      expect(helper.toMain.some((message) => message.kind === "filePaths.mint")).toBe(true);
+    });
+    // The frame after the notice waits for the notice, which waits for main.
+    expect(helper.toWindow.filter((answer) => answer.kind === "stream.value")).toHaveLength(0);
+
+    const ask = helper.toMain.find((message) => message.kind === "filePaths.mint")!;
+    const token = "token-a" as FilePathRef;
+    helper.sendFromMain({
+      kind: "filePaths.minted",
+      askId: ask.kind === "filePaths.mint" ? ask.askId : -1,
+      fileRefs: { "/Users/me/a": token },
+    });
+    await vi.waitFor(() => {
+      expect(helper.toWindow.filter((answer) => answer.kind === "stream.value")).toHaveLength(2);
+    });
+    expect(helper.toWindow.filter((answer) => answer.kind === "stream.value")).toStrictEqual([
+      {
+        kind: "stream.value",
+        streamId: 8,
+        json: noticeJson,
+        attachments: [],
+        fileRefs: { "/Users/me/a": token },
+      },
+      { kind: "stream.value", streamId: 8, json: '{"kind":"behind"}', attachments: [] },
+    ]);
   });
 
   it("drops a wait main closed before it settled, closing its client and telling main nothing", async () => {

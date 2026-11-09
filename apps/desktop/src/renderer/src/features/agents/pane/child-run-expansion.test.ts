@@ -4,9 +4,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
@@ -20,12 +20,12 @@ const PARENT_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
 /** A second child of the same parent, for the cases about two lines at once. */
 const SECOND_CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150093" as RunId;
 
-/** One registered `ChildRunExpandResponse`, on the arm `hasMore` names. */
+/** One registered `TranscriptChildRunExpandResponse`, on the arm `hasMore` names. */
 function expansionReply(
   entryCount: number,
   hasMore = false,
   childRunId: RunId = CHILD_RUN_ID,
-): ChildRunExpandResponse {
+): TranscriptChildRunExpandResponse {
   const base = {
     runId: childRunId,
     parentRunId: PARENT_RUN_ID,
@@ -36,21 +36,26 @@ function expansionReply(
         id: `child-${String(index)}`,
         sessionId: SESSION_ID,
         sequence: index,
-        cursor: `cursor-at-${String(index)}` as EventCursor,
-        category: "run_lifecycle",
-        type: "run.started",
+        cursor: encodeEventCursor(index),
+        category: "runLifecycle",
+        type: "agent.run.starting",
         timestamp: new Date(Date.UTC(2026, 0, 1, 9, 0, index)).toISOString(),
         kind: "run",
         runId: childRunId,
         position: index,
         epoch: 0,
-        payload: {},
+        payload: { runId: childRunId },
         content: { status: "unavailable", reason: "absent" },
       }),
     ),
   } as const;
   return hasMore
-    ? { ...base, hasMore: true, nextCursor: "cursor-next" as EventCursor }
+    ? {
+        ...base,
+        hasMore: true,
+        nextCursor: encodeEventCursor(entryCount),
+        joinedThrough: encodeEventCursor(entryCount),
+      }
     : { ...base, hasMore: false };
 }
 
@@ -71,7 +76,7 @@ function bridgeHoldingExpansions(): HeldExpansions {
     releaseReplies = resolve;
   });
   const { bridge } = bridgeAnswering(async (call, passThrough) => {
-    if (call.method !== "transcript.childRunExpand") {
+    if (call.method !== "transcript.childRun.expand") {
       return passThrough();
     }
     await untilReleased;
@@ -89,7 +94,7 @@ function bridgeHoldingExpansions(): HeldExpansions {
 describe("child-run expansion — what a press leaves on screen", () => {
   it("holds the entries the daemon served and reports the unread remainder", async () => {
     const { bridge } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "transcript.childRunExpand" ? expansionReply(2, true) : passThrough(),
+      call.method === "transcript.childRun.expand" ? expansionReply(2, true) : passThrough(),
     );
     const expansions = new ChildRunExpansionState();
     const settled = await expansions.expand(bridge, CHILD_RUN_ID);
@@ -100,16 +105,16 @@ describe("child-run expansion — what a press leaves on screen", () => {
 
   it("sends the child run's own id and nothing else", async () => {
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "transcript.childRunExpand" ? expansionReply(0) : passThrough(),
+      call.method === "transcript.childRun.expand" ? expansionReply(0) : passThrough(),
     );
     await new ChildRunExpansionState().expand(bridge, CHILD_RUN_ID);
-    const expandCall = calls.find((call) => call.method === "transcript.childRunExpand");
+    const expandCall = calls.find((call) => call.method === "transcript.childRun.expand");
     expect(expandCall?.params).toEqual({ runId: CHILD_RUN_ID });
   });
 
   it("takes callDaemon's own refusal when the call is rejected, and never raises", async () => {
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method !== "transcript.childRunExpand") {
+      if (call.method !== "transcript.childRun.expand") {
         return passThrough();
       }
       throw new Error("the daemon is not reachable");
@@ -124,7 +129,7 @@ describe("child-run expansion — what a press leaves on screen", () => {
   it("keeps the rows an earlier expansion delivered when a later one fails", async () => {
     let shouldFail = false;
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method !== "transcript.childRunExpand") {
+      if (call.method !== "transcript.childRun.expand") {
         return passThrough();
       }
       if (shouldFail) {
@@ -142,14 +147,14 @@ describe("child-run expansion — what a press leaves on screen", () => {
 
   it("puts one call on the wire when a person presses twice", async () => {
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "transcript.childRunExpand" ? expansionReply(1) : passThrough(),
+      call.method === "transcript.childRun.expand" ? expansionReply(1) : passThrough(),
     );
     const expansions = new ChildRunExpansionState();
     const [first, second] = await Promise.all([
       expansions.expand(bridge, CHILD_RUN_ID),
       expansions.expand(bridge, CHILD_RUN_ID),
     ]);
-    expect(calls.filter((call) => call.method === "transcript.childRunExpand")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "transcript.childRun.expand")).toHaveLength(1);
     expect(first.status).toBe("expanded");
     expect(second.status).toBe("expanding");
   });

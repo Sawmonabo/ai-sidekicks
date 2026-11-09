@@ -1,6 +1,6 @@
 // The lease line: who holds one of the session's shells, the take control beside it, and why a
 // take was refused. It states the holder from the fold and never derives it from a take: the line
-// moves when a `pty.control_changed` transition reaches the fold. Nothing is drawn until the
+// moves when a `terminal.control.changed` transition reaches the fold. Nothing is drawn until the
 // holder and its name have been read, while nobody holds the shell, or while this device does.
 // The take is offered only against another device's hold; a run's hold is never taken.
 

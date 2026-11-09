@@ -4,6 +4,8 @@
 
 import { render, type RenderResult } from "@testing-library/react";
 
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
+
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -14,7 +16,7 @@ import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../state.js";
 import { LeaseLine } from "./LeaseLine.js";
 
 /** A third device, beside this one and the scenario's other, for a hold that moves between two. */
-export const THIRD_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0133";
+export const THIRD_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0133" as DeviceId;
 
 /** The rendered line, and every sentence the window's announcer was asked to say. */
 export interface RenderedLease extends RenderResult {

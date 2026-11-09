@@ -9,7 +9,7 @@
 
 import { useMemo } from "react";
 
-import type { TerminalId } from "@ai-sidekicks/contracts/pty";
+import type { TerminalId } from "@ai-sidekicks/contracts/terminal";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "#renderer/store/session/store.js";

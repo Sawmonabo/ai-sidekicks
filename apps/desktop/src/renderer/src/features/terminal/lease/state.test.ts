@@ -24,7 +24,7 @@ describe("the lease fold — what the wire said, and only that", () => {
         holderRunId: RUN_ID,
         holderCommandId: COMMAND_ID,
       }),
-      transitionEvent(3, "auto_released_command_ended", THIS_DEVICE_ID, THIS_DEVICE_ID),
+      transitionEvent(3, "autoReleasedCommandEnded", THIS_DEVICE_ID, THIS_DEVICE_ID),
     ];
     expect(
       projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holder,
@@ -45,7 +45,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     const state = projectTerminalLease(
       [
         transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "auto_released_disconnect", null, OTHER_DEVICE_ID),
+        transitionEvent(2, "autoReleasedDisconnect", null, OTHER_DEVICE_ID),
         transitionEvent(3, "taken", THIS_DEVICE_ID),
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
@@ -69,7 +69,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     ).toBe("held-by-this-device");
     // A newer change replaces it, and a free listing at a newer version frees the shell.
     const newer = [
-      transitionEvent(10, "taken_by_force", OTHER_DEVICE_ID, THIS_DEVICE_ID, { leaseVersion: 6 }),
+      transitionEvent(10, "takenByForce", OTHER_DEVICE_ID, THIS_DEVICE_ID, { leaseVersion: 6 }),
     ];
     expect(
       projectTerminalLease(newer, {
@@ -92,7 +92,7 @@ describe("the lease fold — what the wire said, and only that", () => {
         [
           transitionEvent(11, "taken", OTHER_DEVICE_ID, null, { leaseVersion: 1 }),
           leaseEventWithPayload(12, { reason: "seized", terminalId: SHELL_ID }),
-          transitionEvent(13, "taken_by_force", THIS_DEVICE_ID, OTHER_DEVICE_ID, {
+          transitionEvent(13, "takenByForce", THIS_DEVICE_ID, OTHER_DEVICE_ID, {
             leaseVersion: 3,
           }),
         ],
@@ -195,7 +195,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
   // The take that granted this device the lease, then a move this build cannot read.
   const grantedThenUnread = [
     transitionEvent(1, "taken", THIS_DEVICE_ID),
-    transitionEvent(2, "auto_released_quota_exhausted", null, THIS_DEVICE_ID),
+    transitionEvent(2, "autoReleasedQuotaExhausted", null, THIS_DEVICE_ID),
   ];
 
   it("stops reporting this device as the holder the moment a transition cannot be read", () => {
@@ -243,7 +243,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
 describe("a holder shape that contradicts its reason is unread, not normalized", () => {
   it("refuses a disconnect that names this device, rather than reading it as its hold", () => {
     const state = projectTerminalLease(
-      [transitionEvent(1, "auto_released_disconnect", THIS_DEVICE_ID, THIS_DEVICE_ID)],
+      [transitionEvent(1, "autoReleasedDisconnect", THIS_DEVICE_ID, THIS_DEVICE_ID)],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     // The one reading that opens stdin for somebody the daemon just took the shell from.

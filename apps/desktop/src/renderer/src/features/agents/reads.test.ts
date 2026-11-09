@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
 import { createChildRunLinks } from "./reads.js";
 import { initializedStore } from "#test/helpers/session/store/fixtures.js";
@@ -46,11 +47,11 @@ describe("the Agents pane's models — what re-reads the session's child links",
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, RUN_QUEUED_EVENT_KIND, 1));
     await settleReads(clock);
     expect(read.readCount).toBe(afterFirstRead + 1);
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "orchestration.rejected", 2));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "agent.run.rejected", 2));
     await settleReads(clock);
     expect(read.readCount).toBe(afterFirstRead + 2);
   });
@@ -62,7 +63,7 @@ describe("the Agents pane's models — what re-reads the session's child links",
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 1));
+    sessionStore.apply(eventOfKind(sessionStore.sessionId, "agent.message.sent", 1));
     await settleReads(clock);
 
     expect(read.readCount).toBe(afterFirstRead);

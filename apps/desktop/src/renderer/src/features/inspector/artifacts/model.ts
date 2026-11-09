@@ -2,8 +2,8 @@
 // the panel draws from.
 //
 // `ArtifactManifestRow` is a console view model that copies the contract's `ArtifactManifest`.
-// The state and type vocabularies are the contract's own unions, so a member the wire drops
-// fails the row type, the filter and the copy tables in the same compile.
+// The filter's types are the contract's own union, so a type the wire drops fails the filter in
+// the same compile; a type a newer daemon sends is drawn by its own words under every type.
 //
 // Models no payload preview: payloads are explicit-fetch downloads, and nothing in the product
 // executes one.
@@ -11,14 +11,10 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
   ArtifactManifest,
-  ArtifactState as ManifestState,
   ArtifactType as ManifestType,
 } from "@ai-sidekicks/contracts/artifacts/manifest";
 
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
-
-/** One artifact state: an alias of the wire's union, so a dropped member fails the compile. */
-export type ArtifactState = ManifestState;
 
 /** One artifact type: a filter over one list, so the diff pane is a view onto it. */
 export type ArtifactType = ManifestType;
@@ -34,10 +30,10 @@ export interface ArtifactManifestRow {
   readonly sessionId: string;
   /** The run that produced it, when a run did. */
   readonly runId?: string | undefined;
-  readonly artifactType: ArtifactType;
+  /** Its type: one the filter offers, or one a newer daemon sends, as sent. */
+  readonly artifactType: ArtifactManifest["artifactType"];
   readonly digest: string;
   readonly size: number;
-  readonly state: ArtifactState;
   readonly metadata: Readonly<Record<string, string>>;
   readonly createdAt: string;
 }
@@ -49,7 +45,7 @@ const NO_ARTIFACTS_BY_TYPE: Readonly<Record<ArtifactType, number>> = {
   summary: 0,
   log: 0,
   design: 0,
-  workflow_output: 0,
+  workflowOutput: 0,
 };
 
 /**
@@ -91,7 +87,8 @@ export function filterArtifactRows(
 }
 
 /**
- * How many rows each type has, zeros included, so the filter can offer every type.
+ * How many rows each type has, zeros included, so the filter can offer every type. A type the
+ * filter does not offer counts under none.
  *
  * @consumedBy the inspector's Artifacts section
  */
@@ -100,7 +97,9 @@ export function artifactTypeCounts(
 ): Readonly<Record<ArtifactType, number>> {
   const counts: Record<ArtifactType, number> = { ...NO_ARTIFACTS_BY_TYPE };
   for (const row of rows) {
-    counts[row.artifactType] += 1;
+    if (isFilterType(row.artifactType)) {
+      counts[row.artifactType] += 1;
+    }
   }
   return counts;
 }
@@ -119,10 +118,13 @@ export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactMan
     artifactType: manifest.artifactType,
     digest: manifest.digest,
     size: manifest.size,
-    state: manifest.state,
     metadata: renderableStringMap(manifest.metadata),
     createdAt: manifest.createdAt,
   };
+}
+
+function isFilterType(artifactType: string): artifactType is ArtifactType {
+  return Object.hasOwn(NO_ARTIFACTS_BY_TYPE, artifactType);
 }
 
 /**
