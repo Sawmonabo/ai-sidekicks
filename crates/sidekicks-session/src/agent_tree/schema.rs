@@ -21,6 +21,7 @@ CREATE TABLE agent_tree_nodes (
   name                 TEXT,                    -- Codex's nickname; NULL on Claude
   role                 TEXT,                    -- Claude's subagent type or Codex's agent role
   provider_path        TEXT,                    -- the helper's path in Codex's tree; NULL on Claude
+  ask                  TEXT,                    -- the ask its first start named
   model_id             TEXT,                    -- the model its first start named
   effort               TEXT,                    -- the effort its first start named
   -- The Claude call that started the newest own run, which an automatic resume names again; NULL

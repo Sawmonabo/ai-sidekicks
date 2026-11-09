@@ -63,16 +63,28 @@ interface AgentChildRunLinkListRequest {
 type AgentTreeMember =
   | { kind: "agent"; agentId: AgentId }
   | { kind: "providerChild"; runId: RunId; childHandle: string };
-// What a child's head reads after its name. A provider's own helper takes its model from its newest
-// usage row, then the nearest node in its lineage, then its parent's binding, and its effort from its
-// node, then its parent's binding.
+// What a child's row and head draw. A provider's own helper takes its model from its newest usage
+// row, then the nearest node in its lineage, then its parent's binding, and its effort from its node,
+// then its parent's binding; its name and ask from its first start, which its driver reads from the
+// provider's own start of it. Tool calls, activity, end, result and failure are the child's own run's
+// (a helper's newest own run's). Whether it waits on an approval is its link's state.
 interface ChildRunHead {
+  agentName: string | null; // a run's agent's name; a helper's provider-given name, else the role it started in
+  ask: string | null; // the ask it was dispatched with, whole: a run's first admitted send, a helper's start's prompt
   modelId: string;
   effort?: string; // one word from the one effort ladder
   viaAgentName?: string; // present where the child was a peer call: the agent that was asked
+  toolCount: number; // the tool calls it made
   tokens: number;
   spendUsdMicros: number; // integer micro-dollars, the same fold as the per-agent spend on session.budget.read
   startedAt: string;
+  endedAt: string | null; // its terminal record's time, null while it is live; the duration runs from startedAt
+  activity: { toolName: string } | null; // its newest tool call, null before its first
+  result: string | null; // its newest message's opening, at most 4,096 code points, once it ended
+  failureReason: {
+    failureCause?: object; // the cause agent.run.failed recorded, tagged by `cause`
+    providerFailureDetail?: string; // the provider's own words, where it sent them
+  } | null; // null unless it failed
   ancestry: AgentTreeMember[]; // from the lead down to this child's parent
 }
 type ChildRunLink =
@@ -610,7 +622,8 @@ type AgentRunQueuedPayload = {
 );
 
 // A provider's own helper as the run it starts names it: the handle the daemon minted for it at its
-// first start, the ids its provider gave it and its parent, and the model and effort the start names.
+// first start, the ids its provider gave it and its parent, and the ask, model and effort the start
+// names.
 interface ProviderChildStart {
   childHandle: string; // UUID
   provider: ProviderId;
@@ -620,6 +633,7 @@ interface ProviderChildStart {
   name?: string;
   role?: string;
   providerPath?: string;
+  ask?: string; // the ask its provider started it with, whole, where the start names one
   modelId?: string; // the model its provider started it on, where the start names one
   effort?: string; // the effort it was started at, in the provider's word
   startCallId?: ToolCallId; // the provider's call that started this run of the helper

@@ -15,6 +15,7 @@ use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
+use crate::run::queue::MessageContent;
 use crate::run::subagent::SubagentId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -64,7 +65,8 @@ agent_entry! {
 }
 
 /// A provider's own helper as the run it starts names it: the handle the daemon minted for it, the
-/// ids its provider gave it and its parent, and the model and effort the start names.
+/// ids its provider gave it and its parent, the ask it was started with, and the model and effort
+/// the start names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderChildStart {
@@ -114,6 +116,14 @@ pub struct ProviderChildStart {
     )]
     #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The ask its provider started it with, whole, where the start names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "MessageContent")]
+    pub ask: Option<MessageContent>,
     /// The model its provider started it on, where the start names one.
     #[serde(
         default,

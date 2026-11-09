@@ -7,6 +7,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
@@ -64,6 +65,7 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
                 name: None,
                 role: None,
                 provider_path: None,
+                ask: None,
                 model_id: None,
                 effort: None,
             },
@@ -292,6 +294,7 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
             name: handle("Scout"),
             role: handle("explorer"),
             provider_path: handle("/root/scout"),
+            ask: None,
             model_id: Some(test_token(HELPER_MODEL)),
             effort: Some(test_token("low")),
             start_call_id: None,
@@ -313,9 +316,10 @@ async fn a_v2_spawn_starts_its_helpers_child_run_as_codex_names_it() {
 
 // Each v1 spawn's helper starts beneath the run of its own call and its row names that call, though
 // the later call completes first, and a helper whose `thread/read` fails starts all the same, with
-// no name or role but the model and effort its completed item names. Kills: the oldest noted call
-// taken (`helper-b` beneath the first call's run), a failed read starting no run, and the v1 item's
-// `reasoningEffort` or model never read (the read fails, so the item is their only source).
+// no name or role but the ask, model and effort its completed item names. Kills: the oldest noted
+// call taken (`helper-b` beneath the first call's run), a failed read starting no run, and the v1
+// item's `prompt`, `reasoningEffort` or model never read (the read fails, so the item is their only
+// source).
 #[tokio::test]
 async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
     let mut session = TestCodexSession::start().await;
@@ -329,6 +333,7 @@ async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
             "agentsStates": {},
         });
         if call_id == "call-1" && !receivers.is_empty() {
+            item["prompt"] = json!("Map the auth module.");
             item["model"] = json!("gpt-5.4");
             item["reasoningEffort"] = json!("high");
         }
@@ -376,6 +381,10 @@ async fn each_v1_spawn_starts_its_helper_beneath_its_own_call() {
         .as_ref()
         .expect("a child run names its helper");
     assert_eq!((&helper_a.name, &helper_a.role), (&None, &None));
+    assert_eq!(
+        helper_a.ask.as_ref().map(MessageContent::as_str),
+        Some("Map the auth module.")
+    );
     assert_eq!(
         (&helper_a.model_id, &helper_a.effort),
         (&Some(test_token("gpt-5.4")), &Some(test_token("high")))
@@ -468,6 +477,7 @@ async fn start_helper(session: &mut TestCodexSession, helper_thread: &str) -> Ru
                 name: None,
                 role: None,
                 provider_path: None,
+                ask: None,
                 model_id: None,
                 effort: None,
             },

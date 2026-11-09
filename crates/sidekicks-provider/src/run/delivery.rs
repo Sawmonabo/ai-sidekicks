@@ -34,6 +34,7 @@ use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
 };
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::session::controls::events::{
@@ -78,6 +79,8 @@ pub struct ChildRunSubagent {
     pub role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The ask its provider started it with, whole, where the start names one.
+    pub ask: Option<MessageContent>,
     /// The model its provider started it on, where the start names one.
     pub model_id: Option<ProviderToken>,
     /// The reasoning effort its provider started it at, in the provider's own word, where the start

@@ -16,6 +16,7 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
@@ -134,6 +135,7 @@ fn helper(
         name: None,
         role: None,
         provider_path: None,
+        ask: None,
         model_id: None,
         effort: None,
         start_call_id: Some(ToolCallId::new(start_call_id.to_owned()).expect("a call id")),
@@ -713,13 +715,13 @@ async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
 }
 
 // A helper's later start binds its node to the newer run, keeping its handle and its first start,
-// the model and effort that start named included; a helper started beneath it hangs under its node;
-// and the fold rebuilds every row as the live writes left it. Killed by an insert per start, which
-// the unique key refuses, a new handle per start, `started_at` rewritten on a bind, the parent link
-// left unresolved, the payload or the node dropping the model or effort, a bind that rewrites them,
-// a live resume that names the newer run's own start's model, which is none, and by a fold that
-// mints a handle, inserts a handle it already wrote, drops the model or effort, or times a row by
-// the clock.
+// the ask, model and effort that start named included; a helper started beneath it hangs under its
+// node; and the fold rebuilds every row as the live writes left it. Killed by an insert per start,
+// which the unique key refuses, a new handle per start, `started_at` rewritten on a bind, the parent
+// link left unresolved, the payload or the node dropping the ask, model or effort, a bind that
+// rewrites them, a live resume that names the newer run's own start's model, which is none, and by
+// a fold that mints a handle, inserts a handle it already wrote, drops the ask, model or effort, or
+// times a row by the clock.
 #[tokio::test]
 async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows() {
     let database = TestDatabase::new(subagent_schema_parts());
@@ -739,6 +741,9 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
             .start_provider_subagent_run(
                 parent,
                 ChildRunSubagent {
+                    ask: Some(
+                        MessageContent::new("Map the auth module.".to_owned()).expect("an ask"),
+                    ),
                     model_id: Some(test_token("gpt-5.4-mini")),
                     effort: Some(test_token("low")),
                     ..helper("helper-1", None, "call-1")
@@ -766,7 +771,12 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
         .expect("the queued run names its session");
     assert_eq!(first_queued["providerChild"]["modelId"], "gpt-5.4-mini");
     assert_eq!(first_queued["providerChild"]["effort"], "low");
+    assert_eq!(first_queued["providerChild"]["ask"], "Map the auth module.");
     let helper_one = stored_node(&database, session_id, "helper-1");
+    assert_eq!(
+        helper_one.ask.as_ref().map(MessageContent::as_str),
+        Some("Map the auth module.")
+    );
     assert_eq!(helper_one.model_id, Some(test_token("gpt-5.4-mini")));
     assert_eq!(helper_one.effort, Some(test_token("low")));
     assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));

@@ -5,7 +5,7 @@ use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_provider::driver::run_control::ReattachedHelper;
 
 use super::read_helpers_to_reattach;
-use crate::agent_tree::read::tests::{SessionLog, at};
+use crate::agent_tree::read::tests::{NodeStart, SessionLog, at};
 
 fn helper(
     run_id: RunId,
@@ -53,7 +53,11 @@ fn live_helpers_come_with_their_ancestors_parents_first() {
         "c",
         Some(&p),
         &at(9),
-        (Some("gpt-5.4-mini"), Some("low")),
+        &NodeStart {
+            model_id: Some("gpt-5.4-mini"),
+            effort: Some("low"),
+            ..NodeStart::default()
+        },
     );
 
     let q_run = session.own_run(lead_run, "q", RunState::Completed, &at(10));

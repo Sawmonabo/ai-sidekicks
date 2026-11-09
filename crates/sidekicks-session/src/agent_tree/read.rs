@@ -1,6 +1,8 @@
 //! The session's agent tree as a client reads it: every child at any depth with its head, the
 //! badge's figures and the refused creates; and a wire handle resolved to its node.
 
+mod head;
+
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -23,11 +25,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, closed_word, optional_text_column, safe_int_column, text_column,
 };
 use sidekicks_store::events::session::read::readable_event_sql;
 
+use crate::agent_tree::read::head::{HEAD_LOG_STATEMENT_CAPACITY, HeadLog, run_ids_json};
 use crate::agent_tree::store::{AgentTreeNode, read_node, read_session_nodes};
 use crate::agents::projection::read_agent_row;
 use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
@@ -131,8 +135,10 @@ static SELECT_HELD_STOP_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The statements the tree read and [`resolve_child`] prepare on a read connection: the session's
 /// runs, its nodes, its helper starts, the newest models, the token counts, the refused creates,
-/// one node, one own run and whether a helper stop names it, then the run agent reader's.
-pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize = 9 + RUN_AGENT_STATEMENT_CAPACITY;
+/// one node, one own run and whether a helper stop names it, the heads' log reads, then the run
+/// agent reader's.
+pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize =
+    9 + HEAD_LOG_STATEMENT_CAPACITY + RUN_AGENT_STATEMENT_CAPACITY;
 
 /// The SQL test that a stop of a helper already interrupted, an `agent.subagent.stopped` of the
 /// session `session_sql`, names the run `own_run_sql` as the helper's own; each argument is a
@@ -236,10 +242,11 @@ pub fn resolve_child(
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
 /// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
 /// bound limits, except that a provider helper's model and effort are its own where its start named
-/// them, else those of the nearest helper above it whose start did; each head's spend is its
-/// member's own in `agent_spend`, 0 where the list names none. Fails as a run's agent read does,
-/// with [`AgentTreeReadError::RunMissing`] when a run the tree names has no row, and as SQLite or a
-/// stored column does.
+/// them, else those of the nearest helper above it whose start did, and its name and ask are its
+/// node's; each head's spend is its member's own in `agent_spend`, 0 where the list names none; its
+/// tool calls, end, activity, failure and result are its own run's, a node's newest own run's.
+/// Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the tree
+/// names has no row, and as SQLite, a stored column or a stored body does.
 pub fn read_agent_tree(
     reader: &Connection,
     session_id: &SessionId,
@@ -256,6 +263,22 @@ pub fn read_agent_tree(
     let newest_models = read_newest_models(reader, session_id, read_bound, &model_runs)?;
     let head_runs: Vec<RunId> = drafts.iter().map(|draft| draft.head_run).collect();
     let token_counts = read_token_counts(reader, session_id, &head_runs)?;
+    let ended_runs: Vec<RunId> = drafts
+        .iter()
+        .filter(|draft| draft.subject.state().is_terminal())
+        .map(|draft| draft.head_run)
+        .collect();
+    let admitted_runs: Vec<RunId> = drafts
+        .iter()
+        .filter(|draft| matches!(draft.subject, LinkSubject::Run { .. }))
+        .map(|draft| draft.head_run)
+        .collect();
+    let head_log = HeadLog::read(
+        reader,
+        session_id,
+        read_bound,
+        (&head_runs, &ended_runs, &admitted_runs),
+    )?;
 
     let mut ancestry = AncestryWalk {
         tree: &tree,
@@ -287,12 +310,31 @@ pub fn read_agent_tree(
             .lineage(place)
             .find_map(|node| node.effort.clone())
             .or(run_agent.binding.effort);
-        let via_agent_name = match &draft.subject {
-            LinkSubject::Run {
-                reached_by: ChildRunProvenance::BridgeRun,
-                ..
-            } => read_agent_row(reader, &run_agent.agent_id)?.map(|row| row.name),
-            LinkSubject::Run { .. } | LinkSubject::Node { .. } => None,
+        // A run is named by its agent and asked by the send that started it; a helper by its
+        // provider's name for it, else the role it started in, and asked as its start named.
+        let (agent_name, ask, via_agent_name) = match &draft.subject {
+            LinkSubject::Run { reached_by, .. } => {
+                let row_name = read_agent_row(reader, &run_agent.agent_id)?.map(|row| row.name);
+                let via_agent_name = match reached_by {
+                    ChildRunProvenance::BridgeRun => row_name.clone(),
+                    ChildRunProvenance::ProviderSubagent | ChildRunProvenance::WorkflowStep => None,
+                };
+                (
+                    row_name.map(|name| {
+                        FreeFormText::new(name.into_string())
+                            .expect("an agent's name fits a handle's cap")
+                    }),
+                    head_log.admitted_ask(draft.head_run),
+                    via_agent_name,
+                )
+            }
+            LinkSubject::Node { place, .. } => {
+                let node = &tree.nodes[*place];
+                let name = node.name.clone().or_else(|| node.role.clone()).map(|name| {
+                    FreeFormText::new(name).expect("a helper's name was stored from a handle")
+                });
+                (name, node.ask.clone(), None)
+            }
         };
         let (members, spend) = match &draft.subject {
             LinkSubject::Run { parent_run_id, .. } => (
@@ -313,16 +355,29 @@ pub fn read_agent_tree(
                 )
             }
         };
+        // An end is read only for a child at rest: a helper's interrupted own run may continue.
+        let end = if draft.subject.state().is_terminal() {
+            head_log.end(draft.head_run)
+        } else {
+            None
+        };
         let head = ChildRunHead {
+            agent_name,
+            ask,
             model_id,
             effort,
             via_agent_name,
+            tool_count: head_log.tool_count(draft.head_run),
             tokens: token_counts
                 .get(&draft.head_run)
                 .copied()
                 .unwrap_or(SafeInt::ZERO),
             spend_usd_micros: spend,
             started_at: draft.started_at.clone(),
+            ended_at: end.map(|end| end.ended_at.clone()),
+            activity: head_log.activity(draft.head_run),
+            result: head_log.result(draft.head_run),
+            failure_reason: end.and_then(|end| end.failure_reason.clone()),
             ancestry: BoundedVec::new(members)
                 .expect("every ancestry reaches a run with no parent, whose agent it names"),
         };
@@ -620,6 +675,14 @@ enum LinkSubject {
     },
 }
 
+impl LinkSubject {
+    fn state(&self) -> RunState {
+        match self {
+            Self::Run { state, .. } | Self::Node { state, .. } => *state,
+        }
+    }
+}
+
 // Walks a link's ancestry, reading each run's agent once per tree read.
 struct AncestryWalk<'tree> {
     tree: &'tree SessionTree,
@@ -788,16 +851,6 @@ fn read_rejected_creates(
         }
     }
     Ok(rejections)
-}
-
-fn run_ids_json(run_ids: &[RunId]) -> String {
-    serde_json::Value::from(
-        run_ids
-            .iter()
-            .map(|run_id| run_id.text().as_str().to_owned())
-            .collect::<Vec<_>>(),
-    )
-    .to_string()
 }
 
 // The own spend of the first entry whose member `is_member` takes, 0 where none is.

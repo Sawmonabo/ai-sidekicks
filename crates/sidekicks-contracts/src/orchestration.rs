@@ -12,10 +12,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::definition::{AgentDefinitionId, AgentId};
 use crate::agent::tree::{AgentTreeMember, ChildHandle};
+use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::method::{KeyedRequest, methods};
-use crate::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
-use crate::provider::driver::methods::{PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
+use crate::provider::driver::length_limits::{
+    PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
+};
+use crate::provider::driver::methods::{
+    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
+};
+use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
+use crate::run::queue::MessageContent;
 use crate::run::state::RunState;
 use crate::session::cost::{
     SessionBudgetReadRequest, SessionBudgetState, SessionCostReceipt,
@@ -198,13 +205,60 @@ pub struct AgentChildRunLinkListRequest {
     pub session_id: SessionId,
 }
 
-/// What a child's head reads after its name: the model, the effort as one word, the agent that
-/// was asked where the child was a peer call, its tokens and spend, when it started, and its
-/// ancestry from the lead down to its parent.
+/// The most code points a child's result carries; a longer final message is cut to it.
+pub const CHILD_RUN_RESULT_MAX_LEN: usize = 4096;
+
+/// What a child is doing now, as the log records it: the newest tool call it made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChildRunActivity {
+    /// The tool it called, as the call's row names it.
+    pub tool_name: FreeFormText<EVENT_FIELD_MAX_LEN>,
+}
+
+/// Why a child failed, as its `agent.run.failed` recorded it: the typed cause a reader words, and
+/// the provider's own words, each where the failure carried one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ChildRunFailureReason {
+    /// The typed cause.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunFailureCause")]
+    #[garde(dive)]
+    pub failure_cause: Option<RunFailureCause>,
+    /// The provider's own words, shown whole and never parsed.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+    pub provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
+}
+
+/// What a child's row and head read: its name and the ask it was dispatched with, then the model,
+/// the effort as one word, the agent that was asked where the child was a peer call, its tool
+/// calls, tokens and spend, when it started and ended, what it is doing, its result and why it
+/// failed, and its ancestry from the lead down to its parent. Whether it waits on an approval is
+/// its link's state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ChildRunHead {
+    /// The name the row draws: a run's agent's, a provider helper's own name, else the role its
+    /// provider started it in; `null` where nothing names it.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>")]
+    pub agent_name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The ask it was dispatched with, whole; `null` where its start recorded none.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<MessageContent>")]
+    pub ask: Option<MessageContent>,
     /// The model.
     pub model_id: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     /// The effort, as one word.
@@ -223,6 +277,8 @@ pub struct ChildRunHead {
     )]
     #[schemars(with = "FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>")]
     pub via_agent_name: Option<FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>>,
+    /// The tool calls it made.
+    pub tool_count: SafeInt<0>,
     /// Its tokens.
     pub tokens: SafeInt<0>,
     /// Its spend.
@@ -230,6 +286,25 @@ pub struct ChildRunHead {
     /// When it started.
     #[garde(dive)]
     pub started_at: WireInstant,
+    /// When it ended, `null` while it is live; its duration runs from `startedAt` to here.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<WireInstant>")]
+    #[garde(dive)]
+    pub ended_at: Option<WireInstant>,
+    /// What it is doing, kept once it ends; `null` before its first tool call.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<ChildRunActivity>")]
+    pub activity: Option<ChildRunActivity>,
+    /// Its final message once it ended, cut to [`CHILD_RUN_RESULT_MAX_LEN`] code points; `null`
+    /// while it is live or where it sent none.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<FreeFormText<CHILD_RUN_RESULT_MAX_LEN>>")]
+    pub result: Option<FreeFormText<CHILD_RUN_RESULT_MAX_LEN>>,
+    /// Why it failed, `null` unless it failed.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<ChildRunFailureReason>")]
+    #[garde(dive)]
+    pub failure_reason: Option<ChildRunFailureReason>,
     /// Its ancestry, from the lead down to its parent.
     pub ancestry: BoundedVec<AgentTreeMember, 1, { usize::MAX }>,
 }
@@ -422,6 +497,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunCreateResponse>(),
         Definition::read::<AgentRunRejectedPayload>().checked(),
         Definition::read::<AgentChildRunLinkListRequest>(),
+        Definition::read::<ChildRunActivity>(),
+        Definition::read::<ChildRunFailureReason>(),
         Definition::read::<ChildRunHead>(),
         Definition::read::<ChildRunLink>().checked(),
         Definition::read::<ChildRunRejection>(),

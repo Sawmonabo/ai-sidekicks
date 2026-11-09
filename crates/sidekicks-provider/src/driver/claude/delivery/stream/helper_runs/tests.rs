@@ -237,6 +237,9 @@ async fn a_background_helpers_nested_start_after_the_turn_ended_hangs_under_it()
     );
 }
 
+// A started helper's id, with the ask, model and effort its start named.
+type HelperAsked = (String, Option<String>, Option<String>, Option<String>);
+
 // The pre-tool callback of the `Agent` call `call_id` with `tool_input`, made by the helper
 // `agent_id` where one is named, else the lead; its own `effort` is the caller's turn level.
 fn helper_call_hook(call_id: &str, agent_id: Option<&str>, tool_input: &Value) -> Value {
@@ -257,16 +260,18 @@ fn helper_call_hook(call_id: &str, agent_id: Option<&str>, tool_input: &Value) -
     })
 }
 
-// Each helper's child run names the model and effort its `Agent` call asked for, read from the
-// call's pre-tool hook, the lead's call or a helper's own; a fork's, a call naming neither, a
-// withdrawn call's and a call that failed inside the tool name none. Kills: the hook's input never
-// read (`p` names nothing), an entry keyed by the request id (no start finds it), a helper's own
-// call missed (`c` names nothing), a fork's values kept (`f` names `high`), the hook input's own
-// `effort.level` read for the call's (`max` on every start), a withdrawal that forgets nothing
-// (`w` names `opus`), a failed call's hook that forgets nothing (`x` names `sonnet`), and a held
-// call released with a deny that forgets nothing (`d` names `opus`).
+// Each helper's child run names the ask, model and effort its `Agent` call asked for, read from
+// the call's pre-tool hook, the lead's call or a helper's own; a fork names its ask but no model
+// or effort, and a call naming none, a withdrawn call's and a call that failed inside the tool
+// name none. Kills: the hook's input never read (`p` names nothing), the prompt never read (`p`
+// asks nothing), an entry keyed by the request id (no start finds it), a helper's own call missed
+// (`c` names nothing), a fork's values kept (`f` names `high`), a fork's call dropped whole (`f`
+// asks nothing), the hook input's own `effort.level` read for the call's (`max` on every start), a
+// withdrawal that forgets nothing (`w` names `opus`), a failed call's hook that forgets nothing
+// (`x` names `sonnet`), and a held call released with a deny that forgets nothing (`d` names
+// `opus`).
 #[tokio::test(start_paused = true)]
-async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
+async fn a_helpers_start_names_the_ask_model_and_effort_its_agent_call_asked_for() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     session.frame(&init());
@@ -275,12 +280,18 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
         (
             "hook-p",
             "call-p",
-            json!({"subagent_type": "Explore", "model": "haiku", "effort": "low"}),
+            json!({
+                "subagent_type": "Explore",
+                "description": "Find the flaky test",
+                "prompt": "Find the test that fails one run in ten.",
+                "model": "haiku",
+                "effort": "low",
+            }),
         ),
         (
             "hook-f",
             "call-f",
-            json!({"subagent_type": "fork", "effort": "high"}),
+            json!({"subagent_type": "fork", "prompt": "Draft the note.", "effort": "high"}),
         ),
         ("hook-n", "call-n", json!({"subagent_type": "Plan"})),
         ("hook-w", "call-w", json!({"model": "opus"})),
@@ -349,7 +360,7 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
     session.frame(&nested_start("c", "call-c", Some("p"), None));
     settle().await;
 
-    let asked: Vec<(String, Option<String>, Option<String>)> = session
+    let asked: Vec<HelperAsked> = session
         .engine
         .deliveries()
         .into_iter()
@@ -360,14 +371,16 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
                 .expect("a child run delivery names its helper");
             (
                 subagent.subagent_id.as_str().to_owned(),
+                subagent.ask.map(|ask| ask.as_str().to_owned()),
                 subagent.model_id.map(|model| model.as_str().to_owned()),
                 subagent.effort.map(|effort| effort.as_str().to_owned()),
             )
         })
         .collect();
-    let named = |helper: &str, model: Option<&str>, effort: Option<&str>| {
+    let named = |helper: &str, ask: Option<&str>, model: Option<&str>, effort: Option<&str>| {
         (
             helper.to_owned(),
+            ask.map(str::to_owned),
             model.map(str::to_owned),
             effort.map(str::to_owned),
         )
@@ -375,13 +388,18 @@ async fn a_helpers_start_names_the_model_and_effort_its_agent_call_asked_for() {
     assert_eq!(
         asked,
         [
-            named("p", Some("haiku"), Some("low")),
-            named("f", None, None),
-            named("n", None, None),
-            named("w", None, None),
-            named("x", None, None),
-            named("d", None, None),
-            named("c", Some("haiku"), None),
+            named(
+                "p",
+                Some("Find the test that fails one run in ten."),
+                Some("haiku"),
+                Some("low")
+            ),
+            named("f", Some("Draft the note."), None, None),
+            named("n", None, None, None),
+            named("w", None, None, None),
+            named("x", None, None, None),
+            named("d", None, None, None),
+            named("c", None, Some("haiku"), None),
         ]
     );
 }

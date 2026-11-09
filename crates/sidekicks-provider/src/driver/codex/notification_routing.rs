@@ -468,6 +468,7 @@ impl CodexSessionRouting {
             reading.and_then(|reading| reading.agent_nickname.clone()),
             reading.and_then(|reading| reading.agent_role.clone()),
             helper.provider_path,
+            helper.ask,
             model,
             helper.reasoning_effort,
         );

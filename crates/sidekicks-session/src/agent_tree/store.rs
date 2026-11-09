@@ -10,6 +10,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -22,14 +23,14 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 const INSERT_NODE_SQL: &str = "INSERT INTO agent_tree_nodes
   (child_handle, session_id, provider_name, subagent_id, parent_subagent_id, parent_child_handle,
-   name, role, provider_path, model_id, effort, start_call_id, own_run_id, started_at,
+   name, role, provider_path, ask, model_id, effort, start_call_id, own_run_id, started_at,
    updated_at)
   VALUES (@childHandle, @sessionId, @providerName, @subagentId, @parentSubagentId,
-          @parentChildHandle, @name, @role, @providerPath, @modelId, @effort, @startCallId,
+          @parentChildHandle, @name, @role, @providerPath, @ask, @modelId, @effort, @startCallId,
           @ownRunId, @startedAt, @startedAt)";
 
-// A known node's newest own run and the call that started it; its first start stays, the model
-// and effort it named included.
+// A known node's newest own run and the call that started it; its first start stays, the ask,
+// model and effort it named included.
 const BIND_NEWEST_RUN_SQL: &str = "UPDATE agent_tree_nodes
   SET own_run_id = @ownRunId, start_call_id = @startCallId, updated_at = @updatedAt
   WHERE child_handle = @childHandle";
@@ -41,7 +42,7 @@ macro_rules! select_nodes {
         concat!(
             "SELECT child_handle, session_id, provider_name, subagent_id, parent_subagent_id,
        parent_child_handle, name, role, provider_path, start_call_id, own_run_id, started_at,
-       updated_at, model_id, effort
+       updated_at, model_id, effort, ask
   FROM agent_tree_nodes ",
             $filter
         )
@@ -78,6 +79,8 @@ pub struct AgentTreeNode {
     pub role: Option<String>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The ask its first start named, where its provider named one.
+    pub ask: Option<MessageContent>,
     /// The model its first start named, where its provider named one.
     pub model_id: Option<ProviderToken>,
     /// The reasoning effort its first start named, in its provider's word, where it named one.
@@ -113,6 +116,8 @@ pub struct NewAgentTreeNode {
     pub role: Option<String>,
     /// Its path in its provider's tree, where the provider keeps one.
     pub provider_path: Option<String>,
+    /// The ask its provider started it with, where the start names one.
+    pub ask: Option<String>,
     /// The model its provider started it on, where the start names one.
     pub model_id: Option<String>,
     /// The reasoning effort its provider started it at, where the start names one.
@@ -143,6 +148,7 @@ pub fn insert_node(node: &NewAgentTreeNode) -> WriteStatement {
             nullable_text_binding("@name", node.name.as_deref()),
             nullable_text_binding("@role", node.role.as_deref()),
             nullable_text_binding("@providerPath", node.provider_path.as_deref()),
+            nullable_text_binding("@ask", node.ask.as_deref()),
             nullable_text_binding("@modelId", node.model_id.as_deref()),
             nullable_text_binding("@effort", node.effort.as_deref()),
             nullable_text_binding("@startCallId", node.start_call_id.as_deref()),
@@ -254,6 +260,7 @@ fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
         name: row.get(6)?,
         role: row.get(7)?,
         provider_path: optional_text_column(row, 8, FreeFormText::new)?,
+        ask: optional_text_column(row, 15, FreeFormText::new)?,
         model_id: optional_text_column(row, 13, ProviderToken::new)?,
         effort: optional_text_column(row, 14, ProviderToken::new)?,
         start_call_id: optional_text_column(row, 9, ToolCallId::new)?,
@@ -319,6 +326,7 @@ mod tests {
             name: None,
             role: None,
             provider_path: None,
+            ask: None,
             model_id: None,
             effort: None,
             start_call_id: None,
@@ -352,6 +360,7 @@ mod tests {
             name: Some("scout".to_owned()),
             role: Some("explorer".to_owned()),
             provider_path: Some("/root/scout".to_owned()),
+            ask: None,
             model_id: Some("gpt-5.4-mini".to_owned()),
             effort: Some("low".to_owned()),
             start_call_id: Some("call-1".to_owned()),
@@ -373,6 +382,7 @@ mod tests {
             name: Some("scout".to_owned()),
             role: Some("explorer".to_owned()),
             provider_path: Some(FreeFormText::new("/root/scout".to_owned()).expect("a path")),
+            ask: None,
             model_id: Some(ProviderToken::new("gpt-5.4-mini".to_owned()).expect("a model id")),
             effort: Some(ProviderToken::new("low".to_owned()).expect("an effort")),
             start_call_id: Some(ToolCallId::new("call-1".to_owned()).expect("a call id")),

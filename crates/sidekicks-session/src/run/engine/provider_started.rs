@@ -124,6 +124,7 @@ impl RunEngine {
             name: subagent.name,
             role: subagent.role,
             provider_path: subagent.provider_path,
+            ask: subagent.ask,
             model_id: subagent.model_id,
             effort: subagent.effort,
             start_call_id: subagent.start_call_id,

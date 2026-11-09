@@ -158,6 +158,7 @@ async fn child_of_a_run(
             name: None,
             role: None,
             provider_path: None,
+            ask: None,
             model_id: None,
             effort: None,
             start_call_id: None,

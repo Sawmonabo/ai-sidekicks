@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -32,8 +33,9 @@ use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::{ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome};
 use crate::run::state_entry::RunStateEntry;
 
-/// What a helper's child run carries from Codex: its names and path, and the model and effort it
-/// runs on, each `None` where Codex gives none or one the contract refuses.
+/// What a helper's child run carries from Codex: its names and path, the ask it was spawned with,
+/// and the model and effort it runs on, each `None` where Codex gives none or one the contract
+/// refuses.
 pub(crate) struct CodexHelperStart {
     /// Its nickname, `agentNickname` on the `thread/read` of its conversation.
     pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
@@ -41,6 +43,8 @@ pub(crate) struct CodexHelperStart {
     pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Its path in Codex's tree of helpers, `agentPath` on the spawn item; a v1 spawn names none.
     pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The ask it was spawned with, `prompt` on a v1 spawn item, whole; a v2 spawn names none.
+    pub(crate) ask: Option<MessageContent>,
     /// The model it runs on, the spawn item's `model`, else its conversation's.
     pub(crate) model_id: Option<ProviderToken>,
     /// The effort it runs at, the spawn item's `reasoningEffort`, as Codex words it.
@@ -54,6 +58,7 @@ impl CodexHelperStart {
         name: Option<String>,
         role: Option<String>,
         provider_path: Option<String>,
+        ask: Option<String>,
         model: Option<String>,
         reasoning_effort: Option<String>,
     ) -> Self {
@@ -63,6 +68,7 @@ impl CodexHelperStart {
             name: handle(name),
             role: handle(role),
             provider_path: handle(provider_path),
+            ask: ask.and_then(|ask| MessageContent::new(ask).ok()),
             model_id: token(model),
             effort: token(reasoning_effort),
         }
@@ -398,6 +404,7 @@ impl CodexFrameDelivery {
                 name: helper_start.name,
                 role: helper_start.role,
                 provider_path: helper_start.provider_path,
+                ask: helper_start.ask,
                 model_id: helper_start.model_id,
                 effort: helper_start.effort,
                 start_call_id: None,

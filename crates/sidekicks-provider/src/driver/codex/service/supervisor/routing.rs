@@ -147,6 +147,7 @@ struct SpawnItem {
     agent_thread_id: Option<Box<RawValue>>,
     agent_path: Option<Box<RawValue>>,
     receiver_thread_ids: Option<Box<RawValue>>,
+    prompt: Option<Box<RawValue>>,
     model: Option<Box<RawValue>>,
     reasoning_effort: Option<Box<RawValue>>,
 }
@@ -160,6 +161,8 @@ pub(crate) struct CodexSpawnedHelper {
     pub(crate) call_id: Option<String>,
     /// Its path in Codex's tree of helpers, v2's `agentPath`.
     pub(crate) provider_path: Option<String>,
+    /// The ask it was spawned with, v1's `prompt`; v2's item carries none.
+    pub(crate) ask: Option<String>,
     /// The model it runs on, the item's `model`.
     pub(crate) model: Option<String>,
     /// The effort it runs at, the item's `reasoningEffort`.
@@ -267,6 +270,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                     thread_id,
                     call_id,
                     provider_path: item.agent_path.as_deref().and_then(read_codex_given_text),
+                    ask: None,
                     model,
                     reasoning_effort,
                 })
@@ -286,6 +290,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                 .receiver_thread_ids
                 .and_then(|ids| serde_json::from_str::<Vec<Box<RawValue>>>(ids.get()).ok())
                 .unwrap_or_default();
+            let ask = item.prompt.as_deref().and_then(read_codex_given_text);
             receivers
                 .iter()
                 .filter_map(|receiver| read_codex_given_text(receiver))
@@ -293,6 +298,7 @@ fn read_spawned_helpers(is_completed: bool, item: &RawValue) -> Vec<CodexSpawned
                     thread_id,
                     call_id: call_id.clone(),
                     provider_path: None,
+                    ask: ask.clone(),
                     model: model.clone(),
                     reasoning_effort: reasoning_effort.clone(),
                 })

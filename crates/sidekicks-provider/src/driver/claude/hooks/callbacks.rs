@@ -11,6 +11,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::control::StopTrigger;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
@@ -72,7 +73,8 @@ pub(crate) enum ClaudeRequestRoute {
         request_id: String,
         /// The calling helper's id, `None` on the lead.
         agent_id: Option<String>,
-        /// What the call asked for, where it names a model or an effort its helper starts on.
+        /// What the call asked for, where it names an ask, a model or an effort its helper starts
+        /// with.
         helper_call: Option<ClaudeHelperCall>,
     },
     /// Answer or hold it through [`route_message_target`], which checks the helper a message call
@@ -147,7 +149,7 @@ struct HookInput {
 }
 
 // The members of a hooked tool call's input the daemon's hooks read: a shell call's, the recipient
-// of a message call, and the type, model and effort a helper call asks for.
+// of a message call, and the type, prompt, model and effort a helper call asks for.
 #[derive(Deserialize)]
 struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
@@ -162,13 +164,15 @@ struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
     subagent_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    prompt: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     model: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     effort: Option<String>,
 }
 
-/// What a helper's `Agent` call asked for, read from its pre-tool hook: the model and effort it
-/// names, by its call id.
+/// What a helper's `Agent` call asked for, read from its pre-tool hook: the ask it hands the
+/// helper, and the model and effort it names, by its call id.
 #[derive(Debug)]
 pub(crate) struct ClaudeHelperCall {
     /// The call's id, which its helper's start names.
@@ -177,6 +181,8 @@ pub(crate) struct ClaudeHelperCall {
     pub(crate) request_id: String,
     /// The calling helper's agent id, `None` on the lead's call.
     pub(crate) caller_agent_id: Option<String>,
+    /// The ask the call hands its helper, its `prompt`, whole.
+    pub(crate) ask: Option<MessageContent>,
     /// The model the call names.
     pub(crate) model_id: Option<ProviderToken>,
     /// The effort the call names, in Claude Code's word.
@@ -187,8 +193,9 @@ pub(crate) struct ClaudeHelperCall {
 // names.
 const CLAUDE_FORK_SUBAGENT_TYPE: &str = "fork";
 
-// What the helper call `call_id` asks for: `None` where it names no call id, is a fork, or names no
-// model or effort the contract holds.
+// What the helper call `call_id` asks for: `None` where it names no call id, or names no ask and no
+// model or effort the contract holds. A fork runs on its caller's model and effort, so only its
+// ask is read.
 fn read_helper_call(
     call_id: Option<String>,
     input: Option<&HookInput>,
@@ -197,19 +204,25 @@ fn read_helper_call(
 ) -> Option<ClaudeHelperCall> {
     let call_id = call_id?;
     let tool_input = input?.tool_input.as_ref()?;
-    if tool_input.subagent_type.as_deref() == Some(CLAUDE_FORK_SUBAGENT_TYPE) {
-        return None;
-    }
+    let ask = tool_input
+        .prompt
+        .clone()
+        .and_then(|prompt| MessageContent::new(prompt).ok());
     let token = |text: &Option<String>| text.clone().and_then(|text| ProviderToken::new(text).ok());
-    let model_id = token(&tool_input.model);
-    let effort = token(&tool_input.effort);
-    if model_id.is_none() && effort.is_none() {
+    let (model_id, effort) =
+        if tool_input.subagent_type.as_deref() == Some(CLAUDE_FORK_SUBAGENT_TYPE) {
+            (None, None)
+        } else {
+            (token(&tool_input.model), token(&tool_input.effort))
+        };
+    if ask.is_none() && model_id.is_none() && effort.is_none() {
         return None;
     }
     Some(ClaudeHelperCall {
         call_id,
         request_id: request_id.to_owned(),
         caller_agent_id: caller_agent_id.map(str::to_owned),
+        ask,
         model_id,
         effort,
     })

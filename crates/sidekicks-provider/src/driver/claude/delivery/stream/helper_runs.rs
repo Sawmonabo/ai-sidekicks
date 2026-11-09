@@ -11,7 +11,7 @@
 //! stopped. A helper's new own run clears a stop that is not final. A helper's start and end are
 //! also rows on the run its start went beneath. The start is dispatched on the session's task
 //! before any later arrival, so a request of the helper finds its run bound. A new child run names
-//! the model and effort its `Agent` call asked for, read from the call's pre-tool hook, which
+//! the ask, model and effort its `Agent` call asked for, read from the call's pre-tool hook, which
 //! Claude Code answers before it runs the call.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -156,8 +156,9 @@ impl ClaudeDeliveryStream {
         } else {
             let helper_call =
                 parent_tool_call_id.and_then(|call_id| session.lock().helper_calls.remove(call_id));
-            let (model_id, effort) =
-                helper_call.map_or((None, None), |call| (call.model_id, call.effort));
+            let (ask, model_id, effort) = helper_call.map_or((None, None, None), |call| {
+                (call.ask, call.model_id, call.effort)
+            });
             let child = InboundDelivery::ChildRun {
                 binding: DeliveryBinding {
                     binding_id: carrier.binding_id.clone(),
@@ -178,6 +179,7 @@ impl ClaudeDeliveryStream {
                         .and_then(|signal| signal.subagent_type.as_deref())
                         .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
                     provider_path: None,
+                    ask,
                     model_id,
                     effort,
                     start_call_id: start_call_of(emission),

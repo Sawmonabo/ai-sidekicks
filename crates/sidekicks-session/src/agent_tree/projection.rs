@@ -71,6 +71,7 @@ pub(crate) fn provider_child_node_statement(
                 .provider_path
                 .as_ref()
                 .map(|path| path.as_str().to_owned()),
+            ask: child.ask.as_ref().map(|ask| ask.as_str().to_owned()),
             model_id: child
                 .model_id
                 .as_ref()

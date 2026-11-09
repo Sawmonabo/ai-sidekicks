@@ -51,6 +51,21 @@ fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
     }
 }
 
+/// What a test node's first start named, each `None` where it named nothing.
+#[derive(Default)]
+pub(crate) struct NodeStart<'start> {
+    /// The name its provider gave it.
+    pub(crate) name: Option<&'start str>,
+    /// The role it started in.
+    pub(crate) role: Option<&'start str>,
+    /// The ask it was started with.
+    pub(crate) ask: Option<&'start str>,
+    /// The model its start named.
+    pub(crate) model_id: Option<&'start str>,
+    /// The effort its start named.
+    pub(crate) effort: Option<&'start str>,
+}
+
 /// One session's runs, nodes and log, on a database holding the agent tree's and the agents'
 /// tables, with a lead agent whose `agents` row runs on `model-lead` at `medium`.
 pub(crate) struct SessionLog {
@@ -189,19 +204,18 @@ impl SessionLog {
             subagent_id,
             parent_child_handle,
             started_at,
-            (None, None),
+            &NodeStart::default(),
         )
     }
 
-    /// The one place a test builds and writes a node, its first start naming the model and effort
-    /// `(model_id, effort)`.
+    /// The one place a test builds and writes a node, its first start naming what `start` names.
     pub(crate) fn node_on(
         &self,
         own_run_id: RunId,
         subagent_id: &str,
         parent_child_handle: Option<&ChildHandle>,
         started_at: &str,
-        (model_id, effort): (Option<&str>, Option<&str>),
+        start: &NodeStart<'_>,
     ) -> ChildHandle {
         let handle = mint_child_handle();
         let statement = insert_node(&NewAgentTreeNode {
@@ -211,11 +225,12 @@ impl SessionLog {
             subagent_id: subagent_id.to_owned(),
             parent_subagent_id: None,
             parent_child_handle: parent_child_handle.cloned(),
-            name: None,
-            role: None,
+            name: start.name.map(str::to_owned),
+            role: start.role.map(str::to_owned),
             provider_path: None,
-            model_id: model_id.map(str::to_owned),
-            effort: effort.map(str::to_owned),
+            ask: start.ask.map(str::to_owned),
+            model_id: start.model_id.map(str::to_owned),
+            effort: start.effort.map(str::to_owned),
             start_call_id: None,
             own_run_id,
             started_at: instant(started_at),
@@ -266,7 +281,8 @@ impl SessionLog {
     }
 }
 
-fn head(link: &ChildRunLink) -> &ChildRunHead {
+/// The head of `link`.
+pub(crate) fn head(link: &ChildRunLink) -> &ChildRunHead {
     match link {
         ChildRunLink::Run { head, .. } | ChildRunLink::ProviderChild { head, .. } => head,
     }
@@ -276,8 +292,8 @@ fn ancestry(link: &ChildRunLink) -> Vec<AgentTreeMember> {
     head(link).ancestry.as_slice().to_vec()
 }
 
-// The link a helper's handle names.
-fn helper_link<'tree>(
+/// The link a helper's handle names.
+pub(crate) fn helper_link<'tree>(
     tree: &'tree AgentChildRunLinkListResponse,
     handle: &ChildHandle,
 ) -> &'tree ChildRunLink {
@@ -290,8 +306,8 @@ fn helper_link<'tree>(
         .expect("the helper is listed")
 }
 
-// The link of the run `run_id`.
-fn run_link(tree: &AgentChildRunLinkListResponse, run_id: RunId) -> &ChildRunLink {
+/// The link of the run `run_id`.
+pub(crate) fn run_link(tree: &AgentChildRunLinkListResponse, run_id: RunId) -> &ChildRunLink {
     tree.children
         .iter()
         .find(|link| {
@@ -505,12 +521,26 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
         "h3",
         None,
         &at(9),
-        (Some("gpt-5.4-mini"), Some("xhigh")),
+        &NodeStart {
+            model_id: Some("gpt-5.4-mini"),
+            effort: Some("xhigh"),
+            ..NodeStart::default()
+        },
     );
     let inheriting_run = session.own_run(named_run, "h5", RunState::Running, &at(10));
     let inheriting = session.node(inheriting_run, "h5", Some(&named), &at(10));
     let used_run = session.own_run(lead_run, "h4", RunState::Running, &at(11));
-    let used = session.node_on(used_run, "h4", None, &at(11), (Some("m-own"), Some("low")));
+    let used = session.node_on(
+        used_run,
+        "h4",
+        None,
+        &at(11),
+        &NodeStart {
+            model_id: Some("m-own"),
+            effort: Some("low"),
+            ..NodeStart::default()
+        },
+    );
     session.usage(used_run, "m-used", &at(12));
     let spend = |whole| UsdMicros(SafeInt::new(whole).expect("a small figure"));
     let agent_spend = [
