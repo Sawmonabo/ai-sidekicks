@@ -24,7 +24,7 @@ use crate::workflow::definition::handle::{
     WorkflowHandle, WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
 };
 use crate::workflow::kind::{
-    WorkflowInputHandleSpec, WorkflowNodeKindCategory, WorkflowOutputHandleSpec,
+    WorkflowInputHandleSpec, WorkflowNodeKindCategory, WorkflowOutputHandleSpec, WorkflowParamId,
 };
 
 ts_constants! {
@@ -159,9 +159,10 @@ pub struct WorkflowDefinitionRefusedDetails {
 /// The loop kind: an edge into its own input closes the loop body and is no cycle.
 const LOOP_KIND: &str = "flow.loopItems";
 
-/// One node's category and the handles it has. For a kind whose outputs derive from its params,
-/// `outputs` is what this node's params give; a node that routes failures to an error output lists
-/// that output too.
+/// What the graph check reads of a node's kind: its category, the handles the node has, whether
+/// it needs a project's repository and which param holds a trigger's `Repository`. For a kind
+/// whose outputs derive from its params, `outputs` is what this node's params give; a node that
+/// routes failures to an error output lists that output too.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowNodeHandles {
@@ -171,6 +172,13 @@ pub struct WorkflowNodeHandles {
     pub inputs: Vec<WorkflowInputHandleSpec>,
     /// The node's output handles.
     pub outputs: Vec<WorkflowOutputHandleSpec>,
+    /// Whether a run of the kind needs the run to work in a project's repository.
+    pub needs_repository: bool,
+    /// The id of the kind's `project` param, which on a trigger is its `Repository`; absent for a
+    /// kind that has none.
+    #[serde(default, deserialize_with = "crate::wire::present")]
+    #[schemars(with = "WorkflowParamId")]
+    pub repository_param: Option<WorkflowParamId>,
 }
 
 impl WorkflowNodeHandles {
@@ -228,11 +236,12 @@ pub struct WorkflowConnectionCheckInput {
 
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
 /// and the kinds' handles: the trigger, an empty document, repeated node names, each edge's nodes,
-/// ends and repeats, the inputs over their connection limit, cycles, then orphans, each in
-/// document order. `node_handles` holds each node's handles by node id, built by the caller from
-/// the kinds table; a node missing from it is of a kind the catalog does not list, whose handles
-/// and category then go unchecked though its edges still count toward cycles and reach. An edge
-/// naming a node the document does not hold is `nodeMissing` and is checked no further at that end.
+/// ends and repeats, the inputs over their connection limit, cycles, orphans, then the repository
+/// rule, each in document order. `node_handles` holds each node's handles by node id, built by the
+/// caller from the kinds table; a node missing from it is of a kind the catalog does not list,
+/// whose handles and category then go unchecked though its edges still count toward cycles and
+/// reach. An edge naming a node the document does not hold is `nodeMissing` and is checked no
+/// further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
@@ -289,7 +298,39 @@ pub fn check_workflow_graph<S: BuildHasher>(
             }
         }));
     }
+    // A trigger whose `Repository` is `None` gives the run no repository for a step that needs one.
+    let is_repository_none = trigger.is_some_and(|trigger| {
+        node_handles
+            .get(&trigger.id)
+            .and_then(|handles| handles.repository_param.as_ref())
+            .is_some_and(|param| !trigger.params.as_map().contains_key(param.0.as_str()))
+    });
+    if is_repository_none {
+        let node_ids = enabled_nodes_needing(trigger, document_nodes, |node| {
+            node_handles
+                .get(&node.id)
+                .is_some_and(|handles| handles.needs_repository)
+        });
+        if !node_ids.is_empty() {
+            findings.push(WorkflowDefinitionFinding::RepositoryRequired { node_ids });
+        }
+    }
     findings
+}
+
+/// The nodes for which `needs` holds, the trigger first, then in document order, leaving out a
+/// disabled node, which never runs.
+pub fn enabled_nodes_needing(
+    trigger: Option<&WorkflowNode>,
+    document_nodes: &[WorkflowNode],
+    needs: impl Fn(&WorkflowNode) -> bool,
+) -> Vec<WorkflowNodeId> {
+    trigger
+        .into_iter()
+        .chain(document_nodes)
+        .filter(|node| node.disabled != Some(true) && needs(node))
+        .map(|node| node.id.clone())
+        .collect()
 }
 
 /// The findings a connection dragged onto the document adds, which the builder refuses while it is

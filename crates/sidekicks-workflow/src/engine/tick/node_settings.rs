@@ -5,13 +5,13 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{
     WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowPinnedItem,
 };
 use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowOutputHandleSpec};
-use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
+
+use super::RunPin;
 
 /// The main inputs among a step's `inputs`, one list per input handle of `spec` in spec order: the
 /// lists at the inputs whose `is_tool()` is false, in spec order, borrowed or taken as `inputs` is.
@@ -53,22 +53,12 @@ pub(crate) fn main_output_count(outputs: &[WorkflowOutputHandleSpec]) -> usize {
     outputs.iter().filter(|output| !output.is_tool()).count()
 }
 
-/// The outputs a pinned node gives in place of running, honored only in a manual run: its pinned
-/// items on the first main output and every other of its `main_output_count` outputs empty, or
-/// `None` when the run is not manual or nothing is pinned onto the node.
+/// The outputs a pinned node gives in place of running: its `pin`'s items on the first main output
+/// and every other of its `main_output_count` outputs empty. A run holds pins only when manual.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) fn pinned_outputs(
-    mode: WorkflowRunMode,
-    pin_data: Option<&Record<String, Vec<WorkflowPinnedItem>>>,
-    node: &WorkflowNode,
-    main_output_count: usize,
-) -> Option<Vec<Vec<WorkflowItem>>> {
-    if mode != WorkflowRunMode::Manual {
-        return None;
-    }
-    let pinned = pin_data?.as_map().get(node.id.as_str())?;
-    let items = pinned.iter().cloned().map(pinned_item).collect();
-    Some(place_on_first_output(items, main_output_count))
+pub(crate) fn pinned_outputs(pin: &RunPin, main_output_count: usize) -> Vec<Vec<WorkflowItem>> {
+    let items = pin.items.iter().cloned().map(pinned_item).collect();
+    place_on_first_output(items, main_output_count)
 }
 
 /// The outputs of a step that gives `items` whole: `items` on the first main output and every
@@ -245,10 +235,10 @@ fn lineage_at(lineage: Option<WorkflowPairedItems>, call_item: SafeInt<0>) -> Wo
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_contracts::wire::text::NonEmptyText;
+    use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 
     use super::*;
 
@@ -293,31 +283,25 @@ mod tests {
         })
     }
 
-    /// A pin shows only in a manual run, on output 0 alone. Mutations: drop the mode check (test
-    /// data in a production run); copy the pins onto every output.
-    #[rstest]
-    #[case::manual_with_pin(WorkflowRunMode::Manual, "pinned", true)]
-    #[case::trigger_with_pin(WorkflowRunMode::Trigger, "pinned", false)]
-    #[case::manual_without_pin(WorkflowRunMode::Manual, "other", false)]
-    fn a_pin_replaces_the_run_only_in_a_manual_run(
-        #[case] mode: WorkflowRunMode,
-        #[case] node_id: &str,
-        #[case] is_pinned: bool,
-    ) {
+    /// A pin's items show on output 0 alone, their lineage kept. Mutation: copy the pins onto
+    /// every output in `pinned_outputs`.
+    #[test]
+    fn a_pin_gives_its_items_on_the_first_output() {
         let pinned: WorkflowPinnedItem =
             serde_json::from_value(json!({ "json": { "a": 1 }, "pairedItem": { "item": 0 } }))
                 .expect("the test's pinned item reads");
-        let pin_data = Record::new(BTreeMap::from([("pinned".to_owned(), vec![pinned])]))
-            .expect("the test's pin data reads");
+        let pin = RunPin {
+            items: vec![pinned],
+            hash: WorkflowContentHash(
+                NonEmptyText::new("b3:pin".to_owned()).expect("the test's hash is text"),
+            ),
+        };
 
-        let outputs = pinned_outputs(mode, Some(&pin_data), &node(node_id, None, None), 2);
+        let outputs = pinned_outputs(&pin, 2);
 
-        let expected = is_pinned.then(|| {
-            let mut pinned_item = item(&json!({ "a": 1 }));
-            pinned_item.paired_item = Some(one(0));
-            vec![vec![pinned_item], Vec::new()]
-        });
-        assert_eq!(outputs, expected);
+        let mut pinned_item = item(&json!({ "a": 1 }));
+        pinned_item.paired_item = Some(one(0));
+        assert_eq!(outputs, vec![vec![pinned_item], Vec::new()]);
     }
 
     /// Execute once cuts every input to its first item. Mutation: cut only input 0.

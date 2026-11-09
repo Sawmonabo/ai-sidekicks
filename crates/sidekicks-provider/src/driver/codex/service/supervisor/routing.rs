@@ -307,6 +307,17 @@ enum FrameAudience {
 }
 
 impl CodexService {
+    /// The session holding `thread_id` on this service, `None` where none does.
+    pub(crate) fn session_of_thread(&self, thread_id: &str) -> Option<SessionId> {
+        self.lock_threads().session_for(thread_id).copied()
+    }
+
+    /// The session `thread_id` was bound to when this service released it; `None` for a thread
+    /// the service holds now, never held or forgot.
+    pub(crate) fn former_session_of_thread(&self, thread_id: &str) -> Option<SessionId> {
+        self.lock_threads().former_session_for(thread_id)
+    }
+
     /// Routes one notification the connection `dial` read: called on its reader, so every
     /// decision here is made in arrival order and nothing awaits.
     pub(super) fn route(self: &Arc<Self>, dial: u64, method: &str, params: Box<RawValue>) {

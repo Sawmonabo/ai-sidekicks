@@ -5,8 +5,9 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use rusqlite::types::Value;
+use rusqlite::types::{Type, Value};
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
+use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalScope, ApprovalState,
     RememberedScope, RememberedScopeKind,
@@ -17,9 +18,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::{ClientUuid, UuidText, UuidTextForm};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
 use sidekicks_session::run::read::{SessionRun, session_run_of_row};
 use sidekicks_session::run::transitions::RUN_TERMINAL_STATES_SQL;
@@ -31,9 +34,11 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 use crate::request_create::ApprovalResourceDescriptor;
 
+mod wait_requests;
+
 /// The distinct statements [`ApprovalRequestReader`] and the orphaned answers' reads prepare, for
 /// the reading connection's statement cache.
-pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 11;
+pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 14;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,8 +47,8 @@ pub(crate) struct StoredApprovalRequest {
     pub(crate) approval_request_id: ApprovalRequestId,
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The run.
-    pub(crate) run_id: RunId,
+    /// What holds it open: an agent run or a workflow wait.
+    pub(crate) holder: ApprovalHolder,
     /// The agent's actor id, or the device a person's request came from.
     pub(crate) requested_by: NonEmptyText,
     /// What the ask is about.
@@ -116,8 +121,8 @@ pub struct InsertedApprovalRequest {
     pub approval_request_id: ApprovalRequestId,
     /// The session.
     pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
+    /// What holds it open: an agent run or a workflow wait.
+    pub holder: ApprovalHolder,
     /// The agent's actor id, or the device a person's request came from.
     pub requested_by: NonEmptyText,
     /// What the ask is about.
@@ -222,13 +227,15 @@ static RUN_LIVE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The insert of a new pending ask, whose values [`request_statement`] binds.
+pub(crate) static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO approval_requests
-    (id, session_id, run_id, requested_by, category, scope, resource_descriptor, ask_id,
-     tool_call_id, input_digest, state, created_at, updated_at)
-  VALUES (@id, @session_id, @run_id, @requested_by, @category, @scope, @resource_descriptor,
-          @ask_id, @tool_call_id, @input_digest, '{}', @created_at, @created_at)",
+    (id, session_id, run_id, workflow_run_id, wait_id, node_id, requested_by, category, scope,
+     resource_descriptor, ask_id, tool_call_id, input_digest, state, created_at, updated_at)
+  VALUES (@id, @session_id, @run_id, @workflow_run_id, @wait_id, @node_id, @requested_by,
+          @category, @scope, @resource_descriptor, @ask_id, @tool_call_id, @input_digest, '{}',
+          @created_at, @created_at)",
         pending()
     )
 });
@@ -240,7 +247,9 @@ static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
         "{}
   ON CONFLICT (id) DO UPDATE SET
     session_id = excluded.session_id, run_id = excluded.run_id,
-    requested_by = excluded.requested_by, category = excluded.category, scope = excluded.scope,
+    workflow_run_id = excluded.workflow_run_id, wait_id = excluded.wait_id,
+    node_id = excluded.node_id, requested_by = excluded.requested_by,
+    category = excluded.category, scope = excluded.scope,
     resource_descriptor = excluded.resource_descriptor, ask_id = excluded.ask_id,
     tool_call_id = excluded.tool_call_id, input_digest = excluded.input_digest,
     state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at",
@@ -306,7 +315,7 @@ pub(crate) const SELECT_REQUESTS_SQL: &str =
        resolution.remembered_scope_pattern, resolution.asked_scope_kind,
        resolution.asked_scope_pattern, resolution.edited_action, resolution.decline_reason,
        resolution.resolved_at, session.shape AS session_shape, request.tool_call_id,
-       request.input_digest
+       request.input_digest, request.workflow_run_id, request.wait_id, request.node_id
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
   LEFT JOIN sessions AS session ON session.id = request.session_id";
@@ -343,18 +352,19 @@ static SELECT_PENDING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
 static SELECT_PENDING_FOR_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{SELECT_REQUESTS_SQL}
-  WHERE request.session_id = ? AND request.state = '{}'
+  WHERE request.session_id = ? AND request.state = '{}' AND request.run_id IS NOT NULL
   ORDER BY request.created_at, request.id",
         pending()
     )
 });
 
+// A wait's card closes only with its wait, so a closed session's sweep looks for run-held asks.
 static SELECT_ENDED_SESSIONS_WITH_PENDING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT DISTINCT request.session_id
   FROM approval_requests AS request
   JOIN sessions AS session ON session.id = request.session_id
-  WHERE request.state = '{}'
+  WHERE request.state = '{}' AND request.run_id IS NOT NULL
     AND session.state IN ({})",
         pending(),
         *ENDED_SESSION_STATES_SQL
@@ -526,19 +536,39 @@ pub fn remembered_scope_statement(
     }
 }
 
-// The insert and the rebuild's rewrite bind the same values.
-fn request_statement(
+/// The statement running `sql` over `request`'s values: the insert, a wait card's insert and the
+/// rebuild's rewrite bind the same ones.
+pub(crate) fn request_statement(
     sql: &'static LazyLock<String>,
     request: &InsertedApprovalRequest,
 ) -> WriteStatement {
     let resource_descriptor = serde_json::to_string(&request.resource_descriptor)
         .expect("a descriptor of text, flags and string-keyed members always serializes");
+    let (run_id, workflow_run_id, wait_id, node_id) = match &request.holder {
+        ApprovalHolder::Run { run_id } => (Some(run_id.text()), None, None, None),
+        ApprovalHolder::Wait {
+            workflow_run_id,
+            wait_id,
+            node_id,
+        } => (
+            None,
+            Some(workflow_run_id.text()),
+            Some(wait_id.text()),
+            node_id.as_ref(),
+        ),
+    };
     WriteStatement {
         sql: Cow::Borrowed(sql.as_str()),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", request.approval_request_id.text().as_str()),
             text_binding("@session_id", request.session_id.text().as_str()),
-            text_binding("@run_id", request.run_id.text().as_str()),
+            nullable_text_binding("@run_id", run_id.as_ref().map(UuidText::as_str)),
+            nullable_text_binding(
+                "@workflow_run_id",
+                workflow_run_id.as_ref().map(UuidText::as_str),
+            ),
+            nullable_text_binding("@wait_id", wait_id.as_ref().map(UuidText::as_str)),
+            nullable_text_binding("@node_id", node_id.map(WorkflowNodeId::as_str)),
             text_binding("@requested_by", request.requested_by.as_str()),
             text_binding("@category", <&'static str>::from(request.category)),
             text_binding("@scope", request.scope.as_str()),
@@ -622,7 +652,7 @@ impl<'connection> ApprovalRequestReader<'connection> {
             .collect()
     }
 
-    /// The run's asks still pending, oldest first.
+    /// The run's asks still pending, oldest first; only asks the run holds.
     pub(crate) fn list_pending_for_run(
         &self,
         run_id: &RunId,
@@ -633,7 +663,8 @@ impl<'connection> ApprovalRequestReader<'connection> {
             .collect()
     }
 
-    /// The session's asks still pending across all its runs, oldest first.
+    /// The session's asks its runs still hold pending, oldest first; a workflow wait's card is left
+    /// to its wait.
     pub(crate) fn list_pending_for_session(
         &self,
         session_id: &SessionId,
@@ -697,7 +728,7 @@ pub(crate) fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprova
     Ok(StoredApprovalRequest {
         approval_request_id: text_column(row, 0, |text| ApprovalRequestId::new(&text))?,
         session_id: text_column(row, 1, |text| SessionId::new(&text))?,
-        run_id: text_column(row, 2, |text| RunId::new(&text))?,
+        holder: holder_of(row)?,
         requested_by: text_column(row, 3, non_empty_text)?,
         category: text_column(row, 4, closed_word)?,
         scope: text_column(row, 5, ApprovalScope::new)?,
@@ -715,6 +746,35 @@ pub(crate) fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprova
         resolution: resolution_of(row)?,
     })
 }
+
+// The run, or the workflow run, wait and node, of whichever holds the ask; the table's check holds
+// exactly one.
+fn holder_of(row: &Row<'_>) -> rusqlite::Result<ApprovalHolder> {
+    let run_id = optional_text_column(row, 2, |text| RunId::new(&text))?;
+    let workflow_run_id = optional_text_column(row, 25, |text| WorkflowRunId::new(&text))?;
+    let wait_id = optional_text_column(row, 26, |text| UuidTextForm::new(&text))?;
+    let node_id = optional_text_column(row, 27, |text| {
+        WorkflowNodeId::new(text).ok_or(EmptyStoredText)
+    })?;
+    match (run_id, workflow_run_id, wait_id) {
+        (Some(run_id), None, None) if node_id.is_none() => Ok(ApprovalHolder::Run { run_id }),
+        (None, Some(workflow_run_id), Some(wait_id)) => Ok(ApprovalHolder::Wait {
+            workflow_run_id,
+            wait_id,
+            node_id,
+        }),
+        (Some(_) | None, _, _) => Err(rusqlite::Error::FromSqlConversionFailure(
+            2,
+            Type::Text,
+            Box::new(StoredHolderError),
+        )),
+    }
+}
+
+/// A stored ask naming not exactly one holder, which the table's check refuses.
+#[derive(Debug, thiserror::Error)]
+#[error("the stored approval request names not exactly one of a run and a workflow wait")]
+struct StoredHolderError;
 
 // A resolution row's columns are all NOT NULL, so its device id tells whether it joined; once it
 // did, a missing column fails the read.

@@ -214,7 +214,8 @@ mod tests {
             .expect("the stand-in ran");
         let run_in = |folders: &ProviderAccountFolders| {
             format!(
-                "{}\n-c\n{CODEX_FILE_CREDENTIAL_STORE}\nlogout\n",
+                "{}\n-c\n{CODEX_FILE_CREDENTIAL_STORE}\n-c\notel.exporter=\"none\"\n-c\n\
+                 otel.trace_exporter=\"none\"\n-c\notel.metrics_exporter=\"none\"\nlogout\n",
                 folders.configuration_folder.display()
             )
         };

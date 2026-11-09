@@ -19,6 +19,7 @@ use crate::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::error::DriverError;
 
@@ -64,6 +65,10 @@ impl CodexSessionInboundHandler for ArrivalOrder {
         unreachable!("no conversation is held")
     }
 
+    fn side_question_released(&mut self, _thread_id: String) {
+        unreachable!("no side question is asked")
+    }
+
     fn next_deadline(&self) -> Option<Instant> {
         None
     }
@@ -82,6 +87,10 @@ impl CodexSessionInboundHandler for ArrivalOrder {
 
     fn account_moved(&mut self, _account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
         unreachable!("no account moves")
+    }
+
+    fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        async {}.boxed()
     }
 }
 

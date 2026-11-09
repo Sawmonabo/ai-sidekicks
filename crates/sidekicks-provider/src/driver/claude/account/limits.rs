@@ -103,6 +103,7 @@ async fn observe_claude_limits(
                 legs.launcher.control_only_folder().await?,
                 Some(provider_account_id.clone()),
                 None,
+                false,
             )
             .await?;
             let answer = read_usage(&short).await;
@@ -418,6 +419,7 @@ done
             Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
             registered_test_accounts(CurrentProviderAccount::NoneRegistered),
+            Arc::clone(&services.ports.telemetry_target),
             Arc::clone(&services.ports.raw_provider_messages),
             &services.data_folder,
         );

@@ -4,9 +4,10 @@
 //! disabled by name: Codex merges an override into the config it loaded, so only each server's
 //! `enabled` member changes.
 
-use serde::{Deserialize, Serialize as _};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 
@@ -69,13 +70,7 @@ pub(crate) fn compose_lockdown_overrides(server_names: &[String]) -> Vec<(String
 pub(crate) fn write_exec_overrides(overrides: Vec<(String, Value)>) -> Vec<String> {
     overrides
         .into_iter()
-        .flat_map(|(key, value)| {
-            let mut written = String::new();
-            value
-                .serialize(toml::ser::ValueSerializer::new(&mut written))
-                .expect("a config override's booleans, strings and tables are TOML values");
-            ["-c".to_owned(), format!("{key}={written}")]
-        })
+        .flat_map(|(key, value)| ["-c".to_owned(), write_config_override(&key, &value)])
         .collect()
 }
 

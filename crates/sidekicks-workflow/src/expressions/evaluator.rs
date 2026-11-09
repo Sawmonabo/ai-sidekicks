@@ -395,7 +395,6 @@ mod tests {
 
     use futures::poll;
     use serde_json::{Map, Value, json};
-    use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
     use sidekicks_contracts::workflow::definition::expression_template::{
         TemplateText, read_template,
     };
@@ -405,6 +404,7 @@ mod tests {
     use super::{ExpressionEvaluator, JOB_CAPACITY, OpenSteps, ParamTemplate};
     use crate::expressions::bindings::{ExpressionError, test_expression_bindings};
     use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
+    use crate::test_rows::test_node_id;
 
     /// An evaluation that runs until its step is canceled: each of a hundred thousand elements sums
     /// a hundred thousand more, the cancel read at every element.
@@ -412,13 +412,9 @@ mod tests {
                             $reduce([1..100000], function($sum, $next) { $sum + $next }, $total) \
                             }, 0) }}";
 
-    fn node_id(id: &str) -> WorkflowNodeId {
-        WorkflowNodeId::new(id.to_owned()).expect("a node id")
-    }
-
     fn step_key(id: &str) -> StepKey {
         StepKey {
-            node_id: node_id(id),
+            node_id: test_node_id(id),
             execution_index: 0,
         }
     }
@@ -437,7 +433,7 @@ mod tests {
     }
 
     fn no_steps() -> StepOutputs {
-        StepOutputs::new(["L", "current"].map(|label| (node_id(label), label.to_owned())))
+        StepOutputs::new(["L", "current"].map(|label| (test_node_id(label), label.to_owned())))
     }
 
     fn template(text: &str) -> ParamTemplate {
@@ -554,7 +550,7 @@ mod tests {
         );
         steps.record(
             StepKey {
-                node_id: node_id("L"),
+                node_id: test_node_id("L"),
                 execution_index: 1,
             },
             StepOutput {

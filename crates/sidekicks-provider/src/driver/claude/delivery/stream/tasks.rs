@@ -3,7 +3,8 @@
 //! session's running commands on the run that started it, and a tool server's background call
 //! stays open until its own notification closes it, its progress the status line under it; a
 //! helper's such call is held the same way and traced at its notification, with no row. Also
-//! the usage routing metered off a frame, recorded on the run whose thread spent it.
+//! the usage routing metered off a frame, recorded on the run whose thread spent it and priced at
+//! its process's next lead `result` or its end.
 
 mod exit_settle;
 mod rest_settle;
@@ -19,6 +20,7 @@ use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
@@ -30,8 +32,10 @@ use crate::driver::claude::delivery::messages::{
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
+use crate::driver::claude::pricing::{price_claude_rows, record_for_price};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::transport::declarations::ClaudeModelCost;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::held_tool_calls::HeldToolCall;
@@ -155,7 +159,8 @@ impl ClaudeDeliveryStream {
     /// Records each metered reading on the run whose thread spent it: the session's own on
     /// `lead`'s binding, a helper's as the helper's, which the record counts toward the helper's
     /// own run, on its child route's binding, else the lead's. A reading no route names goes on the
-    /// binding the session runs on now; one no binding can carry is recorded as a diagnostic.
+    /// binding the session runs on now; one no binding can carry is recorded as a diagnostic. Each
+    /// row recorded on a model is kept for its price.
     pub(super) async fn record_metered(
         &self,
         session: &ClaudeSessionStream,
@@ -203,11 +208,50 @@ impl ClaudeDeliveryStream {
                 binding_id,
                 owner,
                 delta: reading.delta,
+                provider_account_id: None,
             };
-            if let Err(error) = sink.record_metered(metered).await {
-                report_engine_failure(session, "metered usage", &*error);
+            match record_for_price(&**sink, metered).await {
+                Ok(Some(kept)) => lock(&session.result_pricing).keep(kept),
+                Ok(None) => {}
+                Err(error) => report_engine_failure(session, "metered usage", &*error),
             }
         }
+    }
+
+    /// Prices the rows `session`'s process kept at a lead `result` stating `model_costs`, each
+    /// model's usage and cost since the process's previous result, whether or not the result ends
+    /// a turn. The spend an entry states that no row showed is first recorded on `lead`'s binding,
+    /// or where a reading no route names goes, on the lead's `thread_id`, and priced with the rest.
+    pub(crate) async fn price_result(
+        &self,
+        session: &ClaudeSessionStream,
+        model_costs: Vec<ClaudeModelCost>,
+        lead: Option<ClaudeBoundRun>,
+        thread_id: &str,
+    ) {
+        let unshown = lock(&session.result_pricing).take_unshown_spend(&model_costs, thread_id);
+        let readings = unshown
+            .into_iter()
+            .map(|delta| ClaudeMeteredReading {
+                subagent_id: None,
+                delta,
+            })
+            .collect();
+        self.record_metered(session, lead.as_ref(), readings).await;
+        let account = session.provider_account_id();
+        let models = lock(&session.result_pricing).take_at_result(
+            &model_costs,
+            session.session_id,
+            &account,
+        );
+        price_claude_rows(&self.dependencies.pricing, session.session_id, models).await;
+    }
+
+    /// Prices the rows `session`'s process kept with no `result` to price them, from the price
+    /// list.
+    pub(crate) async fn price_process_end(&self, session: &ClaudeSessionStream) {
+        let models = lock(&session.result_pricing).take_all();
+        price_claude_rows(&self.dependencies.pricing, session.session_id, models).await;
     }
 
     // The run a task belongs to: the child run of the helper that started it, else `lead`, else

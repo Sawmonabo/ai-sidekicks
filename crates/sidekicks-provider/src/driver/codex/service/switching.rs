@@ -28,7 +28,7 @@ pub(crate) mod test_moves;
 #[cfg(test)]
 pub(crate) mod test_sign_in;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -61,6 +61,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
     CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
 };
+use crate::driver::codex::telemetry::read_unix_time_ms;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
@@ -85,6 +86,8 @@ pub(crate) struct CodexSwitchingAccount {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     // Shared with the hook a switch's answer runs on the connection's reader.
     carried: Arc<Mutex<Option<CarriedAccount>>>,
+    // Each change of the carried account, shared with that hook too.
+    switches: Arc<AccountSwitches>,
     // Held by each hand from its tokens' read through its login's answer.
     hands: tokio::sync::Mutex<()>,
     // Attached once the account legs are built; a refresh before then is refused.
@@ -97,6 +100,44 @@ pub(crate) struct CodexSwitchingAccount {
 struct CarriedAccount {
     provider_account_id: ProviderAccountId,
     sign_in: CarriedSignIn,
+}
+
+/// How many changes of its carried account a switching service remembers, so a request exported
+/// after a switch is still charged to the account it ran on.
+const ACCOUNT_SWITCHES_KEPT: usize = 16;
+
+// The changes of the carried account, oldest first, each when it landed, in Unix milliseconds by
+// the wall clock Codex stamps its records with, and the account carried before it.
+#[derive(Default)]
+struct AccountSwitches {
+    switches: Mutex<VecDeque<(u64, Option<ProviderAccountId>)>>,
+}
+
+impl AccountSwitches {
+    // Notes a change from `before` to `after` now; a hand onto the same account changes nothing.
+    fn note(&self, before: Option<ProviderAccountId>, after: Option<&ProviderAccountId>) {
+        if before.as_ref() == after {
+            return;
+        }
+        let mut switches = lock(&self.switches);
+        if switches.len() >= ACCOUNT_SWITCHES_KEPT {
+            switches.pop_front();
+        }
+        switches.push_back((read_unix_time_ms(), before));
+    }
+
+    // The account carried at `at_ms`: the one carried before the first change noted after it,
+    // else `current`, where no change was noted since.
+    fn carried_at(
+        &self,
+        at_ms: u64,
+        current: Option<ProviderAccountId>,
+    ) -> Option<ProviderAccountId> {
+        lock(&self.switches)
+            .iter()
+            .find(|(switched_at_ms, _before)| *switched_at_ms > at_ms)
+            .map_or(current, |(_switched_at_ms, before)| before.clone())
+    }
 }
 
 // The sign-in a carried account was handed.
@@ -135,6 +176,7 @@ impl CodexSwitchingAccount {
         Self {
             provider_accounts,
             carried: Arc::default(),
+            switches: Arc::default(),
             hands: tokio::sync::Mutex::default(),
             renewer: OnceLock::new(),
             windows: Arc::default(),
@@ -153,6 +195,12 @@ impl CodexSwitchingAccount {
         lock(&self.carried)
             .as_ref()
             .map(|carried| carried.provider_account_id.clone())
+    }
+
+    /// The account the switching service carried at `at_ms`, in Unix milliseconds: the one a
+    /// switch since then left, else the one it carries now.
+    pub(crate) fn carried_account_at(&self, at_ms: u64) -> Option<ProviderAccountId> {
+        self.switches.carried_at(at_ms, self.carried_account())
     }
 
     /// Hands a starting or rejoined switching `service`, over `connection`, the sign-in of the
@@ -187,7 +235,12 @@ impl CodexSwitchingAccount {
                 .await,
             prepared.is_signed_out,
         )?;
-        carry(&self.carried, provider_account_id, prepared.sign_in);
+        carry(
+            &self.carried,
+            &self.switches,
+            provider_account_id,
+            prepared.sign_in,
+        );
         Ok(())
     }
 
@@ -271,6 +324,7 @@ impl CodexSwitchingAccount {
             is_signed_out,
         } = self.prepare_login(connection, login).await?;
         let carried = Arc::clone(&self.carried);
+        let switches = Arc::clone(&self.switches);
         let windows = Arc::clone(&self.windows);
         let acknowledged = Arc::downgrade(service);
         self.windows.close();
@@ -284,7 +338,7 @@ impl CodexSwitchingAccount {
                     };
                     let mut previous = None;
                     service.restart_rate_limits(|| {
-                        previous = carry(&carried, to.clone(), sign_in);
+                        previous = carry(&carried, &switches, to.clone(), sign_in);
                     });
                     let watched = move_attached_sessions(&service, &to, named, actor.as_ref());
                     if let Some(previous) = previous.filter(|previous| *previous != to) {
@@ -371,7 +425,7 @@ impl CodexSwitchingAccount {
         answer: Result<Answer, CodexError>,
     ) -> Result<Answer, CodexError> {
         if let Err(CodexError::Unanswered { .. }) = &answer {
-            *lock(&self.carried) = None;
+            self.carry_none();
         }
         answer
     }
@@ -384,9 +438,17 @@ impl CodexSwitchingAccount {
         is_signed_out: bool,
     ) -> Result<Answer, CodexError> {
         if is_signed_out && answer.is_err() {
-            *lock(&self.carried) = None;
+            self.carry_none();
         }
         self.settle_login(answer)
+    }
+
+    // Carries no account, the service's being unknown or signed out.
+    fn carry_none(&self) {
+        let before = lock(&self.carried)
+            .take()
+            .map(|carried| carried.provider_account_id);
+        self.switches.note(before, None);
     }
 
     // The account carried and the access token last handed it, the one Codex refuses; `None` for
@@ -509,11 +571,12 @@ impl CodexSwitchingAccount {
     }
 }
 
-// Carries `provider_account_id` on `sign_in` in `carried`, keeping the token its home could not
+// Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`, keeping the token its home could not
 // renew while the account stays the same on its tokens and forgetting it otherwise. Answers the
 // account carried before, `None` where none was.
 fn carry(
     carried: &Mutex<Option<CarriedAccount>>,
+    switches: &AccountSwitches,
     provider_account_id: ProviderAccountId,
     mut sign_in: CarriedSignIn,
 ) -> Option<ProviderAccountId> {
@@ -532,6 +595,7 @@ fn carry(
     {
         *dead_token = Some(dead);
     }
+    switches.note(previous.clone(), Some(&provider_account_id));
     *carried = Some(CarriedAccount {
         provider_account_id,
         sign_in,

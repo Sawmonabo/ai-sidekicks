@@ -19,6 +19,7 @@ use crate::driver::codex::session::inbound::{
     codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_session_id;
@@ -58,6 +59,8 @@ impl CodexSessionInboundHandler for SessionFrames {
         self.methods.push(held_marker(is_held));
     }
 
+    fn side_question_released(&mut self, _thread_id: String) {}
+
     fn next_deadline(&self) -> Option<Instant> {
         None
     }
@@ -76,6 +79,10 @@ impl CodexSessionInboundHandler for SessionFrames {
 
     fn account_moved(&mut self, _account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
         unreachable!("no account moves")
+    }
+
+    fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        async {}.boxed()
     }
 }
 

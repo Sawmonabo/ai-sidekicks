@@ -278,8 +278,11 @@ impl CodexDriver {
     /// it cuts logged. A record let go here sends nothing, so a later daemon resumes its
     /// conversation by its handle.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
-        // No establishment starts from here.
+        // No establishment starts from here, and the export drain ends at once, refusing what its
+        // hand-off still holds.
         self.tasks.close();
+        self.exports.stop();
+        self.export_tasks.close();
         self.slots.refuse_establishing();
         let mut cut_step = None;
         // Every side question's copy stops first, since its service may outlive the daemon: a live
@@ -315,7 +318,11 @@ impl CodexDriver {
         if timeout_at(deadline, records_let_go).await.is_err() {
             cut_step = cut_step.or(Some("letting each live record go"));
         }
-        if timeout_at(deadline, self.tasks.wait()).await.is_err() {
+        let tasks_ended = async {
+            self.export_tasks.wait().await;
+            self.tasks.wait().await;
+        };
+        if timeout_at(deadline, tasks_ended).await.is_err() {
             cut_step = cut_step.or(Some("waiting for the driver's tasks"));
         }
         if let Some(step) = cut_step {

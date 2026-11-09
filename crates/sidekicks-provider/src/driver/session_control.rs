@@ -444,6 +444,9 @@ pub struct NameSessionParams {
     pub first_message: String,
     /// The text of the first completed run's reply, cut.
     pub first_reply: String,
+    /// The binding of the session's first completed run, which the pass's spend is recorded on as
+    /// the session's own.
+    pub binding_id: RuntimeBindingId,
     /// Fires when the pass is no longer wanted: the session was renamed, or the daemon stops.
     pub cancel: CancellationToken,
 }

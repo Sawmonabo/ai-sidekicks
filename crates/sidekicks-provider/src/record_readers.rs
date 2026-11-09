@@ -6,6 +6,11 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
+/// Whether `text` is one or more ASCII digits alone, with no sign, space or point.
+pub(crate) fn is_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 /// `text` when it has at least one character; `None` for an absent or empty one.
 pub(crate) fn filter_non_empty<Text: AsRef<str>>(text: Option<Text>) -> Option<Text> {
     text.filter(|text| !text.as_ref().is_empty())

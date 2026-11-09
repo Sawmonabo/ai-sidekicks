@@ -7,6 +7,7 @@ use std::borrow::Cow;
 
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::name_fold::fold_name;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::tag::TagList;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -58,7 +59,7 @@ const CREATED_DEFINITION_SQL: &str = "SELECT 1 FROM workflow_definitions WHERE i
 // layout a read serves is the definition's own at the latest version and the snapshot otherwise.
 const READ_DEFINITION_SQL: &str = "SELECT definition.name,
     definition.layout_json AS definition_layout_json, definition.pin_data_json, definition.tags,
-    definition.permission_level, definition.background_browser,
+    definition.permission_level, definition.background_browser, definition.provider,
     definition.webhook_last_fire_at, definition.webhook_last_fire_outcome,
     definition.created_at, definition.deleted_at,
     version.id AS version_id, version.version_number, version.content_hash,
@@ -270,12 +271,15 @@ impl<'connection> WorkflowLibrary<'connection> {
     }
 
     /// One definition at the version the request names, else at its latest, with its document,
-    /// permission level, background browser, last webhook fire and webhook token dates; a deleted
-    /// workflow still reads. Fails with [`WorkflowLibraryError::NotFound`] when no such workflow
-    /// or version exists, [`WorkflowLibraryError::StoredDocument`] when the stored document does
-    /// not read, and [`WorkflowLibraryError::Database`] when SQLite fails or a stored value does
-    /// not read.
-    #[expect(dead_code, reason = "the workflow definition handlers")]
+    /// permission level, background browser, provider, last webhook fire and webhook token dates;
+    /// a deleted workflow still reads. Fails with [`WorkflowLibraryError::NotFound`] when no such
+    /// workflow or version exists, [`WorkflowLibraryError::StoredDocument`] when the stored
+    /// document does not read, and [`WorkflowLibraryError::Database`] when SQLite fails or a
+    /// stored value does not read.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow definition handlers")
+    )]
     pub(crate) fn read(
         &self,
         request: &WorkflowDefinitionReadRequest,
@@ -425,6 +429,7 @@ fn read_definition_from_row(
         document,
         permission_level: text_column(row, column(row, "permission_level")?, closed_word)?,
         background_browser: text_column(row, column(row, "background_browser")?, closed_word)?,
+        provider: optional_text_column(row, column(row, "provider")?, closed_word::<ProviderId>)?,
         created_at: text_column(row, column(row, "created_at")?, WireInstant::try_from)?,
         webhook_last_fire,
         deleted_at: optional_text_column(row, column(row, "deleted_at")?, WireInstant::try_from)?,
@@ -454,6 +459,7 @@ fn read_definition_from_row(
                     document: read.document,
                     permission_level: read.permission_level,
                     background_browser: read.background_browser,
+                    provider: read.provider,
                     created_at: read.created_at,
                     webhook_last_fire: read.webhook_last_fire,
                     deleted_at: read.deleted_at,

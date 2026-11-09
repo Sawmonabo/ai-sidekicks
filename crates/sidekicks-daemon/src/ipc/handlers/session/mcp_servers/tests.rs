@@ -126,6 +126,7 @@ async fn session_reading(
             )),
             providers: Arc::new(registry_of_first_provider(Arc::new(driver(bindings)))),
             read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
+            price_list: Arc::new(PortRegistration::new("price list")),
         }),
         statuses,
         client: Arc::new(

@@ -1,10 +1,12 @@
-//! A throwaway conversation on a connection of its own, as a title pass and a side question at
-//! rest run one: its notifications handed over in arrival order until the connection drops, and
-//! its turn stopped within a bound of its own when the pass leaves it before it ends, so no turn
-//! is left spending the account's tokens.
+//! A throwaway conversation on a connection of its own, as a title pass, a hand-over's copy and a
+//! side question at rest run one: its notifications handed over in arrival order until the
+//! connection drops, its turn read to its end with each usage reading filed as it comes, and its
+//! turn stopped within a bound of its own when the pass leaves it before it ends, so no turn is
+//! left spending the account's tokens, with the readings received by then filed after the stop.
 
 use std::error::Error;
 use std::future::Future;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,7 +15,12 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::mpsc;
 
 use crate::driver::codex::run::turn_interrupt::{CodexTurnInterrupt, interrupt_codex_turn};
+use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::side_questions::copy_turn::{
+    CopyFrameReading, CopyTurn, CopyTurnMeter, SessionUsageFiling,
+};
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest,
 };
@@ -95,4 +102,74 @@ pub(crate) async fn stop_detached_turn(
             "a codex throwaway turn was not stopped within its bound"
         ),
     }
+}
+
+/// What a throwaway turn's read came to: its last reply, and how the turn ended, `None` where the
+/// connection dropped first.
+pub(crate) struct DetachedTurnRead {
+    /// The turn's last reply.
+    pub(crate) answer: Option<String>,
+    /// The turn's end, as its frame read.
+    pub(crate) turn: Option<CopyTurn>,
+}
+
+/// Reads `meter`'s thread's frames until its turn's end or the connection's drop, each usage
+/// reading filed through `filing` as it comes, its region read on `service` for `folder`. `stop` is
+/// checked only while the next frame is awaited, never inside a filing, and answers `None` once it
+/// fired; the readings received by then wait for [`file_received_usage`].
+pub(crate) async fn read_detached_turn(
+    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    meter: &mut CopyTurnMeter,
+    filing: &mut SessionUsageFiling,
+    service: &CodexService,
+    folder: &Path,
+    stop: impl Future<Output = ()>,
+) -> Option<DetachedTurnRead> {
+    tokio::pin!(stop);
+    let mut answer = None;
+    loop {
+        let frame = tokio::select! {
+            biased;
+            () = &mut stop => return None,
+            frame = frames.recv() => frame,
+        };
+        let Some((method, params)) = frame else {
+            return Some(DetachedTurnRead { answer, turn: None });
+        };
+        match read_thread_frame(meter, &method, &params) {
+            CopyFrameReading::Reply(text) => answer = Some(text),
+            CopyFrameReading::Usage(delta) => filing.file(*delta, service, folder).await,
+            CopyFrameReading::Ended(turn) => return Some(DetachedTurnRead { answer, turn }),
+            CopyFrameReading::Other => {}
+        }
+    }
+}
+
+/// Files, in order, every usage reading of `meter`'s thread already received on `frames`. Run after
+/// a started turn's [`stop_detached_turn`]: Codex answers the interrupt only once the turn aborted,
+/// after the readings of every request that completed before it.
+pub(crate) async fn file_received_usage(
+    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    meter: &mut CopyTurnMeter,
+    filing: &mut SessionUsageFiling,
+    service: &CodexService,
+    folder: &Path,
+) {
+    while let Ok((method, params)) = frames.try_recv() {
+        if let CopyFrameReading::Usage(delta) = read_thread_frame(meter, &method, &params) {
+            filing.file(*delta, service, folder).await;
+        }
+    }
+}
+
+// One frame read through `meter` where it is of its thread; a frame of another reads as nothing.
+fn read_thread_frame(
+    meter: &mut CopyTurnMeter,
+    method: &str,
+    params: &RawValue,
+) -> CopyFrameReading {
+    if read_codex_frame_thread_id(method, params).as_deref() != Some(meter.thread_id.as_str()) {
+        return CopyFrameReading::Other;
+    }
+    meter.read_frame(method, params)
 }

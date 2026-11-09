@@ -353,7 +353,12 @@ fn land_hand_back(
         previous, sessions, ..
     } = window;
     service.restart_rate_limits(|| {
-        carry(carried, previous.clone(), sign_in);
+        carry(
+            carried,
+            &service.dependencies().switching.switches,
+            previous.clone(),
+            sign_in,
+        );
     });
     let landings = move_back(service, &previous, sessions);
     service

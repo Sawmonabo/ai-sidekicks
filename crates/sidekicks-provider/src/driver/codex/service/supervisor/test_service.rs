@@ -30,12 +30,15 @@ use sidekicks_platforms::{
 };
 use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 #[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(test)]
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 #[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
 #[cfg(test)]
@@ -89,6 +92,7 @@ use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::shells::CodexShellKind;
+use crate::driver::codex::telemetry::exports::CodexExports;
 #[cfg(test)]
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
@@ -272,6 +276,12 @@ pub(crate) fn test_codex_service_dependencies(
         exec_relay,
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
+        telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
+        exports: Arc::new(CodexExports::new(Arc::new(Scheduler::start(
+            Arc::new(TestWallClock::default()),
+            None,
+            watch::channel(0).1,
+        )))),
         raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }
@@ -702,6 +712,7 @@ async fn keep_service_in_record(
             environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
             working_folder: folder.to_owned(),
         },
+        None,
         &folder.join("kept.log"),
     )
     .await
@@ -719,7 +730,11 @@ async fn keep_service_in_record(
     .write(&LastingServiceRecord {
         physical_socket: Some(physical_socket.to_owned()),
         is_draining,
-        ..LastingServiceRecord::launched(kept.record().clone(), service.socket.home_socket.clone())
+        ..LastingServiceRecord::launched(
+            kept.record().clone(),
+            service.socket.home_socket.clone(),
+            None,
+        )
     })
     .expect("the record is written");
     kept

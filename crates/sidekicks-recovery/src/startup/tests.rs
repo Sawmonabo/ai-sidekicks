@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
@@ -21,6 +22,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 use sidekicks_provider::port::question::mint_tool_server_request_id;
 use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state};
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio_util::sync::CancellationToken;
@@ -441,6 +443,68 @@ async fn a_pass_withdraws_the_tool_server_questions_a_restart_left() {
     assert_eq!(
         stored_run_state(&fixture.store.database, &paused_run).0,
         "paused"
+    );
+}
+
+// A session whose only leftover is two workflow wait cards of a run gone while the daemon was
+// down, a step's and a chain's: the start lists the session for them and its settle cancels both.
+// Killed by the start's list of sessions with unheld cards dropped, and by the settle's cancel of
+// them dropped.
+#[tokio::test]
+async fn a_start_cancels_the_wait_cards_of_a_gone_workflow_run() {
+    let fixture = PassFixture::new().await;
+    let session_id = fixture.new_session();
+    let gone_run = mint_uuid_v7().to_string();
+    let cards: Vec<String> = [Some("approve"), None]
+        .into_iter()
+        .map(|node_id| {
+            let id = mint_uuid_v7().to_string();
+            fixture
+                .store
+                .database
+                .reader()
+                .execute(
+                    &format!(
+                        "INSERT INTO approval_requests (id, session_id, workflow_run_id, wait_id,
+                           node_id, requested_by, category, scope, resource_descriptor, created_at,
+                           updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, 'Nightly', 'gate', ?2, ?6,
+                           {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL})"
+                    ),
+                    params![
+                        id,
+                        session_id.text().as_str(),
+                        gone_run,
+                        mint_uuid_v7().to_string(),
+                        node_id,
+                        json!({
+                            "subject": "Nightly",
+                            "standingAllowOffered": false,
+                            "projectScopeOffered": false,
+                            "editable": false,
+                            "prompt": "Ship it?",
+                        })
+                        .to_string(),
+                    ],
+                )
+                .expect("the test records the wait card");
+            id
+        })
+        .collect();
+
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+
+    for card in &cards {
+        assert_eq!(fixture.state("approval_requests", card), "canceled");
+    }
+    assert_eq!(
+        fixture
+            .payloads(&session_id, SessionEventType::ApprovalCanceled)
+            .len(),
+        2
     );
 }
 

@@ -299,9 +299,10 @@ impl ClaudeDriver {
         }
     }
 
-    /// Ends every Claude Code process as the daemon stops, every wait ended by `deadline`, and
-    /// leaves each session's runs for the stop's own settle. A session still coming up or going
-    /// down at the deadline is left to the process stop, which ends its process too.
+    /// Ends every Claude Code process as the daemon stops, every wait ended by `deadline`, records
+    /// each one-turn process's spend, and leaves each session's runs for the stop's own settle. A
+    /// session still coming up or going down at the deadline is left to the process stop, which
+    /// ends its process too.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         let Some(parts) = self.composed_parts() else {
             self.starts.stop_every_process(deadline).await;
@@ -352,6 +353,16 @@ impl ClaudeDriver {
             .await;
         }
         self.starts.stop_every_process(deadline).await;
+        // A one-turn process stopped with the rest records what it spent before the stop ends.
+        if timeout_at(deadline, parts.session_controls.wait_for_recorded_turns())
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "a Claude Code one-turn process's spend was still being recorded at the stop's \
+                 deadline"
+            );
+        }
         join_all(
             closes
                 .into_iter()
@@ -368,14 +379,15 @@ impl ClaudeDriver {
 
     /// Names the session from its first exchange; see the naming pass. The pass runs on the live
     /// process's account, else, at rest, on the one the session's stored leg ran on; a session that
-    /// never ran answers `None`. Fails as the stored leg cannot be read, and as the pass fails.
+    /// never ran answers `None`; its one-turn process's spend is recorded and priced as the
+    /// session's own. Fails as the session pieces cannot be composed, as the stored leg cannot be
+    /// read, and as the pass fails; the daemon registers the pieces' ports before any driver call.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
-        let live = self
-            .composed_parts()
-            .and_then(|parts| parts.slots().live_session(params.session_id));
+        let parts = self.parts()?;
+        let live = parts.slots().live_session(params.session_id);
         let account = if let Some(live) = &live {
             live.admitted_provider_account_id()
         } else {
@@ -386,8 +398,9 @@ impl ClaudeDriver {
         };
         name_claude_session(
             live.as_deref(),
-            &*self.starts,
+            &self.starts,
             &self.sources,
+            &parts.session_controls,
             account,
             params,
         )

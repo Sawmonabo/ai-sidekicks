@@ -29,14 +29,15 @@ use crate::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
+use crate::driver::claude::session::transport::declarations::{
+    ClaudeInboundFrameObservation, ClaudeMessageUsageObservation, ClaudeModelCost,
+};
 use crate::driver::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
 use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, compose_claude_user_frame,
-};
-use crate::driver::claude::session::transport::{
-    control::ClaudePermissionMode, declarations::ClaudeCumulativeUsageObservation,
 };
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::launch::bring_up::{
@@ -96,10 +97,47 @@ pub(crate) struct ClaudeOneTurnReply {
     pub(crate) provider_block: Option<ProviderBlock>,
     /// The turn's last refusal, as Claude Code reads a turn.
     pub(crate) refusal: Option<RunFailureCause>,
-    /// The cumulative usage the `result` reports, where it carries any.
-    pub(crate) usage: Option<ClaudeCumulativeUsageObservation>,
     /// The text of the summary a compaction in the turn wrote, where one did.
     pub(crate) compaction_summary: Option<String>,
+}
+
+/// What one one-turn process spent: each message it streamed, its helpers' among them, at its last
+/// reading in arrival order, and the per-model figures its lead `result` states.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeOneTurnSpend {
+    /// The id the process's conversation was minted under.
+    pub(crate) thread_id: String,
+    /// Each message's usage.
+    pub(crate) messages: Vec<ClaudeMessageUsageObservation>,
+    /// The lead `result`'s spend per model; `None` where no result came or it stated none.
+    pub(crate) model_costs: Option<Vec<ClaudeModelCost>>,
+}
+
+impl ClaudeOneTurnSpend {
+    /// Takes `observation`'s spend: its message's reading raises that message, a new one appended,
+    /// and a lead `result`'s figures are taken.
+    pub(crate) fn read_frame(&mut self, observation: &ClaudeInboundFrameObservation) {
+        if let Some(message) = &observation.message_usage {
+            match (self.messages.iter_mut()).find(|kept| kept.message_id == message.message_id) {
+                Some(kept) => kept.raise(message),
+                None => self.messages.push(message.clone()),
+            }
+        }
+        if observation.subagent_id.is_none() && is_claude_result_frame_kind(&observation.frame_kind)
+        {
+            self.model_costs.clone_from(&observation.model_costs);
+        }
+    }
+}
+
+/// How one unkept turn ended: its reply or failure, and its process's spend, `None` where no
+/// process came up.
+#[derive(Debug)]
+pub(crate) struct ClaudeOneTurnOutcome {
+    /// The reply, or why there is none.
+    pub(crate) reply: Result<ClaudeOneTurnReply, ClaudeLaunchError>,
+    /// What the process spent, however the turn ended.
+    pub(crate) spend: Option<ClaudeOneTurnSpend>,
 }
 
 // The members of a lead `user` frame a compaction summary is read from: Claude Code marks the
@@ -148,15 +186,16 @@ struct ResultFrame {
 }
 
 /// Runs one unkept turn on `executable`: brings the process up, sends the message, and reads the
-/// lead's assistant messages and refusals until its `result`. The process is closed as a session
-/// closes once the turn ends, or terminated at once on a stop. Fails with `TurnStopped` on a stop,
-/// `TurnErrored` on an error `result` with no refusal, `Unanswered` when the process exits first,
-/// `MessageUnwritten` when the message could not be written, and as the bring-up does.
+/// lead's assistant messages and refusals until its `result`, with every frame's spend up to the
+/// turn's end. The process is closed as a session closes once the turn ends, or terminated at once
+/// on a stop. The reply fails with `TurnStopped` on a stop, `TurnErrored` on an error `result` with
+/// no refusal, `Unanswered` when the process exits first, `MessageUnwritten` when the message could
+/// not be written, and as the bring-up does, with no spend.
 pub(crate) async fn run_claude_one_turn(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
     request: ClaudeOneTurnRequest<'_>,
-) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
+) -> ClaudeOneTurnOutcome {
     let session_id = request.spawn.legs.session_id;
     let servers = request.spawn.in_process_servers.cloned();
     let provider_account_id = request.provider_account_id;
@@ -165,12 +204,13 @@ pub(crate) async fn run_claude_one_turn(
         .as_deref()
         .and_then(ClaudeCommandChannel::apart_run);
     let (listener, mut arrivals) = ForwardedArrivals::open();
+    let provider_session_id = mint_uuid_v7().to_string();
     let brought_up = match bring_up_claude_process(
         launcher,
         executable,
         ClaudeBringUpRequest {
             spawn: request.spawn,
-            provider_session_id: mint_uuid_v7().to_string(),
+            provider_session_id: provider_session_id.clone(),
             account: ClaudeProcessAccount::new(Some(provider_account_id.clone())),
             conversation: ClaudeConversationStart::Unkept {
                 resume_handle: request.resume_handle,
@@ -189,7 +229,10 @@ pub(crate) async fn run_claude_one_turn(
             if let Some(apart_run) = apart_run {
                 apart_run.end();
             }
-            return Err(error);
+            return ClaudeOneTurnOutcome {
+                reply: Err(error),
+                spend: None,
+            };
         }
     };
     let process = brought_up.process;
@@ -197,6 +240,10 @@ pub(crate) async fn run_claude_one_turn(
         apart_run.serve(Arc::clone(&process) as Arc<dyn ClaudeProcessChannel>);
     }
     let calls = ClaudeToolServerCalls::default();
+    let mut spend = ClaudeOneTurnSpend {
+        thread_id: provider_session_id,
+        ..ClaudeOneTurnSpend::default()
+    };
     let turn = async {
         let frame =
             compose_claude_user_frame(&request.text, mint_uuid_v7().to_string(), Vec::new());
@@ -207,6 +254,7 @@ pub(crate) async fn run_claude_one_turn(
         while let Some(arrival) = arrivals.recv().await {
             match arrival {
                 ClaudeShortProcessArrival::Frame(frame) => {
+                    spend.read_frame(&frame.observation);
                     // A helper's commands are rows under the run too.
                     if let Some(apart_run) = apart_run {
                         apart_run.read_frame(&frame.observation.frame_kind, &frame.text);
@@ -240,8 +288,8 @@ pub(crate) async fn run_claude_one_turn(
             what: "the one-turn message".to_owned(),
         })
     };
-    let outcome = tokio::select! {
-        outcome = turn => outcome,
+    let reply = tokio::select! {
+        reply = turn => reply,
         () = request.stop.cancelled() => Err(ClaudeLaunchError::TurnStopped),
     };
     calls.cancel_all();
@@ -249,7 +297,10 @@ pub(crate) async fn run_claude_one_turn(
     if let Some(apart_run) = apart_run {
         apart_run.end();
     }
-    outcome
+    ClaudeOneTurnOutcome {
+        reply,
+        spend: Some(spend),
+    }
 }
 
 /// Answers `asked` on a process no one watches: a tool ask is denied and every other request
@@ -356,7 +407,6 @@ fn read_reply(
         provider_message_id: reading.provider_message_id,
         provider_block: reading.provider_block,
         refusal: reading.refusal,
-        usage: frame.observation.cumulative_usage.clone(),
         compaction_summary: reading.compaction_summary,
     })
 }
@@ -367,5 +417,58 @@ async fn end_process(process: &ClaudeCodeProcess, is_stopped: bool) {
         process.terminate().await;
     } else {
         process.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::ClaudeOneTurnSpend;
+    use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+
+    // An assistant message `id` on Opus 5.5 of `input` and `output` tokens, a helper's where
+    // `agent_id` names one.
+    fn message(id: &str, agent_id: Option<&str>, input: u64, output: u64) -> Value {
+        json!({"type": "assistant", "agent_id": agent_id, "message": {"id": id,
+            "model": "claude-opus-5-5", "role": "assistant", "content": [],
+            "usage": {"input_tokens": input, "output_tokens": output}}})
+    }
+
+    // Killed by two readings of one message summed (1,500 input), by a helper's message skipped,
+    // and by a result's figures left untaken.
+    #[test]
+    fn a_one_turns_spend_holds_each_messages_last_reading_and_its_results_figures() {
+        let mut spend = ClaudeOneTurnSpend::default();
+        let result = json!({"type": "result", "subtype": "success", "is_error": false,
+            "result": "done", "model_usage_since_last_result": {"claude-opus-5-5": {
+                "inputTokens": 1_300, "outputTokens": 550, "costUSD": 0.02, "costBasis": "list"}}});
+        for frame in [
+            message("m1", None, 500, 100),
+            message("m1", None, 1_000, 500),
+            message("m2", Some("helper"), 300, 50),
+            result,
+        ] {
+            let read = ClaudeStreamFrameRead::read(&frame.to_string()).expect("a frame");
+            spend.read_frame(&read.into_observation());
+        }
+
+        let messages: Vec<_> = (spend.messages.iter())
+            .map(|kept| {
+                (
+                    kept.message_id.as_str(),
+                    kept.counts.input,
+                    kept.counts.output,
+                )
+            })
+            .collect();
+        assert_eq!(
+            messages,
+            [("m1", Some(1_000), Some(500)), ("m2", Some(300), Some(50))]
+        );
+        let costs: Vec<_> = (spend.model_costs.iter().flatten())
+            .map(|cost| (cost.model_id.as_str(), cost.counts.input, cost.cost_usd))
+            .collect();
+        assert_eq!(costs, [("claude-opus-5-5", Some(1_300), Some(0.02))]);
     }
 }

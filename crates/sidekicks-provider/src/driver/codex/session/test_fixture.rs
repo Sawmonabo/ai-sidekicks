@@ -39,8 +39,9 @@ use crate::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
-use crate::driver::codex::lifecycle::intake::{
-    CodexRoutedFramesIntake, apply_codex_routed_frames, observe_codex_session_frame,
+use crate::driver::codex::lifecycle::intake::observe_codex_session_frame;
+use crate::driver::codex::lifecycle::intake::routed_frames::{
+    CodexRoutedFramesIntake, apply_codex_routed_frames,
 };
 use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
 use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
@@ -90,9 +91,11 @@ use crate::driver::codex::session::recovery::{
 };
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::codex::{DESCRIPTOR, pricing::CodexRequestPricer};
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::{DriverPorts, ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::run_control::{DaemonTurnBindingResolver, RunToolBoundary};
@@ -103,6 +106,7 @@ use crate::port::question::ProviderQuestion;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::pricing::live::LivePricing;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
 use crate::runtime_binding::store::RuntimeBindingStore;
@@ -164,6 +168,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) run_control: Arc<CodexRunControl>,
     /// How each let-go the driver asked of the record said it stopped being its session's.
     pub(crate) let_go_exits: Vec<CodexRecordExit>,
+    /// The live pricing over `ports` that its reroutes mark and its copies price through.
+    pub(crate) pricing: Arc<LivePricing>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
     context_readings: CodexSessionContextReadings,
 }
@@ -182,6 +188,12 @@ impl TestCodexSession {
         let bindings = Arc::new(open_store(&database).await);
         let run_routes = Arc::new(CodexRunRoutes::default());
         let pending_compactions = PendingCompactionRegistry::default();
+        let ports = Arc::new(DriverPorts::new());
+        let pricing = Arc::new(LivePricing::new(
+            DESCRIPTOR.provider_id(),
+            Arc::new(CodexRequestPricer),
+            &ports,
+        ));
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
             engine: Arc::clone(&engine) as _,
             dispatch: Arc::clone(&engine) as _,
@@ -192,6 +204,7 @@ impl TestCodexSession {
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+            pricing: Arc::clone(&pricing),
             tool_traces: Arc::new(PortRegistration::new("tool traces")),
         }));
         let session_id = new_session_id();
@@ -249,7 +262,6 @@ impl TestCodexSession {
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
                 as Arc<dyn DaemonTurnBindingResolver>,
         };
-        let ports = Arc::new(DriverPorts::new());
         let queue = Arc::new(RecordedQueue::default());
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
@@ -290,6 +302,7 @@ impl TestCodexSession {
                 engine: Arc::clone(&engine) as _,
                 run_control,
                 let_go_exits: Vec::new(),
+                pricing,
                 items,
                 context_readings,
             },
@@ -435,7 +448,7 @@ impl TestCodexTask {
     /// what each delivered applied through the session's intake; the waits settled after each.
     /// Unlike the session's task it keeps no side question's frames apart, records no settled
     /// output speed, acts on no step's end (so no pause is taken), refreshes no skills, delivers no
-    /// streamed text when it falls due and shows no view.
+    /// streamed text when it falls due, prices no exported response and shows no view.
     pub(crate) async fn handle(&mut self, item: CodexSessionInbound) {
         match item {
             CodexSessionInbound::Frame { method, params } => {
@@ -474,7 +487,9 @@ impl TestCodexTask {
                 .await;
                 self.apply(routed).await;
             }
-            CodexSessionInbound::HeldThread { .. } => {}
+            CodexSessionInbound::HeldThread { .. }
+            | CodexSessionInbound::SideQuestionReleased { .. }
+            | CodexSessionInbound::ExportedResponse(_) => {}
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -780,6 +795,10 @@ impl CodexSessionInboundHandler for ItemsToTest {
         self.hand(CodexSessionInbound::HeldThread { thread_id, is_held });
     }
 
+    fn side_question_released(&mut self, thread_id: String) {
+        self.hand(CodexSessionInbound::SideQuestionReleased { thread_id });
+    }
+
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::Call(call));
         async {}.boxed()
@@ -792,6 +811,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::AccountMoved(account_move));
+        async {}.boxed()
+    }
+
+    fn exported_response(&mut self, response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::ExportedResponse(response));
         async {}.boxed()
     }
 

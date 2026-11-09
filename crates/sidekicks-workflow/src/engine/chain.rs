@@ -1,8 +1,8 @@
 //! A chain's question and its `Keep going`: once a chain has started as many runs as the person
 //! allows, the engine asks once, on the chain's first run and in that run's session, under the
-//! first run's own id as its wait. `Keep going` marks the first run kept going and appends the
-//! answer's row in one write, and the steps held behind the question are read so the caller can
-//! resume each in that same write.
+//! first run's own id as its wait. `Keep going` marks the first run kept going, appends the
+//! answer's row and resumes every step held behind the question, with each held run's status
+//! move, in one write across every session those runs live in.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{
@@ -25,9 +26,11 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_platforms::HourField;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use tokio::sync::oneshot;
 
 use crate::engine::ports::WorkflowApprovalCardRequest;
-use crate::engine::waits::step_key;
+use crate::engine::tick::commit::RunTurnCommit;
+use crate::engine::waits::{PersonWaitRefusal, step_key};
 use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolution_statement};
 
 /// What a chain's question names, read from the chain's first run.
@@ -126,6 +129,36 @@ impl KeepGoingAnswer {
         }
         Ok(Self(answer))
     }
+
+    /// The chain's first run, which the answer is on.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the start's handlers and the tick, which ask and answer a chain's question"
+        )
+    )]
+    pub(crate) fn root(&self) -> WorkflowRunId {
+        self.0.workflow_run_id
+    }
+}
+
+/// A `Keep going` as the tick's inbox takes it: the answer, when it was given, and where the tick
+/// replies once its write commits, or refused because the chain has no question left to answer.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
+pub(crate) struct KeepGoingIntake {
+    /// The answer that keeps the chain going.
+    pub(crate) answer: KeepGoingAnswer,
+    /// When the person answered.
+    pub(crate) at: WireInstant,
+    /// Where the tick replies.
+    pub(crate) reply: oneshot::Sender<Result<(), PersonWaitRefusal>>,
 }
 
 /// Where the kept-going update sits among [`keep_going_statements`]; a refusal there means the
@@ -362,11 +395,47 @@ pub(crate) fn read_chain_held_steps(
         .collect()
 }
 
+/// Keep going's write of `answer` at `at` over `commits`, one fresh turn of each run it touches,
+/// the chain's first run's among them: the first run's turn first, holding the kept-going update
+/// and the answer's row ahead of every other statement and `workflow.gate.resolved` with no node,
+/// then each of `held` resumed in its run's turn. Each turn's status move is drafted as it
+/// commits; the caller commits them together with [`RunTurnCommit::append_together`], whose
+/// refusal at [`KEEP_GOING_STATEMENT_INDEX`] means the chain has no question left to answer.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
+pub(crate) fn keep_going_write(
+    answer: &KeepGoingAnswer,
+    mut commits: Vec<RunTurnCommit>,
+    held: &[ChainHeldStep],
+    at: &WireInstant,
+) -> Vec<RunTurnCommit> {
+    let KeepGoingAnswer(gate) = answer;
+    let root = commits
+        .iter()
+        .position(|commit| commit.run_id() == gate.workflow_run_id)
+        .expect("the chain's first run has its turn");
+    commits[..=root].rotate_right(1);
+    commits[0].answer_gate(gate, keep_going_statements(answer), at);
+    for held_step in held {
+        commits
+            .iter_mut()
+            .find(|commit| commit.run_id() == held_step.step.workflow_run_id)
+            .expect("each held step's run has its turn")
+            .resume_step(&held_step.step, None, WorkflowWaitCause::Chain, at);
+    }
+    commits
+}
+
 #[cfg(test)]
 mod tests {
     use jiff::tz::TimeZone;
     use rstest::rstest;
-    use rusqlite::{Connection, params};
+    use rusqlite::Connection;
     use sidekicks_contracts::approval::ApprovalDecision;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::UuidTextForm;
@@ -374,9 +443,7 @@ mod tests {
     use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
     use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-    use sidekicks_contracts::workflow::run::status::{
-        WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
-    };
+    use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
     use sidekicks_platforms::{HourCycle, HourField};
     use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -390,8 +457,8 @@ mod tests {
     use crate::runs::gate_resolution::tests::gate_answer;
     use crate::schema::schema_parts;
     use crate::test_rows::{
-        TEST_NODE_ID, TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
-        workflow_tables,
+        TEST_NODE_ID, TEST_SESSION_ID, TestStep, insert_chain_run, insert_step,
+        insert_workflow_version, workflow_tables,
     };
 
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
@@ -403,26 +470,6 @@ mod tests {
 
     fn run_id(text: &str) -> WorkflowRunId {
         WorkflowRunId::new(text).expect("the test's run id")
-    }
-
-    // Stores a waiting run started at `started_at`, joined to `root`'s chain where one is given.
-    fn insert_chain_run(rows: &Connection, id: &str, started_at: &str, root: Option<&str>) {
-        insert_run(
-            rows,
-            id,
-            VERSION_ID,
-            WorkflowRunStatus::Waiting,
-            started_at,
-            None,
-        );
-        if let Some(root) = root {
-            rows.execute(
-                "UPDATE workflow_runs SET chain_root_run_id = ?1, chain_run_count = NULL,
-                   chain_kept_going = NULL WHERE id = ?2",
-                params![root, id],
-            )
-            .expect("the test chains a later run onto a first run");
-        }
     }
 
     fn insert_waiting_step(
@@ -540,7 +587,14 @@ mod tests {
             .expect("the writer opens the test database");
         let rows = database.reader();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Summarize folder");
-        insert_chain_run(&rows, ROOT_RUN_ID, "2026-10-02T02:00:00.000Z", None);
+        insert_chain_run(
+            &rows,
+            ROOT_RUN_ID,
+            VERSION_ID,
+            TEST_SESSION_ID,
+            "2026-10-02T02:00:00.000Z",
+            None,
+        );
         rows.execute(
             "UPDATE workflow_runs SET chain_run_count = 100 WHERE id = ?1",
             [ROOT_RUN_ID],
@@ -549,19 +603,30 @@ mod tests {
         insert_chain_run(
             &rows,
             FIRST_JOINED_RUN_ID,
+            VERSION_ID,
+            TEST_SESSION_ID,
             "2026-10-02T02:01:00.000Z",
             Some(ROOT_RUN_ID),
         );
         insert_chain_run(
             &rows,
             SECOND_JOINED_RUN_ID,
+            VERSION_ID,
+            TEST_SESSION_ID,
             "2026-10-02T02:02:00.000Z",
             Some(ROOT_RUN_ID),
         );
         insert_waiting_step(&rows, FIRST_JOINED_RUN_ID, 2, WorkflowWaitCause::Chain);
         insert_waiting_step(&rows, SECOND_JOINED_RUN_ID, 0, WorkflowWaitCause::Chain);
         insert_waiting_step(&rows, SECOND_JOINED_RUN_ID, 1, WorkflowWaitCause::Approval);
-        insert_chain_run(&rows, OTHER_ROOT_RUN_ID, "2026-10-02T01:00:00.000Z", None);
+        insert_chain_run(
+            &rows,
+            OTHER_ROOT_RUN_ID,
+            VERSION_ID,
+            TEST_SESSION_ID,
+            "2026-10-02T01:00:00.000Z",
+            None,
+        );
         insert_waiting_step(&rows, OTHER_ROOT_RUN_ID, 0, WorkflowWaitCause::Chain);
         let root = run_id(ROOT_RUN_ID);
 
@@ -611,7 +676,14 @@ mod tests {
     fn the_chain_question_names_the_first_run_and_its_start_in_the_machines_clock() {
         let rows = workflow_tables();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly sync");
-        insert_chain_run(&rows, ROOT_RUN_ID, "2026-10-02T10:00:00Z", None);
+        insert_chain_run(
+            &rows,
+            ROOT_RUN_ID,
+            VERSION_ID,
+            TEST_SESSION_ID,
+            "2026-10-02T10:00:00Z",
+            None,
+        );
         rows.execute(
             "UPDATE workflow_runs SET chain_run_count = 2000 WHERE id = ?1",
             [ROOT_RUN_ID],

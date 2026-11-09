@@ -9,7 +9,7 @@ mod stdout;
 
 use std::error::Error;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,6 +39,7 @@ use crate::child_ending::{ChildEnding, ChildEnds};
 use crate::driver::child_records::{
     ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
@@ -54,9 +55,15 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
+use crate::driver::claude::spawn::arguments::CLAUDE_SETTINGS_FLAG;
 use crate::driver::claude::spawn::command::compose_claude_command;
 use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
+use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
+use crate::driver::claude::spawn::settings::private_file::ClaudeSpawnSettingsFile;
 use crate::port::raw_provider_messages::RawProviderMessages;
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -77,8 +84,10 @@ pub(crate) type ClaudeProcessEnd = Result<ProcessExit, Arc<io::Error>>;
 pub(crate) struct ClaudeProcessLaunch {
     /// The resolved program and the arguments put before the command line.
     pub(crate) start: ProgramStart,
-    /// The command line after the program.
+    /// The command line after the program, before `--settings` and its file.
     pub(crate) arguments: Vec<String>,
+    /// The settings document, which the process reads from a file of its own.
+    pub(crate) settings: ClaudeSpawnSettings,
     /// The whole environment; nothing is inherited from the daemon.
     pub(crate) environment: Vec<(String, String)>,
     /// The folder the process starts in.
@@ -92,6 +101,9 @@ pub(crate) struct ClaudeProcessLaunch {
     /// never as a variable; the launcher reads the one sealed for a pasted token's account where
     /// this is `None`.
     pub(crate) token: Option<SecretString>,
+    /// Where the process exports its telemetry, under a token of its own minted at its start;
+    /// `None` before the target is registered, and every exporter is off.
+    pub(crate) telemetry_target: Option<Arc<TelemetryTarget>>,
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
@@ -142,21 +154,62 @@ impl ClaudeCodeProcess {
     /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
     /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
     /// releasing `turn_holds`' turn at a turn-ending lead `result` and handing each line it reads
-    /// to `raw_messages`; the launch's token is handed on a pipe the process alone inherits. Fails
-    /// with the record's error, the spawn's, the spawner's when its thread has ended, and as
-    /// `Unsupported` for a token on a system with no such pipe.
+    /// to `raw_messages`. The launch's settings, with the telemetry switches and the process's own
+    /// telemetry token minted for its spawn sequence, are written to a private file in
+    /// `settings_folder` first, named last on the command line and removed, its token refused with
+    /// it, at the reap or as the start fails; the launch's token is handed on a pipe the process
+    /// alone inherits. Fails with `TelemetryBearer` as the telemetry token cannot be minted, with
+    /// `SettingsFile` as the file cannot be written, and with `Spawn` carrying the record's error,
+    /// the spawn's, the spawner's when its thread has ended, or `Unsupported` for a token on a
+    /// system with no such pipe.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the spawn's handles, its launch and settings folder, and what its reader hands on"
+    )]
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,
         registry: &ProviderProcessRegistry,
         launch: ClaudeProcessLaunch,
+        settings_folder: &Path,
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
         raw_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
-    ) -> io::Result<Self> {
+    ) -> Result<Self, ClaudeLaunchError> {
+        // Drawn before the settings file, so the token names the process the registry maps.
+        let spawn_sequence = registry.mint_spawn_sequence();
+        let mut settings = launch.settings;
+        let telemetry = launch
+            .telemetry_target
+            .map(|target| {
+                target
+                    .bearers()
+                    .mint(
+                        DESCRIPTOR.provider_id(),
+                        TelemetryHolderId::new(spawn_sequence),
+                    )
+                    .map(|bearer| (target, bearer))
+            })
+            .transpose()
+            .map_err(ClaudeLaunchError::TelemetryBearer)?;
+        settings.set_telemetry_switches(
+            telemetry
+                .as_ref()
+                .map(|(target, bearer)| (target.as_ref(), bearer)),
+        );
+        let settings_file = ClaudeSpawnSettingsFile::write(
+            settings_folder,
+            &settings,
+            telemetry.map(|(_target, bearer)| bearer),
+        )
+        .await
+        .map_err(ClaudeLaunchError::SettingsFile)?;
+        let mut arguments = launch.arguments;
+        arguments.push(CLAUDE_SETTINGS_FLAG.to_owned());
+        arguments.push(settings_file.path().to_string_lossy().into_owned());
         let mut command = compose_claude_command(
             &launch.start,
-            &launch.arguments,
+            &arguments,
             &launch.environment,
             &launch.working_folder,
         );
@@ -179,14 +232,19 @@ impl ClaudeCodeProcess {
                     secret: token,
                 })
             })
-            .transpose()?;
+            .transpose()
+            .map_err(ClaudeLaunchError::Spawn)?;
         let RecordedChild { mut child, record } =
-            spawn_recorded_child(spawner, child_records, command, secret).await?;
+            spawn_recorded_child(spawner, child_records, command, secret)
+                .await
+                .map_err(ClaudeLaunchError::Spawn)?;
         let identity = ProviderProcessIdentity {
-            process_id: child
-                .id()
-                .ok_or_else(|| io::Error::other("the Claude Code process started with no id"))?,
-            spawn_sequence: registry.mint_spawn_sequence(),
+            process_id: child.id().ok_or_else(|| {
+                ClaudeLaunchError::Spawn(io::Error::other(
+                    "the Claude Code process started with no id",
+                ))
+            })?,
+            spawn_sequence,
         };
         let standard_input = child
             .stdin()
@@ -222,6 +280,7 @@ impl ClaudeCodeProcess {
         tokio::spawn(own_child(
             child,
             record,
+            settings_file,
             ends,
             standard_error,
             ProcessExitSettlement {
@@ -467,12 +526,14 @@ struct ProcessExitSettlement {
 }
 
 // Owns the child: ends it as asked, a stop followed by a kill once the grace passes and a dropped
-// handle as a kill; retires its record once its reap saw it end; reads its exit once both its exit
-// and its error output have ended; then, once the reader has handed on every frame, closes the
-// control table and the input, publishes the end and hands it to the listener last.
+// handle as a kill; removes its settings file and retires its record once its wait returned; reads
+// its exit once both its exit and its error output have ended; then, once the reader has handed on
+// every frame, closes the control table and the input, publishes the end and hands it to the
+// listener last.
 async fn own_child(
     mut child: Box<dyn ChildWrapper>,
     record: ChildRecord,
+    settings_file: ClaudeSpawnSettingsFile,
     mut ends: watch::Receiver<Option<ChildEnd>>,
     standard_error: impl AsyncRead + Unpin,
     settlement: ProcessExitSettlement,
@@ -504,6 +565,7 @@ async fn own_child(
                 );
             }
         };
+        drop(settings_file);
         let waited = status.map(|status| (status, ending.asked()));
         // A wait that failed leaves the record for the next start's sweep.
         if waited.is_ok() {

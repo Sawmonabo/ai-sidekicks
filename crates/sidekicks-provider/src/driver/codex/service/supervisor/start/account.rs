@@ -20,9 +20,12 @@ use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, find_joinable, join_one_drain_others, lock_record, read_kept_records,
     read_record, sort_kept_records,
 };
+use crate::driver::codex::service::supervisor::start::lasting_launch::{
+    LaunchedLastingService, launch_lasting_service, name_lasting_log_file,
+};
 use crate::driver::codex::service::supervisor::start::{
-    LaunchedLastingService, StartFailure, StartedService, compose_launch, join_former_service,
-    launch_lasting_service, name_beside, name_lasting_log_file, read_service_version, start_failed,
+    StartFailure, StartedService, compose_launch, join_former_service, name_beside,
+    read_service_version, start_failed,
 };
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -42,6 +45,7 @@ pub(super) async fn start_account_home_service(
     let (socket, locked) = match settle_account_records(service, &locked).await? {
         KeptRecordsOutcome::Join {
             lasting,
+            telemetry,
             record_file,
             physical_socket,
         } => {
@@ -52,6 +56,7 @@ pub(super) async fn start_account_home_service(
                 cancel,
                 executable,
                 *lasting,
+                telemetry,
                 record_file,
                 physical_socket,
             )

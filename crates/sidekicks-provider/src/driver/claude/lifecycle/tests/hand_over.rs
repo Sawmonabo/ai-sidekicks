@@ -3,7 +3,9 @@
 use serde_json::json;
 use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 
-use super::session_controls::{FULL_MODEL_ID, counts, one_turn_reply};
+use super::session_controls::{
+    FULL_MODEL_ID, counts, one_turn_outcome, one_turn_reply, opus_spend,
+};
 use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
@@ -31,8 +33,8 @@ const COMPACT: &str = "/compact list every decision the person made that still h
 // Killed by a strip removed (the opening, the pointer, the instruction to go on without asking,
 // or the compaction's instruction at the end of the quoted message), by an unreadable summary
 // returned or refused instead of answered with the template, by a copy that is not a plan-mode
-// copy of the stored conversation, and by a copy's spend metered from zero instead of less the
-// parent's.
+// copy of the stored conversation, and by a copy's rows reduced by the parent's sum instead of
+// recorded at the copy's own spend, each as the session's copy.
 #[tokio::test(start_paused = true)]
 async fn a_hand_over_summary_is_claude_codes_own_unframed_else_the_templates_answer() {
     let fixture = ScriptedDriver::new();
@@ -43,21 +45,28 @@ async fn a_hand_over_summary_is_claude_codes_own_unframed_else_the_templates_ans
     }
     fixture.usage.report_prior(counts(100, 10));
     let summary = "Summary:\n1. Primary Request:\n   - \"Fix the login page.\"";
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+    let spent = |input, output| Some(opus_spend(&[(input, output)], None));
+    let summarized_reply = ClaudeOneTurnReply {
         compaction_summary: Some(format!(
             "{OPENING}\nSummary:\n1. Primary Request:\n   - \"Fix the login page. {COMPACT}\"\n\
              {POINTER}\n{CONTINUE}"
         )),
-        ..one_turn_reply("", Some(counts(150, 30)))
-    });
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+        ..one_turn_reply("")
+    };
+    let unreadable_reply = ClaudeOneTurnReply {
         compaction_summary: Some(format!("{OPENING}\n{POINTER}\n{CONTINUE}")),
-        ..one_turn_reply("", Some(counts(140, 20)))
-    });
-    fixture.starts.script_one_turn(one_turn_reply(
-        "1. The goal of this work.",
-        Some(counts(170, 40)),
-    ));
+        ..one_turn_reply("")
+    };
+    let template_reply = one_turn_reply("1. The goal of this work.");
+    for (reply, spend) in [
+        (summarized_reply, spent(150, 30)),
+        (unreadable_reply, spent(140, 20)),
+        (template_reply, spent(170, 40)),
+    ] {
+        fixture
+            .starts
+            .script_one_turn(one_turn_outcome(reply, spend));
+    }
     let export = |session_id| ExportHandoverBriefParams {
         session_id,
         binding_id: binding_id("lead"),
@@ -106,21 +115,18 @@ async fn a_hand_over_summary_is_claude_codes_own_unframed_else_the_templates_ans
         .usage
         .metered()
         .into_iter()
-        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SessionCopy))
         .map(|metered| {
-            (
-                metered.session_id,
-                metered.delta.axis_deltas.input,
-                metered.delta.axis_deltas.output,
-            )
+            let axes = metered.delta.axis_deltas;
+            let is_copy = metered.owner == MeteredUsageOwner::Session;
+            (is_copy, metered.session_id, axes.input, axes.output)
         })
         .collect();
     assert_eq!(
         metered,
         [
-            (summarized, Some(50), Some(20)),
-            (templated, Some(40), Some(10)),
-            (templated, Some(70), Some(30)),
+            (true, summarized, Some(150), Some(30)),
+            (true, templated, Some(140), Some(20)),
+            (true, templated, Some(170), Some(40)),
         ]
     );
 }

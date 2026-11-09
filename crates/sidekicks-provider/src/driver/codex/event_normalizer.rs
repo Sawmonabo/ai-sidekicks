@@ -59,6 +59,9 @@ pub(crate) const CODEX_THREAD_COMPACTED_METHOD: &str = "thread/compacted";
 /// The `skills/changed` method, on which the held command list is read again.
 pub(crate) const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
 
+/// The `item/autoApprovalReview/started` method, a review's start, read for its window.
+pub(crate) const CODEX_REVIEW_STARTED_METHOD: &str = "item/autoApprovalReview/started";
+
 /// The `thread/settings/updated` method, which declares the thread's output speed.
 pub(crate) const CODEX_THREAD_SETTINGS_UPDATED_METHOD: &str = "thread/settings/updated";
 
@@ -147,6 +150,7 @@ pub(crate) enum CodexInboundMethod {
     McpServerStartupStatusUpdated,
     GuardianWarning,
     AutoApprovalReviewStrictReviewRequired,
+    ItemAutoApprovalReviewStarted,
     ItemAutoApprovalReviewCompleted,
     Warning,
     DeprecationNotice,
@@ -225,6 +229,7 @@ impl CodexInboundMethod {
             Self::AutoApprovalReviewStrictReviewRequired => {
                 "autoApprovalReview/strictReviewRequired"
             }
+            Self::ItemAutoApprovalReviewStarted => CODEX_REVIEW_STARTED_METHOD,
             Self::ItemAutoApprovalReviewCompleted => "item/autoApprovalReview/completed",
             Self::Warning => "warning",
             Self::DeprecationNotice => "deprecationNotice",
@@ -355,6 +360,10 @@ impl CodexInboundMethod {
             Self::GuardianWarning | Self::AutoApprovalReviewStrictReviewRequired => notification(
                 CONTENT,
                 EmitsEvent(SessionEventType::ApprovalReviewerFlagged),
+            ),
+            Self::ItemAutoApprovalReviewStarted => notification(
+                CONTENT,
+                Reads("a review's start, the window its reviewer's own requests are priced in"),
             ),
             Self::ItemAutoApprovalReviewCompleted => notification(
                 CONTENT,

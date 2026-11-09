@@ -2,7 +2,7 @@
 //! conversation that keeps nothing runs Claude Code's own `/compact` with the decision list's
 //! instruction, and the summary it writes travels with Claude Code's own framing taken out. Where
 //! no summary can be read, a second copy answers the fixed template instead. The session's own
-//! conversation is never touched, and each copy's turn is metered on the session's binding.
+//! conversation is never touched, and each copy's own spend is recorded on the session's binding.
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
@@ -39,7 +39,7 @@ const QUOTE_CLOSERS: &[char] = &['"', '\'', '`', '\u{201D}', '\u{2019}', ' ', '\
 impl ClaudeDriver {
     /// The session's hand-over summary: Claude Code's own `/compact` summary on a copy of its
     /// conversation, its framing taken out, or where none can be read a second copy's answer to
-    /// the fixed template; each copy's turn metered on the session's binding. Refused
+    /// the fixed template; each copy's own spend recorded on the session's binding. Refused
     /// `provider.unavailable` where the template got no answer; fails as a copy cannot be composed
     /// or its turn fails.
     pub(crate) async fn export_handover_brief(
@@ -57,14 +57,12 @@ impl ClaudeDriver {
             .task_services
             .idle_sleep
             .hold_side_question(params.session_id);
-        let usage = &self.sources.ports.usage;
         let compacted = parts
             .session_controls
             .run_copy_turn(
                 &copy,
                 format!("{CLAUDE_HANDOVER_COMPACT_COMMAND} {CLAUDE_HANDOVER_COMPACT_INSTRUCTION}"),
                 &params.binding_id,
-                usage,
             )
             .await?;
         if let Some(summary) = compacted
@@ -84,7 +82,6 @@ impl ClaudeDriver {
                 &copy,
                 HANDOVER_SUMMARY_TEMPLATE.to_owned(),
                 &params.binding_id,
-                usage,
             )
             .await?;
         if answered.refusal.is_some() || answered.text.trim().is_empty() {

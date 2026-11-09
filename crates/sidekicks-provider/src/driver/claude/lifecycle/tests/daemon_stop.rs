@@ -10,6 +10,7 @@ use tokio::time::Instant;
 
 use super::held_calls::{holding_session, keep_record, stopped_tasks};
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::driver::claude::session::scripted::held_calls::closes;
@@ -84,14 +85,18 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
         let driver = Arc::clone(&driver);
         async move { driver.shutdown(DaemonStopIntent::Restart, deadline).await }
     });
-    ScriptedDriver::wait_for(|| channel.processes_stopped_at().is_some()).await;
+    poll_until(|| channel.processes_stopped_at(), Option::is_some).await;
     let parts = fixture.driver.composed_parts().expect("composed");
     assert!(
         parts.slots().holds_slot(session_id) && parts.slots().live_session(session_id).is_none(),
         "the session's slot reads closing before its process stops"
     );
     release_stop.send(()).expect("the stop is held");
-    ScriptedDriver::wait_for(|| channel.writes().contains(&ScriptedWrite::Terminate)).await;
+    poll_until(
+        || channel.writes(),
+        |writes| writes.contains(&ScriptedWrite::Terminate),
+    )
+    .await;
     match at_the_stop {
         AtTheStop::RestartProcessExits => {
             fixture.end_turn(&start, session_id);

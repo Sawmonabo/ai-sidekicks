@@ -10,7 +10,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::{LiveCodexSession, TEST_TURN, wait_until};
+use super::{LiveCodexSession, TEST_TURN};
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::{RunningCommandSets, unbound_running_command_sets};
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed};
 use crate::driver::contract::error::DriverError;
@@ -53,7 +54,11 @@ async fn a_commands_row_outlives_its_turn_and_service_and_its_stop_reaches_codex
         .scripted
         .script
         .send(&command_frame("item/started", &item));
-    wait_until(|| sets.has_running_commands(session_id)).await;
+    poll_until(
+        || sets.has_running_commands(session_id),
+        |is_running| *is_running,
+    )
+    .await;
     session
         .scripted
         .script
@@ -110,7 +115,11 @@ async fn a_commands_row_outlives_its_turn_and_service_and_its_stop_reaches_codex
         &json!({ "type": "commandExecution", "id": CALL, "command": "sleep 60",
             "processId": "7", "exitCode": 143 }),
     ));
-    wait_until(|| !sets.has_running_commands(session_id)).await;
+    poll_until(
+        || sets.has_running_commands(session_id),
+        |is_running| !is_running,
+    )
+    .await;
 }
 
 // A command's ending names the tool call its item is, under the item's id, so a turn an undo cut
@@ -138,7 +147,11 @@ async fn a_commands_ending_names_its_items_call() {
         .scripted
         .script
         .send(&command_frame("item/started", &item));
-    wait_until(|| sets.has_running_commands(session.session_id)).await;
+    poll_until(
+        || sets.has_running_commands(session.session_id),
+        |is_running| *is_running,
+    )
+    .await;
     session.scripted.script.send(&command_frame(
         "item/completed",
         &json!({ "type": "commandExecution", "id": CALL, "command": "true", "exitCode": 0 }),

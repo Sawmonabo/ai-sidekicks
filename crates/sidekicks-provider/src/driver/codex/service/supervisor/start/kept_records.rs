@@ -23,7 +23,7 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry, repin_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+    KeptLaunchTelemetry, LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::socket_link::{
@@ -47,6 +47,8 @@ pub(super) enum KeptRecordsOutcome {
     Join {
         /// The service, boxed as the larger arm by far.
         lasting: Box<LastingCodexService>,
+        /// The token and tag its record keeps for its exports, which the join admits again.
+        telemetry: Option<KeptLaunchTelemetry>,
         /// Its record's file.
         record_file: LastingServiceRecordFile,
         /// Where its record says its socket really is, which the join dials.
@@ -456,6 +458,7 @@ pub(super) async fn join_one_drain_others(
                 physical_socket,
                 record_file: running.locked.file().clone(),
                 lasting: Box::new(running.lasting),
+                telemetry: running.record.telemetry,
             });
             continue;
         }
@@ -709,6 +712,7 @@ mod tests {
             physical_socket: Some(PathBuf::from(socket)),
             is_draining,
             is_replaced: false,
+            telemetry: None,
         }
     }
 

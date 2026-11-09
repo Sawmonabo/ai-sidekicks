@@ -59,14 +59,14 @@ Step statuses are these:
 | `waiting` | The step has suspended on one of the wait causes and holds a resume token under its `waitId`. |
 | `succeeded` | The step finished and produced its output. |
 | `failed` | The step ended in failure. A step cut by a time limit — its own `Timeout`, its wait's deadline or the run cap — reads `failed · timed out`. |
-| `skipped` | The step's input carried no items. |
+| `skipped` | The step did not run: its input carried no items, its node is disabled and passed its input on, or a partial run reused an earlier step's data in its place. |
 | `canceled` | The step was running or waiting when its run ended failed or canceled, or it was on a branch a `First to arrive` merge canceled. |
 
 Allowed transitions:
 
 - `pending -> waitingMemory` (the step is ready and the memory gate holds it)
 - `pending -> running`, `waitingMemory -> running` (the gate admits the step)
-- `pending -> skipped` (its input carries no items)
+- `-> skipped` (the walk decides a new step is skipped because its input carries no items, its node is disabled, or a partial run reuses an earlier step's data; the step is written `skipped` when decided, with no `pending` row before it)
 - `running -> waiting` (the step suspends on a person, a held child run or a spent provider account)
 - `waiting -> running` (the wait is answered, the chain's question is answered with `Keep going`, or the account recovers)
 - `running -> succeeded` (execution succeeds)

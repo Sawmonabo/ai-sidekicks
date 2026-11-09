@@ -143,7 +143,6 @@ mod tests {
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::params_and_results::ApplyRowValueParams;
-    use sidekicks_provider::driver::test_registry::registrations_of_first_providers;
     use sidekicks_std::mutex_lock::lock;
     use tokio_util::sync::CancellationToken;
 
@@ -200,9 +199,7 @@ mod tests {
                 ));
                 async { Ok(()) }.boxed()
             });
-        let providers = start
-            .build(&registrations_of_first_providers(vec![Arc::new(driver)]))
-            .await;
+        let providers = start.build(vec![driver]).await;
         let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
         let settings_path = start.home.path().join("machine-settings.json");
         let settings = MachineSettings {

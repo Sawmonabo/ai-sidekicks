@@ -383,6 +383,8 @@ fn compose_short_lived_dependencies(
         exec_relay: Arc::clone(&shared.exec_relay),
         switching: Arc::clone(&shared.switching),
         provider_accounts: Arc::clone(&shared.provider_accounts),
+        telemetry_target: Arc::clone(&shared.telemetry_target),
+        exports: Arc::clone(&shared.exports),
         raw_messages: Arc::clone(&shared.raw_messages),
     })
 }

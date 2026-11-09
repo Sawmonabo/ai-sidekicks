@@ -1,12 +1,13 @@
 //! Where a daemon keeps the record of each lasting Codex service on a Codex folder, the person's
 //! own or an account's home, so a later daemon finds the same processes again: one JSON file per
 //! service, named for the socket it listens on, holding its process, the home's own socket, where
-//! its socket really is, whether it was asked to drain and whether a service started beside it took
-//! its place, in a folder per Codex folder under the daemon's data folder, never in the Codex
-//! folder itself; each is replaced whole through a temporary file and read or written only under
-//! the one lock of its Codex folder's records, so two daemons never start two services on one
-//! socket. The lock's file is never removed: a lock follows the open file, so removing a file
-//! someone waits on would hand the next taker a lock on another file.
+//! its socket really is, whether it was asked to drain, whether a service started beside it took
+//! its place and the token and tag it exports its telemetry under, readable by the user alone, in
+//! a folder per Codex folder under the daemon's data folder, never in the Codex folder itself;
+//! each is replaced whole through a temporary file and read or written only under the one lock of
+//! its Codex folder's records, so two daemons never start two services on one socket. The lock's
+//! file is never removed: a lock follows the open file, so removing a file someone waits on would
+//! hand the next taker a lock on another file.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -51,18 +52,48 @@ pub(crate) struct LastingServiceRecord {
     /// Whether a service started beside it on an account's home took its place, so a later
     /// daemon's start joins that one, never this one, which it drains.
     pub(crate) is_replaced: bool,
+    /// The token and tag the service exports its telemetry to the daemon under, which a later
+    /// daemon that joins it admits; `None` for a service that exports nowhere.
+    pub(crate) telemetry: Option<KeptLaunchTelemetry>,
+}
+
+/// The token a lasting service presents with its telemetry exports and the tag its resource
+/// carries, both fixed in its environment at its launch.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct KeptLaunchTelemetry {
+    /// The token, as the exporter presents it after `Bearer `.
+    pub(crate) token: String,
+    /// The number the launch's resource attributes carry as its tag.
+    pub(crate) resource_tag: u64,
+}
+
+impl std::fmt::Debug for KeptLaunchTelemetry {
+    // The token never reaches a log line or a test's failure.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeptLaunchTelemetry")
+            .field("token", &"<redacted>")
+            .field("resource_tag", &self.resource_tag)
+            .finish()
+    }
 }
 
 impl LastingServiceRecord {
     /// The record of a service of the home whose own control socket is `home_socket`, just
-    /// launched as `process`, before it answers.
-    pub(crate) fn launched(process: ProcessRecord, home_socket: PathBuf) -> Self {
+    /// launched as `process` exporting under `telemetry`, before it answers.
+    pub(crate) fn launched(
+        process: ProcessRecord,
+        home_socket: PathBuf,
+        telemetry: Option<KeptLaunchTelemetry>,
+    ) -> Self {
         Self {
             process,
             home_socket,
             physical_socket: None,
             is_draining: false,
             is_replaced: false,
+            telemetry,
         }
     }
 }
@@ -164,10 +195,16 @@ pub(crate) struct LockedServiceRecord {
     hold: Arc<File>,
 }
 
+/// The folder under `data_folder` of every Codex folder's records, which hold each launch's live
+/// telemetry token, so no session's agent may read it.
+pub(crate) fn service_record_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(RECORD_FOLDER_NAME)
+}
+
 /// The folder of the records of the services on `codex_home`, named for the folder resolved.
 fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathBuf> {
     let key = provider_home_key(&real_path(codex_home)?);
-    Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
+    Ok(service_record_folder(data_folder).join(key))
 }
 
 /// The key of each Codex folder whose records' folder under `data_folder` holds a record, so a
@@ -198,8 +235,7 @@ pub(crate) fn one_recorded_file_per_folder(
 // Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
 // together; none when no record was ever kept. Blocking. Fails with a folder's read error.
 fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
-    let Some(folders) =
-        std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)).none_if_missing()?
+    let Some(folders) = std::fs::read_dir(service_record_folder(data_folder)).none_if_missing()?
     else {
         return Ok(Vec::new());
     };
@@ -308,7 +344,7 @@ impl LockedServiceRecord {
 mod tests {
     use sidekicks_platforms::pin_child_process;
 
-    use super::{LastingServiceRecord, LastingServiceRecordFile};
+    use super::{KeptLaunchTelemetry, LastingServiceRecord, LastingServiceRecordFile};
 
     // Fails when the record reads back as anything but what was written, or a removed record
     // still reads.
@@ -325,6 +361,10 @@ mod tests {
             physical_socket: Some(data_folder.path().join("real.sock")),
             is_draining: true,
             is_replaced: true,
+            telemetry: Some(KeptLaunchTelemetry {
+                token: "a".repeat(64),
+                resource_tag: 7,
+            }),
         };
         let file = LastingServiceRecordFile::of_socket(
             data_folder.path(),

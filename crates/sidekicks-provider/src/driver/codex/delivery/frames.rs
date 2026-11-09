@@ -34,6 +34,7 @@ use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
+use crate::driver::codex::event_normalizer::CODEX_REVIEW_STARTED_METHOD;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::server_requests::CodexAskKind;
@@ -48,6 +49,7 @@ use crate::port::question::ProviderQuestion;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::tool_traces::ToolTraces;
+use crate::pricing::live::LivePricing;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -103,6 +105,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
     /// The accounts, whose credential generation a spent allowance is filed under.
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Codex's live pricing, which a reroute marks the model it moved to in use on.
+    pub(crate) pricing: Arc<LivePricing>,
     /// Where each finished tool call's trace goes once registered.
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
@@ -278,6 +282,7 @@ impl CodexFrameDelivery {
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
             "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
+            | CODEX_REVIEW_STARTED_METHOD
             | "item/autoApprovalReview/completed"
             | "autoApprovalReview/strictReviewRequired" => {
                 self.deliver_reviewer_frame(record, method, &members).await;
