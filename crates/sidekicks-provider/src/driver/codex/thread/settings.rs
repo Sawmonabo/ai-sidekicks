@@ -483,6 +483,7 @@ mod tests {
     use std::path::Path;
 
     use rstest::rstest;
+    use secrecy::SecretString;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
@@ -497,6 +498,7 @@ mod tests {
     };
     use crate::driver::PROVIDERS;
     use crate::driver::codex::DESCRIPTOR;
+    use crate::driver::codex::account::login::CodexLoginAccountParams;
     use crate::driver::codex::app_server_protocol::{ModeKind, Settings, TextUserInputType};
     use crate::driver::codex::session::test_fixture::test_thread_settings;
     use crate::driver::codex::vendored_schema::vendored_schema_file;
@@ -681,8 +683,9 @@ mod tests {
         );
     }
 
-    // The member names of a hand-written request type, every member set so none is skipped.
-    fn hand_written_members(type_name: &str) -> Vec<String> {
+    // Every arm of a hand-written request type, serialized with every member set so none is
+    // skipped; a struct is its one arm.
+    fn hand_written_requests(type_name: &str) -> Vec<Value> {
         let collaboration_mode = Some(CollaborationMode {
             mode: ModeKind::Default,
             settings: Settings {
@@ -691,8 +694,8 @@ mod tests {
                 reasoning_effort: None,
             },
         });
-        let params = match type_name {
-            "TurnStartParams" => serde_json::to_value(CodexTurnStartParams {
+        let requests = match type_name {
+            "TurnStartParams" => vec![serde_json::to_value(CodexTurnStartParams {
                 thread_id: "thread".to_owned(),
                 input: vec![UserInput::TextUserInput {
                     text: "hello".to_owned(),
@@ -710,55 +713,87 @@ mod tests {
                 service_tier: Some(Some("fast".to_owned())),
                 service_tier_for_turn: Some("fast".to_owned()),
                 environments: Some(compose_codex_relay_environments(Path::new("/work"))),
-            }),
-            "ThreadSettingsUpdateParams" => serde_json::to_value(CodexThreadSettingsUpdateParams {
-                thread_id: "thread".to_owned(),
-                collaboration_mode,
-                permissions: Some("profile".to_owned()),
-                approval_policy: Some(AskForApproval::Never),
-                approvals_reviewer: Some(ApprovalsReviewer::User),
-                service_tier: Some(Some("fast".to_owned())),
-            }),
+            })],
+            "ThreadSettingsUpdateParams" => {
+                vec![serde_json::to_value(CodexThreadSettingsUpdateParams {
+                    thread_id: "thread".to_owned(),
+                    collaboration_mode,
+                    permissions: Some("profile".to_owned()),
+                    approval_policy: Some(AskForApproval::Never),
+                    approvals_reviewer: Some(ApprovalsReviewer::User),
+                    service_tier: Some(Some("fast".to_owned())),
+                })]
+            }
+            "LoginAccountParams" => [
+                CodexLoginAccountParams::Chatgpt {},
+                CodexLoginAccountParams::ChatgptDeviceCode {},
+                CodexLoginAccountParams::ChatgptAuthTokens {
+                    access_token: SecretString::from("token"),
+                    chatgpt_account_id: "workspace".to_owned(),
+                    chatgpt_plan_type: Some("plus".to_owned()),
+                },
+                CodexLoginAccountParams::ApiKey {
+                    api_key: SecretString::from("key"),
+                },
+            ]
+            .iter()
+            .map(serde_json::to_value)
+            .collect(),
             _ => unreachable!("{type_name} is not hand-written"),
         };
-        params
-            .expect("the params serialize")
-            .as_object()
-            .expect("the params are an object")
-            .keys()
-            .cloned()
+        requests
+            .into_iter()
+            .map(|request| request.expect("the params serialize"))
             .collect()
     }
 
-    // The two request types the daemon writes by hand, for their three-state service tier, name
-    // only members the vendored release's schema has and every member it requires, so a release
-    // that drops, renames or newly requires one fails here instead of at the service. Killed by
-    // a member the schema lacks or a required member the type lacks.
+    // The request types the daemon writes by hand, for their three-state service tier or the
+    // login's secret credentials, name in each arm only members the vendored release's schema arm
+    // of the same `type` has and every member that arm requires, so a release that drops, renames
+    // or newly requires one fails here instead of at the service. Killed by a member the schema
+    // lacks, a required member the type lacks or a `type` no schema arm names.
     #[rstest]
     #[case("TurnStartParams")]
     #[case("ThreadSettingsUpdateParams")]
+    #[case("LoginAccountParams")]
     fn a_hand_written_request_names_the_schemas_members(#[case] type_name: &str) {
         let schema = vendored_schema_file("codex_app_server_protocol.v2.schemas.json");
         let definition = &schema["definitions"][type_name];
-        let members = hand_written_members(type_name);
-        let properties = definition["properties"]
-            .as_object()
-            .expect("the schema names the type's members");
-        for member in &members {
-            assert!(
-                properties.contains_key(member),
-                "{type_name} sends {member}, which the schema does not name"
-            );
-        }
-        for required in definition["required"]
+        let arms: Vec<&Value> = definition["oneOf"]
             .as_array()
-            .expect("the schema names the type's required members")
-        {
-            let required = required.as_str().expect("a required member is a name");
-            assert!(
-                members.iter().any(|member| member == required),
-                "the schema requires {type_name}.{required}, which the type does not send"
-            );
+            .map_or_else(|| vec![definition], |arms| arms.iter().collect());
+        for request in hand_written_requests(type_name) {
+            let members = request.as_object().expect("the params are an object");
+            let tag = members.get("type");
+            let arm = arms
+                .iter()
+                .find(|arm| {
+                    tag.is_none_or(|tag| {
+                        arm["properties"]["type"]["enum"]
+                            .as_array()
+                            .is_some_and(|tags| tags.contains(tag))
+                    })
+                })
+                .unwrap_or_else(|| panic!("the schema names no {type_name} arm of type {tag:?}"));
+            let properties = arm["properties"]
+                .as_object()
+                .expect("the schema names the arm's members");
+            for member in members.keys() {
+                assert!(
+                    properties.contains_key(member),
+                    "{type_name} {tag:?} sends {member}, which the schema does not name"
+                );
+            }
+            for required in arm["required"]
+                .as_array()
+                .expect("the schema names the arm's required members")
+            {
+                let required = required.as_str().expect("a required member is a name");
+                assert!(
+                    members.contains_key(required),
+                    "the schema requires {type_name} {tag:?}.{required}, which the type does not send"
+                );
+            }
         }
     }
 }
