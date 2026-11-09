@@ -9,6 +9,7 @@ mod inbox;
 mod readying;
 mod reports;
 mod resuming;
+mod starting;
 
 #[cfg(test)]
 mod tests;
@@ -43,8 +44,7 @@ use tokio::task::{Id, JoinError, JoinSet};
 use super::commit::{ReportedStep, RunTurnCommit, RunTurnCommitFailure};
 use super::dispatch::{StepDispatch, fill_step_failure};
 use super::live_runs::{LiveRun, LiveStep, TurnAsk};
-use super::node_settings::main_inputs;
-use super::walk::WalkReady;
+use super::walk::{WalkReady, WalkTurn};
 use super::{ParkedAgentRun, ReadyStep, StepReport, StepReportKind, StepSettlement};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
@@ -55,6 +55,8 @@ use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
 use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
+
+use self::starting::RunOpening;
 
 /// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
 const TURN_REPORT_LIMIT: usize = 256;
@@ -70,7 +72,8 @@ const KIND_CHECKED: &str = "the start checked that the table lists every node's 
 /// What reaches the tick from outside its own steps.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineTickInput {
-    /// A run the start wrote, which the tick walks from its trigger step.
+    /// A run the start wrote, which the tick walks from its trigger step, or a node run from the
+    /// earlier steps it reuses.
     Started(StartedRun),
     /// A person's answer to a step waiting on them.
     Answer(PersonWaitIntake),
@@ -186,7 +189,8 @@ struct RunTurn {
 }
 
 /// What reached one run for a turn: the answers routed to it, its steps' reports, its retries come
-/// due, its pause points ended and the person's Resumes and cancels.
+/// due, its pause points ended, the person's Resumes and cancels and, for a node run starting,
+/// its walk's first turn.
 struct RunArrivals {
     answers: Vec<PersonWaitIntake>,
     reports: Vec<StepReport>,
@@ -194,6 +198,7 @@ struct RunArrivals {
     taken: Vec<PausePoint>,
     resumes: Vec<RunResumeIntake>,
     cancels: Vec<RunCancelIntake>,
+    seed: Option<WalkTurn>,
 }
 
 /// A step a turn readied, kept live once its write commits.
@@ -350,11 +355,12 @@ impl EngineTick {
 
     /// One turn: each `Keep going` as its own write while the inputs are routed, each Resume routed
     /// as it arrives and each cancel after every run the batch starts, then each run's share in
-    /// arrival order, its next batch first, then the answers routed to it, and its retries come
-    /// `due` and its pause points `taken` with it, committed in one write per run; then one read of
-    /// the dispatching runs' levels, their dispatch, one read of the deadline clock where a write
-    /// moved a deadline, and one weigh of the memory gate. A run whose pause point is still pending
-    /// sits the turn out, keeping what reached it.
+    /// arrival order, a starting node run's seeded first turn first, then its next batch, then the
+    /// answers routed to it, and its retries come `due` and its pause points `taken` with it,
+    /// committed in one write per run; then one read of the dispatching runs' levels, their
+    /// dispatch, one read of the deadline clock where a write moved a deadline, and one weigh of
+    /// the memory gate. A run whose pause point is still pending sits the turn out, keeping what
+    /// reached it.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
@@ -367,11 +373,18 @@ impl EngineTick {
         let mut answers: HashMap<WorkflowRunId, Vec<PersonWaitIntake>> = HashMap::new();
         let mut cancels: HashMap<WorkflowRunId, Vec<RunCancelIntake>> = HashMap::new();
         let mut resumes: HashMap<WorkflowRunId, Vec<RunResumeIntake>> = HashMap::new();
+        let mut seeds: HashMap<WorkflowRunId, WalkTurn> = HashMap::new();
         // A start's row is visible to a cancel before the tick holds its run.
         let mut cancel_intakes = Vec::new();
         for input in inputs {
             match input {
-                EngineTickInput::Started(run) => dispatching.push(self.start_run(run)),
+                EngineTickInput::Started(run) => match self.start_run(run) {
+                    (run_id, RunOpening::Readied(ready)) => dispatching.push((run_id, vec![ready])),
+                    (run_id, RunOpening::Seeded(seed)) => {
+                        order.push(run_id);
+                        seeds.insert(run_id, seed);
+                    }
+                },
                 EngineTickInput::Answer(intake) => {
                     self.route_answer(intake, &mut order, &mut answers);
                 }
@@ -405,6 +418,7 @@ impl EngineTick {
                 taken: taken_by_run.remove(&run_id).unwrap_or_default(),
                 resumes: resumes.remove(&run_id).unwrap_or_default(),
                 cancels: cancels.remove(&run_id).unwrap_or_default(),
+                seed: seeds.remove(&run_id),
             };
             if let Some(readied) = self.run_turn(run_id, arrived).await
                 && !readied.is_empty()
@@ -456,52 +470,8 @@ impl EngineTick {
         self.needs_deadline_read = true;
     }
 
-    /// Takes `run` into the live set and answers its trigger step, readied by the start's own
-    /// write, to dispatch this turn on the start's items.
-    fn start_run(&mut self, run: StartedRun) -> (WorkflowRunId, Vec<ReadyStep>) {
-        let StartedRun {
-            scope,
-            graph,
-            trigger_input,
-            trigger_items,
-            started_sequence,
-        } = run;
-        let run_id = scope.run_id;
-        let record = self.recorder.for_run(run_id, Arc::clone(&scope.redaction));
-        let mut live = LiveRun::new(scope, graph, record);
-        let trigger = live
-            .walk
-            .start()
-            .ready
-            .pop()
-            .expect("a walk starts by readying its trigger");
-        let node = live
-            .scope
-            .nodes
-            .get(&trigger.step.node_id)
-            .expect("the trigger is one of the run's nodes");
-        let spec = &self.kinds.kind_of(node).expect(KIND_CHECKED).spec;
-        let mut inputs = vec![Vec::new(); spec.inputs.as_slice().len()];
-        if let Some(first) = main_inputs(spec, inputs.iter_mut()).next() {
-            *first = trigger_items;
-        }
-        let ready = ReadyStep {
-            step: trigger.step.clone(),
-            run_index: trigger.run_index,
-            inputs: inputs.clone(),
-            input_ref: trigger_input.clone(),
-        };
-        live.counts.moved(None, (WorkflowStepStatus::Pending, None));
-        live.steps.insert(
-            ready.step.execution_index.get(),
-            LiveStep::readied(trigger, inputs, trigger_input, started_sequence),
-        );
-        live.follow_cap(&self.deadlines, false);
-        self.runs.insert(run_id, live);
-        (run_id, vec![ready])
-    }
-
-    /// The share of the run `run_id` in this turn of what `arrived`: its next batch, whose reports
+    /// The share of the run `run_id` in this turn of what `arrived`: a starting node run's walk's
+    /// first turn, its reused skips and the steps they ready, then its next batch, whose reports
     /// an earlier turn answered, so what that turn decided stands, then the answers, then the
     /// reports, then the person's Resumes, then their cancels, each through the run's commit, the
     /// walk's answers added, a quiet run flushed, its ending added where it is over, all in one
@@ -531,6 +501,7 @@ impl EngineTick {
             taken,
             resumes,
             cancels,
+            seed,
         } = arrived;
         let mut live = self.runs.remove(&run_id)?;
         // A cancel waits only for the capture under way, so the first point to end abandons the
@@ -578,6 +549,12 @@ impl EngineTick {
             resume_replies: Vec::new(),
             last_readying_event: None,
         };
+        if let Some(seed) = seed {
+            // The trigger's reused skip is the seed's first event, which every step it readies
+            // follows.
+            self.take_walk(&mut live, &mut turn, seed, (0, WireInstant::now()))
+                .await;
+        }
         for report in std::mem::take(&mut live.next_batch) {
             self.apply_report(&mut live, &mut turn, report).await;
             self.apply_follow_ups(&mut live, &mut turn).await;

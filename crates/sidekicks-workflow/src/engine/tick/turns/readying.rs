@@ -1,7 +1,8 @@
 //! The readying path of the tick's loop: a settled step's outputs kept, and what the walk then
 //! readies, skips, wins or cancels added to the run's turn, each readied step's first main input
-//! stored for its `pending` row.
+//! stored for its `pending` row and each reused step's outputs kept as a settled step's.
 
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -12,10 +13,10 @@ use crate::engine::tick::branch_cancellation::{BranchCancelReason, BranchLoser, 
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::step_failure::{RunSibling, SiblingState};
-use crate::engine::tick::walk::{WalkSkip, WalkSkipReason, WalkTurn};
+use crate::engine::tick::walk::{ReusedStepRecord, WalkSkip, WalkSkipReason, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput};
 use crate::kinds::StepFailure;
-use crate::runs::step_payload::write_step_payload;
+use crate::runs::step_payload::{join_step_outputs, write_step_payload};
 
 impl EngineTick {
     /// Settles `step` in the walk with `outputs`, which move into the run's outputs beside its
@@ -68,10 +69,10 @@ impl EngineTick {
         }
     }
 
-    /// Adds what the walk answered to the turn: each skip's row and event, then each readied
-    /// step's `pending` row on its stored first main input, on the event of the last skip it
-    /// names as a source, or else on `readying`'s event.
-    async fn take_walk(
+    /// Adds what the walk answered to the turn: each skip's row and event, a reused skip's outputs
+    /// kept as its step's, then each readied step's `pending` row on its stored first main input,
+    /// on the event of the last skip it names as a source, or else on `readying`'s event.
+    pub(super) async fn take_walk(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
@@ -92,8 +93,23 @@ impl EngineTick {
                     (payload.clone(), payload)
                 }
                 WalkSkipReason::Reused(reused) => {
+                    let (session_id, outputs) =
+                        live.take_reused_output(&skip.step.node_id, &reused.from);
+                    let output_ref = self
+                        .reused_output_ref(live, skip, reused, session_id, &outputs)
+                        .await;
+                    live.outputs.record(
+                        StepKey {
+                            node_id: skip.step.node_id.clone(),
+                            execution_index: skip.step.execution_index.get(),
+                        },
+                        StepOutput {
+                            sources: skip.sources.clone(),
+                            outputs,
+                        },
+                    );
                     let input_ref = self.store_skipped_input(live, skip).await;
-                    (input_ref, reused.output_ref.clone())
+                    (input_ref, output_ref)
                 }
                 WalkSkipReason::NoItems => (
                     WorkflowPayloadRef::Inline { items: Vec::new() },
@@ -189,6 +205,42 @@ impl EngineTick {
             );
             turn.follow_ups.extend(cancelings);
             live.waves.extend(wave);
+        }
+    }
+
+    /// The output `skip`, which replays `reused`, passes on: the earlier step's own where it is
+    /// inline or lives in this run's session, `session_id`, else `outputs` stored again in this
+    /// run's session under the skip's key, since a session's purge erases only its own payloads. A
+    /// copy that cannot be stored is recorded, and the skip keeps the earlier step's ref.
+    async fn reused_output_ref(
+        &self,
+        live: &LiveRun,
+        skip: &WalkSkip,
+        reused: &ReusedStepRecord,
+        session_id: SessionId,
+        outputs: &[Vec<WorkflowItem>],
+    ) -> WorkflowPayloadRef {
+        if session_id == live.scope.session_id
+            || matches!(reused.output_ref, WorkflowPayloadRef::Inline { .. })
+        {
+            return reused.output_ref.clone();
+        }
+        let joined = join_step_outputs(outputs);
+        match write_step_payload(
+            self.payloads.as_ref(),
+            live.scope.session_id,
+            &skip.step,
+            &joined,
+        )
+        .await
+        {
+            Ok(output_ref) => output_ref,
+            Err(error) => {
+                live.record
+                    .fault(Some(&skip.step), EngineFault::SettlementWriteFailed, &error)
+                    .await;
+                reused.output_ref.clone()
+            }
         }
     }
 

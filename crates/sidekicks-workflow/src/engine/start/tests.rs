@@ -663,7 +663,10 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 .expect("the payload holds bytes"),
                 item_count: SafeInt::new(1).expect("one item"),
             };
-            assert_eq!(run.trigger_input, artifact);
+            assert_eq!(
+                run.trigger.as_ref().map(|trigger| &trigger.input_ref),
+                Some(&artifact)
+            );
             let (payload, occurred_at, started_at) = fixture.started_record(run.scope.run_id);
             assert_eq!(
                 payload["inputRef"],

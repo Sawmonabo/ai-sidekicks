@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
-use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
+use sidekicks_contracts::workflow::run::events::{WorkflowNodeRun, WorkflowRunStartedPayload};
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
@@ -42,6 +42,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
 use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
 use crate::engine::event_record::EngineRecorder;
+use crate::engine::partial_run::PartialRunPlan;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
@@ -51,7 +52,7 @@ use crate::engine::ports::{
     KeptEngineRecords, PersonWaitQuestions, RunSnapshotPoints, ScriptedGate, StepAdmission,
     StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits, refusing_engine_ports,
 };
-use crate::engine::start::StartedRun;
+use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger};
 use crate::engine::tick::commit::SessionEventId;
 use crate::engine::tick::dispatch::test_dispatch_recording;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
@@ -68,7 +69,7 @@ use crate::engine::waits::{PersonWaitAnswer, PersonWaitPorts, PersonWaitRefusal}
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
     NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepAdmissionNeed,
-    StepFailure, StepOutcome, test_kind, uncoded_step_error,
+    StepFailure, StepOutcome, loop_test_kind, main_test_kind, uncoded_step_error,
 };
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
@@ -276,36 +277,8 @@ pub(in crate::engine::tick::turns) fn large_items() -> Vec<WorkflowItem> {
         .collect()
 }
 
-/// A kind `kind` with `input_count` main inputs and `output_count` main outputs, run by
-/// `executor`.
-fn kind(
-    kind: &str,
-    category: &str,
-    (input_count, output_count): (usize, usize),
-    executor: Box<dyn NodeExecutor>,
-) -> crate::kinds::NodeKind {
-    let inputs: Vec<Value> = (0..input_count)
-        .map(|index| json!({ "type": "main", "id": format!("inputs/main/{index}"), "label": "In" }))
-        .collect();
-    let outputs: Vec<Value> = (0..output_count)
-        .map(|index| {
-            json!({ "type": "main", "id": format!("outputs/main/{index}"), "label": "Out" })
-        })
-        .collect();
-    test_kind(
-        json!({
-            "kind": kind, "version": 1, "category": category, "displayName": kind,
-            "description": "A test kind.", "icon": "test", "params": [],
-            "outputsDeriveFromParams": false, "inputs": inputs,
-            "outputs": outputs,
-        }),
-        None,
-        executor,
-    )
-}
-
-/// The test's kinds: a trigger and a step passing their inputs on, and one kind per script; an
-/// approval has two outputs, which its answer fills.
+/// The test's kinds: a trigger, a step and a pair passing their inputs on, the loop, and one kind
+/// per script; an approval has two outputs, which its answer fills.
 fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
     let scripted = |name: &str, inputs: usize, script: Script| {
         let outputs = if matches!(script, Script::Approve) {
@@ -313,7 +286,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
         } else {
             1
         };
-        kind(
+        main_test_kind(
             name,
             "developer",
             (inputs, outputs),
@@ -323,26 +296,14 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             }),
         )
     };
+    let passing = |name: &str, category: &str, inputs: usize| {
+        main_test_kind(name, category, (inputs, 1), Box::new(PassThroughExecutor))
+    };
     Arc::new(
         NodeKindTable::new(vec![
-            kind(
-                "test.trigger",
-                "trigger",
-                (1, 1),
-                Box::new(PassThroughExecutor),
-            ),
-            kind(
-                "test.step",
-                "developer",
-                (1, 1),
-                Box::new(PassThroughExecutor),
-            ),
-            kind(
-                "test.pair",
-                "developer",
-                (2, 1),
-                Box::new(PassThroughExecutor),
-            ),
+            passing("test.trigger", "trigger", 1),
+            passing("test.step", "developer", 1),
+            passing("test.pair", "developer", 2),
             scripted("test.empty", 1, Script::Empty),
             scripted("test.large", 1, Script::Large),
             scripted("test.wait", 1, Script::AwaitCancel),
@@ -358,6 +319,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.form", 1, Script::Form),
             scripted("test.agent", 1, Script::Agent),
             scripted("test.keep", 1, Script::Keep),
+            loop_test_kind(),
         ])
         .expect("the test's kinds build a table"),
     )
@@ -553,6 +515,38 @@ impl Harness {
         trigger_items: Vec<WorkflowItem>,
         before_start: impl FnOnce(&Connection),
     ) -> CancellationToken {
+        self.start_run::<fn(&Connection) -> PartialRunPlan, _>(
+            nodes,
+            edges,
+            Ok(trigger_items),
+            before_start,
+        )
+        .await
+    }
+
+    /// Stores the workflow as [`Harness::start`] does and writes the scope's run as the node run
+    /// `node_run` that reuses its trigger's step, then hands the loop the seed of the plan `plan`
+    /// makes over the stored rows, each reused output read back from the payload store.
+    pub(in crate::engine::tick::turns) async fn start_node_run(
+        &self,
+        nodes: Vec<WorkflowNode>,
+        edges: &[WorkflowEdge],
+        node_run: WorkflowNodeRun,
+        plan: impl FnOnce(&Connection) -> PartialRunPlan,
+    ) -> CancellationToken {
+        self.start_run(nodes, edges, Err((node_run, plan)), |_| {})
+            .await
+    }
+
+    /// Writes the scope's run as [`Harness::start`] does, on its trigger's items or as a node run
+    /// whose plan is made once the workflow is stored, and hands it to the loop.
+    async fn start_run<Plan: FnOnce(&Connection) -> PartialRunPlan, Before: FnOnce(&Connection)>(
+        &self,
+        nodes: Vec<WorkflowNode>,
+        edges: &[WorkflowEdge],
+        opening: Result<Vec<WorkflowItem>, (WorkflowNodeRun, Plan)>,
+        before_start: Before,
+    ) -> CancellationToken {
         let base = &self.scope;
         let is_stored: bool = self
             .rows
@@ -576,14 +570,24 @@ impl Harness {
         };
         let started_at = WireInstant::now();
         let run_started_at = started_at.timestamp().expect("a stored instant reads");
-        let trigger_input = write_step_payload(
-            self.payloads.as_ref(),
-            base.session_id,
-            &trigger_step_key(base.run_id, &trigger),
-            &trigger_items,
-        )
-        .await
-        .expect("the trigger's input is stored");
+        let (started_trigger, node_run) = match opening {
+            Ok(items) => {
+                let input_ref = write_step_payload(
+                    self.payloads.as_ref(),
+                    base.session_id,
+                    &trigger_step_key(base.run_id, &trigger),
+                    &items,
+                )
+                .await
+                .expect("the trigger's input is stored");
+                (Some(StartedTrigger { input_ref, items }), None)
+            }
+            Err((node_run, plan)) => (None, Some((node_run, plan(&self.rows)))),
+        };
+        let trigger_input = started_trigger
+            .as_ref()
+            .map(|started| started.input_ref.clone());
+        let node_run_record = node_run.as_ref().map(|(node_run, _)| node_run.clone());
         let started_by = match base.mode {
             WorkflowRunMode::Manual => WorkflowStartedBy::User {
                 device_id: DeviceId::new("device-1".to_owned()).expect("a device id"),
@@ -609,8 +613,8 @@ impl Harness {
             execution_context: None,
             provider: None,
             started_at: started_at.clone(),
-            trigger_input: Some(trigger_input.clone()),
-            node_run: None,
+            trigger_input: trigger_input.clone(),
+            node_run: node_run_record.clone(),
         };
         let draft = SessionEventDraft::of_session(
             base.session_id,
@@ -624,8 +628,8 @@ impl Harness {
                 trigger: trigger.clone(),
                 chain: WorkflowRunChainPlace::Starts {},
                 provider: None,
-                node_run: None,
-                input_ref: Some(trigger_input.clone()),
+                node_run: node_run_record,
+                input_ref: trigger_input,
             }),
         )
         .expect("the started event drafts");
@@ -659,11 +663,19 @@ impl Harness {
             ..test_run_scope(base.mode, nodes)
         };
         let cancel = scope.cancel.clone();
+        let node_run = match node_run {
+            Some((_, plan)) => Some(
+                StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
+                    .await
+                    .expect("the reused outputs read back"),
+            ),
+            None => None,
+        };
         let started = StartedRun {
             scope: Arc::new(scope),
             graph: Arc::new(graph),
-            trigger_input,
-            trigger_items,
+            trigger: started_trigger,
+            node_run,
             started_sequence: receipt.sequence,
         };
         self.send(EngineTickInput::Started(started)).await;

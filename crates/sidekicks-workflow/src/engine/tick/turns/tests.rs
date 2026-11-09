@@ -9,6 +9,7 @@ use tokio::time::timeout;
 use crate::test_rows::{TestStep, insert_step};
 
 pub(super) mod harness;
+mod node_run;
 
 use harness::{Harness, QUIET, WAIT, edge, item, large_items, node, step_column};
 

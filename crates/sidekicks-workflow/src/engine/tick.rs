@@ -16,7 +16,7 @@ pub(crate) use self::branch_cancellation::BranchCancelReason;
 pub(crate) use self::turns::{
     EngineTickInput, RunCancelIntake, RunCancelRefusal, RunResumeIntake, RunResumeRefusal,
 };
-pub(crate) use self::walk::{RunGraph, RunGraphError};
+pub(crate) use self::walk::{ReusedSeedStep, ReusedStepRecord, RunGraph, RunGraphError};
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

@@ -8,6 +8,7 @@
 //! `workflow.run.started`, which holds a run joining a chain at its limit.
 mod check;
 mod errors;
+mod node_run;
 #[cfg(test)]
 mod tests;
 
@@ -77,6 +78,7 @@ use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::errors::WorkflowRunStartError;
+pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
@@ -139,9 +141,8 @@ pub(crate) struct WorkflowRunStart {
 }
 
 /// A run the start wrote: the scope its steps share, which holds the folder it works in, the graph
-/// of its pinned version, the input its trigger step starts on, as stored and as items, and the
-/// sequence of the write that stored the trigger step's `pending` row.
-#[derive(Clone)]
+/// of its pinned version, the input its trigger step starts on where it runs, what a node run
+/// covers and reuses, and the sequence of its started event's write.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -151,12 +152,24 @@ pub(crate) struct StartedRun {
     pub(crate) scope: Arc<RunScope>,
     /// The graph of its pinned version, built once by the start's checks.
     pub(crate) graph: Arc<RunGraph>,
-    /// The input its trigger step starts on.
-    pub(crate) trigger_input: WorkflowPayloadRef,
-    /// The items of that input, kept so the run reads back no artifact the start just wrote.
-    pub(crate) trigger_items: Vec<WorkflowItem>,
-    /// The sequence of `workflow.run.started`, whose write readied the trigger step.
+    /// The input its trigger step starts on; `None` on a node run that reuses its trigger's step.
+    pub(crate) trigger: Option<StartedTrigger>,
+    /// The places a node run covers and the earlier steps it replays; `None` on a whole run.
+    pub(crate) node_run: Option<StartedNodeRun>,
+    /// The sequence of `workflow.run.started`, whose write readied the trigger step where it runs.
     pub(crate) started_sequence: SafeInt<0>,
+}
+
+/// The input a run's trigger step starts on, as its `pending` row stores it and as items.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(crate) struct StartedTrigger {
+    /// The input as stored.
+    pub(crate) input_ref: WorkflowPayloadRef,
+    /// Its items, kept so the run reads back no artifact the start just wrote.
+    pub(crate) items: Vec<WorkflowItem>,
 }
 
 impl fmt::Debug for StartedRun {
@@ -166,14 +179,17 @@ impl fmt::Debug for StartedRun {
             .debug_struct("StartedRun")
             .field("workflow_run_id", &self.scope.run_id)
             .field("working_folder", &self.scope.working_folder)
-            .field("trigger_input", &self.trigger_input)
+            .field(
+                "trigger_input",
+                &self.trigger.as_ref().map(|trigger| &trigger.input_ref),
+            )
             .field("started_sequence", &self.started_sequence)
             .finish_non_exhaustive()
     }
 }
 
 /// How a start that passed its checks ended.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -725,8 +741,11 @@ impl WorkflowRunStarter {
                 Ok(WorkflowStartOutcome::Started(StartedRun {
                     scope: Arc::new(scope),
                     graph: checked.graph,
-                    trigger_input,
-                    trigger_items: checked.start_items,
+                    trigger: Some(StartedTrigger {
+                        input_ref: trigger_input,
+                        items: checked.start_items,
+                    }),
+                    node_run: None,
                     started_sequence: receipt.sequence,
                 }))
             }
