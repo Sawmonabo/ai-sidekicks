@@ -205,21 +205,21 @@ pub struct SessionMemoryEntry {
     pub kind: SessionMemoryEntryKind,
 }
 
-/// The `Auto memory` switch, with the value waiting for the provider's next start where a change
+/// The `Auto memory` switch, with the value it takes from the session's next turn while a change
 /// waits for it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionAutoMemory {
     /// Whether it is on now.
     pub enabled: bool,
-    /// The value it takes at the next start, while a change waits for it.
+    /// The value it takes from the session's next turn, while a change waits for it.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "bool")]
-    pub enabled_at_next_start: Option<bool>,
+    pub enabled_at_next_turn: Option<bool>,
 }
 
 /// Whether the store is shared across the provider's accounts.

@@ -75,7 +75,7 @@ pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> 
         .unwrap_or(true);
     SessionAutoMemory {
         enabled,
-        enabled_at_next_start: switch.filter(|switch| *switch != enabled),
+        enabled_at_next_turn: switch.filter(|switch| *switch != enabled),
     }
 }
 
@@ -193,26 +193,26 @@ mod tests {
         assert_eq!(read_claude_auto_memory(&sources).enabled, enabled);
     }
 
-    // Killed by a fixed time of effect, by a missing value for the next start, and by a value for
-    // the next start always set to the stored switch.
+    // Killed by a fixed time of effect, by a missing value for the next turn, and by a value for
+    // the next turn always set to the stored switch.
     #[rstest]
     #[case::live(
         SessionProcessState::Live,
         ClaudeAutoMemorySources { running: Some(true), stored_switch: Some(false), ..no_sources() },
         SessionAutoMemoryAppliesAt::NextTurn,
-        SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
+        SessionAutoMemory { enabled: true, enabled_at_next_turn: Some(false) }
     )]
     #[case::restarting(
         SessionProcessState::Restarting,
         ClaudeAutoMemorySources { running: Some(true), stored_switch: Some(false), ..no_sources() },
         SessionAutoMemoryAppliesAt::NextTurn,
-        SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
+        SessionAutoMemory { enabled: true, enabled_at_next_turn: Some(false) }
     )]
     #[case::down(
         SessionProcessState::Down,
         ClaudeAutoMemorySources { stored_switch: Some(false), kept: Some(true), ..no_sources() },
         SessionAutoMemoryAppliesAt::Now,
-        SessionAutoMemory { enabled: false, enabled_at_next_start: None }
+        SessionAutoMemory { enabled: false, enabled_at_next_turn: None }
     )]
     fn a_running_process_takes_a_press_at_its_next_turn(
         #[case] state: SessionProcessState,

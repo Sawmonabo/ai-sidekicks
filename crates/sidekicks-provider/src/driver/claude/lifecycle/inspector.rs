@@ -179,15 +179,15 @@ mod tests {
     #[rstest]
     #[case::live(
         SessionProcessState::Live,
-        SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
+        SessionAutoMemory { enabled: true, enabled_at_next_turn: Some(false) }
     )]
     #[case::restarting(
         SessionProcessState::Restarting,
-        SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
+        SessionAutoMemory { enabled: true, enabled_at_next_turn: Some(false) }
     )]
     #[case::down(
         SessionProcessState::Down,
-        SessionAutoMemory { enabled: false, enabled_at_next_start: None }
+        SessionAutoMemory { enabled: false, enabled_at_next_turn: None }
     )]
     fn a_process_value_runs_while_a_process_serves_or_comes_back(
         #[case] state: SessionProcessState,

@@ -148,13 +148,13 @@ export interface SessionMemoryEntry {
 
 /**
  * The inspector's `Memory` section: the account home the memory lives under, the `Auto memory`
- * switch and the memory paths. `enabledAtNextStart` is present while a change waits for the
- * provider's next start, which is how Claude Code applies the switch.
+ * switch and the memory paths. `enabledAtNextTurn` is present while a change waits for the
+ * session's next turn, which is how a running Claude Code process takes the switch.
  */
 export interface SessionMemoryReadResponse {
   sessionId: SessionId;
   home: string;
-  autoMemory: { enabled: boolean; enabledAtNextStart?: boolean | undefined };
+  autoMemory: { enabled: boolean; enabledAtNextTurn?: boolean | undefined };
   entries: SessionMemoryEntry[];
 }
 /** Parses a {@link SessionMemoryReadResponse}. */
@@ -163,7 +163,7 @@ export const SessionMemoryReadResponseSchema: z.ZodType<SessionMemoryReadRespons
     sessionId: SessionIdSchema,
     home: composedPathSchema,
     autoMemory: z
-      .object({ enabled: z.boolean(), enabledAtNextStart: z.boolean().optional() })
+      .object({ enabled: z.boolean(), enabledAtNextTurn: z.boolean().optional() })
       .strict(),
     entries: z.array(
       z.object({ path: composedPathSchema, kind: z.enum(["file", "folder"]) }).strict(),
