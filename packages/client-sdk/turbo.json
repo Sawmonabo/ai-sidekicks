@@ -2,12 +2,33 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
-    // The tests' helpers are type-checked with the source by `tsconfig.test.json`.
-    "typecheck": {
-      "inputs": ["$TURBO_EXTENDS$", "tests/**"]
+    // The build compiles `crates/sidekicks-client-addon` into the addon for this platform and
+    // writes its loader and declarations. The crate's own build task carries the crate, the
+    // workspace's Cargo files and the toolchain file in its hash; the release profile is CI's.
+    "build": {
+      "dependsOn": ["^build", "sidekicks-client-addon#build"],
+      "inputs": ["$TURBO_EXTENDS$", "build.ts"],
+      "outputs": ["index.js", "index.d.ts", "*.node"],
+      // A task's hash leaves out the operating system and processor the addon is built for; CI's
+      // runners name theirs, so its shared cache never hands one platform's addon to another.
+      "env": ["CI", "RUNNER_OS", "RUNNER_ARCH"],
+      // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
+      // which Turborepo's strict environment mode would otherwise withhold.
+      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     },
-    // The root inputs plus the tests' helpers, which `eslint src tests` lints.
+    // The tests and the build script are checked against the declarations the build writes.
+    "typecheck": {
+      "dependsOn": ["build"],
+      "inputs": ["$TURBO_EXTENDS$", "build.ts", "tests/**"],
+      "outputs": []
+    },
+    // The build script and the tests.
     "lint": {
+      "inputs": ["$TURBO_EXTENDS$", "build.ts", "tests/**"]
+    },
+    // The tests load the built addon and start the daemon's development build.
+    "test": {
+      "dependsOn": ["build", "sidekicks-daemon#build"],
       "inputs": ["$TURBO_EXTENDS$", "tests/**"]
     }
   }

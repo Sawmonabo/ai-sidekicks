@@ -860,6 +860,8 @@ The remainder widens the namespace-handler-registration scope; the validation su
 
 **Claude Code's managed policy is read through the system's own readers.** The macOS profile files are read through `/usr/bin/plutil -convert json`, over the `plist` crate, which accepts the date and data values Claude Code refuses, and over Core Foundation's preferences, which cannot list a domain's forced keys. The Windows registry value is read through `windows-sys`'s `Win32_System_Registry` feature, already a dependency, over `windows-registry` and `winreg`.
 
+**The desktop's client addon is built with `@napi-rs/cli` 3.10.12**, the newest release, which `@ai-sidekicks/client-sdk` runs over `sidekicks-client-addon`: napi-rs's own build tool compiles the crate with Cargo, names the `.node` for its platform, and writes the ES module loader and the TypeScript declarations from the same `#[napi]` items the crate's `napi` 3.14.2 and `napi-derive` 3.6.12 compile, so the declarations cannot drift from the addon. A hand-written `cargo build` with a loader and declarations kept by hand was weighed and is code kept forever for what the tool does; `node-gyp` and `cmake-js` build C and C++, not a Cargo crate.
+
 **Phase R4's choices.**
 
 - **The WSL server is a mode of the Linux `sidekicks-daemon` program**, `sidekicks-daemon wsl`, beside `hook provider`, so the daemon on Windows does every Windows-only job in its own process and no other binary is built or signed.

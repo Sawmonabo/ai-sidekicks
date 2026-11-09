@@ -1,38 +1,49 @@
 {
   "name": "@ai-sidekicks/client-sdk",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "sideEffects": false,
-  "description": "Typed client SDK used by the desktop app's main process and the CLI.",
+  "description": "The desktop's daemon client: the Rust client's Node-API addon, loaded in the desktop's client helper.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=24.21.0"
   },
   "exports": {
     ".": {
-      "@ai-sidekicks/source": "./src/index.ts",
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./index.d.ts",
+      "import": "./index.js"
     }
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./index.js",
+  "types": "./index.d.ts",
   "files": [
-    "dist"
+    "index.js",
+    "index.d.ts",
+    "*.node"
   ],
-  "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src tests",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+  "napi": {
+    "binaryName": "client-sdk",
+    "constEnum": false,
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "aarch64-pc-windows-msvc",
+      "x86_64-pc-windows-msvc",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-unknown-linux-musl"
+    ]
   },
-  "dependencies": {
-    "@ai-sidekicks/contracts": "workspace:*",
-    "zod": "catalog:"
+  "scripts": {
+    "build": "node --experimental-strip-types build.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint build.ts tests",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "catalog:testing",
+    "@ai-sidekicks/contracts": "workspace:*",
+    "@napi-rs/cli": "3.10.12",
     "vitest": "catalog:testing"
   }
 }

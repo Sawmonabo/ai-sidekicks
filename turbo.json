@@ -74,7 +74,9 @@
     "sidekicks-daemon#build": {
       "dependsOn": ["^build", "@ai-sidekicks/daemon-engines#build"]
     },
-    // Crates a pnpm package compiles to WebAssembly: their build only carries the crate's hash.
+    // Crates a pnpm package compiles, to WebAssembly or a Node-API addon: their build only carries
+    // the crate's hash.
+    "sidekicks-client-addon#build": { "command": null },
     "sidekicks-compression#build": { "command": null },
     "sidekicks-search#build": { "command": null }
   }

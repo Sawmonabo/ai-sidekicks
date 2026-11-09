@@ -170,8 +170,10 @@ impl DaemonConnector for MemoryConnector {
         clippy::unused_async_trait_impl,
         reason = "the test's token is a constant, where the real connector reads a file"
     )]
-    async fn read_token(&self) -> Result<NegotiationText, ClientError> {
-        Ok(NegotiationText::new(TOKEN.to_owned()).expect("the test's token is a token"))
+    async fn read_token(&self) -> Result<Option<NegotiationText>, ClientError> {
+        Ok(Some(
+            NegotiationText::new(TOKEN.to_owned()).expect("the test's token is a token"),
+        ))
     }
 }
 

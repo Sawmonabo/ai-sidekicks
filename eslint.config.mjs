@@ -417,9 +417,9 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // The client SDK is what the renderer and the command line call the daemon through, so it holds
-  // only the wire: `@ai-sidekicks/contracts` is the one workspace package it may import, never the
-  // daemon, the control plane or an app.
+  // The client SDK is the daemon client's addon, so its scripts and tests hold only the wire:
+  // `@ai-sidekicks/contracts` is the one workspace package they may import, never the daemon, the
+  // control plane or an app.
   {
     files: ["packages/client-sdk/**/*.ts"],
     rules: {

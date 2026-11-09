@@ -14,7 +14,6 @@
   },
   "references": [
     { "path": "../../packages/contracts" },
-    { "path": "../../packages/client-sdk" },
     { "path": "../../packages/search-ranking" },
     { "path": "./src/renderer" }
   ],

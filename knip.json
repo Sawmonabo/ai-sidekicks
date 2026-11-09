@@ -248,7 +248,12 @@
       // it comes with the Rust installation, never as a package dependency.
       "ignoreBinaries": ["rustup"]
     },
-    "packages/client-sdk": {},
+    "packages/client-sdk": {
+      // The package's loader is the file its addon build writes, not source: its fallbacks name
+      // the per-platform packages napi-rs publishes for other projects, and this one publishes
+      // none. The negation drops it from the entries `exports` adds.
+      "entry": ["!index.js"]
+    },
     "crates/sidekicks-daemon/js": {
       // Libraries installed ahead of the engine module that imports each, with what will import it.
       "ignoreDependencies": [

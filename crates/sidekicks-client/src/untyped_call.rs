@@ -96,8 +96,8 @@ fn params_refusal(method: &str, what: &str, issues: Vec<Issue>) -> JsonRpcError 
     )
 }
 
-/// `error` and each of its causes, joined.
-fn error_text(error: &ClientError) -> String {
+/// `error` and each of its causes, joined with `: `, for an error's message.
+pub fn error_text(error: &(dyn std::error::Error + 'static)) -> String {
     let mut text = error.to_string();
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {

@@ -8576,6 +8576,7 @@ dependencies = [
  "serde_json",
  "sidekicks-client",
  "sidekicks-contracts",
+ "sidekicks-platforms",
  "tokio",
  "tokio-util",
  "tracing",

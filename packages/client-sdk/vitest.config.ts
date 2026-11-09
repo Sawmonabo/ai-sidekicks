@@ -1,20 +1,15 @@
-// Runs the tests under `src/**/__tests__/`, which drive the clients over a scripted daemon
-// transport.
+// Runs the tests under `tests/`, which load the built addon and drive it against the daemon's own
+// program.
 import { defineConfig } from "vitest/config";
 
-import {
-  sharedCoverageOptions,
-  sharedTestTimeouts,
-  WORKSPACE_SOURCE_CONDITIONS,
-} from "../../vitest.shared.js";
+import { sharedTestTimeouts, WORKSPACE_SOURCE_CONDITIONS } from "../../vitest.shared.js";
 
 export default defineConfig({
   test: {
-    include: ["src/**/__tests__/**/*.test.ts"],
+    include: ["tests/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
-    coverage: sharedCoverageOptions(),
     ...sharedTestTimeouts(),
   },
   // Resolve workspace dependencies to TypeScript source, not a stale `dist/`, through the

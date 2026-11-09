@@ -17,11 +17,11 @@ use tokio::time::{Instant, sleep};
 use super::{DaemonConnection, DaemonConnector};
 use crate::error::{ClientError, LinkFault};
 
-/// The first pause between handshakes.
-const FIRST_PAUSE: Duration = Duration::from_millis(50);
+/// The first pause between handshakes; each pause after it doubles.
+pub const FIRST_PAUSE: Duration = Duration::from_millis(50);
 
 /// The longest pause between handshakes.
-const LONGEST_PAUSE: Duration = Duration::from_secs(1);
+pub const LONGEST_PAUSE: Duration = Duration::from_secs(1);
 
 /// How the wait for a starting daemon ended without failing.
 pub enum HandshakeWaitEnd<T> {

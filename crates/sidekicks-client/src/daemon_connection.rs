@@ -2,7 +2,8 @@
 //! checked as the daemon's own before any byte is written, read the session token the daemon wrote
 //! at its current start, then `connection.initialize` with that token before any other call,
 //! answered within [`HANDSHAKE_DEADLINE`]. The token is read at every connect, because each daemon
-//! start writes a new one, and once more when the daemon refuses it. A supervisor then watches the
+//! start writes a new one, and once more when the daemon refuses it; a caller the daemon admits by
+//! its code signature presents none and reads no token file. A supervisor then watches the
 //! link: after 5 s with no frame it sends `daemon.ping` and reports the link quiet, and after 20 s
 //! with no frame it counts the link lost. A lost link is opened again on the client's own schedule,
 //! [`LINK_REOPEN_BACKOFF_MS`], for [`LINK_REOPEN_WINDOW`], calls made meanwhile held for it; once
@@ -67,12 +68,27 @@ const LOST_AFTER: Duration = Duration::from_secs(20);
 #[derive(Clone, Debug)]
 pub struct DaemonEndpoint {
     run_folder: DaemonRunFolder,
+    /// Whether the handshake presents the token file's token.
+    presents_token: bool,
 }
 
 impl DaemonEndpoint {
-    /// The endpoint in `run_folder`.
+    /// The endpoint in `run_folder`, presenting the token.
     pub fn new(run_folder: DaemonRunFolder) -> Self {
-        Self { run_folder }
+        Self {
+            run_folder,
+            presents_token: true,
+        }
+    }
+
+    /// This endpoint presenting the token when `presents_token` holds, and none otherwise: the
+    /// packaged Mac app presents none, since the daemon admits it by its code signature.
+    #[must_use]
+    pub fn presenting_token(self, presents_token: bool) -> Self {
+        Self {
+            presents_token,
+            ..self
+        }
     }
 
     /// The endpoint of the daemon this account runs on this machine. Fails with the system's error
@@ -93,9 +109,11 @@ pub trait DaemonConnector: Send + Sync + 'static {
     /// and `RunFolder` when the stream reaches no daemon of this account's alone.
     fn open_stream(&self) -> impl Future<Output = Result<Self::Stream, ClientError>> + Send;
 
-    /// Reads the session token the daemon wrote at its current start. Fails with
-    /// `ClientError::Token` when it cannot be read.
-    fn read_token(&self) -> impl Future<Output = Result<NegotiationText, ClientError>> + Send;
+    /// Reads the session token the daemon wrote at its current start, or answers `None` for a
+    /// caller that presents none. Fails with `ClientError::Token` when it cannot be read.
+    fn read_token(
+        &self,
+    ) -> impl Future<Output = Result<Option<NegotiationText>, ClientError>> + Send;
 }
 
 /// The daemon on this machine through its run folder: its socket, and its token file. Connecting
@@ -112,15 +130,19 @@ impl DaemonConnector for DaemonEndpoint {
         Ok(stream)
     }
 
-    /// Reads the token file; a file whose text is no token is refused as invalid data.
-    async fn read_token(&self) -> Result<NegotiationText, ClientError> {
+    /// Reads the token file unless the endpoint presents no token; a file whose text is no token
+    /// is refused as invalid data.
+    async fn read_token(&self) -> Result<Option<NegotiationText>, ClientError> {
+        if !self.presents_token {
+            return Ok(None);
+        }
         let path = &self.run_folder.token_path;
         let token_error = |source: io::Error| ClientError::Token {
             path: path.clone(),
             source,
         };
         let text = tokio::fs::read_to_string(path).await.map_err(token_error)?;
-        NegotiationText::new(text).ok_or_else(|| {
+        NegotiationText::new(text).map(Some).ok_or_else(|| {
             token_error(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "the token file holds no session token",
@@ -458,7 +480,8 @@ async fn open_link<C: DaemonConnector>(
 /// Opens one link, answering a repairing daemon's refusal with the link it refused, not yet the
 /// client's: a refused token is read again, and when it has changed since it was presented the
 /// link is opened once more on a new stream with the new token, since a daemon writes its token
-/// just after it binds and the refused connection serves nothing more.
+/// just after it binds and the refused connection serves nothing more. A caller that presents no
+/// token takes the refusal as it came.
 async fn open_link_answering_repair<C: DaemonConnector>(
     client: &JsonRpcClient,
     connector: &C,
@@ -466,7 +489,9 @@ async fn open_link_answering_repair<C: DaemonConnector>(
     let (presented_token, outcome) = open_link_with_token(client, connector, None).await;
     match outcome {
         Err(ClientError::Remote(refusal)) if refusal.is_refusal(RefusalCode::AuthTokenInvalid) => {
-            let current_token = connector.read_token().await?;
+            let Some(current_token) = connector.read_token().await? else {
+                return Err(ClientError::Remote(refusal));
+            };
             let is_unchanged = presented_token.as_ref().is_some_and(|presented| {
                 bool::from(
                     presented
@@ -486,8 +511,9 @@ async fn open_link_answering_repair<C: DaemonConnector>(
     }
 }
 
-/// Opens a stream, reads the token unless one is given, and opens the link with it, the
-/// handshake held to [`HANDSHAKE_DEADLINE`]; answers the token presented beside the outcome.
+/// Opens a stream, reads the token unless one is given, and opens the link with it, or with none
+/// where the connector presents none, the handshake held to [`HANDSHAKE_DEADLINE`]; answers the
+/// token presented beside the outcome.
 async fn open_link_with_token<C: DaemonConnector>(
     client: &JsonRpcClient,
     connector: &C,
@@ -501,13 +527,13 @@ async fn open_link_with_token<C: DaemonConnector>(
         Err(error) => return (None, Err(error)),
     };
     let token = match token {
-        Some(token) => token,
+        Some(token) => Some(token),
         None => match connector.read_token().await {
             Ok(token) => token,
             Err(error) => return (None, Err(error)),
         },
     };
-    let request = initialize_request(&token);
+    let request = initialize_request(token.as_ref());
     let handshake = client.open_link(stream, &request);
     let outcome = match timeout(HANDSHAKE_DEADLINE, handshake).await {
         Ok(outcome) => outcome,
@@ -517,11 +543,11 @@ async fn open_link_with_token<C: DaemonConnector>(
             cause: LinkFault::Silent,
         }),
     };
-    (Some(token), outcome)
+    (token, outcome)
 }
 
-/// The handshake: this build's version, every version it speaks, and the session token.
-fn initialize_request(token: &NegotiationText) -> ConnectionInitializeRequest {
+/// The handshake: this build's version, every version it speaks, and the session token, if any.
+fn initialize_request(token: Option<&NegotiationText>) -> ConnectionInitializeRequest {
     let versions = SUPPORTED_PROTOCOL_VERSIONS
         .iter()
         .map(|version| {
@@ -535,7 +561,7 @@ fn initialize_request(token: &NegotiationText) -> ConnectionInitializeRequest {
             BoundedVec::new(versions).expect("this build speaks one to 32 versions"),
         ),
         client_id: None,
-        session_token: Some(token.clone()),
+        session_token: token.cloned(),
         capabilities: None,
     }
 }

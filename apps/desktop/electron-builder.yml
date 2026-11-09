@@ -17,6 +17,11 @@ files:
   # per-platform packages and the binaries for other targets never load.
   - "!node_modules/notify-status-*/**"
   - "!node_modules/notify-status/!(notify-status.${platform}-${arch}*).node"
+# The client helper's daemon addon stays outside the archive, where the system loads it as a file
+# of its own; on macOS the signing walk then signs it as its own Mach-O, as the daemon's caller check
+# needs.
+asarUnpack:
+  - "**/node_modules/@ai-sidekicks/client-sdk/*.node"
 # The `sidekicks://` links. electron-builder declares the scheme in the macOS bundle's
 # `CFBundleURLTypes` and in the Linux targets' `.desktop` file as `x-scheme-handler/sidekicks`, which
 # only makes the app eligible to open them. The installed app's own `setAsDefaultProtocolClient` at

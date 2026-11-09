@@ -1,12 +1,14 @@
 //! The desktop's Node-API addon, loaded in its client helper: one connection to the daemon, one
 //! generic call and one generic subscribe that check a request against its method's contract
-//! before it is sent, a pane's typing into a shell, and the link's state as it changes. Every
-//! failure reaches JavaScript in the wire's own error shape, so the page branches on `data.type`
-//! whether the daemon or this addon refused.
+//! before it is sent, a pane's typing into a shell, and the link's state as it changes; and, for
+//! main, the client's one ending of the daemon's process and the bounds a start waits within.
+//! Every failure reaches JavaScript in the wire's own error shape, so the page branches on
+//! `data.type` whether the daemon or this addon refused.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures::StreamExt as _;
@@ -15,7 +17,14 @@ use napi::bindgen_prelude::{AsyncBlock, AsyncBlockBuilder, Buffer};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use serde_json::Value;
-use sidekicks_client::daemon_connection::{ConnectionState, DaemonConnection, DaemonEndpoint};
+use sidekicks_client::DAEMON_FLUSH_WAIT;
+use sidekicks_client::daemon_connection::handshake_wait::{FIRST_PAUSE, LONGEST_PAUSE};
+use sidekicks_client::daemon_connection::{
+    ConnectionState, DaemonConnection, DaemonEndpoint, HANDSHAKE_DEADLINE,
+};
+use sidekicks_client::daemon_ending::{
+    self, DaemonEnd, DaemonEndingError, DaemonEndingTerms, DaemonEndingVerb, end_unanswered_process,
+};
 use sidekicks_client::error::ClientError;
 use sidekicks_client::terminal_write::{ShellInput, ShellTarget};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest};
@@ -23,13 +32,30 @@ use sidekicks_client::transport::subscription::Subscription;
 use sidekicks_client::untyped_call;
 use sidekicks_contracts::jsonrpc::message::JsonRpcError;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
+use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
+use sidekicks_platforms::{ChildEnd, pin_identified_process};
 use tokio_util::sync::CancellationToken;
 
-/// A JavaScript callback the addon calls from its own threads, its value passed as the one
-/// argument and its return awaited, so a stream waits for the page before it takes the next value.
-type Callback<T> = ThreadsafeFunction<T, (), T, napi::Status, false>;
+/// How long a connect waits for the daemon's answer to its handshake, in milliseconds; a start
+/// waits this long for a daemon it started.
+#[napi]
+pub const HANDSHAKE_DEADLINE_MS: u32 = millis(HANDSHAKE_DEADLINE);
+
+/// The first pause, in milliseconds, between handshakes tried with a daemon that is starting;
+/// each pause after it doubles, up to [`HANDSHAKE_RETRY_LONGEST_PAUSE_MS`].
+#[napi]
+pub const HANDSHAKE_RETRY_FIRST_PAUSE_MS: u32 = millis(FIRST_PAUSE);
+
+/// The longest pause, in milliseconds, between handshakes tried with a daemon that is starting.
+#[napi]
+pub const HANDSHAKE_RETRY_LONGEST_PAUSE_MS: u32 = millis(LONGEST_PAUSE);
+
+/// How long a quit, a stop or a restart waits for the daemon's answer to `daemon.flush`, in
+/// milliseconds, before it goes ahead without it.
+#[napi]
+pub const DAEMON_FLUSH_WAIT_MS: u32 = millis(DAEMON_FLUSH_WAIT);
 
 /// An answer's JSON text and the attachments its `{"$bytes": n}` placeholders index.
 #[napi(object)]
@@ -95,22 +121,57 @@ pub struct DaemonClient {
     next_stream_id: AtomicU32,
 }
 
-/// Connects to the daemon on this machine and completes its handshake; `on_state` hears `open`,
-/// `quiet`, `reconnecting` and `down` as the connection changes. Answers the error in the wire's
-/// shape when the daemon cannot be reached or refuses the handshake.
+/// What main asks the daemon before the client ends its process.
+#[napi(string_enum = "lowercase")]
+pub enum DaemonEndingRequest {
+    /// `daemon.stop`.
+    Stop,
+    /// `daemon.restart`; main starts the daemon again once it has ended.
+    Restart,
+}
+
+/// Which end took effect.
+#[napi(string_enum = "camelCase")]
+pub enum DaemonEnded {
+    /// Nothing answered at the daemon's socket: no daemon was running.
+    NotRunning,
+    /// A daemon repairing its database file took the request on the link it refused.
+    StoppedWhileRepairing,
+    /// The daemon's process ended by itself within the drain bound.
+    Exited,
+    /// The daemon's process ended on the terminate signal.
+    Stopped,
+    /// The daemon's process was killed once its grace passed.
+    Killed,
+    /// The process the daemon ran as is not running now, so nothing was signaled.
+    ProcessNotFound,
+}
+
+/// An ending's outcome: which end took effect, or its error in the wire's shape.
+#[napi(object)]
+pub struct DaemonEndingOutcome {
+    /// The end, when the ending succeeded.
+    pub end: Option<DaemonEnded>,
+    /// The error, when it failed.
+    pub error: Option<Value>,
+}
+
+/// Connects to the daemon on this machine and completes its handshake, presenting the token file's
+/// token when `presents_token` holds and none otherwise; `on_state` hears `open`, `quiet`,
+/// `reconnecting` and `down` as the connection changes. Answers the error in the wire's shape when
+/// the daemon cannot be reached or refuses the handshake.
 #[napi]
-pub async fn connect(on_state: Callback<String>) -> ConnectOutcome {
+pub async fn connect(
+    presents_token: bool,
+    on_state: ThreadsafeFunction<String, (), String, napi::Status, false>,
+) -> ConnectOutcome {
     let refused = |error| ConnectOutcome {
         client: None,
         error: Some(error),
     };
-    let endpoint = match DaemonEndpoint::this_machine() {
+    let endpoint = match this_machine(presents_token) {
         Ok(endpoint) => endpoint,
-        Err(error) => {
-            return refused(wire_value(&JsonRpcError::internal(format!(
-                "This system has no run folder for the service: {error}"
-            ))));
-        }
+        Err(error) => return refused(error),
     };
     let connection = match DaemonConnection::connect(endpoint).await {
         Ok(connection) => connection,
@@ -212,7 +273,7 @@ impl DaemonClient {
         method: String,
         params_json: String,
         attachments: Vec<Buffer>,
-        on_event: Callback<StreamEvent>,
+        on_event: ThreadsafeFunction<StreamEvent, (), StreamEvent, napi::Status, false>,
     ) -> SubscribeOutcome {
         let refused = |error| SubscribeOutcome {
             stream_id: None,
@@ -259,7 +320,7 @@ impl DaemonClient {
         session_id: String,
         terminal_id: String,
         output_subscription_id: String,
-        on_failure: Callback<Value>,
+        on_failure: ThreadsafeFunction<Value, (), Value, napi::Status, false>,
     ) -> napi::Result<ShellInputHandle> {
         let target = ShellTarget {
             session_id: SessionId::new(&session_id)
@@ -323,11 +384,118 @@ impl ShellInputHandle {
     }
 }
 
+/// Ends the daemon on this machine through the client's one ending: a flush, then `request`, then
+/// the daemon's own drain bound, then the terminate signal, and the kill once its grace passes;
+/// the handshake presents the token as `connect` does. Answers which end took effect, or the
+/// error in the wire's shape.
+#[napi]
+pub async fn end_daemon(request: DaemonEndingRequest, presents_token: bool) -> DaemonEndingOutcome {
+    let verb = match request {
+        DaemonEndingRequest::Stop => DaemonEndingVerb::Stop,
+        DaemonEndingRequest::Restart => DaemonEndingVerb::Restart,
+    };
+    let ended = match this_machine(presents_token) {
+        Ok(endpoint) => daemon_ending::end_daemon(endpoint, verb, &DaemonEndingTerms::default())
+            .await
+            .map_err(|error| ending_error(&error)),
+        Err(error) => Err(error),
+    };
+    ending_outcome(ended.map(|end| match end {
+        DaemonEnd::NotRunning => DaemonEnded::NotRunning,
+        DaemonEnd::StoppedWhileRepairing => DaemonEnded::StoppedWhileRepairing,
+        DaemonEnd::Exited => DaemonEnded::Exited,
+        DaemonEnd::Ended(end) => child_ended(end),
+        DaemonEnd::ProcessNotFound => DaemonEnded::ProcessNotFound,
+    }))
+}
+
+/// Ends the daemon's process `process_identity_json` names, for a link that died: the terminate
+/// signal at once, and the kill once the drain bound and the grace have passed. A process that
+/// is not running, or holds the id but is another, is never signaled. Answers which end took
+/// effect, or the error in the wire's shape.
+#[napi]
+pub async fn end_daemon_process(process_identity_json: String) -> DaemonEndingOutcome {
+    let ended = async {
+        let identity = serde_json::from_str::<ProcessIdentity>(&process_identity_json)
+            .map_err(|error| ending_error(&DaemonEndingError::Identity(error)))?;
+        let Some(process) = pin_identified_process(&identity)
+            .map_err(|error| ending_error(&DaemonEndingError::Pin(error)))?
+        else {
+            return Ok(DaemonEnded::ProcessNotFound);
+        };
+        end_unanswered_process(&DaemonEndingTerms::default(), process)
+            .await
+            .map(child_ended)
+            .map_err(|error| ending_error(&error))
+    };
+    ending_outcome(ended.await)
+}
+
+/// The endpoint of the daemon on this machine, presenting the token when `presents_token` holds,
+/// or its failure in the wire's shape.
+fn this_machine(presents_token: bool) -> Result<DaemonEndpoint, Value> {
+    DaemonEndpoint::this_machine()
+        .map(|endpoint| endpoint.presenting_token(presents_token))
+        .map_err(|error| {
+            wire_value(&JsonRpcError::internal(format!(
+                "This system has no run folder for the service: {error}"
+            )))
+        })
+}
+
+/// How the system ended a process, as JavaScript reads it.
+fn child_ended(end: ChildEnd) -> DaemonEnded {
+    match end {
+        ChildEnd::Stop => DaemonEnded::Stopped,
+        ChildEnd::Kill => DaemonEnded::Killed,
+    }
+}
+
+/// An ending's failure in the wire's shape: a failed call as the client reads it, any other
+/// failure as an internal error with its causes in the message.
+fn ending_error(error: &DaemonEndingError) -> Value {
+    match error {
+        DaemonEndingError::Client(error) => wire_error(error),
+        DaemonEndingError::Identity(_)
+        | DaemonEndingError::Pin(_)
+        | DaemonEndingError::Wait(_)
+        | DaemonEndingError::End(_)
+        | DaemonEndingError::EndTask(_)
+        | DaemonEndingError::RepairingNotEnded { .. } => {
+            wire_value(&JsonRpcError::internal(untyped_call::error_text(error)))
+        }
+    }
+}
+
+/// An ending's result as JavaScript reads it.
+fn ending_outcome(ended: Result<DaemonEnded, Value>) -> DaemonEndingOutcome {
+    match ended {
+        Ok(end) => DaemonEndingOutcome {
+            end: Some(end),
+            error: None,
+        },
+        Err(error) => DaemonEndingOutcome {
+            end: None,
+            error: Some(error),
+        },
+    }
+}
+
+/// `duration` in whole milliseconds, as JavaScript reads a wait.
+const fn millis(duration: Duration) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "every bound exported is seconds long, far below u32's range"
+    )]
+    let millis = duration.as_millis() as u32;
+    millis
+}
+
 /// Hands each value of `subscription` to `on_event`, waiting for the page's callback each time,
 /// until it ends or `cancel` fires, then sends the end.
 async fn forward_stream(
     mut subscription: Subscription<RawReply>,
-    on_event: Callback<StreamEvent>,
+    on_event: ThreadsafeFunction<StreamEvent, (), StreamEvent, napi::Status, false>,
     cancel: CancellationToken,
 ) {
     let end_error = loop {

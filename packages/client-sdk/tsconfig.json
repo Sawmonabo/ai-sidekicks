@@ -1,11 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-checks the build script, which Node runs as stripped TypeScript, and the tests against the
+  // declarations the addon build writes. Nothing is emitted, and `composite: false` keeps it out of
+  // the project-references graph.
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "tsBuildInfoFile": "./.tsbuildinfo"
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Node strips the build script's types and refuses syntax that emits code.
+    "erasableSyntaxOnly": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+  "include": ["build.ts", "index.d.ts", "tests/**/*"]
 }
