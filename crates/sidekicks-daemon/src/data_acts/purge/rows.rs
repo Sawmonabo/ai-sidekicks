@@ -1,6 +1,6 @@
 //! What a session's purge reads and writes in the database: the mark and its hand-off guard, the
 //! reads of what its files and its receipt need, and the one write that deletes every row naming
-//! the session.
+//! the session and releases each managed folder it holds.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -33,10 +33,13 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
-use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
+use sidekicks_workspace::repo::mount::service::held_folders::{
+    HeldManagedFolder, held_managed_folder_guard, held_managed_folder_release_statements,
+    read_held_managed_folders,
+};
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
-pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 8;
 
 /// The position of the guard that no hand-off of a plan the session made waits on its seed, in the
 /// mark's write.
@@ -50,6 +53,10 @@ pub(super) const MARKED_GUARD_INDEX: usize = 0;
 
 /// The position of the guard that no event of the session lies past the receipt's range.
 pub(super) const UPPER_BOUND_GUARD_INDEX: usize = 1;
+
+/// The position of the first held folder's guard in the delete's write, one guard per folder in
+/// the order the files stage read them.
+pub(super) const FOLDER_GUARDS_START_INDEX: usize = 2;
 
 /// The states a purge marks a session from, by the deletion that asks for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,13 +104,15 @@ impl PurgeCaller {
     }
 }
 
-/// What the purge reads before it deletes a file: the session's workflow runs and the payloads its
-/// manifests name.
+/// What the purge reads before it deletes a file: the session's workflow runs, the payloads its
+/// manifests name and the managed folders it holds.
 pub(super) struct PurgeTargets {
     /// The session's workflow runs.
     pub(super) workflow_run_ids: Vec<WorkflowRunId>,
     /// The payloads the session's manifests name.
     pub(super) payload_hashes: Vec<ContentHash>,
+    /// The managed folders the session holds, each with whether another chat holds it too.
+    pub(super) held_folders: Vec<HeldManagedFolder>,
 }
 
 // No hand-off names the session as its planning session while the fresh session's seed has no
@@ -339,6 +348,7 @@ pub(super) fn read_purge_targets(
     Ok(PurgeTargets {
         workflow_run_ids,
         payload_hashes,
+        held_folders: read_held_managed_folders(connection, session_id)?,
     })
 }
 
@@ -439,17 +449,19 @@ pub(super) async fn gone_worktree_ids(
     Ok(gone)
 }
 
-/// The one write that deletes every row naming the session, led by its two guards: the session is
-/// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
-/// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then its questions and the queued answers paired with them,
-/// then the session's own, its plans and its hand-off row among them, the chat's managed mount
-/// last.
+/// The one write that deletes every row naming the session, led by its guards: the session is
+/// still marked, no event of it lies past `last_sequence` (its receipt's range, `None` for a
+/// session with no event), and each of `held_folders` is still held as the files stage read it.
+/// The workflow runs go first with every row hanging off them, then the rows keyed by the
+/// session's runs, then its questions and the queued answers paired with them, then the session's
+/// own, its plans, its hand-off row and its workspaces among them, and last each held folder's
+/// release: the session's own hold, or the mount with every row on it for its last holder.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,
     workflow_run_ids: &[WorkflowRunId],
     gone_worktree_ids: &[String],
+    held_folders: &[HeldManagedFolder],
 ) -> Vec<WriteStatement> {
     let session_binding = || text_binding("@sessionId", session_id.text().as_str());
     let by_session = |sql: Cow<'static, str>| WriteStatement {
@@ -475,6 +487,11 @@ pub(super) fn session_deletion_statements(
             expected_row_count: Some(0),
         },
     ];
+    statements.extend(
+        held_folders
+            .iter()
+            .map(|folder| held_managed_folder_guard(folder, session_id)),
+    );
     statements.extend(workflow_run_deletion_statements(workflow_run_ids));
     statements.extend(
         RUN_KEYED_DELETES
@@ -505,6 +522,10 @@ pub(super) fn session_deletion_statements(
         expected_row_count: None,
     });
     statements.push(by_session(Cow::Borrowed(WORKSPACES_DELETE_SQL)));
-    statements.extend(managed_mount_deletion_statements(session_id));
+    statements.extend(
+        held_folders
+            .iter()
+            .flat_map(|folder| held_managed_folder_release_statements(folder, session_id)),
+    );
     statements
 }
