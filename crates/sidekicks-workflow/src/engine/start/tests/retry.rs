@@ -132,7 +132,7 @@ enum SourceStart {
 /// which leaves `D` uncovered; read the nodes' newest settled steps across
 /// the workflow's runs (`read_settled_steps`) in place of the source run's, which names the later
 /// run; seed nothing (`plan.reused` dropped), which leaves `reused` empty; write the trigger's row
-/// whatever `is_trigger_reused` says; copy the source run's own mode as `first_mode`, which reads
+/// though the trigger is reused; copy the source run's own mode as `first_mode`, which reads
 /// `retry` for a retry of a chat's run; leave `retried_run_id` off the creation, which the row's
 /// check refuses.
 #[rstest]

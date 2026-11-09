@@ -39,7 +39,10 @@ use crate::engine::tick::{RunGraph, RunPin};
 
 /// The statements a partial run's plan prepares on a read connection beside those of
 /// `WorkflowVersions`: the read of a node's source run and the read of its steps in that run.
-#[expect(dead_code, reason = "the workflow.node.execute handler")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.node.execute handler")
+)]
 pub(crate) const PARTIAL_RUN_PLAN_STATEMENT_CAPACITY: usize = 2;
 
 // The run of a node's newest step that stored an output, among the runs of every version of the
@@ -99,6 +102,23 @@ pub(crate) struct PartialRunPlan {
     /// every settled step it took in its source run, in execution order, used as they are though
     /// the node changed since; empty for a run from a node.
     pub(crate) inputs: Vec<(WorkflowNodeId, Vec<SettledStep>)>,
+}
+
+impl PartialRunPlan {
+    /// Makes every node a partial run on `target` covers over `graph` execute, in execution order,
+    /// as a run whose trigger executes must: every covered node descends from the trigger.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.node.execute handler")
+    )]
+    pub(crate) fn execute_covered(&mut self, graph: &RunGraph, target: &WorkflowNodeId) {
+        self.executed = covered_places(graph, graph.place(target))
+            .into_iter()
+            .map(|place| graph.node(place).id.clone())
+            .collect();
+        self.reused.clear();
+        self.inputs.clear();
+    }
 }
 
 /// Why a partial run could not be planned.

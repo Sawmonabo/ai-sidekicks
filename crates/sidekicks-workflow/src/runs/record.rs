@@ -16,6 +16,7 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{
     GOING_RUN_STATUSES, WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
@@ -57,6 +58,8 @@ pub(crate) struct StoredWorkflowRun {
     pub(crate) mode: WorkflowRunMode,
     /// The kind of trigger node that started it.
     pub(crate) trigger_kind: WorkflowTriggerKind,
+    /// The node a node run targets and what it covers; `None` on a whole run.
+    pub(crate) node_run: Option<WorkflowNodeRun>,
     /// Who or what started it.
     pub(crate) started_by: WorkflowStartedBy,
     /// Its Keep mark.
@@ -319,7 +322,8 @@ fn millisecond_ceiling(instant: &WireInstant) -> Option<jiff::Timestamp> {
 pub(crate) const RUN_COLUMNS: &str = "run.id AS run_id, run.session_id AS run_session_id,
   version.definition_id AS run_definition_id, run.workflow_version_id AS run_workflow_version_id,
   run.status AS run_status, run.mode AS run_mode,
-  json_extract(run.trigger_json, '$.kind') AS run_trigger_kind, run.started_by AS run_started_by,
+  json_extract(run.trigger_json, '$.kind') AS run_trigger_kind, run.node_run_json AS run_node_run,
+  run.started_by AS run_started_by,
   run.started_at AS run_started_at, run.finished_at AS run_finished_at,
   run.error_json AS run_error_json, run.summary AS run_summary, run.kept AS run_kept";
 
@@ -342,6 +346,7 @@ pub(crate) fn stored_run_from_row(row: &Row<'_>) -> rusqlite::Result<StoredWorkf
         status: text_column(row, column(row, "run_status")?, closed_word)?,
         mode: text_column(row, column(row, "run_mode")?, closed_word)?,
         trigger_kind: text_column(row, column(row, "run_trigger_kind")?, closed_word)?,
+        node_run: optional_json_column(row, "run_node_run")?,
         started_by: json_column(row, "run_started_by")?,
         keep: row.get(column(row, "run_kept")?)?,
         started_at: text_column(row, column(row, "run_started_at")?, WireInstant::try_from)?,

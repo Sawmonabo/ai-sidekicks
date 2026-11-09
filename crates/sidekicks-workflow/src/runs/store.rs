@@ -169,9 +169,12 @@ pub(crate) struct WorkflowRunStore<'connection> {
     reader: &'connection Connection,
 }
 
-#[expect(
-    dead_code,
-    reason = "the workflow.run.read and workflow.run.list handlers"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow.run.read and workflow.run.list handlers"
+    )
 )]
 impl<'connection> WorkflowRunStore<'connection> {
     /// A store reading through `reader`, one of the daemon's read-only connections.

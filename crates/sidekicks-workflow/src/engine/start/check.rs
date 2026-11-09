@@ -11,7 +11,7 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowEdge, WorkflowNode, WorkflowNodeId,
+    WorkflowDefinitionId, WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerInput,
 };
 use sidekicks_contracts::workflow::definition::handle::{
     WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
@@ -36,7 +36,8 @@ use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::working_folder::read_working_folder;
 
 use super::{
-    CheckedStart, WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter, WorkflowStartArrival,
+    CheckedStart, WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter,
+    WorkflowStartArrival, hash_run_pins,
 };
 use crate::definitions::stored_document::parse_stored_workflow_body;
 use crate::definitions::versions::history::WorkflowVersions;
@@ -54,9 +55,10 @@ const DEFINITION_SCOPE_SQL: &str =
 impl WorkflowRunStarter {
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
     // rule, the version, the session, a project named beside a project session, a named project
-    // with no attached folder, the trigger's declared inputs but on a retry, which reuses its
-    // source run's, a project's repository for the steps that need one, the workflow's provider
-    // for the steps that run in its sandbox, then the run's graph.
+    // with no attached folder, a node run's `target` among the version's nodes, the trigger's
+    // declared inputs but on a retry, which reuses its source run's, a project's repository for
+    // the steps that need one, the workflow's provider for the steps that run in its sandbox, the
+    // run's graph, then the pins it honors, hashed.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -64,6 +66,7 @@ impl WorkflowRunStarter {
     pub(super) async fn check(
         &self,
         start: &WorkflowRunStart,
+        target: Option<&WorkflowNodeId>,
     ) -> Result<CheckedStart, WorkflowRunStartError> {
         // Only a trigger's fire is judged here, as this machine's owner.
         let judged_owner = match start.arrival {
@@ -126,38 +129,39 @@ impl WorkflowRunStarter {
             (_, project_root) => project_root,
         };
         let body = parse_stored_workflow_body(&version.definition_body)?;
-        let declared = body
+        if let Some(target) = target
+            && body.trigger.id != *target
+            && !body.nodes.iter().any(|node| node.id == *target)
+        {
+            return Err(DomainError::new(
+                format!(
+                    "Workflow version {workflow_version_id} holds no node {}.",
+                    target.as_str()
+                ),
+                RefusalCode::WorkflowNodeNotFound,
+            )
+            .with_detail(serde_json::json!({
+                "workflowVersionId": workflow_version_id, "nodeId": target,
+            }))
+            .into());
+        }
+        let declared_inputs = body
             .trigger
             .inputs
             .as_ref()
-            .map_or(&[][..], UniqueList::as_slice);
-        // A trigger that declares inputs starts on one item of their values; any other on the
-        // items it was given. A retry's trigger, where it runs again, starts on the items its
-        // source run's did, so nothing is filled anew.
-        let start_items = if start.mode == WorkflowRunMode::Retry {
-            start.input.clone()
-        } else {
-            let filled =
-                fill_workflow_trigger_inputs(declared, &start.input).map_err(|details| {
-                    DomainError::new(
-                    "The start leaves an input unfilled, or gives one a value that does not fit \
-                     it.",
-                    RefusalCode::WorkflowRunInputRequired,
-                )
-                .with_detail(details)
-                })?;
-            if declared.is_empty() {
-                start.input.clone()
-            } else {
-                vec![WorkflowItem {
-                    json: AnyValue(
-                        serde_json::to_value(&filled).expect("input values write as a JSON object"),
-                    ),
-                    binary: None,
-                    paired_item: None,
-                    error: None,
-                }]
-            }
+            .map_or(&[][..], UniqueList::as_slice)
+            .to_vec();
+        let start_items = match (&start.input, target) {
+            // A node run given no items reuses its trigger's earlier data, so whether it fills the
+            // declared inputs waits on whether there is any.
+            (None, Some(_)) => None,
+            // A retry's trigger, where it runs again, starts on the items its source run's did,
+            // so nothing is filled anew.
+            (input, _) if start.mode == WorkflowRunMode::Retry => input.clone(),
+            (input, _) => Some(fill_start_items(
+                &declared_inputs,
+                input.as_deref().unwrap_or_default(),
+            )?),
         };
         let trigger_node = WorkflowNode::from(&body.trigger);
         // A step that needs a repository runs only in a project's: a project session's, whose
@@ -224,6 +228,7 @@ impl WorkflowRunStarter {
                     }
                 }
             })?;
+        let pins = hash_run_pins(pin_data_json.as_deref(), start.mode)?;
         Ok(CheckedStart {
             definition_id: version.definition_id,
             workflow_name: body.name,
@@ -233,13 +238,43 @@ impl WorkflowRunStarter {
             },
             nodes,
             graph: Arc::new(graph),
+            declared_inputs,
             start_items,
             session,
             project_root,
-            pin_data_json,
+            pins,
             provider,
         })
     }
+}
+
+/// The items a trigger declaring `declared` starts on, given `input`: one item of the declared
+/// inputs' values filled from `input`'s first item, or `input` itself where it declares none.
+/// Refuses `workflow.run.inputRequired` for an input left unfilled or a value that does not fit.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(super) fn fill_start_items(
+    declared: &[WorkflowTriggerInput],
+    input: &[WorkflowItem],
+) -> Result<Vec<WorkflowItem>, DomainError> {
+    let filled = fill_workflow_trigger_inputs(declared, input).map_err(|details| {
+        DomainError::new(
+            "The start leaves an input unfilled, or gives one a value that does not fit it.",
+            RefusalCode::WorkflowRunInputRequired,
+        )
+        .with_detail(details)
+    })?;
+    if declared.is_empty() {
+        return Ok(input.to_vec());
+    }
+    Ok(vec![WorkflowItem {
+        json: AnyValue(serde_json::to_value(&filled).expect("input values write as a JSON object")),
+        binary: None,
+        paired_item: None,
+        error: None,
+    }])
 }
 
 // The workflow's stored pins and its provider.

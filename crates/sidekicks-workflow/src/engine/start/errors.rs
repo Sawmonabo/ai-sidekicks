@@ -17,8 +17,9 @@ use sidekicks_workspace::working_folder::{ProjectEnvironmentReadError, WorkingFo
 use crate::definitions::kept_values::WorkflowKeptValueError;
 use crate::definitions::stored_document::StoredDocumentError;
 use crate::definitions::versions::history::WorkflowVersionsError;
+use crate::engine::partial_run::PartialRunPlanError;
 use crate::engine::ports::PortError;
-use crate::runs::step_payload::StepPayloadReadError;
+use crate::runs::step_payload::{StepPayloadReadError, StepPayloadWriteError};
 
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
@@ -27,7 +28,8 @@ pub(crate) enum WorkflowRunStartError {
     /// `project.notFound`, `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
     /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable` or
     /// `workflow.run.handleUndeclared`; a retry also `workflow.run.notFound`,
-    /// `workflow.run.stillRunning`, `workflow.step.notFound` or `workflow.invalidTransition`.
+    /// `workflow.run.stillRunning`, `workflow.step.notFound` or `workflow.invalidTransition`; a
+    /// node run also `workflow.node.notFound`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -86,14 +88,27 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the workflow.run.retry handler")
     )]
     SourceRun(#[source] rusqlite::Error),
-    /// A step output, or the trigger input, that a retry reuses did not read back or split by its
-    /// stored counts.
-    #[error("an output the retry reuses did not read back")]
+    /// A step output, or the trigger input, that a retry or a node run reuses did not read back or
+    /// split by its stored counts.
+    #[error("an output the run reuses did not read back")]
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "the workflow.run.retry handler")
+        expect(
+            dead_code,
+            reason = "the workflow.run.retry and workflow.node.execute handlers"
+        )
     )]
     ReusedOutput(#[source] StepPayloadReadError),
+    /// A node run's plan did not read.
+    #[error(transparent)]
+    Plan(#[from] PartialRunPlanError),
+    /// An output a node run reuses from another session could not be stored in the run's session.
+    #[error("a reused output could not be stored in the run's session")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the workflow.node.execute handler")
+    )]
+    ReusedOutputStore(#[source] StepPayloadWriteError),
     /// The trigger step's input does not write as JSON.
     #[error("the trigger step's input does not write as JSON")]
     #[cfg_attr(
@@ -144,15 +159,15 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: io::Error,
     },
-    /// The start failed and the trigger step's input it stored could not be deleted; `ended` is how
-    /// it failed.
-    #[error("the trigger step's stored input {artifact_id} was left behind")]
+    /// The start failed and a payload it stored, the trigger step's input or a reused output, could
+    /// not be deleted; `ended` is how it failed.
+    #[error("the start's stored payload {artifact_id} was left behind")]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     PayloadLeft {
-        /// The stored input.
+        /// The stored payload.
         artifact_id: ArtifactId,
         /// How the start failed.
         ended: Box<WorkflowRunStartError>,
@@ -201,6 +216,8 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::Folder(_)
             | WorkflowRunStartError::SourceRun(_)
             | WorkflowRunStartError::ReusedOutput(_)
+            | WorkflowRunStartError::Plan(_)
+            | WorkflowRunStartError::ReusedOutputStore(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)
             | WorkflowRunStartError::Draft(_)

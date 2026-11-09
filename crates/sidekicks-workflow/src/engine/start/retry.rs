@@ -79,8 +79,8 @@ pub(crate) struct WorkflowRunRetry {
     pub(crate) started_by: WorkflowStartedBy,
 }
 
-/// The run a retry's write retries: its id, how the first run of its retries that is not a retry
-/// was started (`None` where that run is gone), and whether the retry reuses its trigger's step.
+/// The run a retry's write retries: its id, and how the first run of its retries that is not a
+/// retry was started (`None` where that run is gone).
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.run.retry handler")
@@ -90,8 +90,6 @@ pub(super) struct RetriedRun {
     pub(super) workflow_run_id: WorkflowRunId,
     /// How the first run of its retries that is not a retry was started.
     pub(super) first_mode: Option<WorkflowRunMode>,
-    /// Whether the retry reuses its trigger's step, so the write stores no trigger input.
-    pub(super) is_trigger_reused: bool,
 }
 
 // Why a pooled read of a retry's source run failed: the pool, or the read itself.
@@ -165,9 +163,9 @@ impl WorkflowRunStarter {
             arrival: WorkflowStartArrival::Person,
             started_by,
             chain: WorkflowRunChainPlace::Starts {},
-            input: Vec::new(),
+            input: None,
         };
-        let mut checked = self.check(&start).await?;
+        let mut checked = self.check(&start, None).await?;
         let graph = Arc::clone(&checked.graph);
         let trigger_id = checked.trigger_node.node_id.clone();
         let (plan, trigger_input) = self
@@ -190,12 +188,14 @@ impl WorkflowRunStarter {
                 RetryReadError::Pool(error) => WorkflowRunStartError::Pool(error),
                 RetryReadError::Database(error) => WorkflowRunStartError::SourceRun(error),
             })?;
-        let is_trigger_reused = trigger_input.is_none();
-        // The trigger runs again on the items its source run's step started on.
+        // The trigger runs again on the items its source run's step started on; a reused one
+        // gets no row.
         if let Some(trigger_input) = trigger_input {
-            checked.start_items = read_step_payload(&*self.payloads, &trigger_input)
-                .await
-                .map_err(WorkflowRunStartError::ReusedOutput)?;
+            checked.start_items = Some(
+                read_step_payload(&*self.payloads, &trigger_input)
+                    .await
+                    .map_err(WorkflowRunStartError::ReusedOutput)?,
+            );
         }
         let node_run = StartedNodeRun::from_plan(&checked.graph, plan, &*self.payloads)
             .await
@@ -203,10 +203,10 @@ impl WorkflowRunStarter {
         let retried = RetriedRun {
             workflow_run_id: source_run_id,
             first_mode: source.first_mode,
-            is_trigger_reused,
         };
-        let WorkflowStartOutcome::Started(mut run) =
-            self.start_checked(start, checked, Some(&retried)).await?
+        let WorkflowStartOutcome::Started(mut run) = self
+            .start_checked(start, checked, Some(&retried), None)
+            .await?
         else {
             unreachable!("a retry starts a chain of its own, which never holds it");
         };

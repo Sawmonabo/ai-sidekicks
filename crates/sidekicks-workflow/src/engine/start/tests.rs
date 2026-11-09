@@ -1,4 +1,5 @@
 mod binding;
+mod node_run;
 mod retry;
 mod run_owned_workspace;
 mod unstarted;
@@ -61,7 +62,7 @@ use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
 use crate::kinds::{
-    NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, test_kind,
+    NodeKindTable, PassThroughExecutor, command_test_kind, git_test_kind, main_test_kind, test_kind,
 };
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
@@ -96,7 +97,7 @@ enum TestSession {
 /// The starter over the execution roots' fixture, its database holding the store's, workspace and
 /// workflow tables, binding through the real setup gate behind the test's binder: the workflow's version 1 with `body` and
 /// no provider picked, the payloads it stored, the git kind, which needs a project's repository,
-/// and the command kind, which runs in its provider's sandbox.
+/// the command kind, which runs in its provider's sandbox, and `test.split`, with two outputs.
 struct Fixture {
     roots: ExecutionRootFixture,
     rows: Connection,
@@ -176,6 +177,12 @@ impl Fixture {
                             "outputsDeriveFromParams": false,
                         }),
                         None,
+                        Box::new(PassThroughExecutor),
+                    ),
+                    main_test_kind(
+                        "test.split",
+                        "developer",
+                        (1, 2),
                         Box::new(PassThroughExecutor),
                     ),
                     git_test_kind(),
@@ -456,7 +463,7 @@ fn start(
         arrival,
         started_by,
         chain,
-        input,
+        input: Some(input),
     }
 }
 
