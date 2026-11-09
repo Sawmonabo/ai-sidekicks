@@ -101,6 +101,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
         <ShellLeaseLine
           bridge={bridge}
           sessionId={sessionId}
+          sessionStore={sessionStore}
           shell={shell}
           outputSubscriptionId={outputSubscriptionId}
           lease={lease}
@@ -128,21 +129,31 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
 }
 
 // The take is bound to the pane's own output subscription, so the line is drawn once it is open.
-// No reader of a holding device's or agent's name exists yet, so the line draws nothing until one
-// is wired in.
+// No reader of a holding device's name exists yet, so a device's hold draws nothing until one is
+// wired in.
 function ShellLeaseLine(props: {
   readonly bridge: PlatformBridge;
   readonly sessionId: SessionId;
+  readonly sessionStore: SessionStore;
   readonly shell: TerminalListEntry;
   readonly outputSubscriptionId: SubscriptionId;
   readonly lease: TerminalLeaseState;
 }): React.JSX.Element | null {
-  const { bridge, sessionId, shell, outputSubscriptionId, lease } = props;
+  const { bridge, sessionId, sessionStore, shell, outputSubscriptionId, lease } = props;
   const takeShell = useTakeShell(
     bridge,
     { sessionId, terminalId: shell.terminalId, outputSubscriptionId },
     lease.holderDeviceId,
   );
   const stopRun = useStopRun(bridge, sessionId, lease.holderCommandId);
-  return <LeaseLine state={lease} holderName={undefined} takeShell={takeShell} stopRun={stopRun} />;
+  return (
+    <LeaseLine
+      bridge={bridge}
+      sessionStore={sessionStore}
+      state={lease}
+      deviceName={undefined}
+      takeShell={takeShell}
+      stopRun={stopRun}
+    />
+  );
 }

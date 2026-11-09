@@ -49,7 +49,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
 
   return (
     <AgentsPaneFrame>
-      {models === undefined ? (
+      {models === undefined || props.bridge === undefined ? (
         <Nothing
           kind="not-checked"
           placement="block"
@@ -60,7 +60,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
           }
         />
       ) : (
-        <AgentBindingColumn models={models} agentId={props.agentId} />
+        <AgentBindingColumn models={models} bridge={props.bridge} agentId={props.agentId} />
       )}
     </AgentsPaneFrame>
   );

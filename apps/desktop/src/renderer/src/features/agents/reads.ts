@@ -1,16 +1,10 @@
-// The two reads behind the Agents pane and what refreshes each one. How long a read
-// lives is `pane/models.ts`'s concern. The clock is the caller's: no factory
-// reads one of its own, so the scenario clock drives every debounce.
+// The reads behind the Agents pane: the session's agents, off the agent list every view of the
+// session shares, and the child-run links, with what refreshes them. How long the links read lives
+// is `pane/models.ts`'s concern. The clock is the caller's: no factory reads one of its own, so the
+// scenario clock drives every debounce.
 
-import {
-  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-  AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
-} from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
-import type {
-  AgentSubscribeRequest,
-  AgentSubscribeResponse,
-} from "@ai-sidekicks/contracts/agent/methods";
+import type { AgentSubscribeEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type {
   AgentChildRunLinkListRequest,
   AgentChildRunLinkListResponse,
@@ -22,15 +16,7 @@ import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-
-/**
- * The events the agent list refreshes on: a provider switch landing, or failing after
- * acceptance.
- */
-const AGENT_LIST_EVENT_KINDS: readonly SessionEventType[] = [
-  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-  AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
-];
+import type { SessionAgentListState } from "#renderer/store/agents/list.js";
 
 /**
  * The two kinds that move the session's child links: a run queued for a new child, and
@@ -41,16 +27,8 @@ const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
   "agent.run.rejected",
 ];
 
-/** Names the agent-list read in a refusal, so a failed read says which read failed. */
-export const AGENT_LIST_ORIGIN = "agent-list";
 /** Names the child-run links read in a refusal. */
 export const CHILD_RUN_LINKS_ORIGIN = "child-run-links";
-
-/** What the agent list reads off `agent.subscribe`'s answer: the session's agents. */
-export type AgentListReading = Pick<AgentSubscribeResponse, "agents">;
-
-/** Lists the agents of one session. */
-export type ListSessionAgents = (request: AgentSubscribeRequest) => Promise<AgentListReading>;
 
 /** Reads the session's child-run tree, its counts and its refused creates. */
 export type ReadChildRunLinks = (
@@ -62,28 +40,26 @@ export type ListAgentDefinitions = () => Promise<readonly AgentDefinition[]>;
 
 /** The calls the Agents pane's models drive. Held stable by the caller. */
 export interface AgentsPaneCalls {
-  readonly listAgents: ListSessionAgents;
   readonly readChildRunLinks: ReadChildRunLinks;
 }
 
-/** The agent-list read. */
-export type AgentListRead = PushDrivenRead<AgentListReading>;
 /** The child-run links read. */
 export type ChildRunLinksRead = PushDrivenRead<AgentChildRunLinkListResponse>;
 
-/** The agent-list read, refreshed by the two events that settle a provider switch. */
-export function createAgentList(
-  sessionStore: SessionStore,
-  clock: Clock,
-  listAgents: ListSessionAgents,
-): AgentListRead {
-  return new PushDrivenRead<AgentListReading>({
-    clock,
-    origin: AGENT_LIST_ORIGIN,
-    read: async () => await listAgents({ sessionId: heldIdAsWireId(sessionStore.sessionId) }),
-    subscribe: (onChangeSignal) =>
-      subscribeToSessionEventKinds(sessionStore, AGENT_LIST_EVENT_KINDS, onChangeSignal),
-  });
+/**
+ * The agents the pane shows from the session's agent list: every agent, or only `agentId` where
+ * the pane is about one; none until the list is served.
+ */
+export function listAgents(
+  state: SessionAgentListState,
+  agentId: string | undefined,
+): readonly AgentSubscribeEntry[] {
+  if (state.status !== "served") {
+    return NO_AGENTS;
+  }
+  return agentId === undefined
+    ? state.agents
+    : state.agents.filter((agent) => agent.agentId === agentId);
 }
 
 /**
@@ -104,3 +80,6 @@ export function createChildRunLinks(
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINK_EVENT_KINDS, onChangeSignal),
   });
 }
+
+/** What is shown before the list is served, one array so a view's memo holds. */
+const NO_AGENTS: readonly AgentSubscribeEntry[] = [];

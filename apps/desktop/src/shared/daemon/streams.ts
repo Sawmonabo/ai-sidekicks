@@ -46,6 +46,9 @@ export const PROJECT_LIST_STREAM: Subscription<"project.subscribe"> = "project.s
 /** The subscription name for a session's shells: the whole list, then again on each change. */
 export const TERMINAL_LIST_STREAM: Subscription<"terminal.subscribe"> = "terminal.subscribe";
 
+/** The subscription name for a session's agents: the list, then each agent as it changes. */
+export const AGENT_LIST_STREAM: Subscription<"agent.subscribe"> = "agent.subscribe";
+
 /** The subscription name for one shell's output: its scrollback window, then what it writes. */
 export const TERMINAL_OUTPUT_STREAM: Subscription<"terminal.output.subscribe"> =
   "terminal.output.subscribe";
@@ -68,4 +71,5 @@ export type DaemonStream =
   | typeof PROJECT_LIST_STREAM
   | typeof TERMINAL_LIST_STREAM
   | typeof TERMINAL_OUTPUT_STREAM
+  | typeof AGENT_LIST_STREAM
   | typeof MACHINE_SETTINGS_STREAM;

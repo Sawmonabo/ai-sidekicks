@@ -14,6 +14,5 @@ export function unscriptedBridge(id: string): FixtureBridge {
 
 /** Calls that reject, so every read they feed settles as failed. */
 export const REJECTING_AGENTS_PANE_CALLS: AgentsPaneCalls = {
-  listAgents: () => Promise.reject(new Error("no agent list is scripted")),
   readChildRunLinks: () => Promise.reject(new Error("no child run links are scripted")),
 };

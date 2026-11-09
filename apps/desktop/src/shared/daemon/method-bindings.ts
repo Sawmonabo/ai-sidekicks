@@ -9,6 +9,10 @@
 // through main's supervisor, which flushes first.
 
 import {
+  AGENT_METHOD_DESCRIPTORS,
+  type AgentMethodDescriptors,
+} from "@ai-sidekicks/contracts/agent/methods";
+import {
   ARTIFACT_METHOD_DESCRIPTORS,
   type ArtifactMethodDescriptors,
 } from "@ai-sidekicks/contracts/artifacts/methods";
@@ -129,7 +133,8 @@ import {
 } from "@ai-sidekicks/contracts/workflow/subscription";
 
 /** Every generated method table a window reaches, merged and keyed by each method's wire name. */
-type WindowMethodTables = ArtifactMethodDescriptors &
+type WindowMethodTables = AgentMethodDescriptors &
+  ArtifactMethodDescriptors &
   CommandMethodDescriptors &
   DaemonAppDiagnosticMethodDescriptors &
   DaemonStatusMethodDescriptors &
@@ -221,6 +226,7 @@ export type DaemonStreamEmission<StreamMethod extends DaemonStreamMethod> = Chec
  */
 export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDescriptor>> =
   Object.freeze({
+    ...AGENT_METHOD_DESCRIPTORS,
     ...ARTIFACT_METHOD_DESCRIPTORS,
     ...COMMAND_METHOD_DESCRIPTORS,
     ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,

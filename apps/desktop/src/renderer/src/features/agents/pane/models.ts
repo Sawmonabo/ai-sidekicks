@@ -1,7 +1,7 @@
-// Who owns the Agents pane's reads, and for how long; `../reads.ts` owns which method answers
-// each read and what makes it ask again. A console shows one session, so the models hold one agent
-// list (built with them) and at most one child-run links read (built on the first lease, disposed
-// with the last). Acquiring a child-run links read does not start it: render may be abandoned or
+// Who owns the Agents pane's child-run links read, and for how long; `../reads.ts` owns which
+// method answers it and what makes it ask again. A console shows one session, so the models hold at
+// most one child-run links read (built on the first lease, disposed with the last); the agent list
+// is the session's shared one, which the column reads itself. Acquiring a child-run links read does not start it: render may be abandoned or
 // re-run, so the pane starts it from a mount effect, where a cleanup exists. `start()` is
 // idempotent. The clock comes from the bridge, so the fixture's frozen clock drives every debounce.
 
@@ -9,13 +9,7 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type SessionSubject } from "#renderer/store/session/subject.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
-import {
-  createAgentList,
-  createChildRunLinks,
-  type AgentsPaneCalls,
-  type AgentListRead,
-  type ChildRunLinksRead,
-} from "../reads.js";
+import { createChildRunLinks, type AgentsPaneCalls, type ChildRunLinksRead } from "../reads.js";
 
 /**
  * One holder's grant of the session's child-link read, handed over unstarted. Releasing is
@@ -37,7 +31,6 @@ export class AgentsPaneModels {
    * `sessionId`, because child links and refused creates arrive as session events.
    */
   public readonly subject: SessionSubject;
-  public readonly agentList: AgentListRead;
 
   readonly #clock: Clock;
   readonly #calls: AgentsPaneCalls;
@@ -55,8 +48,6 @@ export class AgentsPaneModels {
     this.#calls = calls;
     // The window's clock, so these reads do not run on wall time while scenarios use frozen time.
     this.#clock = clock;
-    this.agentList = createAgentList(sessionStore, this.#clock, calls.listAgents);
-    this.agentList.start();
   }
 
   /** The session these reads answer for, read off the subject so there is one copy of it. */
@@ -93,7 +84,6 @@ export class AgentsPaneModels {
       return;
     }
     this.#disposed = true;
-    this.agentList.dispose();
     this.#releaseChildRunLinks();
   }
 

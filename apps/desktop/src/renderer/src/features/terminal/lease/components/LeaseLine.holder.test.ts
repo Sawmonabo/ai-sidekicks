@@ -1,7 +1,7 @@
 // The holder line's words, and where it draws nothing: another device's hold names the device
-// beside `Take the shell`, a running command's names the agent beside `Stop the run` and no take,
-// a free shell draws nothing because the first keystroke takes it, and a holder whose name has not
-// been read draws nothing either, so the line never speaks for a holder it cannot name.
+// beside `Take the shell`, a free shell draws nothing because the first keystroke takes it, and a
+// device whose name has not been read draws nothing either, so the line never speaks for a holder
+// it cannot name. A running command's hold, named by its run's agent, is `LeaseLine.run.test.tsx`.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -14,18 +14,11 @@ import {
   leaseState,
   renderLease,
 } from "./LeaseLine.test-support.js";
-import { COMMAND_ID, OTHER_DEVICE_ID, RUN_ID, THIS_DEVICE_ID } from "../state.test-support.js";
+import { OTHER_DEVICE_ID, THIS_DEVICE_ID } from "../state.test-support.js";
 
 const HELD_BY_THE_MAC_MINI = leaseState({
   holder: "held-by-another-device",
   holderDeviceId: OTHER_DEVICE_ID,
-});
-
-const HELD_BY_A_RUN = leaseState({
-  holder: "held-by-run",
-  holderDeviceId: THIS_DEVICE_ID,
-  holderRunId: RUN_ID,
-  holderCommandId: COMMAND_ID,
 });
 
 describe("the holder line", () => {
@@ -37,18 +30,6 @@ describe("the holder line", () => {
     expect(screen.getByRole("button", { name: "Take the shell" })).toBeTruthy();
   });
 
-  it("names the agent whose running command holds it beside `Stop the run`, with no take, even on its device", () => {
-    // The run's machine is the holding device, and that may be this one; the line still draws
-    // the run's hold rather than nothing.
-    renderLease(HELD_BY_A_RUN, "Codex");
-    expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toBe(
-      "Codex's running command holds the shell.Stop the run",
-    );
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toStrictEqual([
-      "Stop the run",
-    ]);
-  });
-
   it("draws nothing while nobody holds the shell, since the first keystroke takes it", () => {
     const { container } = renderLease(
       leaseState({ holder: "unheld", holderDeviceId: null }),
@@ -57,12 +38,9 @@ describe("the holder line", () => {
     expect(drawnText(container)).toBe("");
   });
 
-  it("draws nothing for a holder whose name has not been read", () => {
-    for (const state of [HELD_BY_THE_MAC_MINI, HELD_BY_A_RUN]) {
-      const { container, unmount } = renderLease(state, undefined);
-      expect(drawnText(container)).toBe("");
-      unmount();
-    }
+  it("draws nothing for a device whose name has not been read", () => {
+    const { container } = renderLease(HELD_BY_THE_MAC_MINI, undefined);
+    expect(drawnText(container)).toBe("");
   });
 
   it("says each change of holder after the pane first drew it, and never the question", () => {
@@ -79,7 +57,6 @@ describe("the holder line", () => {
       holderDeviceId: THIRD_DEVICE_ID,
     });
     view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
-    view.rerender(leaseLineWithTake(HELD_BY_A_RUN, "Codex", takes.bridge));
     // This device holds it a while, and the iPad takes it back: the line comes back and is said.
     view.rerender(
       leaseLineWithTake(
@@ -91,7 +68,6 @@ describe("the holder line", () => {
     view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
     expect(view.said.spokenOn("polite")).toStrictEqual([
       "iPad holds the shell.",
-      "Codex's running command holds the shell.",
       "iPad holds the shell.",
     ]);
   });

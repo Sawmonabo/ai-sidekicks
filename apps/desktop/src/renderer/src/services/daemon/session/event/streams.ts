@@ -9,15 +9,16 @@
 // `session.event.subscribe` (the whole session log), `agent.run.subscribe` and
 // `agent.queueItem.subscribe` (narrowed projections), `presence.subscribe` (the connected devices),
 // and `mcp.subscribe`, `provider.account.subscribe`, `provider.subscribe`, `workflow.subscribe`,
-// `session.subscribe` and `project.subscribe` (the machine's notices), and `terminal.subscribe` and
-// `terminal.output.subscribe` (a session's shells). The last nine are not session-event streams,
-// but still `daemon.subscribe` names. The machine settings
+// `session.subscribe` and `project.subscribe` (the machine's notices), `terminal.subscribe` and
+// `terminal.output.subscribe` (a session's shells), and `agent.subscribe` (a session's agents). The
+// last ten are not session-event streams, but still `daemon.subscribe` names. The machine settings
 // feed has no row: the settings page reads it through the bridge's own `machineSettings` member.
 // The table and each row are frozen because a mutation would re-route every subscription in the
 // renderer.
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
+  AGENT_LIST_STREAM,
   MCP_NOTICE_STREAM,
   PRESENCE_EVENT_STREAM,
   PROJECT_LIST_STREAM,
@@ -78,13 +79,22 @@ export interface ShellStream {
   readonly scope: "shell";
 }
 
+/**
+ * A stream of a session's agents: the list, then each agent as it changes. It carries no
+ * session-event kind, and the fixture scripts no agent, so it delivers nothing there.
+ */
+export interface SessionAgentsStream {
+  readonly scope: "session-agents";
+}
+
 /** One registered subscription this app opens. */
 export type SessionEventStream =
   | WholeSessionEventStream
   | NarrowedSessionEventStream
   | MachinePresenceStream
   | MachineNoticeStream
-  | ShellStream;
+  | ShellStream
+  | SessionAgentsStream;
 
 /** A stream that delivers the machine's notices. */
 export type MachineNoticeStreamName =
@@ -142,6 +152,9 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
     [TERMINAL_OUTPUT_STREAM]: Object.freeze({
       scope: "shell",
     } satisfies SessionEventStream),
+    [AGENT_LIST_STREAM]: Object.freeze({
+      scope: "session-agents",
+    } satisfies SessionEventStream),
   });
 
 /** The registered stream this subscription name is, or `undefined` if it is not one. */
@@ -154,7 +167,7 @@ export function sessionEventStreamFor(subscriptionName: string): SessionEventStr
  *
  * A registered stream delivers what its row carries and any other name is an event type that
  * delivers only itself. A name that is neither, such as a typo, matches nothing, as with the
- * daemon. The presence, notice and shell streams carry no session-event kind.
+ * daemon. The presence, notice, shell and agent streams carry no session-event kind.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,
@@ -170,7 +183,8 @@ export function subscriptionDeliversEventKind(
   if (
     stream.scope === "machine-presence" ||
     stream.scope === "machine-notices" ||
-    stream.scope === "shell"
+    stream.scope === "shell" ||
+    stream.scope === "session-agents"
   ) {
     return false;
   }
