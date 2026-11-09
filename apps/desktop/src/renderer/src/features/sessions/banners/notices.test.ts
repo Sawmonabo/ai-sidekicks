@@ -27,9 +27,13 @@ function notice(
   return fileRefs === undefined ? event : { ...event, fileRefs };
 }
 
-function mountHealth(sequence: number, health: Readonly<Record<string, unknown>>) {
+function mountHealth(
+  sequence: number,
+  health: Readonly<Record<string, unknown>>,
+  repoMountId = "mount-1",
+) {
   return eventOfKind(SESSION_ID, "repoMount.health.changed", sequence, {
-    repoMountId: "mount-1",
+    repoMountId,
     health: { checkedAt: "2026-01-01T09:00:00Z", ...health },
   });
 }
@@ -126,5 +130,18 @@ describe("the banners a session's standing notices raise", () => {
       drawn([mountHealth(1, { status: "identityMismatch", isRepository: true })]),
     ).toStrictEqual(["/work/app is a different repository now · new runs are stopped"]);
     expect(drawn([mountHealth(1, { status: "healthy" })])).toStrictEqual([]);
+  });
+
+  it("takes the old mount's banner away once a re-attach's new mount reads healthy", () => {
+    const mismatched = mountHealth(1, { status: "identityMismatch", isRepository: true });
+
+    expect(drawn([mismatched, mountHealth(2, { status: "healthy" }, "mount-2")])).toStrictEqual([]);
+    // Only the newest health speaks, whichever mount it names.
+    expect(
+      foldSessionNoticeBanners([
+        mountHealth(1, { status: "healthy" }, "mount-2"),
+        mountHealth(2, { status: "identityMismatch", isRepository: false }),
+      ]),
+    ).toMatchObject([{ kind: "folderLost", repoMountId: "mount-1", isRepository: false }]);
   });
 });

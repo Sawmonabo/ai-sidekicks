@@ -39,6 +39,18 @@ export interface WireRefusalRemedy {
   readonly accountId: string;
 }
 
+/**
+ * Who stands in the way of a refused act, by id alone: the mount that holds a repository, or the
+ * session whose run is live there and that run's agent or workflow run. A view names them from
+ * its own reads.
+ */
+export interface RefusalHolder {
+  readonly repoMountId?: string;
+  readonly sessionId?: string;
+  readonly agentId?: string;
+  readonly workflowRunId?: string;
+}
+
 /** Every member a producer may carry on a refusal beyond the core three; each is optional. */
 export interface RefusalExtensions {
   /** Registered by `wire/rejection.ts`: when a retry is allowed. */
@@ -57,6 +69,8 @@ export interface RefusalExtensions {
    * daemon sends beside its code so a code newer than this build is still acted on.
    */
   readonly category?: RefusalCategory;
+  /** Registered by `wire/rejection.ts`: who stands in the way, from the ids the refusal named. */
+  readonly holder?: RefusalHolder;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -64,17 +78,27 @@ export type ExtendedRefusal = Refusal & RefusalExtensions;
 
 /**
  * The named members a wire envelope's structured part carries (`data.fields` on JSON-RPC,
- * `details` on a flat envelope), as extensions. Only `remedy`, `cause` and `reason` are read;
- * every other member there can be a request value, a path or a token, and is left behind.
+ * `details` on a flat envelope), as extensions. Only `remedy`, `cause`, `reason` and the ids of
+ * who stands in the way are read; every other member there can be a request value, a path or a
+ * token, and is left behind.
  */
 export function wireDetailsExtension(source: unknown): RefusalExtensions {
   const remedy = readRemedy(readGuardedProperty(source, "remedy"));
   const cause = readCause(readGuardedProperty(source, "cause"));
   const reason = readListedReason(readGuardedProperty(source, "reason"));
+  // One read of `runningHolder`, so a getter answering differently cannot mix two runs.
+  const runningHolder = readGuardedProperty(source, "runningHolder");
+  const holder = readHolder({
+    repoMountId: readGuardedProperty(source, "conflictingRepoMountId"),
+    sessionId: readGuardedProperty(source, "runningSessionId"),
+    agentId: readGuardedProperty(runningHolder, "agentId"),
+    workflowRunId: readGuardedProperty(runningHolder, "runId"),
+  });
   return {
     ...(remedy === undefined ? {} : { remedy }),
     ...(cause === undefined ? {} : { cause }),
     ...(reason === undefined ? {} : { reason }),
+    ...(holder === undefined ? {} : { holder }),
   };
 }
 
@@ -141,6 +165,36 @@ function readCause(cause: unknown): string | undefined {
   return typeof cause === "string" ? cause : undefined;
 }
 
+/** The ids that are non-empty strings, onto a fresh object, or `undefined` when none is. */
+function readHolder(
+  ids: Readonly<Record<keyof RefusalHolder, unknown>>,
+): RefusalHolder | undefined {
+  const { repoMountId, sessionId, agentId, workflowRunId } = ids;
+  const holder = {
+    ...(isId(repoMountId) ? { repoMountId } : {}),
+    ...(isId(sessionId) ? { sessionId } : {}),
+    ...(isId(agentId) ? { agentId } : {}),
+    ...(isId(workflowRunId) ? { workflowRunId } : {}),
+  };
+  return Object.keys(holder).length === 0 ? undefined : holder;
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** A holder a refusal already carries, in this app's own spelling, read guardedly. */
+function carriedHolder(candidate: unknown): RefusalHolder | undefined {
+  // One read of `holder`, so a getter answering differently the second time cannot mix two objects.
+  const carried = readGuardedProperty(candidate, "holder");
+  return readHolder({
+    repoMountId: readGuardedProperty(carried, "repoMountId"),
+    sessionId: readGuardedProperty(carried, "sessionId"),
+    agentId: readGuardedProperty(carried, "agentId"),
+    workflowRunId: readGuardedProperty(carried, "workflowRunId"),
+  });
+}
+
 /** A listed reason is one snake_case word list; anything else is not one and is left behind. */
 const LISTED_REASON_SHAPE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
 
@@ -173,6 +227,7 @@ const REFUSAL_EXTENSION_READERS: {
   cause: (candidate) => readCause(readGuardedProperty(candidate, "cause")),
   reason: (candidate) => readListedReason(readGuardedProperty(candidate, "reason")),
   category: (candidate) => readCategory(readGuardedProperty(candidate, "category")),
+  holder: carriedHolder,
 };
 
 /**

@@ -1,13 +1,15 @@
 // The banners a session's standing notices raise, under its header: a crash loop's with `Restart`,
 // which asks the daemon to start the provider again, an ignored-settings banner with `Open the
 // file` where main gave a token for its file, and a lost folder's, which goes when the folder is
-// back. A × puts a crash loop's or a settings banner away for the notice that raised it, for as
-// long as the session stays open.
+// back. A folder holding another repository offers `Re-attach` while git still answers for it and
+// `Open folder…` once it holds none. A × puts a crash loop's or a settings banner away for the
+// notice that raised it, for as long as the session stays open.
 
 import { useMemo, useReducer } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PickedFolder } from "#shared/preload-api.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -23,9 +25,11 @@ import type { DismissedSessionNotices } from "#renderer/store/session/open/dismi
 import { useLostFolderPaths } from "../hooks/useLostFolderPaths.js";
 import {
   foldSessionNoticeBanners,
+  refusedLine,
   sessionNoticeBannerWords,
   type SessionNoticeBanner,
 } from "../notices.js";
+import { reattachFolder } from "../reattach.js";
 import { SessionBannerRow, type SessionBannerAct } from "./SessionBannerRow.js";
 
 /** What the notice banners read, act through and report a refused folder read to. */
@@ -66,8 +70,9 @@ export function SessionNoticeBanners(props: SessionNoticeBannersProps): React.JS
   );
 }
 
-// The origin a refused `Open the file` names.
-const OPEN_THE_FILE_ORIGIN = "session-banner";
+// The origin a press that failed on this side of the wire names: `Open the file`, or the picker
+// under `Open folder…`.
+const BANNER_ORIGIN = "session-banner";
 
 // The rows, apart from the fold, so the providers' names are read only while a banner stands.
 function NoticeBannerRows(
@@ -94,7 +99,12 @@ function NoticeBannerRows(
         if (words.length === 0) {
           return null;
         }
-        const act = bannerActOf(banner, bridge, sessionId);
+        const act = bannerActOf(
+          banner,
+          bridge,
+          sessionId,
+          banner.kind === "folderLost" ? folderPaths.get(banner.repoMountId) : undefined,
+        );
         return (
           <SessionBannerRow
             key={banner.eventId}
@@ -115,10 +125,13 @@ function NoticeBannerRows(
   );
 }
 
+// The banner's one act, where it has one; a lost folder's waits for its path, which its words and
+// its refusals name.
 function bannerActOf(
   banner: SessionNoticeBanner,
   bridge: PlatformBridge,
   sessionId: string,
+  folder: string | undefined,
 ): SessionBannerAct | undefined {
   switch (banner.kind) {
     case "crashLoop":
@@ -128,7 +141,7 @@ function bannerActOf(
           const reply = await callDaemon(bridge, "session.restart", {
             sessionId: heldIdAsWireId<SessionId>(sessionId),
           });
-          return reply.status === "refused" ? reply.refusal : undefined;
+          return reply.status === "refused" ? refusedLine(reply.refusal) : undefined;
         },
       };
     case "settingsIgnored": {
@@ -140,11 +153,35 @@ function bannerActOf(
             press: () =>
               bridge.native.openInEditor(fileRef, line).then(
                 () => undefined,
-                (error: unknown) => coerceToRefusal(error, OPEN_THE_FILE_ORIGIN, "file-not-opened"),
+                (error: unknown) =>
+                  refusedLine(coerceToRefusal(error, BANNER_ORIGIN, "file-not-opened")),
               ),
           };
     }
     case "folderLost":
-      return undefined;
+      if (banner.health === "unreachable" || folder === undefined) {
+        return undefined;
+      }
+      // A folder that still holds a repository re-attaches; one that holds none cannot be
+      // attached, so another folder is picked in its place.
+      return banner.isRepository
+        ? { label: "Re-attach", press: () => reattachFolder(bridge, banner.repoMountId, folder) }
+        : { label: "Open folder…", press: () => openFolder(bridge) };
   }
+}
+
+// Attach the folder the person picks, its path reaching the daemon by main's token for it;
+// nothing is sent when the picker is canceled.
+async function openFolder(bridge: PlatformBridge): Promise<string | undefined> {
+  let picked: PickedFolder | null;
+  try {
+    picked = await bridge.native.showOpenDialog({ purpose: "pickFolder" });
+  } catch (error: unknown) {
+    return refusedLine(coerceToRefusal(error, BANNER_ORIGIN, "folder-not-picked"));
+  }
+  if (picked === null) {
+    return undefined;
+  }
+  const reply = await callDaemon(bridge, "repoMount.attach", { localPath: picked.ref });
+  return reply.status === "refused" ? refusedLine(reply.refusal) : undefined;
 }

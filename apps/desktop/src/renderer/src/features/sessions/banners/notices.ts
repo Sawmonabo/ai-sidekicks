@@ -3,14 +3,17 @@
 // settings, and a folder the session works in that is lost. Each is read from the newest event of
 // its kind the session store keeps standing, so a banner outlasts the transcript window it arrived
 // in. Pure: the events in, the banners out, and their words from the provider's name and the
-// folder's path the caller read. A signal reads in words; its name stays in the daemon's log.
+// folder's path the caller read, and the line a refused press draws. A signal reads in words; its
+// name stays in the daemon's log.
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { FilePathRef } from "#shared/preload-api.js";
 
+import { refusalSentence } from "#renderer/lib/code-words.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
-import { formatWholeDuration } from "#renderer/lib/wire/figures.js";
+import { formatWholeDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   MOUNT_HEALTH_EVENT_KIND,
@@ -44,17 +47,25 @@ export type SessionNoticeBanner =
       readonly eventId: string;
       readonly repoMountId: string;
       readonly health: LostFolderHealth;
+      /** Whether git still answers for a folder holding another repository, so it re-attaches. */
+      readonly isRepository: boolean;
     };
 
 /**
  * The banners `standingEvents` raise, in the order their events arrived. A crash loop stands until
- * a later `providerRestarted` of its provider; a later crash loop raises its banner again.
+ * a later `providerRestarted` of its provider; a later crash loop raises its banner again. A
+ * session works in one folder, so only its newest mount health speaks: a re-attach moves it onto
+ * a new mount, whose `healthy` takes the old mount's banner away.
  */
 export function foldSessionNoticeBanners(
   standingEvents: readonly ProjectedSessionEvent[],
 ): readonly SessionNoticeBanner[] {
   const restartedAtByProvider = new Map<string, number>();
+  let newestMountHealthSequence = -1;
   for (const event of standingEvents) {
+    if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
+      newestMountHealthSequence = Math.max(newestMountHealthSequence, event.sequence);
+    }
     const provider = readWireString(event.payload?.["provider"]);
     if (
       event.kind === SESSION_NOTICE_EVENT_KIND &&
@@ -71,8 +82,9 @@ export function foldSessionNoticeBanners(
   for (const event of standingEvents) {
     const banner = readNoticeBanner(event);
     if (
-      banner?.kind === "crashLoop" &&
-      (restartedAtByProvider.get(banner.provider) ?? -1) > event.sequence
+      (banner?.kind === "crashLoop" &&
+        (restartedAtByProvider.get(banner.provider) ?? -1) > event.sequence) ||
+      (banner?.kind === "folderLost" && event.sequence < newestMountHealthSequence)
     ) {
       continue;
     }
@@ -107,6 +119,11 @@ export function sessionNoticeBannerWords(
   }
 }
 
+/** The line a refused banner press draws beside its word: the code's words, then the message. */
+export function refusedLine(refusal: ExtendedRefusal): string {
+  return refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail));
+}
+
 function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
   const payload = event.payload;
   if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
@@ -114,7 +131,13 @@ function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | u
     const health = payload?.["health"];
     const status = isWireRecord(health) ? readWireString(health["status"]) : undefined;
     return repoMountId !== undefined && (status === "unreachable" || status === "identityMismatch")
-      ? { kind: "folderLost", eventId: event.id, repoMountId, health: status }
+      ? {
+          kind: "folderLost",
+          eventId: event.id,
+          repoMountId,
+          health: status,
+          isRepository: isWireRecord(health) && health["isRepository"] === true,
+        }
       : undefined;
   }
   const provider = readWireString(payload?.["provider"]) as ProviderId | undefined;

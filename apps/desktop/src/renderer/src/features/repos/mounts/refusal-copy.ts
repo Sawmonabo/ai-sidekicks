@@ -2,9 +2,8 @@
 // and message reach the screen verbatim; this table says what a person does next, once per code.
 // The lookup takes a `string` because refusals arrive off the wire: an unlisted code answers
 // `undefined` and renders with no next move. The refusals that name what stands in the way are
-// words of their own, filled with what the caller holds: the re-attach refusals with the names the
-// banner reads for the refusal's ids, an attach with the folder picked, and a move with the row's
-// worktree or the path sent.
+// words of their own, filled with what the caller holds: an attach with the folder picked, and a
+// move with the row's worktree or the path sent.
 
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type {
@@ -38,21 +37,6 @@ export const MOUNT_REFUSAL_CODES = [
 
 /** One code the repo mounts have a next move for. Derived, so the vocabulary has one home. */
 export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
-
-/**
- * A re-attach refusal that names what stands in the way: the folder and the project its
- * repository is already attached to, or the name of the agent running in the project.
- * `projectName` is null when a chat's own workspace holds the repository, which has no project.
- *
- * @consumedBy the lost-folder banner's Re-attach
- */
-export type ReattachRefusal =
-  | {
-      readonly code: "repoMount.alreadyAttached";
-      readonly folder: string;
-      readonly projectName: string | null;
-    }
-  | { readonly code: "repoMount.reattachConflict"; readonly agentName: string };
 
 /**
  * An attach refused because the folder's repository is a chat's own workspace; an attach of
@@ -231,21 +215,5 @@ export function moveRefusalWords(refusal: MoveRefusal): string {
       return `Could not move: ${refusal.worktreeName} was removed`;
     case "outsideProject":
       return `Could not move: ${refusal.path} is not a worktree of this project`;
-  }
-}
-
-/**
- * The words a re-attach refusal is drawn in, inline at the `Re-attach` that was pressed.
- *
- * @consumedBy the lost-folder banner's Re-attach
- */
-export function reattachRefusalWords(refusal: ReattachRefusal): string {
-  switch (refusal.code) {
-    case "repoMount.alreadyAttached":
-      return `Could not re-attach: ${refusal.folder} is already attached to ${
-        refusal.projectName ?? "a chat"
-      }`;
-    case "repoMount.reattachConflict":
-      return `Could not re-attach while ${refusal.agentName} is running. Stop the run first.`;
   }
 }

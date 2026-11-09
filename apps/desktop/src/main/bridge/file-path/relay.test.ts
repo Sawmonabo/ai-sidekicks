@@ -1,17 +1,19 @@
 // The relay rule at the trust boundary, checked against the verb's own contract: every absolute
 // path a reply or a session event offers to open comes back with one token the page can open it
-// by, and a path that is not absolute comes back with none.
+// by, a path that is not absolute comes back with none, and a folder the page attaches reaches the
+// daemon only as the path its picked token stands for.
 
 import {
   SESSION_INSPECTOR_METHOD_DESCRIPTORS,
   validateSessionMemoryReadResponse,
 } from "@ai-sidekicks/contracts/session/inspector";
+import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { validateSessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { describe, expect, it } from "vitest";
 
-import { mayOfferPathsToOpen, mintTokensForPaths } from "./relay.js";
+import { mayOfferPathsToOpen, mintTokensForPaths, swapTokensForPaths } from "./relay.js";
 import { FilePathRefs } from "./refs.js";
 import { pageOwner } from "./refs.test-support.js";
 
@@ -20,6 +22,8 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 const MEMORY_READ = SESSION_INSPECTOR_METHOD_DESCRIPTORS["session.memory.read"].method;
 
 const EVENT_SUBSCRIBE = SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.event.subscribe"].method;
+
+const REPO_MOUNT_ATTACH = REPO_METHOD_DESCRIPTORS["repoMount.attach"].method;
 
 /** A memory read whose entries sit at `paths`, as the contract checks it. */
 function memoryReadAt(paths: readonly string[]): unknown {
@@ -108,6 +112,27 @@ function streamChange(
 /** The notice event a provider's ignored settings file arrives in, and its category. */
 const NOTICE = "session.notice.posted";
 const NOTICE_CATEGORY = "sessionLifecycle";
+
+describe("a folder attached as a project", () => {
+  it("reaches the daemon by the picked folder's path, and never by a path the page wrote", () => {
+    const refs = new FilePathRefs();
+    const page = pageOwner(1);
+    const folder = "/Users/person/work/app";
+    const picked = refs.mint(page, "folder", folder);
+
+    expect(swapTokensForPaths(refs, page, REPO_MOUNT_ATTACH, { localPath: picked })).toStrictEqual({
+      localPath: folder,
+    });
+    expect(() =>
+      swapTokensForPaths(refs, page, REPO_MOUNT_ATTACH, { localPath: "/Users/person/secrets" }),
+    ).toThrow(TypeError);
+    // A token minted to open a file is no folder picked to attach.
+    const opened = refs.mint(page, "open", folder);
+    expect(() => swapTokensForPaths(refs, page, REPO_MOUNT_ATTACH, { localPath: opened })).toThrow(
+      TypeError,
+    );
+  });
+});
 
 describe("a session event that offers a path to open", () => {
   it("comes back with a token for the file a provider ignored, and for no other member", () => {

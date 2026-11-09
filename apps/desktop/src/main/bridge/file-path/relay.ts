@@ -15,6 +15,7 @@
 import nodePath from "node:path";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
@@ -50,6 +51,11 @@ const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = 
   ],
   // A staged file: picked, dropped or pasted into the composer.
   [ATTACHMENT_ADD_METHOD, [{ location: ["items", "*", "path"], purpose: "attach" }]],
+  // A folder attached as a project, picked by the platform's chooser.
+  [
+    REPO_METHOD_DESCRIPTORS["repoMount.attach"].method,
+    [{ location: ["localPath"], purpose: "folder" }],
+  ],
 ]);
 
 /** The reply members that hold a path the page offers to open, by verb. */

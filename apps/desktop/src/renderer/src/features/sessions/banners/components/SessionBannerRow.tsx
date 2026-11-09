@@ -7,16 +7,16 @@ import { Fragment, useState } from "react";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
-import { useAnnounceBannerRefusal } from "#renderer/hooks/announce/useAnnounceBannerRefusal.js";
-import { refusalSentence } from "#renderer/lib/code-words.js";
-import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
-import { formatWireString } from "#renderer/lib/wire/figures.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
-/** A banner's one act: its word, and the press, which settles to a refusal when it was refused. */
+/**
+ * A banner's one act: its word, and the press, which settles to the line its refusal draws beside
+ * the word, or `undefined` when it went through.
+ */
 export interface SessionBannerAct {
   readonly label: string;
-  readonly press: () => Promise<ExtendedRefusal | undefined>;
+  readonly press: () => Promise<string | undefined>;
 }
 
 /** One banner row: its words in reading order, its act, and its ×, each where it has one. */
@@ -26,8 +26,9 @@ export function SessionBannerRow(props: {
   readonly onDismiss?: () => void;
 }): React.JSX.Element {
   const [isActing, setIsActing] = useState(false);
-  const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
-  useAnnounceBannerRefusal(refusal);
+  // Held in an object, so a press refused again in the same words is a new attempt, said again.
+  const [refusal, setRefusal] = useState<{ readonly line: string } | undefined>(undefined);
+  useAnnounceWhenChanged(refusal?.line, "assertive", { attempt: refusal });
   const { act, onDismiss } = props;
 
   return (
@@ -61,8 +62,8 @@ export function SessionBannerRow(props: {
             onClick={() => {
               setIsActing(true);
               setRefusal(undefined);
-              void act.press().then((settled) => {
-                setRefusal(settled);
+              void act.press().then((line) => {
+                setRefusal(line === undefined ? undefined : { line });
                 setIsActing(false);
               });
             }}
@@ -70,9 +71,7 @@ export function SessionBannerRow(props: {
             {act.label}
           </button>
           {refusal === undefined ? null : (
-            <span className="meridian-session-screen__banner-refusal">
-              {refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail))}
-            </span>
+            <span className="meridian-session-screen__banner-refusal">{refusal.line}</span>
           )}
         </>
       )}
