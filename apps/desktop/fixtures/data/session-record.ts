@@ -6,10 +6,8 @@
 // from the delivered log.
 
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
-import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import type { ScenarioBeat } from "../scenario.js";
@@ -41,7 +39,7 @@ export function sessionReadReply(input: SessionRecordInput): ScenarioReply {
         pendingWorkingFolder: null,
         createdAt: input.createdAt,
         updatedAt: input.updatedAt,
-        draft: "",
+        heldDraft: { draft: { text: "", extras: {} }, revision: 0 },
         tags: [],
       },
       transcriptCursors: {

@@ -1,5 +1,6 @@
 // The case tables the Rust contracts' tests read, read here by each TypeScript twin's suite, so the
-// two sides run the same rows.
+// two sides run the same rows. Each suite parses its table strictly with zod, so a row the Rust
+// side reads differently fails here.
 import { readFileSync } from "node:fs";
 
 import type { z } from "zod";

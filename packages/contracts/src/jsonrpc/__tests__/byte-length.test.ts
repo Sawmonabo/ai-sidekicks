@@ -1,5 +1,6 @@
 // The message limit and every page budget measure a value by its JSON's UTF-8 bytes. The daemon
-// measures by the same case table, so a reply one side fits the other never refuses for its size.
+// measures by the same case table, parsed strictly here with zod, so a reply one side fits the
+// other never refuses for its size.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 

@@ -1,6 +1,7 @@
 // The fold every name held once is compared by: workflow names in the library and the names typed
 // for pasted-token accounts. The Rust fold reads the same case table, so the service and the
-// desktop hold the same names apart, and a library upgrade that moves a fold fails here.
+// desktop hold the same names apart, and a library upgrade that moves a fold fails here. The table
+// is parsed strictly with zod.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 

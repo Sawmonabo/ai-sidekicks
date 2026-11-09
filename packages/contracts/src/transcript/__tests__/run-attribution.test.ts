@@ -1,5 +1,6 @@
 // The run a payload names, which files every transcript row under its run group. The daemon's
-// projection reads the same case table, so both file a row under the same run.
+// projection reads the same case table, parsed strictly here with zod, so both file a row under
+// the same run.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 

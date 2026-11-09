@@ -1,3 +1,5 @@
+// The runtime pieces every generated check calls: the byte measure of a capped value and the
+// format rules, run against the Rust checks' web-address case table, parsed strictly with zod.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -10,7 +12,8 @@ import {
 } from "../generated/provider/account/sign-in.js";
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
 import { SCHEMA_FORMATS, wireByteLength } from "../schema-check.js";
-import { WEB_ADDRESS_FAULTS, webAddressFault } from "../web-address.js";
+import { WEB_ADDRESS_FAULTS } from "../generated/web-address.js";
+import { webAddressFault } from "../web-address/rule.js";
 
 describe("wireByteLength", () => {
   it("counts every attachment a nested placeholder names beside the JSON", () => {

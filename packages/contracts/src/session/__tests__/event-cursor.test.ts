@@ -1,17 +1,21 @@
 // The event cursor codec must refuse a corrupted cursor with the typed error rather than resume a
 // read at a wrong position, and must write each position in the one spelling it reads back. The
-// daemon's codec reads the same case table, so a cursor one side writes the other reads.
+// daemon's codec reads the same case table, parsed strictly here with zod, so a cursor one side
+// writes the other reads.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { readCaseTable } from "../../__tests__/case-table.test-support.js";
 import {
-  EVENT_CURSOR_UNRESOLVABLE_CODE,
+  SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE,
+  type EventCursor,
+  validateEventCursor,
+} from "../../generated/session/id.js";
+import {
   EventCursorUnresolvableError,
   decodeEventCursor,
   encodeEventCursor,
 } from "../event-cursor.js";
-import { EventCursorSchema } from "../id.js";
 
 const eventCursorCases = readCaseTable(
   z
@@ -19,7 +23,12 @@ const eventCursorCases = readCaseTable(
       // A number, not a safe integer: a row past the safe range is one the codec must refuse.
       encode: z.array(z.object({ position: z.number(), cursor: z.string().nullable() }).strict()),
       decode: z.array(
-        z.object({ cursor: EventCursorSchema, position: z.int().nullable() }).strict(),
+        z
+          .object({
+            cursor: z.custom<EventCursor>((value) => validateEventCursor(value)),
+            position: z.int().nullable(),
+          })
+          .strict(),
       ),
     })
     .strict(),
@@ -55,6 +64,6 @@ describe("the event cursor codec — a log position of at least -1, one spelling
       refusal = error;
     }
     expect(refusal).toBeInstanceOf(EventCursorUnresolvableError);
-    expect(refusal).toMatchObject({ code: EVENT_CURSOR_UNRESOLVABLE_CODE, cursor });
+    expect(refusal).toMatchObject({ code: SESSION_EVENT_CURSOR_UNRESOLVABLE_CODE });
   });
 });

@@ -219,9 +219,6 @@
     // from `wrangler.toml`. Each ignore below names a dependency knip cannot see being used, with
     // the reason.
     "packages/contracts": {
-      // The conditional-type tests beside the contracts; `tsc -p tsconfig.test.json` checks
-      // them, and nothing imports them.
-      "entry": ["src/**/*.test-d.ts"],
       // Every contracts module is a package entry (`exports` maps `./*` onto `src/`), so without
       // this an export no other workspace imports would never be reported.
       "includeEntryExports": true,

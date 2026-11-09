@@ -1,132 +1,88 @@
-// A transcript row's body, and the contracts of the reads for what a row does not carry: a row's
-// large body or full output (`transcript.bodyRead`), and every file patch a tool call left out
-// (`transcript.patchRead`). A body travels with its row unless it is large, when the row carries
-// its size alone. Both reads answer with the stored text, or `absent` when the row carries none.
-import { z } from "zod";
-
-import {
-  CONTENT_LENGTH_PAYLOAD_KEY,
-  CONTENT_PAYLOAD_PLAINTEXT_MAX,
-  CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "../event/declared-variants.js";
-import {
-  EVENT_FIELD_MAX_LEN,
-  HydratedContentUnavailableReasonSchema,
-  type HydratedContentUnavailableReason,
-  type HydratedSessionEventContent,
-} from "../event/envelope.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
-import { SessionIdSchema, type SessionId } from "../session/id.js";
-
+// A transcript row's body as a row read and a body read report it, from what is stored: a body
+// travels with its row unless it is large, when the row carries its size alone, and a body read
+// answers the stored text one page at a time, or why there is none.
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "../generated/event/declared-variants.js";
+import { PAGE_MAX_BYTES } from "../generated/jsonrpc/page.js";
+import { TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES } from "../generated/transcript/limits.js";
+import type { TranscriptBodyReadResponse } from "../generated/transcript/operations.js";
+import type { TranscriptRowContent } from "../generated/transcript/row.js";
 import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
-import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
-import { countSchema } from "../internal/wire-scalars.js";
-import { TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES } from "./limits.js";
 
-/** A body too large to travel with its row: the arm carries its size alone. */
-export interface TranscriptLargeBody {
-  readonly status: "large";
-  /** The whole body's UTF-8 byte length, as the stored event states it. */
-  readonly contentLength: number;
-  /** Present when the stored body is a prefix of a longer one the producer cut. */
-  readonly contentTruncated?: true | undefined;
+/**
+ * The length a stored event's payload states for its body, echoed rather than recomputed, so a
+ * reader that loaded only part of the body still reports the whole body's length. Only a whole
+ * number from 0 to 2^53 − 1 is a length.
+ */
+function echoedContentLengthOf(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): number | undefined {
+  const length = payload?.[CONTENT_LENGTH_PAYLOAD_KEY];
+  return Number.isSafeInteger(length) && (length as number) >= 0 ? (length as number) : undefined;
 }
 
 /**
- * What a row read from history carries of its body: the body itself, why there is none, or the
- * size alone of a large one. An `available` body serializes to at most
- * `TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES` JSON bytes.
+ * Where the first part of `body` ends, in UTF-16 code units: the furthest code point boundary
+ * whose stretch's JSON fits one page. One character's JSON fits a page, so a part short of the
+ * end holds at least one character.
  */
-export type TranscriptRowContent = HydratedSessionEventContent | TranscriptLargeBody;
-
-/** The `available` arm, its body bounded by `bodyMaxLength` characters. */
-function availableContentSchema(bodyMaxLength: number) {
-  return z
-    .object({
-      status: z.literal("available"),
-      body: z.string().max(bodyMaxLength),
-      contentLength: countSchema.optional(),
-      contentTruncated: z.literal(true).optional(),
-    })
-    .strict();
+function firstPageEnd(body: string): number {
+  if (jsonUtf8ByteLength(body) <= PAGE_MAX_BYTES) {
+    return body.length;
+  }
+  // The fitting ends form a prefix of the boundaries, so the last one is found by halving.
+  let fitting = 0;
+  let over = body.length;
+  while (over - fitting > 1) {
+    let middle = fitting + Math.floor((over - fitting) / 2);
+    // Never between the two halves of a surrogate pair: past the pair, or before it.
+    if (isLowSurrogate(body.charCodeAt(middle))) {
+      if (middle + 1 < over) {
+        middle += 1;
+      } else if (middle - 1 > fitting) {
+        middle -= 1;
+      } else {
+        break;
+      }
+    }
+    if (jsonUtf8ByteLength(body.slice(0, middle)) <= PAGE_MAX_BYTES) {
+      fitting = middle;
+    } else {
+      over = middle;
+    }
+  }
+  return fitting;
 }
 
-const unavailableContentSchema = z
-  .object({
-    status: z.literal("unavailable"),
-    reason: HydratedContentUnavailableReasonSchema,
-  })
-  .strict();
-
-/**
- * Parses a {@link TranscriptRowContent}. The character bound is a cheap first check, since a
- * body's JSON bytes are never fewer than its characters; the refinement measures the bytes.
- */
-export const TranscriptRowContentSchema: z.ZodType<TranscriptRowContent> = z.discriminatedUnion(
-  "status",
-  [
-    availableContentSchema(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES).superRefine(
-      (available, issueContext) => {
-        const byteLength = jsonUtf8ByteLength(available.body);
-        if (byteLength > TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES) {
-          issueContext.addIssue({
-            code: "custom",
-            path: ["body"],
-            message:
-              `a body that travels with its row takes at most ` +
-              `${String(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)} JSON bytes; this one takes ` +
-              `${String(byteLength)}, so it belongs on the large arm`,
-          });
-        }
-      },
-    ),
-    unavailableContentSchema,
-    z
-      .object({
-        status: z.literal("large"),
-        contentLength: countSchema,
-        contentTruncated: z.literal(true).optional(),
-      })
-      .strict(),
-  ],
-);
-
-/**
- * The length and truncation mark a stored event's payload states for its body, echoed rather than
- * recomputed: a length measured from a cut body would equal its own and hide that anything was cut.
- */
-function echoedBodyFactsOf(payload: Readonly<Record<string, unknown>> | undefined): {
-  readonly contentLength?: number;
-  readonly contentTruncated?: true;
-} {
-  const storedLength = payload?.[CONTENT_LENGTH_PAYLOAD_KEY];
-  return {
-    ...(typeof storedLength === "number" ? { contentLength: storedLength } : {}),
-    ...(payload?.[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
-      ? { contentTruncated: true as const }
-      : {}),
-  };
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 }
 
 /**
- * An event's stored body as a read reports it: `absent` when none is stored, never an empty
- * `available` body, which would claim the agent said nothing. The length and truncation mark are
- * the payload's own.
+ * A row's body as `transcript.body.read` reports its first part: `absent` when none is stored,
+ * never an empty `available` body, which would claim the agent said nothing. A part holds as much
+ * of the body as fits one page and names the UTF-8 byte offset the next part starts at, `null` on
+ * the last. The length is the payload's own.
  */
 export function storedBodyContentOf(
   payload: Readonly<Record<string, unknown>> | undefined,
   storedBody: string | undefined,
-): HydratedSessionEventContent {
+): TranscriptBodyReadResponse {
   if (storedBody === undefined) {
     return { status: "unavailable", reason: "absent" };
   }
-  return { status: "available", body: storedBody, ...echoedBodyFactsOf(payload) };
+  const end = firstPageEnd(storedBody);
+  const contentLength = echoedContentLengthOf(payload);
+  return {
+    status: "available",
+    body: storedBody.slice(0, end),
+    offset: 0,
+    nextOffset:
+      end === storedBody.length ? null : new TextEncoder().encode(storedBody.slice(0, end)).length,
+    ...(contentLength === undefined ? {} : { contentLength }),
+  };
 }
 
-/**
- * A stored body as a row read finds it: its UTF-8 size, and its text when that size still lets it
- * travel with its row (at most `TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES`).
- */
+/** A stored body as a row read finds it: its UTF-8 length, and its text when it was read. */
 export interface StoredRowBody {
   readonly byteLength: number;
   readonly body?: string | undefined;
@@ -144,115 +100,16 @@ export function transcriptRowContentOf(
   if (stored === undefined) {
     return { status: "unavailable", reason: "absent" };
   }
+  const contentLength = echoedContentLengthOf(payload);
   if (
     stored.body !== undefined &&
     jsonUtf8ByteLength(stored.body) <= TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES
   ) {
-    return storedBodyContentOf(payload, stored.body);
+    return {
+      status: "available",
+      body: stored.body,
+      ...(contentLength === undefined ? {} : { contentLength }),
+    };
   }
-  const { contentLength, contentTruncated } = echoedBodyFactsOf(payload);
-  return {
-    status: "large",
-    contentLength: contentLength ?? stored.byteLength,
-    ...(contentTruncated === undefined ? {} : { contentTruncated }),
-  };
+  return { status: "large", contentLength: contentLength ?? stored.byteLength };
 }
-
-// transcript.bodyRead
-
-/**
- * The one row whose large body or full output a client opens when its control is pressed.
- * `rowId` is the row's `id`, the id of the event the row renders.
- */
-export interface TranscriptBodyReadRequest {
-  sessionId: SessionId;
-  rowId: string;
-}
-
-/** Parses a {@link TranscriptBodyReadRequest}. */
-export const TranscriptBodyReadRequestSchema: z.ZodType<
-  TranscriptBodyReadRequest,
-  TranscriptBodyReadRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    rowId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptBodyReadRequest.rowId"),
-  })
-  .strict();
-
-/**
- * The row's body, or why it cannot be read. `contentLength` and
- * `contentTruncated` are echoed from the signed event, so a body kept as a
- * prefix still says how long the whole was.
- */
-export type TranscriptBodyReadResponse = HydratedSessionEventContent;
-
-/** Parses a {@link TranscriptBodyReadResponse}. */
-export const TranscriptBodyReadResponseSchema: z.ZodType<TranscriptBodyReadResponse> =
-  z.discriminatedUnion("status", [
-    availableContentSchema(CONTENT_PAYLOAD_PLAINTEXT_MAX).superRefine((available, issueContext) => {
-      requireMemberToRideOneFrame(available.body, "body", issueContext);
-    }),
-    unavailableContentSchema,
-  ]);
-
-// transcript.patchRead
-
-/** The tool call whose left-out patches a diff needs. */
-export interface TranscriptPatchReadRequest {
-  sessionId: SessionId;
-  toolCallId: string;
-}
-
-/** Parses a {@link TranscriptPatchReadRequest}. */
-export const TranscriptPatchReadRequestSchema: z.ZodType<
-  TranscriptPatchReadRequest,
-  TranscriptPatchReadRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    toolCallId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptPatchReadRequest.toolCallId"),
-  })
-  .strict();
-
-/**
- * One file's patch with the lines it adds and removes, or why it cannot be read. The counts come
- * from the provider's own report where it sends them, else from the patch's lines.
- */
-export type TranscriptPatchFile =
-  | { path: string; patch: string; additions: number; deletions: number }
-  | { path: string; unavailable: HydratedContentUnavailableReason };
-
-/**
- * Every patch the call left out, in one reply, so a call with several missing
- * files is drawn from one read.
- */
-export interface TranscriptPatchReadResponse {
-  files: TranscriptPatchFile[];
-}
-
-const patchPathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "TranscriptPatchFile.path");
-
-/** Parses a {@link TranscriptPatchReadResponse}. */
-export const TranscriptPatchReadResponseSchema: z.ZodType<TranscriptPatchReadResponse> = z
-  .object({
-    files: z.array(
-      z.union([
-        z
-          .object({
-            path: patchPathSchema,
-            patch: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX),
-            additions: countSchema,
-            deletions: countSchema,
-          })
-          .strict(),
-        z
-          .object({ path: patchPathSchema, unavailable: HydratedContentUnavailableReasonSchema })
-          .strict(),
-      ]),
-    ),
-  })
-  .strict()
-  .superRefine((response, issueContext) => {
-    requireMemberToRideOneFrame(response.files, "files", issueContext);
-  });

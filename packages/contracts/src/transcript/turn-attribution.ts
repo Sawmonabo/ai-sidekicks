@@ -5,34 +5,21 @@
 // rollback cuts the epoch it rewound; a turn above its epoch's cut is superseded, and a later cut
 // below an earlier epoch's point supersedes that epoch's turns down to it too, because the earlier
 // epoch's surviving prefix is part of the history the later cut rewound.
-
 import {
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
   type EventCategory,
   type SourceEpoch,
   type SourcePosition,
-} from "../event/envelope.js";
-import type { RunId } from "../run/id.js";
-import type { SupersededMarker, TranscriptRunStamp } from "./row.js";
-
-/** The event type of a turn boundary, which moves its run to its next turn. */
-export const TURN_STARTED_EVENT_TYPE = "run.turn_started";
-
-/** The event type that opens a tool call; the call's later rows take the turn it opened in. */
-export const TOOL_CALL_OPENING_EVENT_TYPE = "tool.invoked";
-
-// The category whose rows belong to a tool call by their `toolCallId`.
-const TOOL_ACTIVITY_CATEGORY: EventCategory = "tool_activity";
+} from "../generated/event/envelope.js";
+import type { RunId } from "../generated/run/id.js";
+import type { TranscriptRunStamp } from "../generated/transcript/row.js";
 
 /** An execution epoch and a turn position within it. */
 export interface EpochPosition {
   readonly epoch: SourceEpoch;
   readonly position: SourcePosition;
 }
-
-/** Where every run starts: the first epoch, before its first turn. */
-export const RUN_START_POSITION: EpochPosition = { epoch: 0, position: 0 };
 
 /**
  * A run's superseded turns: one cut per epoch an accepted rollback rewound, oldest first, each
@@ -61,25 +48,15 @@ export function addSupersedingCut(turns: SupersededTurns, point: SourcePosition)
   };
 }
 
-// The marker of the run's turn at `epoch` and `position`, or `undefined` while it is current.
-function supersededMarkerOf(
-  turns: SupersededTurns,
-  epoch: SourceEpoch,
-  position: SourcePosition,
-): SupersededMarker | undefined {
-  const cut = turns.cuts[epoch];
-  return cut !== undefined && position > cut.point ? { targetPosition: cut.point } : undefined;
-}
-
-/** The stamp a row of the run made at `source` carries, superseded when a cut lies below it. */
+/** The stamp a row of the run made at `source` carries, superseded above its epoch's cut. */
 export function transcriptRunStampAt(
   turns: SupersededTurns,
   source: EpochPosition,
 ): TranscriptRunStamp {
-  const superseded = supersededMarkerOf(turns, source.epoch, source.position);
-  return superseded === undefined
-    ? { position: source.position, epoch: source.epoch }
-    : { position: source.position, epoch: source.epoch, superseded };
+  const cut = turns.cuts[source.epoch];
+  return cut !== undefined && source.position > cut.point
+    ? { position: source.position, epoch: source.epoch, superseded: { targetPosition: cut.point } }
+    : { position: source.position, epoch: source.epoch };
 }
 
 /** Where a turn boundary moves its run: to the position the provider supplied, else the next. */
@@ -87,12 +64,10 @@ export function standingAfterTurnStarted(
   standing: EpochPosition,
   payload: Readonly<Record<string, unknown>>,
 ): EpochPosition {
-  const supplied = payload["position"];
-  const position =
-    typeof supplied === "number" && Number.isInteger(supplied) && supplied >= 0
-      ? supplied
-      : standing.position + 1;
-  return { epoch: standing.epoch, position };
+  return {
+    epoch: standing.epoch,
+    position: wholeNumberOf(payload["position"]) ?? standing.position + 1,
+  };
 }
 
 /** Where an accepted rollback to `targetPosition` moves its run: the next epoch, at that turn. */
@@ -110,11 +85,9 @@ export function standingAfterRollback(
 export function stampedSourceOf(
   payload: Readonly<Record<string, unknown>>,
 ): EpochPosition | undefined {
-  const epoch = payload[SOURCE_EPOCH_PAYLOAD_KEY];
-  const position = payload[SOURCE_POSITION_PAYLOAD_KEY];
-  return typeof epoch === "number" && typeof position === "number"
-    ? { epoch, position }
-    : undefined;
+  const epoch = wholeNumberOf(payload[SOURCE_EPOCH_PAYLOAD_KEY]);
+  const position = wholeNumberOf(payload[SOURCE_POSITION_PAYLOAD_KEY]);
+  return epoch === undefined || position === undefined ? undefined : { epoch, position };
 }
 
 /** The tool call a row of `category` belongs to, or `undefined` for a row of no tool call. */
@@ -123,7 +96,10 @@ export function transcriptToolCallIdOf(
   payload: Readonly<Record<string, unknown>>,
 ): string | undefined {
   const toolCallId = payload["toolCallId"];
-  return category === TOOL_ACTIVITY_CATEGORY && typeof toolCallId === "string"
-    ? toolCallId
-    : undefined;
+  return category === "toolActivity" && typeof toolCallId === "string" ? toolCallId : undefined;
+}
+
+/** A JSON number that is a whole number from 0 to 2^53 − 1, else `undefined`. */
+function wholeNumberOf(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined;
 }

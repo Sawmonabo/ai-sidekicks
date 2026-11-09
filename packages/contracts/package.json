@@ -14,35 +14,35 @@
       "types": "./dist/generated/*.d.ts",
       "import": "./dist/generated/*.js"
     },
-    "./app-link": {
-      "@ai-sidekicks/source": "./src/app-link.ts",
-      "types": "./dist/app-link.d.ts",
-      "import": "./dist/app-link.js"
+    "./app-link/uri": {
+      "@ai-sidekicks/source": "./src/app-link/uri.ts",
+      "types": "./dist/app-link/uri.d.ts",
+      "import": "./dist/app-link/uri.js"
     },
-    "./content-length-framing": {
-      "@ai-sidekicks/source": "./src/content-length-framing.ts",
-      "types": "./dist/content-length-framing.d.ts",
-      "import": "./dist/content-length-framing.js"
+    "./artifacts/payload-decoding": {
+      "@ai-sidekicks/source": "./src/artifacts/payload-decoding.ts",
+      "types": "./dist/artifacts/payload-decoding.d.ts",
+      "import": "./dist/artifacts/payload-decoding.js"
+    },
+    "./daemon/repairing-line": {
+      "@ai-sidekicks/source": "./src/daemon/repairing-line.ts",
+      "types": "./dist/daemon/repairing-line.d.ts",
+      "import": "./dist/daemon/repairing-line.js"
+    },
+    "./event/category-by-type": {
+      "@ai-sidekicks/source": "./src/event/category-by-type.ts",
+      "types": "./dist/event/category-by-type.d.ts",
+      "import": "./dist/event/category-by-type.js"
     },
     "./jsonrpc/byte-length": {
       "@ai-sidekicks/source": "./src/jsonrpc/byte-length.ts",
       "types": "./dist/jsonrpc/byte-length.d.ts",
       "import": "./dist/jsonrpc/byte-length.js"
     },
-    "./mcp/request-bounds": {
-      "@ai-sidekicks/source": "./src/mcp/request-bounds.ts",
-      "types": "./dist/mcp/request-bounds.d.ts",
-      "import": "./dist/mcp/request-bounds.js"
-    },
-    "./mcp/server-config": {
-      "@ai-sidekicks/source": "./src/mcp/server-config.ts",
-      "types": "./dist/mcp/server-config.d.ts",
-      "import": "./dist/mcp/server-config.js"
-    },
-    "./mcp/tool-settings": {
-      "@ai-sidekicks/source": "./src/mcp/tool-settings.ts",
-      "types": "./dist/mcp/tool-settings.d.ts",
-      "import": "./dist/mcp/tool-settings.js"
+    "./jsonrpc/page-fitting": {
+      "@ai-sidekicks/source": "./src/jsonrpc/page-fitting.ts",
+      "types": "./dist/jsonrpc/page-fitting.d.ts",
+      "import": "./dist/jsonrpc/page-fitting.js"
     },
     "./name-fold": {
       "@ai-sidekicks/source": "./src/name-fold.ts",
@@ -54,40 +54,25 @@
       "types": "./dist/provider/account/label.d.ts",
       "import": "./dist/provider/account/label.js"
     },
-    "./provider/driver/intervention": {
-      "@ai-sidekicks/source": "./src/provider/driver/intervention.ts",
-      "types": "./dist/provider/driver/intervention.d.ts",
-      "import": "./dist/provider/driver/intervention.js"
-    },
-    "./provider/name": {
-      "@ai-sidekicks/source": "./src/provider/name.ts",
-      "types": "./dist/provider/name.d.ts",
-      "import": "./dist/provider/name.js"
+    "./provider/driver/model-row": {
+      "@ai-sidekicks/source": "./src/provider/driver/model-row.ts",
+      "types": "./dist/provider/driver/model-row.d.ts",
+      "import": "./dist/provider/driver/model-row.js"
     },
     "./schema-check": {
       "@ai-sidekicks/source": "./src/schema-check.ts",
       "types": "./dist/schema-check.d.ts",
       "import": "./dist/schema-check.js"
     },
-    "./service-place": {
-      "@ai-sidekicks/source": "./src/service-place.ts",
-      "types": "./dist/service-place.d.ts",
-      "import": "./dist/service-place.js"
+    "./session/activity": {
+      "@ai-sidekicks/source": "./src/session/activity.ts",
+      "types": "./dist/session/activity.d.ts",
+      "import": "./dist/session/activity.js"
     },
     "./session/event-cursor": {
       "@ai-sidekicks/source": "./src/session/event-cursor.ts",
       "types": "./dist/session/event-cursor.d.ts",
       "import": "./dist/session/event-cursor.js"
-    },
-    "./session/name": {
-      "@ai-sidekicks/source": "./src/session/name.ts",
-      "types": "./dist/session/name.d.ts",
-      "import": "./dist/session/name.js"
-    },
-    "./session/search": {
-      "@ai-sidekicks/source": "./src/session/search.ts",
-      "types": "./dist/session/search.d.ts",
-      "import": "./dist/session/search.js"
     },
     "./transcript/content": {
       "@ai-sidekicks/source": "./src/transcript/content.ts",
@@ -109,18 +94,26 @@
       "types": "./dist/transcript/turn-attribution.d.ts",
       "import": "./dist/transcript/turn-attribution.js"
     },
+    "./web-address/rule": {
+      "@ai-sidekicks/source": "./src/web-address/rule.ts",
+      "types": "./dist/web-address/rule.d.ts",
+      "import": "./dist/web-address/rule.js"
+    },
+    "./workflow/definition/handle-parsing": {
+      "@ai-sidekicks/source": "./src/workflow/definition/handle-parsing.ts",
+      "types": "./dist/workflow/definition/handle-parsing.d.ts",
+      "import": "./dist/workflow/definition/handle-parsing.js"
+    },
     "./event/version": null,
     "./git/shared": null,
     "./internal/*": null,
     "./*.test": null,
-    "./*.test-support": null,
-    "./*.test-d": null
+    "./*.test-support": null
   },
   "files": [
     "dist",
     "src",
-    "!src/**/__tests__",
-    "!src/**/*.test-d.ts"
+    "!src/**/__tests__"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -132,13 +125,13 @@
   },
   "dependencies": {
     "ajv": "8.20.0",
-    "unicode-case-folding": "1.1.2",
-    "zod": "catalog:"
+    "unicode-case-folding": "1.1.2"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "catalog:testing",
     "json-schema-to-typescript": "16.0.0",
     "prettier": "~3.8.5",
-    "vitest": "catalog:testing"
+    "vitest": "catalog:testing",
+    "zod": "catalog:"
   }
 }

@@ -172,6 +172,8 @@ const repositoryConfig = defineConfig(
       "packages/search-index/index.d.ts",
       // Sätteri's source with our fix, which the markdown parser's build unpacks.
       "packages/markdown-parser/satteri/**",
+      // The contracts' TypeScript, which the contracts generator writes and no one edits.
+      "packages/contracts/src/generated/**",
     ],
   },
   js.configs.recommended,
@@ -434,45 +436,6 @@ const repositoryConfig = defineConfig(
                 "workspace package.",
             },
           ],
-        },
-      ],
-    },
-  },
-  // `event/version.ts` is the acyclic leaf of the contracts module graph. `event/session.ts`
-  // imports it, so an import back into `./session.js` re-closes the cycle; under Vite's SSR
-  // transform a module-scope read of the uninitialized binding is `undefined` rather than a throw,
-  // so the breakage is silent until a payload-schema union branch fails to construct.
-  //
-  // Carried on `no-restricted-syntax`, not `no-restricted-imports`: the block above already
-  // configures `no-restricted-imports` for every contracts source file, and flat config replaces a
-  // rule's options at the last matching object, so a second invocation would drop the `node:*` ban
-  // for this file. The static import, the dynamic import and `export { … } from` are denied here;
-  // `export *` is banned everywhere.
-  {
-    files: ["packages/contracts/src/event/version.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ENUM_DECLARATION,
-        EXPORT_ALL_DECLARATION,
-        {
-          selector: 'ImportDeclaration[source.value="./session.js"]',
-          message:
-            "event/version.ts is the acyclic leaf of the contracts module " +
-            "graph — importing ./session.js from it closes an import cycle, " +
-            "which can leave a module-scope schema undefined with no error.",
-        },
-        {
-          selector: 'ImportExpression[source.value="./session.js"]',
-          message:
-            "event/version.ts is the acyclic leaf of the contracts module graph — a " +
-            "dynamic import of ./session.js closes the cycle just as the static form does.",
-        },
-        {
-          selector: 'ExportNamedDeclaration[source.value="./session.js"]',
-          message:
-            "event/version.ts is the acyclic leaf of the contracts module graph — " +
-            "re-exporting from ./session.js closes the cycle exactly as importing it does.",
         },
       ],
     },
