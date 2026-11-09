@@ -1,23 +1,21 @@
 //! What a lasting service's start does with the records lasting services left on its Codex
 //! folder, all read under the folder's one lock: a service still running is found again by its
 //! record, and one gone has what it left ended and its record removed, so a fresh start leaves no
-//! tree of a former one running. A terminal service's first start joins the running service that
-//! holds the home's link, or with none, points the link under Codex's start lock at a running one
-//! not draining, the home's own first, and drains every other; a later start reads only its own.
-//! With nothing joined, a drain on the home's own socket is launched beside where the home's path
-//! is a link, and waited for where it is the socket itself. An account home's start joins the one
-//! service its record keeps running. A daemon stop that ends work in flight stops every service a
-//! record still keeps that none of its live services holds. The erase of the daemon's data, with
-//! no daemon running, ends every service a record names, a draining one too, and answers every
-//! failure rather than logging it. Ending the turns a restart kept only reads where a kept service
-//! listens.
+//! tree of a former one running. A start joins only a running service neither draining nor
+//! replaced by one started beside it, the home's own first. A terminal service's first start
+//! joins the running service that holds the home's link, or with none, points the link under
+//! Codex's start lock at one it may join, and drains every other; a later start reads only its
+//! own. With nothing joined, a drain on the home's own socket is launched beside where the home's
+//! path is a link, and waited for where it is the socket itself. Ending the turns a restart kept
+//! only reads where a kept service listens; the stop of what the records keep is [`stop`].
+
+pub(crate) mod stop;
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::join_all;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, ProcessRecord, read_socket_link};
 use tokio::time::Instant;
 
@@ -26,25 +24,22 @@ use crate::driver::codex::service::process::{
 };
 use crate::driver::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
-    one_recorded_file_per_folder,
 };
+use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::socket_link::{
     clear_socket_link_of, is_listening, restore_socket_link,
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::{LastingServiceDrainWatch, read_drain_end};
-use crate::driver::codex::service::supervisor::own_record::{
-    live_record_files, retire_last_process_record, socket_record_file,
-};
-use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, stop_grace_by};
+use crate::driver::codex::service::supervisor::own_record::retire_last_process_record;
+use crate::driver::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
 use crate::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::daemon_stop::run_until;
 
-// One record kept for the folder, held under the folder's lock, with what it keeps.
-type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
+/// One record kept for the folder, held under the folder's lock, with what it keeps.
+pub(super) type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
 
 /// What a home service's start does once it settled the folder's records.
 pub(super) enum KeptRecordsOutcome {
@@ -73,11 +68,14 @@ struct LaunchBlockingDrain {
     end: LastingServiceDrainWatch,
 }
 
-// A kept record whose service still runs.
-struct RunningRecord {
-    locked: Arc<LockedServiceRecord>,
-    record: LastingServiceRecord,
-    lasting: LastingCodexService,
+/// A kept record whose service still runs.
+pub(super) struct RunningRecord {
+    /// The record, held under the folder's lock.
+    pub(super) locked: Arc<LockedServiceRecord>,
+    /// What it keeps.
+    pub(super) record: LastingServiceRecord,
+    /// The service it names, re-pinned.
+    pub(super) lasting: LastingCodexService,
 }
 
 /// Takes the lock of the folder's records for `record_file` on the blocking pool. Fails as the
@@ -262,240 +260,59 @@ async fn remove_record(locked: &Arc<LockedServiceRecord>) -> Result<(), StartFai
         .map_err(|error| start_failed("The Codex service's record could not be removed.", error))
 }
 
-/// The running service an account home's record `locked` keeps, to join, with where its record
-/// says its socket really is, so a turn it was running when the daemon restarted goes on in it;
-/// with none running, the record is retired as [`retire_kept_record`] retires it, so a fresh
-/// launch follows. Fails as the read, the re-pin or the retire does.
-pub(super) async fn take_kept_service(
-    locked: &Arc<LockedServiceRecord>,
-    control_socket: &Path,
-) -> Result<Option<(LastingCodexService, PathBuf)>, StartFailure> {
-    let Some(record) = read_record(locked).await? else {
-        return Ok(None);
-    };
-    if !record.is_draining
-        && let Some(physical_socket) = record.physical_socket.clone()
-    {
-        let Some(lasting) = repin(record.process.clone()).await? else {
-            retire_former_service(locked, record).await?;
-            return Ok(None);
-        };
-        return Ok(Some((lasting, physical_socket)));
-    }
-    retire_kept_record(locked, control_socket).await?;
-    Ok(None)
-}
-
-/// A service the record of a home keeps running: the daemon's own, or one a former daemon kept.
+/// A service a record of a home keeps running: the daemon's own, or one a former daemon kept,
+/// draining or not.
 pub(crate) struct RunningKeptService {
     /// Its process's id.
     pub(crate) process_id: u32,
-    /// Where its record says its socket really is.
-    pub(crate) physical_socket: PathBuf,
+    /// Where its record says its socket really is; `None` until it answered on one.
+    pub(crate) physical_socket: Option<PathBuf>,
 }
 
-/// The service the record of `service`'s home keeps, read from that record and touching nothing:
-/// draining or not, while its process still runs; `None` where no record is kept, its process
-/// ended, or it never answered on a socket. Fails as the record's name, lock or read, or the
-/// process table's read, does.
-pub(crate) async fn read_running_kept_service(
-    service: &CodexService,
-) -> Result<Option<RunningKeptService>, CodexError> {
+/// Every service the records of the Codex folder `codex_home` keep running, under `data_folder`,
+/// read under the folder's lock: the home socket's record first, then every other, draining or
+/// replaced ones included. The read ends nothing and makes no records' folder where none is; a
+/// record that does not read as one is removed, as every read of a record removes it. Fails as a
+/// record's name, lock or read, or the process table's read, does.
+pub(crate) async fn read_running_kept_services(
+    data_folder: &Path,
+    codex_home: &Path,
+) -> Result<Vec<RunningKeptService>, CodexError> {
     let read = async {
-        let record_file = socket_record_file(service).map_err(|error| {
-            start_failed("The Codex service's record could not be named.", error)
-        })?;
-        let locked = lock_record(record_file).await?;
-        let Some(record) = read_record(&locked).await? else {
-            return Ok(None);
+        let record_file = LastingServiceRecordFile::of_socket(
+            data_folder,
+            codex_home,
+            &home_socket_path(codex_home),
+        )
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+        let locked = tokio::task::spawn_blocking(move || record_file.lock_existing())
+            .await
+            .map_err(io::Error::other)
+            .and_then(|locked| locked)
+            .map_err(|error| {
+                start_failed("The Codex service's record could not be locked.", error)
+            })?;
+        let Some(locked) = locked else {
+            return Ok(Vec::new());
         };
-        let Some(physical_socket) = record.physical_socket else {
-            return Ok(None);
-        };
-        let process_id = record.process.id();
-        let running = repin(record.process).await?;
-        Ok::<_, StartFailure>(running.map(|_running| RunningKeptService {
-            process_id,
-            physical_socket,
-        }))
+        let (running, _ended) =
+            repin_kept_records(read_kept_records(&Arc::new(locked)).await?).await?;
+        Ok::<_, StartFailure>(
+            running
+                .into_iter()
+                .map(|running| RunningKeptService {
+                    process_id: running.record.process.id(),
+                    physical_socket: running.record.physical_socket,
+                })
+                .collect(),
+        )
     };
     read.await.map_err(|failure| failure.error)
 }
 
-/// Which stop ends the lasting services the records under the data folder still keep.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum KeptServicesStop {
-    /// The daemon's own stop, which ends by `deadline`: each service's grace is what is left of
-    /// it, one draining is left to its drain, its record kept for the next start, a service that
-    /// cannot be stopped is logged, its record removed, and a record whose stop the deadline cut
-    /// is kept for the next start's retire.
-    DaemonStop {
-        /// When the daemon's stop runs out.
-        deadline: Instant,
-    },
-    /// The erase of the daemon's data, which deletes every record: every service a record names
-    /// is ended, a draining one too, and every failure is answered.
-    Erase,
-}
-
-/// Stops every lasting service a record under `data_folder` still keeps: for the daemon's stop,
-/// beside its own services' stops, and for the erase, with no daemon running. A record one of
-/// `live_services` names, read once the folder's lock is held so a start that published since the
-/// stop began is seen, is left to that service's supervisor. One a former daemon
-/// kept is stopped and its record removed, what an ended one left is ended, and one draining is
-/// left to its drain under [`KeptServicesStop::DaemonStop`] and stopped under
-/// [`KeptServicesStop::Erase`]. All are stopped together, so the stop takes one grace whatever the
-/// count. Under the daemon's stop the whole stop ends by its deadline, one failure answered for
-/// what was still running there, and every record not yet removed stays for the next start's
-/// retire. Answers every failure of the listing, a folder's lock or listing, and a record's read,
-/// re-pin or removal, and under the erase every stop's and every end's too; empty when nothing
-/// failed.
-pub(crate) async fn stop_kept_services(
-    data_folder: PathBuf,
-    stop: KeptServicesStop,
-    live_services: &[Arc<CodexService>],
-) -> Vec<CodexError> {
-    let deadline = match stop {
-        KeptServicesStop::DaemonStop { deadline } => Some(deadline),
-        KeptServicesStop::Erase => None,
-    };
-    run_until(
-        deadline,
-        stop_every_kept_service(data_folder, stop, live_services),
-    )
-    .await
-    .unwrap_or_else(|cut| {
-        vec![
-            start_failed(
-                "The Codex services kept in records were still stopping when the daemon's \
-                     stop ran out.",
-                io::Error::new(io::ErrorKind::TimedOut, cut),
-            )
-            .error,
-        ]
-    })
-}
-
-// Stops every lasting service a record under `data_folder` still keeps but the ones
-// `live_services` name, all folders together, as `stop_kept_services` does, with no bound of its
-// own.
-async fn stop_every_kept_service(
-    data_folder: PathBuf,
-    stop: KeptServicesStop,
-    live_services: &[Arc<CodexService>],
-) -> Vec<CodexError> {
-    let listed = tokio::task::spawn_blocking(move || one_recorded_file_per_folder(&data_folder))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|listed| listed);
-    let files = match listed {
-        Ok(files) => files,
-        Err(error) => {
-            return vec![
-                start_failed("The Codex services' records could not be listed.", error).error,
-            ];
-        }
-    };
-    join_all(
-        files
-            .into_iter()
-            .map(|file| stop_folder_kept_services(file, stop, live_services)),
-    )
-    .await
-    .into_iter()
-    .flatten()
-    .collect()
-}
-
-// Stops every service the records of `file`'s Codex folder keep but the ones `live_services`
-// name, all together under the one hold of the folder's lock, so no retire waits on another's
-// hold; answers each record's failures, or the lock's or the listing's failure.
-async fn stop_folder_kept_services(
-    file: LastingServiceRecordFile,
-    stop: KeptServicesStop,
-    live_services: &[Arc<CodexService>],
-) -> Vec<CodexError> {
-    let held = async {
-        let locked = lock_record(file).await?;
-        let others = on_record(&locked, LockedServiceRecord::others)
-            .await
-            .map_err(|error| {
-                start_failed("The Codex services' records could not be listed.", error)
-            })?;
-        Ok::<_, StartFailure>(
-            std::iter::once(locked)
-                .chain(others.into_iter().map(Arc::new))
-                .collect::<Vec<_>>(),
-        )
-    }
-    .await;
-    let records = match held {
-        Ok(records) => records,
-        Err(failure) => return vec![failure.error],
-    };
-    // Read under the hold, which every start publishes under, so a launch or a join under way is
-    // seen; a live service's record is left to its supervisor, so no second stopper signals it.
-    let live_records = live_record_files(live_services);
-    join_all(
-        records
-            .iter()
-            .filter(|locked| !live_records.contains(locked.file()))
-            .map(|locked| stop_kept_record(locked, stop)),
-    )
-    .await
-    .into_iter()
-    .flatten()
-    .collect()
-}
-
-// Stops the service the record `locked` holds still keeps, through the one end a start's retire
-// takes; answers its failures as `stop` answers them.
-async fn stop_kept_record(
-    locked: &Arc<LockedServiceRecord>,
-    stop: KeptServicesStop,
-) -> Vec<CodexError> {
-    let record = match read_record(locked).await {
-        Ok(Some(record)) => record,
-        Ok(None) => return Vec::new(),
-        Err(failure) => return vec![failure.error],
-    };
-    // A service that never answered names no socket, so where no signal stops a process its stop
-    // goes straight to the forced end.
-    let control_socket = record.physical_socket.clone().unwrap_or_default();
-    let grace = match stop {
-        KeptServicesStop::DaemonStop { deadline } => stop_grace_by(deadline),
-        KeptServicesStop::Erase => SERVICE_STOP_GRACE,
-    };
-    let ended = end_recorded_service(
-        locked,
-        record,
-        &control_socket,
-        grace,
-        matches!(stop, KeptServicesStop::Erase),
-    )
-    .await;
-    match stop {
-        KeptServicesStop::DaemonStop { .. } => ended
-            .reported()
-            .err()
-            .map(|failure| failure.error)
-            .into_iter()
-            .collect(),
-        KeptServicesStop::Erase => ended.into_failures().collect(),
-    }
-}
-
-/// Reports a kept service the daemon's stop could not stop, which then runs on in its record.
-pub(crate) fn report_kept_service_unstopped(error: &(dyn std::error::Error + 'static)) {
-    tracing::warn!(
-        error,
-        "a Codex service a former daemon kept could not be stopped; it runs on in its record"
-    );
-}
-
-// Every record kept for the folder's services under the start's own hold `own`: its own first,
-// then every other, each under the same hold. Fails as a record's read fails.
-async fn read_kept_records(
+/// Every record kept for the folder's services under the start's own hold `own`: its own first,
+/// then every other, each under the same hold. Fails as a record's read fails.
+pub(super) async fn read_kept_records(
     own: &Arc<LockedServiceRecord>,
 ) -> Result<Vec<KeptRecord>, StartFailure> {
     let held = Arc::clone(own);
@@ -517,8 +334,8 @@ async fn read_kept_records(
     .map_err(|error| start_failed("The Codex services' records could not be read.", error))
 }
 
-// The record `locked` holds, `None` when none is kept.
-async fn read_record(
+/// The record `locked` holds, `None` when none is kept. Fails as the read does.
+pub(super) async fn read_record(
     locked: &Arc<LockedServiceRecord>,
 ) -> Result<Option<LastingServiceRecord>, StartFailure> {
     on_record(locked, LockedServiceRecord::read)
@@ -550,30 +367,17 @@ fn find_link_holder<'record>(
 
 /// The first start of the home's service settles every record its folder keeps, under the start's
 /// own hold `locked`, the home socket's record: one whose service ended is retired; the running
-/// service that holds the home's link is joined, or with none, the link is pointed at a running
-/// one not draining and that one is joined; every other running one drains. With none joined, a
-/// launch past the drains on the home's own socket or on the socket the link reaches is settled
-/// by [`settle_launch_blocking_drains`]. Fails as a record's read, re-pin, retire or drain fails,
-/// as the link's read or move fails, and past `deadline`.
+/// service that holds the home's link is joined, or with none, the link is pointed at the one
+/// [`find_joinable`] finds and that one is joined; every other running one drains. With none
+/// joined, a launch past the drains on the home's own socket or on the socket the link reaches is
+/// settled by [`settle_launch_blocking_drains`]. Fails as a record's read, re-pin, retire or drain
+/// fails, as the link's read or move fails, and past `deadline`.
 pub(super) async fn reconcile_kept_records(
     service: &CodexService,
     locked: &Arc<LockedServiceRecord>,
     deadline: Instant,
 ) -> Result<KeptRecordsOutcome, StartFailure> {
-    let mut running = Vec::new();
-    let mut ended_services = Vec::new();
-    for (kept_locked, record) in read_kept_records(locked).await? {
-        if let Some(lasting) = repin(record.process.clone()).await? {
-            running.push(RunningRecord {
-                locked: kept_locked,
-                record,
-                lasting,
-            });
-        } else {
-            ended_services.push(record.process.clone());
-            retire_former_service(&kept_locked, record).await?;
-        }
-    }
+    let (running, ended_services) = sort_kept_records(read_kept_records(locked).await?).await?;
     let link_target = read_socket_link(service.socket_path()).map_err(|error| {
         start_failed("The Codex folder's socket link could not be read.", error)
     })?;
@@ -586,7 +390,7 @@ pub(super) async fn reconcile_kept_records(
         running.iter().map(|running| &running.record),
         holder_socket.as_deref(),
     );
-    let joined = match holder {
+    let joined = match holder.zip(holder_socket.clone()) {
         Some(holder) => Some(holder),
         None => {
             restore_link_to_running(service, &running, &ended_services, locked.file(), deadline)
@@ -597,36 +401,23 @@ pub(super) async fn reconcile_kept_records(
         && !running
             .iter()
             .any(|running| running.record.physical_socket == link_target);
-    let mut joined_service = None;
-    let mut launch_blocking_drains = Vec::new();
-    for (index, running) in running.into_iter().enumerate() {
-        if Some(index) == joined {
-            joined_service = Some(running);
-            continue;
-        }
-        let is_home_record = running.locked.file() == locked.file();
-        let is_on_link = running.record.physical_socket.is_some()
-            && running.record.physical_socket == holder_socket;
-        let end =
-            drain_running_record(service, running.locked, running.lasting, &running.record).await?;
-        if is_home_record || is_on_link {
-            launch_blocking_drains.push(LaunchBlockingDrain {
+    let (join, drained) = join_one_drain_others(service, running, joined).await?;
+    if let Some(join) = join {
+        return Ok(join);
+    }
+    let launch_blocking_drains = drained
+        .into_iter()
+        .filter_map(|drained| {
+            let is_home_record = drained.record_file == *locked.file();
+            let is_on_link =
+                drained.physical_socket.is_some() && drained.physical_socket == holder_socket;
+            (is_home_record || is_on_link).then_some(LaunchBlockingDrain {
                 is_home_record,
-                physical_socket: running.record.physical_socket,
-                end,
-            });
-        }
-    }
-    if let Some(joined) = joined_service {
-        return Ok(KeptRecordsOutcome::Join {
-            physical_socket: joined
-                .record
-                .physical_socket
-                .expect("a joined record names its socket, as the holder and the restore require"),
-            record_file: joined.locked.file().clone(),
-            lasting: Box::new(joined.lasting),
-        });
-    }
+                physical_socket: drained.physical_socket,
+                end: drained.end,
+            })
+        })
+        .collect();
     settle_launch_blocking_drains(
         service,
         launch_blocking_drains,
@@ -634,6 +425,103 @@ pub(super) async fn reconcile_kept_records(
         deadline,
     )
     .await
+}
+
+/// A running record a start drained: its file, where its socket really is, and its drain's end.
+pub(super) struct DrainedRecord {
+    /// The record's file.
+    pub(super) record_file: LastingServiceRecordFile,
+    /// Where its record says its socket really is.
+    pub(super) physical_socket: Option<PathBuf>,
+    /// The drain's end.
+    pub(super) end: LastingServiceDrainWatch,
+}
+
+/// Joins the one of `running` at `joined`, the chosen index with the socket it dials, and drains
+/// every other; answers the join, `None` where none was chosen, and each drain. Fails as a drain
+/// fails.
+pub(super) async fn join_one_drain_others(
+    service: &CodexService,
+    running: Vec<RunningRecord>,
+    joined: Option<(usize, PathBuf)>,
+) -> Result<(Option<KeptRecordsOutcome>, Vec<DrainedRecord>), StartFailure> {
+    let (joined_index, mut physical_socket) = joined.unzip();
+    let mut join = None;
+    let mut drained = Vec::new();
+    for (index, running) in running.into_iter().enumerate() {
+        if Some(index) == joined_index
+            && let Some(physical_socket) = physical_socket.take()
+        {
+            join = Some(KeptRecordsOutcome::Join {
+                physical_socket,
+                record_file: running.locked.file().clone(),
+                lasting: Box::new(running.lasting),
+            });
+            continue;
+        }
+        let record_file = running.locked.file().clone();
+        let end =
+            drain_running_record(service, running.locked, running.lasting, &running.record).await?;
+        drained.push(DrainedRecord {
+            record_file,
+            physical_socket: running.record.physical_socket,
+            end,
+        });
+    }
+    Ok((join, drained))
+}
+
+/// Splits `kept` into the records whose service still runs, re-pinned, and the processes of those
+/// whose service ended, each of which is retired as [`retire_former_service`] retires it. Fails as
+/// a re-pin or a retire fails.
+pub(super) async fn sort_kept_records(
+    kept: Vec<KeptRecord>,
+) -> Result<(Vec<RunningRecord>, Vec<ProcessRecord>), StartFailure> {
+    let (running, ended) = repin_kept_records(kept).await?;
+    let mut ended_services = Vec::new();
+    for (locked, record) in ended {
+        ended_services.push(record.process.clone());
+        retire_former_service(&locked, record).await?;
+    }
+    Ok((running, ended_services))
+}
+
+// Splits `kept` into the records whose service still runs, re-pinned, and those whose service
+// ended, touching neither. Fails as a re-pin fails.
+async fn repin_kept_records(
+    kept: Vec<KeptRecord>,
+) -> Result<(Vec<RunningRecord>, Vec<KeptRecord>), StartFailure> {
+    let mut running = Vec::new();
+    let mut ended = Vec::new();
+    for (locked, record) in kept {
+        match repin(record.process.clone()).await? {
+            Some(lasting) => running.push(RunningRecord {
+                locked,
+                record,
+                lasting,
+            }),
+            None => ended.push((locked, record)),
+        }
+    }
+    Ok((running, ended))
+}
+
+/// Which of `running` a start may join, with the socket it dials: one neither draining nor
+/// replaced by a service started beside it, whose socket is recorded, the record `own` first.
+pub(super) fn find_joinable(
+    running: &[RunningRecord],
+    own: &LastingServiceRecordFile,
+) -> Option<(usize, PathBuf)> {
+    running
+        .iter()
+        .enumerate()
+        .filter(|(_index, running)| !running.record.is_draining && !running.record.is_replaced)
+        .filter_map(|(index, running)| {
+            let physical_socket = running.record.physical_socket.as_ref()?;
+            Some((index, physical_socket, running.locked.file() != own))
+        })
+        .min_by_key(|(_index, _physical_socket, is_other)| *is_other)
+        .map(|(index, physical_socket, _is_other)| (index, physical_socket.clone()))
 }
 
 /// A later start of the home's service reads only its own records, under the start's own hold
@@ -669,9 +557,9 @@ pub(super) async fn settle_own_records(
     Ok(KeptRecordsOutcome::LaunchOnHome)
 }
 
-// Drains the running service `lasting`, whose record `record` is kept under `locked`, through the
-// driver's drains, over its recorded socket where it takes no signal. Fails as the drain does.
-async fn drain_running_record(
+/// Drains the running service `lasting`, whose record `record` is kept under `locked`, through the
+/// driver's drains, over its recorded socket where it takes no signal. Fails as the drain does.
+pub(super) async fn drain_running_record(
     service: &CodexService,
     locked: Arc<LockedServiceRecord>,
     lasting: LastingCodexService,
@@ -749,34 +637,24 @@ async fn settle_launch_blocking_drains(
     Ok(KeptRecordsOutcome::LaunchOnHome)
 }
 
-// With no running service holding the home's link, points it under Codex's start lock at a
-// running one not draining whose socket is recorded, the home socket's own `own` first, never over
-// a service answering on it unless it is one of `ended_services`, the processes the records showed
-// ended; answers which of `running` it names, `None` where none can take it or another service
-// answers on it.
+// With no running service holding the home's link, points it under Codex's start lock at the one
+// of `running` a start may join, as [`find_joinable`] reads it against `own`, never over a service
+// answering on it unless it is one of `ended_services`, the processes the records showed ended;
+// answers which of `running` it names with that socket, `None` where none can take it or another
+// service answers on it.
 async fn restore_link_to_running(
     service: &CodexService,
     running: &[RunningRecord],
     ended_services: &[ProcessRecord],
     own: &LastingServiceRecordFile,
     deadline: Instant,
-) -> Result<Option<usize>, StartFailure> {
-    let Some((index, physical_socket)) = running
-        .iter()
-        .enumerate()
-        .filter(|(_index, running)| !running.record.is_draining)
-        .filter_map(|(index, running)| {
-            let physical_socket = running.record.physical_socket.as_ref()?;
-            Some((index, physical_socket, running.locked.file() != own))
-        })
-        .min_by_key(|(_index, _physical_socket, is_other)| *is_other)
-        .map(|(index, physical_socket, _is_other)| (index, physical_socket))
-    else {
+) -> Result<Option<(usize, PathBuf)>, StartFailure> {
+    let Some((index, physical_socket)) = find_joinable(running, own) else {
         return Ok(None);
     };
     let remaining = deadline.saturating_duration_since(Instant::now());
     let start_lock = take_start_lock(&service.home().codex_home, remaining).await?;
-    let is_pointed = restore_socket_link(service.socket_path(), physical_socket, ended_services)
+    let is_pointed = restore_socket_link(service.socket_path(), &physical_socket, ended_services)
         .await
         .map_err(|error| {
             start_failed(
@@ -786,7 +664,7 @@ async fn restore_link_to_running(
         })?;
     // A plain `codex` that waited on the lock reads the link once it is free.
     drop(start_lock);
-    Ok(is_pointed.then_some(index))
+    Ok(is_pointed.then_some((index, physical_socket)))
 }
 
 // Waits until `deadline` for the end of a drain on the socket the launch would meet, which the
@@ -830,6 +708,7 @@ mod tests {
             home_socket: PathBuf::from(HOME),
             physical_socket: Some(PathBuf::from(socket)),
             is_draining,
+            is_replaced: false,
         }
     }
 

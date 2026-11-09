@@ -12,6 +12,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::CodexServiceRecovery;
+use super::build_move::CodexServiceRestart;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
@@ -29,12 +30,12 @@ use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
-use crate::driver::session_control::ProviderBuildChange;
 use crate::driver::test_registry::new_run_id;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
+mod beside_move;
 mod bound_helpers;
 mod held_lead;
 mod joined_restart;
@@ -636,10 +637,10 @@ async fn a_relaunch_whose_record_is_refused_lets_its_conversation_go() {
     .expect("the recovery ends within the bound");
 }
 
-// Runs a build move on `session`'s account service: the old process's connection, set aside as
-// it leaves, serves the new one, which `serve` answers on its own task once the supervisor's start
-// is under way. Answers the move and the session's task.
-async fn move_account_service_build<Served>(
+// Restarts `session`'s account service in place: the old process's connection, set aside as it
+// leaves, serves the new one, which `serve` answers on its own task once the supervisor's start is
+// under way. Answers the restart and the session's task.
+async fn restart_account_service_in_place<Served>(
     session: TestCodexSession,
     recovery: &Arc<CodexServiceRecovery>,
     serve: impl FnOnce(ScriptedService) -> Served,
@@ -651,12 +652,9 @@ where
         scripted, mut task, ..
     } = session;
     let service = Arc::clone(&scripted.service);
-    let change = ProviderBuildChange {
-        from_version: "0.163.0".to_owned(),
-        to_version: "0.164.0".to_owned(),
-    };
     let connection = scripted.publish_reconnecting();
-    let mut restarting = std::pin::pin!(recovery.restart_and_wait(&service, Some(change)));
+    let mut restarting =
+        std::pin::pin!(recovery.restart_and_wait(&service, CodexServiceRestart::InPlace));
     task.drive(async {
         tokio::select! {
             restarted = &mut restarting => {
@@ -674,7 +672,7 @@ where
 
 // An account service's session on a service whose own start waits, its recovery's ports the
 // stand-ins above.
-async fn account_build_move_session() -> (
+async fn account_restart_session() -> (
     TestCodexSession,
     tempfile::TempDir,
     Arc<Steps>,
@@ -694,22 +692,24 @@ async fn account_build_move_session() -> (
     (session, folder, steps, recovery)
 }
 
-// Killed by a build move whose in-place resume on an account's service records no relaunch: the
+// Killed by a restart in place whose resume on an account's service records no relaunch: the
 // conversation resumes under a binding the session directory opened first, and that binding is
 // the one recorded. Real time under a bound.
 #[tokio::test]
-async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it_opened() {
+async fn an_account_service_s_restart_in_place_records_its_resume_under_the_binding_it_opened() {
     tokio::time::timeout(Duration::from_secs(30), async {
-        let (session, _folder, steps, recovery) = Box::pin(account_build_move_session()).await;
+        let (session, _folder, steps, recovery) = Box::pin(account_restart_session()).await;
         let settings = session.task.record.thread_settings.clone();
         let serving = Arc::clone(&steps);
 
-        let (moved, _task) = Box::pin(move_account_service_build(session, &recovery, |script| {
-            serve_resumes(script, settings, serving)
-        }))
+        let (moved, _task) = Box::pin(restart_account_service_in_place(
+            session,
+            &recovery,
+            |script| serve_resumes(script, settings, serving),
+        ))
         .await;
 
-        moved.expect("the build move resumes the conversation");
+        moved.expect("the restart resumes the conversation");
         let relaunch = relaunch_steps(&steps);
         assert_eq!(relaunch.len(), 3, "{relaunch:?}");
         let opened = relaunch[0]
@@ -719,28 +719,28 @@ async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it
         assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
     })
     .await
-    .expect("the build move ends within the bound");
+    .expect("the restart ends within the bound");
 }
 
-// Killed by a build move that leaves a resume the new build refused unsettled: the session's
-// record stays, so it reads live on a conversation no service holds, and the queue is never told
-// its process is gone. The record is let go and the queue told once, the slot empty. Real time
-// under a bound.
+// Killed by a restart in place that leaves a resume the new process refused unsettled: the
+// session's record stays, so it reads live on a conversation no service holds, and the queue is
+// never told its process is gone. The record is let go and the queue told once, the slot empty.
+// Real time under a bound.
 #[tokio::test]
-async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_go() {
+async fn an_account_service_s_restart_in_place_its_new_process_refuses_lets_the_record_go() {
     tokio::time::timeout(
         Duration::from_secs(30),
         Box::pin(async {
-            let (session, _folder, steps, recovery) = account_build_move_session().await;
+            let (session, _folder, steps, recovery) = account_restart_session().await;
 
-            let (moved, task) = Box::pin(move_account_service_build(
+            let (moved, task) = Box::pin(restart_account_service_in_place(
                 session,
                 &recovery,
                 refuse_resumes,
             ))
             .await;
 
-            moved.expect("the build move ends");
+            moved.expect("the restart ends");
             assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
             assert_eq!(
                 steps.holders_at_gone(),
@@ -750,7 +750,7 @@ async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_g
         }),
     )
     .await
-    .expect("the build move ends within the bound");
+    .expect("the restart ends within the bound");
 }
 
 // Refuses, as the service, every conversation it is asked to resume, as Codex refuses one it has

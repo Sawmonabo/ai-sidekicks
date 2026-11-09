@@ -7,6 +7,7 @@ mod adoption;
 pub(crate) mod answer_steer;
 pub(crate) mod continuation;
 pub(crate) mod helpers;
+mod kept_writers;
 pub(super) mod mcp_read;
 mod settings;
 

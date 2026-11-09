@@ -1,6 +1,7 @@
 //! An account's home and its lasting service: the home's kind as the account signs in, the store
-//! its sign-in is kept in, a restart that keeps the service, and an API-key account's key handed
-//! at each start.
+//! its sign-in is kept in, a restart that keeps the service, a restart in the middle of a build
+//! move that joins the second service, a record that does not read as one, and an API-key
+//! account's key handed at each start.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,9 +14,9 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::stand_in::{
-    account_home, account_stand_in_services, another_daemon, is_running, last_launch_arguments,
-    per_home_services, recorded_requests, services_on, this_daemon,
-    wait_for_end_and_record_removal,
+    account_home, account_stand_in_services, another_daemon, cut_short_planned_restart,
+    home_record_file, is_running, last_launch_arguments, per_home_services, recorded_requests,
+    services_on, this_daemon, wait_for_end_and_record_removal,
 };
 use crate::driver::ProviderAccountReader;
 use crate::driver::codex::account::{
@@ -23,9 +24,21 @@ use crate::driver::codex::account::{
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexHomes};
 use crate::driver::codex::service::registry::CodexHomeResolver;
+use crate::driver::codex::service::supervisor::test_service::{
+    CONVERSATION_WRITERS_NAME, HANG_UP_GRACE_NAME, RESUMED_TURN_NAME, WRITER_LET_GO_NAME,
+};
 use crate::driver::codex::service::switching::test_sign_in::AccountHomes;
+use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
-use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::driver::session_control::DriverResumeResult;
+use crate::driver::test_registry::new_session_id;
+use crate::runtime_binding::test_store::{
+    binding_input, compose_test_resume_params, spawn_config_on, spawned_build,
+    test_provider_account_id,
+};
+
+/// The conversation of a session the build move had not moved when the daemon restarted.
+const UNMOVED_THREAD: &str = "thread-unmoved";
 
 /// The account the test signs in with a pasted API key.
 const KEY_ACCOUNT: &str = "account-with-a-key";
@@ -178,6 +191,179 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         is_stopped,
         "the stop left the account's service or its record"
     );
+}
+
+// Fails when an account's start after a daemon restarted in the middle of a build move reads only
+// the home socket's record: it joins the first service, which the move replaced, and leaves the
+// second running unjoined with the conversations moved to it, or launches a third beside both;
+// and when the first is left running rather than drained to its end with its record removed.
+// The resume of a session not yet moved, its conversation still written by the draining first,
+// fails when Codex's refusal is answered at once, with no let-go there and no second try, and
+// when it waits on the first's drain: a first that lets the conversation go has it resumed on the
+// second while it still runs, once the first's unload came, and one that keeps writing it has the
+// resume failed naming it, the first still running. The first lists the conversation loaded and
+// unloads it a delay after the let-go, so a retry that does not wait for its `thread/closed` is
+// refused again.
+#[rstest]
+#[case::the_first_lets_the_conversation_go(true)]
+#[case::the_first_keeps_writing_it(false)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_during_a_build_move_joins_the_second_account_service_and_drains_the_first(
+    #[case] is_writer_let_go: bool,
+) {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let home = account_home(
+        folder.path(),
+        CodexHomeKind::Account(test_provider_account_id()),
+    );
+    let writers = folder.path().join("writers");
+    let mut program_environment = vec![
+        // The drained first answers on a while, as one finishing its replies does.
+        (HANG_UP_GRACE_NAME.to_owned(), "2000".to_owned()),
+        (
+            CONVERSATION_WRITERS_NAME.to_owned(),
+            writers.display().to_string(),
+        ),
+        (
+            RESUMED_TURN_NAME.to_owned(),
+            json!({"id": "turn-0", "items": [], "status": "completed"}).to_string(),
+        ),
+    ];
+    if is_writer_let_go {
+        program_environment.push((WRITER_LET_GO_NAME.to_owned(), "1".to_owned()));
+    }
+    let services = services_on(home, folder, |mut program| {
+        program.environment.extend(program_environment);
+        Arc::new(program)
+    });
+    let startup_timeout = services.dependencies.startup_timeout;
+    let session = TestCodexSession::start().await;
+    let mut unmoved = binding_input(
+        spawn_config_on(test_provider_account_id()),
+        spawned_build("0.130.0", "/opt/codex/bin"),
+    );
+    unmoved.resume_handle = Some(UNMOVED_THREAD.to_owned());
+    let unmoved = session
+        .bindings
+        .create(unmoved)
+        .await
+        .expect("the binding is recorded");
+    let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    // The unmoved session's conversation is still loaded on the first.
+    std::fs::create_dir_all(&writers).expect("the writers' folder is made");
+    std::fs::write(writers.join(UNMOVED_THREAD), first_process.to_string())
+        .expect("the writer is recorded");
+
+    let daemon = Arc::new(this_daemon(&services));
+    let joined = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    let started = joined.ensure_started(startup_timeout).await;
+    let is_first_writing = is_running(first_process);
+    let work = tempfile::tempdir().expect("a scratch folder is made");
+    let resumed = session
+        .establishment_on(work.path(), Arc::clone(&daemon))
+        .resume_by_handle(&compose_test_resume_params(
+            new_session_id(),
+            &unmoved,
+            Vec::new(),
+        ))
+        .await;
+    let is_first_running_at_resume = is_running(first_process);
+    let writer = std::fs::read_to_string(writers.join(UNMOVED_THREAD));
+    let joined_process = joined.process_id();
+    let launches = services.launch_count();
+    let is_first_drained =
+        wait_for_end_and_record_removal(first_process, &services, startup_timeout).await;
+    let is_second_running = is_running(second_process);
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
+
+    assert!(started.is_ok(), "{started:?}");
+    assert_eq!(joined_process, Some(second_process));
+    assert_eq!(launches, 2, "the start launched a third service");
+    assert!(
+        is_first_drained,
+        "the replaced service did not end by itself"
+    );
+    assert!(is_second_running);
+    assert!(is_first_writing, "the first ended before the resume");
+    assert!(
+        is_first_running_at_resume,
+        "the resume waited on the first's drain"
+    );
+    if is_writer_let_go {
+        assert!(
+            matches!(resumed.result, DriverResumeResult::Resumed { .. }),
+            "{:?}",
+            resumed.result
+        );
+        assert_eq!(
+            writer.ok(),
+            Some(second_process.to_string()),
+            "the second did not resume the conversation, the retry not waiting for the unload"
+        );
+    } else {
+        let DriverResumeResult::Failed {
+            provider_failure_detail,
+            ..
+        } = &resumed.result
+        else {
+            panic!(
+                "the resume went through while the first wrote: {:?}",
+                resumed.result
+            );
+        };
+        assert!(
+            provider_failure_detail
+                .as_str()
+                .contains(&first_process.to_string()),
+            "the failure does not name the first: {provider_failure_detail:?}"
+        );
+        assert_eq!(writer.ok(), Some(first_process.to_string()));
+    }
+}
+
+// Fails when a record in the home that does not read as one, such as a shape the daemon no longer
+// writes, stops the home's start, or is left for every later start to meet.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_record_in_the_home_is_removed_and_the_service_launched_afresh() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let services = account_stand_in_services();
+    let record_file = home_record_file(&services);
+    // The lock makes the records' folder.
+    drop(record_file.lock().expect("the records lock"));
+    std::fs::write(record_file.path(), br#"{"process":"#).expect("the record is written");
+
+    let daemon = this_daemon(&services);
+    let service = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    let started = service
+        .ensure_started(services.dependencies.startup_timeout)
+        .await;
+    let launched = service.process_id();
+    let kept = record_file
+        .lock()
+        .and_then(|locked| locked.read())
+        .expect("the home's record reads")
+        .map(|record| record.process.id());
+    let launches = services.launch_count();
+    daemon
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
+        .await;
+
+    assert!(started.is_ok(), "{started:?}");
+    assert_eq!(launches, 1);
+    assert_eq!(kept, launched, "the home keeps no record of the launch");
 }
 
 // Fails when an API-key account's service is never handed its key, so it runs signed out; when

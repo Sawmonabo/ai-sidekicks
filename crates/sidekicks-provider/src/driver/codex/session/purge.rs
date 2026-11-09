@@ -20,6 +20,7 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
 use crate::driver::codex::session::recovery::CodexServiceRecovery;
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::PurgeSessionParams;
@@ -46,7 +47,7 @@ impl CodexServiceRestarts for Arc<CodexServiceRecovery> {
     }
 
     fn restart(&self, service: &Arc<CodexService>) {
-        self.request_restart(service, None);
+        self.request_restart(service, CodexServiceRestart::InPlace);
     }
 }
 

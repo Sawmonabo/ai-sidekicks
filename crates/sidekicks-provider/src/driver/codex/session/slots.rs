@@ -27,6 +27,7 @@ use crate::driver::codex::session::conversation_release::CodexConversationReleas
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 
 /// The request that lets a conversation go from a connection.
@@ -408,14 +409,22 @@ pub(crate) async fn let_go_codex_session(
     deps.provider_commands.discard_listing(session_id);
 }
 
-/// Forgets `thread_id` on `service` and unsubscribes from it while the service runs, within a
-/// short bound so a wedged service cannot hold the caller; a refused unsubscribe is reported,
-/// since the conversation unloads with the service anyway.
+/// Forgets `thread_id` on `service` and unsubscribes from it while the service runs, as
+/// [`unsubscribe_codex_thread`] does.
 pub(crate) async fn let_go_codex_thread(service: &CodexService, thread_id: &str) {
     service.release_thread(thread_id);
-    let Ok(connection) = service.connection() else {
-        return;
-    };
+    if let Ok(connection) = service.connection() {
+        unsubscribe_codex_thread(&connection, thread_id).await;
+    }
+}
+
+/// Unsubscribes `connection` from `thread_id` within a short bound, so a wedged service cannot hold
+/// the caller; a refused unsubscribe is reported, since the conversation unloads with the service
+/// anyway.
+pub(crate) async fn unsubscribe_codex_thread(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) {
     let unsubscribed = connection
         .request_within(
             THREAD_UNSUBSCRIBE_METHOD,

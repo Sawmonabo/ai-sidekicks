@@ -3,13 +3,9 @@
 //! adoption sent and answered.
 
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::run::events::TurnEndCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -22,14 +18,12 @@ use crate::driver::session_control::held_run_continue::HeldRunContinue;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
-use crate::driver::test_registry::{new_agent_id, new_session_id};
+use crate::driver::test_registry::new_session_id;
 use crate::port::run_host::test_host::EngineCall;
-use crate::run::posture::compose_execution_posture;
 use crate::run::turn_end::TurnOutcome;
-use crate::runtime_binding::resume::compose_resume_session_params;
-use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::{
-    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
+    binding_input, compose_test_resume_params, spawn_config_on, spawned_build,
+    test_provider_account_id,
 };
 
 /// The conversation a resume by handle adopts, beside the test session's own.
@@ -183,25 +177,7 @@ pub(super) async fn adopt_continuing(
         .create(input)
         .await
         .expect("the binding is recorded");
-    let mut params = compose_resume_session_params(
-        new_session_id(),
-        new_agent_id(),
-        &binding,
-        mint_runtime_binding_id(),
-        ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
-        None,
-        SessionMode::Build,
-        compose_execution_posture(
-            PermissionLevel::Readonly,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-        ),
-        Vec::new(),
-        ProviderRowValues::default(),
-        None,
-        Vec::new(),
-        live_runs,
-    )
-    .expect("the binding resumes");
+    let mut params = compose_test_resume_params(new_session_id(), &binding, live_runs);
     params.held_run_continue = held_run_continue;
     let AdoptionScript {
         is_loaded,

@@ -196,7 +196,7 @@ impl TestCodexSession {
         }));
         let session_id = new_session_id();
         let lead_agent_id = new_agent_id();
-        let (inbound, receiver) = codex_session_inbound(session_id);
+        let (inbound, items) = test_session_queue(session_id);
         let slots = Arc::new(CodexSessionSlots::new());
         slots
             .claim_establishing(session_id)
@@ -212,16 +212,6 @@ impl TestCodexSession {
             pending_compactions.clone(),
         )
         .await;
-        let (items_sender, items) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            drain_codex_session_inbound(
-                receiver,
-                &mut ItemsToTest {
-                    items: items_sender,
-                },
-            )
-            .await;
-        });
         let config_forks = Arc::new(CodexConfigForks::new(
             Arc::clone(&slots),
             TaskTracker::new(),
@@ -352,8 +342,17 @@ impl TestCodexSession {
     /// An establishment on the session's service and delivery, every conversation it composes
     /// running in `folder`'s `work` on the test's account, its command channels under `folder`.
     pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
+        self.establishment_on(folder, CodexServiceRegistry::holding(&self.scripted))
+    }
+
+    /// An establishment as [`Self::establishment`] makes it, its services `services`'.
+    pub(crate) fn establishment_on(
+        &self,
+        folder: &Path,
+        services: Arc<CodexServiceRegistry>,
+    ) -> CodexSessionEstablishment {
         CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
-            services: CodexServiceRegistry::holding(&self.scripted),
+            services,
             spawn_contexts: one_folder::one_folder_spawn_contexts(folder.join("work")),
             execution_postures: Arc::new(ExecutionPostureService::new(
                 folder,
@@ -524,6 +523,27 @@ impl TestCodexTask {
             }
         }
     }
+}
+
+/// The queue of `session_id`, with each item it takes handed to the test as it comes.
+pub(crate) fn test_session_queue(
+    session_id: SessionId,
+) -> (
+    CodexSessionInboundSender,
+    mpsc::UnboundedReceiver<CodexSessionInbound>,
+) {
+    let (inbound, receiver) = codex_session_inbound(session_id);
+    let (items_sender, items) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        drain_codex_session_inbound(
+            receiver,
+            &mut ItemsToTest {
+                items: items_sender,
+            },
+        )
+        .await;
+    });
+    (inbound, items)
 }
 
 /// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, led

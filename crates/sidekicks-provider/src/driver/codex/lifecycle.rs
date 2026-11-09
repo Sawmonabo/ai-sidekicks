@@ -7,7 +7,7 @@ pub(super) mod account_move;
 mod controls;
 mod effects;
 pub(super) mod intake;
-mod kept_turns;
+pub(crate) mod kept_turns;
 pub(super) mod naming;
 mod runs;
 mod service_events;

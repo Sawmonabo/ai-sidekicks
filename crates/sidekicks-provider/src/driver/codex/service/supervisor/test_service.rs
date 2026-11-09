@@ -1,9 +1,10 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
-//! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
+//! service whose connection a test scripts, a
 //! service of the daemon's own kind published as up and holding a connection on a
 //! `ScriptedService`, its frames and asks routed as a dialed one's are, a former daemon's service
 //! kept in a home's record, and the stand-in Codex service a test program runs as itself.
 
+mod answers;
 mod stand_in;
 
 use std::path::{Path, PathBuf};
@@ -11,10 +12,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
+#[cfg(test)]
 use futures::{SinkExt as _, StreamExt as _};
 #[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
-use serde_json::{Value, json};
+#[cfg(test)]
+use serde_json::Value;
 #[cfg(test)]
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -29,19 +32,26 @@ use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
+#[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(test)]
 use tokio::sync::mpsc;
 #[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
 #[cfg(test)]
+pub(crate) use self::answers::STAND_IN_CODEX;
+#[cfg(test)]
+pub(crate) use self::answers::{PROBE_THREAD_ID, PROBE_TOOL_NAME};
+pub(crate) use self::answers::{StandInReplies, answer_as_codex_service};
+#[cfg(test)]
 pub(crate) use self::stand_in::{
-    CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
-    ProgramPerHome, REQUEST_RECORD_NAME, STOP_IGNORED_NAME, StandInLaunches, read_tree,
-    request_record,
+    CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, CONVERSATION_WRITERS_NAME, HANG_UP_GRACE_NAME,
+    HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE, ProgramPerHome, REQUEST_RECORD_NAME,
+    STOP_IGNORED_NAME, StandInLaunches, WRITER_LET_GO_NAME, read_tree, request_record,
 };
 pub use self::stand_in::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
@@ -55,9 +65,6 @@ use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
-use crate::driver::codex::service::command_line::{
-    TerminalServiceHooks, read_terminal_service_hooks,
-};
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 #[cfg(test)]
 use crate::driver::codex::service::process::{
@@ -98,10 +105,10 @@ use crate::spawned_version::{SpawnedProviderVersionReading, parse_cli_version_re
 
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.
-const TEST_DISPATCHES_HOOK_MODE: bool = false;
+pub(super) const TEST_DISPATCHES_HOOK_MODE: bool = false;
 
 /// The kind of shell the test services' hooks are quoted for.
-const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
+pub(super) const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
 
 /// The scripted connection's ticket, which routes its frames.
 const SCRIPTED_DIAL: u64 = 1;
@@ -391,6 +398,22 @@ pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
     )
 }
 
+/// Starts a service on an account's home, `home` under `folder`, whose connection the test
+/// scripts, its start and a second one's beside it running `program`. Must be called in a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_account_service_in(
+    folder: TempDir,
+    program: Arc<dyn CodexProgramResolver>,
+) -> ScriptedCodexService {
+    start_scripted_codex_service_in(
+        folder,
+        CodexHomeKind::Account(test_provider_account_id()),
+        CodexServiceKind::Account,
+        program,
+        Arc::new(UnheardEvents),
+    )
+}
+
 // A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
 // own running `program`, telling `events` what happens to it.
 fn start_scripted_codex_service_on(
@@ -399,7 +422,23 @@ fn start_scripted_codex_service_on(
     program: Arc<dyn CodexProgramResolver>,
     events: Arc<dyn CodexServiceEvents>,
 ) -> ScriptedCodexService {
-    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    start_scripted_codex_service_in(
+        tempfile::tempdir().expect("a scratch folder is made"),
+        home_kind,
+        kind,
+        program,
+        events,
+    )
+}
+
+// A service as `start_scripted_codex_service_on` makes it, under `folder`.
+fn start_scripted_codex_service_in(
+    folder: TempDir,
+    home_kind: CodexHomeKind,
+    kind: CodexServiceKind,
+    program: Arc<dyn CodexProgramResolver>,
+    events: Arc<dyn CodexServiceEvents>,
+) -> ScriptedCodexService {
     let dependencies = test_codex_service_dependencies(
         folder.path(),
         program,
@@ -557,164 +596,6 @@ impl CodexServiceEvents for ExitsHeard {
     fn executor_ended(&self, _service: &Arc<CodexService>) {}
 }
 
-/// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;
-/// as the service it waits, the test's listener answering in its place.
-#[cfg(test)]
-pub(crate) const STAND_IN_CODEX: &str = r#"#!/bin/sh
-case " $* " in
-  *" exec-server "*)
-    IFS= read -r _initialize
-    printf '%s\n' '{"id":"sidekicks-relay-1","result":{}}'
-    exec cat >/dev/null
-    ;;
-esac
-exec sleep 30
-"#;
-
-/// The conversation a machine probe's ephemeral start opens on a test service.
-pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
-
-/// The one tool each server a test service lists for a machine probe has.
-pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
-
-/// The answers a test gives a stand-in service in place of its own, each `None` to keep its own.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct StandInReplies {
-    /// The reply to a config read.
-    pub(crate) config_read: Option<Value>,
-    /// The one turn listed on every conversation the service resumes, which the resume answers as
-    /// running while the turn is in progress.
-    pub(crate) resumed_turn: Option<Value>,
-}
-
-/// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
-/// each request as it comes: the version, the hooks the daemon starts a terminal service with, as
-/// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
-/// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
-/// server its config switches on or sends reports ready, and each listed server is connected with
-/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, else with an
-/// empty config, and where a resumed turn is given, a resume is answered on the conversation it
-/// names, under the profile it asks for, and that conversation's turns are listed as that one
-/// turn. Once the connection is handed an API key, its account read names an API-key sign-in;
-/// before, it answers nothing.
-pub(crate) async fn answer_as_codex_service(
-    stream: impl AsyncRead + AsyncWrite + Unpin,
-    replies: StandInReplies,
-    mut on_request: impl FnMut(&Value),
-) {
-    let hooks =
-        match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE, TEST_SESSION_SHELL_KIND)
-            .expect("the daemon's hooks read")
-        {
-            TerminalServiceHooks::Daemon(hooks) => vec![
-                listed_hook("preToolUse", &hooks.pre_tool_use),
-                listed_hook("postToolUse", &hooks.post_tool_use),
-            ],
-            TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
-        };
-    // A probe that only connects ends before the upgrade.
-    let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
-        return;
-    };
-    let mut is_key_handed = false;
-    while let Some(Ok(message)) = socket.next().await {
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
-        if request.get("id").is_none() {
-            continue;
-        }
-        let id = &request["id"];
-        on_request(&request);
-        if request["method"] == "account/login/start" && request["params"]["type"] == "apiKey" {
-            is_key_handed = true;
-        }
-        let mut notices = Vec::new();
-        let reply = match request["method"].as_str() {
-            Some("thread/start") if request["params"]["ephemeral"] == json!(true) => {
-                notices = started_probe_servers(&request["params"]);
-                json!({"id": id,
-                    "result": {"thread": {"id": PROBE_THREAD_ID, "sessionId": "probe-session"}}})
-            }
-            Some("mcpServerStatus/list") => json!({"id": id, "result": {"data": [{
-                "name": request["params"]["serverName"],
-                "authStatus": "unsupported",
-                "runtimeStatus": "connected",
-                "tools": {PROBE_TOOL_NAME: {"name": PROBE_TOOL_NAME, "inputSchema": {}}},
-                "resources": [],
-                "resourceTemplates": [],
-            }], "nextCursor": null}}),
-            Some("config/read") if replies.config_read.is_some() => {
-                json!({"id": id, "result": replies.config_read})
-            }
-            Some("config/read") => json!({"id": id, "result": {"config": {}, "origins": {}}}),
-            Some("thread/resume") if replies.resumed_turn.is_some() => {
-                json!({"id": id, "result": resumed_thread(&request["params"], &replies)})
-            }
-            Some("thread/turns/list") if replies.resumed_turn.is_some() => json!({"id": id,
-                "result": {"data": [replies.resumed_turn], "nextCursor": null}}),
-            Some("config/value/write") => json!({"id": id,
-                "error": {"code": -32603, "message": "the test service writes no config"}}),
-            Some("initialize") => json!({"id": id,
-                "result": {"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}}),
-            Some("hooks/list") => json!({"id": id, "result": {"data": [{"hooks": hooks}]}}),
-            Some("thread/loaded/list") => json!({"id": id, "result": {"data": []}}),
-            Some("account/read") if is_key_handed => {
-                json!({"id": id, "result": {"account": {"type": "apiKey"}}})
-            }
-            _ => json!({"id": id, "result": {}}),
-        };
-        for message in std::iter::once(reply).chain(notices) {
-            if socket
-                .send(Message::Text(message.to_string().into()))
-                .await
-                .is_err()
-            {
-                return;
-            }
-        }
-    }
-}
-
-// A resume's reply on the conversation `params` names, under the profile they ask for, running
-// while `replies`' resumed turn is in progress and idle otherwise.
-fn resumed_thread(params: &Value, replies: &StandInReplies) -> Value {
-    let status = match replies.resumed_turn.as_ref().map(|turn| &turn["status"]) {
-        Some(status) if status == "inProgress" => "active",
-        _ => "idle",
-    };
-    json!({
-        "thread": {
-            "id": params["threadId"],
-            "sessionId": "codex-session",
-            "status": {"type": status},
-        },
-        "activePermissionProfile": {"id": params["permissions"]},
-    })
-}
-
-// The ready notice of each server a probe's start switches on or sends, by its config's server
-// table.
-fn started_probe_servers(params: &Value) -> Vec<Value> {
-    params["config"]["mcp_servers"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(_, entry)| entry["enabled"] == json!(true))
-        .map(|(name, _)| {
-            json!({"jsonrpc": "2.0", "method": "mcpServer/startupStatus/updated", "params": {
-                "threadId": PROBE_THREAD_ID, "name": name, "status": "ready", "error": null,
-            }})
-        })
-        .collect()
-}
-
-fn listed_hook(event_name: &str, command: &str) -> Value {
-    json!({"source": "sessionFlags", "eventName": event_name, "command": command,
-        "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
-}
-
 /// Waits until `service` is no longer up, which it leaves only once its connection is gone.
 #[cfg(test)]
 pub(crate) async fn wait_until_disconnected(service: &CodexService) {
@@ -772,6 +653,39 @@ pub(crate) async fn keep_former_service(
     physical_socket: &Path,
     is_draining: bool,
 ) -> LastingCodexService {
+    keep_service_in_record(
+        service,
+        folder,
+        service.socket_path(),
+        physical_socket,
+        is_draining,
+    )
+    .await
+}
+
+/// Starts a stand-in Codex process in `folder` and keeps it as [`keep_former_service`] does, in a
+/// record of `service`'s home of its own, named for `record_socket`, as a second service started
+/// beside the home's is kept; not draining. Panics where the start or the record fails.
+#[cfg(test)]
+pub(crate) async fn keep_former_service_beside(
+    service: &CodexService,
+    folder: &Path,
+    record_socket: &Path,
+    physical_socket: &Path,
+) -> LastingCodexService {
+    keep_service_in_record(service, folder, record_socket, physical_socket, false).await
+}
+
+// Starts a stand-in Codex process in `folder` and keeps it in the record of `service`'s home named
+// for `record_socket`, on `physical_socket`, draining when `is_draining`.
+#[cfg(test)]
+async fn keep_service_in_record(
+    service: &CodexService,
+    folder: &Path,
+    record_socket: &Path,
+    physical_socket: &Path,
+    is_draining: bool,
+) -> LastingCodexService {
     let program = folder.join("stand-in");
     create_file_atomically(
         &program,
@@ -797,7 +711,7 @@ pub(crate) async fn keep_former_service(
     LastingServiceRecordFile::of_socket(
         &service.dependencies().data_folder,
         &service.home().codex_home,
-        service.socket_path(),
+        record_socket,
     )
     .expect("the record file is named")
     .lock()

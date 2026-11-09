@@ -27,16 +27,15 @@ use crate::driver::codex::service::record::{
 use crate::driver::codex::service::supervisor::own_record::{
     retire_own_record, socket_record_file,
 };
-use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptServicesStop, lock_record, stop_kept_services,
+use crate::driver::codex::service::supervisor::start::kept_records::lock_record;
+use crate::driver::codex::service::supervisor::start::kept_records::stop::{
+    KeptServicesStop, stop_kept_services,
 };
 use crate::driver::codex::service::supervisor::start::take_start_lock;
-use crate::driver::codex::service::supervisor::start::terminal::{
-    join_former_service, launch_terminal_service,
-};
+use crate::driver::codex::service::supervisor::start::terminal::launch_terminal_service;
 use crate::driver::codex::service::supervisor::start::{
-    LaunchedLastingService, StartFailure, compose_launch, launch_lasting_service,
-    name_lasting_log_file,
+    LaunchedLastingService, StartFailure, compose_launch, join_former_service,
+    launch_lasting_service, name_lasting_log_file,
 };
 use crate::driver::codex::service::supervisor::test_service::{
     STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
@@ -184,6 +183,7 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
         async move {
             join_former_service(
                 &service,
+                CodexServiceKind::Terminal,
                 1,
                 &cancel,
                 &executable,

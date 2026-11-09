@@ -3,11 +3,12 @@
 //! switching service runs as lastingly in a home of the daemon's own on tokens the daemon hands it,
 //! and the person's own Codex folder holds the terminal service while terminal reach is on, which
 //! no session of the app runs on. A service listens on the home's own control socket, which a
-//! terminal's plain `codex` joins, except for a planned restart's second service, which takes a
-//! socket of its own beside it under a name no daemon start reuses, the home's socket then pointed
-//! at it. The capability read and each MCP sign-in run one short-lived service of their own on a
-//! folder of the daemon's own, which the registry never holds, and a read on the person's own
-//! folder with no fitting service there runs one on a socket of its own beside it.
+//! terminal's plain `codex` joins, except for a planned restart's or a build move's second
+//! service, which takes a socket of its own beside it under a name no daemon start reuses, the
+//! terminal home's socket then pointed at it. The capability read and each MCP sign-in run one
+//! short-lived service of their own on a folder of the daemon's own, which the registry never
+//! holds, and a read on the person's own folder with no fitting service there runs one on a
+//! socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
 pub(crate) mod terminal_sessions;
@@ -36,7 +37,9 @@ use crate::driver::codex::service::home::{
 };
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-use crate::driver::codex::service::supervisor::start::kept_records::{
+use crate::driver::codex::service::supervisor::own_record::mark_own_record_replaced;
+use crate::driver::codex::service::supervisor::start::kept_records::read_running_kept_services;
+use crate::driver::codex::service::supervisor::start::kept_records::stop::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
 };
 #[cfg(any(test, feature = "test-support"))]
@@ -99,6 +102,8 @@ struct RegisteredServices {
     // Services started for one read on the person's own Codex folder, held until stopped so a
     // shutdown meanwhile stops them too.
     transient: Vec<Arc<CodexService>>,
+    // Whether the daemon's stop has begun, after which a retire leaves each service to it.
+    is_shutting_down: bool,
 }
 
 impl CodexServiceRegistry {
@@ -398,6 +403,12 @@ impl CodexServiceRegistry {
         self.lock().by_home.values().cloned().collect()
     }
 
+    /// The service the registry holds as `codex_home`'s, a replaced one left out; `None` when none
+    /// is.
+    pub(crate) fn home_service(&self, codex_home: &Path) -> Option<Arc<CodexService>> {
+        self.lock().by_home.get(codex_home).cloned()
+    }
+
     /// The service the registry holds on `codex_home`, or one that left it and still runs; `None`
     /// when no service of the driver is on that home.
     pub(crate) fn service_on(&self, codex_home: &Path) -> Option<Arc<CodexService>> {
@@ -411,35 +422,51 @@ impl CodexServiceRegistry {
         })
     }
 
-    /// Whether no service holds `codex_home`: none of the driver's is on it, and nothing listens
-    /// on the home's control socket, a service of the person's own or of a former daemon among
-    /// them; a connect that tells nothing either way reads as held. Blocking: called on a
-    /// blocking thread of the daemon's runtime.
+    /// Whether no service holds `codex_home`: none of the driver's is on it, no service a record
+    /// of the home keeps still runs, a former daemon's second service on a socket of its own among
+    /// them, and nothing listens on the home's control socket, a service of the person's own among
+    /// them; a read or a connect that tells nothing either way reads as held. The records are read
+    /// as [`read_running_kept_services`] reads them. Blocking: called on a blocking thread of the
+    /// daemon's runtime.
     pub(crate) fn is_home_quiet(&self, codex_home: &Path) -> bool {
+        let runtime = Handle::current();
         self.service_on(codex_home).is_none()
-            && Handle::current()
+            && runtime
+                .block_on(read_running_kept_services(
+                    &self.dependencies.data_folder,
+                    codex_home,
+                ))
+                .is_ok_and(|running| running.is_empty())
+            && runtime
                 .block_on(is_listening(&home_socket_path(codex_home)))
                 .is_ok_and(|is_listened_on| !is_listened_on)
     }
 
     /// Starts a second service on `service`'s home, which becomes the home's service once it is
-    /// up; the first stays until its conversations have moved off it. Where the home's control
-    /// socket is a link, the second listens on a socket of its own and the link is pointed at it
-    /// once it is up, unless a service answering in the first's place, Codex's managed daemon in
-    /// use, holds the link; where the system refuses to move it, the path being the socket
-    /// itself, the first is stopped once no terminal session is inside it and no command left on
-    /// it runs, and the second takes the home's own socket, terminals reconnecting by themselves.
-    /// Fails as the start does, the first then kept as the home's service; when the home's
-    /// service changed while the second started, the second then stopped; and when the home's
-    /// socket could not be pointed at the second, which then runs on unreached.
+    /// up; the first stays until its conversations have moved off it. On an account's home the
+    /// second always listens on a socket of its own, since only the daemon dials it, and the
+    /// first's record is marked replaced, so a daemon restarted meanwhile joins the second. On the
+    /// person's own folder, where the home's control socket is a link, the second listens on a
+    /// socket of its own and the link is pointed at it once it is up, unless a service answering
+    /// in the first's place, Codex's managed daemon in use, holds the link; where the system
+    /// refuses to move it, the path being the socket itself, the first is stopped once no
+    /// terminal session is inside it and no command left on it runs, and the second takes the
+    /// home's own socket, terminals reconnecting by themselves. Fails as the start does, the
+    /// first then kept as the home's service; when the first's record could not be marked or the
+    /// home's service changed while the second started, the second then stopped; and when the
+    /// home's socket could not be pointed at the second, which then runs on unreached.
     pub(crate) async fn replace(
         &self,
         service: &Arc<CodexService>,
     ) -> Result<Arc<CodexService>, CodexError> {
         let home = service.home().clone();
         let home_socket = home_socket_path(&home.codex_home);
-        let can_move_link = CAN_LINK_A_SOCKET;
-        let path = if can_move_link {
+        let kind = own_service_kind(&home.kind);
+        let is_terminal = kind == CodexServiceKind::Terminal;
+        let can_move_link = is_terminal && CAN_LINK_A_SOCKET;
+        // The person's terminals reach a terminal service only through the home's own path.
+        let is_beside = !is_terminal || CAN_LINK_A_SOCKET;
+        let path = if is_beside {
             own_socket_path(&home.codex_home).map_err(|error| CodexError::Transport {
                 detail: "The second Codex service's socket could not be named.".to_owned(),
                 cause: Some(Box::new(error)),
@@ -455,7 +482,7 @@ impl CodexServiceRegistry {
                 path: path.clone(),
                 home_socket: home_socket.clone(),
             },
-            own_service_kind(&home.kind),
+            kind,
             Arc::clone(&self.dependencies),
             home_config_overrides(&home.kind),
         );
@@ -465,6 +492,10 @@ impl CodexServiceRegistry {
         {
             // A start still under way at the bound is stood down, so nothing it launches outlives
             // the replacement.
+            replacement.stop().await;
+            return Err(error);
+        }
+        if !is_terminal && let Err(error) = mark_own_record_replaced(service).await {
             replacement.stop().await;
             return Err(error);
         }
@@ -478,7 +509,7 @@ impl CodexServiceRegistry {
                 services
                     .by_home
                     .insert(home.codex_home, Arc::clone(&replacement));
-                if can_move_link {
+                if is_beside {
                     services.replaced.push(Arc::clone(service));
                 }
                 service.set_holds_home_link(false);
@@ -527,6 +558,7 @@ impl CodexServiceRegistry {
         self.dependencies.drains.call_off();
         let services: Vec<Arc<CodexService>> = {
             let mut services = self.lock();
+            services.is_shutting_down = true;
             let replaced = std::mem::take(&mut services.replaced);
             let transient = std::mem::take(&mut services.transient);
             services
@@ -677,12 +709,20 @@ async fn may_take_socket_link(
     })
 }
 
-// Stops `service`, which left its home, and forgets it among `services`.
+// Forgets `service`, which left its home, among `services` and stops it; once the daemon's stop
+// has begun it is left to that stop, which under a restart keeps it running in its record. The
+// check and the forget share one hold, so a stop begun meanwhile never meets it twice.
 async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<CodexService>) {
+    {
+        let mut services = lock(services);
+        if services.is_shutting_down {
+            return;
+        }
+        services
+            .replaced
+            .retain(|replaced| !Arc::ptr_eq(replaced, service));
+    }
     service.stop().await;
-    lock(services)
-        .replaced
-        .retain(|replaced| !Arc::ptr_eq(replaced, service));
 }
 
 // The kind of the daemon's own service on a home of `kind`: the terminal service on the person's

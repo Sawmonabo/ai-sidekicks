@@ -6,11 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
-use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::SessionContextReading;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -42,14 +39,12 @@ use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::permission_ask::test_port::RecordedAsks;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::run::delivery::LateAppendableRow;
-use crate::run::posture::compose_execution_posture;
-use crate::runtime_binding::resume::compose_resume_session_params;
 use crate::runtime_binding::store::{
-    RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, mint_runtime_binding_id,
-    read_binding,
+    RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, read_binding,
 };
 use crate::runtime_binding::test_store::{
-    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+    binding_input, compose_test_resume_params, open_store, spawn_config_on, spawned_build,
+    test_provider_account_id,
 };
 
 /// The conversation of the helper the joined conversation runs.
@@ -72,33 +67,6 @@ impl ContextReadingPublisher for CollectedReadings {
     fn publish_context_reading(&self, reading: SessionContextReading) {
         lock(&self.0).push(reading);
     }
-}
-
-// The resume params `binding` composes for `session_id`, naming `live_runs`.
-fn resume_params(
-    session_id: SessionId,
-    binding: &RuntimeBinding,
-    live_runs: Vec<LiveRunResume>,
-) -> ResumeSessionParams {
-    compose_resume_session_params(
-        session_id,
-        new_agent_id(),
-        binding,
-        mint_runtime_binding_id(),
-        FreeFormText::new("gpt-5".to_owned()).expect("a model"),
-        None,
-        SessionMode::Build,
-        compose_execution_posture(
-            PermissionLevel::Readonly,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-        ),
-        Vec::new(),
-        ProviderRowValues::default(),
-        None,
-        Vec::new(),
-        live_runs,
-    )
-    .expect("the binding resumes")
 }
 
 /// A driver on a scripted service, with the stores and ports a resume reaches, and a binding of
@@ -195,7 +163,7 @@ impl ResumeHarness {
         live_runs: Vec<LiveRunResume>,
         answer: impl FnMut(&ScriptedService, &Value),
     ) -> DriverResumeResult {
-        let params = resume_params(self.session_id, &self.binding, live_runs);
+        let params = compose_test_resume_params(self.session_id, &self.binding, live_runs);
         Box::pin(drive_resume(
             &self.driver,
             &mut self.scripted.script,
@@ -234,7 +202,7 @@ async fn resume_and_record(
     session_id: SessionId,
     binding: &RuntimeBinding,
 ) -> RuntimeBinding {
-    let params = resume_params(session_id, binding, Vec::new());
+    let params = compose_test_resume_params(session_id, binding, Vec::new());
     let resumed = Box::pin(drive_resume(driver, script, params, answer_resume_request)).await;
     let DriverResumeResult::Resumed {
         binding_id,

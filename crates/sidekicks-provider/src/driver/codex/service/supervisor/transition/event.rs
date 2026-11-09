@@ -125,7 +125,7 @@ pub(crate) enum SupervisorEvent {
     /// A start on a new program: a Codex update, the daemon's own program moved, or hooks that
     /// do not match.
     PlannedRestart,
-    /// A planned restart's second service took this one's place on its home, so it is never
+    /// A second service started beside this one took its place on its home, so it is never
     /// started again: once its process ends, its conversations move to the second.
     Replaced,
 }

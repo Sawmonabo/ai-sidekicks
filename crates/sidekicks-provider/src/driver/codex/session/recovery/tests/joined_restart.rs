@@ -3,7 +3,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{account_build_move_session, serve_resumes};
+use super::{account_restart_session, serve_resumes};
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::session_control::ProviderBuildChange;
 
@@ -16,7 +17,7 @@ async fn a_build_change_joined_during_a_restart_is_applied_after_it() {
     tokio::time::timeout(
         Duration::from_secs(30),
         Box::pin(async {
-            let (session, _folder, steps, recovery) = Box::pin(account_build_move_session()).await;
+            let (session, _folder, steps, recovery) = Box::pin(account_restart_session()).await;
             let settings = session.task.record.thread_settings.clone();
             let TestCodexSession {
                 scripted,
@@ -30,11 +31,13 @@ async fn a_build_change_joined_during_a_restart_is_applied_after_it() {
                 to_version: "0.164.0".to_owned(),
             };
 
-            recovery.request_restart(&service, None);
+            recovery.request_restart(&service, CodexServiceRestart::InPlace);
             let first_read = task.next_item().await;
-            let joined = recovery.restart_and_wait(&service, Some(change));
+            let joined =
+                recovery.restart_and_wait(&service, CodexServiceRestart::Beside(Some(change)));
             // The first restart fails at once, as a service down after a crash loop refuses a
-            // start; the joined change's restart then reads the session again.
+            // start; the joined change's restart, on that service down, restarts it in place and
+            // reads the session again.
             let connection = scripted.publish_crash_loop();
             task.handle(first_read).await;
             let second_read = task.next_item().await;

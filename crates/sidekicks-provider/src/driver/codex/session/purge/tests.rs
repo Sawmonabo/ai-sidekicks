@@ -12,6 +12,7 @@ use crate::driver::codex::service::supervisor::test_service::start_scripted_code
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
 use crate::driver::codex::session::recovery::CodexServiceRecovery;
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 use crate::driver::test_registry::new_session_id;
@@ -39,7 +40,8 @@ impl CodexServiceRestarts for CountedRestarts {
 
     fn restart(&self, service: &Arc<CodexService>) {
         self.requests.fetch_add(1, Ordering::SeqCst);
-        self.recovery.request_restart(service, None);
+        self.recovery
+            .request_restart(service, CodexServiceRestart::InPlace);
     }
 }
 
@@ -114,7 +116,7 @@ async fn a_missed_delete_restarts_its_service_once_and_no_purge_sends_it_more_me
     )
     .await;
     let other_waited = other_began.elapsed();
-    recovery.request_restart(&session.scripted.service, None);
+    recovery.request_restart(&session.scripted.service, CodexServiceRestart::InPlace);
     let is_still_restarting = recovery.is_restarting(session.scripted.service.id());
     let sent_after = session
         .scripted

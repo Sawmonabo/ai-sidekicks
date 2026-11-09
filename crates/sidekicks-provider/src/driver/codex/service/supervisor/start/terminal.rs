@@ -11,7 +11,7 @@
 //! and points the home's link back at itself before it lets go of Codex's start lock.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::value::RawValue;
@@ -19,31 +19,27 @@ use sidekicks_platforms::replace_socket_link;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::command_line::{
-    LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
-    read_terminal_service_hooks,
+    TerminalServiceHooks, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
-use crate::driver::codex::service::process::LastingCodexService;
-use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
-use crate::driver::codex::service::registry::own_socket_path;
+use crate::driver::codex::service::record::LockedServiceRecord;
 use crate::driver::codex::service::socket_link::{
     clear_blocking_socket_link, is_listening, restore_socket_link,
 };
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::own_record::{
-    PublishedRecordFile, socket_record_file,
-};
+use crate::driver::codex::service::supervisor::own_record::socket_record_file;
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
 use crate::driver::codex::service::supervisor::start::{
-    CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
-    connect, launch_lasting_service, name_lasting_log_file, read_codex_loaded_threads,
-    read_physical_socket, read_service_version, start_failed, take_start_lock,
+    LaunchedLastingService, StartFailure, StartedService, compose_launch, connect,
+    join_former_service, launch_lasting_service, name_beside, name_lasting_log_file,
+    read_codex_loaded_threads, read_physical_socket, read_service_version, start_failed,
+    take_start_lock,
 };
-use crate::driver::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
+use crate::driver::codex::service::trust::trust_codex_daemon_hooks;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
@@ -106,6 +102,7 @@ pub(super) async fn start_terminal_service(
         } => {
             return join_former_service(
                 service,
+                CodexServiceKind::Terminal,
                 launch,
                 cancel,
                 executable,
@@ -195,19 +192,9 @@ async fn launch_beside(
     locked: &Arc<LockedServiceRecord>,
     deadline: tokio::time::Instant,
 ) -> Result<StartedService, StartFailure> {
-    let codex_home = &service.home().codex_home;
-    let socket = own_socket_path(codex_home).map_err(|error| {
-        start_failed("The Codex service's own socket could not be named.", error)
-    })?;
-    let record_file = LastingServiceRecordFile::of_socket(
-        &service.dependencies().data_folder,
-        codex_home,
-        &socket,
-    )
-    .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
-    let beside = Arc::new(locked.sibling(record_file));
+    let (socket, beside) = name_beside(service, locked)?;
     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-    let start_lock = take_start_lock(codex_home, remaining).await?;
+    let start_lock = take_start_lock(&service.home().codex_home, remaining).await?;
     launch_terminal_service(
         service, launch, cancel, executable, start_lock, &beside, &socket,
     )
@@ -230,69 +217,6 @@ async fn join_listener(
         connection,
         earlier_record_file: None,
     })
-}
-
-/// A lasting service a former daemon left, joined on `physical_socket`, where its record says its
-/// socket really is, so the join reaches that record's service whatever the home's link names; its
-/// record is published on `service` from the join's start, and its hooks are compared with the ones
-/// this daemon would start it with. A join the service fails, in its dial and answer, its hook list
-/// or its version, hands it back with the failure, so the start's teardown stops it and removes its
-/// record, and keeps the published name until that teardown puts back the one before; a failure on
-/// the daemon's own side leaves it running in its record and puts that name back at once.
-pub(super) async fn join_former_service(
-    service: &Arc<CodexService>,
-    launch: u64,
-    cancel: &CancellationToken,
-    executable: &ResolvedProviderExecutable,
-    lasting: LastingCodexService,
-    record_file: LastingServiceRecordFile,
-    physical_socket: PathBuf,
-) -> Result<StartedService, StartFailure> {
-    // Published first, so a daemon stop under way leaves the joined record to this service.
-    let published = PublishedRecordFile::publish(service, record_file.clone());
-    let dependencies = service.dependencies();
-    let hooks = read_terminal_service_hooks(
-        dependencies.dispatches_hook_mode,
-        dependencies.session_shell_kind,
-    )
-    .map_err(|error| start_failed("The daemon's hook commands could not be composed.", error))?;
-    let joined = async {
-        let (connection, reply) = connect(
-            service,
-            &physical_socket,
-            launch,
-            CodexSocketWait::Never,
-            None,
-            cancel,
-        )
-        .await?;
-        let listed = list_codex_hooks(&connection).await?;
-        let is_restart_owed =
-            compare_daemon_hook_commands(&listed, &hooks) == LastingServiceVerdict::Restart;
-        let version = read_service_version(&reply, executable)?;
-        Ok::<_, CodexError>((connection, version, is_restart_owed))
-    }
-    .await;
-    let process = Some(CodexServiceProcess::Lasting {
-        service: lasting,
-        record_file,
-    });
-    match joined {
-        Ok((connection, version, is_restart_owed)) => Ok(StartedService {
-            kind: CodexServiceKind::Terminal,
-            process,
-            connection,
-            version,
-            physical_socket,
-            is_restart_owed,
-            earlier_record_file: Some(Box::new(published.hand_back())),
-        }),
-        Err(error) => Err(StartFailure {
-            error,
-            process: process.map(Box::new),
-            earlier_record_file: Some(Box::new(published.hand_back())),
-        }),
-    }
 }
 
 // Launches the lasting service on `launch_socket` under Codex's start lock and the record's, keeps

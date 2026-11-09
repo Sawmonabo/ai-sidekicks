@@ -20,7 +20,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
-use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_services};
+use super::kept_records::retire_former_service;
+use super::kept_records::stop::{KeptServicesStop, stop_kept_services};
 use super::{StartFailure, StartedService, compose_launch, start_codex_service};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};

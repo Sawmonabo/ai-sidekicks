@@ -11,6 +11,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 #[cfg(test)]
 use futures::future::BoxFuture;
@@ -50,6 +51,18 @@ pub(crate) const CODEX_HOME_NAME: &str = "CODEX_HOME";
 /// Set for a stand-in that ignores the hang-up, as a service still finishing its replies does;
 /// only a test's program sets it.
 pub(crate) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
+
+/// Set for a stand-in that, hung up, answers on for this many milliseconds and then ends, as a
+/// service finishing its replies does; only a test's program sets it.
+pub(crate) const HANG_UP_GRACE_NAME: &str = "SIDEKICKS_TEST_HANG_UP_GRACE_MS";
+
+/// The folder stand-ins keep each resumed conversation's writer in, so one refuses to resume a
+/// conversation another still running writes, as Codex does; only a test's program sets it.
+pub(crate) const CONVERSATION_WRITERS_NAME: &str = "SIDEKICKS_TEST_CONVERSATION_WRITERS";
+
+/// Set for a stand-in that stops writing a conversation once a connection unsubscribes from it,
+/// as Codex unloads an idle conversation no client holds; only a test's program sets it.
+pub(crate) const WRITER_LET_GO_NAME: &str = "SIDEKICKS_TEST_WRITER_LET_GO";
 
 /// Set for a stand-in that ignores the stop it is asked, as a service that hangs does, so only a
 /// kill ends it; only a test's program sets it.
@@ -112,15 +125,23 @@ impl CodexServiceScript {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// The guard over the script's launches, through which a test reads them; a guard of the
+    /// test's own would end each launch still running as it drops.
+    #[cfg(test)]
+    pub(crate) fn launches(&self) -> &StandInLaunches {
+        &self.launches
+    }
 }
 
 /// Writes in `folder` the `codex` script a stand-in service starts through and answers it with the
 /// guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], names the
 /// files its launches and requests are recorded in, the writing test program as the stand-in's
 /// owner and, where `daemon_socket` is given, the socket whose presence it records, has the program
-/// ignore the hang-up and the stop where its environment asks, keeps its own standard output as
-/// [`EXECUTOR_OUTPUT`] for an executor's answers, and runs this test program's `stand_in_test`,
-/// whose own output goes nowhere. Panics where it cannot be written.
+/// ignore the hang-up, or answer on through its grace, and the stop where its environment asks,
+/// keeps its own standard output as [`EXECUTOR_OUTPUT`] for an executor's answers, and runs this
+/// test program's `stand_in_test`, whose own output goes nowhere. Panics where it cannot be
+/// written.
 pub fn write_codex_service_script(
     folder: &Path,
     stand_in_test: &str,
@@ -143,7 +164,7 @@ pub fn write_codex_service_script(
          {LAUNCH_RECORD_NAME}='{}'; export {LAUNCH_RECORD_NAME}\n\
          {OWNER_NAME}='{owner}'; export {OWNER_NAME}\n\
          {CONNECTION_RECORD_NAME}='{}'; export {CONNECTION_RECORD_NAME}\n{daemon_socket}\
-         if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
+         if [ -n \"${HANG_UP_IGNORED_NAME}${HANG_UP_GRACE_NAME}\" ]; then trap '' HUP; fi\n\
          if [ -n \"${STOP_IGNORED_NAME}\" ]; then trap '' TERM; fi\n\
          exec 3>&1\n\
          exec '{}' --exact {stand_in_test} --include-ignored >/dev/null 2>&1\n",
@@ -212,7 +233,14 @@ pub async fn serve_as_codex_service_stand_in() {
         resumed_turn: std::env::var(RESUMED_TURN_NAME)
             .ok()
             .map(|turn| serde_json::from_str(&turn).expect("the resumed turn is JSON")),
+        conversation_writers: std::env::var_os(CONVERSATION_WRITERS_NAME).map(PathBuf::from),
+        is_writer_let_go: std::env::var_os(WRITER_LET_GO_NAME).is_some(),
     };
+    let hang_up_grace = std::env::var(HANG_UP_GRACE_NAME).ok().map(|grace| {
+        Duration::from_millis(grace.parse().expect("the grace is a count of milliseconds"))
+    });
+    let hung_up = end_after_hang_up(hang_up_grace);
+    tokio::pin!(hung_up);
     let connections = Arc::new(AtomicUsize::new(0));
     // A stand-in outlives the daemon that launched it, so it ends with its test program however
     // that program ends, a kill included; a watch that fails ends it too.
@@ -225,6 +253,7 @@ pub async fn serve_as_codex_service_stand_in() {
                 Err(_) => return,
             },
             _ = &mut owner_end => return,
+            () = &mut hung_up => return,
         };
         let mut recording = ConnectionRecording {
             record: record.clone(),
@@ -244,6 +273,22 @@ pub async fn serve_as_codex_service_stand_in() {
             },
         ));
     }
+}
+
+// Waits for the hang-up and then `grace`, where one is given on a system with hang-ups; never
+// ends otherwise. Panics where the hang-up cannot be watched.
+async fn end_after_hang_up(grace: Option<Duration>) {
+    #[cfg(unix)]
+    if let Some(grace) = grace {
+        let mut hang_up = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+            .expect("the hang-up is watched");
+        hang_up.recv().await;
+        tokio::time::sleep(grace).await;
+        return;
+    }
+    #[cfg(not(unix))]
+    let _no_hang_up = grace;
+    std::future::pending::<()>().await;
 }
 
 // Appends `request` whole to `record`, in one write of a whole line to a file opened to append, so

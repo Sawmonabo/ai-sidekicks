@@ -31,7 +31,8 @@ use crate::driver::codex::native_program::{
 };
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
-    CodexServiceCommandLineInput, compose_codex_service_arguments,
+    CodexServiceCommandLineInput, LastingServiceVerdict, compare_daemon_hook_commands,
+    compose_codex_service_arguments, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::process::{
@@ -41,6 +42,7 @@ use crate::driver::codex::service::process::{
 use crate::driver::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
+use crate::driver::codex::service::registry::own_socket_path;
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::own_record::{
@@ -49,10 +51,12 @@ use crate::driver::codex::service::supervisor::own_record::{
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
+use crate::driver::codex::service::trust::list_codex_hooks;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, open_codex_connection, read_codex_object,
 };
+use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
 use crate::driver::codex::version::{
     CODEX_CLIENT_NAME, CodexInitializeReply, read_reported_version,
@@ -495,6 +499,105 @@ fn record_unkept(error: io::Error) -> CodexError {
     }
 }
 
+/// A socket of its own beside the home's for a launch next to a service still holding the home's
+/// own socket, with its record held beside `locked` under the same hold. Fails as either is named.
+pub(super) fn name_beside(
+    service: &CodexService,
+    locked: &LockedServiceRecord,
+) -> Result<(PathBuf, Arc<LockedServiceRecord>), StartFailure> {
+    let codex_home = &service.home().codex_home;
+    let socket = own_socket_path(codex_home).map_err(|error| {
+        start_failed("The Codex service's own socket could not be named.", error)
+    })?;
+    let record_file = LastingServiceRecordFile::of_socket(
+        &service.dependencies().data_folder,
+        codex_home,
+        &socket,
+    )
+    .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+    Ok((socket, Arc::new(locked.sibling(record_file))))
+}
+
+/// A lasting service of `kind` a former daemon left, joined on `physical_socket`, where its record
+/// says its socket really is, so the join reaches that record's service whatever the home's link
+/// names; its record is published on `service` from the join's start, and a terminal service's
+/// hooks are compared with the ones this daemon would start it with. A join the service fails, in
+/// its dial and answer, its hook list or its version, hands it back with the failure, so the
+/// start's teardown stops it and removes its record, and keeps the published name until that
+/// teardown puts back the one before; a failure on the daemon's own side leaves it running in its
+/// record and puts that name back at once.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a join takes the start's ticket, cancel and build beside the record it joins"
+)]
+pub(super) async fn join_former_service(
+    service: &Arc<CodexService>,
+    kind: CodexServiceKind,
+    launch: u64,
+    cancel: &CancellationToken,
+    executable: &ResolvedProviderExecutable,
+    lasting: LastingCodexService,
+    record_file: LastingServiceRecordFile,
+    physical_socket: PathBuf,
+) -> Result<StartedService, StartFailure> {
+    // Published first, so a daemon stop under way leaves the joined record to this service.
+    let published = PublishedRecordFile::publish(service, record_file.clone());
+    let dependencies = service.dependencies();
+    let hooks = match kind {
+        CodexServiceKind::Terminal => Some(
+            read_terminal_service_hooks(
+                dependencies.dispatches_hook_mode,
+                dependencies.session_shell_kind,
+            )
+            .map_err(|error| {
+                start_failed("The daemon's hook commands could not be composed.", error)
+            })?,
+        ),
+        CodexServiceKind::Account | CodexServiceKind::Joined => None,
+    };
+    let joined = async {
+        let (connection, reply) = connect(
+            service,
+            &physical_socket,
+            launch,
+            CodexSocketWait::Never,
+            None,
+            cancel,
+        )
+        .await?;
+        let is_restart_owed = match &hooks {
+            Some(hooks) => {
+                let listed = list_codex_hooks(&connection).await?;
+                compare_daemon_hook_commands(&listed, hooks) == LastingServiceVerdict::Restart
+            }
+            None => false,
+        };
+        let version = read_service_version(&reply, executable)?;
+        Ok::<_, CodexError>((connection, version, is_restart_owed))
+    }
+    .await;
+    let process = Some(CodexServiceProcess::Lasting {
+        service: lasting,
+        record_file,
+    });
+    match joined {
+        Ok((connection, version, is_restart_owed)) => Ok(StartedService {
+            kind,
+            process,
+            connection,
+            version,
+            physical_socket,
+            is_restart_owed,
+            earlier_record_file: Some(Box::new(published.hand_back())),
+        }),
+        Err(error) => Err(StartFailure {
+            error,
+            process: process.map(Box::new),
+            earlier_record_file: Some(Box::new(published.hand_back())),
+        }),
+    }
+}
+
 /// Dials the service's socket at `socket` under the ticket `dial` and opens the connection,
 /// within the start's deadline and ended early by `exit`, the process's end, or `cancel`. Answers
 /// the connection and its `initialize` reply.
@@ -591,6 +694,26 @@ pub(crate) async fn read_codex_loaded_threads(
         ),
         cause: None,
     })
+}
+
+/// Whether the service on `connection` no longer holds `thread_id` loaded; a read that fails is
+/// reported and leaves it to the resume, which Codex refuses while the conversation is still
+/// written elsewhere.
+pub(crate) async fn is_thread_unloaded(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) -> bool {
+    match read_codex_loaded_threads(connection).await {
+        Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
+        Err(error) => {
+            CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
+                thread_id: thread_id.to_owned(),
+                error: Box::new(error),
+            }
+            .report();
+            true
+        }
+    }
 }
 
 /// The version the service reported in its `initialize` reply, with the build resolved at its

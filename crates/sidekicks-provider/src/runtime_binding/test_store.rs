@@ -14,6 +14,12 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+#[cfg(test)]
+use sidekicks_contracts::{
+    free_form_string::FilesystemPath,
+    machine::settings::ProviderRowValues,
+    session::controls::methods::{PermissionLevel, SessionMode},
+};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -23,7 +29,17 @@ use crate::driver::contract::params_and_results::{
     DriverCliVersionReport, SpawnedVersionBindingCarriers,
 };
 #[cfg(test)]
+use crate::driver::session_control::{LiveRunResume, ResumeSessionParams};
+#[cfg(test)]
+use crate::driver::test_registry::new_agent_id;
+#[cfg(test)]
 use crate::port::run_host::test_host::RecordingRunEngine;
+#[cfg(test)]
+use crate::run::posture::compose_execution_posture;
+#[cfg(test)]
+use crate::runtime_binding::resume::compose_resume_session_params;
+#[cfg(test)]
+use crate::runtime_binding::store::RuntimeBinding;
 use crate::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
     RuntimeBindingStore, mint_runtime_binding_id,
@@ -112,6 +128,36 @@ pub async fn bind_resumable(
         .await
         .expect("the run's binding is recorded")
         .id
+}
+
+/// The params resuming `binding` for `session_id` with `live_runs`, as a build session's resume on
+/// the default model at the read-only level composes them. Panics where the binding names no
+/// conversation.
+#[cfg(test)]
+pub(crate) fn compose_test_resume_params(
+    session_id: SessionId,
+    binding: &RuntimeBinding,
+    live_runs: Vec<LiveRunResume>,
+) -> ResumeSessionParams {
+    compose_resume_session_params(
+        session_id,
+        new_agent_id(),
+        binding,
+        mint_runtime_binding_id(),
+        FreeFormText::new("gpt-5".to_owned()).expect("a model"),
+        None,
+        SessionMode::Build,
+        compose_execution_posture(
+            PermissionLevel::Readonly,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        ),
+        Vec::new(),
+        ProviderRowValues::default(),
+        None,
+        Vec::new(),
+        live_runs,
+    )
+    .expect("the binding resumes")
 }
 
 /// Records the leg of a session that ran and now rests: a binding of a fresh run naming

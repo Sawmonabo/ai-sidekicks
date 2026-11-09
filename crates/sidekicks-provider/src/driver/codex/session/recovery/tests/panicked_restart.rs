@@ -6,6 +6,7 @@ use std::time::Duration;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::codex::session::test_fixture::relaunches::{
     RefusedRelaunchStep, TakenRelaunches,
@@ -49,7 +50,8 @@ async fn a_restart_that_panics_clears_its_mark_and_tells_its_waiter() {
             let service = Arc::clone(&scripted.service);
 
             let connection = scripted.publish_reconnecting();
-            let mut restarting = std::pin::pin!(recovery.restart_and_wait(&service, None));
+            let mut restarting =
+                std::pin::pin!(recovery.restart_and_wait(&service, CodexServiceRestart::InPlace));
             task.drive(async {
                 tokio::select! {
                     restarted = &mut restarting => {

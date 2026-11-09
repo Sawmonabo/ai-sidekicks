@@ -18,6 +18,7 @@ use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 
 /// The service events of every service the driver dials, acted on through the composed pieces.
 pub(crate) struct CodexDriverServiceEvents {
@@ -119,12 +120,16 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
             log_event_before_any_session(service, "planned restart");
             return;
         };
-        parts.recovery.request_restart(service, None);
+        parts
+            .recovery
+            .request_restart(service, CodexServiceRestart::Beside(None));
     }
 
     fn executor_ended(&self, service: &Arc<CodexService>) {
         match self.link.parts() {
-            Some(parts) => parts.recovery.request_restart(service, None),
+            Some(parts) => parts
+                .recovery
+                .request_restart(service, CodexServiceRestart::InPlace),
             // Before any session composed the pieces no session is on the service, so its own
             // planned restart, which resumes nothing, brings the new executor up.
             None => service.request_planned_restart(),

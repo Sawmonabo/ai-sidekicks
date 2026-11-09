@@ -1,12 +1,12 @@
 //! Where a daemon keeps the record of each lasting Codex service on a Codex folder, the person's
 //! own or an account's home, so a later daemon finds the same processes again: one JSON file per
 //! service, named for the socket it listens on, holding its process, the home's own socket, where
-//! its socket really is and whether it was asked to drain, in a folder per Codex folder under the
-//! daemon's data folder, never in the Codex folder itself; each is replaced whole through a
-//! temporary file and read or written only under the one lock of its Codex folder's records, so two
-//! daemons never start two services on one socket. The lock's file is never removed: a lock follows
-//! the open file, so removing a file someone waits on would hand the next taker a lock on another
-//! file.
+//! its socket really is, whether it was asked to drain and whether a service started beside it took
+//! its place, in a folder per Codex folder under the daemon's data folder, never in the Codex
+//! folder itself; each is replaced whole through a temporary file and read or written only under
+//! the one lock of its Codex folder's records, so two daemons never start two services on one
+//! socket. The lock's file is never removed: a lock follows the open file, so removing a file
+//! someone waits on would hand the next taker a lock on another file.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -48,6 +48,9 @@ pub(crate) struct LastingServiceRecord {
     /// Whether the service was asked to drain, so it ends by itself once its running replies
     /// finish; such a service is never joined, nor is the home's link pointed at it.
     pub(crate) is_draining: bool,
+    /// Whether a service started beside it on an account's home took its place, so a later
+    /// daemon's start joins that one, never this one, which it drains.
+    pub(crate) is_replaced: bool,
 }
 
 impl LastingServiceRecord {
@@ -59,6 +62,7 @@ impl LastingServiceRecord {
             home_socket,
             physical_socket: None,
             is_draining: false,
+            is_replaced: false,
         }
     }
 }
@@ -136,6 +140,21 @@ impl LastingServiceRecordFile {
             file: self.clone(),
             hold: Arc::new(lock),
         })
+    }
+
+    /// Takes the lock of the Codex folder's records as [`Self::lock`] does where that folder is
+    /// there; `None` where no record was ever kept for the folder, which a read leaves unmade.
+    /// Blocking. Fails as [`Self::lock`] does, and as the folder's read does.
+    pub(crate) fn lock_existing(&self) -> io::Result<Option<LockedServiceRecord>> {
+        let folder = self
+            .lock
+            .parent()
+            .expect("a record file sits in its folder");
+        match std::fs::symlink_metadata(folder) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+            Ok(_folder) => self.lock().map(Some),
+        }
     }
 }
 
@@ -242,15 +261,25 @@ impl LockedServiceRecord {
         Ok(others)
     }
 
-    /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
-    /// `InvalidData` for a file that does not read as a record.
+    /// The record kept, or `None` when none is. A file that does not read as a record names no
+    /// process anything could re-pin, so it is removed under the hold, its path and the parse
+    /// error logged, and read as none. Blocking. Fails with the read's or the removal's error.
     pub(crate) fn read(&self) -> io::Result<Option<LastingServiceRecord>> {
         let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
             return Ok(None);
         };
-        serde_json::from_slice(&text)
-            .map(Some)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        match serde_json::from_slice(&text) {
+            Ok(record) => Ok(Some(record)),
+            Err(error) => {
+                tracing::warn!(
+                    record = %self.file.record.display(),
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a Codex service's record did not read as one and was removed"
+                );
+                self.remove()?;
+                Ok(None)
+            }
+        }
     }
 
     /// Keeps `record` in place of any record kept before, whole or not at all. Blocking. Fails
@@ -295,6 +324,7 @@ mod tests {
             home_socket: data_folder.path().join("app-server-control.sock"),
             physical_socket: Some(data_folder.path().join("real.sock")),
             is_draining: true,
+            is_replaced: true,
         };
         let file = LastingServiceRecordFile::of_socket(
             data_folder.path(),

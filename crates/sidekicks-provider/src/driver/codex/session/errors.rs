@@ -54,7 +54,7 @@ pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 const CODEX_DRAINING_MESSAGE: &str = "Server is draining";
 
 /// The words of Codex's refusal to resume a conversation another runtime still writes.
-const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
+pub(crate) const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
 
 /// The words of Codex's refusal to resume a loaded conversation it is closing.
 const CODEX_CLOSING_MESSAGE: &str = "is closing; retry thread/resume";

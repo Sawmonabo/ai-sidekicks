@@ -60,7 +60,9 @@ use crate::driver::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
 };
 use crate::driver::codex::service::supervisor::runner::{RunnerInput, ServiceRunner};
-use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::driver::codex::service::supervisor::start::{
+    is_thread_unloaded, read_codex_loaded_threads,
+};
 use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
 use crate::driver::codex::service::supervisor::transition::state::SupervisorState;
 use crate::driver::codex::service::supervisor::transition::{
@@ -308,7 +310,7 @@ impl CodexService {
         self.holds_home_link.store(is_held, Ordering::Release);
     }
 
-    /// Tells the service a planned restart's second service took its place on its home, so it is
+    /// Tells the service a second service started beside it took its place on its home, so it is
     /// never started again and its record goes once its process ends.
     pub(crate) fn mark_replaced(&self) {
         self.send(SupervisorEvent::Replaced);
@@ -715,24 +717,13 @@ impl CodexService {
         }
     }
 
-    // Whether the service no longer holds `thread_id` loaded; a read that fails leaves it to the
-    // resume, which Codex refuses while the conversation is still written elsewhere.
+    // Whether the service no longer holds `thread_id` loaded, as [`is_thread_unloaded`] reads it.
     async fn is_unloaded(&self, thread_id: &str) -> bool {
         let Ok(connection) = self.connection() else {
             // A service that stopped holds nothing loaded.
             return true;
         };
-        match read_codex_loaded_threads(&connection).await {
-            Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
-            Err(error) => {
-                CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
-                    thread_id: thread_id.to_owned(),
-                    error: Box::new(error),
-                }
-                .report();
-                true
-            }
-        }
+        is_thread_unloaded(&connection, thread_id).await
     }
 
     /// The conversations started in a terminal that the service has loaded: every loaded one less

@@ -420,8 +420,8 @@ async fn a_daemon_stop_kills_a_service_that_ignores_its_stop_at_the_deadline() {
 }
 
 // Fails when the erase leaves a draining service to a drain whose record it deletes, leaves a
-// record behind, only logs a failure, signals a recorded id a later process took, or when Codex's
-// entry in the table ends no recorded service.
+// record behind, only logs a failure, such as a record whose file cannot be read, signals a
+// recorded id a later process took, or when Codex's entry in the table ends no recorded service.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_erase_ends_every_recorded_service_a_draining_one_too_and_answers_each_failure() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
@@ -466,7 +466,9 @@ async fn the_erase_ends_every_recorded_service_a_draining_one_too_and_answers_ea
             .lock()
             .expect("the records' folder is made"),
     );
-    std::fs::write(unreadable_record.path(), b"not a record").expect("the file is written");
+    // A folder where the record's file belongs fails every read, unlike a file that only does not
+    // parse, which the read removes.
+    std::fs::create_dir(unreadable_record.path()).expect("the folder is made");
     let stop_recorded_services = PROVIDER_REGISTRATIONS
         .iter()
         .find(|registration| registration.descriptor.id == DESCRIPTOR.id)

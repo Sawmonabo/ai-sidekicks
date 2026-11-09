@@ -5,7 +5,7 @@
 //! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`,
 //! and the resume in place a session's task runs is in `in_place_resume`.
 
-mod build_move;
+pub(crate) mod build_move;
 pub(crate) mod in_place_resume;
 #[cfg(test)]
 mod tests;
@@ -128,6 +128,11 @@ struct RecoveryState {
     restart_continues: HashMap<SessionId, CodexHeldLeadContinue>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
+    // How many moves toward each service are under way, which keep it from retiring.
+    moving_toward: HashMap<CodexServiceId, usize>,
+    // The build change each service a build move started beside another was started for, which a
+    // session reaching it from an older service is told of.
+    replacement_changes: HashMap<CodexServiceId, Option<ProviderBuildChange>>,
     // The services whose requested restart has not ended, so a second request joins it.
     restarting: HashMap<CodexServiceId, ServiceRestart>,
     // The terminal services whose replacement a restart asked for has not taken their place, each

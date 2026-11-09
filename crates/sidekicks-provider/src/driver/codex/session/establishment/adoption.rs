@@ -42,6 +42,9 @@ use crate::driver::codex::session::context_reading::{
     CodexFixedStart, read_codex_kept_fixed_start,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::kept_writers::{
+    let_go_on_kept_services, still_written,
+};
 use crate::driver::codex::session::establishment::settings::{
     compose_resume_settings_request, require_execution_posture,
 };
@@ -79,8 +82,10 @@ impl CodexSessionEstablishment {
     /// Resumes the session's conversation in place by its handle on its account's service: joined
     /// as it runs, with no setting sent, where the service holds it loaded, else loaded again with
     /// every setting the session holds. A resume Codex refuses while it closes the loaded
-    /// conversation waits for the close and loads it again. The result answers what Codex holds of
-    /// each live run's turns. Every failure answers `Failed`, nothing left behind.
+    /// conversation waits for the close and loads it again, and one it refuses while a service the
+    /// start drained still writes the conversation waits for that drain's end. The result answers
+    /// what Codex holds of each live run's turns. Every failure answers `Failed`, nothing left
+    /// behind.
     pub(crate) async fn resume_by_handle(&self, params: &ResumeSessionParams) -> CodexHandleResume {
         let mut service = None;
         match self.adopt_conversation(params, &mut service).await {
@@ -261,7 +266,9 @@ impl CodexSessionEstablishment {
     // `thread/resume` of the record's conversation: with no setting where the service holds it
     // loaded, else with every setting the record holds. One Codex refuses while it closes the
     // conversation is sent again, loading it anew, once the close is confirmed within the unload's
-    // bound. Answers the reply.
+    // bound. One it refuses while another service still writes the conversation is sent again
+    // once, after the services the start drained let go of it within that bound; refused again,
+    // it fails naming the services that may still write it. Answers the reply.
     async fn request_adoption(
         &self,
         record: &CodexSessionRecord,
@@ -270,6 +277,7 @@ impl CodexSessionEstablishment {
         mut is_loaded: bool,
     ) -> Result<Box<RawValue>, CodexError> {
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
+        let mut writers_let_go = None;
         loop {
             let reply = if is_loaded {
                 // Codex applies no setting to a loaded conversation, so none is sent.
@@ -286,6 +294,14 @@ impl CodexSessionEstablishment {
                 {
                     is_loaded = false;
                 }
+                Err(error) if error.is_active_writer_refusal() => match &writers_let_go {
+                    None => {
+                        writers_let_go = Some(
+                            let_go_on_kept_services(service, &record.thread_id, deadline).await,
+                        );
+                    }
+                    Some(writers) => return Err(still_written(error, writers)),
+                },
                 reply => return reply,
             }
         }

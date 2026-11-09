@@ -71,10 +71,21 @@ pub(super) struct StandInServices {
     /// One message per service back after a crash.
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
     // The script the stand-in starts through, which ends its launches when it drops.
-    _script: CodexServiceScript,
+    script: CodexServiceScript,
     /// The folder the data, logs and home sit in; declared after the script, so its launches are
     /// read before the folder is removed.
     pub(super) folder: TempDir,
+}
+
+impl StandInServices {
+    /// How many services the stand-in's script launched.
+    pub(super) fn launch_count(&self) -> usize {
+        self.script
+            .launches()
+            .read()
+            .expect("the launches read")
+            .len()
+    }
 }
 
 /// The services of one test on the person's own Codex folder in a scratch folder of their own
@@ -177,7 +188,7 @@ pub(super) fn services_on(
         dependencies,
         exits,
         recoveries,
-        _script: script,
+        script,
         folder,
     }
 }

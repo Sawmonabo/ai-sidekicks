@@ -1,6 +1,7 @@
 //! The record file a service names as its own lasting process's: the name a start publishes and
 //! a daemon stop reads under the folder's lock, the socket's record it falls back on, its retire
-//! once that process ended, and a later start's retire of the record its last process was kept in.
+//! once that process ended, its mark once a service started beside it took its place, and a later
+//! start's retire of the record its last process was kept in.
 
 use std::collections::HashSet;
 use std::io;
@@ -13,7 +14,7 @@ use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServ
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::StartFailure;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    lock_record, retire_kept_record,
+    lock_record, on_record, retire_kept_record,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -118,19 +119,45 @@ pub(super) fn live_record_files(
 /// retire does.
 pub(super) async fn retire_own_record(service: &CodexService) -> Result<(), CodexError> {
     let socket = service.socket_path().to_owned();
-    let record_file = match service.process_record_file() {
-        Some(record_file) => record_file,
-        None => socket_record_file(service).map_err(|error| CodexError::Transport {
-            detail: "The Codex service's record could not be named.".to_owned(),
-            cause: Some(Box::new(error)),
-        })?,
-    };
-    let locked = lock_record(record_file)
+    let locked = lock_record(own_record_file(service)?)
         .await
         .map_err(|failure| failure.error)?;
     retire_kept_record(&locked, &socket)
         .await
         .map_err(|failure| failure.error)
+}
+
+/// Marks the record of `service`'s lasting process replaced, as a service started beside it on
+/// an account's home takes its place, so a daemon restarted before it is retired joins that one
+/// and drains this one; a missing record is left missing. Fails as the record's name, lock, read
+/// or write does.
+pub(crate) async fn mark_own_record_replaced(service: &CodexService) -> Result<(), CodexError> {
+    let locked = lock_record(own_record_file(service)?)
+        .await
+        .map_err(|failure| failure.error)?;
+    on_record(&locked, |locked| {
+        let Some(mut record) = locked.read()? else {
+            return Ok(());
+        };
+        record.is_replaced = true;
+        locked.write(&record)
+    })
+    .await
+    .map_err(|error| CodexError::Transport {
+        detail: "The replaced Codex service's record could not be marked.".to_owned(),
+        cause: Some(Box::new(error)),
+    })
+}
+
+// The record file of the process `service`'s last start brought up, else of its own socket.
+fn own_record_file(service: &CodexService) -> Result<LastingServiceRecordFile, CodexError> {
+    match service.process_record_file() {
+        Some(record_file) => Ok(record_file),
+        None => socket_record_file(service).map_err(|error| CodexError::Transport {
+            detail: "The Codex service's record could not be named.".to_owned(),
+            cause: Some(Box::new(error)),
+        }),
+    }
 }
 
 /// Retires the record `service`'s last process was kept in, under the start's hold `locked` of

@@ -33,7 +33,7 @@ use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::start::kept_records::{
+use crate::driver::codex::service::supervisor::start::kept_records::stop::{
     KeptServicesStop, stop_kept_services,
 };
 use crate::driver::contract::ProviderDriver;

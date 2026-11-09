@@ -40,6 +40,7 @@ use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::driver::codex::session::recovery::build_move::CodexServiceRestart;
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::driver::contract::error::DriverError;
@@ -255,10 +256,10 @@ impl CodexDriver {
     }
 
     /// The models of the account the params name, else of Codex's current account, each with its
-    /// windows from the catalog dump. A catalog read that asks for a restart restarts the service
-    /// and reads once more. Refused `provider.account.notRegistered` or
-    /// `provider.account.current.notSet` with no account named and none to run on; fails as the
-    /// service's start or the catalog read fails.
+    /// windows from the catalog dump. A catalog read that asks for a restart starts a second
+    /// service beside it on the build the program resolves to now and reads once more there.
+    /// Refused `provider.account.notRegistered` or `provider.account.current.notSet` with no
+    /// account named and none to run on; fails as the service's start or the catalog read fails.
     pub(crate) async fn list_models(
         &self,
         params: ListModelsParams,
@@ -267,7 +268,7 @@ impl CodexDriver {
             Some(provider_account_id) => provider_account_id,
             None => read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id()).await?,
         };
-        let service = self.registry.service_for(&provider_account_id).await?;
+        let mut service = self.registry.service_for(&provider_account_id).await?;
         let models = match read_service_models(&service).await {
             Err(DriverError::Internal(error))
                 if error
@@ -276,8 +277,10 @@ impl CodexDriver {
             {
                 self.parts()?
                     .recovery
-                    .restart_and_wait(&service, None)
+                    .restart_and_wait(&service, CodexServiceRestart::Beside(None))
                     .await?;
+                // The home's service is now the one started beside the first.
+                service = self.registry.service_for(&provider_account_id).await?;
                 read_service_models(&service).await?
             }
             read => read?,

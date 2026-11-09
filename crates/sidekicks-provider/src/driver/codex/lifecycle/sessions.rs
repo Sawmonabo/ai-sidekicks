@@ -185,8 +185,9 @@ impl CodexDriver {
         Ok(self.parts()?.rewind.rewind(&params).await?)
     }
 
-    /// Moves every session on the driver's services onto the build that replaced the running one;
-    /// none is live before the session pieces are composed.
+    /// Moves the sessions of each of the driver's services not serving the installed build onto
+    /// it; run at every check, so a service a failed move left behind moves at the next. None is
+    /// live before the session pieces are composed.
     pub(crate) fn move_to_provider_build(&self, change: &ProviderBuildChange) {
         if let Some(parts) = self.parts.get() {
             parts.recovery.move_to_provider_build(change);
