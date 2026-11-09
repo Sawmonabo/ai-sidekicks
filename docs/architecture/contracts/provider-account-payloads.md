@@ -401,21 +401,24 @@ interface ProviderAccountDeleteResponse {
 // SESSION on that provider that is not PINNED to an account moves to it. Pinned means a saved agent
 // definition or a workflow step set to a specific account; those stay where they are pinned.
 //
-// THE MOVE IS IN PLACE on both providers, at each session's next request: an idle session's next
-// turn runs on the new account, and a busy session's model call after the step in flight does — a
-// running tool finishes and is never repeated — with no hold, interrupt, copy, resume or
-// `continue`. On Claude Code the daemon sends each such session `apply_flag_settings` pointing
-// `CLAUDE_SECURESTORAGE_CONFIG_DIR` at the new account's credential store, and the provider
-// re-reads the store at its next request; the daemon never reads or copies a Claude credential. On
-// Codex every session that follows the current account runs in the one Codex service the daemon
-// keeps for the current account, which runs on tokens the daemon hands it, and the switch is one
+// THE MOVE LANDS BETWEEN TURNS on both providers: the turn running when it is asked finishes and
+// bills on the account it started on — a running tool finishes and is never repeated — and the
+// session's next turn runs on the new account, with no interrupt, copy or `continue`. On Claude
+// Code the session's process starts again between turns on the new account's credential store or
+// pasted token and resumes its conversation by its id: an idle session at once, a busy one once
+// its turn settles; the daemon never reads or copies a Claude credential. On Codex every session
+// that follows the current account runs in the one Codex service the daemon keeps for the current
+// account, which runs on tokens the daemon hands it, and the switch is one
 // `account/login/start {type: "chatgptAuthTokens"}` on that service with the new account's tokens,
 // which the daemon holds only in its own memory and never stores, logs, shows or hands to a
-// renderer. Each session's cost splits at the switch's acknowledgment: requests before it stay on
-// the old account, requests after it go to the new one.
-// Every supported version moves in place, and no version is checked: there is no second way to move
-// a session's account. The move lands at the acknowledgment and writes no pending switch, so the
-// working line shows no waiting words for it.
+// renderer. That login waits until no session attached to the service runs, starts or is still
+// ending a turn, and no turn starts there meanwhile; an idle service switches at once. No turn
+// spans a switch, so each turn's cost stays on the account it ran on.
+// Every supported version moves the same way, and no version is checked: there is no second way to
+// move a session's account. A move asked while a turn runs waits in the driver, one per session on
+// Claude Code and one per switching service on Codex, a newer switch taking the waiting one's
+// place; it writes nothing to the agent's pending switch, so the working line shows no waiting
+// words for it.
 //
 // Each move settles on its own session with `agent.providerBinding.changed`
 // (orchestration-payloads.md §Plan-013), `continuity: "inPlace"`: one faint collapsed row at the
@@ -749,9 +752,9 @@ interface ProviderAccountUsageWindow {
 
 **Provider readiness.** `provider.account.list` answers the registry question and the admissibility question in one reply, because a client that had to ask them separately would be free to combine them differently from admission. `readiness` is a **derivation**, not a stored second opinion: resolve the provider's default account, then report that account's stored health verbatim, with the two registry-shape arms standing in where resolution never reaches an account. No client re-derives it from `accounts` — a surface that recomputes readiness from account fields is the defect this member exists to remove, since the recomputed answer is the one nothing enforces. `authenticated` is a statement about the last observation and not a grant: a run bound to an `authenticated`-reading account still refuses at spawn if the home has since been signed out, and `indeterminate` is rendered as undetermined rather than as a sign-in failure.
 
-**Run-start selection.** Which account a run pays from is **resolved by the daemon and never supplied by a client**: the account pinned by the run's saved agent definition or workflow step where one pins, and otherwise the provider's current account. The resolved value rides the driver's session-creation and resume parameter shapes as `providerAccountId` ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)) and is stamped server-side as `admittedProviderAccountId` on the run's admission record. No wire request carries an account per session or per run, so there is no per-run override to authorize and a client-supplied stamp is ignored. Resume rebinds to the account the session was last on rather than re-resolving whichever account is current now, so a restart never moves billing. Moving the current account DOES move a live session, in place at its next request (`provider.account.current.update` above): the usage rows before the switch's acknowledgment name the old account and the rows after it the new one, so the receipt's per-paying-account key stays exact and a session that moved mid-way yields two account rows summing to the same total.
+**Run-start selection.** Which account a run pays from is **resolved by the daemon and never supplied by a client**: the account pinned by the run's saved agent definition or workflow step where one pins, and otherwise the provider's current account. The resolved value rides the driver's session-creation and resume parameter shapes as `providerAccountId` ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)) and is stamped server-side as `admittedProviderAccountId` on the run's admission record. No wire request carries an account per session or per run, so there is no per-run override to authorize and a client-supplied stamp is ignored. Resume rebinds to the account the session was last on rather than re-resolving whichever account is current now, so a restart never moves billing. Moving the current account DOES move a live session, between its turns (`provider.account.current.update` above): each turn's usage rows name the account the turn ran on, the turns before the move the old account and those after it the new one, so the receipt's per-paying-account key stays exact and a session that moved mid-way yields two account rows summing to the same total.
 
-**Switching a live session's account is `provider.account.current.update` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism. `agent.config.update` carries no account member (orchestration-payloads.md §Plan-013), so there is no per-session account switch and nothing for a client to reconcile between two controls; an account move writes no pending switch, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
+**Switching a live session's account is `provider.account.current.update` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: between its turns, and a session pinned to an account not at all. The verb's own comment above states the mechanism. `agent.config.update` carries no account member (orchestration-payloads.md §Plan-013), so there is no per-session account switch and nothing for a client to reconcile between two controls; an account move writes nothing to the agent's pending switch, a move asked while a turn runs waiting in the driver, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
 
 **The one-time memory import is `provider.account.memory.import`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its request is `ProviderAccountMemoryImportRequest` and its reply `ProviderAccountMemoryImportOutcome` above, the same outcome it records as `ProviderAccount.memoryImport`.
 

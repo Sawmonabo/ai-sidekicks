@@ -71,15 +71,15 @@ CREATE TABLE agents (
                                                         -- appliesAt does not imply it: a deferred switch and an interrupted one can both
                                                         -- read 'turnBoundary'. pendingAxes carries TARGET VALUES and not axis names: at
                                                         -- the boundary the caller's request is gone, so the row must be sufficient to
-                                                        -- apply the switch by itself. Two writers admit a switch: agent.config.update, for
-                                                        -- the provider, model, effort and speed axes, and provider.account.current.update, which
-                                                        -- records a pending account switch on an agent following the moved mark whose
-                                                        -- session cannot move in place at its next request. This is the ONE switch
+                                                        -- apply the switch by itself. One writer admits a switch: agent.config.update, for
+                                                        -- the provider, model, effort and speed axes. An account move writes nothing here: a
+                                                        -- move asked while a turn runs waits in the driver, and the provider's current mark is
+                                                        -- what a restart moves a session by. This is the ONE switch
                                                         -- acknowledged to a caller but not yet applied at its boundary; NULL = none.
                                                         -- Durable because the acknowledgment is a promise a restart must keep: startup
                                                         -- re-arms from this column instead of dropping the intent. A single nullable
-                                                        -- column is what makes one-pending-per-agent structural -- a later switch from either
-                                                        -- writer overwrites it (supersession, last writer wins) under the same row lock,
+                                                        -- column is what makes one-pending-per-agent structural -- a later switch
+                                                        -- overwrites it (supersession, last writer wins) under the same row lock,
                                                         -- so a queue of half-wanted switches is unrepresentable. Holds the PENDING
                                                         -- binding only; the effective binding stays in the columns above and moves
                                                         -- there at application. Cleared by whichever terminal event settles the switch
