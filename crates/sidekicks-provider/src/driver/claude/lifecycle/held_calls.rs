@@ -1,8 +1,9 @@
 //! The held tool-server calls of a session whose process is gone: the surviving tasks a closing
 //! live process is told to stop, and the calls of a session no process runs, at its close or at the
 //! start after a restart or a Stop, settled by the driver from the session's log and what Claude
-//! Code kept of its conversation. A person's close of a session no process runs first stops its
-//! surviving tasks in a process resumed for that alone, which runs no turn.
+//! Code kept of its conversation. A person's close of a session no process runs, and the start
+//! that finishes a close a restart cut short, first stops its surviving tasks in a process resumed
+//! for that alone, which runs no turn.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -67,8 +68,9 @@ pub(super) async fn stop_held_tasks(channel: &dyn ClaudeProcessChannel, task_ids
 
 impl ClaudeDriver {
     /// Settles the held calls of `params`' session at the start after a restart or a Stop, from the
-    /// conversation its stored leg names: as a closed session's close would, else as the restart or
-    /// the Stop left them. Fails only as the conversation's composition fails.
+    /// conversation its stored leg names: as a person's close of a session at rest would, its
+    /// surviving tasks stopped first, else as the restart or the Stop left them. Fails only as the
+    /// conversation's composition fails.
     pub(crate) async fn settle_held_tool_calls(
         &self,
         params: SettleHeldToolCallsParams,
@@ -88,13 +90,18 @@ impl ClaudeDriver {
             read_claude_conversation_home(&runtime_metadata).as_deref(),
         )
         .await?;
-        let settle = match settle {
-            HeldCallsSettle::Closed => ClaudeHeldCallSettle::SessionClose,
-            HeldCallsSettle::Restarted => ClaudeHeldCallSettle::Restart,
-            HeldCallsSettle::Stopped => ClaudeHeldCallSettle::Stop,
+        let (settle, stops_surviving_tasks) = match settle {
+            HeldCallsSettle::Closed => (ClaudeHeldCallSettle::SessionClose, true),
+            HeldCallsSettle::Restarted => (ClaudeHeldCallSettle::Restart, false),
+            HeldCallsSettle::Stopped => (ClaudeHeldCallSettle::Stop, false),
         };
-        self.settle_held_calls_at_rest(session_id, Some(conversation), settle, false)
-            .await;
+        self.settle_held_calls_at_rest(
+            session_id,
+            Some(conversation),
+            settle,
+            stops_surviving_tasks,
+        )
+        .await;
         Ok(())
     }
 

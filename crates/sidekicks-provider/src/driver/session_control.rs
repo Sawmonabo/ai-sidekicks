@@ -420,7 +420,8 @@ pub struct SettleHeldToolCallsParams {
 /// How a session's held tool calls are settled after the daemon's restart or stop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeldCallsSettle {
-    /// The session is closed: no later resume restores a call, so every one ends.
+    /// The session is closed: no later resume restores a call, so every one ends, a task still
+    /// running on its server stopped first.
     Closed,
     /// The daemon restarted: a later resume may restore a call its record keeps, and one kept
     /// nowhere ends with the restart.

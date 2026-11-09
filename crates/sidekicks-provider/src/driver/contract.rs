@@ -334,7 +334,7 @@ pub trait ProviderDriver: Send + Sync {
     /// Settles the tool calls a session held in the background while no process of it runs, after
     /// a restart or the person's Stop of the daemon: each ends as the provider kept it or as the
     /// restart or Stop ended it, one its record keeps under a Stop waits for the next resume, and
-    /// every one of a closed session ends.
+    /// every one of a closed session ends, a task still running on its server stopped first.
     fn settle_held_tool_calls(
         &self,
         params: SettleHeldToolCallsParams,

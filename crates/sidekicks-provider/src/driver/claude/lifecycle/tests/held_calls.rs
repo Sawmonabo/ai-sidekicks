@@ -15,6 +15,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
+use tokio::sync::oneshot;
 
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
@@ -584,8 +585,9 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
 
 // Fails when the start after a restart or a Stop settles a resting session's held calls other than
 // by what Claude Code kept: a call kept nowhere reads ended by the restart or the Stop, and one only
-// recorded stays open for the next resume, while a closed session ends every call kept nowhere or
-// only recorded with its process. The driver is new and no session call composed its pieces, as at
+// recorded stays open for the next resume, while a closed session, with no process scripted to
+// stop its surviving task in, ends every call kept nowhere or only recorded with its process. The
+// driver is new and no session call composed its pieces, as at
 // a real start. Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1
 // reads it after a restart); the record ignored after a restart (call-3 closed); `Restart` passed
 // for a closed session (no close for call-3 when closed); `Stop` read as `Restart` (call-1 reads
@@ -683,23 +685,16 @@ enum RestingCall {
     Unkept,
 }
 
-// Fails when a person's close of a session no process runs leaves a surviving task running on its
-// server, resumes anything but the session's own conversation, starts a process with no task to
-// stop, or settles the stopped call before reading Claude Code's ending. Mutations: the person's
-// gate at rest passed as `false` (the close ends with no process resumed); `Unkept` in place of
-// `Resume` (the start's conversation); the recorded filter dropped (a start for the unkept call);
-// the read after the process closed dropped (call-A reads `processExit`).
-#[rstest]
-#[case::recorded(RestingCall::Recorded)]
-#[case::unkept(RestingCall::Unkept)]
-#[tokio::test(start_paused = true)]
-async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
-    #[case] resting_call: RestingCall,
-) {
-    let fixture = ScriptedDriver::new();
+/// A session of `fixture` at rest from its stored leg, its log holding call-A of task-A open, and
+/// the call's record kept beside the conversation where `resting_call` is `Recorded`. Answers the
+/// session and its account.
+fn resting_session_holding_call_a(
+    fixture: &ScriptedDriver,
+    resting_call: RestingCall,
+) -> (SessionId, ProviderAccountId) {
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
+    fixture.record_session_leg(session_id, account.clone(), STORED_CONVERSATION, Map::new());
     let run_id = new_run_id();
     fixture
         .services
@@ -716,14 +711,78 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
             &fixture.engine,
         ))
         .expect("the read registers once");
-    let config_folder = fixture.home.join(".claude");
     if matches!(resting_call, RestingCall::Recorded) {
         write_kept_files(
-            &config_folder,
+            &fixture.home.join(".claude"),
             STORED_CONVERSATION,
             &[("mcp-task-task-A.meta.json", record("call-A"))],
         );
     }
+    (session_id, account)
+}
+
+/// Plays Claude Code in the process `start` resumed on the stored conversation: names task-A
+/// restored, waits for its `stop_task` on `channel`, saves the task's cancelled ending and then
+/// answers the stop `release_stop` holds.
+async fn stop_task_a_in_the_resumed_process(
+    fixture: &ScriptedDriver,
+    start: &ScriptedStartRecord,
+    channel: &ScriptedChannel,
+    release_stop: oneshot::Sender<()>,
+) {
+    assert!(matches!(
+        &start.conversation,
+        ClaudeConversationStart::Resume { resume_handle }
+            if resume_handle == STORED_CONVERSATION
+    ));
+    let text = helper_started("task-A", "mcp_task", "call-A").to_string();
+    let observation = ClaudeStreamFrameRead::read(&text)
+        .expect("a test frame is an object")
+        .into_observation();
+    start
+        .listener
+        .take_frame(ClaudeStreamFrame { text, observation });
+    ScriptedDriver::wait_for(|| stopped_tasks(channel) == ["task-A"]).await;
+    write_kept_files(
+        &fixture.home.join(".claude"),
+        STORED_CONVERSATION,
+        &[(
+            "mcp-task-task-A.outcome.json",
+            json!({
+                "toolUseId": "call-A",
+                "status": "cancelled",
+                "serverName": "files",
+                "toolName": "export",
+            }),
+        )],
+    );
+    release_stop.send(()).expect("the stop is held");
+}
+
+/// How call-A ends once Claude Code saved its task's stopped ending.
+fn call_a_stopped() -> (String, Ending, Option<String>) {
+    (
+        "call-A".to_owned(),
+        Ending::Failed(Some(ToolCallEndCause::Stopped)),
+        None,
+    )
+}
+
+// Fails when a person's close of a session no process runs leaves a surviving task running on its
+// server, resumes anything but the session's own conversation, starts a process with no task to
+// stop, or settles the stopped call before reading Claude Code's ending. Mutations: the person's
+// gate at rest passed as `false` (the close ends with no process resumed); `Unkept` in place of
+// `Resume` (the start's conversation); the recorded filter dropped (a start for the unkept call);
+// the read after the process closed dropped (call-A reads `processExit`).
+#[rstest]
+#[case::recorded(RestingCall::Recorded)]
+#[case::unkept(RestingCall::Unkept)]
+#[tokio::test(start_paused = true)]
+async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
+    #[case] resting_call: RestingCall,
+) {
+    let fixture = ScriptedDriver::new();
+    let (session_id, _) = resting_session_holding_call_a(&fixture, resting_call);
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
     let release_stop = channel.hold_next_control("stop_task");
@@ -743,36 +802,9 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
                 start = fixture.next_start() => start,
                 _ = &mut close => panic!("the close ended with no process resumed"),
             };
-            assert!(matches!(
-                &start.conversation,
-                ClaudeConversationStart::Resume { resume_handle }
-                    if resume_handle == STORED_CONVERSATION
-            ));
-            let restored = async {
-                let text = helper_started("task-A", "mcp_task", "call-A").to_string();
-                let observation = ClaudeStreamFrameRead::read(&text)
-                    .expect("a test frame is an object")
-                    .into_observation();
-                start
-                    .listener
-                    .take_frame(ClaudeStreamFrame { text, observation });
-                ScriptedDriver::wait_for(|| stopped_tasks(&channel) == ["task-A"]).await;
-                write_kept_files(
-                    &config_folder,
-                    STORED_CONVERSATION,
-                    &[(
-                        "mcp-task-task-A.outcome.json",
-                        json!({
-                            "toolUseId": "call-A",
-                            "status": "cancelled",
-                            "serverName": "files",
-                            "toolName": "export",
-                        }),
-                    )],
-                );
-                release_stop.send(()).expect("the stop is held");
-            };
-            let (closed, ()) = tokio::join!(&mut close, restored);
+            let stopped =
+                stop_task_a_in_the_resumed_process(&fixture, &start, &channel, release_stop);
+            let (closed, ()) = tokio::join!(&mut close, stopped);
             closed
         }
         RestingCall::Unkept => close.await,
@@ -784,11 +816,7 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
     let expected = match resting_call {
         RestingCall::Recorded => {
             assert_eq!(stopped_tasks(&channel), ["task-A"]);
-            (
-                "call-A".to_owned(),
-                Ending::Failed(Some(ToolCallEndCause::Stopped)),
-                None,
-            )
+            call_a_stopped()
         }
         RestingCall::Unkept => {
             assert_eq!(stopped_tasks(&channel), Vec::<String>::new());
@@ -796,4 +824,41 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
         }
     };
     assert_eq!(closed_calls(&fixture), [expected]);
+}
+
+// Fails when the start after a restart, finishing a close the restart cut short, leaves a closed
+// session's surviving task running on its server. Mutation: `false` passed for `Closed` at the
+// start's settle (the settle ends with no process resumed).
+#[tokio::test(start_paused = true)]
+async fn the_start_after_a_restart_stops_a_closed_sessions_surviving_task() {
+    let fixture = ScriptedDriver::new();
+    let (session_id, account) = resting_session_holding_call_a(&fixture, RestingCall::Recorded);
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let release_stop = channel.hold_next_control("stop_task");
+    let driver = ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+        fixture.starts.keychain.clone(),
+    );
+
+    let mut settled = pin!(driver.settle_held_tool_calls(SettleHeldToolCallsParams {
+        session_id,
+        provider_account_id: account,
+        conversation: STORED_CONVERSATION.to_owned(),
+        runtime_metadata: Map::new(),
+        settle: HeldCallsSettle::Closed,
+    }));
+    let start = tokio::select! {
+        start = fixture.next_start() => start,
+        _ = &mut settled => panic!("the settle ended with no process resumed"),
+    };
+    let stopped = stop_task_a_in_the_resumed_process(&fixture, &start, &channel, release_stop);
+    let (settled, ()) = tokio::join!(&mut settled, stopped);
+    settled.expect("the held calls are settled");
+    settle().await;
+
+    assert!(fixture.starts.take_started().is_empty());
+    assert_eq!(stopped_tasks(&channel), ["task-A"]);
+    assert_eq!(closed_calls(&fixture), [call_a_stopped()]);
 }
