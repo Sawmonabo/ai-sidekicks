@@ -63,9 +63,17 @@ type InvalidationTrigger = "explicit" | "sessionEnd" | "serverRemoved";
 // have payloads of their own: `approval.reviewer.flagged`, `approval.reviewer.denied` and
 // `approval.denial.overridden`, see their payloads below, and the `plan.*` types, whose records are
 // §The plan verdict's.
+//
+// What holds an ask open: the agent run whose action it gates, or a workflow wait — a workflow's
+// approval step, its node named, or a chain's question, which names no node. A wait's card is one
+// per wait id while it is pending, offers no standing allow, and closes only with its wait: its
+// answer lands in the step's own write, and a session's close leaves it to its wait.
+type ApprovalHolder =
+  | { kind: "run"; runId: RunId }
+  | { kind: "wait"; workflowRunId: WorkflowRunId; waitId: string; nodeId?: WorkflowNodeId };
 interface ApprovalRequestedPayload {
   sessionId: SessionId;
-  runId: RunId;
+  holder: ApprovalHolder;
   approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
@@ -99,7 +107,7 @@ interface ApprovalRequestedPayload {
 // approval.approved and approval.rejected
 interface ApprovalResolvedPayload {
   sessionId: SessionId;
-  runId: RunId;
+  holder: ApprovalHolder;
   approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
@@ -123,11 +131,12 @@ interface ApprovalResolvedPayload {
 }
 interface ApprovalCanceledPayload {
   sessionId: SessionId;
-  runId: RunId;
+  holder: ApprovalHolder;
   approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
 }
+// A rule is offered only on a run's card, so the rule's record names the run.
 interface ApprovalRuleRememberedPayload {
   sessionId: SessionId;
   runId: RunId;
@@ -305,7 +314,7 @@ interface ApprovalListRequest {
 interface ApprovalListResponse {
   approvals: Array<{
     id: ApprovalRequestId;
-    runId: RunId;
+    holder: ApprovalHolder; // an agent run, or a workflow wait
     // recorded requester actor — the agent's actor id, or the device a person's request came from
     // (Spec-010 §Required Behavior)
     requestedBy: string;

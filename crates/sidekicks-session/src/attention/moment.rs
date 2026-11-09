@@ -12,6 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::run::events::WorkflowRunFailedOutcome;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -446,9 +447,13 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
             payload.workflow_run_id,
             AttentionMomentTrigger::RunCompleted,
         ),
-        SessionEvent::WorkflowRunFailed(payload) => {
-            workflow_run_end(payload.workflow_run_id, AttentionMomentTrigger::RunFailed)
-        }
+        // A parked run has not ended; its failed step's own event resolves that step's entry.
+        SessionEvent::WorkflowRunFailed(payload) => match payload.outcome {
+            WorkflowRunFailedOutcome::Ended => {
+                workflow_run_end(payload.workflow_run_id, AttentionMomentTrigger::RunFailed)
+            }
+            WorkflowRunFailedOutcome::Parked => AttentionChange::Nothing,
+        },
         SessionEvent::WorkflowRunDeleted(payload) => {
             AttentionChange::DeleteWorkflowRun(payload.workflow_run_id)
         }

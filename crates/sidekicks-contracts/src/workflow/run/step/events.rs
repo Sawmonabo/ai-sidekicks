@@ -18,11 +18,15 @@ use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::WorkflowNodeId;
+use crate::workflow::definition::document::{
+    WorkflowContentHash, WorkflowNodeId, WorkflowVersionId,
+};
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
 use crate::workflow::run::gate_resolution::WorkflowGateResolutionId;
-use crate::workflow::run::step::record::{WorkflowCost, WorkflowPayloadRef, workflow_step_key};
+use crate::workflow::run::step::record::{
+    WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource, workflow_step_key,
+};
 
 ts_constants! {
     /// Every reason a step is skipped.
@@ -44,17 +48,41 @@ macro_rules! workflow_step_event {
     };
 }
 
-workflow_step_event! {
-    /// `workflow.step.canceled`: a step that was running or waiting when its run ended failed or
-    /// canceled, or a branch a first-to-arrive merge canceled once another branch arrived.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+workflow_step_key! {
+    position
+    /// A step the event's write readied, by its node, its attempt and which execution of the node,
+    /// with what its `pending` row stores, so a rebuild writes the same row; the run is the
+    /// event's own.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowStepCanceledPayload {}
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowReadiedStep {
+        /// The feed of each main input slot in slot order, `null` for a slot nothing fed.
+        pub sources: Vec<Option<WorkflowStepSource>>,
+        /// The input.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
+    }
 }
 
 workflow_step_event! {
-    /// `workflow.step.started`: the input the step ran on and, for an agent step whose account
-    /// could not run the run's permission level, the level it ran at instead.
+    /// `workflow.step.canceled`: a step that was running or waiting when its run ended failed or
+    /// canceled, or a branch a first-to-arrive merge canceled once another branch arrived.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowStepCanceledPayload {
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
+    }
+}
+
+workflow_step_event! {
+    /// `workflow.step.started`: the input the step ran on, for an agent step whose account could
+    /// not run the run's permission level the level it ran at instead, and for a step that gave
+    /// its node's pinned items the hash of that pin.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -71,6 +99,15 @@ workflow_step_event! {
         )]
         #[schemars(with = "PermissionLevel")]
         pub permission_level: Option<PermissionLevel>,
+        /// Present on a step that gave its node's pinned items in place of running: the content
+        /// hash of that pin, which tells a later run whether the pin changed.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowContentHash")]
+        pub pin_hash: Option<WorkflowContentHash>,
     }
 }
 
@@ -94,13 +131,35 @@ workflow_step_event! {
         )]
         #[schemars(with = "WorkflowCost")]
         pub cost: Option<WorkflowCost>,
+        /// How many items each main output holds, in output order, the error output last where
+        /// the node has one: the boundaries of the output lists `outputRef` stores joined.
+        pub output_item_counts: Vec<SafeInt<0>>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
+/// The output a failed step passed on where its node's `onError` passed its input on: one member
+/// holding the ref and its counts, so neither is written without the other.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowPassedOnOutput {
+    /// The output.
+    #[garde(dive)]
+    pub output_ref: WorkflowPayloadRef,
+    /// How many items each main output holds, in output order: the boundaries of the output
+    /// lists `outputRef` stores joined.
+    pub output_item_counts: Vec<SafeInt<0>>,
+}
+
 workflow_step_event! {
-    /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, and
-    /// the words a person typed with the Decline that failed it.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, the
+    /// words a person typed with the Decline that failed it, the step's log, and the output it
+    /// passed on where its node's `onError` passed its input on.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
     pub struct WorkflowStepFailedPayload {
@@ -124,6 +183,23 @@ workflow_step_event! {
         )]
         #[schemars(with = "NonEmptyText")]
         pub decline_reason: Option<NonEmptyText>,
+        /// The log.
+        #[garde(dive)]
+        pub log_ref: WorkflowPayloadRef,
+        /// Present only where the node's `onError` passed its input on: that output and its
+        /// counts.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPassedOnOutput")]
+        #[garde(dive)]
+        pub passed_on: Option<WorkflowPassedOnOutput>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
     }
 }
 
@@ -139,11 +215,10 @@ macro_rules! phase_suspended_payload {
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
             /// it. A wait on anything else names neither. A wait on a person's approval, form or
-            /// reply carries the deadline its node's `Timeout` arms and the `waitId` its answer
-            /// names; a wait on an account or a chain's question carries neither.
-            #[derive(
-                Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
-            )]
+            /// reply carries the deadline its node's `Timeout` arms, the `waitId` its answer
+            /// names and the `logRef` the step wrote before it waited; a wait on an account or a
+            /// chain's question carries none of them.
+            #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
             #[serde(
                 tag = "waitCause",
                 rename_all = "camelCase",
@@ -189,6 +264,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_id: Option<Never>,
+        /// Never present: only a wait on a person writes a log before it waits.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        log_ref: Option<Never>,
     }
     /// Waiting on a person's approval.
     Approval {
@@ -219,6 +302,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// The log the step wrote before it waited.
+        #[garde(dive)]
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on a person's form.
     Form {
@@ -249,6 +335,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// The log the step wrote before it waited.
+        #[garde(dive)]
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -279,6 +368,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
+        /// The log the step wrote before it waited.
+        #[garde(dive)]
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -314,26 +406,36 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_id: Option<Never>,
+        /// Never present: only a wait on a person writes a log before it waits.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        log_ref: Option<Never>,
     }
 }
 
 /// Why a phase was canceled rather than failing on its own work: a sibling branch's failure ended
-/// the run.
+/// the run, or a person canceled the run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkflowPhaseCancellationReason {
     /// A sibling branch failed and ended the run.
     SiblingFailure,
+    /// A person canceled the run.
+    RunCanceled,
 }
 
 workflow_step_event! {
     /// `workflow.phase.failed`: a phase failed, on its own work or because a sibling branch's
-    /// failure ended the run and so canceled it.
+    /// failure ended the run or a person canceled the run, and so canceled it.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowPhaseFailedPayload {
-        /// `siblingFailure` where a sibling branch's failure canceled the phase; `null` where the
-        /// phase failed on its own work.
+        /// `siblingFailure` where a sibling branch's failure canceled the phase, `runCanceled`
+        /// where a person's cancel of the run did; `null` where the phase failed on its own work.
         #[serde(deserialize_with = "crate::wire::nullable")]
         #[schemars(with = "crate::wire::NullableSchema<WorkflowPhaseCancellationReason>")]
         pub cancellation_reason: Option<WorkflowPhaseCancellationReason>,
@@ -382,9 +484,15 @@ workflow_step_event! {
 
 workflow_step_event! {
     /// `workflow.phase.retried`: a failed phase was retried; the step named is the new attempt.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct WorkflowPhaseRetriedPayload {}
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowPhaseRetriedPayload {
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
+    }
 }
 
 workflow_step_event! {
@@ -410,7 +518,8 @@ workflow_step_event! {
     pub struct WorkflowParallelJoinBranchesCanceledPayload {}
 }
 
-/// Why a step was skipped: its input carried no items, or its node is disabled.
+/// Why a step was skipped: its input carried no items, its node is disabled, or a partial run
+/// reused an earlier step's data in its place.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -420,15 +529,111 @@ pub enum WorkflowStepSkipReason {
     NoItems,
     /// Its node is disabled.
     Disabled,
+    /// A partial run reused the data of an earlier step of its node.
+    Reused,
+}
+
+/// The step whose data a reused skip carries, and the version that step's run executed, which
+/// computed that data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowReusedStep {
+    /// The step that computed the data, in an earlier run.
+    #[garde(dive)]
+    pub step: WorkflowStepKey,
+    /// The version that step's run executed.
+    pub workflow_version_id: WorkflowVersionId,
 }
 
 workflow_step_event! {
-    /// `workflow.step.skipped`: why the step was skipped.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    /// `workflow.step.skipped`: why the step was skipped, what fed it, the input it skipped and
+    /// the output it passed on; a reused skip also names the step whose data it carries and, where
+    /// that step recorded one, the hash of its pin.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    #[garde(custom(names_its_reused_step_only_when_reused))]
+    #[schemars(extend(
+        "if" = { "properties": { "reason": { "const": "reused" } }, "required": ["reason"] },
+        "then" = { "properties": { "reusedFrom": true }, "required": ["reusedFrom"] },
+        "else" = { "not": { "required": ["reusedFrom"] } },
+        "dependentRequired" = { "pinHash": ["reusedFrom"] },
+    ))]
     pub struct WorkflowStepSkippedPayload {
         /// Why.
         pub reason: WorkflowStepSkipReason,
+        /// The feed of each main input slot in slot order, `null` for a slot nothing fed.
+        pub sources: Vec<Option<WorkflowStepSource>>,
+        /// The input.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
+        /// The output it passed on.
+        #[garde(dive)]
+        pub output_ref: WorkflowPayloadRef,
+        /// How many items each main output carries on, in output order: the boundaries of the
+        /// output lists `outputRef` stores joined.
+        pub output_item_counts: Vec<SafeInt<0>>,
+        /// The steps this event's write readied, each with what its `pending` row stores; empty
+        /// where it readied none.
+        #[garde(dive)]
+        pub readied: Vec<WorkflowReadiedStep>,
+        /// Present exactly on a reused skip: the step of the same node, in another run, whose data
+        /// it carries.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowReusedStep")]
+        #[garde(dive)]
+        pub reused_from: Option<WorkflowReusedStep>,
+        /// Present only on a reused skip whose source step recorded one: the hash of the pin that
+        /// step ran on.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowContentHash")]
+        pub pin_hash: Option<WorkflowContentHash>,
+    }
+}
+
+/// Refuses a skip that names a reused step unless it is a reused skip, a reused skip naming none,
+/// one naming a step of another node or of its own run, and a pin hash with no reused step.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "garde passes a check's context by reference"
+)]
+fn names_its_reused_step_only_when_reused(
+    payload: &WorkflowStepSkippedPayload,
+    (): &(),
+) -> garde::Result {
+    let is_reused = payload.reason == WorkflowStepSkipReason::Reused;
+    let Some(source) = &payload.reused_from else {
+        return if is_reused {
+            Err(garde::Error::new("a reused skip names the step it reused"))
+        } else if payload.pin_hash.is_some() {
+            Err(garde::Error::new("only a reused skip carries a pin hash"))
+        } else {
+            Ok(())
+        };
+    };
+    if !is_reused {
+        Err(garde::Error::new(
+            "only a reused skip names a step it reused",
+        ))
+    } else if source.step.node_id != payload.node_id {
+        Err(garde::Error::new(
+            "a reused skip reuses a step of its own node",
+        ))
+    } else if source.step.workflow_run_id == payload.workflow_run_id {
+        Err(garde::Error::new(
+            "a reused skip reuses a step of another run, never its own",
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -464,9 +669,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           completed, failed or held for memory, a join's siblings canceled, and a gate resolved, \
           each naming its step by the step record's key.",
     definitions: &[
+        Definition::read::<WorkflowReadiedStep>(),
         Definition::read::<WorkflowStepCanceledPayload>().checked(),
         Definition::read::<WorkflowStepStartedPayload>().checked(),
         Definition::read::<WorkflowStepCompletedPayload>().checked(),
+        Definition::read::<WorkflowPassedOnOutput>(),
         Definition::read::<WorkflowStepFailedPayload>().checked(),
         Definition::read::<WorkflowPhaseSuspendedPayload>().checked(),
         Definition::read::<WorkflowPhaseCancellationReason>(),
@@ -481,6 +688,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowPhaseCompletedPayload>().checked(),
         Definition::read::<WorkflowParallelJoinBranchesCanceledPayload>().checked(),
         Definition::read::<WorkflowStepSkipReason>(),
+        Definition::read::<WorkflowReusedStep>(),
         Definition::read::<WorkflowStepSkippedPayload>().checked(),
         Definition::read::<WorkflowGateResolvedPayload>().checked(),
     ],
@@ -493,13 +701,20 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::WorkflowPhaseSuspendedPayload;
+    use super::{WorkflowPhaseSuspendedPayload, WorkflowStepSkippedPayload};
 
     const SESSION: &str = "018f0000-0000-7000-8000-000000000001";
     const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
+    const EARLIER_RUN: &str = "018f0000-0000-7000-8000-000000000005";
+    const EARLIER_VERSION: &str = "018f0000-0000-7000-8000-00000000000e";
     const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
     const DEADLINE: &str = "2020-01-01T10:00:00.000Z";
     const WAIT: &str = "018f0000-0000-7000-8000-00000000000d";
+
+    /// An empty inline log, the one a person's wait carries.
+    fn empty_log() -> Value {
+        json!({"kind": "inline", "items": []})
+    }
 
     /// A step event's payload: the step it names, then `members`.
     fn step_payload(members: Value) -> Value {
@@ -516,9 +731,9 @@ mod tests {
     /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it
     /// on a person's wait; keep it on an account or chain wait.
     #[rstest]
-    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT}), true)]
-    #[case::form(json!({"waitCause": "form", "waitId": WAIT}), true)]
-    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT}), true)]
+    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT, "logRef": empty_log()}), true)]
+    #[case::form(json!({"waitCause": "form", "waitId": WAIT, "logRef": empty_log()}), true)]
+    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT, "logRef": empty_log()}), true)]
     #[case::account(json!({"waitCause": "account", "providerAccountId": ACCOUNT}), false)]
     #[case::chain(json!({"waitCause": "chain"}), false)]
     fn phase_suspended_carries_a_deadline_only_on_a_wait_on_a_person(
@@ -539,5 +754,65 @@ mod tests {
             .ok()
             .map(|read| serde_json::to_value(read).expect("a read payload writes"));
         assert_eq!(written, is_carried.then_some(wire));
+    }
+
+    /// A wait on a person is refused without the log its step wrote. Mutation: make the person
+    /// arms' `logRef` optional.
+    #[rstest]
+    #[case::approval("approval")]
+    #[case::form("form")]
+    #[case::reply("reply")]
+    fn phase_suspended_on_a_person_is_refused_without_its_log(#[case] wait_cause: &str) {
+        let wire = step_payload(json!({"waitCause": wait_cause, "waitId": WAIT}));
+        assert!(serde_json::from_value::<WorkflowPhaseSuspendedPayload>(wire).is_err());
+    }
+
+    /// The step a reused skip names, of node `node_id` in run `run`.
+    fn reused_from(run: &str, node_id: &str) -> Value {
+        json!({
+            "step": {
+                "workflowRunId": run, "nodeId": node_id, "attempt": 1, "executionIndex": 2,
+            },
+            "workflowVersionId": EARLIER_VERSION,
+        })
+    }
+
+    /// A skip names the step it reused exactly when it is a reused skip, that step is its own
+    /// node's in another run, and a pin hash rides only beside it. Mutation: drop the garde check
+    /// on `WorkflowStepSkippedPayload`, which lets every refused case through.
+    #[rstest]
+    #[case::reused_naming_none("reused", None, None, false)]
+    #[case::disabled_naming_one("disabled", Some(reused_from(EARLIER_RUN, "ask")), None, false)]
+    #[case::another_node("reused", Some(reused_from(EARLIER_RUN, "other")), None, false)]
+    #[case::its_own_run("reused", Some(reused_from(WORKFLOW_RUN, "ask")), None, false)]
+    #[case::a_pin_alone("noItems", None, Some("b3:pin"), false)]
+    #[case::reused("reused", Some(reused_from(EARLIER_RUN, "ask")), None, true)]
+    #[case::reused_with_its_pin(
+        "reused",
+        Some(reused_from(EARLIER_RUN, "ask")),
+        Some("b3:pin"),
+        true
+    )]
+    fn a_skip_names_its_reused_step_only_when_reused(
+        #[case] reason: &str,
+        #[case] reused_from: Option<Value>,
+        #[case] pin_hash: Option<&str>,
+        #[case] is_accepted: bool,
+    ) {
+        let mut members = json!({
+            "reason": reason, "sources": [], "inputRef": empty_log(), "outputRef": empty_log(),
+            "outputItemCounts": [], "readied": [],
+        });
+        if let Some(members) = members.as_object_mut() {
+            if let Some(reused_from) = reused_from {
+                members.insert("reusedFrom".into(), reused_from);
+            }
+            if let Some(pin_hash) = pin_hash {
+                members.insert("pinHash".into(), json!(pin_hash));
+            }
+        }
+        let payload = serde_json::from_value::<WorkflowStepSkippedPayload>(step_payload(members))
+            .expect("the skip reads");
+        assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
     }
 }

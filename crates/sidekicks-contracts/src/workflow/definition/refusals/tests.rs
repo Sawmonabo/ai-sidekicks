@@ -10,7 +10,7 @@ use super::{
 use crate::workflow::definition::document::{
     WorkflowDraftDocument, WorkflowNode, WorkflowNodeId, node,
 };
-use crate::workflow::kind::WorkflowNodeKindCategory;
+use crate::workflow::kind::{WorkflowNodeKindCategory, WorkflowParamId};
 
 fn edge(source: &str, source_handle: &str, target: &str, target_handle: &str) -> Value {
     json!({
@@ -33,16 +33,23 @@ fn repeated_main_edge(source: &str, target: &str) -> Value {
     repeated
 }
 
-// The handles of the kinds the cases place; any other kind is one the catalog does not list.
+// The handles of the kinds the cases place; any other kind is one the catalog does not list. The
+// manual trigger's `Repository` is its `repository` param, the chat trigger has none, and only
+// `developer.git` needs a repository.
 fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
     let main_in = json!({ "type": "main", "id": "inputs/main/0", "label": "In" });
     let limited_in =
         json!({ "type": "main", "id": "inputs/main/0", "label": "In", "maxConnections": 1 });
     let main_out = json!({ "type": "main", "id": "outputs/main/0", "label": "Out" });
     let (category, inputs, outputs) = match node.kind.0.as_str() {
-        "trigger.manual" => (
+        "trigger.manual" | "trigger.chat" => (
             WorkflowNodeKindCategory::Trigger,
             json!([]),
+            json!([main_out]),
+        ),
+        "developer.git" => (
+            WorkflowNodeKindCategory::Developer,
+            json!([main_in]),
             json!([main_out]),
         ),
         "agent.run" => (
@@ -70,10 +77,15 @@ fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
         ),
         _ => return None,
     };
+    let kind = node.kind.0.as_str();
     Some(WorkflowNodeHandles {
         category,
         inputs: serde_json::from_value(inputs).expect("the inputs read"),
         outputs: serde_json::from_value(outputs).expect("the outputs read"),
+        needs_repository: kind == "developer.git",
+        repository_param: (kind == "trigger.manual").then(|| {
+            serde_json::from_value::<WorkflowParamId>(json!("repository")).expect("a param id")
+        }),
     })
 }
 
@@ -286,10 +298,23 @@ fn graph(
     Option<WorkflowNode>,
     HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 ) {
+    graph_under(&node("t", "trigger.manual"), nodes, edges)
+}
+
+// The document under `trigger`, its trigger as a node, and each node's handles.
+fn graph_under(
+    trigger: &Value,
+    nodes: &Value,
+    edges: &Value,
+) -> (
+    WorkflowDraftDocument,
+    Option<WorkflowNode>,
+    HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+) {
     let document: WorkflowDraftDocument = serde_json::from_value(json!({
         "schemaVersion": "2",
         "name": "Graph",
-        "trigger": node("t", "trigger.manual"),
+        "trigger": trigger,
         "nodes": nodes,
         "edges": edges,
     }))
@@ -301,6 +326,61 @@ fn graph(
         .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
         .collect();
     (document, trigger, node_handles)
+}
+
+/// Under a trigger whose `Repository` is `None`, the steps that need a repository are marked in
+/// document order; a named `Repository`, disabled steps or a trigger with no `Repository` give no
+/// finding. Mutations: the param's value ignored; a disabled node counted; the node that needs none
+/// listed; the nodes sorted by id; a finding under a trigger with no `Repository`.
+#[rstest]
+#[case::repository_none(
+    "trigger.manual",
+    json!({}),
+    false,
+    json!([{ "rule": "repositoryRequired", "nodeIds": ["b", "a"] }]),
+)]
+#[case::repository_named(
+    "trigger.manual",
+    json!({ "repository": "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74" }),
+    false,
+    json!([]),
+)]
+#[case::the_needing_steps_disabled("trigger.manual", json!({}), true, json!([]))]
+#[case::a_trigger_with_no_repository("trigger.chat", json!({}), false, json!([]))]
+fn the_repository_rule_marks_the_steps_that_need_one(
+    #[case] trigger_kind: &str,
+    #[case] trigger_params: Value,
+    #[case] is_disabled: bool,
+    #[case] findings: Value,
+) {
+    let mut trigger = node("t", trigger_kind);
+    trigger["params"] = trigger_params;
+    let mut needing = [node("b", "developer.git"), node("a", "developer.git")];
+    if is_disabled {
+        for step in &mut needing {
+            step["disabled"] = json!(true);
+        }
+    }
+    let [b, a] = needing;
+    let (document, trigger, node_handles) = graph_under(
+        &trigger,
+        &json!([b, a, node("c", "agent.run")]),
+        &json!([
+            main_edge("t", "b"),
+            main_edge("t", "a"),
+            main_edge("t", "c")
+        ]),
+    );
+    let found = check_workflow_graph(
+        trigger.as_ref(),
+        &document.nodes,
+        &document.edges,
+        &node_handles,
+    );
+    assert_eq!(
+        serde_json::to_value(found).expect("the findings write"),
+        findings
+    );
 }
 
 // Killed by `node_handles` typed as a plain map: the member `__proto__` would then read and its
@@ -320,6 +400,7 @@ fn a_prototype_member_among_the_node_handles_does_not_read(
         "category": "agent",
         "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
         "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+        "needsRepository": false,
     });
     let input = json!({
         "trigger": node("t", "trigger.manual"),

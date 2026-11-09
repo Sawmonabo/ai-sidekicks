@@ -16,6 +16,8 @@ use crate::jsonrpc::issue::{IssuePathSegment, reader_issue_path};
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::AnyValue;
+use crate::wire::record::Record;
 use crate::wire::text::is_ecmascript_whitespace;
 use crate::workflow::definition::document::WorkflowToolBinding;
 use crate::workflow::definition::expression_template::{
@@ -147,19 +149,28 @@ fn is_drawn(
     values: &Map<String, Value>,
     siblings: &[WorkflowParamSpec],
 ) -> bool {
-    let Some(show_when) = &leaf.show_when else {
-        return true;
-    };
-    show_when.as_map().iter().all(|(sibling_id, listed)| {
-        let sibling_value = values.get(sibling_id).or_else(|| {
-            siblings.iter().find_map(|sibling| match sibling {
-                WorkflowParamSpec::Leaf(sibling) if sibling.id.0.as_str() == sibling_id => {
-                    sibling.default.as_ref().map(|default| &default.0)
+    leaf.show_when
+        .as_ref()
+        .is_none_or(|show_when| is_condition_met(show_when, |id| values.get(id), siblings))
+}
+
+/// Whether each param `condition` names holds one of its listed values, `value_of` giving the
+/// node's value by param id and the param's default in `params` standing in where it gives none.
+pub(crate) fn is_condition_met<'a>(
+    condition: &Record<String, Vec<AnyValue>>,
+    value_of: impl Fn(&str) -> Option<&'a Value>,
+    params: &'a [WorkflowParamSpec],
+) -> bool {
+    condition.as_map().iter().all(|(param_id, listed)| {
+        let value = value_of(param_id).or_else(|| {
+            params.iter().find_map(|param| match param {
+                WorkflowParamSpec::Leaf(param) if param.id.0.as_str() == param_id => {
+                    param.default.as_ref().map(|default| &default.0)
                 }
                 WorkflowParamSpec::Leaf(_) | WorkflowParamSpec::Collection(_) => None,
             })
         });
-        sibling_value.is_some_and(|value| listed.iter().any(|listed| listed.0 == *value))
+        value.is_some_and(|value| listed.iter().any(|listed| listed.0 == *value))
     })
 }
 

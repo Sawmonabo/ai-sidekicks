@@ -152,6 +152,7 @@ fn session_end_revocations(own_rules: &[RuleRow]) -> Vec<ApprovalRuleRevokedPayl
 
 #[cfg(test)]
 mod tests {
+    use sidekicks_contracts::approval::holder::ApprovalHolder;
     use sidekicks_contracts::approval::{
         ApprovalCategory, ApprovalRequestId, ApprovalScope, ApprovalState, InvalidationTrigger,
         RememberedRuleId, RememberedRuleSense, RememberedScope, RememberedScopeKind,
@@ -213,7 +214,9 @@ mod tests {
         StoredApprovalRequest {
             approval_request_id: ApprovalRequestId::new(approval_request_id).expect("an ask id"),
             session_id: SessionId::new(SESSION).expect("a session id"),
-            run_id: RunId::new(run_id).expect("a run id"),
+            holder: ApprovalHolder::Run {
+                run_id: RunId::new(run_id).expect("a run id"),
+            },
             requested_by: NonEmptyText::new("agent".to_owned()).expect("an actor"),
             category: ApprovalCategory::ToolExecution,
             scope: ApprovalScope::new("npm run test".to_owned()).expect("a scope"),
@@ -245,11 +248,13 @@ mod tests {
         let ask = "0190a5a0-0000-7000-8000-00000000000c";
         let run = "0190a5a0-0000-7000-8000-00000000000d";
         let row = rule_row(replaced_rule, RememberedScopeKind::Session);
+        let replacing = replacing_ask(ask, run);
+        let run_id = RunId::new(run).expect("a run id");
 
         let revoked = revoked_payload(
             &row,
             InvalidationTrigger::Explicit,
-            Some(&replacing_ask(ask, run)),
+            Some((run_id, &replacing)),
         );
 
         assert_eq!(revoked.rule_id.text().as_str(), replaced_rule);

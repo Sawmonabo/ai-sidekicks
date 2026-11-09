@@ -42,6 +42,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::repo::mount::WorkspaceState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -411,6 +412,10 @@ impl ApprovalRules {
         request: &StoredApprovalRequest,
         made: &ProviderAnswerRule,
     ) -> Result<(), ApprovalRuleError> {
+        let run_id = request
+            .holder
+            .run_id()
+            .expect("a rule is offered only on a run's card");
         let hold = self.rule_writes.acquire(()).await;
         // The card's rule was recorded before: an answer sent again records it once, and never
         // again once revoked, where it would replace a newer rule the person made.
@@ -437,7 +442,7 @@ impl ApprovalRules {
                     && row.tool_server_tool == request.resource_descriptor.tool_server_tool
             })
             .collect();
-        if let Err(record_failure) = self.record_remembered(&hold, request, rule).await {
+        if let Err(record_failure) = self.record_remembered(&hold, run_id, request, rule).await {
             if is_daemon_kept {
                 return Err(record_failure);
             }
@@ -450,7 +455,8 @@ impl ApprovalRules {
             let replaced_rule = provider_rule_of(&row);
             self.remove_from_project_files(&hold, row.session_id, &replaced_rule)
                 .await?;
-            let payload = revoked_payload(&row, InvalidationTrigger::Explicit, Some(request));
+            let payload =
+                revoked_payload(&row, InvalidationTrigger::Explicit, Some((run_id, request)));
             self.record_revoked(&hold, payload).await?;
             replaced.push(replaced_rule);
         }
@@ -626,6 +632,7 @@ impl ApprovalRules {
     async fn record_remembered(
         &self,
         _hold: &RuleWriteHold<'_>,
+        run_id: RunId,
         request: &StoredApprovalRequest,
         rule: &ProviderAskRule,
     ) -> Result<(), ApprovalRuleError> {
@@ -640,7 +647,7 @@ impl ApprovalRules {
             remembered_scope_statement(&request.approval_request_id, &remembered_scope);
         let payload = ApprovalRuleRememberedPayload {
             session_id: request.session_id,
-            run_id: request.run_id,
+            run_id,
             approval_request_id: request.approval_request_id,
             category: request.category,
             scope: request.scope.clone(),
@@ -731,11 +738,11 @@ fn is_project_rule(row: &RuleRow) -> bool {
     row.remembered_scope.kind == RememberedScopeKind::Project
 }
 
-// The revoke of `row`'s rule, naming the ask in flight that replaced it, if any.
+// The revoke of `row`'s rule, naming the ask in flight that replaced it, if any, with its run.
 fn revoked_payload(
     row: &RuleRow,
     invalidation_trigger: InvalidationTrigger,
-    replacing: Option<&StoredApprovalRequest>,
+    replacing: Option<(RunId, &StoredApprovalRequest)>,
 ) -> ApprovalRuleRevokedPayload {
     ApprovalRuleRevokedPayload {
         session_id: row.session_id,
@@ -743,8 +750,8 @@ fn revoked_payload(
         scope: row.scope.clone(),
         rule_id: row.rule_id,
         invalidation_trigger,
-        run_id: replacing.map(|request| request.run_id),
-        approval_request_id: replacing.map(|request| request.approval_request_id),
+        run_id: replacing.map(|(run_id, _)| run_id),
+        approval_request_id: replacing.map(|(_, request)| request.approval_request_id),
     }
 }
 

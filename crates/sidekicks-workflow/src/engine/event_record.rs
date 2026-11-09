@@ -28,16 +28,13 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::engine::ports::EngineRecordSink;
-use crate::engine::tick::{BranchCancelReason, StepSettlement};
+use crate::engine::tick::BranchCancelReason;
 use crate::kinds::StepFailure;
 use crate::secrets::redaction::RunRedaction;
 
 /// Work the engine is about to dispatch, recorded before it is handed off and paired with its
 /// outcome; it says the work is being dispatched, never that it runs.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record the work they dispatch"
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineIntent {
     /// The step is being handed to its driver.
     DispatchingStep,
@@ -59,13 +56,7 @@ pub(crate) enum EngineIntent {
 }
 
 /// How dispatched work ended, recorded against its intent.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record how each dispatch ended"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineOutcome {
     /// The dispatch went through.
     Done,
@@ -77,10 +68,7 @@ pub(crate) enum EngineOutcome {
 }
 
 /// A decision the engine took, recorded once as it is taken.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record every decision they take"
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineDecision<'report> {
     /// A step's report moved it; a step's progress is no transition and is never recorded.
     StepReported(StepTransition<'report>),
@@ -119,10 +107,7 @@ pub(crate) enum EngineDecision<'report> {
 }
 
 /// What a step's report did to it, as the record carries it: the typed values only.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record every report that moves a step"
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepTransition<'report> {
     /// The memory gate holds the step.
     WaitingOnPool {
@@ -143,14 +128,26 @@ pub(crate) enum StepTransition<'report> {
         count: usize,
     },
     /// The step ended; only how it ended and a failure's code are recorded.
-    Settled(&'report StepSettlement),
+    Settled(StepEnding<&'report StepFailure>),
+}
+
+/// How a step ended, carrying its failure where it failed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) enum StepEnding<Failure> {
+    /// It finished with its outputs.
+    Completed,
+    /// It failed.
+    Failed(Failure),
+    /// It waits on a person.
+    PersonWait,
+    /// It waits on its agent run's spent account.
+    AccountSpent,
+    /// It was canceled.
+    Canceled,
 }
 
 /// A deadline the engine arms or clears.
-#[expect(
-    dead_code,
-    reason = "the engine's tick and waits, which record each deadline they arm and clear"
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineDeadline {
     /// A person wait's deadline.
     Wait {
@@ -164,13 +161,7 @@ pub(crate) enum EngineDeadline {
 }
 
 /// A failure the engine met where no caller can answer it, recorded with its error chain.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's dispatch and the run start, which record what no caller answers"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineFault {
     /// The stop of an agent step's run could not be sent; the run's outcome still ends the step.
     AgentRunStopFailed,
@@ -178,17 +169,21 @@ pub(crate) enum EngineFault {
     SecretReadFailed,
     /// A start held on its chain could not remove the run's own folder or its stored trigger input.
     HeldStartLeftBehind,
+    /// A run's turn was not written; the run left the live set, and the restart settles what the
+    /// log holds.
+    TurnWriteFailed,
+    /// An artifact a failed turn or settlement wrote, or a kept value a turn replaced named, which
+    /// no record names, could not be deleted.
+    TurnPayloadLeftBehind,
+    /// A payload of a step could not be stored; the step failed in its place.
+    SettlementWriteFailed,
+    /// A `Keep going` could not be read or written; its sender reads it as not taken.
+    KeepGoingFailed,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
 #[must_use = "an intent is answered by its outcome"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which answer each intent with its outcome"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct PendingIntent {
     /// The intent line's sequence.
     sequence: u64,
@@ -301,13 +296,7 @@ pub(crate) struct RunEngineRecord {
 
 impl RunEngineRecord {
     /// Records `intent`, on `step` where one is named, before its work is dispatched.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record the work they dispatch"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn intent(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -353,13 +342,7 @@ impl RunEngineRecord {
     }
 
     /// Records how the work of `intent` ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record how each dispatch ended"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn outcome(&self, intent: PendingIntent, outcome: EngineOutcome) {
         let mut line = self.line(self.next_sequence(), "outcome", Some(intent.sequence), None);
         match outcome {
@@ -377,13 +360,7 @@ impl RunEngineRecord {
     }
 
     /// Records `decision`, on `step` where one is named.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record every decision they take"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn decision(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -432,13 +409,7 @@ impl RunEngineRecord {
 
     /// Records `fault`, on `step` where one is named, with `error`'s message and each of its
     /// sources' in order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tick's dispatch and the run start, which record what no caller answers"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn fault(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -461,6 +432,26 @@ impl RunEngineRecord {
                 &mut line,
                 "heldStartLeftBehind",
                 "A start held on its chain left its folder or its stored input behind.",
+            ),
+            EngineFault::TurnWriteFailed => says(
+                &mut line,
+                "turnWriteFailed",
+                "A turn of the run was not written; the run left the live set.",
+            ),
+            EngineFault::TurnPayloadLeftBehind => says(
+                &mut line,
+                "turnPayloadLeftBehind",
+                "A stored payload no record names could not be deleted.",
+            ),
+            EngineFault::SettlementWriteFailed => says(
+                &mut line,
+                "settlementWriteFailed",
+                "A payload of the step could not be stored; the step failed in its place.",
+            ),
+            EngineFault::KeepGoingFailed => says(
+                &mut line,
+                "keepGoingFailed",
+                "A Keep going of the run's chain could not be read or written.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));
@@ -564,13 +555,7 @@ fn says(line: &mut Map<String, Value>, record: &str, sentence: &str) {
 }
 
 /// Writes a step report's case: the report's word and its typed values.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>) {
     says(line, "stepReported", "A step's report moved it.");
     match transition {
@@ -592,21 +577,22 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
             let reason = match reason {
                 BranchCancelReason::FirstToArrive => "firstToArrive",
                 BranchCancelReason::SiblingFailure => "siblingFailure",
+                BranchCancelReason::RunCanceled => "runCanceled",
             };
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));
         }
-        StepTransition::Settled(settlement) => {
+        StepTransition::Settled(ending) => {
             line.insert("report".to_owned(), json!("settled"));
-            let word = match settlement {
-                StepSettlement::Completed { .. } => "completed",
-                StepSettlement::Failed { failure, .. } => {
+            let word = match ending {
+                StepEnding::Completed => "completed",
+                StepEnding::Failed(failure) => {
                     line.insert("failure".to_owned(), failure_code(failure));
                     "failed"
                 }
-                StepSettlement::PersonWait { .. } => "personWait",
-                StepSettlement::AccountSpent { .. } => "accountSpent",
-                StepSettlement::Canceled { .. } => "canceled",
+                StepEnding::PersonWait => "personWait",
+                StepEnding::AccountSpent => "accountSpent",
+                StepEnding::Canceled => "canceled",
             };
             line.insert("settlement".to_owned(), json!(word));
         }
@@ -615,13 +601,7 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
 
 /// A failure as the record carries it: its code, `uncoded` for a failure with none, or
 /// `declined` for a person's decline, whose words stay out.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn failure_code(failure: &StepFailure) -> Value {
     match failure {
         StepFailure::Failed(error) | StepFailure::EndsRun(error) => match error.as_ref() {
@@ -634,13 +614,7 @@ fn failure_code(failure: &StepFailure) -> Value {
 }
 
 /// Writes which deadline and its instant.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record each deadline they arm and clear"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn deadline_members(line: &mut Map<String, Value>, deadline: &EngineDeadline, at: &WireInstant) {
     match deadline {
         EngineDeadline::Wait { wait_id } => {
@@ -658,203 +632,4 @@ fn deadline_members(line: &mut Map<String, Value>, deadline: &EngineDeadline, at
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use secrecy::SecretString;
-    use serde_json::{Map, Value, json};
-    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::UuidTextForm;
-    use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-    use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
-    use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-    use sidekicks_std::mutex_lock::lock;
-
-    use super::{
-        EngineDecision, EngineIntent, EngineOutcome, EngineRecorder, RunEngineRecord,
-        StepTransition,
-    };
-    use crate::engine::ports::{EngineRecordSink, KeptEngineRecords};
-    use crate::engine::tick::StepSettlement;
-    use crate::kinds::{StepFailure, coded_step_error};
-    use crate::secrets::redaction::RunRedaction;
-
-    /// The run of `uuid`'s text.
-    fn run_id(uuid: &str) -> WorkflowRunId {
-        WorkflowRunId::new(uuid).expect("the test's run id is a UUID")
-    }
-
-    /// The first execution of node `node_id` in the run of `run_uuid`.
-    fn step(run_uuid: &str, node_id: &str) -> WorkflowStepKey {
-        serde_json::from_value(json!({
-            "workflowRunId": run_uuid, "nodeId": node_id, "attempt": 1, "executionIndex": 0,
-        }))
-        .expect("the test's step key reads")
-    }
-
-    /// A run's record on `recorder` with no secrets.
-    fn record(recorder: &EngineRecorder, run_uuid: &str) -> RunEngineRecord {
-        recorder.for_run(run_id(run_uuid), Arc::new(RunRedaction::new(&[])))
-    }
-
-    /// Two runs interleaved on one recorder each number their lines from 1, a record made again
-    /// for a run carries on from its last line, an outcome names its intent's sequence, one life id
-    /// marks every line, a run's end drops its counter, and a second recorder starts a new life at
-    /// 1. Mutations: one counter for every run; a fresh counter per record; an outcome without its
-    /// intent's sequence; a run's counter kept past its end; the life id dropped or shared between
-    /// recorders.
-    #[tokio::test]
-    async fn each_run_numbers_its_lines_from_one_and_an_outcome_names_its_intent() {
-        const RUN_A: &str = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7a";
-        const RUN_B: &str = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b";
-        let sink = Arc::new(KeptEngineRecords::default());
-        let recorder = EngineRecorder::new(Arc::clone(&sink) as Arc<dyn EngineRecordSink>);
-        let run_a = record(&recorder, RUN_A);
-        let run_b = record(&recorder, RUN_B);
-        let step_a = step(RUN_A, "build");
-        let wait_id = UuidTextForm::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7e")
-            .expect("the test's wait id is a UUID");
-
-        let dispatch = run_a
-            .intent(Some(&step_a), EngineIntent::DispatchingStep)
-            .await;
-        let question = run_b
-            .intent(None, EngineIntent::OpeningQuestion { wait_id })
-            .await;
-        run_a
-            .decision(
-                Some(&step_a),
-                EngineDecision::StepReported(StepTransition::Started),
-            )
-            .await;
-        run_b
-            .outcome(
-                question,
-                EngineOutcome::Failed {
-                    code: Some(RefusalCode::WorkflowStepNotWaiting),
-                },
-            )
-            .await;
-        run_a.outcome(dispatch, EngineOutcome::Done).await;
-        drop(run_a);
-        record(&recorder, RUN_A)
-            .decision(
-                None,
-                EngineDecision::Refused(RefusalCode::WorkflowRunNotCancelable),
-            )
-            .await;
-
-        let lines = sink.lines();
-        let of_run = |run: &str| -> Vec<&Map<String, Value>> {
-            lines
-                .iter()
-                .filter(|line| line["workflowRunId"] == json!(run))
-                .collect()
-        };
-        let sequences = |run: &str| -> Vec<Value> {
-            of_run(run)
-                .iter()
-                .map(|line| line["sequence"].clone())
-                .collect()
-        };
-        assert_eq!(sequences(RUN_A), [json!(1), json!(2), json!(3), json!(4)]);
-        assert_eq!(sequences(RUN_B), [json!(1), json!(2)]);
-        recorder.end_run(run_id(RUN_B));
-        assert_eq!(
-            lock(&recorder.sequences)
-                .keys()
-                .copied()
-                .collect::<Vec<_>>(),
-            [run_id(RUN_A)]
-        );
-        assert_eq!(of_run(RUN_A)[2]["intentSequence"], json!(1));
-        assert_eq!(of_run(RUN_B)[1]["intentSequence"], json!(1));
-        assert_eq!(of_run(RUN_A)[0]["nodeId"], json!("build"));
-        let life_id = lines[0]["lifeId"].clone();
-        assert!(life_id.is_string(), "every line carries the life id");
-        assert!(lines.iter().all(|line| line["lifeId"] == life_id));
-
-        let next_sink = Arc::new(KeptEngineRecords::default());
-        let next_life = EngineRecorder::new(Arc::clone(&next_sink) as Arc<dyn EngineRecordSink>);
-        record(&next_life, RUN_A)
-            .decision(
-                None,
-                EngineDecision::WaitOpened {
-                    cause: WorkflowWaitCause::Approval,
-                    deadline_at: Some(WireInstant::now()),
-                },
-            )
-            .await;
-        let next_lines = next_sink.lines();
-        assert_eq!(next_lines[0]["sequence"], json!(1));
-        assert!(next_lines[0]["lifeId"].is_string());
-        assert_ne!(next_lines[0]["lifeId"], life_id);
-    }
-
-    /// A failed step's line carries its code and none of its message or log lines, and the run's
-    /// secret, here inside the step's node id, reaches no line. Mutations: the message recorded;
-    /// the log lines recorded; the scrub skipped.
-    #[tokio::test]
-    async fn a_line_carries_no_secret_and_no_step_text() {
-        const RUN: &str = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7c";
-        const SECRET: &str = "correct-horse-battery-staple";
-        const PROMPT: &str = "Summarize the quarterly numbers for the board";
-        let sink = Arc::new(KeptEngineRecords::default());
-        let recorder = EngineRecorder::new(Arc::clone(&sink) as Arc<dyn EngineRecordSink>);
-        let run = recorder.for_run(
-            run_id(RUN),
-            Arc::new(RunRedaction::new(&[SecretString::from(SECRET)])),
-        );
-        let node_id = format!("deploy-{SECRET}");
-        let step = step(RUN, &node_id);
-        let settlement = StepSettlement::Failed {
-            failure: StepFailure::Failed(Box::new(coded_step_error(
-                RefusalCode::WorkflowStepTimedOut,
-                format!("the call with token {SECRET} timed out"),
-                json!({}),
-                None,
-            ))),
-            log_lines: vec![format!("prompt: {PROMPT}")],
-        };
-
-        run.decision(
-            Some(&step),
-            EngineDecision::StepReported(StepTransition::Settled(&settlement)),
-        )
-        .await;
-        run.decision(
-            Some(&step),
-            EngineDecision::Refused(RefusalCode::WorkflowRunNotCancelable),
-        )
-        .await;
-        let resume = run
-            .intent(
-                Some(&step),
-                EngineIntent::DispatchingResume {
-                    session_id: SessionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7d")
-                        .expect("the test's session id is a UUID"),
-                },
-            )
-            .await;
-        run.outcome(resume, EngineOutcome::Done).await;
-
-        let lines = sink.lines();
-        assert_eq!(lines.len(), 4);
-        assert_eq!(lines[0]["settlement"], json!("failed"));
-        assert_eq!(lines[0]["failure"], json!("workflow.step.timedOut"));
-        assert_eq!(lines[1]["code"], json!("workflow.run.notCancelable"));
-        for line in &lines {
-            let text = Value::Object(line.clone()).to_string();
-            assert!(!text.contains(SECRET), "a line carries the secret: {text}");
-            assert!(
-                !text.contains("timed out"),
-                "a line carries the message: {text}"
-            );
-            assert!(!text.contains(PROMPT), "a line carries a log line: {text}");
-        }
-        let recorded_node = lines[0]["nodeId"].as_str().expect("the node id is text");
-        assert!(recorded_node.starts_with("deploy-") && recorded_node != node_id);
-    }
-}
+mod tests;

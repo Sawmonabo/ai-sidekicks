@@ -4,12 +4,18 @@
 
 use std::time::Duration;
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeOnError};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowNode, WorkflowNodeId, WorkflowNodeOnError,
+};
 use sidekicks_contracts::workflow::definition::item::{
-    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems,
+    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowStepError,
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
+use sidekicks_contracts::workflow::run::failures::{
+    WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
+};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
@@ -19,7 +25,7 @@ use crate::engine::tick::branch_cancellation::{
 };
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
-use crate::kinds::{StepFailure, uncoded_step_error};
+use crate::kinds::{StepFailure, coded_step_error, uncoded_step_error};
 
 /// The most tries the engine gives a step, whatever its node's `retry.maxTries` asks.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -137,16 +143,8 @@ fn passed_on_items(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> Vec<WorkflowItem> {
-    let mut error = match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
-        StepFailure::Declined { words, .. } => uncoded_step_error(match words {
-            Some(words) => format!("The step was declined: {}", words.as_str()),
-            None => "The step was declined".to_owned(),
-        }),
-    };
-    let (_message, node_id, item_index) = error_members(&mut error);
-    node_id.get_or_insert_with(|| node.id.clone());
-    let failed_item = item_index.map(SafeInt::get);
+    let mut error = step_failure_error(&node.id, failure);
+    let failed_item = error_members(&mut error).2.map(SafeInt::get);
     main_inputs(spec, inputs)
         .enumerate()
         .flat_map(|(input_index, items)| {
@@ -170,6 +168,43 @@ fn passed_on_items(
             }
         })
         .collect()
+}
+
+/// The error `failure` records on the step of node `node_id`: its own, naming that node where it
+/// names none, or for a decline one naming the decline and carrying its words where the person
+/// typed any.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) fn step_failure_error(
+    node_id: &WorkflowNodeId,
+    failure: &StepFailure,
+) -> WorkflowStepError {
+    let mut error = match failure {
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
+        StepFailure::Declined { words, .. } => uncoded_step_error(match words {
+            Some(words) => format!("The step was declined: {}", words.as_str()),
+            None => "The step was declined".to_owned(),
+        }),
+    };
+    error_members(&mut error)
+        .1
+        .get_or_insert_with(|| node_id.clone());
+    error
+}
+
+/// The failure the run cap gives the step it cuts, `limit_ms` the cap: `workflow.step.timedOut`,
+/// cause `runCap`, a failure that ends its run.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
+    let details = WorkflowStepTimedOutDetails {
+        cause: WorkflowStepTimedOutCause::RunCap,
+        limit_ms,
+    };
+    StepFailure::EndsRun(Box::new(coded_step_error(
+        RefusalCode::WorkflowStepTimedOut,
+        "The run passed its time cap".to_owned(),
+        serde_json::to_value(details).expect("the timed-out details write as JSON"),
+        None,
+    )))
 }
 
 /// How a failure stops its run.
@@ -207,21 +242,22 @@ pub(crate) struct RunSibling {
 pub(crate) struct SiblingStop {
     /// A `Canceling` for each running sibling.
     pub(crate) reports: Vec<StepReport>,
-    /// The running siblings, winding down as one sibling-failure wave, when there are any.
+    /// The running siblings, winding down as one wave, when there are any.
     pub(crate) wave: Option<BranchWave>,
     /// The waiting siblings canceled by an end; a park keeps them waiting.
     pub(crate) canceled_waits: Vec<WorkflowStepKey>,
 }
 
-/// Stops the run's other live `siblings` when `deciding`'s failure stops the run as `stop`: each
-/// running sibling winds down in one sibling-failure wave, each held one is canceled at once and
-/// settles from its own driver, and a waiting one keeps waiting on a park and is canceled on an
-/// end. The commit writes each canceled wait's `workflow.step.canceled` and clears its live
-/// columns.
+/// Stops the run's live `siblings` when the run stops as `stop` for `reason`, `deciding` the step
+/// the wave's event sits on: each running sibling winds down in one wave, each held one is
+/// canceled at once and settles from its own driver, and a waiting one keeps waiting on a park
+/// and is canceled on an end. The commit writes each canceled wait's `workflow.step.canceled` and
+/// clears its live columns.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn stop_siblings(
     deciding: WorkflowStepKey,
     stop: RunStop,
+    reason: BranchCancelReason,
     siblings: Vec<RunSibling>,
 ) -> SiblingStop {
     let mut losers = Vec::new();
@@ -245,7 +281,7 @@ pub(crate) fn stop_siblings(
             }
         }
     }
-    let (reports, wave) = cancel_branches(deciding, BranchCancelReason::SiblingFailure, losers);
+    let (reports, wave) = cancel_branches(deciding, reason, losers);
     SiblingStop {
         reports,
         wave,
@@ -262,13 +298,14 @@ mod tests {
     use sidekicks_contracts::workflow::definition::document::WorkflowNode;
     use sidekicks_contracts::workflow::definition::item::WorkflowItem;
     use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
+    use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
     use tokio_util::sync::CancellationToken;
 
     use super::{
         RunSibling, RunStop, SiblingState, StepFailureRoute, route_step_failure, stop_siblings,
     };
-    use crate::engine::tick::branch_cancellation::WaveSettle;
+    use crate::engine::tick::branch_cancellation::{BranchCancelReason, WaveSettle};
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
     use crate::kinds::StepFailure;
 
@@ -465,7 +502,12 @@ mod tests {
             },
         ];
 
-        let stopped = stop_siblings(step("failed", 1), stop, siblings);
+        let stopped = stop_siblings(
+            step("failed", 1),
+            stop,
+            BranchCancelReason::SiblingFailure,
+            siblings,
+        );
         let reports: Vec<(String, bool)> = stopped
             .reports
             .iter()
@@ -489,7 +531,7 @@ mod tests {
             at: WireInstant::now(),
             kind: StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at: None,
-                is_sibling_failure: false,
+                cancellation_reason: None,
             }),
         };
         let WaveSettle::Closed {
@@ -498,25 +540,31 @@ mod tests {
         else {
             panic!("the one member's settlement closes the wave");
         };
-        let closing: Vec<(String, Option<bool>)> = closing
+        let closing: Vec<(String, Option<Option<WorkflowPhaseCancellationReason>>)> = closing
             .iter()
             .map(|report| {
-                let is_sibling_failure =
+                let cancellation_reason =
                     if let StepReportKind::Settled(StepSettlement::Canceled {
-                        is_sibling_failure,
+                        cancellation_reason,
                         ..
                     }) = report.kind
                     {
-                        Some(is_sibling_failure)
+                        Some(cancellation_reason)
                     } else {
                         None
                     };
-                (report.step.node_id.as_str().to_owned(), is_sibling_failure)
+                (report.step.node_id.as_str().to_owned(), cancellation_reason)
             })
             .collect();
         assert_eq!(
             closing,
-            vec![("failed".to_owned(), None), ("a".to_owned(), Some(true))]
+            vec![
+                ("failed".to_owned(), None),
+                (
+                    "a".to_owned(),
+                    Some(Some(WorkflowPhaseCancellationReason::SiblingFailure))
+                )
+            ]
         );
     }
 }

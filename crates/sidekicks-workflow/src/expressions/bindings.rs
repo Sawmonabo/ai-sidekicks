@@ -553,10 +553,11 @@ pub(crate) fn test_expression_bindings(
     input_items: Vec<WorkflowItem>,
     steps: StepOutputs,
 ) -> ExpressionBindings {
-    let node_id = |id: &str| WorkflowNodeId::new(id.to_owned()).expect("a node id");
+    use crate::test_rows::test_node_id;
+
     ExpressionBindings {
         step: StepKey {
-            node_id: node_id("current"),
+            node_id: test_node_id("current"),
             execution_index: 0,
         },
         input_items: input_items.into(),
@@ -571,7 +572,7 @@ pub(crate) fn test_expression_bindings(
         run_id: WorkflowRunId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62").expect("a run id"),
         run_trigger: WorkflowRunTrigger {
             kind: sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind::Manual,
-            node_id: node_id("L"),
+            node_id: test_node_id("L"),
         },
         workflow_id: WorkflowDefinitionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60")
             .expect("a definition id"),
@@ -591,7 +592,6 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
     use sidekicks_contracts::workflow::definition::item::WorkflowItem;
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::trigger::{WorkflowRunTrigger, WorkflowTriggerKind};
@@ -599,17 +599,14 @@ mod tests {
     use super::{ExpressionBindings, ExpressionError, StepBindings, test_expression_bindings};
     use crate::definitions::kept_values::WorkflowKeptValue;
     use crate::expressions::lineage::{LineageError, StepKey, StepOutput, StepOutputs};
+    use crate::test_rows::test_node_id;
 
     const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
 
-    fn node_id(id: &str) -> WorkflowNodeId {
-        WorkflowNodeId::new(id.to_owned()).expect("a node id")
-    }
-
     fn step_key(id: &str) -> StepKey {
         StepKey {
-            node_id: node_id(id),
+            node_id: test_node_id(id),
             execution_index: 0,
         }
     }
@@ -628,7 +625,7 @@ mod tests {
         ];
         let mut steps = StepOutputs::new(
             ["trigger", "source", "empty", "current"]
-                .map(|label| (node_id(label), label.to_owned())),
+                .map(|label| (test_node_id(label), label.to_owned())),
         );
         steps.record(
             step_key("trigger"),
@@ -666,7 +663,7 @@ mod tests {
         let run_id = WorkflowRunId::new(RUN_ID).expect("a run id");
         ExpressionBindings {
             node_params: Arc::new(HashMap::from([(
-                node_id("source"),
+                test_node_id("source"),
                 from_json(json!({ "mode": "fast" })),
             )])),
             run_index: 2,
@@ -698,7 +695,7 @@ mod tests {
             .into(),
             run_trigger: WorkflowRunTrigger {
                 kind: WorkflowTriggerKind::Manual,
-                node_id: node_id("trigger"),
+                node_id: test_node_id("trigger"),
             },
             ..test_expression_bindings(source_items, steps)
         }

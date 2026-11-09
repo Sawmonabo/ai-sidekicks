@@ -159,6 +159,15 @@ macro_rules! workflow_run_summary {
             pub cost: Option<WorkflowCost>,
             /// The Keep mark the row shows.
             pub keep: bool,
+            /// The run's own summary line, which a `Write a summary` step writes; absent until one
+            /// does.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "NonEmptyText")]
+            pub summary: Option<NonEmptyText>,
             $($own)*
         }
     )+};
