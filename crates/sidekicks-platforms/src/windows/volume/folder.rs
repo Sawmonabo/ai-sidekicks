@@ -76,7 +76,7 @@ pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>>
 
 /// Whether this user owns `folder`; a folder this user may not read the owner of is not its own.
 /// Fails with the system's error from the open or the read.
-pub(crate) fn is_owned_by_user(folder: &Path) -> io::Result<bool> {
+pub fn is_owned_by_user(folder: &Path) -> io::Result<bool> {
     let opened = match OpenOptions::new()
         .access_mode(READ_CONTROL)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)

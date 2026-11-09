@@ -189,7 +189,7 @@ pub struct DriverPorts {
     /// The run queue's opening of the binding a turn the daemon starts on a session runs on.
     pub daemon_turn_bindings: Arc<PortRegistration<Arc<dyn DaemonTurnBindingResolver>>>,
     /// The daemon's reads of the repository a working folder belongs to.
-    pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
+    pub repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
     /// The run queue's intake of a taken message.
     pub message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
     /// The run queue's intake of a handed message the provider refused.

@@ -80,8 +80,6 @@ pub(crate) async fn resolve_claude_spawn_context(
         every_project_rows: context.every_project_rows,
         project_rows: context.project_rows,
         account_folders: ClaudeAccountFolders::from(&context.account_folders),
-        // Claude Code finds each folder's memory itself; the daemon names none beside them.
-        memory_folders: Vec::new(),
         // The session's own advisor and style, else the ones the app keeps for new sessions.
         advisor: context.advisor_model.map_or_else(
             || {

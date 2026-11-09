@@ -273,7 +273,7 @@ fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) 
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -285,6 +285,7 @@ mod tests {
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
+    use crate::driver::claude::spawn::legs::compose_claude_memory_folders;
     use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 
     // Killed by dropping the credential paths from `permissions.deny`, which lets every
@@ -324,13 +325,15 @@ mod tests {
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
     // reads, by narrowing the allows to `.md` files, which would keep the agent from its other
-    // memory files, or by dropping the background deny rules at Sandboxed.
+    // memory files, by dropping either spelling of the folder from the composition, by allowing
+    // the folder at another level (Yolo beside Sandboxed among them), or by dropping the
+    // background deny rules at Sandboxed.
     #[test]
     fn sandboxed_allows_the_agent_memory_folder_and_denies_background_work() {
-        let memory_folders = [
-            PathBuf::from("/Users/alice/.claude/agent-memory"),
-            PathBuf::from("/Users/alice/.ai-sidekicks/agent-memory"),
-        ];
+        let memory_folders = compose_claude_memory_folders(
+            Path::new("/Users/alice/.claude"),
+            Path::new("/Users/alice/.ai-sidekicks"),
+        );
         let request = ClaudePermissionsRequest {
             credential_deny_paths: &[],
             memory_folders: &memory_folders,
@@ -365,9 +368,18 @@ mod tests {
                 .any(|rule| rule == "Bash(claude agents *)")
         );
 
+        for level in [
+            PermissionLevel::Readonly,
+            PermissionLevel::Ask,
+            PermissionLevel::Reviewed,
+            PermissionLevel::Yolo,
+        ] {
+            let document =
+                compose_claude_permissions(&request, &[], Some(level)).expect("the rules compose");
+            assert_eq!(document.allow, [] as [String; 0], "{level:?}");
+        }
         let reviewed = compose_claude_permissions(&request, &[], Some(PermissionLevel::Reviewed))
             .expect("the rules compose");
-        assert_eq!(reviewed.allow, [] as [String; 0]);
         assert_eq!(reviewed.ask, ["Bash(rm *)"]);
     }
 

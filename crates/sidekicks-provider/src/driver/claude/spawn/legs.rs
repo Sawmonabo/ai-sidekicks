@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
+use sidekicks_store::data_folder::agent_memory_folder;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_workspace::git::process::environment::GIT_TERMINAL_PROMPT_OFF;
 
@@ -61,8 +62,6 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) project_rows: Vec<EnvironmentRow>,
     /// The account's folders.
     pub(crate) account_folders: ClaudeAccountFolders,
-    /// Each spelling of the agent-memory folder.
-    pub(crate) memory_folders: Vec<PathBuf>,
     /// The session's advisor.
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
@@ -234,13 +233,35 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         output_schema: request.output_schema,
         on_mcp_server_status: request.on_mcp_server_status,
         credential_deny_paths: credential_policy.deny_paths,
-        memory_folders: context.memory_folders,
+        memory_folders: compose_claude_memory_folders(
+            Path::new(&context.account_folders.config_folder),
+            Path::new(&*services.data_folder),
+        ),
         background_work: Arc::clone(services.background_work),
         spawn_environment,
         advisor: context.advisor,
         output_style: context.output_style,
         command_channel: request.command_channel,
     })
+}
+
+/// Each spelling of the agent-memory folder a process whose configuration home is `config_folder`
+/// reaches: the home's own link and the daemon's folder in `data_folder` it leads to, since Claude
+/// Code checks a path both as given and with the link followed.
+pub(crate) fn compose_claude_memory_folders(
+    config_folder: &Path,
+    data_folder: &Path,
+) -> Vec<PathBuf> {
+    DESCRIPTOR
+        .account_home_memory_folder
+        .map(|components| {
+            components
+                .iter()
+                .fold(config_folder.to_path_buf(), |path, part| path.join(part))
+        })
+        .into_iter()
+        .chain([agent_memory_folder(data_folder)])
+        .collect()
 }
 
 /// Installs the callback-tool registry of the session `legs` start, in `registry`, and returns

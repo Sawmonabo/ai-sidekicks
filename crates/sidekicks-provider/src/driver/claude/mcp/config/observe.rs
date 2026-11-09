@@ -56,6 +56,7 @@ mod tests {
     use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
     use crate::driver::claude::mcp::config::compose::compose_claude_mcp_entry;
     use crate::driver::claude::mcp::config::edit::{ClaudeEditTarget, edit_claude_mcp_entry};
+    use crate::driver::claude::session::rules::{CLAUDE_SHARED_SETTINGS_FILE, settings_path};
     use crate::driver::mcp_server::write::{McpServerObservedEntry, McpServerWriteOutcome};
 
     // Compose's entry, written by the edit, is what the observe reads back, in Claude Code's own
@@ -91,7 +92,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let person = ClaudePersonConfigFiles {
             person_config: home.path().join(".claude.json"),
-            user_settings: home.path().join(".claude").join("settings.json"),
+            user_settings: settings_path(home.path(), CLAUDE_SHARED_SETTINGS_FILE),
         };
         fs::write(
             &person.person_config,

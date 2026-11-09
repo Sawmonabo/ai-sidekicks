@@ -128,7 +128,7 @@ impl ClaudeSpawnSources {
     }
 
     /// The repository of `working_folder` as Claude Code places its project settings; `None`
-    /// outside git, and before the daemon registers its repository reader.
+    /// outside git, or where the daemon's repository read cannot place the folder.
     pub(crate) async fn read_repository(
         &self,
         working_folder: &Path,
@@ -138,8 +138,8 @@ impl ClaudeSpawnSources {
     }
 
     /// Where the settings of a Claude Code process started with `environment` in
-    /// `working_folder` are read from. It fails nothing; a folder outside git, or a daemon with no
-    /// repository reader yet, reads with no repository.
+    /// `working_folder` are read from. It fails nothing; a folder outside git, or one whose
+    /// repository cannot be read, reads with no repository.
     pub(crate) async fn read_settings_sources(
         &self,
         environment: &[(String, String)],

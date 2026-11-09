@@ -4,7 +4,7 @@
 //! lasting service answers by connecting to it.
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -15,10 +15,11 @@ use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
 use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-use sidekicks_platforms::{PathRules, Spawner, current_user_id};
+use sidekicks_platforms::{PathRules, Spawner, current_user_id, is_owned_by_user};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
@@ -45,6 +46,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{
     DriverServices, ProviderAccountReader, ProviderDescriptor, ProviderRegistration,
 };
+use sidekicks_provider::port::repository_reader::{RepositoryReader, RepositoryReading};
 use sidekicks_provider::port::server_prompts::ServerPromptPort;
 use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
@@ -78,6 +80,8 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
+use sidekicks_workspace::repo::errors::RepoRefusal;
+use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -321,6 +325,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) approval_rules: Arc<ApprovalRules>,
     /// The places the daemon runs sessions in.
     pub(crate) session_places: Arc<[SessionPlace]>,
+    /// The repository resolver, which the drivers read a working folder's repository through.
+    pub(crate) repository_resolver: RepoRootResolver,
     /// The pause and continue of runs.
     pub(crate) run_pauses: Arc<RunPauseControl>,
     /// The usage record, which meters each provider reading and stops a run at its token limit.
@@ -417,6 +423,9 @@ pub(crate) fn register_driver_ports(
     ports.session_rules.register(owners.approval_rules)?;
     ports.session_places.register(owners.session_places)?;
     ports
+        .repositories
+        .register(Arc::new(ResolvedRepositories(owners.repository_resolver)))?;
+    ports
         .session_level_followers
         .register(Arc::new(WeakLevelFollower(Arc::downgrade(
             &owners.provider_sessions,
@@ -447,6 +456,51 @@ impl SessionLevelFollower for WeakLevelFollower {
         async move {
             let sessions = sessions.ok_or("the provider sessions are gone")?;
             SessionLevelFollower::follow_reported_level(sessions.as_ref(), session_id).await
+        }
+        .boxed()
+    }
+}
+
+/// The drivers' repository reads, answered by the repository resolver, and their owner reads, as
+/// the operating system tells.
+struct ResolvedRepositories(RepoRootResolver);
+
+impl RepositoryReader for ResolvedRepositories {
+    /// The resolver's main checkout and common git folder of `working_folder`; `None` on git's
+    /// not-a-repository verdict, and on any other refusal, which is logged.
+    fn read_repository<'a>(
+        &'a self,
+        working_folder: &'a Path,
+    ) -> BoxFuture<'a, Option<RepositoryReading>> {
+        async move {
+            match self.0.resolve_canonical_root(working_folder).await {
+                Ok(resolution) => Some(RepositoryReading {
+                    root: resolution.canonical_root,
+                    common_git_folder: resolution.common_folder,
+                }),
+                Err(RepoRefusal::RootResolutionFailed {
+                    reason: RepoMountRootResolutionReason::NotARepository,
+                    ..
+                }) => None,
+                Err(refusal) => {
+                    tracing::warn!(
+                        error = &refusal as &(dyn Error + 'static),
+                        "a working folder's repository could not be read; it reads as outside git"
+                    );
+                    None
+                }
+            }
+        }
+        .boxed()
+    }
+
+    /// Reads the owner on a blocking thread; an entry whose owner cannot be read is not owned.
+    fn is_owned_by_user<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, bool> {
+        let path = path.to_path_buf();
+        async move {
+            tokio::task::spawn_blocking(move || is_owned_by_user(&path))
+                .await
+                .is_ok_and(|owned| owned.unwrap_or(false))
         }
         .boxed()
     }

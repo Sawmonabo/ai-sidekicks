@@ -50,13 +50,13 @@ const NOT_A_REPOSITORY_MARKER: &str = "fatal: not a git repository";
 /// What an attach may keep about a path: every member absolute with each link resolved, and both
 /// roots readable when resolved.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RepoRootResolution {
+pub struct RepoRootResolution {
     /// The main checkout's working tree root, or the path's own working tree where it is its own.
-    pub(crate) canonical_root: PathBuf,
+    pub canonical_root: PathBuf,
     /// The top level of the working tree the path sits in, which a bind naming no folder uses.
     pub(crate) working_tree_root: PathBuf,
     /// The repository's git common folder: its identity, shared by every working tree it has.
-    pub(crate) common_folder: PathBuf,
+    pub common_folder: PathBuf,
 }
 
 // What git answered when asked for the top level of the working tree a folder sits in.
@@ -106,7 +106,7 @@ impl RepoRootResolver {
     /// name for the repository, `notUnicode` for a resolved path that is not valid Unicode,
     /// `notReadable` when a git call passes its bound, and `vcsError` when git cannot answer
     /// otherwise.
-    pub(crate) async fn resolve_canonical_root(
+    pub async fn resolve_canonical_root(
         &self,
         local_path: &Path,
     ) -> Result<RepoRootResolution, RepoRefusal> {

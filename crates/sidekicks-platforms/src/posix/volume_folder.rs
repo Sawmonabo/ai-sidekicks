@@ -99,7 +99,7 @@ fn is_held_by_user(place_facts: &Metadata, user: u32) -> bool {
 }
 
 /// Whether this user owns `folder`, read without following a link. Fails with the read's error.
-pub(crate) fn is_owned_by_user(folder: &Path) -> io::Result<bool> {
+pub fn is_owned_by_user(folder: &Path) -> io::Result<bool> {
     Ok(fs::symlink_metadata(folder)?.uid() == getuid().as_raw())
 }
 

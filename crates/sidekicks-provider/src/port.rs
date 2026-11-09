@@ -12,7 +12,7 @@ pub mod permission_ask;
 pub mod plan;
 pub mod question;
 pub mod raw_provider_messages;
-pub(crate) mod repository_reader;
+pub mod repository_reader;
 pub mod reviewer_denial;
 pub mod run_host;
 pub mod run_pause;

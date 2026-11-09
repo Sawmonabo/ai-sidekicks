@@ -78,6 +78,7 @@ use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::service::{ProjectService, ProjectServiceDeps};
+use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 
 use crate::daemon::artifact_methods::ArtifactMethods;
 use crate::daemon::backup::methods::BackupMethodsDeps;
@@ -489,6 +490,7 @@ pub(crate) async fn register_method_inputs(
             writer: Arc::clone(&writer),
             approval_rules: Arc::clone(&session.approvals.rules),
             session_places: native_session_places(&base_environment),
+            repository_resolver: RepoRootResolver::new(git.clone()),
             run_pauses: Arc::clone(&session.pauses),
             usage: Arc::clone(&session.usage),
             running_commands: Arc::clone(&session.running_commands),

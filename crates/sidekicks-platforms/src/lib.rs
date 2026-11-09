@@ -475,7 +475,9 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
-pub(crate) use posix::volume_folder::{create_user_folder_in, is_owned_by_user};
+pub(crate) use posix::volume_folder::create_user_folder_in;
+#[cfg(unix)]
+pub use posix::volume_folder::is_owned_by_user;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use powershell_literal::quote_powershell_literal;
@@ -728,7 +730,9 @@ pub use windows::terminal::{
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
 #[cfg(target_os = "windows")]
-pub(crate) use windows::volume::folder::{create_user_folder_in, is_owned_by_user};
+pub(crate) use windows::volume::folder::create_user_folder_in;
+#[cfg(target_os = "windows")]
+pub use windows::volume::folder::is_owned_by_user;
 #[cfg(target_os = "windows")]
 pub use windows::volume::read_volume;
 #[cfg(target_os = "windows")]

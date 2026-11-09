@@ -7,15 +7,15 @@ use futures::future::BoxFuture;
 
 /// A working folder's repository, as the daemon's git reads found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RepositoryReading {
+pub struct RepositoryReading {
     /// The repository's root, the main checkout's for a worktree.
-    pub(crate) root: PathBuf,
+    pub root: PathBuf,
     /// The repository's common git folder.
-    pub(crate) common_git_folder: PathBuf,
+    pub common_git_folder: PathBuf,
 }
 
 /// Reads repositories and the owner of their entries, registered through a `PortRegistration`.
-pub(crate) trait RepositoryReader: Send + Sync {
+pub trait RepositoryReader: Send + Sync {
     /// The repository of `working_folder`, `None` outside git.
     fn read_repository<'a>(
         &'a self,
