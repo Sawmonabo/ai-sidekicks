@@ -1,8 +1,11 @@
 import { useState } from "react";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/item";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
-import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step/methods";
+import type {
+  WorkflowStepPayloadKind,
+  WorkflowStepReadCursor,
+} from "@ai-sidekicks/contracts/workflow/run/step/methods";
 
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
@@ -32,7 +35,7 @@ export interface StepPayloadReadHold {
 }
 
 /**
- * Read one of a step's three payloads through `workflow.stepRead`, page by page until the daemon
+ * Read one of a step's three payloads through `workflow.step.read`, page by page until the daemon
  * names no next page. An inline payload is capped in size, so its pages are bounded; one kept as
  * an artifact comes back as its reference in one page, and its items are then read from the
  * artifact, so the tab draws both the same way and says which it was. The read starts over when
@@ -53,11 +56,11 @@ export function useStepPayloadRead(
     subject,
     async (_subject, signal) => {
       const items: WorkflowItem[] = [];
-      let cursor: string | undefined;
+      let cursor: WorkflowStepReadCursor | undefined;
       do {
         const reply = await callDaemon(
           bridge,
-          "workflow.stepRead",
+          "workflow.step.read",
           {
             workflowRunId,
             nodeId,

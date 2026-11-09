@@ -6,10 +6,12 @@ import type {
   ProviderAccount,
   ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import { describe, expect, it } from "vitest";
 
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
+import { providerSectionsFixture } from "#renderer/store/providers/sections.test-support.js";
 import { costWithPayer, readPayer } from "./cost.js";
 
 const COST: WorkflowCost = {
@@ -19,18 +21,18 @@ const COST: WorkflowCost = {
 
 const PAYER: ProviderAccount = {
   accountId: COST.providerAccountId,
-  provider: "claude",
+  provider: "claude" as ProviderId,
   credentialGeneration: 1,
   billingMode: "subscription",
   isDefault: true,
   healthState: "authenticated",
   healthObservedAt: "2026-01-01T07:00:00.000Z",
-  observedAuthMode: "oauth_subscription",
+  observedAuthMode: "oauthSubscription",
   observedAccountEmail: "sam@example.com",
   observedAccountPlan: "max",
-  loggedInAt: null,
+  signedInAt: null,
   lastRefreshObservedAt: null,
-  expectedReloginAtEstimate: null,
+  signInNeededAtEstimate: null,
   probeEnabled: true,
   windowStartEnabled: true,
   wakeForWindowStartEnabled: false,
@@ -39,7 +41,9 @@ const PAYER: ProviderAccount = {
 
 function costRead(accounts: readonly ProviderAccount[] | undefined): string {
   return joinFigureSentence(
-    costWithPayer(COST, (providerAccountId) => readPayer(accounts, providerAccountId)),
+    costWithPayer(COST, (providerAccountId) =>
+      readPayer(accounts, providerSectionsFixture(), providerAccountId),
+    ),
   );
 }
 
@@ -51,7 +55,7 @@ describe("costWithPayer over the registry as read", () => {
     // Before the registry is read nothing is known about the payer, so the cost stands alone.
     expect(costRead(undefined)).toBe("$7.30");
     // Carried, but put again before its provider named it: not removed, and no name to draw.
-    const unnamed = { ...PAYER, observedAccountEmail: undefined, observedAccountPlan: undefined };
+    const { observedAccountEmail: _email, observedAccountPlan: _plan, ...unnamed } = PAYER;
     expect(costRead([unnamed])).toBe("$7.30");
   });
 });

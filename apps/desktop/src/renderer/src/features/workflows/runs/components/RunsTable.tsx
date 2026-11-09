@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
@@ -87,7 +87,7 @@ function RunRow(
     setIsConfirming(false);
   }, []);
   const remove = useWorkflowCall(
-    () => callDaemon(props.bridge, "workflow.runDelete", { workflowRunId: run.workflowRunId }),
+    () => callDaemon(props.bridge, "workflow.run.delete", { workflowRunId: run.workflowRunId }),
     props.onRunDeleted,
   );
   // Once a delete is sent the confirm takes no second press; the row goes when the list is read

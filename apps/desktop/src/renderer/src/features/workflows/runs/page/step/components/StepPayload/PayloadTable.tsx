@@ -1,6 +1,6 @@
 import "./PayloadTable.css";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/item";
 
 import { MarkdownDocumentRow } from "./MarkdownDocumentRow.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";

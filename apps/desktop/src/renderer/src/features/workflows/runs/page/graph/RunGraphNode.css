@@ -135,7 +135,7 @@
 }
 
 /* Held for memory: its own quiet hold ring, neither amber nor anything read as a failure. */
-.meridian-run-graph-node[data-status="waiting-memory"] {
+.meridian-run-graph-node[data-status="waitingMemory"] {
   border-color: var(--meridian-edge-strong);
   border-style: dotted;
 }

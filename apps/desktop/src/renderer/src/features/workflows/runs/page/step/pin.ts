@@ -4,11 +4,11 @@
 // as an artifact is read only when the pin is pressed.
 
 import type {
-  WorkflowDocument,
   WorkflowItem,
   WorkflowPinnedItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
-import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
+} from "@ai-sidekicks/contracts/workflow/definition/item";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle-parsing";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";

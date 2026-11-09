@@ -30,7 +30,7 @@ describe("the runs table's `Delete run`", () => {
     const parked = playbackRun(WORKFLOW_RUN_IDS.failed);
     const finished = playbackRun(WORKFLOW_RUN_IDS.succeeded);
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "workflow.runDelete"
+      call.method === "workflow.run.delete"
         ? { workflowRunId: finished.workflowRunId, deleted: true }
         : passThrough(),
     );
@@ -64,12 +64,12 @@ describe("the runs table's `Delete run`", () => {
 
     fireEvent.click(within(finishedRow).getByRole("button", { name: "Delete run" }));
     const confirm = within(finishedRow).getByRole("group", { name: "Delete this run?" });
-    expect(calls.filter((call) => call.method === "workflow.runDelete")).toStrictEqual([]);
+    expect(calls.filter((call) => call.method === "workflow.run.delete")).toStrictEqual([]);
 
     fireEvent.click(within(confirm).getByRole("button", { name: "Delete run" }));
     await waitFor(() => {
       expect(onRunDeleted).toHaveBeenCalledOnce();
     });
-    expect(calls.filter((call) => call.method === "workflow.runDelete")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "workflow.run.delete")).toHaveLength(1);
   });
 });

@@ -248,7 +248,7 @@ describe("a run's header", () => {
     expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
-    expect(goingCalls.map((call) => call.method)).toStrictEqual(["workflow.runCancel"]);
+    expect(goingCalls.map((call) => call.method)).toStrictEqual(["workflow.run.cancel"]);
     cleanup();
 
     // A failed run parked on its failed step has not ended: Resume picks it up, Cancel ends it.
@@ -260,8 +260,8 @@ describe("a run's header", () => {
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
     expect(failedCalls.map((call) => call.method)).toStrictEqual([
-      "workflow.runResume",
-      "workflow.runCancel",
+      "workflow.run.resume",
+      "workflow.run.cancel",
     ]);
     cleanup();
 
@@ -284,7 +284,7 @@ describe("a run's header", () => {
     await advanceDaemon(1_000);
 
     expect(calls).toStrictEqual([
-      { method: "workflow.runRerun", params: { workflowRunId: source.workflowRunId } },
+      { method: "workflow.run.rerun", params: { workflowRunId: source.workflowRunId } },
     ]);
     expect(openedRuns).toStrictEqual([mintedRunId("rerun", 0)]);
   });

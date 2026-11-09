@@ -1,6 +1,6 @@
 import { useCallback, useContext, useMemo, useState } from "react";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/item";
 
 import { BlockCopyRendererContext } from "#renderer/components/Markdown/block-copy-offer.js";
 import { byteOrderMarkLengthOf } from "#renderer/components/Markdown/parse/byte-order-mark.js";

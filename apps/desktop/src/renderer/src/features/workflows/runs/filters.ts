@@ -2,6 +2,7 @@
 // the request each set asks the daemon, the note a set matching nothing reads in its own words,
 // and the record they are kept in on this device so they come back the way they were left.
 
+import type { WorkflowRunListRequest } from "@ai-sidekicks/contracts/workflow/run/list";
 import {
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunStatus,
@@ -11,7 +12,6 @@ import {
   type WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type { WorkflowRunListRequest } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../words.js";
@@ -58,7 +58,7 @@ export function hasRunFilters(filters: RunFilters): boolean {
   );
 }
 
-/** The `workflow.runList` request a set of filters asks, its date range counted back from now. */
+/** The `workflow.run.list` request a set of filters asks, its date range counted back from now. */
 export function runListRequestFor(filters: RunFilters, nowMs: number): WorkflowRunListRequest {
   const { days } = RUN_DATE_RANGE_WORDS[filters.dateRange];
   return {

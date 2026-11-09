@@ -78,7 +78,7 @@ export function useStepForm(
     bridge,
     subject,
     async (_subject, signal) => {
-      const reply = await callDaemon(bridge, "workflow.humanFormRead", stepKey, { signal });
+      const reply = await callDaemon(bridge, "workflow.humanForm.read", stepKey, { signal });
       return reply.status === "served"
         ? { kind: "read", form: reply.value }
         : { kind: "failed", refusal: reply.refusal };
@@ -115,7 +115,7 @@ export function useStepForm(
       }
       isSaving.current = true;
       const expectedRevision = draftRevision.current;
-      void callDaemon(bridge, "workflow.humanFormDraftSave", {
+      void callDaemon(bridge, "workflow.humanForm.draft.update", {
         ...stepKey,
         formState: { ...draft },
         ...(expectedRevision === undefined ? {} : { expectedRevision }),
@@ -180,7 +180,7 @@ export function useStepForm(
       readonly fields: Record<string, unknown>;
       readonly paths: WorkflowHumanFormPathAnswer[];
       readonly expectedRevision: number;
-    }) => callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
+    }) => callDaemon(bridge, "workflow.humanForm.submit", { ...stepKey, ...request }),
     (submitted) => {
       onAnswered({ kind: "answered", at: submitted.submittedAt });
     },

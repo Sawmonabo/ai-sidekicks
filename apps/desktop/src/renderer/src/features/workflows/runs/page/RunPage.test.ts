@@ -86,7 +86,7 @@ describe("a run's page", () => {
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingForm),
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        return call.method === "workflow.runRead" &&
+        return call.method === "workflow.run.read" &&
           (call.params as { workflowRunId: string }).workflowRunId === WORKFLOW_RUN_IDS.chainHeld
           ? heldBehindChain(reply as WorkflowRunReadResponse)
           : reply;

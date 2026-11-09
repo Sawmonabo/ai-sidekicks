@@ -26,7 +26,7 @@ export function ApprovalAnswer(props: {
   const { workflowRunId, nodeId, bridge } = props;
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
-      callDaemon(bridge, "workflow.gateResolve", { workflowRunId, nodeId, decision }),
+      callDaemon(bridge, "workflow.gate.resolve", { workflowRunId, nodeId, decision }),
     (resolved, decision) => {
       props.onAnswered({ kind: decision, at: resolved.decidedAt });
     },

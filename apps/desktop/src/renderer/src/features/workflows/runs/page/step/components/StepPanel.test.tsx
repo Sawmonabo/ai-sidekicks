@@ -8,18 +8,23 @@
 // each refusing in its own words; a refused Keep says so in the daemon's words; and
 // `Fix in a fresh session` opens the run's fix session again once there is one.
 
-import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
+import type {
+  WorkflowBinaryRef,
+  WorkflowItem,
+} from "@ai-sidekicks/contracts/workflow/definition/item";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
+import {
+  WORKFLOW_STEP_THREAD_FAILED_CODE,
+  WORKFLOW_STEP_THREAD_FAILED_REASONS,
+} from "@ai-sidekicks/contracts/workflow/run/failures";
 import type {
-  WorkflowBinaryRef,
-  WorkflowDocument,
-  WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
-import { WORKFLOW_STEP_THREAD_FAILED_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+  WorkflowStep,
+  WorkflowStepProcessExit,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -59,7 +64,7 @@ function fixtureRun(workflowRunId: string): WorkflowRunReadResponse {
 function summaryRecord(
   run: WorkflowRunReadResponse,
   members: Partial<Pick<WorkflowStep, SummaryMember>> &
-    ({ status: "failed"; processExit?: ProcessExit } | { status: "succeeded" }),
+    ({ status: "failed"; processExit?: WorkflowStepProcessExit } | { status: "succeeded" }),
 ): WorkflowStep {
   const summary = run.steps.find((step) => step.nodeId === "summary");
   if (summary === undefined) {
@@ -82,11 +87,11 @@ function renderPanel(
   } = {},
 ): readonly RecordedDaemonCall[] {
   const { bridge, calls } = bridgeAnswering(async (call, passThrough) => {
-    if (call.method === "workflow.stepRead") {
+    if (call.method === "workflow.step.read") {
       const { nodeId, executionIndex, which } = call.params as Record<string, unknown>;
       return { nodeId, executionIndex, which, payload: { kind: "inline", items: [] } };
     }
-    if (call.method === "workflow.runKeepSet" && options.keepRefusal !== undefined) {
+    if (call.method === "workflow.run.keep.update" && options.keepRefusal !== undefined) {
       throw options.keepRefusal;
     }
     if (call.method === "artifact.read" && options.artifactText !== undefined) {
@@ -163,7 +168,7 @@ describe("the step panel", () => {
       message: "The suite exited with failures.",
       itemIndex: 0,
       code: WORKFLOW_STEP_THREAD_FAILED_CODE,
-      details: { reason: "out_of_memory" },
+      details: { reason: WORKFLOW_STEP_THREAD_FAILED_REASONS[0] },
     };
     const cost = { usdMicros: 1_800, providerAccountId: WORKFLOW_PAYING_ACCOUNT };
     const run: WorkflowRunReadResponse = {
@@ -183,7 +188,7 @@ describe("the step panel", () => {
 
     // A failed step opens on Error: its code in words with its reason, then its process's exit
     // code and last lines under the failure.
-    expect(screen.getByText("Step thread failed · Out of memory")).toBeDefined();
+    expect(screen.getByText("Step thread failed · Start failed")).toBeDefined();
     expect(screen.getByText(/^Exit code/u).textContent).toBe("Exit code 1");
     expect(screen.getByLabelText("Last log lines").textContent).toBe("2 of 40 tests failed");
 
@@ -220,9 +225,9 @@ describe("the step panel", () => {
     const calls = renderPanel(withOutput(artifactOutput), { artifactText: JSON.stringify(items) });
     fireEvent.click(screen.getByRole("button", { name: "Pin this output as builder test data" }));
     await waitFor(() => {
-      expect(calls.filter((call) => call.method === "workflow.pinDataSet")).toStrictEqual([
+      expect(calls.filter((call) => call.method === "workflow.pinData.update")).toStrictEqual([
         {
-          method: "workflow.pinDataSet",
+          method: "workflow.pinData.update",
           params: { definitionId: succeeded.definitionId, nodeId: "summary", items },
         },
       ]);
@@ -247,7 +252,7 @@ describe("the step panel", () => {
     expect(
       await screen.findByText("Output that carries a file cannot be pinned as test data."),
     ).toBeDefined();
-    expect(fileCalls.some((call) => call.method === "workflow.pinDataSet")).toBe(false);
+    expect(fileCalls.some((call) => call.method === "workflow.pinData.update")).toBe(false);
     cleanup();
 
     renderPanel(withOutput({ kind: "inline", items: fileItems }));
@@ -321,6 +326,6 @@ describe("the step panel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Fix in a fresh session" }));
     expect(opened).toStrictEqual([fixSessionId]);
-    expect(calls.some((call) => call.method === "workflow.fixSessionCreate")).toBe(false);
+    expect(calls.some((call) => call.method === "workflow.fixSession.create")).toBe(false);
   });
 });

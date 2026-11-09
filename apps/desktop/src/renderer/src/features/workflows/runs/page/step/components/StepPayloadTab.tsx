@@ -10,7 +10,7 @@ import { useStepPayloadRead } from "../hooks/useStepPayloadRead.js";
 import { StepPayload, type StepPayloadView } from "./StepPayload.js";
 
 /**
- * One of a step's input, output and log tabs: the payload read through `workflow.stepRead`, in
+ * One of a step's input, output and log tabs: the payload read through `workflow.step.read`, in
  * the view the panel's Table and JSON switch holds. While it is read it reads
  * `Loading this step's data…` after the session's short delay; a read that fails reads
  * `Could not load this step's data` with `Try again`.

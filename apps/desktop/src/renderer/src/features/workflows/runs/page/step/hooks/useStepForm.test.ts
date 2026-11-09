@@ -41,13 +41,13 @@ describe("a step's form drafts", () => {
     });
     let draftSaves = 0;
     const { bridge, calls, engine } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method === "workflow.humanFormDraftSave") {
+      if (call.method === "workflow.humanForm.draft.update") {
         draftSaves += 1;
         if (draftSaves === 1) {
           await firstSaveHeld;
         }
       }
-      if (call.method === "workflow.humanFormRead") {
+      if (call.method === "workflow.humanForm.read") {
         // The fixture form, with a secret field added to it.
         const form = (await passThrough()) as WorkflowHumanFormReadResponse;
         return {
@@ -85,7 +85,7 @@ describe("a step's form drafts", () => {
       });
     };
     const draftSaveCalls = () =>
-      calls.filter((call) => call.method === "workflow.humanFormDraftSave");
+      calls.filter((call) => call.method === "workflow.humanForm.draft.update");
 
     const form = mountForm();
     await settle(WORKFLOW_READ_LATENCY_MS);
@@ -131,7 +131,7 @@ describe("a step's form drafts", () => {
 describe("a step's form submit", () => {
   it("sends a picked folder in paths at its dotted place, never in fields", async () => {
     const { bridge, calls, engine } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method === "workflow.humanFormRead") {
+      if (call.method === "workflow.humanForm.read") {
         // The fixture form, asking for a repeating target with a folder and a note in each.
         const form = (await passThrough()) as WorkflowHumanFormReadResponse;
         return {
@@ -172,7 +172,7 @@ describe("a step's form submit", () => {
       await crossMacrotaskBoundary();
     });
 
-    const submits = calls.filter((call) => call.method === "workflow.humanFormSubmit");
+    const submits = calls.filter((call) => call.method === "workflow.humanForm.submit");
     expect(submits).toHaveLength(1);
     expect(submits[0]?.params).toMatchObject({
       fields: { target: [{ note: "the app" }] },

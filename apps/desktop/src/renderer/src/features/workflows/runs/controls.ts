@@ -4,12 +4,10 @@
 // quietly not being there. These are the states the daemon's own refusals name, so a press the
 // screen allows and the daemon still refuses shows the daemon's words instead.
 
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
-import type {
-  WorkflowRunReadResponse,
-  WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 import { GOING_RUN_STATUSES } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import { isLaterStep } from "./steps.js";
@@ -72,7 +70,7 @@ export function deleteRunAvailability(run: WorkflowRunSummary): RunControlAvaila
 
 /** Whether a run with this status is still going: new, running or waiting. */
 export function isGoing(status: WorkflowRunStatus): boolean {
-  return GOING_RUN_STATUSES.includes(status);
+  return GOING_RUN_STATUSES.some((going) => going === status);
 }
 
 /**

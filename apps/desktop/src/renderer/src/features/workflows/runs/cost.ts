@@ -4,10 +4,11 @@
 // daemon sent is a wire figure; the `$0.00` of a run nothing was billed for is the app's own,
 // since the daemon sends no cost for it.
 
-import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
 import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderSection } from "@ai-sidekicks/contracts/provider/settings";
 import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
+import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { formatMoney } from "#renderer/lib/wire/figures.js";
 import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 
@@ -33,10 +34,12 @@ export function costFigure(cost: WorkflowCost | undefined): FigureSentencePart {
 
 /**
  * What `accounts`, the registry as read or `undefined` before the read, says about the account
- * `providerAccountId` names.
+ * `providerAccountId` names, its label worded from its provider's section in `sections`. Throws
+ * for a payer whose provider the sections lack, since both lists come from the one service.
  */
 export function readPayer(
   accounts: readonly ProviderAccount[] | undefined,
+  sections: readonly ProviderSection[],
   providerAccountId: string,
 ): PayerReading {
   if (accounts === undefined) {
@@ -46,8 +49,12 @@ export function readPayer(
   if (payer === undefined) {
     return { kind: "removed" };
   }
-  const label = accountLabel(payer);
-  return label === undefined ? { kind: "unnamed" } : { kind: "named", label };
+  const section = sections.find((held) => held.provider === payer.provider);
+  if (section === undefined) {
+    throw new Error(`The provider list holds no provider "${payer.provider}".`);
+  }
+  const listed = listedAccount(payer, section);
+  return listed === undefined ? { kind: "unnamed" } : { kind: "named", label: listed.label };
 }
 
 /**

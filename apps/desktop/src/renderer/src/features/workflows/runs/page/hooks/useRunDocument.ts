@@ -3,6 +3,7 @@ import { useState } from "react";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
+  WorkflowVersionId,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
@@ -34,16 +35,16 @@ export interface RunDocumentHold {
 export function useRunDocument(
   bridge: PlatformBridge,
   definitionId: WorkflowDefinitionId | undefined,
-  workflowVersionId: string | undefined,
+  workflowVersionId: WorkflowVersionId | undefined,
 ): RunDocumentHold {
   const [readRevision, setReadRevision] = useState(0);
   const { value: read } = useSubjectRead<RunDocumentRead, RunDocumentRead>(
     bridge,
     workflowVersionId,
-    (subject, signal) =>
-      subject === undefined || definitionId === undefined
+    (_subject, signal) =>
+      workflowVersionId === undefined || definitionId === undefined
         ? undefined
-        : readPinnedVersion(bridge, definitionId, subject, signal),
+        : readPinnedVersion(bridge, definitionId, workflowVersionId, signal),
     { unsettled: () => ({ kind: "reading" }), settled: (value) => value },
     readRevision,
   );
@@ -58,12 +59,12 @@ export function useRunDocument(
 async function readPinnedVersion(
   bridge: PlatformBridge,
   definitionId: WorkflowDefinitionId,
-  workflowVersionId: string,
+  workflowVersionId: WorkflowVersionId,
   signal: AbortSignal,
 ): Promise<RunDocumentRead> {
   const chain = await callDaemon(
     bridge,
-    "workflow.versionChainRead",
+    "workflow.version.list",
     { workflowVersionId },
     { signal },
   );
@@ -85,7 +86,7 @@ async function readPinnedVersion(
   }
   const version = await callDaemon(
     bridge,
-    "workflow.versionRead",
+    "workflow.version.read",
     { definitionId, versionNumber: pinned.versionNumber },
     { signal },
   );

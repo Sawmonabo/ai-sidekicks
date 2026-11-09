@@ -10,10 +10,8 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
-import {
-  parseWorkflowHandle,
-  type WorkflowHandleType,
-} from "@ai-sidekicks/contracts/workflow/definition/handle";
+import type { WorkflowHandleType } from "@ai-sidekicks/contracts/workflow/definition/handle";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle-parsing";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { CanvasPoint } from "./layout.js";

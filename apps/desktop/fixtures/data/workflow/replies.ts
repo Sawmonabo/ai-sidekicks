@@ -11,46 +11,58 @@
 // projector does.
 
 import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
+import type {
+  WorkflowRunListCursor,
+  WorkflowRunListResponse,
+} from "@ai-sidekicks/contracts/workflow/run/list";
+import type {
+  WorkflowRunDeleteResponse,
+  WorkflowRunKeepSet,
+  WorkflowRunPurgePreviewResponse,
+  WorkflowRunPurgeResponse,
+} from "@ai-sidekicks/contracts/workflow/run/retention";
+import type {
+  WorkflowRunAttentionEntry,
+  WorkflowRunAttentionListResponse,
+} from "@ai-sidekicks/contracts/workflow/run/attention";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
-  WorkflowVersionChainReadResponse,
+  WorkflowVersionListEntry,
+  WorkflowVersionListResponse,
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/versions";
-import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
+import type { WorkflowPinDataUpdateResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import {
   WORKFLOW_INVALID_TRANSITION_CODE,
-  WORKFLOW_RESUME_NOT_PARKED_CODE,
-  WORKFLOW_RETRY_UNAVAILABLE_CODE,
   WORKFLOW_RUN_NOT_CANCELABLE_CODE,
-  type WorkflowRetryUnavailableDetails,
+  WORKFLOW_RUN_RESUME_NOT_PARKED_CODE,
+  WORKFLOW_RUN_STILL_RUNNING_CODE,
+  type WorkflowRunStillRunningDetails,
   type WorkflowRunCancelResponse,
   type WorkflowRunResumeResponse,
   type WorkflowRunRetryResponse,
   type WorkflowRunStartResponse,
 } from "@ai-sidekicks/contracts/workflow/run/control";
-import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
+import {
+  WORKFLOW_RUN_NOT_FOUND_CODE,
+  WORKFLOW_STEP_NOT_FOUND_CODE,
+} from "@ai-sidekicks/contracts/workflow/run/failures";
+import type { WorkflowGateResolutionId } from "@ai-sidekicks/contracts/workflow/run/gate-resolution";
+import type { WorkflowNewRunHoldState } from "@ai-sidekicks/contracts/workflow/run/new-run-hold";
 import {
   WORKFLOW_RUN_NOT_DELETABLE_CODE,
-  type WorkflowRunAttentionEntry,
-  type WorkflowRunAttentionListResponse,
-  type WorkflowRunDeleteResponse,
-  type WorkflowRunKeepSet,
-  type WorkflowRunListResponse,
   type WorkflowRunReadResponse,
-  type WorkflowRunsDeletePreviewResponse,
-  type WorkflowRunsDeleteResponse,
-  type WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowSubscribeNotification } from "@ai-sidekicks/contracts/workflow/subscription";
 import {
-  WORKFLOW_REVISION_STALE_CODE,
+  WORKFLOW_HUMAN_FORM_REVISION_STALE_CODE,
   WORKFLOW_STEP_NOT_WAITING_CODE,
   type WorkflowFixSessionCreateResponse,
   type WorkflowGateResolveResponse,
-  type WorkflowHumanFormDraftSaveResponse,
+  type WorkflowHumanFormDraftUpdateResponse,
   type WorkflowHumanFormReadResponse,
   type WorkflowHumanFormSubmitResponse,
   type WorkflowStepReadResponse,
@@ -89,98 +101,98 @@ import { asRecord, readMember, readString } from "../requests.js";
 const WORKFLOW_STREAM: typeof WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
 
 /** How many starts wait behind the hold while it is on. */
-const STARTS_WAITING_WHILE_PAUSED = 3;
+const STARTS_WAITING_WHILE_HELD = 3;
 
 /** How long the fixture daemon takes to read a run list, a run or a step's form. */
 export const WORKFLOW_READ_LATENCY_MS = 120;
 
 /** Every call the workflows screens make, and what each is answered with. */
 export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
-  { call: "workflow.definitionList", result: definitionList() },
-  { call: "workflow.versionChainRead", resultFor: answerVersionChain },
-  { call: "workflow.versionRead", resultFor: answerVersionRead },
+  { call: "workflow.definition.list", result: definitionList() },
+  { call: "workflow.version.list", resultFor: answerVersionChain },
+  { call: "workflow.version.read", resultFor: answerVersionRead },
   {
-    call: "workflow.runList",
+    call: "workflow.run.list",
     afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunList(request, { answered, readStamp }),
   },
   {
-    call: "workflow.runRead",
+    call: "workflow.run.read",
     afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunRead(request, { answered, readStamp }),
   },
   {
-    call: "workflow.runAttentionList",
+    call: "workflow.run.attention.list",
     resultFor: (_request, _at, _ordinal, answered, readStamp) =>
       answerAttention({ answered, readStamp }),
   },
   {
-    call: "workflow.stepRead",
+    call: "workflow.step.read",
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerStepRead(request, { answered, readStamp }),
   },
   {
-    call: "workflow.humanFormRead",
+    call: "workflow.humanForm.read",
     afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerFormRead(request, { answered, readStamp }),
   },
   {
-    call: "workflow.humanFormDraftSave",
-    resultFor: (_request, _at, _ordinal, answered): WorkflowHumanFormDraftSaveResponse => ({
-      revision: answered("workflow.humanFormDraftSave").length + 1,
+    call: "workflow.humanForm.draft.update",
+    resultFor: (_request, _at, _ordinal, answered): WorkflowHumanFormDraftUpdateResponse => ({
+      revision: answered("workflow.humanForm.draft.update").length + 1,
       savedAt: NOW,
     }),
   },
   {
-    call: "workflow.humanFormSubmit",
+    call: "workflow.humanForm.submit",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerFormSubmit(request, { answered, readStamp }),
     noticesFor: stepAnswered,
   },
   {
-    call: "workflow.gateResolve",
+    call: "workflow.gate.resolve",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerGate(request, { answered, readStamp }),
     noticesFor: stepAnswered,
   },
   {
-    call: "workflow.runCancel",
+    call: "workflow.run.cancel",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerCancel(request, { answered, readStamp }),
     noticesFor: runChanged,
   },
   {
-    call: "workflow.runResume",
+    call: "workflow.run.resume",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerResume(request, { answered, readStamp }),
     noticesFor: runChanged,
   },
   {
-    call: "workflow.runStart",
+    call: "workflow.run.start",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered): WorkflowRunStartResponse => ({
-      workflowRunId: mintedRunId("start", answered("workflow.runStart").length),
+      workflowRunId: mintedRunId("start", answered("workflow.run.start").length),
       sessionId: WORKFLOW_OWN_SESSION,
       status: "new",
     }),
     noticesFor: runChanged,
   },
   {
-    call: "workflow.runRetry",
+    call: "workflow.run.retry",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRetry(request, { answered, readStamp }),
     noticesFor: runChanged,
   },
   {
-    call: "workflow.runRerun",
+    call: "workflow.run.rerun",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRerun(request, { answered, readStamp }),
@@ -188,7 +200,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     noticesFor: (_request, answer) => runChanged(answer),
   },
   {
-    call: "workflow.runKeepSet",
+    call: "workflow.run.keep.update",
     resultFor: (request): WorkflowRunKeepSet => ({
       workflowRunId: readString(request, "workflowRunId") as WorkflowRunKeepSet["workflowRunId"],
       keep: readMember(request, "keep") === true,
@@ -196,35 +208,35 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     noticesFor: runChanged,
   },
   {
-    call: "workflow.runDelete",
+    call: "workflow.run.delete",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunDelete(request, { answered, readStamp }),
     noticesFor: (request) => runsRemoved(readString(request, "workflowRunId") as WorkflowRunId),
   },
   {
-    call: "workflow.runsDeletePreview",
+    call: "workflow.run.purge.preview",
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerDeletePreview(request, { answered, readStamp }),
   },
   {
-    call: "workflow.runsDelete",
+    call: "workflow.run.purge",
     afterMs: 200,
-    resultFor: (request, _at, _ordinal, answered, readStamp): WorkflowRunsDeleteResponse => ({
+    resultFor: (request, _at, _ordinal, answered, readStamp): WorkflowRunPurgeResponse => ({
       deletedCount: runsOlderThan(request, { answered, readStamp }).length,
     }),
     noticesFor: (request, answer) =>
       readMember(answer, "deletedCount") === 0 ? [] : bulkRunsRemoved(request),
   },
   {
-    call: "workflow.runsPauseSet",
-    resultFor: (request): WorkflowRunsPauseState => pauseState(readMember(request, "paused")),
+    call: "workflow.newRunHold.update",
+    resultFor: (request): WorkflowNewRunHoldState => holdState(readMember(request, "held")),
     noticesFor: (_request, answer) => [
-      { stream: WORKFLOW_STREAM, afterMs: 0, payloadAtDelivery: () => runsPauseFrame(answer) },
+      { stream: WORKFLOW_STREAM, afterMs: 0, payloadAtDelivery: () => newRunHoldFrame(answer) },
     ],
   },
   {
-    call: "workflow.fixSessionCreate",
+    call: "workflow.fixSession.create",
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerFixSession(request, { answered, readStamp }),
@@ -240,12 +252,12 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     noticesFor: questionAnswered,
   },
   {
-    call: "workflow.pinDataSet",
-    resultFor: (request): WorkflowPinDataSetResponse => ({
+    call: "workflow.pinData.update",
+    resultFor: (request): WorkflowPinDataUpdateResponse => ({
       definitionId: readString(
         request,
         "definitionId",
-      ) as WorkflowPinDataSetResponse["definitionId"],
+      ) as WorkflowPinDataUpdateResponse["definitionId"],
       nodeId: readString(request, "nodeId") as WorkflowNodeId,
       pinned: Array.isArray(readMember(request, "items")),
     }),
@@ -257,8 +269,8 @@ export const WORKFLOW_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
   {
     stream: WORKFLOW_STREAM,
     payloadAtOpen: (answered) => {
-      const lastHold = answered("workflow.runsPauseSet").at(-1);
-      return runsPauseFrame(pauseState(readMember(lastHold, "paused")));
+      const lastHold = answered("workflow.newRunHold.update").at(-1);
+      return newRunHoldFrame(holdState(readMember(lastHold, "held")));
     },
   },
 ];
@@ -267,7 +279,7 @@ function definitionList(): WorkflowDefinitionListResponse {
   return { definitions: WORKFLOW_DEFINITION_RECORDS.map((definition) => definition.summary) };
 }
 
-function answerVersionChain(request: unknown): WorkflowVersionChainReadResponse | undefined {
+function answerVersionChain(request: unknown): WorkflowVersionListResponse | undefined {
   const versionId = readString(request, "workflowVersionId");
   const definition = WORKFLOW_DEFINITION_RECORDS.find((candidate) =>
     candidate.versions.some((version) => version.versionId === versionId),
@@ -275,9 +287,8 @@ function answerVersionChain(request: unknown): WorkflowVersionChainReadResponse 
   if (definition === undefined) {
     return undefined;
   }
-  return {
-    definitionId: definition.summary.id,
-    versions: definition.versions.map((version, index) => ({
+  const [first, ...rest] = definition.versions.map(
+    (version, index): WorkflowVersionListEntry => ({
       workflowVersionId: version.versionId,
       versionNumber: index + 1,
       contentHash: `b3:${String(index + 1).padStart(8, "0")}`,
@@ -294,8 +305,12 @@ function answerVersionChain(request: unknown): WorkflowVersionChainReadResponse 
               edgesRemoved: 0,
             },
           }),
-    })),
-  };
+    }),
+  );
+  if (first === undefined) {
+    throw new RangeError(`${definition.summary.name} holds no saved version`);
+  }
+  return { definitionId: definition.summary.id, versions: [first, ...rest] };
 }
 
 function answerVersionRead(request: unknown): WorkflowVersionReadResponse | undefined {
@@ -341,15 +356,24 @@ function answerRunList(request: unknown, playback: WorkflowPlayback): WorkflowRu
   const cursor = readMember(request, "cursor");
   const limit = readMember(request, "limit");
   const start =
-    typeof cursor === "string" ? runs.findIndex((run) => run.workflowRunId === cursor) + 1 : 0;
+    typeof cursor === "string"
+      ? runs.findIndex((run) => runListCursorAfter(run.workflowRunId) === cursor) + 1
+      : 0;
   const end = typeof limit === "number" ? start + limit : runs.length;
   const page = runs.slice(start, end);
   const last = page.at(-1);
   return {
     runs: page,
-    ...(end < runs.length && last !== undefined ? { nextCursor: last.workflowRunId } : {}),
+    ...(end < runs.length && last !== undefined
+      ? { nextCursor: runListCursorAfter(last.workflowRunId) }
+      : {}),
     totalCount: runs.length,
   };
+}
+
+/** The cursor of the page that starts after `workflowRunId`, in the fixture daemon's own format. */
+function runListCursorAfter(workflowRunId: WorkflowRunId): WorkflowRunListCursor {
+  return `after:${workflowRunId}` as WorkflowRunListCursor;
 }
 
 function answerRunRead(request: unknown, playback: WorkflowPlayback): WorkflowRunReadResponse {
@@ -422,7 +446,7 @@ function answerFormRead(
   playback: WorkflowPlayback,
 ): WorkflowHumanFormReadResponse {
   requireWaitingStep(request, playback);
-  const lastDraft = playback.answered("workflow.humanFormDraftSave").at(-1);
+  const lastDraft = playback.answered("workflow.humanForm.draft.update").at(-1);
   const formState = readMember(lastDraft, "formState");
   return {
     prompt: "Write the release notes for this version.",
@@ -460,7 +484,7 @@ function answerFormRead(
       ? {
           draft: {
             formState: formState as Record<string, unknown>,
-            revision: playback.answered("workflow.humanFormDraftSave").length,
+            revision: playback.answered("workflow.humanForm.draft.update").length,
             savedAt: NOW,
           },
         }
@@ -475,7 +499,7 @@ function answerFormSubmit(
   requireWaitingStep(request, playback);
   if (readMember(request, "expectedRevision") !== 0) {
     throw refusal(
-      WORKFLOW_REVISION_STALE_CODE,
+      WORKFLOW_HUMAN_FORM_REVISION_STALE_CODE,
       "This form was answered from somewhere else first.",
     );
   }
@@ -491,9 +515,14 @@ function answerGate(request: unknown, playback: WorkflowPlayback): WorkflowGateR
     requireWaitingStep({ ...asRecord(request), executionIndex: undefined }, playback);
   }
   return {
-    gateResolutionId: `gate-${String(playback.answered("workflow.gateResolve").length + 1)}`,
+    gateResolutionId: gateResolutionIdOf(playback.answered("workflow.gate.resolve").length),
     decidedAt: NOW,
   };
+}
+
+/** The id the fixture daemon gives the gate answer at `index`, by its order: a UUID. */
+function gateResolutionIdOf(index: number): WorkflowGateResolutionId {
+  return `019b7a30-0280-75e5-8510-ada11a5a9${String(index).padStart(3, "0")}` as WorkflowGateResolutionId;
 }
 
 function answerCancel(request: unknown, playback: WorkflowPlayback): WorkflowRunCancelResponse {
@@ -513,7 +542,7 @@ function answerCancel(request: unknown, playback: WorkflowPlayback): WorkflowRun
 function answerResume(request: unknown, playback: WorkflowPlayback): WorkflowRunResumeResponse {
   const run = requireRun(request, playback);
   if (!isParked(run)) {
-    throw refusal(WORKFLOW_RESUME_NOT_PARKED_CODE, "This run is not waiting on anything.");
+    throw refusal(WORKFLOW_RUN_RESUME_NOT_PARKED_CODE, "This run is not waiting on anything.");
   }
   return { workflowRunId: run.read.workflowRunId, status: "running" };
 }
@@ -522,15 +551,15 @@ function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunR
   const run = requireRun(request, playback);
   const fromNodeId = readString(request, "fromNodeId");
   if (run.read.status === "new" || run.read.status === "running" || run.read.status === "waiting") {
-    const details = { reason: "source_running" } satisfies WorkflowRetryUnavailableDetails;
-    throw refusal(WORKFLOW_RETRY_UNAVAILABLE_CODE, "This run is still going.", details);
+    const details = { reason: "sourceRunning" } satisfies WorkflowRunStillRunningDetails;
+    throw refusal(WORKFLOW_RUN_STILL_RUNNING_CODE, "This run is still going.", details);
   }
   const latest = run.read.steps.filter((step) => step.nodeId === fromNodeId).at(-1);
   if (latest?.status !== "failed") {
     throw refusal(WORKFLOW_INVALID_TRANSITION_CODE, "Only a step that failed can be retried.");
   }
   return {
-    workflowRunId: mintedRunId("retry", playback.answered("workflow.runRetry").length),
+    workflowRunId: mintedRunId("retry", playback.answered("workflow.run.retry").length),
     sourceWorkflowRunId: run.read.workflowRunId,
     status: "new",
   };
@@ -539,7 +568,7 @@ function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunR
 function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunStartResponse {
   const run = requireRun(request, playback);
   return {
-    workflowRunId: mintedRunId("rerun", playback.answered("workflow.runRerun").length),
+    workflowRunId: mintedRunId("rerun", playback.answered("workflow.run.rerun").length),
     sessionId: run.read.sessionId,
     status: "new",
   };
@@ -556,7 +585,7 @@ function answerRunDelete(request: unknown, playback: WorkflowPlayback): Workflow
 function answerDeletePreview(
   request: unknown,
   playback: WorkflowPlayback,
-): WorkflowRunsDeletePreviewResponse {
+): WorkflowRunPurgePreviewResponse {
   const cutoffMs = playback.readStamp(readString(request, "olderThan"));
   const runs = currentRuns(playback);
   const older = runs.filter((run) => startedAtMs(run) < cutoffMs);
@@ -589,7 +618,7 @@ function requireRun(request: unknown, playback: WorkflowPlayback): WorkflowRunRe
     (candidate) => candidate.read.workflowRunId === readMember(request, "workflowRunId"),
   );
   if (run === undefined) {
-    throw refusal(WORKFLOW_NOT_FOUND_CODE, "No run has that id.");
+    throw refusal(WORKFLOW_RUN_NOT_FOUND_CODE, "No run has that id.");
   }
   return run;
 }
@@ -602,7 +631,7 @@ function requireStep(request: unknown, playback: WorkflowPlayback): WorkflowStep
       candidate.executionIndex === readMember(request, "executionIndex"),
   );
   if (step === undefined) {
-    throw refusal(WORKFLOW_NOT_FOUND_CODE, "No step has that address in this run.");
+    throw refusal(WORKFLOW_STEP_NOT_FOUND_CODE, "No step has that address in this run.");
   }
   return step;
 }
@@ -702,13 +731,13 @@ function bulkRunsRemoved(request: unknown): readonly ScenarioNotice[] {
   ];
 }
 
-function pauseState(paused: unknown): WorkflowRunsPauseState {
-  const isPaused = paused === true;
-  return { paused: isPaused, waitingStartCount: isPaused ? STARTS_WAITING_WHILE_PAUSED : 0 };
+function holdState(held: unknown): WorkflowNewRunHoldState {
+  const isHeld = held === true;
+  return { held: isHeld, waitingStartCount: isHeld ? STARTS_WAITING_WHILE_HELD : 0 };
 }
 
-function runsPauseFrame(state: unknown): WorkflowSubscribeNotification {
-  return { kind: "runsPause", ...pauseState(readMember(state, "paused")) };
+function newRunHoldFrame(state: unknown): WorkflowSubscribeNotification {
+  return { kind: "newRunHold", ...holdState(readMember(state, "held")) };
 }
 
 function refusal(

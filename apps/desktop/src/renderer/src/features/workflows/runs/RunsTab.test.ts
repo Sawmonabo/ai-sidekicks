@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
@@ -129,7 +129,7 @@ describe("the runs table's pages", () => {
       route: workflowRunsRoute(undefined),
       answer: async (call, passThrough) => {
         if (
-          call.method === "workflow.runList" &&
+          call.method === "workflow.run.list" &&
           isPageRefused &&
           (call.params as { cursor?: string }).cursor !== undefined
         ) {

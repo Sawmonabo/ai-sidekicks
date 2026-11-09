@@ -41,8 +41,7 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
 
 /**
  * The failure's code in words, with its closed reason or cause after it where the code carries
- * one: `workflow.step_thread_failed` with reason `out_of_memory` reads
- * `Step thread failed · Out of memory`.
+ * one, after a middle dot.
  */
 function failureLabel(
   code: string,

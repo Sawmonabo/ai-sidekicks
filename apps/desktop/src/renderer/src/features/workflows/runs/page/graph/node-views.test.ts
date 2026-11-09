@@ -6,6 +6,7 @@ import type {
   WorkflowNodeId,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
@@ -43,11 +44,26 @@ const DOCUMENT: WorkflowDocument = {
   ],
 };
 
-function step(
-  nodeId: string,
-  executionIndex: number,
-  fields: Pick<WorkflowStep, "status" | "attempt"> & Partial<WorkflowStep>,
-): WorkflowStep {
+/** The members every step here shares, which `step` fills unless a case names its own. */
+type SharedStepMember =
+  | "workflowRunId"
+  | "nodeId"
+  | "executionIndex"
+  | "source"
+  | "startedAt"
+  | "inputRef"
+  | "totalPoolWaitMs"
+  | "outputRef"
+  | "logRef";
+
+/** One arm of the step record less the shared members, which a case may still name. */
+type StepFields = WorkflowStep extends infer Arm
+  ? Arm extends WorkflowStep
+    ? Omit<Arm, SharedStepMember> & Partial<Pick<Arm, SharedStepMember>>
+    : never
+  : never;
+
+function step(nodeId: string, executionIndex: number, fields: StepFields): WorkflowStep {
   return {
     workflowRunId: RUN_ID,
     nodeId: nodeId as WorkflowNodeId,
@@ -58,6 +74,7 @@ function step(
         : [{ nodeId: "watch" as WorkflowNodeId, outputIndex: 0, executionIndex: 0 }],
     startedAt: "2026-01-01T14:00:00.000Z",
     inputRef: { kind: "inline", items: [] },
+    totalPoolWaitMs: 0,
     outputRef: { kind: "inline", items: [] },
     logRef: { kind: "inline", items: [] },
     ...fields,
@@ -144,7 +161,7 @@ describe("the run graph names when a parked node resumes", () => {
       waitCause: "account",
       waitAccount: {
         providerAccountId: "pa-0001" as ProviderAccountId,
-        provider: "codex",
+        provider: "codex" as ProviderId,
         label: "Work",
       },
       resumeAt,

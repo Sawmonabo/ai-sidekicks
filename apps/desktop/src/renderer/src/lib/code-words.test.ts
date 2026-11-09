@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   WORKFLOW_SANDBOX_UNAVAILABLE_CODE,
   WORKFLOW_STEP_THREAD_FAILED_CODE,
+  WORKFLOW_STEP_THREAD_FAILED_REASONS,
   WORKFLOW_STEP_TIMED_OUT_CODE,
 } from "@ai-sidekicks/contracts/workflow/run/failures";
 
@@ -18,9 +19,9 @@ describe("refusalWords — a code and its reason as the screen reads them", () =
       "Sidekick resolution refused · Account unavailable",
     );
     expect(refusalWords("workflow.start_denied")).toBe("Workflow start denied");
-    expect(refusalWords(WORKFLOW_STEP_THREAD_FAILED_CODE, "out_of_memory")).toBe(
-      "Step thread failed · Out of memory",
-    );
+    expect(
+      refusalWords(WORKFLOW_STEP_THREAD_FAILED_CODE, WORKFLOW_STEP_THREAD_FAILED_REASONS[0]),
+    ).toBe("Step thread failed · Start failed");
     expect(refusalWords(WORKFLOW_STEP_TIMED_OUT_CODE)).toBe("Step timed out");
     expect(refusalWords(WORKFLOW_SANDBOX_UNAVAILABLE_CODE)).toBe("Sandbox unavailable");
     expect(refusalWords("transport.unavailable")).toBe("Connection lost");

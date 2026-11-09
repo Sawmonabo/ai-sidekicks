@@ -77,7 +77,7 @@ function OpenChainQuestion(props: {
   const [answered, setAnswered] = useState<AnsweredChainQuestion | undefined>();
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
-      callDaemon(bridge, "workflow.gateResolve", {
+      callDaemon(bridge, "workflow.gate.resolve", {
         workflowRunId: chainRoot.runId,
         decision,
       }),

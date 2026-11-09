@@ -247,11 +247,14 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
 function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
   const { run, step, bridge } = props;
   const goneFixSessionLine = useGoneSessionLine("step-fix-session");
+  // Each press is a new retry, so each carries a key of its own, which a resend of that press
+  // keeps.
   const retry = useWorkflowCall(
     (failed: WorkflowStep) =>
-      callDaemon(bridge, "workflow.runRetry", {
+      callDaemon(bridge, "workflow.run.retry", {
         workflowRunId: run.workflowRunId,
         fromNodeId: failed.nodeId,
+        clientIdempotencyKey: crypto.randomUUID(),
       }),
     (retried) => {
       props.onOpenRun(retried.workflowRunId);
@@ -259,7 +262,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
   );
   const fix = useWorkflowCall(
     (failed: WorkflowStep) =>
-      callDaemon(bridge, "workflow.fixSessionCreate", {
+      callDaemon(bridge, "workflow.fixSession.create", {
         workflowRunId: failed.workflowRunId,
         nodeId: failed.nodeId,
         attempt: failed.attempt,
@@ -270,7 +273,10 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
     },
   );
   const keep = useWorkflowCall((next: boolean) =>
-    callDaemon(bridge, "workflow.runKeepSet", { workflowRunId: run.workflowRunId, keep: next }),
+    callDaemon(bridge, "workflow.run.keep.update", {
+      workflowRunId: run.workflowRunId,
+      keep: next,
+    }),
   );
   const announce = useAnnounce();
   const pinScope = useReadScope(bridge, `${run.workflowRunId}/${props.nodeId}/pin`);
@@ -460,7 +466,7 @@ async function pinOutput(
   if (items === undefined) {
     return { status: "refused", refusal: PIN_CARRIES_FILE_REFUSAL };
   }
-  return callDaemon(bridge, "workflow.pinDataSet", {
+  return callDaemon(bridge, "workflow.pinData.update", {
     definitionId: run.definitionId,
     nodeId: step.nodeId,
     items,

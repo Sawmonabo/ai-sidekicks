@@ -1,4 +1,4 @@
-import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowNewRunHoldState } from "@ai-sidekicks/contracts/workflow/run/new-run-hold";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -24,7 +24,7 @@ export function RunsStrip(props: {
   readonly isRunPageOpen: boolean;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly feedState: WorkflowNoticeFeedState;
-  readonly pauseAct: WorkflowCallState<WorkflowRunsPauseState>;
+  readonly pauseAct: WorkflowCallState<WorkflowNewRunHoldState>;
   readonly onSetPaused: (paused: boolean) => void;
 }): React.JSX.Element {
   const { nextWaiting, feedState, pauseAct } = props;
@@ -50,7 +50,7 @@ export function RunsStrip(props: {
           attempt={nextWaiting.refusal}
         />
       ) : null}
-      {pause?.paused === true ? (
+      {pause?.held === true ? (
         <span className="meridian-workflows-strip__hold-note">
           Runs already going finish; held ones start when you switch this off.
         </span>
@@ -74,12 +74,12 @@ function nextWaitingWords(nextWaiting: NextWaiting): string {
 }
 
 function PauseSwitch(props: {
-  readonly pause: WorkflowRunsPauseState | undefined;
-  readonly act: WorkflowCallState<WorkflowRunsPauseState>;
+  readonly pause: WorkflowNewRunHoldState | undefined;
+  readonly act: WorkflowCallState<WorkflowNewRunHoldState>;
   readonly onSetPaused: (paused: boolean) => void;
 }): React.JSX.Element {
   const { pause, act } = props;
-  const isPaused = pause?.paused === true;
+  const isPaused = pause?.held === true;
   const waiting =
     isPaused && pause.waitingStartCount > 0
       ? ` · ${formatCount(pause.waitingStartCount)} waiting`

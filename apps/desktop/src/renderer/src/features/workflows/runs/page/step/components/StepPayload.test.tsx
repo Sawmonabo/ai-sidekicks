@@ -5,10 +5,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  WorkflowItemSchema,
-  type WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/item";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { ElementHeightShim } from "#test/helpers/element/height-shim.js";
@@ -33,8 +31,8 @@ const SUMMARY =
 
 const NOTES_TEXT = "Ran the suite.\nTwo cases skipped.";
 
-const ITEMS = [
-  WorkflowItemSchema.parse({
+const ITEMS: readonly WorkflowItem[] = [
+  {
     json: {
       summary: SUMMARY,
       path: "src/__init__.py",
@@ -43,14 +41,14 @@ const ITEMS = [
     },
     binary: {
       data: {
-        artifactId: "0190f5c2-7d3e-7a10-9b2c-3d4e5f60718a",
+        artifactId: "0190f5c2-7d3e-7a10-9b2c-3d4e5f60718a" as ArtifactId,
         mimeType: "text/plain",
         fileName: "build-17.log",
         size: 14_336,
       },
     },
     pairedItem: { item: 2 },
-  }),
+  },
 ];
 
 const LABEL = "Output of Summarize";
@@ -76,7 +74,7 @@ afterEach(() => {
 const SCROLL_BOX_HEIGHT_PX = 480;
 const ROW_HEIGHT_PX = 24;
 
-function renderPayload(view: StepPayloadView, items: WorkflowItem[] = ITEMS): HTMLElement {
+function renderPayload(view: StepPayloadView, items: readonly WorkflowItem[] = ITEMS): HTMLElement {
   render(
     <LiveAnnouncerProvider>
       <StepPayload items={items} storage={{ kind: "inline" }} view={view} label={LABEL} />
@@ -128,7 +126,7 @@ describe("a step payload in the Table view", () => {
         <DiagramPicturesContext.Provider value={pictures}>
           <BlockCopyRendererContext.Provider value={renderBlockCopy}>
             <StepPayload
-              items={[WorkflowItemSchema.parse({ json: { report } })]}
+              items={[{ json: { report } }]}
               storage={{ kind: "inline" }}
               view="table"
               label={LABEL}

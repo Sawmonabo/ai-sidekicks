@@ -5,6 +5,7 @@
 
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowVersionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { RequestStampReader } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStepStatus } from "@ai-sidekicks/contracts/workflow/run/status";
@@ -43,7 +44,7 @@ export const NOW: string = minutesAgo(0);
 /** The runs as the playback's answered writes have left them, newest first. */
 export function currentRuns(playback: WorkflowPlayback): readonly WorkflowRunRecord[] {
   const bulkCutoffs = playback
-    .answered("workflow.runsDelete")
+    .answered("workflow.run.purge")
     .map((call) => playback.readStamp(readString(call, "olderThan")));
   const runs = runsBeforeBulkDeletes(playback.answered);
   return runs.filter((run) => !bulkCutoffs.some((cutoff) => isBulkDeletable(run, cutoff, runs)));
@@ -51,15 +52,19 @@ export function currentRuns(playback: WorkflowPlayback): readonly WorkflowRunRec
 
 /** The runs with every answered write applied except the bulk deletes, newest first. */
 export function runsBeforeBulkDeletes(answered: AnsweredRequests): readonly WorkflowRunRecord[] {
-  const deleted = answered("workflow.runDelete").map((call) => readMember(call, "workflowRunId"));
-  const started = answered("workflow.runStart").map((call, index) =>
-    mintedRun(mintedRunId("start", index), readString(call, "workflowVersionId"), {
-      mode: "manual",
-      triggerKind: "trigger.manual",
-    }),
+  const deleted = answered("workflow.run.delete").map((call) => readMember(call, "workflowRunId"));
+  const started = answered("workflow.run.start").map((call, index) =>
+    mintedRun(
+      mintedRunId("start", index),
+      readString(call, "workflowVersionId") as WorkflowVersionId,
+      {
+        mode: "manual",
+        triggerKind: "trigger.manual",
+      },
+    ),
   );
   // A retry runs its source's version and keeps the trigger kind its source started on.
-  const retried = answered("workflow.runRetry").map((call, index) => {
+  const retried = answered("workflow.run.retry").map((call, index) => {
     const source = sourceRun(call, [...WORKFLOW_RUN_RECORDS, ...started]).read;
     return mintedRun(mintedRunId("retry", index), source.workflowVersionId, {
       mode: "retry",
@@ -69,7 +74,7 @@ export function runsBeforeBulkDeletes(answered: AnsweredRequests): readonly Work
   // A re-run runs its source's version again, in the mode and trigger kind it started on; its
   // source may be a run minted before it.
   const reruns: WorkflowRunRecord[] = [];
-  for (const [index, call] of answered("workflow.runRerun").entries()) {
+  for (const [index, call] of answered("workflow.run.rerun").entries()) {
     const source = sourceRun(call, [
       ...WORKFLOW_RUN_RECORDS,
       ...started,
@@ -95,7 +100,7 @@ function applyWrites(run: WorkflowRunRecord, answered: AnsweredRequests): Workfl
   const forRun = (call: string): readonly unknown[] =>
     answered(call).filter((request) => readMember(request, "workflowRunId") === id);
   let applied = run;
-  for (const answer of forRun("workflow.gateResolve")) {
+  for (const answer of forRun("workflow.gate.resolve")) {
     const decision = readMember(answer, "decision") === "approved" ? "approved" : "rejected";
     const nodeId = readMember(answer, "nodeId");
     applied =
@@ -103,20 +108,20 @@ function applyWrites(run: WorkflowRunRecord, answered: AnsweredRequests): Workfl
         ? settleWait(applied, nodeId, decision)
         : decideChain(applied, decision);
   }
-  for (const answer of forRun("workflow.humanFormSubmit")) {
+  for (const answer of forRun("workflow.humanForm.submit")) {
     applied = settleWait(applied, readString(answer, "nodeId"), "answered");
   }
   for (const answer of answered("question.resolve")) {
     applied = answerQuestion(applied, answer);
   }
-  if (forRun("workflow.runResume").length > 0 && !isEnded(applied)) {
+  if (forRun("workflow.run.resume").length > 0 && !isEnded(applied)) {
     applied = resumed(applied);
   }
-  if (forRun("workflow.runCancel").length > 0 && applied.read.status !== "succeeded") {
+  if (forRun("workflow.run.cancel").length > 0 && applied.read.status !== "succeeded") {
     applied = canceled(applied);
   }
-  const keep = forRun("workflow.runKeepSet").at(-1);
-  const fixed = forRun("workflow.fixSessionCreate").length > 0;
+  const keep = forRun("workflow.run.keep.update").at(-1);
+  const fixed = forRun("workflow.fixSession.create").length > 0;
   return {
     ...applied,
     read: {
@@ -142,12 +147,12 @@ function settleWait(
       resolution: { kind: resolution, at: NOW },
     };
   });
-  const { finishedAt: _finished, error: _error, ...read } = run.read;
+  const { finishedAt: _finished, error: _error, review: _review, ...read } = run.read;
   return { ...run, read: { ...read, status: "running", steps } };
 }
 
 /**
- * The chain's question on its first run decided through a node-less `workflow.gateResolve`:
+ * The chain's question on its first run decided through a node-less `workflow.gate.resolve`:
  * `approved` starts the held step's child, so the step runs on, and `rejected` cancels the run,
  * with the decision kept for the question's receipt.
  */
@@ -170,7 +175,7 @@ function decideChain(run: WorkflowRunRecord, decision: ApprovalDecision): Workfl
   const steps = decided.read.steps.map(
     (step): WorkflowStep => (step.waitCause === "chain" ? withoutWait(step, "running") : step),
   );
-  const { finishedAt: _finished, error: _error, ...read } = decided.read;
+  const { finishedAt: _finished, error: _error, review: _review, ...read } = decided.read;
   return { ...decided, read: { ...read, status: "running", steps } };
 }
 
@@ -212,20 +217,21 @@ function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
     return withoutWait(step, "running");
   });
   const failed = steps.findLast((step) => step.status === "failed");
-  const rerun: WorkflowStep[] =
-    run.read.status === "failed" && failed !== undefined
-      ? [
-          {
-            ...withoutWait(failed, "running"),
-            attempt: failed.attempt + 1,
-            executionIndex: steps.length,
-            startedAt: NOW,
-            finishedAt: undefined,
-            error: undefined,
-          },
-        ]
-      : [];
-  const { finishedAt: _finished, error: _error, ...read } = run.read;
+  const rerun: WorkflowStep[] = [];
+  if (run.read.status === "failed" && failed !== undefined) {
+    const {
+      finishedAt: _stepFinished,
+      error: _stepError,
+      ...again
+    } = withoutWait(failed, "running");
+    rerun.push({
+      ...again,
+      attempt: failed.attempt + 1,
+      executionIndex: steps.length,
+      startedAt: NOW,
+    });
+  }
+  const { finishedAt: _finished, error: _error, review: _review, ...read } = run.read;
   const { durationMs: _duration, ...rest } = run;
   return { ...rest, read: { ...read, status: "running", steps: [...steps, ...rerun] } };
 }
@@ -266,7 +272,7 @@ function sourceRun(call: unknown, runs: readonly WorkflowRunRecord[]): WorkflowR
 
 function mintedRun(
   workflowRunId: WorkflowRunId,
-  workflowVersionId: string,
+  workflowVersionId: WorkflowVersionId,
   started: {
     readonly mode: WorkflowRunMode;
     readonly triggerKind: WorkflowTriggerKind;

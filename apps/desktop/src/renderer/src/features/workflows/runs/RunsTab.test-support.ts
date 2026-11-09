@@ -4,9 +4,10 @@
 // without the notice the daemon would send for it, delete one, and count what the table asked.
 
 import type {
+  WorkflowRunListCursor,
   WorkflowRunListResponse,
   WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/list";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { WORKFLOW_RUN_RECORDS, summaryOfRun } from "#fixtures/data/workflow/run/records.js";
@@ -19,12 +20,12 @@ export class RunListDaemon {
   #rows: WorkflowRunSummary[];
   readonly #streamHandlers = new Set<(payload: unknown) => void>();
 
-  /** Answer `workflow.runList` itself and pass every other call to the playback. */
+  /** Answer `workflow.run.list` itself and pass every other call to the playback. */
   public readonly answer = async (
     call: RecordedDaemonCall,
     passThrough: () => Promise<unknown>,
   ): Promise<unknown> =>
-    call.method === "workflow.runList" ? this.#page(call.params) : passThrough();
+    call.method === "workflow.run.list" ? this.#page(call.params) : passThrough();
 
   /** Open the workflow stream through the playback, keeping its handler so a case can notify. */
   public readonly open = (
@@ -80,13 +81,17 @@ export class RunListDaemon {
   #page(params: unknown): WorkflowRunListResponse {
     const { cursor, limit } = params as { readonly cursor?: string; readonly limit?: number };
     const start =
-      cursor === undefined ? 0 : this.#rows.findIndex((row) => row.workflowRunId === cursor) + 1;
+      cursor === undefined
+        ? 0
+        : this.#rows.findIndex((row) => cursorAfter(row.workflowRunId) === cursor) + 1;
     const end = limit === undefined ? this.#rows.length : start + limit;
     const runs = this.#rows.slice(start, end);
     const last = runs.at(-1);
     return {
       runs,
-      ...(end < this.#rows.length && last !== undefined ? { nextCursor: last.workflowRunId } : {}),
+      ...(end < this.#rows.length && last !== undefined
+        ? { nextCursor: cursorAfter(last.workflowRunId) }
+        : {}),
       totalCount: this.#rows.length,
     };
   }
@@ -102,4 +107,9 @@ export function playbackRunRows(): WorkflowRunSummary[] {
 /** A run id no playback run holds, numbered so a case can mint as many as it needs. */
 export function mintedRunId(index: number): WorkflowRunId {
   return `019b7a10-0280-75e5-8510-ada11a5b${String(index).padStart(4, "0")}` as WorkflowRunId;
+}
+
+/** The cursor of the page that starts after `workflowRunId`, in this daemon's own format. */
+function cursorAfter(workflowRunId: WorkflowRunId): WorkflowRunListCursor {
+  return `after:${workflowRunId}` as WorkflowRunListCursor;
 }

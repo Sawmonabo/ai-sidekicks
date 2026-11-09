@@ -4,22 +4,24 @@
 // `writes.ts` applies the writes the playback has answered over them and `../replies.ts` answers
 // the calls from that state.
 
-import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
+import type {
+  WorkflowItem,
+  WorkflowStepError,
+} from "@ai-sidekicks/contracts/workflow/definition/item";
 import type {
   ProviderAccount,
   ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
-import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
-  WorkflowItem,
   WorkflowNodeId,
-  WorkflowStepError,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import {
   GOING_RUN_STATUSES,
@@ -33,6 +35,7 @@ import type {
   WorkflowPayloadRef,
   WorkflowSpentAccount,
   WorkflowStep,
+  WorkflowStepProcessExit,
   WorkflowStepQuestion,
   WorkflowStepResolution,
   WorkflowStepReviewPause,
@@ -48,7 +51,6 @@ import type {
   WorkflowEdgeItemCount,
   WorkflowLiveStep,
   WorkflowRunReadResponse,
-  WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
@@ -69,7 +71,7 @@ import {
 /** The session every unattended run of these workflows lives in. */
 export const WORKFLOW_OWN_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3001" as SessionId;
 
-/** The session a fix opens, as the daemon answers `workflow.fixSessionCreate`. */
+/** The session a fix opens, as the daemon answers `workflow.fixSession.create`. */
 export const WORKFLOW_FIX_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3002" as SessionId;
 
 /** The chat session the triage workflow's runs live in, where its reply question is asked. */
@@ -78,12 +80,25 @@ export const WORKFLOW_CHAT_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3003" as S
 /** The account that pays for the agent steps and is spent in the waiting run. */
 export const WORKFLOW_PAYING_ACCOUNT: ProviderAccountId = WORK_ACCOUNT.accountId;
 
-/** The paying account as a wait on it and the attention line it folds into name it. */
+/**
+ * The paying account as a wait on it and the attention line it folds into name it, with the label
+ * the daemon words from the identity its provider reported.
+ */
 export const WORKFLOW_SPENT_ACCOUNT: WorkflowSpentAccount = {
   providerAccountId: WORK_ACCOUNT.accountId,
   provider: WORK_ACCOUNT.provider,
   label: labelOf(WORK_ACCOUNT),
 };
+
+// The paying account carries the identity its provider reported, so it always has a label; the
+// provider's name only words a typed label, which the account has none of.
+function labelOf(account: ProviderAccount): string {
+  const label = accountLabel(account, "Claude Code", []);
+  if (label === undefined) {
+    throw new Error("a paying account fixture must carry the identity its provider reported");
+  }
+  return label;
+}
 
 /** One run as the fixture daemon holds it: its read and its definition's name. */
 export interface WorkflowRunRecord {
@@ -116,7 +131,7 @@ interface StepSeed {
   readonly waitDeadlineAt?: string;
   readonly usdMicros?: number;
   readonly error?: WorkflowStep["error"];
-  readonly processExit?: ProcessExit;
+  readonly processExit?: WorkflowStepProcessExit;
   readonly outputRef?: WorkflowPayloadRef;
   readonly question?: WorkflowStepQuestion;
   readonly resolution?: WorkflowStepResolution;
@@ -149,6 +164,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
       inputRef: inline({ from: previous?.nodeId ?? "trigger" }),
       outputRef: seed.outputRef ?? (finished ? inline({ ok: true, node: seed.nodeId }) : inline()),
       logRef: inline(`started ${seed.nodeId}`, ...(finished ? [`finished ${seed.nodeId}`] : [])),
+      totalPoolWaitMs: 0,
       ...(seed.usdMicros === undefined ? {} : { cost: cost(seed.usdMicros) }),
       ...(seed.error === undefined ? {} : { error: seed.error }),
       ...(seed.reviewPause === undefined ? {} : { reviewPause: seed.reviewPause }),
@@ -159,40 +175,69 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
   });
 }
 
+/** The members of a step record that its status and wait decide, one arm per status and cause. */
+type StepStatus = WorkflowStep extends infer Arm
+  ? Arm extends WorkflowStep
+    ? Pick<
+        Arm,
+        | "status"
+        | "waitCause"
+        | "waitAccount"
+        | "resumeAt"
+        | "waitDeadlineAt"
+        | "question"
+        | "processExit"
+        | "resolution"
+      >
+    : never
+  : never;
+
 // A seeded step's status with what it waits on, or, once it waits no more, how a person answered
 // it.
-function statusOfStep(seed: StepSeed) {
+function statusOfStep(seed: StepSeed): StepStatus {
   const deadline = seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt };
   const answered = seed.resolution === undefined ? {} : { resolution: seed.resolution };
-  // Two returns, so each matches one arm of the step: failed, or another status that does not wait.
-  if (seed.status === "failed") {
-    const exited = seed.processExit === undefined ? {} : { processExit: seed.processExit };
-    return { status: seed.status, ...answered, ...exited };
+  switch (seed.status) {
+    case "pending":
+      return { status: "pending", ...answered };
+    case "running":
+      return { status: "running", ...answered };
+    case "waitingMemory":
+      return { status: "waitingMemory", ...answered };
+    case "succeeded":
+      return { status: "succeeded", ...answered };
+    case "skipped":
+      return { status: "skipped", ...answered };
+    case "canceled":
+      return { status: "canceled", ...answered };
+    case "failed":
+      return seed.processExit === undefined
+        ? { status: "failed", ...answered }
+        : { status: "failed", processExit: seed.processExit, ...answered };
+    case "waiting":
+      break;
   }
-  if (seed.status !== "waiting") return { status: seed.status, ...answered };
   switch (seed.waitCause) {
     case "account":
-      return {
-        status: seed.status,
-        waitCause: seed.waitCause,
-        waitAccount: WORKFLOW_SPENT_ACCOUNT,
-        ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
-      };
+      return seed.resumeAt === undefined
+        ? { status: "waiting", waitCause: "account", waitAccount: WORKFLOW_SPENT_ACCOUNT }
+        : {
+            status: "waiting",
+            waitCause: "account",
+            waitAccount: WORKFLOW_SPENT_ACCOUNT,
+            resumeAt: seed.resumeAt,
+          };
     case "reply":
       if (seed.question === undefined) {
         throw new RangeError(`step ${seed.nodeId} waits for a reply, so it holds its question`);
       }
-      return {
-        status: seed.status,
-        waitCause: seed.waitCause,
-        question: seed.question,
-        ...deadline,
-      };
+      return { status: "waiting", waitCause: "reply", question: seed.question, ...deadline };
     case "approval":
+      return { status: "waiting", waitCause: "approval", ...deadline };
     case "form":
-      return { status: seed.status, waitCause: seed.waitCause, ...deadline };
+      return { status: "waiting", waitCause: "form", ...deadline };
     case "chain":
-      return { status: seed.status, waitCause: seed.waitCause };
+      return { status: "waiting", waitCause: "chain" };
     default:
       throw new RangeError(`step ${seed.nodeId} waits, so it names what it waits on`);
   }
@@ -248,8 +293,8 @@ const TRIGGER_KIND_BY_STARTER: Readonly<Record<WorkflowStartedBy["kind"], Workfl
   chat: "trigger.chat",
   agent: "trigger.manual",
   webhook: "trigger.webhook",
-  fileEvent: "trigger.file-watch",
-  parentWorkflow: "trigger.sub-workflow",
+  fileEvent: "trigger.fileWatch",
+  parentWorkflow: "trigger.subWorkflow",
 };
 
 function record(seed: RunSeed): WorkflowRunRecord {
@@ -285,7 +330,7 @@ function record(seed: RunSeed): WorkflowRunRecord {
       sessionId: seed.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId: seed.definitionId,
       workflowVersionId,
-      ...endOfRun(seed, isFinished),
+      ...endOfRun(seed, isFinished, isCaptured),
       mode: seed.mode,
       triggerKind: TRIGGER_KIND_BY_STARTER[seed.startedBy.kind],
       startedBy: seed.startedBy,
@@ -301,48 +346,57 @@ function record(seed: RunSeed): WorkflowRunRecord {
       steps: runSteps,
       startedAt: minutesAgo(seed.startedMinutesAgo),
       ...(spent === 0 ? {} : { cost: cost(spent) }),
-      ...(seed.liveStep === undefined || isFinished ? {} : { liveStep: seed.liveStep }),
       edgeItemCounts: edgeItemCounts(document, runSteps),
-      ...(isFinished && isCaptured ? { review: { state: "pinned", epoch: 1 } as const } : {}),
       ...(seed.chainQuestion === undefined ? {} : { chainQuestion: seed.chainQuestion }),
     },
   };
 }
 
-// A run's status with its end and its error: an ended run carries its end, while a going run and a
-// failed run parked on its failed step carry none, and only a failed, canceled or crashed run says
-// why.
-function endOfRun(seed: RunSeed, isFinished: boolean) {
+/** The members of a run's read that its status decides, one arm per status. */
+type RunEnd = WorkflowRunReadResponse extends infer Read
+  ? Read extends WorkflowRunReadResponse
+    ? Pick<Read, "status" | "finishedAt" | "error" | "liveStep" | "review">
+    : never
+  : never;
+
+// A run's status with its end, its error and what only its status carries: a going run carries
+// the step it is on and no end, a failed run parked on its failed step carries no end, an ended run
+// carries its end and, where its checkout was recorded, the snapshot Review opens, and only a
+// failed, canceled or crashed run says why.
+function endOfRun(seed: RunSeed, isFinished: boolean, isCaptured: boolean): RunEnd {
   const finishedAt =
     seed.finishedMinutesAgo === undefined || !isFinished
       ? undefined
       : minutesAgo(seed.finishedMinutesAgo);
+  const ended = (): string => {
+    if (finishedAt === undefined) {
+      throw new RangeError(`run ${seed.id} has ended, so it names when`);
+    }
+    return finishedAt;
+  };
   const error = seed.error === undefined ? {} : { error: seed.error };
+  const review = isFinished && isCaptured ? { review: { state: "pinned", epoch: 1 } as const } : {};
+  const live = seed.liveStep === undefined ? {} : { liveStep: seed.liveStep };
+  if (seed.error !== undefined && !["failed", "canceled", "crashed"].includes(seed.status)) {
+    throw new RangeError(`run ${seed.id} did not fail, so it carries no error`);
+  }
   switch (seed.status) {
     case "new":
+      return { status: "new", ...live };
     case "running":
+      return { status: "running", ...live };
     case "waiting":
+      return { status: "waiting", ...live };
     case "succeeded":
-      if (seed.error !== undefined) {
-        throw new RangeError(`run ${seed.id} did not fail, so it carries no error`);
-      }
-      if (seed.status === "succeeded") {
-        if (finishedAt === undefined) {
-          throw new RangeError(`run ${seed.id} has ended, so it names when`);
-        }
-        return { status: seed.status, finishedAt };
-      }
-      return { status: seed.status };
+      return { status: "succeeded", finishedAt: ended(), ...review };
     case "failed":
       return finishedAt === undefined
-        ? { status: seed.status, ...error }
-        : { status: seed.status, finishedAt, ...error };
+        ? { status: "failed", ...error }
+        : { status: "failed", finishedAt, ...error, ...review };
     case "canceled":
+      return { status: "canceled", finishedAt: ended(), ...error, ...review };
     case "crashed":
-      if (finishedAt === undefined) {
-        throw new RangeError(`run ${seed.id} has ended, so it names when`);
-      }
-      return { status: seed.status, finishedAt, ...error };
+      return { status: "crashed", finishedAt: ended(), ...error, ...review };
   }
 }
 
@@ -758,7 +812,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     definitionId: SWEEP_CHILD,
     versionNumber: 1,
     status: "succeeded",
-    mode: "sub-workflow",
+    mode: "subWorkflow",
     startedBy: {
       kind: "parentWorkflow",
       parentWorkflowRunId: WORKFLOW_RUN_IDS.sweptParent as WorkflowRunId,
@@ -824,7 +878,7 @@ export const WORKFLOW_DEFINITION_RECORDS: readonly WorkflowDefinitionRecord[] = 
 
 /** Whether the run is still going, by the contract's set of going statuses. */
 export function isGoing(run: WorkflowRunRecord): boolean {
-  return GOING_RUN_STATUSES.includes(run.read.status);
+  return GOING_RUN_STATUSES.some((going) => going === run.read.status);
 }
 
 /** Whether the run is parked, waiting to be resumed: a waiting run, or a failed run not ended. */
@@ -838,43 +892,69 @@ export function isParked(run: WorkflowRunRecord): boolean {
 /** A run's row in the runs table, derived from its read the way the daemon's projection is. */
 export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
   const { read } = run;
-  const isRunGoing = isGoing(run);
   const waitingStep = read.steps.find((step) => step.status === "waiting");
   return {
     workflowRunId: read.workflowRunId,
     sessionId: read.sessionId,
     definitionId: read.definitionId,
     definitionName: run.definitionName,
-    ...statusOfRun(read.status, waitingStep),
+    ...statusOfRun(run, waitingStep),
     mode: read.mode,
     triggerKind: read.triggerKind,
     startedBy: read.startedBy,
     startedAt: read.startedAt,
-    ...(isRunGoing || isParked(run) ? {} : { durationMs: run.durationMs ?? 0 }),
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
-    ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
     keep: read.keep,
   };
 }
 
-// A waiting row names its step's cause, and only an account wait carries a resume instant onto it.
-function statusOfRun(status: WorkflowRunStatus, waitingStep: WorkflowStep | undefined) {
-  if (status !== "waiting") return { status };
-  if (waitingStep?.waitCause === undefined) {
-    throw new RangeError("a waiting run carries the step that waits");
+/** The members of a run's row that its status decides, one arm per status. */
+type RunRowStatus = WorkflowRunSummary extends infer Row
+  ? Row extends WorkflowRunSummary
+    ? Pick<Row, "status" | "durationMs" | "liveStep" | "waitCause" | "resumeAt">
+    : never
+  : never;
+
+// A going row carries the step it is on and an ended row how long it took; a waiting row names
+// its step's cause, and only an account wait carries a resume instant onto it.
+function statusOfRun(run: WorkflowRunRecord, waitingStep: WorkflowStep | undefined): RunRowStatus {
+  const live = run.read.liveStep === undefined ? {} : { liveStep: run.read.liveStep };
+  const took = isParked(run) ? {} : { durationMs: run.durationMs ?? 0 };
+  switch (run.read.status) {
+    case "new":
+      return { status: "new", ...live };
+    case "running":
+      return { status: "running", ...live };
+    case "waiting":
+      return { status: "waiting", ...waitOfRow(waitingStep), ...live };
+    case "succeeded":
+      return { status: "succeeded", durationMs: run.durationMs ?? 0 };
+    case "failed":
+      return { status: "failed", ...took };
+    case "canceled":
+      return { status: "canceled", durationMs: run.durationMs ?? 0 };
+    case "crashed":
+      return { status: "crashed", durationMs: run.durationMs ?? 0 };
   }
-  if (waitingStep.waitCause !== "account") return { status, waitCause: waitingStep.waitCause };
-  return waitingStep.resumeAt === undefined
-    ? { status, waitCause: waitingStep.waitCause }
-    : { status, waitCause: waitingStep.waitCause, resumeAt: waitingStep.resumeAt };
 }
 
-// The fixture's paying account carries its provider-reported identity, so it always has a label.
-function labelOf(account: ProviderAccount): string {
-  const label = accountLabel(account);
-  if (label === undefined) {
-    throw new Error("a paying account fixture must carry the identity its provider reported");
+// What a waiting row's step waits on, the resume instant only on an account wait.
+function waitOfRow(waitingStep: WorkflowStep | undefined) {
+  switch (waitingStep?.waitCause) {
+    case "approval":
+      return { waitCause: "approval" } as const;
+    case "form":
+      return { waitCause: "form" } as const;
+    case "reply":
+      return { waitCause: "reply" } as const;
+    case "chain":
+      return { waitCause: "chain" } as const;
+    case "account":
+      return waitingStep.resumeAt === undefined
+        ? ({ waitCause: "account" } as const)
+        : ({ waitCause: "account", resumeAt: waitingStep.resumeAt } as const);
+    default:
+      throw new RangeError("a waiting run carries the step that waits");
   }
-  return label;
 }

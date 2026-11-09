@@ -187,7 +187,7 @@ describe("a step's blocker", () => {
     await waitFor(() => {
       expect(calls).toStrictEqual([
         {
-          method: "workflow.gateResolve",
+          method: "workflow.gate.resolve",
           params: {
             workflowRunId: WORKFLOW_RUN_IDS.waitingApproval,
             nodeId: "approve",

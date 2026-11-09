@@ -12,7 +12,7 @@
 // screen draws from it and opened again when something does, and each opening after the first
 // signals every run, since anything may have moved while it was closed.
 
-import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowNewRunHoldState } from "@ai-sidekicks/contracts/workflow/run/new-run-hold";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -22,7 +22,7 @@ import type { WorkflowNoticeFrame } from "#renderer/services/daemon/workflow-not
 /** Where the feed stands: opening, open with the hold as last told, or refused while it is down. */
 export type WorkflowNoticeFeedState =
   | { readonly kind: "opening" }
-  | { readonly kind: "open"; readonly pause: WorkflowRunsPauseState | undefined }
+  | { readonly kind: "open"; readonly pause: WorkflowNewRunHoldState | undefined }
   | { readonly kind: "failed"; readonly refusal: Refusal };
 
 /**
@@ -142,10 +142,10 @@ export class WorkflowNoticeFeed {
     }
     const { notice } = frame;
     switch (notice.kind) {
-      case "runsPause":
+      case "newRunHold":
         this.#settle({
           kind: "open",
-          pause: { paused: notice.paused, waitingStartCount: notice.waitingStartCount },
+          pause: { held: notice.held, waitingStartCount: notice.waitingStartCount },
         });
         return;
       case "run":

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunPurgePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/retention";
 
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
@@ -15,7 +15,7 @@ export const DELETE_OLDER_THAN_DAYS = [30, 90, 365] as const;
 export type DeleteOlderThanDays = (typeof DELETE_OLDER_THAN_DAYS)[number];
 
 /** The count an age would delete, and the cut-off it was read for, which the delete sends. */
-export interface DeleteOlderRunsPreview extends WorkflowRunsDeletePreviewResponse {
+export interface DeleteOlderRunsPreview extends WorkflowRunPurgePreviewResponse {
   readonly olderThan: string;
 }
 
@@ -62,7 +62,7 @@ export function useDeleteOlderRuns(bridge: PlatformBridge): DeleteOlderRunsHold 
       previewRound.current = round;
       const olderThan = new Date(clock.now() - days * MILLISECONDS_PER_DAY).toISOString();
       setState({ kind: "open", days, isDeleting: false });
-      void callDaemon(bridge, "workflow.runsDeletePreview", { olderThan }).then((reply) => {
+      void callDaemon(bridge, "workflow.run.purge.preview", { olderThan }).then((reply) => {
         if (previewRound.current !== round) {
           return;
         }
@@ -89,7 +89,7 @@ export function useDeleteOlderRuns(bridge: PlatformBridge): DeleteOlderRunsHold 
     const { days, preview } = state;
     previewRound.current += 1;
     setState({ kind: "open", days, preview, isDeleting: true });
-    void callDaemon(bridge, "workflow.runsDelete", { olderThan: preview.olderThan }).then(
+    void callDaemon(bridge, "workflow.run.purge", { olderThan: preview.olderThan }).then(
       (reply) => {
         setState(
           reply.status === "refused"

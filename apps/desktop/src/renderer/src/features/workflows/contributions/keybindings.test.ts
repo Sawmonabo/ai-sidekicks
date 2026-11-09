@@ -87,14 +87,14 @@ describe("the workflows screen's chords", () => {
     const field = document.createElement("input");
     document.body.append(field);
     const approvals = (): number =>
-      mounted.calls.filter((call) => call.method === "workflow.gateResolve").length;
+      mounted.calls.filter((call) => call.method === "workflow.gate.resolve").length;
 
     await pressChordOf("workflows.answerThisRun", field);
     expect(approvals()).toBe(0);
 
     await pressChordOf("workflows.answerThisRun", document.body);
     expect(
-      mounted.calls.filter((call) => call.method === "workflow.gateResolve").at(-1)?.params,
+      mounted.calls.filter((call) => call.method === "workflow.gate.resolve").at(-1)?.params,
     ).toMatchObject({ workflowRunId: WORKFLOW_RUN_IDS.waitingApproval, decision: "approved" });
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByText(/^Approved at/u)).toBeDefined();
@@ -109,7 +109,7 @@ describe("the workflows screen's chords", () => {
     onTestFinished(mounted.unmount);
     installWorkflowChords(mounted.commandTargets);
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(mounted.calls.some((call) => call.method === "workflow.humanFormRead")).toBe(true);
+      expect(mounted.calls.some((call) => call.method === "workflow.humanForm.read")).toBe(true);
     });
     expect(screen.queryByText("Write the release notes for this version.")).toBeNull();
 

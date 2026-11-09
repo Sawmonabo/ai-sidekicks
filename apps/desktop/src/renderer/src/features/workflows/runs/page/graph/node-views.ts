@@ -8,7 +8,7 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
-import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle-parsing";
 import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
@@ -65,7 +65,7 @@ const IS_LIVE_STATUS: Readonly<Record<WorkflowStepStatus, boolean>> = {
   pending: false,
   running: true,
   waiting: true,
-  "waiting-memory": true,
+  waitingMemory: true,
   succeeded: false,
   failed: false,
   skipped: false,
@@ -81,7 +81,7 @@ const HAS_OWN_OUTPUT: Readonly<Record<WorkflowStepStatus, boolean>> = {
   pending: false,
   running: false,
   waiting: false,
-  "waiting-memory": false,
+  waitingMemory: false,
   succeeded: true,
   failed: false,
   skipped: true,

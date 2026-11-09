@@ -22,7 +22,7 @@ import { ChainQuestion } from "./ChainQuestion.js";
 /** The clock locale the fixture bridge carries, which the screen writes its figures in. */
 const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
-/** How long the fixture daemon takes to answer `workflow.gateResolve`. */
+/** How long the fixture daemon takes to answer `workflow.gate.resolve`. */
 const GATE_RESOLVE_DELAY_MS = 200;
 
 /** A day after the chain started, so its start names its day. */
@@ -67,7 +67,7 @@ describe("the chain's question", () => {
     await waitFor(() => {
       expect(calls).toStrictEqual([
         {
-          method: "workflow.gateResolve",
+          method: "workflow.gate.resolve",
           params: { workflowRunId: WORKFLOW_RUN_IDS.chainHeld, decision: "approved" },
         },
       ]);

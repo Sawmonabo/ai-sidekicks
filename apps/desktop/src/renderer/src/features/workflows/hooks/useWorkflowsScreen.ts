@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
-import type {
-  WorkflowRunAttentionListResponse,
-  WorkflowRunsPauseState,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunAttentionListResponse } from "@ai-sidekicks/contracts/workflow/run/attention";
+import type { WorkflowNewRunHoldState } from "@ai-sidekicks/contracts/workflow/run/new-run-hold";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
@@ -17,6 +15,7 @@ import {
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
 import { readPayer, type PayerReading } from "../runs/cost.js";
@@ -73,8 +72,8 @@ export interface WorkflowsScreenHold {
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly nextWaiting: NextWaiting;
-  readonly pauseAct: WorkflowCallState<WorkflowRunsPauseState>;
-  readonly setPaused: (paused: boolean) => void;
+  readonly pauseAct: WorkflowCallState<WorkflowNewRunHoldState>;
+  readonly setPaused: (held: boolean) => void;
   /**
    * How many runs a person answered since this screen opened, each once, on their pages or on a
    * session's question card.
@@ -211,13 +210,15 @@ export function useWorkflowsScreen(
     [feed, countAnswered],
   );
 
+  const providerSections = useProviderSections();
   const payerOf = useCallback(
     (providerAccountId: string): PayerReading =>
       readPayer(
         accountsState.kind === "loaded" ? accountsState.value.accounts : undefined,
+        providerSections,
         providerAccountId,
       ),
-    [accountsState],
+    [accountsState, providerSections],
   );
   const definitions = useMemo(
     () => (definitionsState.kind === "loaded" ? definitionsState.value.definitions : []),
@@ -290,8 +291,8 @@ export function useWorkflowsScreen(
       countAnswered(openRunId);
     }
   }, [openRunId, countAnswered]);
-  const pause = useWorkflowCall((paused: boolean) =>
-    callDaemon(bridge, "workflow.runsPauseSet", { paused }),
+  const pause = useWorkflowCall((held: boolean) =>
+    callDaemon(bridge, "workflow.newRunHold.update", { held }),
   );
 
   const nextWaiting = nextWaitingOf(attentionState, openRunId);

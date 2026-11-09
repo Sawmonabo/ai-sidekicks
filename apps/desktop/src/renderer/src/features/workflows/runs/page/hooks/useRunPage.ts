@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
-import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
+import { WORKFLOW_RUN_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
@@ -67,7 +67,8 @@ export function useRunPage(options: {
   }, [run, opened]);
   const [answers, setAnswers] = useState<ReadonlyMap<string, HeldStepAnswer>>(() => new Map());
 
-  const isMissing = runState.kind === "failed" && runState.refusal.code === WORKFLOW_NOT_FOUND_CODE;
+  const isMissing =
+    runState.kind === "failed" && runState.refusal.code === WORKFLOW_RUN_NOT_FOUND_CODE;
   useEffect(() => {
     if (isMissing) {
       onRunMissing();

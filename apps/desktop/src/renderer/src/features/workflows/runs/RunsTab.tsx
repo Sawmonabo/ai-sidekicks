@@ -7,12 +7,12 @@
 // replaces them. A page `Load older runs` could not read keeps the rows above it, with its error
 // and `Try again` below them.
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/list";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
-  WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+} from "@ai-sidekicks/contracts/workflow/run/attention";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";

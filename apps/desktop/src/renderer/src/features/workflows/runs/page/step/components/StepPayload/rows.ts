@@ -9,7 +9,7 @@ import type {
   WorkflowBinaryRef,
   WorkflowItem,
   WorkflowPairedItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
+} from "@ai-sidekicks/contracts/workflow/definition/item";
 
 import type { MarkdownDocumentRow, ParsedMarkdownDocument } from "./markdown-document-rows.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
@@ -88,7 +88,10 @@ export class PayloadTableRows {
         );
       });
       for (const file of Object.values(item.binary ?? {})) {
-        this.#wait({ kind: "ready", row: { kind: "file", line: fileLine(file) } });
+        // The generated map type admits an absent member, which carries no file.
+        if (file !== undefined) {
+          this.#wait({ kind: "ready", row: { kind: "file", line: fileLine(file) } });
+        }
       }
     });
     this.#drawWhatIsReady();

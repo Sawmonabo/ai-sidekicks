@@ -6,11 +6,11 @@ import "./RunPage.css";
 
 import { useContext, useLayoutEffect, useRef } from "react";
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type {
   SessionPointerControl,
   SessionPointerOutcome,
 } from "#renderer/features/workflows/open-session.js";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
