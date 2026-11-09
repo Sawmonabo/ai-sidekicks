@@ -7,6 +7,7 @@ mod held_calls;
 mod inspector;
 mod runs;
 mod sessions;
+mod side_question;
 #[cfg(test)]
 mod tests;
 

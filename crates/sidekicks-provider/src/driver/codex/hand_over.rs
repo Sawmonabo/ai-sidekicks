@@ -16,9 +16,8 @@ use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::side_questions::copy_turn::{
     CopyFrameReading, CopyTurn, CopyTurnFailure, read_copy_frame,
 };
-use crate::driver::codex::session::side_questions::{
-    file_copy_usage, fork_resting_copy, start_turn,
-};
+use crate::driver::codex::session::side_questions::resting_copy::fork_resting_copy;
+use crate::driver::codex::session::side_questions::{file_copy_usage, start_turn};
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::session_control::{
