@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::{
     TerminalProviderSession, TerminalProviderSessionState,
 };
@@ -38,8 +39,9 @@ const SILENT: &str = "silent-thread";
 const ASK_WAIT: Duration = Duration::from_secs(5);
 
 // Fails when the list names a conversation a session holds, a helper's, a one-off run's or one
-// another app-server client started, when one failed read fails the whole list, when a name falls back past the preview to the id, or
-// when a running turn does not read as working.
+// another app-server client started, when one failed read fails the whole list, when a name falls
+// back past the preview to the id, when a running turn does not read as working, or when a
+// conversation's folder is dropped.
 #[tokio::test]
 async fn the_list_names_the_typed_conversations_no_session_holds() {
     let mut scripted = start_scripted_terminal_service();
@@ -67,7 +69,8 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
                 &scripted.script,
                 &read,
                 json!({"name": null, "preview": "fix the flaky test", "source": "cli",
-                    "ephemeral": false, "status": {"type": "active", "activeFlags": []}}),
+                    "ephemeral": false, "status": {"type": "active", "activeFlags": []},
+                    "cwd": "/work/flaky"}),
             ),
             NAMED => answer_thread(
                 &scripted.script,
@@ -109,10 +112,21 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
             terminal_session(
                 TYPED,
                 "fix the flaky test",
-                TerminalProviderSessionState::Working
+                TerminalProviderSessionState::Working,
+                Some("/work/flaky"),
             ),
-            terminal_session(NAMED, "Release notes", TerminalProviderSessionState::Idle),
-            terminal_session(SILENT, SILENT, TerminalProviderSessionState::Unreachable),
+            terminal_session(
+                NAMED,
+                "Release notes",
+                TerminalProviderSessionState::Idle,
+                None
+            ),
+            terminal_session(
+                SILENT,
+                SILENT,
+                TerminalProviderSessionState::Unreachable,
+                None
+            ),
         ]
     );
     assert!(!read_ids.iter().any(|id| id == HELD), "{read_ids:?}");
@@ -159,7 +173,8 @@ async fn a_terminal_session_leaves_the_list_at_its_close() {
         vec![terminal_session(
             NAMED,
             "Release notes",
-            TerminalProviderSessionState::Idle
+            TerminalProviderSessionState::Idle,
+            None
         )]
     );
     assert_eq!(second_listed.expect("the second list reads"), Vec::new());
@@ -177,11 +192,14 @@ fn terminal_session(
     thread_id: &str,
     name: &str,
     state: TerminalProviderSessionState,
+    folder: Option<&str>,
 ) -> TerminalProviderSession {
     TerminalProviderSession {
         provider: DESCRIPTOR.provider_id(),
         name: ComposedText::new(name.to_owned()).expect("the name is not empty"),
         thread_id: ComposedText::new(thread_id.to_owned()).expect("the id is not empty"),
         state,
+        folder: folder
+            .map(|folder| FilesystemPath::new(folder.to_owned()).expect("the folder is a path")),
     }
 }

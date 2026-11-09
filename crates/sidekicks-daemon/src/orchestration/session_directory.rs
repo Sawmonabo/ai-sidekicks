@@ -8,7 +8,7 @@
 //! renamed, a terminal that left or a computer renamed since the daemon started is seen, and a
 //! restart has nothing to rebuild.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use futures::future::try_join_all;
@@ -32,6 +32,7 @@ use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use sidekicks_store::machine::local::{LocalMachineError, read_local_machine};
 use sidekicks_workspace::project::records::session_project_sql;
+use sidekicks_workspace::project::service::project_name_of;
 
 /// The word `session_update` and `session_group` read as the calling session.
 #[cfg_attr(
@@ -41,7 +42,7 @@ use sidekicks_workspace::project::records::session_project_sql;
 const THIS_SESSION: &str = "this";
 
 /// Where the shared-name refusal places a session that belongs to no project: a chat, or a session
-/// typed in a terminal.
+/// typed in a terminal whose provider names no folder.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the session tools' handlers resolve a reference")
@@ -98,7 +99,9 @@ pub(crate) struct SessionDirectoryEntry {
     pub(crate) provider: ProviderId,
     /// The model its lead runs on now; `None` for a session typed in a terminal.
     pub(crate) model: Option<String>,
-    /// Its project's name; `None` for a chat and for a session typed in a terminal.
+    /// Its project's name: a hosted session's project, or for a session typed in a terminal the
+    /// name a project in its folder takes; `None` for a chat and for a terminal session whose
+    /// provider names no folder.
     pub(crate) project: Option<String>,
     /// The folder a session typed in a terminal runs in, where its provider names it; `None` for a
     /// hosted session.
@@ -189,18 +192,21 @@ impl SessionDirectory {
             entries.extend(
                 in_service
                     .into_iter()
-                    .map(|session: TerminalProviderSession| SessionDirectoryEntry {
-                        id: session.thread_id.as_str().to_owned(),
-                        name: Some(session.name.as_str().to_owned()),
-                        provider: session.provider,
-                        model: None,
-                        project: None,
-                        folder: None,
-                        computer: Arc::clone(&computer),
-                        is_archived: false,
-                        origin: SessionOrigin::TypedInTerminal {
-                            shared_service_state: Some(session.state),
-                        },
+                    .map(|session: TerminalProviderSession| {
+                        let folder = session.folder.map(|folder| PathBuf::from(folder.as_str()));
+                        SessionDirectoryEntry {
+                            id: session.thread_id.as_str().to_owned(),
+                            name: Some(session.name.as_str().to_owned()),
+                            provider: session.provider,
+                            model: None,
+                            project: folder.as_deref().map(folder_project_name),
+                            folder,
+                            computer: Arc::clone(&computer),
+                            is_archived: false,
+                            origin: SessionOrigin::TypedInTerminal {
+                                shared_service_state: Some(session.state),
+                            },
+                        }
                     }),
             );
             entries.extend(
@@ -211,7 +217,7 @@ impl SessionDirectory {
                         name: session.name,
                         provider: provider.clone(),
                         model: None,
-                        project: None,
+                        project: session.folder.as_deref().map(folder_project_name),
                         folder: session.folder,
                         computer: Arc::clone(&computer),
                         is_archived: false,
@@ -282,6 +288,12 @@ impl SessionDirectory {
             })
             .await
     }
+}
+
+// The project name a session typed in a terminal in `folder` reads under, as a project there would
+// be named.
+fn folder_project_name(folder: &Path) -> String {
+    project_name_of(folder).as_str().to_owned()
 }
 
 // One driver's sessions typed in a terminal: those its shared service holds and those that run on
@@ -370,6 +382,7 @@ mod tests {
     use sidekicks_agent::tools::session::SessionReference;
     use sidekicks_agent::tools::session::errors::{SharedNameHolder, shared_name};
     use sidekicks_agent::tools::session::wait::not_waiting_self;
+    use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::controls::methods::{
         TerminalProviderSession, TerminalProviderSessionState,
@@ -537,6 +550,9 @@ mod tests {
                     name: ComposedText::new("tax-fix".to_owned()).expect("a name"),
                     thread_id: ComposedText::new("thread-1".to_owned()).expect("an id"),
                     state: TerminalProviderSessionState::Idle,
+                    folder: Some(
+                        FilesystemPath::new("/work/shop-api".to_owned()).expect("a folder"),
+                    ),
                 }])
             }
             .boxed()
@@ -602,7 +618,7 @@ mod tests {
                     None,
                     provider(0),
                     None,
-                    None,
+                    Some("tax"),
                     Some("/work/tax"),
                     "this Mac",
                     false,
@@ -615,8 +631,8 @@ mod tests {
                     Some("tax-fix"),
                     provider(1),
                     None,
-                    None,
-                    None,
+                    Some("shop-api"),
+                    Some("/work/shop-api"),
                     "this Mac",
                     false,
                     SessionOrigin::TypedInTerminal {

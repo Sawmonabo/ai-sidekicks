@@ -1,7 +1,7 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
 //! the permission profile a start, resume or fork runs under, the turn a turn request names, and
-//! the `thread/read` of a thread's name, preview, source, status and, for a helper, its nickname,
-//! role and model.
+//! the `thread/read` of a thread's name, preview, source, status, folder and, for a helper, its
+//! nickname, role and model.
 
 use std::time::Duration;
 
@@ -90,6 +90,7 @@ struct ThreadReadingMembers {
     source: Option<Box<RawValue>>,
     ephemeral: Option<Box<RawValue>>,
     status: Option<Box<RawValue>>,
+    cwd: Option<Box<RawValue>>,
     agent_nickname: Option<Box<RawValue>>,
     agent_role: Option<Box<RawValue>>,
     model: Option<Box<RawValue>>,
@@ -107,6 +108,8 @@ pub(crate) struct CodexThreadReading {
     pub(crate) is_typed_in_terminal: bool,
     /// Where the thread stands on the service, `None` where the reply names no status it reads.
     pub(crate) status: Option<CodexThreadStatus>,
+    /// The folder the thread runs in, `cwd`, `None` where it names none or a blank one.
+    pub(crate) folder: Option<String>,
     /// A helper's nickname, `agentNickname`, `None` where it has none or a blank one.
     pub(crate) agent_nickname: Option<String>,
     /// The role a helper was started in, `agentRole`, `None` where it has none or a blank one.
@@ -137,6 +140,7 @@ pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading
         status: thread
             .status
             .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get())),
+        folder: thread.cwd.and_then(|cwd| read_codex_given_text(&cwd)),
         agent_nickname: thread
             .agent_nickname
             .and_then(|nickname| read_codex_given_text(&nickname)),

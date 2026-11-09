@@ -676,10 +676,10 @@ impl ProjectService {
     }
 }
 
-// A project's name: its folder's own name, cut to the name's bound; a folder with no name of its
-// own (a filesystem root) takes its slug's.
-fn project_name_of(canonical_root: &Path) -> ProjectName {
-    let folder_name = canonical_root
+/// The name a project in `folder` takes: the folder's own name, cut to the name's bound; a folder
+/// with no name of its own (a filesystem root) takes its slug's.
+pub fn project_name_of(folder: &Path) -> ProjectName {
+    let folder_name = folder
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();

@@ -12,7 +12,11 @@
 // at load time.
 import { z } from "zod";
 
-import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
+import {
+  FILE_PATH_MAX_LEN,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+} from "../../free-form-string.js";
 import { brandedUuidIdSchema } from "../../internal/branded.js";
 import { composedTextSchema, countSchema } from "../../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
@@ -418,6 +422,8 @@ export interface TerminalProviderSession {
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";
+  /** The folder it runs in; absent where the provider names none. */
+  folder?: string;
 }
 
 /** The longest name or resume command a provider's descriptor carries. */
@@ -450,6 +456,7 @@ export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<Session
             name: composedTextSchema,
             threadId: composedTextSchema,
             state: z.enum(["working", "idle", "unreachable"]),
+            folder: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
           })
           .strict(),
       ),

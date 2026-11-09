@@ -1,9 +1,11 @@
-//! The sessions a person typed in a terminal inside the terminal service, each named and placed by
-//! a `thread/read` of its own, which a stop's confirmation and an update's wait count.
+//! The sessions a person typed in a terminal inside the terminal service, each named, placed and
+//! given its folder by a `thread/read` of its own, which a stop's confirmation and an update's wait
+//! count.
 
 use std::time::Duration;
 
 use futures::future::join_all;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::{
     TerminalProviderSession, TerminalProviderSessionState,
 };
@@ -22,7 +24,8 @@ const TERMINAL_SESSION_READ_TIMEOUT: Duration = Duration::from_secs(2);
 impl CodexServiceRegistry {
     /// The sessions a person typed in a terminal that the terminal service holds and no session of
     /// the app does, in the service's own order; empty while terminal reach is off. A session
-    /// whose read fails or names no thread is listed as unreachable, named by its thread id.
+    /// whose read fails or names no thread is listed as unreachable, named by its thread id and
+    /// with no folder.
     /// Fails when the service is on but its loaded conversations cannot be read, its connection
     /// down while it comes back among them, so a service that is on never reads as holding none.
     pub(crate) async fn list_terminal_sessions(
@@ -57,7 +60,7 @@ fn compose_terminal_session(
     reading: Result<Option<CodexThreadReading>, CodexError>,
 ) -> Option<TerminalProviderSession> {
     let thread_id = ComposedText::new(thread_id)?;
-    let (name, state) = match reading {
+    let (name, state, folder) = match reading {
         Ok(Some(reading)) => {
             if !reading.is_typed_in_terminal {
                 return None;
@@ -74,14 +77,22 @@ fn compose_terminal_session(
                 .or(reading.preview)
                 .and_then(ComposedText::new)
                 .unwrap_or_else(|| thread_id.clone());
-            (name, state)
+            let folder = reading
+                .folder
+                .and_then(|folder| FilesystemPath::new(folder).ok());
+            (name, state, folder)
         }
-        Ok(None) | Err(_) => (thread_id.clone(), TerminalProviderSessionState::Unreachable),
+        Ok(None) | Err(_) => (
+            thread_id.clone(),
+            TerminalProviderSessionState::Unreachable,
+            None,
+        ),
     };
     Some(TerminalProviderSession {
         provider: DESCRIPTOR.provider_id(),
         name,
         thread_id,
         state,
+        folder,
     })
 }

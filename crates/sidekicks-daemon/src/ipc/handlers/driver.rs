@@ -10,6 +10,7 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::{join_all, try_join_all};
 use serde_json::{Value, json};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationText;
@@ -194,6 +195,10 @@ async fn list_terminal_sessions(
                 thread_id: ComposedText::new(entry.id)
                     .expect("the thread id was listed as composed text"),
                 state,
+                folder: entry.folder.map(|folder| {
+                    FilesystemPath::new(folder.to_string_lossy().into_owned())
+                        .expect("the folder was listed as a path")
+                }),
             })
         })
         .collect();

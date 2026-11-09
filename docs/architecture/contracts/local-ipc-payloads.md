@@ -321,6 +321,7 @@ interface TerminalProviderSession {
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";
+  folder?: string; // the folder it runs in; absent where the provider names none
 }
 interface TerminalSessionProvider {
   provider: ProviderId;

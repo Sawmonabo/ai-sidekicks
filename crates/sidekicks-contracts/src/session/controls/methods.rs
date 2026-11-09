@@ -10,6 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::server::{McpServerName, McpServerStatus};
@@ -497,6 +498,15 @@ pub struct TerminalProviderSession {
     pub thread_id: ComposedText,
     /// Where it stands.
     pub state: TerminalProviderSessionState,
+    /// The folder it runs in; absent where the provider names none, as for a session whose read
+    /// failed.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FilesystemPath")]
+    pub folder: Option<FilesystemPath>,
 }
 
 /// The words a person reads for one provider that has sessions typed in a terminal.
