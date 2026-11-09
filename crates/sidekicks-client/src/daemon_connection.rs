@@ -15,6 +15,7 @@ pub mod handshake_wait;
 
 use std::future::Future;
 use std::io;
+use std::path::Path;
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -80,6 +81,11 @@ impl DaemonEndpoint {
     /// data folder or its id cannot be read.
     pub fn this_machine() -> io::Result<Self> {
         daemon_run_folder().map(Self::new)
+    }
+
+    /// The status file in the endpoint's run folder.
+    pub(crate) fn status_path(&self) -> &Path {
+        &self.run_folder.status_path
     }
 }
 

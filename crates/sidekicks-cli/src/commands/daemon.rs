@@ -8,6 +8,7 @@ pub(crate) mod install;
 pub(crate) mod registration;
 mod restart;
 mod secrets_place;
+pub(crate) mod service_status;
 pub(crate) mod start;
 pub(crate) mod status;
 mod stop;

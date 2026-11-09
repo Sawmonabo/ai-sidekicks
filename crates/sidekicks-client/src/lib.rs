@@ -4,6 +4,7 @@
 pub mod daemon_connection;
 pub mod daemon_ending;
 pub mod error;
+pub mod service_status;
 pub mod terminal_write;
 pub mod transport;
 pub mod untyped_call;

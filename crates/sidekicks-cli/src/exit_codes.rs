@@ -20,7 +20,7 @@ use strum::VariantArray as _;
 
 use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
-use crate::commands::daemon::status::describe_cannot_start;
+use crate::commands::daemon::service_status::describe_cannot_start;
 use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
 
 /// A process exit code the command line returns.

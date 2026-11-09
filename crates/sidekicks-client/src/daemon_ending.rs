@@ -6,7 +6,8 @@
 //! protocol this client cannot, is ended at once with a grace that still covers the drain. A daemon
 //! repairing its database file is stopped on the link it refused and waited for, within the drain
 //! bound, until it closes that link and its socket stops answering; nothing answering is a daemon
-//! not running.
+//! not running. Once the daemon has ended, a `stopping` record its process did not outlive is
+//! removed from the status file, so no reader takes it for a stop still under way.
 
 use std::io;
 use std::pin::pin;
@@ -26,9 +27,10 @@ use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon_connection::{
-    DaemonConnection, DaemonConnector, LINK_REOPEN_BACKOFF_MS, OpenedConnection,
+    DaemonConnection, DaemonConnector, DaemonEndpoint, LINK_REOPEN_BACKOFF_MS, OpenedConnection,
 };
 use crate::error::ClientError;
+use crate::service_status::remove_stale_stopping;
 use crate::transport::json_rpc::{JsonRpcClient, typed_request};
 use crate::{DAEMON_FLUSH_WAIT, DAEMON_KILL_GRACE};
 
@@ -120,12 +122,30 @@ pub enum DaemonEndingError {
         /// How long the ending waited.
         waited: Duration,
     },
+    /// The daemon ended, but the status file's `stopping` record of a process that has ended could
+    /// not be read or removed.
+    #[error("The background service's record of its stop could not be cleared")]
+    StaleStopRecord(#[source] io::Error),
 }
 
-/// Ends the daemon `connector` reaches with `verb`, within `terms`; answers which end took
-/// effect. Fails as [`DaemonEndingError`] names, a connect that fails other than with nothing
-/// answering among them.
-pub async fn end_daemon<C: DaemonConnector + Clone>(
+/// Ends the daemon at `endpoint` with `verb`, within `terms`, then removes its run folder's
+/// `stopping` record where that record's process has ended; answers which end took effect. Fails
+/// as [`DaemonEndingError`] names, a connect that fails other than with nothing answering among
+/// them.
+pub async fn end_daemon(
+    endpoint: DaemonEndpoint,
+    verb: DaemonEndingVerb,
+    terms: &DaemonEndingTerms,
+) -> Result<DaemonEnd, DaemonEndingError> {
+    let status_path = endpoint.status_path().to_path_buf();
+    let ended = end_reached_daemon(endpoint, verb, terms).await?;
+    remove_stale_stopping(&status_path).map_err(DaemonEndingError::StaleStopRecord)?;
+    Ok(ended)
+}
+
+/// Ends the daemon `connector` reaches with `verb`, within `terms`; answers which end took effect.
+/// Fails as [`end_daemon`] does, the status file aside.
+async fn end_reached_daemon<C: DaemonConnector + Clone>(
     connector: C,
     verb: DaemonEndingVerb,
     terms: &DaemonEndingTerms,

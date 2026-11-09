@@ -40,7 +40,7 @@ use tokio::time::{Instant, sleep};
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::system_service::{read_system_service_owner, write_line};
 use crate::commands::daemon::registration::{read_owner, registration_failure};
-use crate::commands::daemon::status::read_cannot_start;
+use crate::commands::daemon::service_status::read_cannot_start;
 use crate::connected_command::run_listening_for_ctrl_c;
 use crate::daemon_program::{daemon_program, is_same_program};
 use crate::exit_codes::{CommandFailure, ExitCode};
@@ -95,8 +95,9 @@ const SYSTEM_SERVICE_READ_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Starts the background service unless it is running, and answers 0 once it answers: the repair's
 /// line on stderr while it repairs its database file, then on stdout `started_line` where this
-/// command started it, else the line saying it was already running. Fails as [`start_daemon`]
-/// does, or as a write does.
+/// command started it, with the cause after it where the service could not leave this login's
+/// scope and so stops at log out, else the line saying it was already running. Fails as
+/// [`start_daemon`] does, or as a write does.
 pub(crate) fn start_and_report<Output: Write, ErrorOutput: Write>(
     args: &StartArgs,
     started_line: &'static str,
@@ -109,17 +110,17 @@ pub(crate) fn start_and_report<Output: Write, ErrorOutput: Write>(
     });
     repair_line.finish()?;
     let line = match started? {
-        DaemonStart::AlreadyRunning => ALREADY_RUNNING_LINE,
-        DaemonStart::Started { scope_refused } => {
-            if let Some(refusal) = scope_refused {
-                writeln!(
-                    context.stderr,
-                    "warning: the background service stops when this login ends, since it could \
-                     not leave this login's scope: {refusal}"
-                )?;
-            }
-            started_line
-        }
+        DaemonStart::AlreadyRunning => ALREADY_RUNNING_LINE.to_owned(),
+        DaemonStart::Started {
+            scope_refused: None,
+        } => started_line.to_owned(),
+        DaemonStart::Started {
+            scope_refused: Some(refusal),
+        } => format!(
+            "{} It stops when you log out: {}.\n",
+            started_line.trim_end(),
+            refusal.to_string().trim_end_matches('.')
+        ),
     };
     context.stdout.write_all(line.as_bytes())?;
     context.stdout.flush()?;

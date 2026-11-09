@@ -4,7 +4,8 @@
 //! cannot speak, which refuses every mutating call, is ended at once with a grace that covers the
 //! drain, its identity read from a status this client cannot otherwise read. A daemon repairing
 //! its database file is stopped on the link it refused, and the ending waits until that link
-//! closes and its socket stops answering.
+//! closes and its socket stops answering. A `stopping` record is removed once its process has
+//! ended.
 
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -310,4 +311,55 @@ async fn a_repairing_daemon_s_stop_ends_only_once_its_socket_stops_answering() {
         "the ending answered while the socket still answered"
     );
     assert_eq!(end, DaemonEnd::StoppedWhileRepairing);
+}
+
+/// A `stopping` record naming `identity`, begun long before now.
+fn stopping_record(identity: &Value) -> String {
+    json!({
+        "stopping": {
+            "step": "searchIndex",
+            "stopStarted": "2026-11-03T23:00:00.000Z",
+            "process": identity,
+        }
+    })
+    .to_string()
+}
+
+// Fails when a `stopping` record outlives the process it names, which a reader would show as a
+// stop under way forever, or when the record of a process still running is removed.
+#[tokio::test]
+async fn the_ending_removes_a_stopping_record_only_once_its_process_has_ended() {
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let run_folder = stand_in_run_folder(&folder);
+    let (terms, _calls) = recording_terms();
+    let mut ended_process = StandInProcess::start();
+    let ended_identity = ended_process.identity();
+    ended_process.child.kill().expect("the stand-in is killed");
+    ended_process.child.wait().expect("the stand-in is reaped");
+    let running_process = StandInProcess::start();
+    let running_identity = running_process.identity();
+
+    std::fs::write(&run_folder.status_path, stopping_record(&running_identity))
+        .expect("the status file is written");
+    assert_eq!(
+        ended(start_stop(&run_folder, &terms)).await,
+        DaemonEnd::NotRunning
+    );
+    let kept = std::fs::read_to_string(&run_folder.status_path);
+    std::fs::write(&run_folder.status_path, stopping_record(&ended_identity))
+        .expect("the status file is written");
+    assert_eq!(
+        ended(start_stop(&run_folder, &terms)).await,
+        DaemonEnd::NotRunning
+    );
+
+    assert_eq!(
+        kept.ok(),
+        Some(stopping_record(&running_identity)),
+        "the record of a process still running was removed"
+    );
+    assert!(
+        !run_folder.status_path.exists(),
+        "the record of a process that has ended was kept"
+    );
 }

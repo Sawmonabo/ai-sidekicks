@@ -3,12 +3,11 @@
 //! fault (1). A service on a protocol this command does not speak gets one line naming both
 //! protocols. The text closes with whether the service starts at login or runs while the person is
 //! logged out, where the system registers it. A service that is not answering gets that line
-//! first; where the person turned it off in Login Items, or it wrote down why its start failed,
-//! that reason stands in place of the client's line; it exits 69 either way.
+//! first; where the person turned it off in Login Items, or it wrote down why its start failed or
+//! a stop that did not happen, that reason stands in place of the client's line; it exits 69 either
+//! way.
 
-use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
 
 use anyhow::Context as _;
 use clap::Args;
@@ -21,7 +20,7 @@ use sidekicks_client::transport::json_rpc::RawRequest;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoverySession, DaemonRecoverySessionState, DaemonRecoveryState, DaemonRecoveryStatus,
 };
-use sidekicks_contracts::daemon::service_status::{DaemonCannotStart, ServiceStatusFile};
+use sidekicks_contracts::daemon::service_status::ServiceStatusFile;
 use sidekicks_contracts::daemon::status::{
     DaemonMachineKey, DaemonMachineKeyState, DaemonProcessState, DaemonRelayDevice,
     DaemonRelayStatus, DaemonSecretsFile, DaemonSecretsFileUnopened, DaemonStatusRead,
@@ -30,11 +29,14 @@ use sidekicks_contracts::daemon::status::{
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use sidekicks_platforms::{daemon_run_folder, service_registration};
+use sidekicks_platforms::service_registration;
 use tokio_util::sync::CancellationToken;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::registration::{LoginStart, read_login_start};
+use crate::commands::daemon::service_status::{
+    describe_cannot_start, describe_failed_stop, read_status_file,
+};
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
 use crate::local::time::LocalClock;
@@ -202,9 +204,9 @@ fn exit_code_for_state(state: Option<DaemonProcessState>) -> ExitCode {
 
 /// Where `failure` is the service not answering: in the text form (`is_text`), a registration the
 /// person turned off writes that line to stderr and answers 69, and any other registration's line
-/// goes to stdout first; then, where its status file names why its start failed, writes that
-/// reason to stderr and answers 69. Otherwise answers `failure` itself, with why the status file
-/// did not read where it is there but does not.
+/// goes to stdout first; then, where its status file names why its start failed or a stop that
+/// did not happen, writes that reason to stderr and answers 69. Otherwise answers `failure` itself,
+/// with why the status file did not read where it is there but does not.
 fn report_not_answering<Output: Write, ErrorOutput: Write>(
     failure: anyhow::Error,
     is_text: bool,
@@ -229,88 +231,29 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
         writeln!(context.stdout, "{line}")?;
         context.stdout.flush()?;
     }
-    let cannot_start = match read_cannot_start(&mut context.stderr) {
-        Ok(Some(cannot_start)) => cannot_start,
+    let file = match read_status_file(&mut context.stderr) {
+        Ok(Some(file)) => file,
         Ok(None) => return Err(failure),
         Err(unread) => return Err(failure.context(format!("{unread:#}"))),
     };
-    let lines = describe_cannot_start(&cannot_start);
+    let lines = match &file {
+        ServiceStatusFile::CannotStart(cannot_start) => describe_cannot_start(cannot_start),
+        ServiceStatusFile::Stopping(_) | ServiceStatusFile::CannotStop(_) => {
+            match describe_failed_stop(&file) {
+                Ok(Some(lines)) => lines,
+                Ok(None) => return Err(failure),
+                Err(unpinned) => {
+                    return Err(failure.context(format!(
+                        "could not read whether the background service's stop happened: {:#}",
+                        anyhow::Error::new(unpinned)
+                    )));
+                }
+            }
+        }
+    };
     context.stderr.write_all(lines.as_bytes())?;
     context.stderr.flush()?;
     Ok(ExitCode::Unavailable)
-}
-
-/// Why the service's last start failed, from its status file; `None` where it wrote none, the
-/// file holds another fact, or its bytes do not parse, which a power loss can leave and which
-/// writes a warning to `stderr`. Fails as the run folder's lookup, the file's read other than a
-/// missing file, or that warning's write does.
-pub(crate) fn read_cannot_start(
-    stderr: &mut impl Write,
-) -> anyhow::Result<Option<DaemonCannotStart>> {
-    let run_folder = daemon_run_folder()
-        .context("could not find where the background service records why it cannot start")?;
-    read_cannot_start_at(&run_folder.status_path, stderr)
-}
-
-// `read_cannot_start` over the status file at `path`.
-fn read_cannot_start_at(
-    path: &Path,
-    stderr: &mut impl Write,
-) -> anyhow::Result<Option<DaemonCannotStart>> {
-    let text = match fs::read(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!(
-                    "could not read why the background service cannot start from {}",
-                    path.display()
-                )
-            });
-        }
-    };
-    let file = match serde_json::from_slice::<ServiceStatusFile>(&text) {
-        Ok(file) => file,
-        Err(unparsed) => {
-            writeln!(
-                stderr,
-                "warning: could not read the background service's status from {}: {:#}",
-                path.display(),
-                anyhow::Error::new(unparsed)
-            )?;
-            return Ok(None);
-        }
-    };
-    Ok(match file {
-        ServiceStatusFile::CannotStart(cannot_start) => Some(cannot_start),
-        ServiceStatusFile::Stopping(_) | ServiceStatusFile::CannotStop(_) => None,
-    })
-}
-
-/// The reason's lines, each ended by a newline: one sentence, or a title over one line.
-pub(crate) fn describe_cannot_start(cannot_start: &DaemonCannotStart) -> String {
-    let lines = match cannot_start {
-        DaemonCannotStart::ConnectionNameTaken {} => vec![
-            "The background service cannot start because another program on this computer is \
-             using its connection. Restarting Windows usually clears it."
-                .to_owned(),
-        ],
-        DaemonCannotStart::TurnedOffInLoginItems {} => vec![
-            "The background service cannot start because it is turned off in Login Items. Turn \
-             it on in System Settings, then it starts on its own."
-                .to_owned(),
-        ],
-        DaemonCannotStart::SavedSessionsUnrepaired { aside_folder } => vec![
-            "Saved sessions could not be repaired".to_owned(),
-            "Nothing was changed; restore a backup to go on.".to_owned(),
-            format!("Folder  {}", aside_folder.as_str()),
-        ],
-        DaemonCannotStart::SavedSessionsFromAnotherVersion {} => vec![
-            "Saved sessions are from another version".to_owned(),
-            "Open the app version that saved them, or restore a backup.".to_owned(),
-        ],
-    };
-    ended_lines(&lines)
 }
 
 /// The status as text on `clock`: the service's own lines, then each block it carries, a blank
@@ -618,7 +561,7 @@ fn describe_duration(milliseconds: u64) -> String {
 }
 
 /// `lines`, each ended by a newline.
-fn ended_lines(lines: &[String]) -> String {
+pub(crate) fn ended_lines(lines: &[String]) -> String {
     lines.iter().fold(String::new(), |mut ended, line| {
         ended.push_str(line);
         ended.push('\n');
@@ -631,84 +574,10 @@ mod tests {
     use rstest::rstest;
     use serde_json::json;
     use serde_json::value::RawValue;
-    use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
     use sidekicks_contracts::daemon::status::DaemonStatusReadResponse;
 
-    use super::{StatusReply, read_cannot_start_at, write_status};
+    use super::{StatusReply, write_status};
     use crate::exit_codes::ExitCode;
-
-    // A status file holding why the last start failed.
-    const CANNOT_START: &str = r#"{"cannotStart":{"reason":"savedSessionsFromAnotherVersion"}}"#;
-
-    // What the status file holds before the read.
-    #[derive(Clone, Copy, Debug)]
-    enum StatusFile {
-        // Why the last start failed.
-        CannotStart,
-        // The stop under way.
-        Stopping,
-        // Why the last stop failed.
-        CannotStop,
-        // The first half of a start failure's bytes, as a power loss can leave a write.
-        Torn,
-        // No bytes.
-        Empty,
-        // No file.
-        Missing,
-    }
-
-    /// Only a start failure is read from the status file; the stop's two facts read as none, and
-    /// a torn or empty file reads as none after one warning naming the file. Killed by a torn file
-    /// failing the read, and by the warning dropped.
-    #[rstest]
-    #[case::cannot_start(
-        StatusFile::CannotStart,
-        Some(DaemonCannotStart::SavedSessionsFromAnotherVersion {}),
-        false
-    )]
-    #[case::stopping(StatusFile::Stopping, None, false)]
-    #[case::cannot_stop(StatusFile::CannotStop, None, false)]
-    #[case::torn(StatusFile::Torn, None, true)]
-    #[case::empty(StatusFile::Empty, None, true)]
-    #[case::missing(StatusFile::Missing, None, false)]
-    fn the_status_file_reads_only_its_start_failure(
-        #[case] status_file: StatusFile,
-        #[case] expected: Option<DaemonCannotStart>,
-        #[case] is_warned: bool,
-    ) {
-        let folder = tempfile::tempdir().expect("a temporary folder");
-        let path = folder.path().join("service-status.json");
-        let contents = match status_file {
-            StatusFile::CannotStart => Some(CANNOT_START),
-            StatusFile::Stopping => Some(concat!(
-                r#"{"stopping":{"step":"searchIndex","stopStarted":"2026-11-03T23:00:00.000Z","#,
-                r#""process":{"processId":4242,"bootId":"boot","processStartTime":"1730674800"}}}"#
-            )),
-            StatusFile::CannotStop => Some(r#"{"cannotStop":{"reason":"stopIntent"}}"#),
-            StatusFile::Torn => CANNOT_START.get(..CANNOT_START.len() / 2),
-            StatusFile::Empty => Some(""),
-            StatusFile::Missing => None,
-        };
-        if let Some(contents) = contents {
-            std::fs::write(&path, contents).expect("the status file is written");
-        }
-        let mut stderr = Vec::new();
-
-        let cannot_start =
-            read_cannot_start_at(&path, &mut stderr).expect("the status file's read answers");
-
-        assert_eq!(cannot_start, expected);
-        let stderr = String::from_utf8(stderr).expect("UTF-8");
-        if is_warned {
-            assert_eq!(stderr.lines().count(), 1, "{stderr}");
-            assert!(
-                stderr.starts_with("warning: ") && stderr.contains(&path.display().to_string()),
-                "{stderr}"
-            );
-        } else {
-            assert_eq!(stderr, "");
-        }
-    }
 
     /// A status reply carrying every member the response has, in `process_state`.
     fn every_member(process_state: &str) -> String {
