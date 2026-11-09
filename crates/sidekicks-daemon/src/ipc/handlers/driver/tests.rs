@@ -64,7 +64,10 @@ fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
     insert_session_row(&schema, session_id.text().as_str(), None, None);
     let drivers = drivers
         .into_iter()
-        .map(|driver| Arc::new(driver) as Arc<dyn ProviderDriver>)
+        .map(|mut driver| {
+            driver.expect_request_pricer().returning(|| None);
+            Arc::new(driver) as Arc<dyn ProviderDriver>
+        })
         .collect();
     let sources = DriverMethodSources {
         pool: Arc::new(DatabaseReadPool::new(
