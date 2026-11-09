@@ -424,18 +424,26 @@ mod tests {
             self.filter.filter(output.as_bytes(), &mut kept);
         }
 
-        /// Starts the command in the shell, its window on `capture`.
+        /// Starts the command in the shell, its window on `capture`. The test keeps `capture`, as
+        /// the daemon keeps its registration, so the capture's calls stay open once the command
+        /// ends.
         async fn start(
             &self,
-            capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+            capture: &Arc<PortRegistration<Arc<dyn CommandCapture>>>,
         ) -> Result<ShellRunStart, HandlerError> {
-            start_run_command(self.parts(), capture, &Handle::current(), request()).await
+            start_run_command(
+                self.parts(),
+                Arc::clone(capture),
+                &Handle::current(),
+                request(),
+            )
+            .await
         }
 
-        /// The command started in the shell, its window on `capture`.
+        /// The command started in the shell, its window on `capture`, which the test keeps.
         async fn started(
             &self,
-            capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+            capture: &Arc<PortRegistration<Arc<dyn CommandCapture>>>,
         ) -> ShellRunCommand {
             match self.start(capture).await.expect("the start answers") {
                 ShellRunStart::Started(command) => command,
@@ -501,7 +509,7 @@ mod tests {
         let (opens, held_opens) = watch::channel(None);
         let (capture, mut called) = held_capture(held_opens);
 
-        let command = shell.started(capture).await;
+        let command = shell.started(&capture).await;
         assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
         let mut written = std::pin::pin!(command.written());
         let early = tokio::time::timeout(Duration::from_millis(200), &mut written).await;
@@ -534,7 +542,7 @@ mod tests {
         let mut shell = ShellUnderTest::at_prompt(false);
         let (_opens, open) = watch::channel(Some(true));
         let (capture, mut called) = held_capture(open);
-        let command = shell.started(capture).await;
+        let command = shell.started(&capture).await;
         let end = command.end();
         command.written().await.expect("the command is written");
 
@@ -593,7 +601,7 @@ mod tests {
         let mut shell = ShellUnderTest::at_prompt(false);
         let (_opens, open) = watch::channel(Some(true));
         let (capture, mut called) = held_capture(open);
-        let command = shell.started(capture).await;
+        let command = shell.started(&capture).await;
         let end = command.end();
         command.written().await.expect("the command is written");
 
@@ -633,7 +641,7 @@ mod tests {
         } else {
             (unregistered_capture(), None)
         };
-        let command = shell.started(capture).await;
+        let command = shell.started(&capture).await;
         let end = command.end();
         command.written().await.expect("the command is written");
         assert_eq!(shell.writes(), [format!("{COMMAND}\r")]);
@@ -662,7 +670,7 @@ mod tests {
         let (capture, mut called) = held_capture(open);
         let unmarked = ShellUnderTest::unmarked(false);
         assert!(matches!(
-            unmarked.start(Arc::clone(&capture)).await,
+            unmarked.start(&capture).await,
             Ok(ShellRunStart::ReportsNoMarks)
         ));
 
@@ -684,7 +692,7 @@ mod tests {
             .expect("the device's write is taken");
 
         assert!(matches!(
-            shell.start(capture).await,
+            shell.start(&capture).await,
             Ok(ShellRunStart::NotIdle)
         ));
         assert_eq!(shell.writes(), ["ls"]);
@@ -698,7 +706,12 @@ mod tests {
         let (capture, mut called) = held_capture(open);
         let land = shell.lease.hold_next_broadcast();
 
-        let starting = start_run_command(shell.parts(), capture, &Handle::current(), request());
+        let starting = start_run_command(
+            shell.parts(),
+            Arc::clone(&capture),
+            &Handle::current(),
+            request(),
+        );
         tokio::time::timeout(Duration::from_secs(5), shell.lease.sent(1))
             .await
             .expect("the take is broadcast");
@@ -708,6 +721,8 @@ mod tests {
         assert_eq!(shell.reasons_once(2).await, ["taken", RELEASED]);
         assert_eq!(shell.writes(), [] as [String; 0]);
         no_call(&mut called, "a window opened for a dropped call").await;
+        // Kept past the check, as the daemon keeps its registration.
+        drop(capture);
     }
 
     #[tokio::test]
@@ -715,7 +730,7 @@ mod tests {
         let shell = ShellUnderTest::at_prompt(true);
         let (_opens, open) = watch::channel(Some(true));
         let (capture, mut called) = held_capture(open);
-        let command = shell.started(capture).await;
+        let command = shell.started(&capture).await;
 
         assert!(
             command.written().await.is_err(),
