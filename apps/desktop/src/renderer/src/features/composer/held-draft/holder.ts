@@ -67,6 +67,8 @@ export class ComposerHeldDraft {
   #saveAgain = false;
   #pause: ScheduledHandle | undefined;
   #stopWatchingLine: (() => void) | undefined;
+  /** The copies to the daemon still running, which a send waits for. */
+  readonly #copies = new Set<Promise<void>>();
 
   /** The reading as it stands. Stable between changes. */
   public snapshot = (): HeldDraftReading => this.#reading;
@@ -127,15 +129,41 @@ export class ComposerHeldDraft {
     this.#armPause();
   }
 
-  /** Add a file staged here, after the ones staged before it. */
-  public addStagedFile(file: SessionAttachmentSummary): void {
-    const { extras, files } = this.#reading;
+  /** Take the staged set the daemon answered a stage or an unstage with, in its order. */
+  public setStagedFiles(files: readonly SessionAttachmentSummary[]): void {
+    const { attachments: _dropped, ...rest } = this.#reading.extras;
     this.#publish({
       ...this.#reading,
-      extras: { ...extras, attachments: [...(extras.attachments ?? []), file.artifactId] },
-      files: [...files, file],
+      extras:
+        files.length === 0 ? rest : { ...rest, attachments: files.map((file) => file.artifactId) },
+      files,
     });
     this.#armPause();
+  }
+
+  /** Set the output speed the next turn alone runs at, or drop it back to the agent's own. */
+  public setOutputSpeedForTurn(level: string | undefined): void {
+    const { outputSpeedForTurn: _dropped, ...rest } = this.#reading.extras;
+    this.#publish({
+      ...this.#reading,
+      extras: level === undefined ? rest : { ...rest, outputSpeedForTurn: level },
+    });
+    this.#armPause();
+  }
+
+  /** Hold the next send until `copy`, one file's copy to the daemon, settles. */
+  public trackCopy(copy: Promise<void>): void {
+    this.#copies.add(copy);
+    void copy.finally(() => {
+      this.#copies.delete(copy);
+    });
+  }
+
+  /** Settle once every copy tracked so far, and any tracked while waiting, has settled. */
+  public async whenCopied(): Promise<void> {
+    while (this.#copies.size > 0) {
+      await Promise.allSettled([...this.#copies]);
+    }
   }
 
   /** Drop what rides with the words, the send carried it, and save the cleared draft. */

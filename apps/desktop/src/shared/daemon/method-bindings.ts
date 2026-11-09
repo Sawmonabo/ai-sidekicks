@@ -82,6 +82,10 @@ import {
 } from "@ai-sidekicks/contracts/run/control";
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 import {
+  SESSION_CONTROL_METHOD_DESCRIPTORS,
+  type SessionControlMethodDescriptors,
+} from "@ai-sidekicks/contracts/session/controls/methods";
+import {
   SESSION_DIRECTORY_METHOD_DESCRIPTORS,
   type SessionDirectoryMethodDescriptors,
 } from "@ai-sidekicks/contracts/session/directory";
@@ -155,6 +159,7 @@ type WindowMethodTables = AgentMethodDescriptors &
   QuestionMethodDescriptors &
   RepoMethodDescriptors &
   RunControlMethodDescriptors &
+  SessionControlMethodDescriptors &
   SessionDirectoryMethodDescriptors &
   SessionDraftMethodDescriptors &
   SessionInspectorMethodDescriptors &
@@ -249,6 +254,7 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
     ...QUESTION_METHOD_DESCRIPTORS,
     ...REPO_METHOD_DESCRIPTORS,
     ...RUN_CONTROL_METHOD_DESCRIPTORS,
+    ...SESSION_CONTROL_METHOD_DESCRIPTORS,
     ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
     ...SESSION_DRAFT_METHOD_DESCRIPTORS,
     ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,

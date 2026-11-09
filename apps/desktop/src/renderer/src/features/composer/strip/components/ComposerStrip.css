@@ -1,0 +1,149 @@
+/* The strip under the composer, its worktree popover, the chat's convert form, and the Sidekicks
+   badge at its right end. */
+
+/* One chip's height even while empty, so the resting space stands as tall as the composer. */
+.meridian-composer-strip {
+  min-block-size: calc(var(--meridian-text-xs) * 1.5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-composer-strip__end {
+  margin-inline-start: auto;
+}
+
+.meridian-composer-strip__badge {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}
+
+/* A child waiting on an approval is an interactive affordance to go to, so it takes the accent. */
+.meridian-composer-strip__badge--waiting {
+  color: var(--meridian-accent);
+}
+
+.meridian-composer-strip__count--dimmed {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer-worktrees {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-worktrees__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-composer-worktrees__row,
+.meridian-composer-worktrees__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-composer-worktrees__pick,
+.meridian-composer-worktrees__trash {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+/* The trash shows only while its row is hovered or focused. */
+.meridian-composer-worktrees__trash {
+  opacity: 0;
+}
+
+.meridian-composer-worktrees__row:hover .meridian-composer-worktrees__trash,
+.meridian-composer-worktrees__trash:focus-visible {
+  opacity: 1;
+}
+
+.meridian-composer-worktrees__trash[aria-disabled="true"] {
+  cursor: default;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer-worktrees__figures {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-composer-worktrees__faint {
+  color: var(--meridian-text-faint);
+}
+
+/* Uncommitted work is something a person must act on before it is lost: amber. */
+.meridian-composer-worktrees__dirty {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-composer-worktrees__rule {
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-composer-worktrees__failed {
+  margin: 0;
+}
+
+.meridian-composer-convert {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-convert__line {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.meridian-composer-convert__path {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-composer-worktrees__new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-composer-worktrees__name,
+.meridian-composer-worktrees__carry {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-composer-worktrees__error {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text);
+}

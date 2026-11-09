@@ -13,6 +13,8 @@ export function ComposerRestingSpace(): React.JSX.Element {
       {/* The send box with no draft: its floor is taller than one empty line. */}
       <div className="meridian-composer__send" />
       <ComposerMeterStrip contextReading={undefined} />
+      {/* The strip's row, empty until the session's listing is read. */}
+      <div className="meridian-composer-strip" />
     </section>
   );
 }

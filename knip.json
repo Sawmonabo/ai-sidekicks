@@ -142,9 +142,6 @@
         // Scripted diff patches kept as the fixtures' test data, read by no module until Review's
         // diff read of a session's changes lands.
         "fixtures/data/repos-diff-patches.ts",
-        // The anchored popover that registers its airspace over the Preview page, for the worktree
-        // popover and the context ring's compaction popover.
-        "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
         // The provider, model and effort pickers of the agent definition editor and of the
         // workflow node inspector.
         "src/renderer/src/components/AxisField/AxisCombobox.tsx",
@@ -156,10 +153,6 @@
         "src/renderer/src/features/agents/library/body.ts",
         // Opening a child in the Sidekicks pane, which fetches that child's own rows once.
         "src/renderer/src/features/agents/pane/hooks/useChildRunDisclosure.ts",
-        // The composer's attachment strip: one chip per staged file, its size, and the refusal
-        // naming a file and the limit it hit.
-        "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
-        "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
         // The definitions a `/workflow run` name autocompletes over.
         "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
@@ -194,9 +187,6 @@
         // The run queue's and run state's live feeds (`agent.run.subscribe`, `agent.queueItem.subscribe`),
         // for the run controls and the queue rows.
         "src/renderer/src/services/daemon/streams.ts",
-        // The session's model catalog, for the composer's model control, which lists every
-        // installed provider's models.
-        "src/renderer/src/services/provider-models/catalog.ts",
         // The window's one attention read, for the rail's bell, its Notifications list and the
         // sessions list.
         "src/renderer/src/store/attention/AttentionProvider.tsx",

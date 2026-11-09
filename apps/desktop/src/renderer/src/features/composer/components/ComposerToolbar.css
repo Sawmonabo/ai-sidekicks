@@ -19,3 +19,89 @@
   gap: var(--meridian-space-2);
   align-items: center;
 }
+
+.meridian-composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+/* A value chip reads its value as a word and never carries a pressed tint. */
+.meridian-composer-chip {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: 0 var(--meridian-space-2);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  background: none;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* A value the model cannot take stays in place, lightly grayed. */
+.meridian-composer-chip--grayed {
+  cursor: default;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer__attach {
+  display: inline-flex;
+  padding: 0;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-composer-tool-servers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-tool-servers__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-composer-tool-servers__rule {
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-composer-tool-servers__empty {
+  margin: 0;
+}
+
+.meridian-composer-tool-server {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-composer-tool-server--dim {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer-tool-server__name {
+  flex: 1 1 auto;
+}
+
+.meridian-composer-tool-server__state,
+.meridian-composer-tool-server__pending {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer-tool-server__pending {
+  flex-basis: 100%;
+}

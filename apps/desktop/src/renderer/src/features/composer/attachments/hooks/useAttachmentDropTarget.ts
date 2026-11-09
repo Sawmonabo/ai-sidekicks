@@ -1,5 +1,5 @@
-// Drop and paste of files over the whole composer region, both handing the staged list the
-// same `File[]`. A paste with no file is left alone, since the message input lives inside the
+// Drop and paste of files over the whole composer region, both handing staging the files with
+// how they came, since main mints a dropped file's token and writes a pasted picture first. A paste with no file is left alone, since the message input lives inside the
 // region and `preventDefault()` on every paste would break pasting text. Enter and leave are
 // counted because `dragleave` also fires when the pointer crosses an inner child.
 
@@ -12,8 +12,11 @@ export interface AttachmentDropOptions {
   /** The composer region, supplied by the host that owns it. */
   readonly region: React.RefObject<HTMLElement | null>;
   /** Where the chosen files go. Called with at least one file, never with none. */
-  readonly onFilesChosen: (files: readonly File[]) => void;
+  readonly onFilesChosen: (files: readonly File[], source: FileSource) => void;
 }
+
+/** How files reached the composer. */
+export type FileSource = "drop" | "paste";
 
 /**
  * The transfer type a browser declares when a drag carries files. `DataTransfer.files` is
@@ -35,11 +38,11 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
   const { region } = options;
 
   const deliver = useCallback(
-    (files: FileList | null | undefined): boolean => {
+    (files: FileList | null | undefined, source: FileSource): boolean => {
       if (files === null || files === undefined || files.length === 0) {
         return false;
       }
-      onFilesChosenRef.current(Array.from(files));
+      onFilesChosenRef.current(Array.from(files), source);
       return true;
     },
     [onFilesChosenRef],
@@ -89,11 +92,11 @@ export function useAttachmentDropTarget(options: AttachmentDropOptions): boolean
       event.preventDefault();
       dragDepthRef.current = 0;
       setIsDraggingFiles(false);
-      deliver(event.dataTransfer?.files);
+      deliver(event.dataTransfer?.files, "drop");
     };
     const onPaste = (event: ClipboardEvent): void => {
       // The default is left alone unless files traveled, so pasting text still works.
-      if (deliver(event.clipboardData?.files)) {
+      if (deliver(event.clipboardData?.files, "paste")) {
         event.preventDefault();
       }
     };

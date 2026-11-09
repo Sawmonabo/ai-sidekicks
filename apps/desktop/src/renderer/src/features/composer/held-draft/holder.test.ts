@@ -4,7 +4,6 @@
 // Typing is saved to the daemon once a pause ends and at once when the session is left, and a
 // save refused as stale merges the newer draft and saves again over it.
 
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
@@ -19,7 +18,6 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/drafts.js";
-import { HeldAttachmentStrip } from "../attachments/HeldAttachmentStrip.js";
 import { COMPOSER_DRAFT_SAVE_PAUSE_MILLISECONDS } from "../bounds.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";
 import { ComposerHeldDraft } from "./holder.js";
@@ -101,10 +99,9 @@ describe("ComposerHeldDraft — a returned draft shows whole", () => {
     const heldDraft = heldDraftOver(draftStore);
 
     heldDraft.take({ kind: "held", held: { draft: RETURNED, revision: 4 }, files: [QUEUE_FILE] });
-    render(<HeldAttachmentStrip files={heldDraft.snapshot().files} />);
 
     expect(draftStore.read(DRAFT_KEY)?.text).toBe("Run /codemod over the webhook tree");
-    expect(screen.getByRole("listitem", { name: "Attachment queue.ts" })).toBeTruthy();
+    expect(heldDraft.snapshot().files).toStrictEqual([QUEUE_FILE]);
     expect(heldDraft.snapshot().extras.skills).toStrictEqual([PICK]);
   });
 

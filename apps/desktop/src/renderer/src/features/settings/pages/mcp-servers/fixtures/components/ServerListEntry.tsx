@@ -7,7 +7,7 @@ import type {
   McpOverrideOrigin,
   McpServerInventoryEntry,
 } from "@ai-sidekicks/contracts/mcp/server";
-import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";

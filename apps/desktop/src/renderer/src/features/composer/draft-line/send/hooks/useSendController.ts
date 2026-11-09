@@ -75,7 +75,6 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const send = useCallback(async () => {
     const body = readDraftText();
-    const { extras } = heldDraft.snapshot();
     // Claimed for this session's draft, so a send from another session does not block this one.
     // A second press here is silent: the message is already going.
     const latchKey = visitOperationKey(draftKey, visit, "send");
@@ -87,6 +86,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     // Captured before the await, so what settles is measured against the draft sent from.
     const identity = issueSettlementIdentity("send");
     try {
+      // A file dropped just before the press is still copying; the message waits and carries it.
+      await heldDraft.whenCopied();
+      const { extras } = heldDraft.snapshot();
       const routed = await router.send(body, target, extras);
       if (routed.status === "intercepted") {
         if (commandExecutor === undefined) {

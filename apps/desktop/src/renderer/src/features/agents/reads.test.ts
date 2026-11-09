@@ -18,7 +18,8 @@ import { bridgeOnClock, withDaemonSubscribe } from "#test/helpers/fixture/bridge
 import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
-import { createChildRunLinks, listAgents } from "./reads.js";
+import { createChildRunLinks } from "#renderer/services/daemon/child-run-links.js";
+import { listAgents } from "./reads.js";
 import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { REJECTING_AGENTS_PANE_CALLS, unscriptedBridge } from "./reads.test-support.js";

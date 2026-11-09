@@ -57,6 +57,10 @@ export const TERMINAL_OUTPUT_STREAM: Subscription<"terminal.output.subscribe"> =
 export const SESSION_DRAFT_STREAM: Subscription<"session.draft.subscribe"> =
   "session.draft.subscribe";
 
+/** The subscription name for a session's tool servers: the whole list, then again on each change. */
+export const SESSION_MCP_SERVER_STREAM: Subscription<"session.mcpServer.subscribe"> =
+  "session.mcpServer.subscribe";
+
 /** The subscription name for the machine's skills: the whole list again on each change. */
 export const SKILL_LIST_STREAM: Subscription<"skill.subscribe"> = "skill.subscribe";
 
@@ -84,6 +88,7 @@ export type DaemonStream =
   | typeof TERMINAL_OUTPUT_STREAM
   | typeof AGENT_LIST_STREAM
   | typeof SESSION_DRAFT_STREAM
+  | typeof SESSION_MCP_SERVER_STREAM
   | typeof SKILL_LIST_STREAM
   | typeof RUNNING_COMMAND_STREAM
   | typeof MACHINE_SETTINGS_STREAM;

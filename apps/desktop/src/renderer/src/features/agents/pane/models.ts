@@ -10,7 +10,11 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type SessionSubject } from "#renderer/store/session/subject.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
-import { createChildRunLinks, type AgentsPaneCalls, type ChildRunLinksRead } from "../reads.js";
+import {
+  createChildRunLinks,
+  type ChildRunLinksRead,
+} from "#renderer/services/daemon/child-run-links.js";
+import type { AgentsPaneCalls } from "../reads.js";
 
 /**
  * One holder's grant of the session's child-link read, handed over unstarted. Releasing is

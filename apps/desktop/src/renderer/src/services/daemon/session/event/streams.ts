@@ -12,8 +12,9 @@
 // and `mcp.subscribe`, `provider.account.subscribe`, `provider.subscribe`, `workflow.subscribe`,
 // `session.subscribe` and `project.subscribe` (the machine's notices), `terminal.subscribe` and
 // `terminal.output.subscribe` (a session's shells), `agent.subscribe` (a session's agents),
-// `session.draft.subscribe` (a session's unsent draft), and `skill.subscribe` and
-// `agent.command.subscribe` (the skills and a session's running commands). The last thirteen are
+// `session.draft.subscribe` (a session's unsent draft), and `skill.subscribe`,
+// `agent.command.subscribe` and `session.mcpServer.subscribe` (the skills, a session's running
+// commands and its tool servers). The last fourteen are
 // not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
 // row: the settings page reads it through the bridge's own `machineSettings` member. The table
 // and each row are frozen because a mutation would re-route every subscription in the renderer.
@@ -31,6 +32,7 @@ import {
   RUNNING_COMMAND_STREAM,
   SESSION_DRAFT_STREAM,
   SESSION_EVENT_STREAM,
+  SESSION_MCP_SERVER_STREAM,
   SESSION_LIST_STREAM,
   SKILL_LIST_STREAM,
   TERMINAL_LIST_STREAM,
@@ -101,7 +103,8 @@ export interface SessionDraftStream {
 }
 
 /**
- * A stream of what the composer offers and aims at: the skills, or a session's running commands.
+ * A stream of what the composer offers and aims at: the skills, a session's running commands, or
+ * its tool servers.
  * It carries no session-event kind, and the fixture scripts neither, so it delivers nothing there.
  */
 export interface ComposerOfferStream {
@@ -185,6 +188,9 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
       scope: "composer-offers",
     } satisfies SessionEventStream),
     [RUNNING_COMMAND_STREAM]: Object.freeze({
+      scope: "composer-offers",
+    } satisfies SessionEventStream),
+    [SESSION_MCP_SERVER_STREAM]: Object.freeze({
       scope: "composer-offers",
     } satisfies SessionEventStream),
   });

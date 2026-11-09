@@ -14,7 +14,7 @@ import { formatCompactCount, formatUsdMicros } from "#renderer/lib/wire/figures.
 import { agentNameOf, type SessionAgentListState } from "#renderer/store/agents/list.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
-import type { ChildRunLinksRead } from "../../reads.js";
+import type { ChildRunLinksRead } from "#renderer/services/daemon/child-run-links.js";
 import { childRunTreeRows, isChildRunSettled } from "../child-run-tree.js";
 import { type AgentsPaneModels } from "../models.js";
 

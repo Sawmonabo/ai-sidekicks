@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";

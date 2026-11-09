@@ -4,7 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type {
   McpServerBindingRef,

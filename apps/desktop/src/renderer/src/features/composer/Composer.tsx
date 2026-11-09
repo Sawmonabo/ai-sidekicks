@@ -1,6 +1,6 @@
-// The composer host: the region, and the palette's replace question, the held draft's files, the
-// staged uploads, the draft line with Send, the command list and the toolbar it mounts in that
-// order. It owns the provider-command enumeration holder and hands it to the command list, whose
+// The composer host: the region, and the palette's replace question, the attachment strip, the
+// draft line with Send, the command list, the toolbar with its chips and Attach, and the strip
+// under it, mounted in that order. It owns the provider-command enumeration holder and hands it to the command list, whose
 // enumeration is read live and never cached; it follows and saves the session's held draft, whose
 // words land in the line and whose skill picks and staged files ride with them; it contributes the
 // lead's run controls to the palette; and it answers Ctrl+B for its session.
@@ -14,8 +14,13 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon, unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { HeldAttachmentStrip } from "./attachments/HeldAttachmentStrip.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { ComposerAttachmentStrip } from "./attachments/components/ComposerAttachmentStrip.js";
+import { useComposerStaging } from "./attachments/hooks/useComposerStaging.js";
+import { SpeedChip } from "./chips/components/SpeedChip.js";
+import { ToolServersChip } from "./chips/components/ToolServersChip.js";
+import { readComposerCommands } from "./command-list/registry-view.js";
+import { ComposerStrip } from "./strip/components/ComposerStrip.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
 import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.js";
@@ -81,16 +86,16 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
     [props.bridge],
   );
   const wireSessionId = readSessionId(props.sessionStore.sessionId);
+  const staging = useComposerStaging(props.bridge, wireSessionId, regionRef, heldDraft);
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
       <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
-      <HeldAttachmentStrip files={reading.files} />
-      {wireSessionId === undefined ? null : (
+      {staging === undefined ? null : (
         <ComposerAttachmentStrip
-          bridge={props.bridge}
-          sessionId={wireSessionId}
-          region={regionRef}
-          heldDraft={heldDraft}
+          files={reading.files}
+          staging={staging.staging}
+          snapshot={staging.snapshot}
+          isDraggingFiles={staging.isDraggingFiles}
         />
       )}
       <DraftLine
@@ -118,7 +123,43 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
         commandEnumeration={commandEnumeration}
         heldDraft={heldDraft}
       />
-      <ComposerToolbar {...props} />
+      {wireSessionId === undefined || staging === undefined ? (
+        <ComposerToolbar {...props} />
+      ) : (
+        <>
+          <ComposerToolbar
+            {...props}
+            chips={
+              <>
+                <SpeedChip bridge={props.bridge} sessionId={wireSessionId} heldDraft={heldDraft} />
+                <ToolServersChip
+                  bridge={props.bridge}
+                  sessionId={wireSessionId}
+                  frameStore={props.frameStore}
+                />
+              </>
+            }
+            attach={
+              <button
+                type="button"
+                className="meridian-composer__attach"
+                aria-label="Attach"
+                onClick={staging.pickFiles}
+              >
+                <Glyph name="paperclip" />
+              </button>
+            }
+          />
+          <ComposerStrip
+            bridge={props.bridge}
+            sessionStore={props.sessionStore}
+            sessionId={wireSessionId}
+            openDetails={() => {
+              readComposerCommands(props.route).invoke("paneLayout.openInspector");
+            }}
+          />
+        </>
+      )}
     </section>
   );
 }
