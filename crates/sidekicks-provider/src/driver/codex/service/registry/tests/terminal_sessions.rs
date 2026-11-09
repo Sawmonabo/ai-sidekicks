@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use serde_json::{Value, json};
 use sidekicks_contracts::session::controls::methods::{
     TerminalProviderSession, TerminalProviderSessionState,
@@ -25,11 +28,17 @@ const HELPER: &str = "helper-thread";
 /// A one-off run's conversation, which Codex does not keep.
 const EPHEMERAL: &str = "ephemeral-thread";
 
+/// A kept conversation another app-server client started, which no session of the app holds.
+const APP_SERVER: &str = "app-server-thread";
+
 /// A conversation whose read fails.
 const SILENT: &str = "silent-thread";
 
-// Fails when the list names a conversation a session holds, a helper's or a one-off run's, when
-// one failed read fails the whole list, when a name falls back past the preview to the id, or
+/// How long a listing is given to ask the service what it holds loaded.
+const ASK_WAIT: Duration = Duration::from_secs(5);
+
+// Fails when the list names a conversation a session holds, a helper's, a one-off run's or one
+// another app-server client started, when one failed read fails the whole list, when a name falls back past the preview to the id, or
 // when a running turn does not read as working.
 #[tokio::test]
 async fn the_list_names_the_typed_conversations_no_session_holds() {
@@ -43,10 +52,11 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
     let loaded = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(
         &loaded,
-        &json!({"data": [HELD, TYPED, NAMED, HELPER, EPHEMERAL, SILENT], "nextCursor": null}),
+        &json!({"data": [HELD, TYPED, NAMED, HELPER, EPHEMERAL, APP_SERVER, SILENT],
+            "nextCursor": null}),
     );
     let mut read_ids = Vec::new();
-    for _read in 0..5 {
+    for _read in 0..6 {
         let read = scripted.next_request("thread/read").await;
         let thread_id = read["params"]["threadId"]
             .as_str()
@@ -78,6 +88,12 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
                 json!({"name": null, "preview": "", "source": "cli", "ephemeral": true,
                     "status": {"type": "idle"}}),
             ),
+            APP_SERVER => answer_thread(
+                &scripted.script,
+                &read,
+                json!({"name": "Dashboard work", "preview": "", "source": "appServer",
+                    "ephemeral": false, "status": {"type": "idle"}}),
+            ),
             _ => scripted
                 .script
                 .send(&json!({"jsonrpc": "2.0", "id": read["id"],
@@ -100,6 +116,53 @@ async fn the_list_names_the_typed_conversations_no_session_holds() {
         ]
     );
     assert!(!read_ids.iter().any(|id| id == HELD), "{read_ids:?}");
+}
+
+// Fails when a conversation stays listed after Codex closes it, as one kept between listings
+// would: each listing asks the service again what it holds loaded.
+#[tokio::test]
+async fn a_terminal_session_leaves_the_list_at_its_close() {
+    let mut scripted = start_scripted_terminal_service();
+    let registry = CodexServiceRegistry::holding(&scripted);
+
+    let first_listing = tokio::spawn({
+        let registry = Arc::clone(&registry);
+        async move { registry.list_terminal_sessions().await }
+    });
+    let loaded = scripted.next_request("thread/loaded/list").await;
+    scripted
+        .script
+        .answer(&loaded, &json!({"data": [NAMED], "nextCursor": null}));
+    let read = scripted.next_request("thread/read").await;
+    answer_thread(
+        &scripted.script,
+        &read,
+        json!({"name": "Release notes", "preview": "", "source": "cli", "ephemeral": false,
+            "status": {"type": "idle"}}),
+    );
+    let first_listed = first_listing.await.expect("the first listing ends");
+    scripted
+        .script
+        .send(&json!({"jsonrpc": "2.0", "method": "thread/closed",
+            "params": {"threadId": NAMED}}));
+    let second_listing = tokio::spawn(async move { registry.list_terminal_sessions().await });
+    let loaded = tokio::time::timeout(ASK_WAIT, scripted.next_request("thread/loaded/list"))
+        .await
+        .expect("the second listing asks what the service holds loaded");
+    scripted
+        .script
+        .answer(&loaded, &json!({"data": [], "nextCursor": null}));
+    let second_listed = second_listing.await.expect("the second listing ends");
+
+    assert_eq!(
+        first_listed.expect("the first list reads"),
+        vec![terminal_session(
+            NAMED,
+            "Release notes",
+            TerminalProviderSessionState::Idle
+        )]
+    );
+    assert_eq!(second_listed.expect("the second list reads"), Vec::new());
 }
 
 // Answers the `thread/read` request `read` with a thread of `members`, its own id and session id
