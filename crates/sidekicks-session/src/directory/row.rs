@@ -399,6 +399,8 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorkflowRunCanceled
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
+        | SessionEventType::WorkflowRunKeepChanged
+        | SessionEventType::WorkflowChainRunJoined
         | SessionEventType::WorkflowScheduleArmed
         | SessionEventType::WorkflowScheduleFired
         | SessionEventType::WorkflowTriggerArmed

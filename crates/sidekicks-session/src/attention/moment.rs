@@ -568,6 +568,8 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorkflowVersionCreated(_)
         | SessionEvent::WorkflowGateReached(_)
         | SessionEvent::WorkflowRunWaiting(_)
+        | SessionEvent::WorkflowRunKeepChanged(_)
+        | SessionEvent::WorkflowChainRunJoined(_)
         | SessionEvent::WorkflowScheduleArmed(_)
         | SessionEvent::WorkflowScheduleFired(_)
         | SessionEvent::WorkflowTriggerArmed(_)

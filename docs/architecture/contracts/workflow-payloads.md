@@ -633,6 +633,20 @@ type WorkflowRunFailedPayload = WorkflowRunEventPayload &
 // workflow.run.deleted — appended in the same unit of work as the delete of the run's rows, so a
 // projection rebuild leaves out a run the person deleted, whose earlier events the log keeps.
 type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
+// workflow.run.keepChanged — the person set or cleared the run's Keep mark, appended in the same
+// unit of work as the mark's write, so a projection rebuild keeps it.
+interface WorkflowRunKeepChangedPayload extends WorkflowRunEventPayload {
+  kept: boolean;
+}
+// workflow.chain.runJoined — a run joined the chain whose first run is `chainRootRunId` and was
+// counted on that first run's row. It lands in the first run's session, which may be another than
+// the joining run's, in the same unit of work as the joining run's start, so a rebuild of that
+// session counts every run its chain started.
+interface WorkflowChainRunJoinedPayload {
+  sessionId: SessionId;
+  chainRootRunId: WorkflowRunId;
+  workflowRunId: WorkflowRunId;
+}
 // workflow.phase.failed — non-null exactly where the phase was canceled rather than failing on its
 // own work: `siblingFailure` where a sibling branch's failure stopped the run, `runCanceled` where
 // a person's cancel of the run did.

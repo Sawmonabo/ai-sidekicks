@@ -432,24 +432,85 @@ pub(crate) fn execution_context_released_at(
 /// so a refusal is seen to leave them byte-identical.
 #[cfg(test)]
 pub(crate) fn stored_rows(rows: &Connection) -> Vec<Vec<rusqlite::types::Value>> {
-    let mut stored = Vec::new();
-    for sql in [
+    [
         "SELECT * FROM workflow_runs ORDER BY id",
         "SELECT * FROM workflow_steps ORDER BY workflow_run_id, execution_index",
         "SELECT * FROM session_events ORDER BY session_id, sequence",
-    ] {
-        let mut statement = rows.prepare(sql).expect("the test reads the table");
-        let width = statement.column_count();
-        let table = statement
-            .query_map([], |row| {
-                (0..width)
-                    .map(|column| row.get::<_, rusqlite::types::Value>(column))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .expect("the test reads the table")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("each row reads");
-        stored.extend(table);
+    ]
+    .into_iter()
+    .flat_map(|sql| table_rows(rows, sql, ()))
+    .collect()
+}
+
+/// Run `run_id`'s row and its step rows in execution order, each column as SQLite holds it, so a
+/// rebuild is seen to write them byte-identical.
+#[cfg(test)]
+pub(crate) fn run_rows(rows: &Connection, run_id: &str) -> Vec<Vec<rusqlite::types::Value>> {
+    [
+        "SELECT * FROM workflow_runs WHERE id = ?1",
+        "SELECT * FROM workflow_steps WHERE workflow_run_id = ?1 ORDER BY execution_index",
+    ]
+    .into_iter()
+    .flat_map(|sql| table_rows(rows, sql, [run_id]))
+    .collect()
+}
+
+// The rows `sql` reads with `params`, each column as SQLite holds it.
+#[cfg(test)]
+fn table_rows(
+    rows: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Vec<Vec<rusqlite::types::Value>> {
+    let mut statement = rows.prepare(sql).expect("the test reads the table");
+    let width = statement.column_count();
+    statement
+        .query_map(params, |row| {
+            (0..width)
+                .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .expect("the test reads the table")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("each row reads")
+}
+
+/// Writes the run and step rows of session `session_id` again from its log on `rows`, through the
+/// runs projection's clear and fold in one transaction with foreign keys on, each statement held
+/// to the row count it expects, as a rebuild's write holds it.
+#[cfg(test)]
+pub(crate) fn rebuild_workflow_runs(rows: &Connection, session_id: &str) {
+    use sidekicks_contracts::event::session::SessionEvent;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_store::database::statement::run_statement;
+    use sidekicks_store::events::projection::SessionProjection as _;
+    use sidekicks_store::events::session::read::{SessionEventFilter, SessionEventReads};
+
+    use crate::runs::projection::WorkflowRunsProjection;
+
+    let session_id = SessionId::new(session_id).expect("the test's session id");
+    let events = SessionEventReads::new(rows, |_: &SessionId| None)
+        .read_after(&session_id, -1, -1, SessionEventFilter::default())
+        .expect("the log reads");
+    let mut statements = WorkflowRunsProjection.clear_statements(&session_id);
+    let mut fold = WorkflowRunsProjection.fold(&session_id);
+    for envelope in &events {
+        let event = SessionEvent::from_envelope(envelope).expect("each event reads");
+        fold.apply(envelope, &event, &mut statements)
+            .expect("each event folds");
     }
-    stored
+    statements.extend(fold.closing_statements());
+    // The live writer may hold the file a moment longer, so the write waits for it.
+    rows.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
+        .expect("the test turns foreign keys on");
+    let transaction = rows
+        .unchecked_transaction()
+        .expect("the rebuild's transaction begins");
+    for statement in &statements {
+        let result = run_statement(&transaction, statement).expect("each statement runs");
+        if let Some(expected) = statement.expected_row_count {
+            assert_eq!(result.row_count, expected, "{}", statement.sql);
+        }
+    }
+    transaction.commit().expect("the rebuild commits");
 }

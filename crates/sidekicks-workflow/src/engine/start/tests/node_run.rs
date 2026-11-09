@@ -28,7 +28,10 @@ use crate::engine::start::{
 };
 use crate::runs::step_payload::write_step_payload;
 use crate::runs::store::WorkflowRunStore;
-use crate::test_rows::{TestSettledStep, insert_run, insert_settled_step, test_node_id};
+use crate::test_rows::{
+    TEST_SESSION_ID, TestSettledStep, insert_run, insert_settled_step, rebuild_workflow_runs,
+    run_rows, test_node_id,
+};
 
 /// The earlier run whose settled steps the node runs reuse.
 const EARLIER_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
@@ -204,8 +207,10 @@ fn step_rows(fixture: &Fixture, run_id: WorkflowRunId) -> i64 {
 
 /// A run from `B` given no items reuses the clean trigger and `A`: its write holds no trigger row
 /// and its started event no `inputRef` but the node run, which the run read answers too, and its
-/// reply lists the plan's nodes. Mutation: in `write`, store the trigger's input and row whatever
-/// the plan says (a trigger row and an `inputRef` appear).
+/// reply lists the plan's nodes; a rebuild from the log writes its row byte-identical. Mutations:
+/// in `write`, store the trigger's input and row whatever the plan says (a trigger row and an
+/// `inputRef` appear); the fold's start dropping the node run (the rebuilt `node_run_json` reads
+/// NULL).
 #[tokio::test]
 async fn run_from_here_reuses_its_clean_trigger_and_names_the_node_run() {
     let fixture = Fixture::new(&chain_body(), TestSession::WithoutFolder, None).await;
@@ -244,6 +249,9 @@ async fn run_from_here_reuses_its_clean_trigger_and_names_the_node_run() {
         read.run.node_run,
         Some(node_run("B", WorkflowNodeExecuteScope::FromHere))
     );
+    let live = run_rows(&fixture.rows, run_id.text().as_str());
+    rebuild_workflow_runs(&fixture.rows, TEST_SESSION_ID);
+    assert_eq!(run_rows(&fixture.rows, run_id.text().as_str()), live);
 }
 
 /// How the items a node run is given stand against its trigger's earlier input.

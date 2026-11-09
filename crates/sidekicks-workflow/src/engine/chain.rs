@@ -181,13 +181,6 @@ const CHAIN_QUESTION_SQL: &str = "SELECT run.session_id, version.definition_id,
   WHERE run.id = @root AND run.chain_run_count IS NOT NULL";
 
 // A chain answered once is not answered again: the second answer matches no row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start's handlers and the tick, which ask and answer a chain's question"
-    )
-)]
 const KEEP_GOING_SQL: &str = "UPDATE workflow_runs SET chain_kept_going = 1
   WHERE id = @root AND chain_run_count IS NOT NULL AND chain_kept_going = 0";
 
@@ -350,16 +343,21 @@ pub(crate) fn chain_card_request(
 pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatement> {
     let KeepGoingAnswer(answer) = answer;
     vec![
-        WriteStatement {
-            sql: Cow::Borrowed(KEEP_GOING_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@root",
-                answer.workflow_run_id.text().as_str(),
-            )]),
-            expected_row_count: Some(1),
-        },
+        kept_going_statement(&answer.workflow_run_id),
         gate_resolution_statement(answer),
     ]
+}
+
+/// The first of [`keep_going_statements`]: the chain's first run `root` reads kept going, expecting
+/// one row, so a run that is no first run or a chain already answered refuses the write. A rebuild
+/// applies it from the answer's `workflow.gate.resolved` alone, since the answer's row is no
+/// projection.
+pub(crate) fn kept_going_statement(root: &WorkflowRunId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(KEEP_GOING_SQL),
+        bindings: StatementBindings::Named(vec![text_binding("@root", root.text().as_str())]),
+        expected_row_count: Some(1),
+    }
 }
 
 /// The steps held behind the question of the chain whose first run is `root`, by their run's start

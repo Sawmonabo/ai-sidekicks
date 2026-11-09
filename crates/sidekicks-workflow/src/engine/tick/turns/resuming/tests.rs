@@ -16,7 +16,10 @@ use crate::engine::tick::turns::EngineTickInput;
 use crate::engine::tick::turns::tests::harness::{
     Harness, WAIT, attempt_column, edge, item, node, step_column,
 };
-use crate::test_rows::{insert_later_workflow_version, insert_workflow_version_body, stored_rows};
+use crate::test_rows::{
+    insert_later_workflow_version, insert_workflow_version_body, rebuild_workflow_runs, run_rows,
+    stored_rows,
+};
 
 /// The version a re-pin moves the scope's run to.
 const TARGET_VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e70";
@@ -304,9 +307,10 @@ async fn park_on_f(harness: &mut Harness, nodes: Vec<WorkflowNode>, edges: &[Wor
 /// answers the version the run left, writes `workflow.run.resumed` naming both versions and the
 /// target, moves the run's row to the target, keeps the trigger's step as it stands, writing it
 /// no new row, and runs F as attempt 2 on the target's kind, fed by that step, which ends the run
-/// succeeded. Kills: the run's row left on its version; the event's version pair left off; the
-/// trigger's step written again; F run on the pinned kind, failing again; F's tries counted from 1
-/// again.
+/// succeeded; a rebuild from the log writes the run's rows byte-identical. Kills: the run's row left
+/// on its version, live or in the rebuild's replay of the Resume; the event's version pair left
+/// off; the trigger's step written again; F run on the pinned kind, failing again; F's tries
+/// counted from 1 again.
 #[tokio::test]
 async fn a_repin_runs_the_failed_step_on_the_target_version() {
     let mut harness = Harness::new(None).await;
@@ -362,6 +366,11 @@ async fn a_repin_runs_the_failed_step_on_the_target_version() {
         json!(trigger[0].0),
         "F runs on the trigger's kept step"
     );
+    harness.wait_for_earlier_turns().await;
+    let run_id = harness.scope.run_id.text();
+    let live = run_rows(&harness.rows, run_id.as_str());
+    rebuild_workflow_runs(&harness.rows, harness.scope.session_id.text().as_str());
+    assert_eq!(run_rows(&harness.rows, run_id.as_str()), live);
 }
 
 /// A Resume moving a run parked on F's failure, after `A` and `B` succeeded, to a version that

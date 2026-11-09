@@ -97,9 +97,10 @@ use crate::workflow::definition::events::{
     WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload, WorkflowVersionCreatedPayload,
 };
 use crate::workflow::run::events::{
-    WorkflowGateReachedPayload, WorkflowResultsPostedPayload, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunDeletedPayload, WorkflowRunFailedPayload,
-    WorkflowRunResumedPayload, WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
+    WorkflowChainRunJoinedPayload, WorkflowGateReachedPayload, WorkflowResultsPostedPayload,
+    WorkflowRunCanceledPayload, WorkflowRunCompletedPayload, WorkflowRunDeletedPayload,
+    WorkflowRunFailedPayload, WorkflowRunKeepChangedPayload, WorkflowRunResumedPayload,
+    WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
 use crate::workflow::run::step::events::{
     WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
@@ -534,6 +535,10 @@ session_events! {
     WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
     /// Emitted when the person deletes a workflow run.
     WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted",
+    /// Emitted when the person sets or clears a workflow run's Keep mark.
+    WorkflowRunKeepChanged(WorkflowRunKeepChangedPayload) = "workflow.run.keepChanged",
+    /// Emitted in a chain's first run's session when a run joins that chain.
+    WorkflowChainRunJoined(WorkflowChainRunJoinedPayload) = "workflow.chain.runJoined",
     /// Emitted when a finished run's results land as a row in the asking session.
     WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted",
     /// Emitted when a workflow step starts waiting, with what it waits on.

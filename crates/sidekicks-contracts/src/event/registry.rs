@@ -261,6 +261,8 @@ session_event_types! {
         WorkflowRunCanceled = "workflow.run.canceled",
         WorkflowRunWaiting = "workflow.run.waiting",
         WorkflowRunDeleted = "workflow.run.deleted",
+        WorkflowRunKeepChanged = "workflow.run.keepChanged",
+        WorkflowChainRunJoined = "workflow.chain.runJoined",
         WorkflowScheduleArmed = "workflow.schedule.armed",
         WorkflowScheduleFired = "workflow.schedule.fired",
         WorkflowTriggerArmed = "workflow.trigger.armed",

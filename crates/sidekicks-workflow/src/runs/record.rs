@@ -186,24 +186,35 @@ pub(crate) fn end_run_statements(
     finished_at: &WireInstant,
     error: Option<&WorkflowStepError>,
 ) -> [WriteStatement; 3] {
-    let error_json = error.map(|error| {
-        serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
-    });
     let run_id = workflow_run_id.text();
     [
-        WriteStatement {
-            sql: Cow::Borrowed(END_RUN_SQL.as_str()),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@status", <&'static str>::from(status)),
-                text_binding("@finished_at", finished_at.as_str()),
-                nullable_text_binding("@error_json", error_json.as_deref()),
-                text_binding("@workflow_run_id", run_id.as_str()),
-            ]),
-            expected_row_count: Some(1),
-        },
+        end_run_row_statement(workflow_run_id, status, finished_at, error),
         release_run_context_statement(run_id.as_str(), finished_at),
         archive_run_workspace_statement(run_id.as_str(), finished_at),
     ]
+}
+
+/// The first of [`end_run_statements`], the run's own row, which a rebuild of the runs writes from
+/// the run's ending event alone: its execution context and its workspace are no projection.
+pub(crate) fn end_run_row_statement(
+    workflow_run_id: WorkflowRunId,
+    status: WorkflowRunStatus,
+    finished_at: &WireInstant,
+    error: Option<&WorkflowStepError>,
+) -> WriteStatement {
+    let error_json = error.map(|error| {
+        serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
+    });
+    WriteStatement {
+        sql: Cow::Borrowed(END_RUN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@status", <&'static str>::from(status)),
+            text_binding("@finished_at", finished_at.as_str()),
+            nullable_text_binding("@error_json", error_json.as_deref()),
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
 }
 
 /// How far a run has come: still going, a failed run parked on its failed step, or finished.

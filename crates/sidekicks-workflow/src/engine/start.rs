@@ -5,7 +5,8 @@
 //! folder the run works in, a project session's run bound to that session's workspace and a named
 //! project's run bound in a workspace of its own, the scope its steps share and the input its
 //! trigger step starts on, and the one write of the run's row with its execution context and its
-//! `workflow.run.started`, which holds a run joining a chain at its limit.
+//! `workflow.run.started`, which holds a run joining a chain at its limit and appends a joining
+//! run's `workflow.chain.runJoined` in its chain's first run's session.
 mod check;
 mod errors;
 mod folder;
@@ -35,7 +36,9 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::events::{WorkflowNodeRun, WorkflowRunStartedPayload};
+use sidekicks_contracts::workflow::run::events::{
+    WorkflowChainRunJoinedPayload, WorkflowNodeRun, WorkflowRunStartedPayload,
+};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_contracts::workflow::run::trigger::{
@@ -64,6 +67,7 @@ use tokio_util::sync::CancellationToken;
 use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_pin_data;
+use crate::engine::chain::read_chain_question;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::partial_run::PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
 use crate::engine::ports::{StepPayloadArtifacts, WorkflowRunLimits};
@@ -85,15 +89,15 @@ use self::retry::RetriedRun;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
-/// project's environment rows and the session's project; a retry's reads of its source run, the
-/// named node's latest step and the trigger's first input; and a partial run's plan, whose read of
-/// each node's steps a retry shares.
+/// project's environment rows, the session's project and a joining run's chain's first run; a
+/// retry's reads of its source run, the named node's latest step and the trigger's first input;
+/// and a partial run's plan, whose read of each node's steps a retry shares.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize =
-    9 + PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
+    10 + PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
 
 // The project the session works in, NULL for a chat.
 #[cfg_attr(
@@ -251,6 +255,9 @@ struct ScopeReads {
     environment_rows: Vec<EnvironmentRow>,
     project: Option<ProjectId>,
     kept_values: Vec<WorkflowKeptValue>,
+    /// The session of the chain's first run a joining run counts on, which takes its
+    /// `workflow.chain.runJoined`; `None` for a run that starts its chain.
+    chain_root_session: Option<SessionId>,
 }
 
 /// What a [`WorkflowRunStarter`] reads, writes and asks through.
@@ -489,8 +496,9 @@ impl WorkflowRunStarter {
     }
 
     // What the run's scope reads beside its version and its workflow's row: one pooled read of the
-    // project's environment rows, by the bound workspace's mount where the run is bound, and the
-    // session's project, then the workflow's kept values.
+    // project's environment rows, by the bound workspace's mount where the run is bound, the
+    // session's project and a joining run's chain's first run, then the workflow's kept values.
+    // Fails with `ChainRootMissing` for a chain whose first run is not a stored first run.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -500,10 +508,17 @@ impl WorkflowRunStarter {
         session_id: SessionId,
         checked: &CheckedStart,
         binding: Option<&RunContextBinding>,
+        chain: &WorkflowRunChainPlace,
     ) -> Result<ScopeReads, WorkflowRunStartError> {
         let session = checked.session.clone();
         let bound_mount = binding.map(RunContextBinding::repo_mount_id);
-        let (environment_rows, project) = self
+        let chain_root_run_id = match chain {
+            WorkflowRunChainPlace::Joins {
+                chain_root_run_id, ..
+            } => Some(*chain_root_run_id),
+            WorkflowRunChainPlace::Starts {} => None,
+        };
+        let (environment_rows, project, chain_root) = self
             .pool
             .read(ReadLength::Short, move |connection| {
                 let environment_rows = match bound_mount {
@@ -511,7 +526,17 @@ impl WorkflowRunStarter {
                     None => read_project_environment_rows(connection, &session)?,
                 };
                 let project = read_session_project(connection, &session_id)?;
-                Ok::<_, WorkflowRunStartError>((environment_rows, project))
+                let chain_root = match chain_root_run_id {
+                    Some(root) => Some(
+                        read_chain_question(connection, &root)?
+                            .map(|question| question.keys.session_id)
+                            .ok_or(WorkflowRunStartError::ChainRootMissing {
+                                chain_root_run_id: root,
+                            })?,
+                    ),
+                    None => None,
+                };
+                Ok::<_, WorkflowRunStartError>((environment_rows, project, chain_root))
             })
             .await?;
         let kept_values = self.kept_values.read(checked.definition_id).await?;
@@ -519,6 +544,7 @@ impl WorkflowRunStarter {
             environment_rows,
             project,
             kept_values,
+            chain_root_session: chain_root,
         })
     }
 
@@ -572,7 +598,7 @@ impl WorkflowRunStarter {
         } = start;
         let workflow_run_id = prepared.workflow_run_id;
         let scope_reads = self
-            .read_scope(session_id, &checked, prepared.binding.as_ref())
+            .read_scope(session_id, &checked, prepared.binding.as_ref(), &chain)
             .await?;
         let trigger_input = match &checked.start_items {
             Some(items) => {
@@ -638,20 +664,53 @@ impl WorkflowRunStarter {
             Some(binding) => Some(self.binder.hold_checkout(binding).await),
             None => None,
         };
-        let appended = self
-            .appender
-            .append(
-                draft,
-                SessionEventLinkage {
-                    occurred_at: Some(prepared.started_at.clone()),
-                    transactional_prelude: workflow_run_creation_statements(
-                        &creation,
-                        chain_ask_after,
-                    ),
-                    ..SessionEventLinkage::default()
+        let mut linkage = SessionEventLinkage {
+            occurred_at: Some(prepared.started_at.clone()),
+            transactional_prelude: workflow_run_creation_statements(&creation, chain_ask_after),
+            ..SessionEventLinkage::default()
+        };
+        // A joining run's count on its chain's first run is that first run's session's event, so
+        // a rebuild of that session counts it; it shares the run's write and its instant.
+        let joined = match (&chain, scope_reads.chain_root_session) {
+            (
+                WorkflowRunChainPlace::Joins {
+                    chain_root_run_id, ..
                 },
-            )
-            .await;
+                Some(root_session_id),
+            ) => Some(
+                SessionEventDraft::of_session(
+                    root_session_id,
+                    &SessionEvent::WorkflowChainRunJoined(WorkflowChainRunJoinedPayload {
+                        session_id: root_session_id,
+                        chain_root_run_id: *chain_root_run_id,
+                        workflow_run_id,
+                    }),
+                )?
+                .with_occurred_at(prepared.started_at.clone()),
+            ),
+            _ => None,
+        };
+        let appended = match joined {
+            // The run's own write comes first, so its statements keep their indexes.
+            Some(joined) if scope_reads.chain_root_session != Some(session_id) => self
+                .appender
+                .append_together(vec![
+                    (draft, linkage),
+                    (joined, SessionEventLinkage::default()),
+                ])
+                .await
+                .map(|receipts| {
+                    receipts
+                        .into_iter()
+                        .next()
+                        .expect("the run's write answers a receipt for each draft")
+                }),
+            Some(joined) => {
+                linkage.preceding_events.push(joined);
+                self.appender.append(draft, linkage).await
+            }
+            None => self.appender.append(draft, linkage).await,
+        };
         drop(checkout_hold);
         let context_index = execution_context_statement_index(&chain);
         match (appended, chain) {

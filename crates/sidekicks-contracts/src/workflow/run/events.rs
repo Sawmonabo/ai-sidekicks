@@ -1,5 +1,6 @@
-//! The events a workflow run appends about the run as a whole: it started, was gated, waited,
-//! failed, completed, was canceled, resumed or deleted, and its results were posted into a session.
+//! The events a workflow run appends about the run as a whole: it started, joined a chain, was
+//! gated, waited, failed, completed, was canceled, resumed, kept or deleted, and its results were
+//! posted into a session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -184,6 +185,31 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
+    /// `workflow.run.keepChanged`, written with the run's Keep mark in one step, so rebuilding the
+    /// runs from the log keeps the mark the person left.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowRunKeepChangedPayload {
+        /// Whether the run is kept now.
+        pub kept: bool,
+    }
+}
+
+/// `workflow.chain.runJoined`: a run joined the chain whose first run is `chainRootRunId` and was
+/// counted on that first run's row. It is appended in the first run's session, in the joining
+/// run's start write, so rebuilding that session's runs counts every run the chain started.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowChainRunJoinedPayload {
+    /// The session of the chain's first run, whose log keeps the count.
+    pub session_id: SessionId,
+    /// The chain's first run.
+    pub chain_root_run_id: WorkflowRunId,
+    /// The run that joined.
+    pub workflow_run_id: WorkflowRunId,
+}
+
+workflow_run_event! {
     /// `workflow.gate.reached`: the run reached a gate that must be answered before it goes on.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -362,14 +388,16 @@ pub struct WorkflowResultsPostedPayload {
 /// The TypeScript module of the run events.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/events",
-    doc: "The events a workflow run appends about the run as a whole: it started, was gated, \
-          waited, failed, completed, was canceled, resumed or deleted, and its results were posted \
-          into a session.",
+    doc: "The events a workflow run appends about the run as a whole: it started, joined a chain, \
+          was gated, waited, failed, completed, was canceled, resumed, kept or deleted, and its \
+          results were posted into a session.",
     definitions: &[
         Definition::read::<WorkflowNodeRun>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
+        Definition::read::<WorkflowRunKeepChangedPayload>().checked(),
+        Definition::read::<WorkflowChainRunJoinedPayload>().checked(),
         Definition::read::<WorkflowGateReachedPayload>().checked(),
         Definition::read::<WorkflowRunFailedOutcome>(),
         Definition::read::<WorkflowRunEndingStep>(),

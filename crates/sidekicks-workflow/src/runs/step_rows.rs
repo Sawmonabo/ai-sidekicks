@@ -1,6 +1,6 @@
 //! What a step's moves do to its row: the statements the tick's commit writes in one unit of work
-//! with the step events that record them, each keyed on the whole step key and refusing the write
-//! unless it changes that one row.
+//! with the step events that record them, and a rebuild of the steps writes from those events, each
+//! keyed on the whole step key and refusing the write unless it changes that one row.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -133,6 +133,16 @@ static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
   SET status = '{waiting}', wait_cause = '{account}', wait_account_id = @wait_account_id,
       wait_started_at = @wait_started_at, resume_at = @resume_at,
       total_pool_wait_ms = total_pool_wait_ms + @pool_wait_ms
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+static WAIT_ON_CHAIN_SQL: LazyLock<String> = LazyLock::new(|| {
+    let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
+    let chain = <&'static str>::from(WorkflowWaitCause::Chain);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{waiting}', wait_cause = '{chain}', wait_started_at = @wait_started_at
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -379,6 +389,19 @@ pub(crate) fn wait_step_on_account(
             nullable_text_binding("@resume_at", resume_at.map(WireInstant::as_str)),
             pool_wait_binding(pool_wait_ms),
         ],
+    )
+}
+
+/// Moves `step` to `waiting` on its chain's question since `started_at`; the question belongs to
+/// the chain's first run, so the step holds no wait id.
+pub(crate) fn wait_step_on_chain(
+    step: &WorkflowStepKey,
+    started_at: &WireInstant,
+) -> WriteStatement {
+    keyed_statement(
+        &WAIT_ON_CHAIN_SQL,
+        step,
+        vec![text_binding("@wait_started_at", started_at.as_str())],
     )
 }
 

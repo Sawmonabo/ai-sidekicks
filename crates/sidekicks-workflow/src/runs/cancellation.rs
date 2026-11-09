@@ -197,18 +197,25 @@ fn cancellation_statements(cancellation: &WorkflowRunCancellation) -> [WriteStat
         end_row,
         release_context,
         archive_workspace,
-        WriteStatement {
-            sql: Cow::Borrowed(CANCEL_STEPS_SQL.as_str()),
-            bindings: StatementBindings::Named(vec![
-                text_binding(
-                    "@workflow_run_id",
-                    cancellation.workflow_run_id.text().as_str(),
-                ),
-                text_binding("@finished_at", cancellation.finished_at.as_str()),
-            ]),
-            expected_row_count: None,
-        },
+        cancel_steps_statement(cancellation.workflow_run_id, &cancellation.finished_at),
     ]
+}
+
+/// The statement that cancels every step of run `workflow_run_id` still running, waiting or held
+/// by the memory gate at `finished_at` and empties every step's wait columns, from the run alone,
+/// so a rebuild applies it from `workflow.run.canceled` as the cancel's write does.
+pub(crate) fn cancel_steps_statement(
+    workflow_run_id: WorkflowRunId,
+    finished_at: &WireInstant,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(CANCEL_STEPS_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+            text_binding("@finished_at", finished_at.as_str()),
+        ]),
+        expected_row_count: None,
+    }
 }
 
 #[cfg(test)]

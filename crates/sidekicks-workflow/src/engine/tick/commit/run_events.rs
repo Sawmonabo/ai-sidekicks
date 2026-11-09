@@ -4,9 +4,6 @@
 //! the step's resume, which a person's answer and Keep going share; and the mark that settles a
 //! form or reply wait's question in the write that ends the wait.
 
-use std::borrow::Cow;
-
-use rusqlite::types::Value;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
 use sidekicks_contracts::wire::id::UuidTextForm;
@@ -23,27 +20,17 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseResumedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
+use sidekicks_store::database::statement::WriteStatement;
 
 use super::{RunEnding, RunTurnCommit};
 use crate::engine::results::results_posted_event;
 use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
+    run_status_statement, run_version_statement,
 };
 use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolved_payload};
 use crate::runs::record::end_run_statements;
 use crate::runs::step_rows;
-
-// Only a going or parked run's status moves here; an ended run's row is never written again.
-const RUN_STATUS_SQL: &str = "UPDATE workflow_runs SET status = @status,
-    person_wait_since = @person_wait_since, person_wait_ms = @person_wait_ms
-  WHERE id = @id AND finished_at IS NULL";
-
-// A re-pin moves only a going or parked run's row to the version it joins.
-const RUN_VERSION_SQL: &str = "UPDATE workflow_runs SET workflow_version_id = @workflow_version_id
-  WHERE id = @id AND finished_at IS NULL";
 
 /// A step of the run the tick keeps live after the turn, as a resumption point names it.
 #[derive(Clone, Copy, Debug)]
@@ -139,8 +126,8 @@ impl RunTurnCommit {
         if let Some(joined) = repinned_to {
             repinned_from = Some(self.keys.workflow_version_id);
             self.keys.workflow_version_id = joined;
-            let moved = self.run_version_statement();
-            self.statements.push(moved);
+            self.statements
+                .push(run_version_statement(self.run_id, joined));
         }
         self.push(
             at,
@@ -185,12 +172,18 @@ impl RunTurnCommit {
         let change = run_status_change(moved_from, after);
         let had_open_wait = self.person_wait.since.is_some();
         let total_before = self.person_wait.total_ms;
+        // The wait moves at the instant of the run event that records the change: a person's
+        // Resume wrote its own, which other reports of the turn may follow.
+        let change_at = match (change, self.resumed_event) {
+            (Some(RunStatusChange::Resumed), Some(resumed)) => self.events[resumed].at.clone(),
+            _ => at.clone(),
+        };
         self.person_wait = person_wait_after(
             std::mem::take(&mut self.person_wait),
             change,
             false,
             self.counts.account_waits,
-            &at,
+            &change_at,
         );
         let is_status_moved = after != self.status_before;
         if !is_status_moved
@@ -213,7 +206,8 @@ impl RunTurnCommit {
             }
             (None, _) => {}
         }
-        self.statements.push(self.run_status_statement(stored));
+        self.statements
+            .push(run_status_statement(self.run_id, stored, &self.person_wait));
         is_status_moved.then_some(stored)
     }
 
@@ -358,44 +352,6 @@ impl RunTurnCommit {
                 .into_iter()
                 .map(|step| step.node_id.clone())
                 .collect(),
-        }
-    }
-
-    /// The statement that moves the run's row to the version the turn's events name, refusing the
-    /// write unless the run is still going or parked.
-    fn run_version_statement(&self) -> WriteStatement {
-        WriteStatement {
-            sql: Cow::Borrowed(RUN_VERSION_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding(
-                    "@workflow_version_id",
-                    self.keys.workflow_version_id.text().as_str(),
-                ),
-                text_binding("@id", self.run_id.text().as_str()),
-            ]),
-            expected_row_count: Some(1),
-        }
-    }
-
-    /// The statement that stores `status` and the turn's person-wait columns on the run's row,
-    /// refusing the write unless the run is still going or parked.
-    fn run_status_statement(&self, status: WorkflowRunStatus) -> WriteStatement {
-        WriteStatement {
-            sql: Cow::Borrowed(RUN_STATUS_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@status", <&'static str>::from(status)),
-                nullable_text_binding(
-                    "@person_wait_since",
-                    self.person_wait.since.as_ref().map(WireInstant::as_str),
-                ),
-                (
-                    Cow::Borrowed("@person_wait_ms"),
-                    // No run waits the 292 million years past which the milliseconds overflow.
-                    Value::Integer(i64::try_from(self.person_wait.total_ms).unwrap_or(i64::MAX)),
-                ),
-                text_binding("@id", self.run_id.text().as_str()),
-            ]),
-            expected_row_count: Some(1),
         }
     }
 }

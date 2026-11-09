@@ -1,5 +1,6 @@
 mod binding;
 mod node_run;
+mod rebuild;
 mod retry;
 mod run_owned_workspace;
 mod unstarted;

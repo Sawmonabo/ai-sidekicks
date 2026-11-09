@@ -17,7 +17,7 @@ use crate::engine::tick::{StepReport, StepReportKind};
 use crate::engine::waits::PersonWaitAnswer;
 use crate::engine::waits::answers::EngineAnswers;
 use crate::runs::gate_resolution::tests::gate_answer;
-use crate::test_rows::TEST_NODE_ID;
+use crate::test_rows::{TEST_NODE_ID, rebuild_workflow_runs, run_rows};
 
 /// How the case's wait ends.
 #[derive(Clone, Copy, Debug)]
@@ -52,9 +52,13 @@ fn stored_step(harness: &Harness, node_id: &str) -> WorkflowStepKey {
 }
 
 /// Each ending writes exactly one `question.wait.settled` naming its wait, with its outcome, at
-/// the instant of the event that ends the wait and after it; an approval writes none. Kills: the
-/// mark left out of an answer's or a settlement's write; a deadline read as ended or the run cap
-/// read as timed out; the mark written twice, or for an approval.
+/// the instant of the event that ends the wait and after it; an approval writes none. A rebuild of
+/// the run's rows from the log writes them byte-identical, the answered approval's run, which its
+/// gate answer keeps through the clear, written over. Kills: the mark left out of an answer's or a
+/// settlement's write; a deadline read as ended or the run cap read as timed out; the mark written
+/// twice, or for an approval; a step arm of the fold dropped or writing other columns, its wait id
+/// left unset or its pool wait miscounted (the rebuilt rows differ or a resume is refused); the
+/// clear removing a run a gate answer names (its foreign key refuses the rebuild).
 #[rstest]
 #[case::form_answered(WaitEnding::FormAnswered)]
 #[case::reply_timed_out(WaitEnding::ReplyTimedOut)]
@@ -151,6 +155,10 @@ async fn a_waits_end_marks_its_question_once_in_its_own_write(#[case] ending: Wa
         }
     };
     harness.wait_for_earlier_turns().await;
+    let run_id = harness.scope.run_id.text();
+    let live = run_rows(&harness.rows, run_id.as_str());
+    rebuild_workflow_runs(&harness.rows, harness.scope.session_id.text().as_str());
+    assert_eq!(run_rows(&harness.rows, run_id.as_str()), live, "{ending:?}");
 
     let marks: Vec<_> = harness
         .events()

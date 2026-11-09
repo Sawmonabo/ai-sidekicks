@@ -1,10 +1,20 @@
 //! A going run's status as a function of its steps, the run event a change of that status implies,
-//! and how the time the run waits on people moves with it. Every write that changes a step, and
-//! the fold that rebuilds the rows from the log, read the same answers, so the run row follows
-//! the log.
+//! how the time the run waits on people moves with it, and the statements that store both and a
+//! re-pinned run's version. Every write that changes a step, and the fold that rebuilds the rows
+//! from the log, read the same answers, so the run row follows the log.
 
+use std::borrow::Cow;
+
+use rusqlite::types::Value;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::status::{
+    WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
+};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 
 /// What the status rules read of a going run's steps, kept as counts so a write or the fold keeps
 /// them as it applies each change rather than scanning the run again.
@@ -147,13 +157,6 @@ pub(crate) fn going_run_status(counts: &RunStepCounts) -> GoingRunStatus {
 
 /// The run event a move between two going statuses implies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's commit and the engine's projection, which keep a going run's status"
-    )
-)]
 pub(crate) enum RunStatusChange {
     /// `workflow.run.waiting`: the run went from running to only waits.
     Waiting,
@@ -192,13 +195,6 @@ pub(crate) fn run_status_change(
 /// The run's person-wait columns: when its open wait on people began, and the milliseconds its
 /// closed ones took.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's commit and the engine's projection, which keep a going run's status"
-    )
-)]
 pub(crate) struct RunPersonWait {
     /// The instant of the `workflow.run.waiting` that opened the wait, while one is open.
     pub(crate) since: Option<WireInstant>,
@@ -210,13 +206,6 @@ pub(crate) struct RunPersonWait {
 /// no step holds an account wait; a `Resumed` or `FailedPark` change, or `leaves_waiting` (which
 /// the ending, Cancel and the crash sweep pass), closes an open one, adding the whole milliseconds
 /// since it opened, never fewer than 0; anything else leaves the columns as they are.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's commit and the engine's projection, which keep a going run's status"
-    )
-)]
 pub(crate) fn person_wait_after(
     before: RunPersonWait,
     change: Option<RunStatusChange>,
@@ -244,6 +233,59 @@ pub(crate) fn person_wait_after(
             since,
             total_ms: before.total_ms,
         },
+    }
+}
+
+// Only a going or parked run's status moves here; an ended run's row is never written again.
+const RUN_STATUS_SQL: &str = "UPDATE workflow_runs SET status = @status,
+    person_wait_since = @person_wait_since, person_wait_ms = @person_wait_ms
+  WHERE id = @id AND finished_at IS NULL";
+
+/// The statement that stores `status` and the person-wait columns `person_wait` on the row of run
+/// `run_id`, refusing the write unless the run is still going or parked: what a turn's status move
+/// writes and what a rebuild writes for the same move.
+pub(crate) fn run_status_statement(
+    run_id: WorkflowRunId,
+    status: WorkflowRunStatus,
+    person_wait: &RunPersonWait,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RUN_STATUS_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@status", <&'static str>::from(status)),
+            nullable_text_binding(
+                "@person_wait_since",
+                person_wait.since.as_ref().map(WireInstant::as_str),
+            ),
+            (
+                Cow::Borrowed("@person_wait_ms"),
+                // No run waits the 292 million years past which the milliseconds overflow.
+                Value::Integer(i64::try_from(person_wait.total_ms).unwrap_or(i64::MAX)),
+            ),
+            text_binding("@id", run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+// A re-pin moves only a going or parked run's row to the version it joins.
+const RUN_VERSION_SQL: &str = "UPDATE workflow_runs SET workflow_version_id = @workflow_version_id
+  WHERE id = @id AND finished_at IS NULL";
+
+/// The statement that moves run `run_id`'s row to version `workflow_version_id`, refusing the
+/// write unless the run is still going or parked: what a re-pinned Resume writes and what a rebuild
+/// writes from its `workflow.run.resumed`.
+pub(crate) fn run_version_statement(
+    run_id: WorkflowRunId,
+    workflow_version_id: WorkflowVersionId,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(RUN_VERSION_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@workflow_version_id", workflow_version_id.text().as_str()),
+            text_binding("@id", run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
     }
 }
 
