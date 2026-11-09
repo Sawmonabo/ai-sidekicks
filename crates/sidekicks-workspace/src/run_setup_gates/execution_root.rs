@@ -57,7 +57,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
@@ -758,10 +760,7 @@ fn read_run_workspace(
                     fs_root: row.get::<_, Option<String>>(4)?.map(PathBuf::from),
                     checkout_root: row.get::<_, Option<String>>(5)?.map(PathBuf::from),
                     mount_common_folder: row.get::<_, Option<String>>(6)?.map(PathBuf::from),
-                    // The column holds the place's wire JSON.
-                    place: optional_text_column(row, 7, |text| {
-                        serde_json::from_str::<Place>(&text)
-                    })?,
+                    place: place_column(row, 7)?,
                     is_managed: row.get(8)?,
                 })
             },

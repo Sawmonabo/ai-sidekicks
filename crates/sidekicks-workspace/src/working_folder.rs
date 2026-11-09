@@ -15,7 +15,9 @@ use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_store::database::sql_list::sql_list_of;
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use strum::VariantArray;
 
 use crate::projector::is_probe_bearing;
@@ -105,8 +107,7 @@ pub fn read_working_folder(
             Ok(SessionWorkingFolder {
                 shape: text_column(row, 0, closed_word)?,
                 working_folder: row.get::<_, Option<String>>(1)?.map(PathBuf::from),
-                // The column holds the place's wire JSON.
-                place: optional_text_column(row, 2, |text| serde_json::from_str::<Place>(&text))?,
+                place: place_column(row, 2)?,
                 repository: match optional_text_column(row, 3, |text| RepoMountId::new(&text))? {
                     Some(repo_mount_id) => Some(WorkingFolderRepository {
                         repo_mount_id,

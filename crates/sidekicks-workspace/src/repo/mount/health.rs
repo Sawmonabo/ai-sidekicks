@@ -44,9 +44,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{
-    StoredJsonFault, optional_text_column, text_column,
-};
+use sidekicks_store::database::stored_column::{StoredJsonFault, place_column, text_column};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -669,9 +667,7 @@ fn attached_mount_of(row: &Row<'_>) -> rusqlite::Result<AttachedMount> {
     Ok(AttachedMount {
         id: text_column(row, 0, |text| RepoMountId::new(&text))?,
         canonical_root: PathBuf::from(row.get::<_, String>(1)?),
-        place: optional_text_column(row, 2, |text| {
-            serde_json::from_str::<Place>(&text).map_err(StoredJsonFault::from)
-        })?,
+        place: place_column(row, 2)?,
         common_dir_anchor: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
     })
 }

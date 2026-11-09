@@ -26,7 +26,9 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::occupancy::{MountOccupancyReader, OccupancyReadError, StandingSession};
@@ -344,7 +346,7 @@ fn mount_origin_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MountOriginRow>
         project_id: optional_text_column(row, 3, |text| ProjectId::new(&text))?,
         earliest_holder: optional_text_column(row, 4, |text| SessionId::new(&text))?,
         project_name: optional_text_column(row, 5, ProjectName::new)?,
-        place: optional_text_column(row, 6, |text| serde_json::from_str::<Place>(&text))?,
+        place: place_column(row, 6)?,
     })
 }
 

@@ -71,7 +71,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -693,9 +695,7 @@ impl SessionCreation {
                                 Ok((
                                     row.get::<_, bool>(0)?,
                                     row.get::<_, bool>(1)?,
-                                    optional_text_column(row, 2, |text| {
-                                        serde_json::from_str::<Place>(&text)
-                                    })?,
+                                    place_column(row, 2)?,
                                 ))
                             },
                         )
@@ -860,7 +860,7 @@ fn read_recorded_create(
                 },
                 shape: text_column(row, 4, closed_word)?,
                 state: text_column(row, 5, closed_word)?,
-                place: optional_text_column(row, 6, |text| serde_json::from_str::<Place>(&text))?,
+                place: place_column(row, 6)?,
             })
         })
         .optional()?)

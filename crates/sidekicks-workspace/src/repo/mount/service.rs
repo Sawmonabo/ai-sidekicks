@@ -40,7 +40,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, place_value, text_binding,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 use sidekicks_store::events::session::appender::SessionEventEmitError;
 use tokio::sync::Notify;
@@ -767,9 +769,7 @@ fn read_mount_row(
                     })?,
                     local_path: text_column(row, 2, FilesystemPath::new)?,
                     canonical_root: PathBuf::from(row.get::<_, String>(3)?),
-                    place: optional_text_column(row, 4, |text| {
-                        serde_json::from_str::<Place>(&text)
-                    })?,
+                    place: place_column(row, 4)?,
                     vcs_type: text_column(row, 5, closed_word)?,
                     origin: text_column(row, 6, closed_word)?,
                     state: text_column(row, 7, closed_word)?,

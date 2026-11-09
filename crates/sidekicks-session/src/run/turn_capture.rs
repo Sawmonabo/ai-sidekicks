@@ -23,7 +23,7 @@ use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::optional_text_column;
+use sidekicks_store::database::stored_column::place_column;
 use sidekicks_store::events::session::followers::{
     CommittedEvent, FollowerAttachment, SessionEventFollowers,
 };
@@ -247,8 +247,7 @@ fn read_turn_checkout(
             Ok((
                 PathBuf::from(row.get::<_, String>(0)?),
                 PathBuf::from(row.get::<_, String>(1)?),
-                // The column holds the place's wire JSON.
-                optional_text_column(row, 2, |text| serde_json::from_str::<Place>(&text))?,
+                place_column(row, 2)?,
             ))
         })
         .optional()?;

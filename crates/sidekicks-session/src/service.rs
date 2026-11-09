@@ -44,7 +44,9 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
     readable_event_sql, session_read_bound,
@@ -744,8 +746,7 @@ impl SessionRow {
             pending_working_folder: optional_text_column(row, 4, FilesystemPath::new)?,
             created_at: text_column(row, 5, WireInstant::try_from)?,
             updated_at: text_column(row, 6, WireInstant::try_from)?,
-            // The column holds the place's wire JSON.
-            place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
+            place: place_column(row, 7)?,
         })
     }
 }

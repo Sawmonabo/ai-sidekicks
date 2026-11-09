@@ -38,7 +38,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
@@ -746,7 +748,7 @@ pub(crate) fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
 /// A mount's `place` column at `index`, which holds the place's wire JSON. Fails when the column
 /// is missing or holds no place.
 pub(crate) fn place_of(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Place>> {
-    optional_text_column(row, index, |text| serde_json::from_str::<Place>(&text))
+    place_column(row, index)
 }
 
 fn read_unreleased_runs(

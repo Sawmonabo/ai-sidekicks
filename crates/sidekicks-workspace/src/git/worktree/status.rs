@@ -34,7 +34,9 @@ use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
@@ -360,8 +362,7 @@ fn read_rows(
             Ok((
                 text_column(row, 0, |text| RepoMountId::new(&text))?,
                 PathBuf::from(row.get::<_, String>(1)?),
-                // The column holds the place's wire JSON.
-                optional_text_column(row, 2, |text| serde_json::from_str::<Place>(&text))?,
+                place_column(row, 2)?,
             ))
         })
         .optional()?

@@ -51,7 +51,7 @@ use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::optional_text_column;
+use sidekicks_store::database::stored_column::place_column;
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use sidekicks_workspace::git::process::{
     GIT_FATAL_EXIT_CODE, GitError, GitRunner, read_git_common_folder,
@@ -388,13 +388,7 @@ impl SessionDirectoryProviderPort {
                     reader
                         .prepare_cached(&RUN_FOLDER_SQL)?
                         .query_row([session_id.text().as_str()], |row| {
-                            Ok((
-                                // The column holds the place's wire JSON.
-                                optional_text_column(row, 0, |text| {
-                                    serde_json::from_str::<Place>(&text)
-                                })?,
-                                row.get::<_, Option<String>>(1)?,
-                            ))
+                            Ok((place_column(row, 0)?, row.get::<_, Option<String>>(1)?))
                         })
                         .optional()?,
                 )

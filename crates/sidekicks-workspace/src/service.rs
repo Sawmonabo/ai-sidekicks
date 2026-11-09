@@ -43,7 +43,9 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
 use crate::errors::{WorkspaceRefusal, WorkspaceServiceInvariantError};
@@ -612,8 +614,7 @@ pub(crate) fn workspace_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         fs_root: row.get::<_, Option<String>>(4)?.map(PathBuf::from),
         state: text_column(row, 5, closed_word)?,
         metadata: row.get(6)?,
-        // The column holds the place's wire JSON.
-        place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
+        place: place_column(row, 7)?,
     })
 }
 
@@ -634,9 +635,7 @@ fn read_attached_mount(
                     id: text_column(row, 0, |text| RepoMountId::new(&text))?,
                     local_path: PathBuf::from(row.get::<_, String>(1)?),
                     canonical_root: PathBuf::from(row.get::<_, String>(2)?),
-                    place: optional_text_column(row, 3, |text| {
-                        serde_json::from_str::<Place>(&text)
-                    })?,
+                    place: place_column(row, 3)?,
                     managed_session_id: optional_text_column(row, 4, |text| SessionId::new(&text))?,
                     common_folder_anchor: row.get::<_, Option<String>>(5)?.map(PathBuf::from),
                 })

@@ -26,7 +26,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{place_column, text_column};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
@@ -209,8 +209,7 @@ fn read_rows(
         .query_row([&mount_id], |row| {
             Ok((
                 PathBuf::from(row.get::<_, String>(0)?),
-                // The column holds the place's wire JSON.
-                optional_text_column(row, 1, |text| serde_json::from_str::<Place>(&text))?,
+                place_column(row, 1)?,
             ))
         })
         .optional()?
