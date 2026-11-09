@@ -1,7 +1,7 @@
 //! What a Claude Code process declares about itself, as the stream reader reads it: the
-//! `initialize` reply's models, the one match of a model against them, styles and fast mode, the
-//! `system/init` handshake's commands, capabilities and MCP servers, and the routing facts of each
-//! inbound frame.
+//! `initialize` reply's models, the one match of a model against them, styles, fast mode and
+//! agents, the `system/init` handshake's commands, capabilities and MCP servers, and the routing
+//! facts of each inbound frame.
 
 use std::collections::HashSet;
 
@@ -55,9 +55,20 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// What the `initialize` reply declared about the session's models, styles, commands and memory:
-/// the models it offers, in its order, which of them run in auto mode, the output styles the
-/// process offers, the commands it lists, and the folders of its memory stores.
+/// One agent the `initialize` reply offers, by name, with its description where the reply gives a
+/// non-empty one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeListedAgent {
+    /// The name the lead hands work to it by.
+    pub(crate) name: String,
+    /// When the lead should hand work to it.
+    pub(crate) description: Option<String>,
+}
+
+/// What the `initialize` reply declared about the session's models, styles, commands, agents and
+/// memory: the models it offers, in its order, which of them run in auto mode, the output styles
+/// the process offers, the commands it lists, the agents it offers, and the folders of its memory
+/// stores.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeInitializeDeclaration {
     /// The fast mode it reports.
@@ -73,6 +84,8 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_style: Option<String>,
     /// The commands it lists, by name without the `/`, in its order.
     pub(crate) commands: Vec<String>,
+    /// The agents the process offers, in its order, each with its description.
+    pub(crate) agents: Vec<ClaudeListedAgent>,
     /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
     /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
     /// is kept.

@@ -30,6 +30,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
+use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::lenient_json::read_is_non_empty_text;
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -121,6 +122,18 @@ impl ClaudeProcessListener for ForwardedArrivals {
     }
 }
 
+/// The `initialize` a short process is sent: a session's with no helper limit and no in-process
+/// tool server, its `agents` the ones `definitions` names and absent when it names none.
+pub(crate) fn compose_claude_short_initialize_request(
+    definitions: &[SubagentDefinition],
+) -> ClaudeControlRequest {
+    let offered = SubagentPolicy::Enabled {
+        helpers_at_once: None,
+        definitions: definitions.to_vec(),
+    };
+    compose_claude_initialize_request(Some(&offered), Vec::new())
+}
+
 /// A short process and what it writes.
 pub(crate) struct ClaudeShortProcess {
     /// The process.
@@ -189,11 +202,20 @@ impl ClaudeShortProcess {
         .await
     }
 
-    /// Sends `initialize` with no hooks and answers its reply. Fails as `send_initialize` does.
+    /// Sends `initialize` and answers its reply. Fails as `send_initialize` does.
     pub(crate) async fn initialize(&self) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
+        self.initialize_offering(&[]).await
+    }
+
+    /// Sends `initialize` offering `definitions` as the process's agents, beside the ones it finds
+    /// on disk, and answers its reply. Fails as `send_initialize` does.
+    pub(crate) async fn initialize_offering(
+        &self,
+        definitions: &[SubagentDefinition],
+    ) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
         Ok(self
             .process
-            .send_initialize(compose_claude_initialize_request(None, Vec::new()))
+            .send_initialize(compose_claude_short_initialize_request(definitions))
             .await?
             .response)
     }

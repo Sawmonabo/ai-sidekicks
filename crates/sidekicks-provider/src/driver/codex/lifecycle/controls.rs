@@ -1,8 +1,8 @@
 //! A Codex session's controls and the driver's reads: a level or mode move, a switch of its tool
-//! servers, a side question, a compaction, its goal, a revoked rule, its command list and declared
-//! speed; the models, modes, capabilities, sign-in, MCP servers and starting level read on a
-//! service; an MCP server's sign-in through Codex's own client; the terminal-reach row; and the
-//! expiry of an account home's log rows.
+//! servers, a side question, a compaction, its goal, a revoked rule, its command list, the names it
+//! knows and its declared speed; the models, modes, capabilities, sign-in, MCP servers and starting
+//! level read on a service; an MCP server's sign-in through Codex's own client; the terminal-reach
+//! row; and the expiry of an account home's log rows.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -18,7 +18,9 @@ use sidekicks_contracts::provider::declaration::{
     ProviderRow, ProviderSettingControl, ProviderValue,
 };
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
-use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
+use sidekicks_contracts::provider::driver::commands::{
+    ProviderCommandBindingGroup, ProviderCommandEntry,
+};
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
@@ -43,6 +45,7 @@ use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_cod
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::driver::contract::error::DriverError;
+use crate::driver::contract::known_names::{KnownNamesParams, ProviderKnownNames};
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
     ListProviderCommandsParams, ProviderCommandsSubscription,
@@ -393,27 +396,55 @@ impl CodexDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> Result<ProviderCommandBindingGroup, DriverError> {
-        let source = self
-            .resolve_command_source(
+        let entries = self
+            .read_command_entries(
                 params.session_id,
                 params.binding.provider_account_id.clone(),
             )
             .await?;
-        let listed = self
-            .provider_commands
-            .compose_provider_command_list(&source)
-            .await?;
-        let entries = listed
-            .bindings
-            .into_vec()
-            .into_iter()
-            .flat_map(|group| group.entries)
-            .collect();
         Ok(ProviderCommandBindingGroup {
             run_id: params.run_id,
             binding: params.binding,
             entries,
         })
+    }
+
+    /// Every name the session knows on Codex: the entries `list_provider_commands` lists, and no
+    /// agents, since Codex's app server lists no agent roles and an agent has no written form on
+    /// Codex. Fails as `list_provider_commands` fails.
+    pub(crate) async fn list_known_names(
+        &self,
+        params: KnownNamesParams,
+    ) -> Result<ProviderKnownNames, DriverError> {
+        let entries = self
+            .read_command_entries(params.session_id, params.binding.provider_account_id)
+            .await?;
+        Ok(ProviderKnownNames {
+            entries,
+            agents: Vec::new(),
+        })
+    }
+
+    // Every entry of the session's command list, from the live session's list or a fresh read on
+    // its account's service over the folder its runs work in.
+    async fn read_command_entries(
+        &self,
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<Vec<ProviderCommandEntry>, DriverError> {
+        let source = self
+            .resolve_command_source(session_id, provider_account_id)
+            .await?;
+        let listed = self
+            .provider_commands
+            .compose_provider_command_list(&source)
+            .await?;
+        Ok(listed
+            .bindings
+            .into_vec()
+            .into_iter()
+            .flat_map(|group| group.entries)
+            .collect())
     }
 
     /// Follows the session's live command list until the subscription drops.

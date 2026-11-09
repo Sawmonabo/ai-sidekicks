@@ -1,8 +1,9 @@
 //! What each live Claude session declared, and what is read from it: the provider's command and
 //! skill surface from `system/init`, and its output-speed state from the `initialize` reply,
 //! replaced by each later `system/init` that reports one and settled once per run when the run's
-//! own handshake arrives. A session at rest has its command list read afresh, concurrent reads of
-//! one session on one account sharing one process and nothing kept once it settles.
+//! own handshake arrives. A session at rest has its commands and agents read afresh, concurrent
+//! reads of one session on one account offering the same helpers sharing one process and nothing
+//! kept once it settles.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -33,10 +34,12 @@ use crate::driver::claude::session::transport::declarations::{
 };
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
+use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
 use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::driver::session_control::SubagentDefinition;
 
 // The scope a command Claude Code runs only in its own terminal screen is listed with.
 const TERMINAL_COMMAND_SCOPE: &str = "terminal";
@@ -44,18 +47,26 @@ const TERMINAL_COMMAND_SCOPE: &str = "terminal";
 // The end of the name Claude Code lists a tool server's prompt under, as `server:prompt (MCP)`.
 const CLAUDE_PROMPT_NAME_SUFFIX: &str = " (MCP)";
 
-// One resting command read as it starts, before it is shared.
-type ClaudeRestingCommandStart =
-    BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
+// One resting listing read as it starts, before it is shared.
+type ClaudeRestingListingStart =
+    BoxFuture<'static, Result<ClaudeSessionListing, ClaudeLaunchError>>;
 
-// One read of a resting session's command list, which every concurrent read of the session
-// awaits; its failure, answered as a start's, is shared, so it is held behind an `Arc`.
-type ClaudeRestingCommandRead =
-    Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<DriverError>>>>;
+// One read of a resting session's listing, which every concurrent read of the session offering the
+// same helpers awaits; its failure, answered as a start's, is shared, so it is held behind an
+// `Arc`.
+type ClaudeRestingListingRead =
+    Shared<BoxFuture<'static, Result<ClaudeSessionListing, Arc<DriverError>>>>;
 
-// The session and the account one resting command read runs on, since each account lists its own
-// user-level commands.
+// The session and the account one resting listing read runs on, since each account lists its own
+// user-level commands and agents.
 type ClaudeRestingReadKey = (SessionId, ProviderAccountId);
+
+// One resting listing read in flight and the helpers its process was offered, which its agents
+// answer, so only a read offering the same helpers joins it.
+struct ClaudeRestingListingFlight {
+    offered: Vec<SubagentDefinition>,
+    read: ClaudeRestingListingRead,
+}
 
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
@@ -94,8 +105,8 @@ struct ClaudeSessionDeclarations {
 #[derive(Default)]
 pub(crate) struct ClaudeHandshakeRegister {
     sessions: Mutex<HashMap<SessionId, ClaudeSessionDeclarations>>,
-    // Each resting session's command read in flight on each account, gone once it settles.
-    resting_reads: Arc<Mutex<HashMap<ClaudeRestingReadKey, ClaudeRestingCommandRead>>>,
+    // Each resting session's listing reads in flight on each account, each gone once it settles.
+    resting_reads: Arc<Mutex<HashMap<ClaudeRestingReadKey, Vec<ClaudeRestingListingFlight>>>>,
 }
 
 impl ClaudeHandshakeRegister {
@@ -278,38 +289,49 @@ impl ClaudeHandshakeRegister {
         });
     }
 
-    /// The command read of resting `session_id` on `provider_account_id`'s account in flight,
-    /// else the one `start` begins. The read runs to its end whoever still waits on it, so a
-    /// dropped caller leaves no process behind, and it is forgotten as it settles, so the next
-    /// read starts afresh. Fails, for every waiter, as a session's start fails for the same
-    /// failure.
-    pub(crate) fn join_resting_command_read(
+    /// The listing read of resting `session_id` on `provider_account_id`'s account offering
+    /// `offered` in flight, else the one `start` begins. The read runs to its end whoever still
+    /// waits on it, so a dropped caller leaves no process behind, and it is forgotten as it
+    /// settles, so the next read starts afresh. Fails, for every waiter, as a session's start
+    /// fails for the same failure.
+    pub(crate) fn join_resting_listing_read(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
-        start: impl FnOnce() -> ClaudeRestingCommandStart,
-    ) -> impl Future<Output = Result<Vec<ClaudeListedCommand>, DriverError>> {
+        offered: &[SubagentDefinition],
+        start: impl FnOnce() -> ClaudeRestingListingStart,
+    ) -> impl Future<Output = Result<ClaudeSessionListing, DriverError>> {
         let key = (session_id, provider_account_id);
         let mut reads = lock(&self.resting_reads);
-        let read = if let Some(read) = reads.get(&key) {
-            read.clone()
+        let flights = reads.entry(key.clone()).or_default();
+        let read = if let Some(flight) = flights.iter().find(|flight| flight.offered == offered) {
+            flight.read.clone()
         } else {
             let held = Arc::clone(&self.resting_reads);
-            let held_key = key.clone();
+            let held_offered = offered.to_vec();
             let read = start()
-                .map(move |listed| {
-                    // The key's only entry until this removes it: a read is begun only where none
-                    // is held.
-                    lock(&held).remove(&held_key);
-                    listed.map_err(|error| Arc::new(DriverError::from(error)))
+                .map(move |listing| {
+                    // The only flight offering these helpers until this removes it: a read is
+                    // begun only where none is held.
+                    let mut reads = lock(&held);
+                    if let Some(flights) = reads.get_mut(&key) {
+                        flights.retain(|flight| flight.offered != held_offered);
+                        if flights.is_empty() {
+                            reads.remove(&key);
+                        }
+                    }
+                    listing.map_err(|error| Arc::new(DriverError::from(error)))
                 })
                 .boxed()
                 .shared();
-            reads.insert(key, read.clone());
+            flights.push(ClaudeRestingListingFlight {
+                offered: offered.to_vec(),
+                read: read.clone(),
+            });
             drop(tokio::spawn(read.clone()));
             read
         };
-        read.map(|listed| listed.map_err(|failure| DriverError::shared(&failure)))
+        read.map(|listing| listing.map_err(|failure| DriverError::shared(&failure)))
     }
 
     /// The command and skill entries one live session declared, all of them, stamped with
@@ -595,10 +617,11 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-    use super::{ClaudeHandshakeRegister, ClaudeRestingCommandStart};
+    use super::{ClaudeHandshakeRegister, ClaudeRestingListingStart};
     use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
     use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
     use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+    use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
     use crate::driver::contract::error::DriverError;
     use crate::driver::test_registry::new_session_id;
 
@@ -656,13 +679,15 @@ mod tests {
         let register = ClaudeHandshakeRegister::default();
         let session_id = new_session_id();
 
-        let first = register.join_resting_command_read(session_id, account("account-1"), || {
-            async move { Err(failure()) }.boxed()
-        });
-        let second = register.join_resting_command_read(
+        let first =
+            register.join_resting_listing_read(session_id, account("account-1"), &[], || {
+                async move { Err(failure()) }.boxed()
+            });
+        let second = register.join_resting_listing_read(
             session_id,
             account("account-1"),
-            || -> ClaudeRestingCommandStart {
+            &[],
+            || -> ClaudeRestingListingStart {
                 unreachable!("a second read joins the one in flight")
             },
         );
@@ -680,17 +705,19 @@ mod tests {
         let register = ClaudeHandshakeRegister::default();
         let session_id = new_session_id();
 
-        let first = register.join_resting_command_read(session_id, account("account-1"), || {
-            async move { Err(sign_in_refused()) }.boxed()
-        });
-        let second = register.join_resting_command_read(session_id, account("account-2"), || {
-            async move { Ok(Vec::new()) }.boxed()
-        });
+        let first =
+            register.join_resting_listing_read(session_id, account("account-1"), &[], || {
+                async move { Err(sign_in_refused()) }.boxed()
+            });
+        let second =
+            register.join_resting_listing_read(session_id, account("account-2"), &[], || {
+                async move { Ok(ClaudeSessionListing::default()) }.boxed()
+            });
 
         first.await.expect_err("the first account's read failed");
         assert_eq!(
             second.await.expect("the second account's read is its own"),
-            Vec::new()
+            ClaudeSessionListing::default()
         );
     }
 }
