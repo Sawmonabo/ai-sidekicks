@@ -13,11 +13,14 @@ import {
   type FixtureBridge,
 } from "#renderer/services/platform/bridge.fixture.js";
 import type {
-  McpMutationResult,
+  McpServerBindingId,
   McpServerInventoryEntry,
-  McpToolOverrideMutationResult,
+  McpServerMutationResponse,
+  McpServerStatus,
+  McpToolOverrideMutationResponse,
 } from "@ai-sidekicks/contracts/mcp/server";
-import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
@@ -31,6 +34,8 @@ import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { drawnText } from "#test/helpers/live-region.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { refuse, RefusalError } from "#renderer/lib/refusal/contract.js";
+import { MCP_SERVER_SIGN_IN_FAILED_CODE } from "@ai-sidekicks/contracts/mcp/governance";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 afterEach(() => {
@@ -39,6 +44,15 @@ afterEach(() => {
 
 const SESSION_A = "11111111-1111-4111-8111-111111111111" as SessionId;
 const SESSION_B = "22222222-2222-4222-8222-222222222222" as SessionId;
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
+const LEG_A = "leg-a" as RuntimeBindingId;
+const LEG_B = "leg-b" as RuntimeBindingId;
+
+/** A binding id for a fixture row, named for it. */
+function bindingIdFor(serverName: string): McpServerBindingId {
+  return `binding-${serverName}` as McpServerBindingId;
+}
 
 // The service's sessions, naming both running sessions as the session list does.
 const SESSION_DIRECTORY: SessionDirectoryState = {
@@ -51,9 +65,10 @@ const SESSION_DIRECTORY: SessionDirectoryState = {
 };
 
 const FILESYSTEM: McpServerInventoryEntry = {
-  provider: "claude",
+  provider: CLAUDE,
   scope: "user",
   serverName: "filesystem",
+  serverBindingId: bindingIdFor("filesystem"),
   config: {
     transport: "stdio",
     command: "npx",
@@ -70,37 +85,39 @@ const FILESYSTEM: McpServerInventoryEntry = {
       idempotencyClass: {
         value: "compensable",
         source: "override",
-        serverValue: "manual_reconcile_only",
+        serverValue: "manualReconcileOnly",
       },
     },
   ],
 };
 
 const ISSUE_TRACKER: McpServerInventoryEntry = {
-  provider: "codex",
+  provider: CODEX,
   scope: "project",
   scopeRef: "/work/repo",
   serverName: "issue-tracker",
+  serverBindingId: bindingIdFor("issue-tracker"),
   config: {
     transport: "http",
     url: "https://issues.example.test/mcp",
     headerNames: ["X-Workspace"],
     bearerTokenEnvVar: "ISSUES_TOKEN",
   },
-  status: "needs-auth",
+  status: "needsAuth",
   legs: [
-    { sessionId: SESSION_A, bindingId: "leg-a", status: "needs-auth" },
-    { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
+    { sessionId: SESSION_A, bindingId: LEG_A, status: "needsAuth" },
+    { sessionId: SESSION_B, bindingId: LEG_B, status: "connected" },
   ],
   enabled: true,
   tools: [],
 };
 
 const SCRATCHPAD: McpServerInventoryEntry = {
-  provider: "claude",
+  provider: CLAUDE,
   scope: "local",
   scopeRef: "/work/repo",
   serverName: "scratchpad",
+  serverBindingId: bindingIdFor("scratchpad"),
   config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
   status: "unknown",
   bindingStoreUnavailable: true,
@@ -108,22 +125,24 @@ const SCRATCHPAD: McpServerInventoryEntry = {
 
 // The project's shared copy of the scratchpad name, which its own copy outside the repo replaces.
 const SHARED_SCRATCHPAD: McpServerInventoryEntry = {
-  provider: "claude",
+  provider: CLAUDE,
   scope: "project",
   scopeRef: "/work/repo",
   serverName: "scratchpad",
+  serverBindingId: bindingIdFor("scratchpad"),
   config: { transport: "stdio", command: "scratchpad-mcp" },
   status: "unknown",
-  supersededIn: ["/work/repo"],
+  supersededIn: [{ path: "/work/repo" }],
   enabled: true,
   tools: [],
 };
 
 const REVIEWER: McpServerInventoryEntry = {
-  provider: "claude",
+  provider: CLAUDE,
   scope: "plugin",
   scopeRef: "review-tools",
   serverName: "reviewer",
+  serverBindingId: bindingIdFor("reviewer"),
   config: { transport: "stdio", command: "reviewer-mcp" },
   status: "connected",
   enabled: true,
@@ -131,14 +150,14 @@ const REVIEWER: McpServerInventoryEntry = {
 };
 
 // Saved, and missed one of the two running sessions.
-const PARTIAL_APPLICATION: McpMutationResult = {
+const PARTIAL_APPLICATION: McpServerMutationResponse = {
   server: { ...FILESYSTEM, enabled: false },
-  applied: "user_config_write",
+  applied: "userConfigWrite",
   liveResults: [
-    { sessionId: SESSION_A, bindingId: "leg-a", outcome: "applied" },
+    { sessionId: SESSION_A, bindingId: LEG_A, outcome: "applied" },
     {
       sessionId: SESSION_B,
-      bindingId: "leg-b",
+      bindingId: LEG_B,
       outcome: "failed",
       errorCode: "mcp.config_write_conflict",
     },
@@ -146,9 +165,9 @@ const PARTIAL_APPLICATION: McpMutationResult = {
 };
 
 // The filesystem binding's one tool switched off, enforced at once.
-const TOOL_SWITCHED_OFF: McpToolOverrideMutationResult = {
+const TOOL_SWITCHED_OFF: McpToolOverrideMutationResponse = {
   server: FILESYSTEM,
-  applied: { enabled: "daemon_enforced" },
+  applied: { enabled: "daemonEnforced" },
 };
 
 function operationsServing(
@@ -161,6 +180,8 @@ function operationsServing(
     sendEnabled: async () => await Promise.resolve(PARTIAL_APPLICATION),
     sendToolOverride: async () => await Promise.resolve(TOOL_SWITCHED_OFF),
     sendClearToolOverride: async () => await Promise.resolve(TOOL_SWITCHED_OFF),
+    sendSignIn: async () =>
+      await Promise.resolve({ authorizationUrl: "https://issues.example.test/authorize" }),
     ...overrides,
   };
 }
@@ -246,6 +267,17 @@ function entryNamed(container: HTMLElement, serverName: string, nth = 0): Elemen
   )[nth];
 }
 
+/** The selected server's `Sign in to this server` button. */
+function signInButton(container: HTMLElement): HTMLElement {
+  const button = [...container.querySelectorAll(".meridian-mcp__detail button")].find(
+    (candidate) => candidate.textContent === "Sign in to this server",
+  );
+  if (!(button instanceof HTMLElement)) {
+    throw new Error("the selected server drew no sign-in control");
+  }
+  return button;
+}
+
 /** Picks the named server from the list and answers the selected server's pane. */
 function selectServer(container: HTMLElement, serverName: string, nth = 0): Element {
   const entry = entryNamed(container, serverName, nth);
@@ -286,7 +318,7 @@ describe("McpFixtureBody", () => {
     const drawn: readonly [McpServerInventoryEntry, McpServerStatus, string, string][] = [
       [FILESYSTEM, "connected", "Claude Code", "Connected"],
       [ISSUE_TRACKER, "starting", "Codex", "Starting"],
-      [FILESYSTEM, "needs-auth", "Claude Code", "Needs sign-in"],
+      [FILESYSTEM, "needsAuth", "Claude Code", "Needs sign-in"],
       [ISSUE_TRACKER, "failed", "Codex", "Failed"],
       [FILESYSTEM, "unknown", "Claude Code", "Unknown"],
     ];
@@ -296,7 +328,7 @@ describe("McpFixtureBody", () => {
           ...server,
           serverName: `server-${status}`,
           status,
-          legs: [{ sessionId: SESSION_A, bindingId: `leg-${status}`, status }],
+          legs: [{ sessionId: SESSION_A, bindingId: `leg-${status}` as RuntimeBindingId, status }],
         })),
       ),
     );
@@ -337,7 +369,7 @@ describe("McpFixtureBody", () => {
   it("names every control the degraded row cannot draw, and invents no status", async () => {
     const codexReadsItsOwnSwitch: McpServerInventoryEntry = {
       ...SCRATCHPAD,
-      provider: "codex",
+      provider: CODEX,
       enabled: true,
     };
     const { container } = await renderSettledMcpPage(
@@ -412,7 +444,7 @@ describe("McpFixtureBody", () => {
     await settleScheduledRead(clock);
     expect(sendToolOverride).not.toHaveBeenCalled();
     expect(sendClearToolOverride).toHaveBeenCalledWith({
-      provider: "claude",
+      provider: CLAUDE,
       scope: "user",
       serverName: "filesystem",
       toolName: "write_file",
@@ -441,7 +473,7 @@ describe("McpFixtureBody", () => {
     fireEvent.click(toolSwitch);
     await settleScheduledRead(clock);
     expect(sendToolOverride).toHaveBeenCalledWith({
-      provider: "claude",
+      provider: CLAUDE,
       scope: "user",
       serverName: "filesystem",
       override: { toolName: "write_file", enabled: false },
@@ -473,6 +505,73 @@ describe("McpFixtureBody", () => {
       }),
     );
     expect(screen.getByRole("button", { name: /try again/iu })).toBeDefined();
+  });
+});
+
+describe("McpFixtureBody — signing in to a server", () => {
+  it("sends the binding with the press's key and settles once its page is handed to the browser", async () => {
+    const sendSignIn = vi.fn(
+      async () =>
+        await Promise.resolve({ authorizationUrl: "https://issues.example.test/authorize" }),
+    );
+    const { container, clock } = await renderSettledMcpPage(
+      operationsServing([ISSUE_TRACKER], { sendSignIn }),
+      () => "sign-in-press",
+    );
+    selectServer(container, "issue-tracker");
+    fireEvent.click(signInButton(container));
+    await settleScheduledRead(clock);
+    expect(sendSignIn).toHaveBeenCalledWith({
+      provider: CODEX,
+      scope: "project",
+      scopeRef: "/work/repo",
+      serverName: "issue-tracker",
+      clientIdempotencyKey: "sign-in-press",
+    });
+    expect(
+      container.querySelector(".meridian-mcp__detail .meridian-mcp__outcome")?.textContent,
+    ).toBe("The sign-in for that server opened in the default browser.");
+  });
+
+  it("draws each sign-in refusal as the strip ending in Try again, which signs in again", async () => {
+    const refusals: readonly [string, string, string][] = [
+      [MCP_SERVER_SIGN_IN_FAILED_CODE, "the token endpoint timed out", "Sign-in did not finish."],
+      [
+        "mcp.server.signInUnsupported",
+        "This server publishes no sign-in route.",
+        "This server publishes no sign-in route.",
+      ],
+    ];
+    for (const [code, detail, drawn] of refusals) {
+      let pressNumber = 0;
+      const sendSignIn = vi.fn(
+        async () => await Promise.reject(new RefusalError(refuse("daemon-call", code, detail))),
+      );
+      const { container, clock } = await renderSettledMcpPage(
+        operationsServing([ISSUE_TRACKER], { sendSignIn }),
+        () => {
+          pressNumber += 1;
+          return `press-${String(pressNumber)}`;
+        },
+      );
+      selectServer(container, "issue-tracker");
+      fireEvent.click(signInButton(container));
+      await settleScheduledRead(clock);
+      const strip = container.querySelector(".meridian-refusal--strip");
+      expect(strip?.getAttribute("data-refusal-code")).toBe(code);
+      expect(strip?.querySelector(".meridian-refusal__message")?.textContent).toBe(drawn);
+
+      const tryAgain = strip?.querySelector(".meridian-refusal__try-again button");
+      if (!(tryAgain instanceof HTMLElement)) {
+        throw new Error("the refusal strip drew no Try again");
+      }
+      fireEvent.click(tryAgain);
+      await settleScheduledRead(clock);
+      expect(sendSignIn).toHaveBeenLastCalledWith(
+        expect.objectContaining({ serverName: "issue-tracker", clientIdempotencyKey: "press-2" }),
+      );
+      cleanup();
+    }
   });
 });
 
@@ -549,11 +648,11 @@ function operationsHoldingTheirMutation(): {
   readonly operations: McpServerOperations;
   readonly answerHeldMutation: () => void;
 } {
-  const waiting: ((result: McpMutationResult) => void)[] = [];
+  const waiting: ((result: McpServerMutationResponse) => void)[] = [];
   return {
     operations: operationsServing([FILESYSTEM], {
       sendEnabled: async () =>
-        await new Promise<McpMutationResult>((resolve) => {
+        await new Promise<McpServerMutationResponse>((resolve) => {
           waiting.push(resolve);
         }),
     }),

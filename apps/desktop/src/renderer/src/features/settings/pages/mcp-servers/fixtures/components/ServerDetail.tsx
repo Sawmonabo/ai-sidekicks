@@ -9,15 +9,19 @@ import type { Clock } from "#renderer/lib/clock.js";
 import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
+  McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
-import type { McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { ToolSettingList } from "./ToolSettingList.js";
-import type { McpMutationOutcome, McpToolFacetChange } from "../mutation.js";
+import type {
+  McpMutationOutcome,
+  McpSwitchableBindingRef,
+  McpToolFacetChange,
+} from "../mutation.js";
 
 // What the degraded server says when the per-tool readings are missing, and when the binding's
 // own switch is missing too.
@@ -30,21 +34,26 @@ const SWITCH_AND_TOOL_READINGS_MISSING_LINE =
   "offered exactly as usual.";
 
 /**
- * The selected server: its set-up read back, one reading per running session under `Running
- * sessions`, then the controls this fixture body sends. With nothing selected it says how to
- * pick one.
+ * The selected server: its state with the probe's reason where one decides it, its set-up read
+ * back, one reading per running session under `Running sessions`, then the controls this fixture
+ * body sends. With nothing selected it says how to pick one.
  *
  * Every control is offered and none is eligibility-gated; each disables only while its own call
  * is in flight and settles in place under itself. A control whose reading the service did not
  * send is not drawn: `On for runs` without an `enabled`, and the per-tool rows while the binding
- * store is unreachable, where the pane names each one missing.
+ * store is unreachable, where the pane names each one missing. `On for runs` is not drawn on a
+ * connector's or an organization's server either, whose switch applies in one project the pane
+ * has no chooser for.
  */
 export function ServerDetail(props: {
   readonly entry: McpServerInventoryEntry | undefined;
   /** The outcome of the binding's own switch. */
   readonly outcome: McpMutationOutcome;
   readonly toolOutcomeFor: (toolName: string, facet: McpToolOverrideFacet) => McpMutationOutcome;
-  readonly onSetEnabled: (binding: McpServerBindingRef, enabled: boolean) => void;
+  readonly onSetEnabled: (binding: McpSwitchableBindingRef, enabled: boolean) => void;
+  /** The outcome of `Sign in to this server`. */
+  readonly signInOutcome: McpMutationOutcome;
+  readonly onSignIn: (binding: McpServerBindingRef) => void;
   readonly onChangeTool: (
     binding: McpServerBindingRef,
     toolName: string,
@@ -57,8 +66,17 @@ export function ServerDetail(props: {
   /** The instant each reading's age is counted to, in epoch milliseconds. */
   readonly nowMilliseconds: number;
 }): ReactNode {
-  const { entry, outcome, toolOutcomeFor, onSetEnabled, onChangeTool, sessionDirectory, clock } =
-    props;
+  const {
+    entry,
+    outcome,
+    toolOutcomeFor,
+    onSetEnabled,
+    signInOutcome,
+    onSignIn,
+    onChangeTool,
+    sessionDirectory,
+    clock,
+  } = props;
   if (entry === undefined) {
     return (
       <section className="meridian-mcp__detail" aria-label="Selected server">
@@ -82,8 +100,15 @@ export function ServerDetail(props: {
           label={MCP_SERVER_STATUS_WORDS[entry.status]}
           tone={toneForServerStatus(entry.status)}
         />
-        {entry.requiredServer === true ? <Chip label="Must start for a run to start" /> : null}
+        {entry.config.transport !== "ws" && entry.config.required === true ? (
+          <Chip label="Must start for a run to start" />
+        ) : null}
       </div>
+      {entry.probeFailureReason === undefined ? null : (
+        <p className="meridian-settings-page__aside">
+          <WireFigure value={entry.probeFailureReason} />
+        </p>
+      )}
 
       <ConfigReadBack config={entry.config} />
 
@@ -96,7 +121,9 @@ export function ServerDetail(props: {
         />
       </div>
 
-      {enabled === undefined ? null : (
+      {enabled === undefined ||
+      binding.scope === "connector" ||
+      binding.scope === "managed" ? null : (
         <div className="meridian-mcp__detail-block">
           <Switch
             label="On for runs"
@@ -113,6 +140,26 @@ export function ServerDetail(props: {
           />
         </div>
       )}
+
+      <div className="meridian-mcp__detail-block">
+        <button
+          type="button"
+          className="meridian-settings-page__action meridian-action-button"
+          onClick={() => {
+            onSignIn(binding);
+          }}
+        >
+          Sign in to this server
+        </button>
+        <MutationOutcomeLine
+          outcome={signInOutcome}
+          sessionDirectory={sessionDirectory}
+          clock={clock}
+          onTryAgain={() => {
+            onSignIn(binding);
+          }}
+        />
+      </div>
 
       {entry.bindingStoreUnavailable === true ? (
         <Nothing
@@ -143,15 +190,28 @@ export function ServerDetail(props: {
  * The binding identity carried inside one inventory entry.
  *
  * Rebuilt per arm rather than spread, so the discriminated union stays discriminated and no
- * cast is needed to keep a `scopeRef` off the `user` arm.
+ * cast is needed to keep a `scopeRef` off the arms that have none.
  */
 function bindingOf(entry: McpServerInventoryEntry): McpServerBindingRef {
-  return entry.scope === "user"
-    ? { provider: entry.provider, scope: "user", serverName: entry.serverName }
-    : {
-        provider: entry.provider,
-        scope: entry.scope,
-        scopeRef: entry.scopeRef,
-        serverName: entry.serverName,
-      };
+  const { provider, serverName } = entry;
+  switch (entry.scope) {
+    case "user":
+    case "managed":
+      return { provider, scope: entry.scope, serverName };
+    case "project":
+    case "local":
+      return entry.place === undefined
+        ? { provider, scope: entry.scope, scopeRef: entry.scopeRef, serverName }
+        : {
+            provider,
+            scope: entry.scope,
+            scopeRef: entry.scopeRef,
+            place: entry.place,
+            serverName,
+          };
+    case "plugin":
+      return { provider, scope: "plugin", scopeRef: entry.scopeRef, serverName };
+    case "connector":
+      return { provider, scope: "connector", scopeRef: entry.scopeRef, serverName };
+  }
 }

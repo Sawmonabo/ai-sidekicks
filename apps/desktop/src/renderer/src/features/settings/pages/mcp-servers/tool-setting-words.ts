@@ -3,23 +3,33 @@
 
 import type {
   McpApprovalMode,
-  McpToolSettingSource,
-} from "@ai-sidekicks/contracts/mcp/tool-settings";
+  McpToolOverrideFacet,
+  McpToolReading,
+} from "@ai-sidekicks/contracts/mcp/server";
 import type { IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/tools";
+
+/**
+ * One facet of a tool's reading: its value in force, and whether that is the server's own or set
+ * here, with the server's own beside an override.
+ */
+export type McpToolSetting = McpToolReading[McpToolOverrideFacet];
+
+/** Where a facet's value in force came from: the server's own, or set here. */
+export type McpToolSettingSource = McpToolSetting["source"];
 
 /** The on-screen words for each approval mode, under `Ask before running`. */
 export const APPROVAL_MODE_WORDS: Readonly<Record<McpApprovalMode, string>> = {
-  auto: "Run without asking",
-  prompt: "Ask every time",
-  writes: "Ask before it writes",
-  approve: "Ask for approval",
+  auto: "Codex decides from the tool's annotations",
+  prompt: "Always asks",
+  writes: "Asks before a tool that writes",
+  approve: "Pre-approved, never asks",
 };
 
 /** The on-screen words for each interrupted-call class, under `If a call is interrupted`. */
 export const IDEMPOTENCY_CLASS_WORDS: Readonly<Record<IdempotencyClass, string>> = {
   idempotent: "Safe to run again",
   compensable: "Can be undone",
-  manual_reconcile_only: "Leave it to a person",
+  manualReconcileOnly: "Leave it to a person",
 };
 
 /** The on-screen words for where a tool's value in force came from. */

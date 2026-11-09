@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { MCP_SERVER_SIGN_IN_FAILED_CODE } from "@ai-sidekicks/contracts/mcp/governance";
 import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
@@ -13,7 +14,7 @@ import { useProviderSections } from "#renderer/store/providers/hooks/useProvider
 import { providerNameOf } from "#renderer/store/providers/name.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
-import type { McpMutationOutcome } from "../mutation.js";
+import { SIGN_IN_PAGE_UNOPENED_CODE, type McpMutationOutcome } from "../mutation.js";
 import { SessionName, sessionNameWords } from "./SessionName.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
@@ -22,7 +23,8 @@ import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhen
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past
  * the short delay; then one line for each grade the service answered, saying when the change
  * takes effect, and one line for each running session it failed on, named as the session list
- * names it. A session the list does not name yet gets its line only once its name arrives, so no
+ * names it; or, for a sign-in, that its page opened in the browser. Handed `onTryAgain`, a
+ * refusal draws as the strip ending in `Try again`. A session the list does not name yet gets its line only once its name arrives, so no
  * placeholder is ever read out as a name.
  *
  * A partial outcome reads as one: a change can be saved and still miss one running session, and
@@ -35,8 +37,10 @@ export function MutationOutcomeLine(props: {
   readonly sessionDirectory: SessionDirectoryState;
   /** The window's clock, which holds `Sending…` back for the short delay. */
   readonly clock: Clock;
+  /** Sends the refused change again, drawing a refusal as the strip ending in `Try again`. */
+  readonly onTryAgain?: () => void;
 }): ReactNode {
-  const { outcome, sessionDirectory, clock } = props;
+  const { outcome, sessionDirectory, clock, onTryAgain } = props;
   const providerSections = useProviderSections();
   if (outcome.kind === "idle") {
     return null;
@@ -45,7 +49,26 @@ export function MutationOutcomeLine(props: {
     return <LoadingNotice clock={clock} placement="inline" title="Sending…" />;
   }
   if (outcome.kind === "refused") {
-    return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
+    const { code, detail } = outcome.refusal;
+    return (
+      <InlineRefusal
+        code={code}
+        detail={SIGN_IN_UNFINISHED_CODES.includes(code) ? SIGN_IN_UNFINISHED_WORDS : detail}
+        onTryAgain={onTryAgain}
+      />
+    );
+  }
+  if (outcome.kind === "signInPageOpened") {
+    return (
+      <div className="meridian-mcp__outcome">
+        <AnnouncedLine
+          element="p"
+          className="meridian-settings-page__state"
+          words={SIGN_IN_PAGE_OPENED_WORDS}
+          politeness="polite"
+        />
+      </div>
+    );
   }
   const { binding, settlement } = outcome;
   const failedResults = (settlement.liveResults ?? []).filter(
@@ -90,6 +113,21 @@ function FailedSessionLine(props: { readonly entry: SessionListEntry | undefined
     </p>
   );
 }
+
+/** What a sign-in whose page reached the browser settles with. */
+const SIGN_IN_PAGE_OPENED_WORDS = "The sign-in for that server opened in the default browser.";
+
+/**
+ * The refusals of a sign-in that could not start or whose page the browser would not open, which
+ * read the page's own words in place of the refusal's.
+ */
+const SIGN_IN_UNFINISHED_CODES: readonly string[] = [
+  MCP_SERVER_SIGN_IN_FAILED_CODE,
+  SIGN_IN_PAGE_UNOPENED_CODE,
+];
+
+/** What a sign-in that did not finish reads. */
+const SIGN_IN_UNFINISHED_WORDS = "Sign-in did not finish.";
 
 /** What a running session the change could not reach reads after its name. */
 const OLD_SETTING_WORDS = "is still running with the old setting.";

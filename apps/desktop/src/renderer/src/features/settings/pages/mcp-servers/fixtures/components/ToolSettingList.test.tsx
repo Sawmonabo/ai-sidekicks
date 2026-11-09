@@ -5,8 +5,9 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { McpToolReading } from "@ai-sidekicks/contracts/mcp/tool-settings";
+import type { McpToolReading } from "@ai-sidekicks/contracts/mcp/server";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 import { IDLE_MCP_MUTATION } from "../mutation.js";
 import { ToolSettingList } from "./ToolSettingList.js";
 
@@ -22,14 +23,14 @@ const TOOLS: readonly McpToolReading[] = [
     idempotencyClass: {
       value: "idempotent",
       source: "override",
-      serverValue: "manual_reconcile_only",
+      serverValue: "manualReconcileOnly",
     },
   },
   {
     toolName: "run_query",
     enabled: { value: false, source: "override", serverValue: true },
     approvalMode: { value: "prompt", source: "override", serverValue: "writes" },
-    idempotencyClass: { value: "manual_reconcile_only", source: "server" },
+    idempotencyClass: { value: "manualReconcileOnly", source: "server" },
   },
   {
     toolName: "drop_table",
@@ -38,7 +39,7 @@ const TOOLS: readonly McpToolReading[] = [
     idempotencyClass: {
       value: "compensable",
       source: "override",
-      serverValue: "manual_reconcile_only",
+      serverValue: "manualReconcileOnly",
     },
   },
 ];
@@ -54,6 +55,7 @@ function renderTools(onChangeTool: Parameters<typeof ToolSettingList>[0]["onChan
       sessionDirectory={{ status: "reading" }}
       clock={new ManualClock(0)}
     />,
+    { wrapper: ServedProviderSections },
   );
 }
 
@@ -82,17 +84,17 @@ describe("ToolSettingList", () => {
     expect(rows).toStrictEqual([
       {
         isOn: "true",
-        chosen: ["Run without asking", "Safe to run again"],
+        chosen: ["Codex decides from the tool's annotations", "Safe to run again"],
         sources: ["The server's own", "The server's own", "Set here"],
       },
       {
         isOn: "false",
-        chosen: ["Ask every time", "Leave it to a person"],
+        chosen: ["Always asks", "Leave it to a person"],
         sources: ["Set here", "Set here", "The server's own"],
       },
       {
         isOn: "true",
-        chosen: ["Ask for approval", "Can be undone"],
+        chosen: ["Pre-approved, never asks", "Can be undone"],
         sources: ["The server's own", "Set here", "Set here"],
       },
     ]);
@@ -100,7 +102,12 @@ describe("ToolSettingList", () => {
       [...select.options].map((option) => option.textContent),
     );
     expect(options).toStrictEqual([
-      ["Run without asking", "Ask every time", "Ask before it writes", "Ask for approval"],
+      [
+        "Codex decides from the tool's annotations",
+        "Always asks",
+        "Asks before a tool that writes",
+        "Pre-approved, never asks",
+      ],
       ["Safe to run again", "Can be undone", "Leave it to a person"],
     ]);
   });
@@ -114,7 +121,7 @@ describe("ToolSettingList", () => {
     }
     fireEvent.change(approval, { target: { value: "prompt" } });
     fireEvent.change(approval, { target: { value: "auto" } });
-    fireEvent.change(interrupted, { target: { value: "manual_reconcile_only" } });
+    fireEvent.change(interrupted, { target: { value: "manualReconcileOnly" } });
     fireEvent.change(interrupted, { target: { value: "idempotent" } });
     const runQuerySwitch = toolRow(container, "run_query").querySelector('[role="switch"]');
     if (!(runQuerySwitch instanceof HTMLElement)) {

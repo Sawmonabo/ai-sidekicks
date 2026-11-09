@@ -7,7 +7,7 @@ import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 export const MCP_SERVER_STATUS_WORDS: Readonly<Record<McpServerStatus, string>> = {
   connected: "Connected",
   starting: "Starting",
-  "needs-auth": "Needs sign-in",
+  needsAuth: "Needs sign-in",
   failed: "Failed",
   unknown: "Unknown",
 };

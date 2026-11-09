@@ -26,8 +26,8 @@ const WHERE_IT_APPLIES: Readonly<
 
 /**
  * One server in the list, pressed to select it: its name, provider, where it applies and its
- * state word with the reading's age, and, for a copy a project does not use, which one takes its
- * place there, as the daemon served it.
+ * state word, with each project it is switched off in and the reading's age, and, for a copy a
+ * project does not use, which one takes its place there, as the daemon served it.
  *
  * Two same-named servers in two places are two entries, told apart by their place words.
  */
@@ -56,6 +56,11 @@ export function ServerListEntry(props: {
             label={MCP_SERVER_STATUS_WORDS[entry.status]}
             tone={toneForServerStatus(entry.status)}
           />
+          {entry.disabledIn?.map((origin) => (
+            <span key={overrideOriginWords(origin)} className="meridian-settings-page__aside">
+              Off in <WireFigure value={overrideOriginWords(origin)} />
+            </span>
+          ))}
           {entry.observedAt === undefined ? null : (
             <>
               <span className="meridian-settings-page__aside">· updated</span>

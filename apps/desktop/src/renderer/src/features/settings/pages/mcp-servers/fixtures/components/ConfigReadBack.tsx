@@ -35,7 +35,7 @@ export function ConfigReadBack(props: {
           <WireFigure value={config.url} />
           {renderNameList("Address query", config.urlQueryParamNames)}
           {renderNameList("Headers", config.headerNames)}
-          {config.bearerTokenEnvVar === undefined ? null : (
+          {config.transport === "ws" || config.bearerTokenEnvVar === undefined ? null : (
             <span className="meridian-settings-page__aside">
               Token from the environment variable <WireFigure value={config.bearerTokenEnvVar} />
             </span>

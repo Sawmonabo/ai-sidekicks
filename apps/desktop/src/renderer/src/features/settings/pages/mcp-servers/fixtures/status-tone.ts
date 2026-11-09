@@ -13,7 +13,7 @@ import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
  */
 const TONE_FOR_SERVER_STATUS: Readonly<Record<McpServerStatus, ChipTone>> = {
   failed: "failure",
-  "needs-auth": "attention",
+  needsAuth: "attention",
   unknown: "attention",
   starting: "neutral",
   connected: "accent",

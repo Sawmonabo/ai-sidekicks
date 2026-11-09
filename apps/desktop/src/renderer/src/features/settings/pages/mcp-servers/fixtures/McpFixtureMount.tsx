@@ -35,7 +35,7 @@ export function McpFixtureMount(): ReactNode {
 function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
   return {
     listInventory: async (signal) =>
-      unwrapDaemonReply(await callDaemon(bridge, "mcp.list", {}, { signal })),
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.list", {}, { signal })),
     subscribeInventoryChanges: (onChange) =>
       openReopeningSubscription({
         signal: bridge.transportReconnect,
@@ -48,10 +48,12 @@ function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
         onReopened: onChange,
       }),
     sendEnabled: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "mcp.setEnabled", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.enabled.update", request)),
     sendToolOverride: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "mcp.setToolOverride", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.toolOverride.update", request)),
     sendClearToolOverride: async (request) =>
-      unwrapDaemonReply(await callDaemon(bridge, "mcp.clearToolOverride", request)),
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.toolOverride.clear", request)),
+    sendSignIn: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.server.signIn", request)),
   };
 }

@@ -10,15 +10,18 @@
 
 import type {
   McpApplicationGrade,
-  McpClearToolOverrideRequest,
+  McpApprovalMode,
+  McpAssignableIdempotencyClass,
   McpLiveApplicationResult,
-  McpMutationResult,
   McpServerBindingRef,
-  McpSetEnabledRequest,
-  McpSetToolOverrideRequest,
-  McpToolOverrideMutationResult,
+  McpServerEnabledUpdateRequest,
+  McpServerMutationResponse,
+  McpServerSignInRequest,
+  McpServerSignInResponse,
+  McpToolOverrideClearRequest,
+  McpToolOverrideMutationResponse,
+  McpToolOverrideUpdateRequest,
 } from "@ai-sidekicks/contracts/mcp/server";
-import type { McpToolOverride } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
@@ -31,8 +34,9 @@ export interface McpChangeSettlement {
 }
 
 /**
- * How a mutation this fixture body sent has settled. `refused` is a send that rejected,
- * carrying the service's own words.
+ * How a mutation this fixture body sent has settled. `signInPageOpened` is a sign-in whose page
+ * the system browser was handed; `refused` is a send that rejected, carrying the service's own
+ * words.
  */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
@@ -42,6 +46,7 @@ export type McpMutationOutcome =
       readonly binding: McpServerBindingRef;
       readonly settlement: McpChangeSettlement;
     }
+  | { readonly kind: "signInPageOpened"; readonly binding: McpServerBindingRef }
   | {
       readonly kind: "refused";
       readonly binding: McpServerBindingRef;
@@ -51,28 +56,51 @@ export type McpMutationOutcome =
 /** The outcome a row starts in and returns to. Shared so it has one spelling. */
 export const IDLE_MCP_MUTATION: McpMutationOutcome = { kind: "idle" };
 
+/**
+ * A binding whose own switch names no project: every scope but a connector's and an
+ * organization's, whose switch applies in one project.
+ */
+export type McpSwitchableBindingRef = Exclude<
+  McpServerBindingRef,
+  { readonly scope: "connector" | "managed" }
+>;
+
+/** The code a sign-in reads under when the system browser would not open its page. */
+export const SIGN_IN_PAGE_UNOPENED_CODE = "mcp-sign-in-page-unopened";
+
 /** Mints the key one press carries. Injected so a test can drive a retry. */
 export type IdempotencyKeyMinter = () => string;
 
 /** Sends a binding's enablement change to the daemon. */
-export type SendMcpEnabled = (request: McpSetEnabledRequest) => Promise<McpMutationResult>;
+export type SendMcpEnabled = (
+  request: McpServerEnabledUpdateRequest,
+) => Promise<McpServerMutationResponse>;
 
 /** Sends one tool's override to the daemon. */
 export type SendMcpToolOverride = (
-  request: McpSetToolOverrideRequest,
-) => Promise<McpToolOverrideMutationResult>;
+  request: McpToolOverrideUpdateRequest,
+) => Promise<McpToolOverrideMutationResponse>;
 
 /** Sends the clear of one facet of a tool's override to the daemon. */
 export type SendMcpClearToolOverride = (
-  request: McpClearToolOverrideRequest,
-) => Promise<McpToolOverrideMutationResult>;
+  request: McpToolOverrideClearRequest,
+) => Promise<McpToolOverrideMutationResponse>;
+
+/** Starts the service's own sign-in for a binding's server, answering its sign-in page. */
+export type SendMcpSignIn = (request: McpServerSignInRequest) => Promise<McpServerSignInResponse>;
 
 /**
  * What one press on a tool's facet asks for: a value set here, naming that facet alone, or the
  * facet returned to the server's own value, which clears it alone.
  */
 export type McpToolFacetChange =
-  | { readonly kind: "set"; readonly override: Omit<McpToolOverride, "toolName"> }
+  | {
+      readonly kind: "set";
+      readonly override:
+        | { readonly enabled: boolean }
+        | { readonly approvalMode: McpApprovalMode }
+        | { readonly idempotencyClass: McpAssignableIdempotencyClass };
+    }
   | { readonly kind: "clear" };
 
 /** The default minter: the platform's own identifier source. */
@@ -81,7 +109,7 @@ export function mintIdempotencyKey(): string {
 }
 
 /** How a binding-level change settled: its one grade and each live session it touched. */
-export function settlementOfMutation(result: McpMutationResult): McpChangeSettlement {
+export function settlementOfMutation(result: McpServerMutationResponse): McpChangeSettlement {
   return { grades: [result.applied], liveResults: result.liveResults };
 }
 
@@ -90,7 +118,7 @@ export function settlementOfMutation(result: McpMutationResult): McpChangeSettle
  * since two facets taking effect the same way settle with one line.
  */
 export function settlementOfToolOverride(
-  result: McpToolOverrideMutationResult,
+  result: McpToolOverrideMutationResponse,
 ): McpChangeSettlement {
   const { enabled, approvalMode, idempotencyClass } = result.applied;
   const grades = [enabled, approvalMode, idempotencyClass].filter(

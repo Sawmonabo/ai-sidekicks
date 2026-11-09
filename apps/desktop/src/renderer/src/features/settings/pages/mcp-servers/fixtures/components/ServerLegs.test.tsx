@@ -6,6 +6,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
+import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
@@ -33,12 +34,12 @@ const DIRECTORY: SessionDirectoryState = {
 const LEGS: readonly McpServerLegStatus[] = [
   {
     sessionId: TITLED_SESSION,
-    bindingId: "leg-titled",
+    bindingId: "leg-titled" as RuntimeBindingId,
     status: "connected",
     observedAt: "2026-01-01T08:58:00.000Z",
   },
-  { sessionId: UNTITLED_SESSION, bindingId: "leg-untitled", status: "failed" },
-  { sessionId: UNLISTED_SESSION, bindingId: "leg-unlisted", status: "unknown" },
+  { sessionId: UNTITLED_SESSION, bindingId: "leg-untitled" as RuntimeBindingId, status: "failed" },
+  { sessionId: UNLISTED_SESSION, bindingId: "leg-unlisted" as RuntimeBindingId, status: "unknown" },
 ];
 
 describe("ServerLegs", () => {

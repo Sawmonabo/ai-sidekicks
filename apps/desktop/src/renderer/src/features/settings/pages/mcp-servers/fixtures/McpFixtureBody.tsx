@@ -6,7 +6,8 @@
 // environment, header, token or authorization-URL value (the wire carries names in their place).
 //
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
-// identity, and each tool's facet by that identity, the tool's name and the facet. It belongs
+// identity, its sign-in by that identity and the word `signIn`, and each tool's facet by that
+// identity, the tool's name and the facet. It belongs
 // to the bridge it was produced through: the provider replaces the bridge under a live mount in
 // place, so the map rides the subject-scoped holder with the bridge as subject. It re-seeds
 // during the render that first sees a new bridge, and a publisher captured under the retired
@@ -33,6 +34,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { refuse, RefusalError } from "#renderer/lib/refusal/contract.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
@@ -45,13 +47,15 @@ import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
   type IdempotencyKeyMinter,
+  SIGN_IN_PAGE_UNOPENED_CODE,
   settlementOfMutation,
   settlementOfToolOverride,
-  type McpChangeSettlement,
   type McpMutationOutcome,
+  type McpSwitchableBindingRef,
   type McpToolFacetChange,
   type SendMcpClearToolOverride,
   type SendMcpEnabled,
+  type SendMcpSignIn,
   type SendMcpToolOverride,
 } from "./mutation.js";
 import { ServerDetail } from "./components/ServerDetail.js";
@@ -70,6 +74,7 @@ export interface McpServerOperations {
   readonly sendEnabled: SendMcpEnabled;
   readonly sendToolOverride: SendMcpToolOverride;
   readonly sendClearToolOverride: SendMcpClearToolOverride;
+  readonly sendSignIn: SendMcpSignIn;
 }
 
 /**
@@ -148,12 +153,12 @@ export function McpFixtureBody(props: {
   const sendChange = (
     key: string,
     binding: McpServerBindingRef,
-    send: () => Promise<McpChangeSettlement>,
+    send: () => Promise<SettledMcpMutationOutcome>,
   ): void => {
     recordOutcome(key, { kind: "sending", binding });
     send().then(
-      (settlement) => {
-        recordOutcome(key, { kind: "settled", binding, settlement });
+      (settled) => {
+        recordOutcome(key, settled);
         // No guard needed: a superseded read is already disposed, and a disposed read
         // refreshes nothing.
         inventoryRead.refresh("terminal-event");
@@ -167,12 +172,34 @@ export function McpFixtureBody(props: {
       },
     );
   };
-  const setEnabled = (binding: McpServerBindingRef, enabled: boolean): void => {
-    sendChange(mcpBindingKeyOf(binding), binding, async () =>
-      settlementOfMutation(
+  const setEnabled = (binding: McpSwitchableBindingRef, enabled: boolean): void => {
+    sendChange(mcpBindingKeyOf(binding), binding, async () => ({
+      kind: "settled",
+      binding,
+      settlement: settlementOfMutation(
         await operations.sendEnabled({ ...binding, enabled, clientIdempotencyKey: mintKey() }),
       ),
-    );
+    }));
+  };
+  // The service answers the sign-in page's address and the system browser is handed it; the
+  // sign-in itself then finishes in the browser, outside this press.
+  const signIn = (binding: McpServerBindingRef): void => {
+    sendChange(signInOutcomeKeyOf(binding), binding, async () => {
+      const { authorizationUrl } = await operations.sendSignIn({
+        ...binding,
+        clientIdempotencyKey: mintKey(),
+      });
+      if (authorizationUrl === undefined) {
+        // A reused key's saved answer carries no address; each press mints its own, so the
+        // service started nothing new for this one.
+        return { kind: "settled", binding, settlement: { grades: [], liveResults: undefined } };
+      }
+      // The rejection's own message crosses IPC with the channel's name in it, so it is not shown.
+      await bridge.native.openExternal(authorizationUrl).catch((error: unknown) => {
+        throw new RefusalError(SIGN_IN_PAGE_UNOPENED, { cause: error });
+      });
+      return { kind: "signInPageOpened", binding };
+    });
   };
   // Only the facet pressed is sent: a set names that facet alone and a clear clears it alone, so
   // the tool's other facets are left as they stand.
@@ -182,8 +209,10 @@ export function McpFixtureBody(props: {
     facet: McpToolOverrideFacet,
     change: McpToolFacetChange,
   ): void => {
-    sendChange(toolOutcomeKeyOf(binding, toolName, facet), binding, async () =>
-      settlementOfToolOverride(
+    sendChange(toolOutcomeKeyOf(binding, toolName, facet), binding, async () => ({
+      kind: "settled",
+      binding,
+      settlement: settlementOfToolOverride(
         change.kind === "clear"
           ? await operations.sendClearToolOverride({
               ...binding,
@@ -197,7 +226,7 @@ export function McpFixtureBody(props: {
               clientIdempotencyKey: mintKey(),
             }),
       ),
-    );
+    }));
   };
 
   const state = usePushDrivenRead(inventoryRead);
@@ -280,6 +309,12 @@ export function McpFixtureBody(props: {
             : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
         }
         onSetEnabled={setEnabled}
+        signInOutcome={
+          selected === undefined
+            ? IDLE_MCP_MUTATION
+            : (outcomes.get(signInOutcomeKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+        }
+        onSignIn={signIn}
         onChangeTool={changeTool}
         sessionDirectory={sessionDirectory}
         clock={clock}
@@ -288,6 +323,19 @@ export function McpFixtureBody(props: {
     </div>
   );
 }
+
+/** How a change this body sent settled, once its send answered. */
+type SettledMcpMutationOutcome = Extract<
+  McpMutationOutcome,
+  { readonly kind: "settled" | "signInPageOpened" }
+>;
+
+/** What a sign-in whose page the system browser would not open settles with. */
+const SIGN_IN_PAGE_UNOPENED = refuse(
+  MCP_MUTATION_ORIGIN,
+  SIGN_IN_PAGE_UNOPENED_CODE,
+  "The browser did not open the sign-in page.",
+);
 
 /** What the list holds before the inventory is served. */
 const NO_SERVERS: readonly McpServerInventoryEntry[] = [];
@@ -298,6 +346,11 @@ function observedStampsOf(servers: readonly McpServerInventoryEntry[]): readonly
     ...(entry.observedAt === undefined ? [] : [entry.observedAt]),
     ...(entry.legs ?? []).flatMap((leg) => (leg.observedAt === undefined ? [] : [leg.observedAt])),
   ]);
+}
+
+/** The ledger key of one binding's sign-in. */
+function signInOutcomeKeyOf(binding: McpServerBindingRef): string {
+  return structuralKey([mcpBindingKeyOf(binding), "signIn"]);
 }
 
 /** The ledger key of one facet of one tool on one binding. */

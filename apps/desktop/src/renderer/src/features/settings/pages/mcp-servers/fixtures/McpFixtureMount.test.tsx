@@ -132,7 +132,7 @@ describe("McpFixtureMount", () => {
           setting.lastElementChild?.textContent,
         ]);
     expect(readings()).toStrictEqual([
-      ["Ask every time", "Set here"],
+      ["Always asks", "Set here"],
       ["Can be undone", "Set here"],
     ]);
 
@@ -148,7 +148,7 @@ describe("McpFixtureMount", () => {
     await settleScheduledRead(fixture.scenarioEngine.clock);
 
     expect(readings()).toStrictEqual([
-      ["Run without asking", "The server's own"],
+      ["Codex decides from the tool's annotations", "The server's own"],
       ["Can be undone", "Set here"],
     ]);
   });

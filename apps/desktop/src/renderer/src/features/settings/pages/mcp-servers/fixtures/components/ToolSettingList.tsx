@@ -9,14 +9,15 @@ import {
   MCP_APPROVAL_MODES,
   type McpToolOverrideFacet,
   type McpToolReading,
-  type McpToolSetting,
-} from "@ai-sidekicks/contracts/mcp/tool-settings";
+} from "@ai-sidekicks/contracts/mcp/server";
 import { IDEMPOTENCY_CLASSES } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import {
   APPROVAL_MODE_WORDS,
   IDEMPOTENCY_CLASS_WORDS,
   TOOL_SETTING_SOURCE_WORDS,
+  type McpToolSetting,
+  type McpToolSettingSource,
 } from "../../tool-setting-words.js";
 import type { McpMutationOutcome, McpToolFacetChange } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
@@ -79,7 +80,7 @@ export function ToolSettingList(props: {
                     );
                   }}
                 />
-                {renderSource(tool.enabled)}
+                {renderSource(tool.enabled.source)}
               </div>
               {outcomeLine("enabled")}
               <div className="meridian-mcp__tool-setting">
@@ -112,7 +113,7 @@ export function ToolSettingList(props: {
                     ))}
                   </select>
                 </label>
-                {renderSource(tool.approvalMode)}
+                {renderSource(tool.approvalMode.source)}
               </div>
               {outcomeLine("approvalMode")}
               <div className="meridian-mcp__tool-setting">
@@ -129,10 +130,12 @@ export function ToolSettingList(props: {
                       if (idempotencyClass === undefined) {
                         return;
                       }
+                      // The server's own class is always the floor no override sets, so choosing
+                      // it clears the facet.
                       onChangeTool(
                         tool.toolName,
                         "idempotencyClass",
-                        idempotencyClass === serverValueOf(tool.idempotencyClass)
+                        idempotencyClass === "manualReconcileOnly"
                           ? { kind: "clear" }
                           : { kind: "set", override: { idempotencyClass } },
                       );
@@ -145,7 +148,7 @@ export function ToolSettingList(props: {
                     ))}
                   </select>
                 </label>
-                {renderSource(tool.idempotencyClass)}
+                {renderSource(tool.idempotencyClass.source)}
               </div>
               {outcomeLine("idempotencyClass")}
             </li>
@@ -159,16 +162,10 @@ export function ToolSettingList(props: {
 /**
  * The value clearing a facet returns to: the one in force, or the server's own under an override.
  */
-function serverValueOf<OverrideValue, ServerValue>(
-  setting: McpToolSetting<OverrideValue, ServerValue>,
-): ServerValue {
+function serverValueOf(setting: McpToolSetting): McpToolSetting["value"] {
   return setting.source === "server" ? setting.value : setting.serverValue;
 }
 
-function renderSource(setting: McpToolSetting<unknown>): ReactNode {
-  return (
-    <span className="meridian-settings-page__aside">
-      {TOOL_SETTING_SOURCE_WORDS[setting.source]}
-    </span>
-  );
+function renderSource(source: McpToolSettingSource): ReactNode {
+  return <span className="meridian-settings-page__aside">{TOOL_SETTING_SOURCE_WORDS[source]}</span>;
 }
