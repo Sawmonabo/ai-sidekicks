@@ -72,13 +72,14 @@ impl ClaudeConfigLock {
         }
     }
 
-    /// Releases the lock by removing its folder. Fails as the removal fails.
-    pub(crate) async fn release(mut self) -> io::Result<()> {
+    /// Releases the lock by removing its folder, blocking the calling thread on the removal. Fails
+    /// as the removal fails.
+    pub(crate) fn release(mut self) -> io::Result<()> {
         let folder = self
             .folder
             .take()
             .expect("a lock keeps its folder until it is released or dropped");
-        tokio::fs::remove_dir(folder).await
+        std::fs::remove_dir(folder)
     }
 }
 
@@ -239,7 +240,7 @@ mod tests {
 
         assert_eq!(Instant::now(), started);
         assert!(folder.is_dir());
-        lock.release().await.unwrap();
+        lock.release().unwrap();
         assert!(!folder.exists());
 
         let lock = ClaudeConfigLock::take(&config, started + Duration::from_secs(10))
@@ -247,7 +248,7 @@ mod tests {
             .unwrap();
         fs::write(folder.join("held"), b"").unwrap();
 
-        assert!(lock.release().await.is_err());
+        assert!(lock.release().is_err());
         assert!(folder.is_dir());
     }
 }

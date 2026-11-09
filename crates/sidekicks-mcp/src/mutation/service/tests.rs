@@ -31,6 +31,7 @@ use sidekicks_provider::driver::mcp_server::write::{
     McpServerWriteOutcome, McpServerWriteRefusal,
 };
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
@@ -83,23 +84,12 @@ fn scripted_driver(
             .collect(),
     ));
     let mut driver = MockProviderDriver::new();
-    let (read_config, read_provider) = (Arc::clone(&config), provider.clone());
-    driver.expect_read_mcp_servers().returning(move |_request| {
-        let declarations = lock(&read_config)
-            .iter()
-            .map(|(name, enabled)| {
-                declaration(&read_provider, name, *enabled, is_switch_kept_by_daemon)
-            })
-            .collect();
-        Box::pin(ready(Ok(ProviderMcpServersReading {
-            declarations,
-            roots: Vec::new(),
-            is_machine_managed: false,
-            server_policy: McpServerPolicy::default(),
-            account_servers: Vec::new(),
-            probe_readings: Vec::new(),
-        })))
-    });
+    expect_declarations_read(
+        &mut driver,
+        provider,
+        Arc::clone(&config),
+        is_switch_kept_by_daemon,
+    );
     let observe_config = Arc::clone(&config);
     driver
         .expect_observe_mcp_server()
@@ -144,6 +134,31 @@ fn scripted_driver(
             Box::pin(ready(outcome.clone()))
         });
     driver
+}
+
+/// Answers `driver`'s every declarations read with the `user` servers `config` holds, each with its
+/// own switch, kept by the daemon where `is_switch_kept_by_daemon` is set.
+fn expect_declarations_read(
+    driver: &mut MockProviderDriver,
+    provider: &ProviderId,
+    config: Arc<Mutex<HashMap<String, Option<bool>>>>,
+    is_switch_kept_by_daemon: bool,
+) {
+    let provider = provider.clone();
+    driver.expect_read_mcp_servers().returning(move |_request| {
+        let declarations = lock(&config)
+            .iter()
+            .map(|(name, enabled)| declaration(&provider, name, *enabled, is_switch_kept_by_daemon))
+            .collect();
+        Box::pin(ready(Ok(ProviderMcpServersReading {
+            declarations,
+            roots: Vec::new(),
+            is_machine_managed: false,
+            server_policy: McpServerPolicy::default(),
+            account_servers: Vec::new(),
+            probe_readings: Vec::new(),
+        })))
+    });
 }
 
 /// The `user` server `name`'s declaration, with the entry's command and its own switch `enabled`,
@@ -495,6 +510,59 @@ async fn every_mutation_reads_the_receipt_key_first() {
         0
     );
     assert_eq!(fixture.keychain.writes(), 0);
+}
+
+/// A change the preflight refuses writes no receipt and reaches no driver call past the
+/// declarations read, whose driver answers that read alone with nothing declared; a connector's
+/// switch, which the daemon keeps per project, is refused before its commit. Killed by the receipt
+/// begun or the daemon-kept switch committed before the check, and by the observe, the compose or
+/// the write moved ahead of it.
+#[tokio::test]
+async fn a_change_the_preflight_refuses_writes_no_receipt() {
+    let provider = first_provider();
+    let mut driver = MockProviderDriver::new();
+    expect_declarations_read(&mut driver, &provider, Arc::default(), false);
+    let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
+
+    let upserted = fixture
+        .service
+        .upsert(upsert(
+            &provider,
+            &idempotency_key(),
+            DAEMON_TOOL_SERVER_NAME,
+            "npx",
+        ))
+        .await;
+    let deleted = fixture
+        .service
+        .delete(delete(&provider, &idempotency_key(), "docs"))
+        .await;
+    let switched = fixture
+        .service
+        .set_enabled(switch_off(&provider, &idempotency_key(), "docs"))
+        .await;
+    let connector_switch = json!({
+        "scope": "connector",
+        "provider": provider.as_str(),
+        "scopeRef": "account-1",
+        "serverName": "slack",
+        "clientIdempotencyKey": idempotency_key().as_str(),
+        "enabled": false,
+        "projectRoot": "/work/app",
+    });
+    let connector_switched = fixture
+        .service
+        .set_enabled(serde_json::from_value(connector_switch).expect("a switch request"))
+        .await;
+
+    assert_eq!(code(&upserted), Some(RefusalCode::McpServerConfigInvalid));
+    for answer in [code(&deleted), code(&switched), code(&connector_switched)] {
+        assert_eq!(answer, Some(RefusalCode::McpServerNotFound));
+    }
+    assert_eq!(
+        fixture.count("SELECT count(*) FROM mcp_mutation_receipts"),
+        0
+    );
 }
 
 /// A provider's definite refusal commits the receipt with it and sends no config-changed notice,

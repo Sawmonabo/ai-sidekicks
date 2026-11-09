@@ -128,19 +128,17 @@ where
                     return refused_by_daemon("Claude Code's config could not be locked", &failure);
                 }
             };
-            let tried = edit_once(
+            match edit_once(
                 &file,
                 &keys,
                 entry,
                 before,
                 PERSON_CONFIG_MODE,
-                Some(LOCK_HOLD_MAX),
+                Some(lock),
                 on_rename_due,
             )
-            .await;
-            // The write stands whether or not the lock's folder goes.
-            log_unremoved(lock.release().await);
-            match tried {
+            .await
+            {
                 EditTry::Ended(outcome) => outcome,
                 EditTry::FileChanged => {
                     McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
@@ -169,14 +167,16 @@ where
 }
 
 // One try on a blocking thread: the file read, the entry compared and the edit renamed in place,
-// or the file made with `new_file_mode` where it is not there.
+// or the file made with `new_file_mode` where it is not there. The thread owns `lock`, where one
+// is held, and releases it once the try ends, so a caller dropped meanwhile never frees the lock
+// ahead of the rename.
 async fn edit_once<RenameDue>(
     file: &Path,
     keys: &[String],
     entry: &McpServerEntry,
     before: &McpServerObservedEntry,
     new_file_mode: u32,
-    hold_max: Option<Duration>,
+    lock: Option<ClaudeConfigLock>,
     on_rename_due: RenameDue,
 ) -> EditTry
 where
@@ -189,15 +189,20 @@ where
         before.clone(),
     );
     match tokio::task::spawn_blocking(move || {
-        edit_file(
+        let tried = edit_file(
             &file,
             &keys,
             edited,
             &before,
             new_file_mode,
-            hold_max,
+            lock.as_ref().map(|_held| LOCK_HOLD_MAX),
             on_rename_due,
-        )
+        );
+        // The write stands whether or not the lock's folder goes.
+        if let Some(lock) = lock {
+            log_unremoved(lock.release());
+        }
+        tried
     })
     .await
     {
@@ -395,8 +400,8 @@ pub(super) fn refused_by_daemon(
 #[cfg(test)]
 mod tests {
     use std::fs::{self, FileTimes};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier, OnceLock};
     use std::time::{Duration, SystemTime};
 
     use rstest::rstest;
@@ -404,9 +409,10 @@ mod tests {
     use sidekicks_contracts::mcp::server::McpServerName;
     use sidekicks_platforms::{has_file_mode, make_file_link};
     use sidekicks_std::file::atomic_write::write_file_atomically;
+    use tokio::sync::Notify;
     use tokio::time::Instant;
 
-    use super::{ClaudeEditTarget, edit_entry};
+    use super::{ClaudeConfigLock, ClaudeEditTarget, edit_entry};
     use crate::driver::mcp_server::write::{
         McpServerEntry, McpServerObservedEntry, McpServerWriteOutcome, McpServerWriteRefusal,
     };
@@ -653,5 +659,76 @@ mod tests {
         } else {
             assert_eq!(after, other_bytes);
         }
+    }
+
+    // A caller dropped while its edit is under way leaves Claude Code's lock in place through the
+    // rename, which still lands, and the lock goes once the try ends. The drop runs off the
+    // runtime, where a lock the caller held is removed before the drop returns. Killed by the lock
+    // released by the caller, a release ahead of the rename, and a lock never released.
+    #[tokio::test]
+    async fn a_dropped_callers_rename_lands_under_the_lock() {
+        let home = tempfile::tempdir().unwrap();
+        let config = home.path().join(".claude.json");
+        let folder = home.path().join(".claude.json.lock");
+        let observed = json!({"command": "npx"});
+        write_file_atomically(&config, config_bytes(&observed, 3), 0o600)
+            .await
+            .unwrap();
+        let rename_due = Arc::new(Notify::new());
+        let rename_hold = Arc::new(Barrier::new(2));
+        let is_locked_at_rename = Arc::new(OnceLock::new());
+        let on_rename_due = {
+            let (rename_due, rename_hold) = (Arc::clone(&rename_due), Arc::clone(&rename_hold));
+            let is_locked_at_rename = Arc::clone(&is_locked_at_rename);
+            move || {
+                rename_due.notify_one();
+                rename_hold.wait();
+                is_locked_at_rename.set(folder.is_dir()).unwrap();
+            }
+        };
+        let written = json!({"command": "npx", "args": ["--verbose"]});
+        let mut edit = Box::pin({
+            let (config, written) = (config.clone(), written.clone());
+            async move {
+                let server_name = McpServerName::new("docs".to_owned()).unwrap();
+                let entry = McpServerEntry::from_json(written);
+                let before = McpServerObservedEntry::Present(McpServerEntry::from_json(observed));
+                edit_entry(
+                    ClaudeEditTarget::PersonConfig {
+                        path: config,
+                        project_key: None,
+                    },
+                    &server_name,
+                    &entry,
+                    &before,
+                    Instant::now() + Duration::from_secs(5),
+                    on_rename_due,
+                )
+                .await
+            }
+        });
+
+        tokio::select! {
+            outcome = &mut edit => panic!("the edit ended before its rename was due: {outcome:?}"),
+            () = rename_due.notified() => {}
+        }
+        let dropped = std::thread::spawn(move || drop(edit)).join();
+        let rename_hold = Arc::clone(&rename_hold);
+        tokio::task::spawn_blocking(move || rename_hold.wait())
+            .await
+            .unwrap();
+        dropped.unwrap();
+        let lock = ClaudeConfigLock::take(&config, Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        assert_eq!(is_locked_at_rename.get(), Some(&true));
+        let after: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(
+            after,
+            json!({"numStartups": 3, "mcpServers": {"docs": written}}),
+            "the rename lands only while the hook's pause stays under the 2 s LOCK_HOLD_MAX"
+        );
+        lock.release().unwrap();
     }
 }
