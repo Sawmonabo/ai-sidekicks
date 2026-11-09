@@ -234,22 +234,29 @@ mod tests {
     use crate::driver::codex::native_program::CodexNativeCommand;
     use crate::driver::codex::permission_level::{CodexProfileFolders, codex_repository_root};
     use crate::driver::codex::thread::settings::CodexThreadSettings;
+    use crate::driver::codex::thread::settings::tool_servers::CODEX_OPENED_TOOL_SERVER_NAMES;
     use crate::driver::mcp_server::write::McpServerEntry;
     use crate::driver::session_control::SessionToolServer;
     use crate::port::tool_server_route::{OpenedToolServerRoute, ToolServerRouteEntry};
-    use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
     /// The repository every test conversation runs in, from a linked worktree of it.
     const REPOSITORY: &str = "/work/app";
 
-    // The daemon's entry a spawn opened, at a fixed address under a fixed secret.
+    // The daemon's entries a spawn opens, each at a fixed address under a fixed secret, as the
+    // route opens every name it is handed.
     fn opened_route() -> OpenedToolServerRoute {
         OpenedToolServerRoute::new(
-            vec![ToolServerRouteEntry {
-                server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
-                url: "http://127.0.0.1:1/tools/sidekicks".to_owned(),
-                http_headers: vec![("Authorization".to_owned(), "Bearer spawn-secret".to_owned())],
-            }],
+            CODEX_OPENED_TOOL_SERVER_NAMES
+                .iter()
+                .map(|server_name| ToolServerRouteEntry {
+                    server_name: (*server_name).to_owned(),
+                    url: format!("http://127.0.0.1:1/tools/{server_name}"),
+                    http_headers: vec![(
+                        "Authorization".to_owned(),
+                        "Bearer spawn-secret".to_owned(),
+                    )],
+                })
+                .collect(),
             Box::new(()),
         )
     }
@@ -337,6 +344,8 @@ mod tests {
             "enabled": true,
             "default_tools_approval_mode": "approve",
             "tool_timeout_sec": 300,
+            "tool_input_schema_max_bytes": 65_536,
+            "omit_tools_from": ["deferred"],
         })
     }
 
@@ -345,8 +354,10 @@ mod tests {
     // loaded server as a `url` on the daemon's route, by leaving out the entry of a switched-on
     // server the read does not load, by a copy fork whose table is empty or reaches a server, by
     // comparing a `local` binding's root with the worktree in place of its repository, by
-    // switching a `local` or `project` binding on outside its root, and by a daemon entry that
-    // leaves out the spawn's `Authorization` header, which the route then refuses.
+    // switching a `local` or `project` binding on outside its root, by a daemon entry that
+    // leaves out the spawn's `Authorization` header, which the route then refuses, or Codex's
+    // `approve`, 300 s or the up-front loading, and by an empty deferred entry while the daemon
+    // lists no deferred group.
     #[rstest]
     #[case::left_out_and_switched_off(
         vec![switched(user("github"), false)],

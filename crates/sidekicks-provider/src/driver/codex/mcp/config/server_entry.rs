@@ -59,6 +59,10 @@ pub(crate) const STARTUP_TIMEOUT_MS_MEMBER: &str = "startup_timeout_ms";
 pub(crate) const TOOL_TIMEOUT_SEC_MEMBER: &str = "tool_timeout_sec";
 /// The member of a server entry that sets how its tools are approved where a tool sets nothing.
 pub(crate) const DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: &str = "default_tools_approval_mode";
+/// The member of a server entry that names the model-facing surfaces its tools are kept off.
+pub(crate) const OMIT_TOOLS_FROM_MEMBER: &str = "omit_tools_from";
+/// The member of a server entry past which Codex compacts a tool's input schema, in bytes.
+pub(crate) const TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: &str = "tool_input_schema_max_bytes";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 // The approval mode Codex gives a server's tools when its entry sets none.

@@ -474,6 +474,7 @@ async fn compose_launch(
     config_overrides.extend(additional_config_overrides);
     config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
+        kind: service.kind(),
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides: config_overrides,
     });

@@ -15,7 +15,8 @@ use crate::callback_tools::spawn_binding::{
 };
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::server_entry::{
-    DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, HTTP_HEADERS_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
+    DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, HTTP_HEADERS_MEMBER, OMIT_TOOLS_FROM_MEMBER,
+    TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER, TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
@@ -25,13 +26,30 @@ use crate::port::tool_server_route::{
 };
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
+/// The name of the daemon's entry for the tools Codex keeps behind its tool search, the workflow
+/// and browser tools, since Codex defers only a whole entry.
+pub(crate) const CODEX_DEFERRED_TOOL_SERVER_NAME: &str = "sidekicks_workflow_browser";
+
 /// The names of the daemon's own entries in a Codex conversation's table, each one Codex runs
 /// whatever the person switched on.
-pub(crate) const CODEX_DAEMON_TOOL_SERVER_NAMES: &[&str] = &[DAEMON_TOOL_SERVER_NAME];
+pub(crate) const CODEX_DAEMON_TOOL_SERVER_NAMES: &[&str] =
+    &[DAEMON_TOOL_SERVER_NAME, CODEX_DEFERRED_TOOL_SERVER_NAME];
+
+/// The daemon's entries a spawn opens: the one its tools load from at once, alone, because the
+/// daemon's server lists no deferred group, so a deferred entry would reach Codex empty.
+pub(crate) const CODEX_OPENED_TOOL_SERVER_NAMES: &[&str] = &[DAEMON_TOOL_SERVER_NAME];
 
 /// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
-/// route's own bound, so the route answers first.
+/// 120 s a session ask is held and the route's own bound, so the route answers first.
 const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
+
+/// Bytes of one tool's input schema past which Codex compacts it, its field descriptions first:
+/// well above every session tool's schema, so the model reads each whole.
+const CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES: usize = 64 * 1024;
+
+/// The surface the up-front entry's tools are kept off, so they load at once and never wait
+/// behind Codex's tool search.
+const DEFERRED_SURFACE: &str = "deferred";
 
 /// One spawn's hold on the daemon's tool servers: its own callback-tool installation and the
 /// entries opened on the route under secrets minted for it, admitted while this is kept.
@@ -82,7 +100,7 @@ impl CodexDaemonToolServers {
                 provider: DESCRIPTOR.provider_id(),
                 dispatcher: Arc::clone(binding.dispatcher()),
             },
-            CODEX_DAEMON_TOOL_SERVER_NAMES,
+            CODEX_OPENED_TOOL_SERVER_NAMES,
         );
         match opened {
             Ok(route) => Ok(Some(Self {
@@ -115,7 +133,8 @@ impl CodexDaemonToolServers {
 }
 
 /// Inserts into `servers` each of the daemon's own entries `route` opened for the spawn, switched
-/// on at its address and sending its headers, replacing any entry of the same name.
+/// on at its address and sending its headers, replacing any entry of the same name; the up-front
+/// entry's tools are kept off the deferred surface.
 pub(crate) fn insert_codex_daemon_tool_servers(
     servers: &mut Map<String, Value>,
     route: &OpenedToolServerRoute,
@@ -129,16 +148,18 @@ pub(crate) fn insert_codex_daemon_tool_servers(
             .iter()
             .map(|(name, value)| (name.clone(), Value::String(value.clone())))
             .collect();
-        servers.insert(
-            entry.server_name.clone(),
-            json!({
-                URL_MEMBER: entry.url,
-                HTTP_HEADERS_MEMBER: http_headers,
-                ENTRY_SWITCH_MEMBER: true,
-                // The daemon judges each of its own calls itself, so Codex asks nothing first.
-                DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
-                TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
-            }),
-        );
+        let mut members = json!({
+            URL_MEMBER: entry.url,
+            HTTP_HEADERS_MEMBER: http_headers,
+            ENTRY_SWITCH_MEMBER: true,
+            // The daemon judges each of its own calls itself, so Codex asks nothing first.
+            DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
+            TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
+            TOOL_INPUT_SCHEMA_MAX_BYTES_MEMBER: CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES,
+        });
+        if entry.server_name == DAEMON_TOOL_SERVER_NAME {
+            members[OMIT_TOOLS_FROM_MEMBER] = json!([DEFERRED_SURFACE]);
+        }
+        servers.insert(entry.server_name.clone(), members);
     }
 }

@@ -170,6 +170,17 @@ impl CodexServiceKind {
             Self::Account | Self::Joined => false,
         }
     }
+
+    /// Whether a service of this kind starts with Codex's own browser tool off: the daemon's own
+    /// service, whose sessions browse through the daemon's browser tools; never the terminal
+    /// service on the person's own Codex folder, whose terminals keep what the person chose, nor
+    /// one the daemon only joins.
+    pub(crate) const fn is_codex_browser_off(self) -> bool {
+        match self {
+            Self::Account => true,
+            Self::Terminal | Self::Joined => false,
+        }
+    }
 }
 
 /// The homes the driver's services run on: an account the app manages runs in its own folder, and

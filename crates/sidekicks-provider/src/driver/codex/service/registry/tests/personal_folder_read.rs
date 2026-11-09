@@ -96,6 +96,7 @@ fn home_socket(codex_home: &Path) -> CodexServiceSocket {
 // The arguments a launch of `service` runs with past the Codex command.
 fn launch_arguments(service: &CodexService) -> Vec<String> {
     compose_codex_service_arguments(&CodexServiceCommandLineInput {
+        kind: service.kind(),
         listen_address: service.listen_address(service.socket_path()),
         additional_config_overrides: service.launch_config_overrides(),
     })

@@ -542,6 +542,16 @@ mod tests {
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
     }
 
+    // The daemon's tools reach a conversation only as its tool-server entries. Killed by a start
+    // that also sends them as `dynamicTools`, which Codex would offer the model a second time.
+    #[test]
+    fn a_conversations_start_carries_no_dynamic_tools() {
+        let params = compose_codex_thread_start_params(&settings_with(None), Map::new());
+        let written = serde_json::to_value(params).expect("the params write");
+
+        assert!(written.get("dynamicTools").is_none(), "{written}");
+    }
+
     // The commands' policy is the conversation's environment whole: nothing inherited, the
     // person's own include list emptied, and every variable set, every registered provider's
     // background switch among them. Killed by sending `set` alone, which leaves the person's own

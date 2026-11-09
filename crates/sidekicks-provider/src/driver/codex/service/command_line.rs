@@ -1,5 +1,5 @@
 //! The command line a Codex service the daemon starts runs: the listener and the `-c` switches
-//! every conversation on it shares; and the two command hooks the terminal service on the person's
+//! every conversation on it shares, which its kind decides; and the two command hooks the terminal service on the person's
 //! own Codex folder runs while the daemon's program dispatches its hook mode, which run that
 //! program. Each `-c` value is TOML, whose
 //! integers are 64-bit, so the holds below exceed what a JSON number keeps exactly.
@@ -23,6 +23,9 @@ pub(crate) const CODEX_HOOK_TIMEOUT: Duration = Duration::from_secs(1_000_000_00
 
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.
 const CODEX_THREAD_UNLOAD_DELAY: Duration = Duration::from_secs(5);
+
+/// The switch that turns Codex's own browser tool off.
+const CODEX_BROWSER_OFF_OVERRIDE: &str = "features.browser_use=false";
 
 /// The hook event before each tool call.
 const PRE_TOOL_USE_EVENT: &str = "PreToolUse";
@@ -202,6 +205,8 @@ fn compose_daemon_hook_command(
 /// What one service start carries beyond the switches every service the daemon starts shares.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexServiceCommandLineInput {
+    /// The kind of service it is, which decides the switches every conversation on it shares.
+    pub(crate) kind: CodexServiceKind,
     /// `unix://` for the home's own control socket, or `unix://<path>` for a second service that
     /// starts beside the first on one home.
     pub(crate) listen_address: String,
@@ -226,23 +231,29 @@ struct CodexCommandHook<'command> {
     timeout: i64,
 }
 
-/// The arguments after the Codex command for one service the daemon starts. A conversation on a
-/// managed account home gets its hooks from its own start, so no hook switch is composed here.
+/// The arguments after the Codex command for one service the daemon starts: the switches every
+/// service shares, Codex's own browser tool off on a service of a kind that turns it off, then
+/// the input's. A conversation on a managed account home gets its hooks from its own start, so no
+/// hook switch is composed here.
 pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInput) -> Vec<String> {
     let shared_overrides = [
         format!(
             "features.code_mode.default_exec_yield_time_ms={}",
             CODEX_HOOK_TIMEOUT.as_millis()
         ),
-        "features.browser_use=false".to_owned(),
         compose_thread_unload_override(CODEX_THREAD_UNLOAD_DELAY),
         // The session's compaction bound is a share of the whole window, so the limit counts the
         // whole context, Codex's own default, even where a config file chose only what follows
         // the prefix.
         "model_auto_compact_token_limit_scope=\"total\"".to_owned(),
     ];
+    let browser_override = input
+        .kind
+        .is_codex_browser_off()
+        .then(|| CODEX_BROWSER_OFF_OVERRIDE.to_owned());
     let overrides = shared_overrides
         .into_iter()
+        .chain(browser_override)
         .chain(input.additional_config_overrides.iter().cloned());
     [
         "app-server".to_owned(),
@@ -291,12 +302,12 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::CodexShellKind;
     use super::{
         CODEX_HOOK_TIMEOUT, CodexHookCommands, CodexListedHook, CodexServiceCommandLineInput,
         LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
         compose_codex_service_arguments, compose_daemon_hook_commands,
     };
+    use super::{CodexServiceKind, CodexShellKind};
 
     /// The daemon's program in the comparison's cases.
     const PROGRAM: &str = "/opt/sidekicks/sidekicks-daemon";
@@ -379,6 +390,7 @@ mod tests {
         }
         .config_overrides();
         let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
+            kind: CodexServiceKind::Terminal,
             listen_address: "unix://".to_owned(),
             additional_config_overrides: Vec::new(),
         });
@@ -399,6 +411,29 @@ mod tests {
             !arguments
                 .iter()
                 .any(|argument| argument.starts_with("hooks.")),
+            "{arguments:?}"
+        );
+    }
+
+    // Codex's own browser tool goes off only on a service on a home the daemon manages; the
+    // terminal service on the person's own folder keeps what the person chose. Killed by the
+    // switch kept in the list every service shares, or dropped from the account's.
+    #[rstest]
+    #[case::account(CodexServiceKind::Account, true)]
+    #[case::terminal(CodexServiceKind::Terminal, false)]
+    fn only_a_managed_homes_service_turns_codex_s_browser_off(
+        #[case] kind: CodexServiceKind,
+        #[case] is_browser_off: bool,
+    ) {
+        let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
+            kind,
+            listen_address: "unix://".to_owned(),
+            additional_config_overrides: Vec::new(),
+        });
+
+        assert_eq!(
+            arguments.contains(&"features.browser_use=false".to_owned()),
+            is_browser_off,
             "{arguments:?}"
         );
     }

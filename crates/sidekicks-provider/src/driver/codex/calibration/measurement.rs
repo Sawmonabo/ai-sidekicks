@@ -26,6 +26,7 @@ use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
+use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
@@ -264,6 +265,8 @@ async fn run_calibration_turn(
         .await
         .map_err(CodexError::Driver)?;
     let mut arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
+        // The run's own scratch home, which the daemon manages.
+        kind: CodexServiceKind::Account,
         listen_address: "unix://".to_owned(),
         additional_config_overrides: exporters_off_overrides(),
     });
