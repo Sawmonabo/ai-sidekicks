@@ -533,8 +533,9 @@ refusal_codes! {
     /// `question.resolve` was sent answers that do not cover every question of the record.
     QuestionAnswersIncomplete = "question.answersIncomplete" (InvalidArgument, 422);
     /// `question.resolve` was sent an answer its question cannot take, naming the question's page
-    /// (`data.fields`: `page`) and why (`data.fields.reason`: `secretOnPlain`, `labelNotOffered`,
-    /// `severalOnSingle` or `textOnChoice`).
+    /// (`data.fields`: `page`) and why (`data.fields.reason`: `secretOnPlain`, `pathOnPlain`,
+    /// `labelNotOffered`, `severalOnSingle`, `textOnChoice`, `skipOnRequired` or
+    /// `fieldValueInvalid`).
     QuestionAnswerInvalid = "question.answerInvalid" (InvalidArgument, 422);
     /// `question.resolve` named a question the daemon does not hold.
     QuestionNotFound = "question.notFound" (NotFound, 404);

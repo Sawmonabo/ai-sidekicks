@@ -446,8 +446,9 @@ fn answer_invalid(
 
 // Why `prompt` cannot take `answer`, if it cannot: a skip fits any question but a required one a
 // workflow wait holds (`is_wait_held`); a secret question takes only a secret or a skip, and only
-// it takes a secret; picked labels must be offered, one unless several are; typed text fits any
-// question but a form field whose options are its only values.
+// it takes a secret; a path question takes only a path or a skip, and only it takes a path; picked
+// labels must be offered, one unless several are; typed text fits any question but a form field
+// whose options are its only values.
 fn refused_answer(
     prompt: &QuestionPrompt,
     answer: &QuestionAnswer,
@@ -461,6 +462,14 @@ fn refused_answer(
         }
         QuestionAnswer::Picked { .. } | QuestionAnswer::Typed { .. } if prompt.secret => {
             Some(QuestionAnswerInvalidReason::SecretOnPlain)
+        }
+        QuestionAnswer::Path { .. } => {
+            (prompt.path != Some(true)).then_some(QuestionAnswerInvalidReason::PathOnPlain)
+        }
+        QuestionAnswer::Picked { .. } | QuestionAnswer::Typed { .. }
+            if prompt.path == Some(true) =>
+        {
+            Some(QuestionAnswerInvalidReason::PathOnPlain)
         }
         QuestionAnswer::Picked { labels } => {
             let labels = labels.as_slice();

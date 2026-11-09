@@ -12,6 +12,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -71,7 +72,8 @@ pub enum QuestionDefault {
 }
 
 /// One question of the record, one page of the card. A secret question takes a masked answer and
-/// has no option rows; a numeric field's smallest number is at most its largest; a question with
+/// has no option rows; a path question takes a folder picked with the platform's chooser and has
+/// no option rows; a numeric field's smallest number is at most its largest; a question with
 /// option rows starts from its own options, which the schema states as `defaultAmongOptions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -117,6 +119,15 @@ pub struct QuestionPrompt {
     pub several_answers: bool,
     /// Whether the answer is masked and never stored.
     pub secret: bool,
+    /// Whether the answer is a folder picked with the platform's own chooser, never typed: a
+    /// workflow form's `path` field sets it, and such a question takes only a path or a skip.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "bool")]
+    pub path: Option<bool>,
     /// Whether the form must have this field answered. A tool server's form field and a workflow
     /// wait's question set it; a producer that sets it on a question with options makes that
     /// question refuse typed text, and a workflow wait's question with it true takes no skip.
@@ -177,9 +188,9 @@ pub struct QuestionPrompt {
     pub placeholder: Option<NonEmptyText>,
 }
 
-/// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret
-/// question at `options`, a largest number below the smallest at `maximum`, and a default that is
-/// not one of the prompt's own options at `default`.
+/// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret or a
+/// path question at `options`, a largest number below the smallest at `maximum`, and a default
+/// that is not one of the prompt's own options at `default`.
 impl garde::Validate for QuestionPrompt {
     type Context = ();
 
@@ -193,6 +204,12 @@ impl garde::Validate for QuestionPrompt {
             report.append(
                 parent().join("options"),
                 garde::Error::new("a secret question draws a masked field and no option rows"),
+            );
+        }
+        if self.path == Some(true) && !self.options.is_empty() {
+            report.append(
+                parent().join("options"),
+                garde::Error::new("a path question draws the folder chooser and no option rows"),
             );
         }
         if let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum)
@@ -406,8 +423,8 @@ pub struct QuestionWaitSettledPayload {
     pub outcome: QuestionWaitOutcome,
 }
 
-/// The answer to one question: the picked labels, typed text, a secret, or a skip; each question
-/// takes exactly one.
+/// The answer to one question: the picked labels, typed text, a secret, a picked folder's path, or
+/// a skip; each question takes exactly one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
@@ -430,6 +447,12 @@ pub enum QuestionAnswer {
     Secret {
         /// The secret.
         value: NonEmptyText,
+    },
+    /// A folder picked with the platform's own chooser: the page sends the chooser's file token,
+    /// and the desktop's main process puts the path it stands for in its place.
+    Path {
+        /// The folder's path.
+        path: FilesystemPath,
     },
     /// Skipped.
     Skipped {},
@@ -472,15 +495,18 @@ pub struct QuestionResolveResponse {
 }
 
 /// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
-/// question, a label the question does not offer, several labels for a question that takes one,
-/// typed text for a question that takes only its options, a skip of a workflow wait's required
-/// question, or a value its workflow form field does not take.
+/// question, a path for a question that takes none, a label the question does not offer, several
+/// labels for a question that takes one, typed text for a question that takes only its options, a
+/// skip of a workflow wait's required question, or a value its workflow form field does not take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionAnswerInvalidReason {
     /// A secret for a question that is not secret, or anything but a secret or a skip for one that
     /// is.
     SecretOnPlain,
+    /// A path for a question that is not a path question, or anything but a path or a skip for
+    /// one that is.
+    PathOnPlain,
     /// A label the question does not offer.
     LabelNotOffered,
     /// Several labels for a question that takes one.

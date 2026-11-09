@@ -118,7 +118,7 @@ enum RefusedRecord {
     Unwaited,
     /// A one-page question waiting for its run.
     WaitingForRun,
-    /// A one-page question a workflow wait holds, its page required.
+    /// A two-page question a workflow wait holds: a required form field, then a folder's path.
     WaitHeld,
     /// An id no record holds.
     Unknown,
@@ -129,9 +129,10 @@ enum RefusedRecord {
 // its page and reason, an id no record holds `question.notFound`, a question its agent does not
 // wait for `question.notWaiting`, and one that waits for its run `question.waitingForRun`; none
 // of them reaches the driver or a wait, the record keeps its state and the run where it was; no
-// wait's door is registered, so a skip of a wait's required page is refused before the door. Killed
-// by removing the count check, any one reason's check, the waiting check, the check of a question
-// waiting for its run, or reading `required` as present rather than true.
+// wait's door is registered, so a skip of a wait's required page and a path on a page that takes
+// none, or text on one that takes only a path, are refused before the door. Killed by removing the
+// count check, any one reason's check, the waiting check, the check of a question waiting for its
+// run, reading `required` as present rather than true, or either arm of the path check.
 #[rstest]
 #[case::one_answer_short(
     RefusedRecord::Waited,
@@ -191,9 +192,23 @@ enum RefusedRecord {
 )]
 #[case::a_skip_of_a_waits_required_page(
     RefusedRecord::WaitHeld,
-    json!([{ "kind": "skipped" }]),
+    json!([{ "kind": "skipped" }, { "kind": "skipped" }]),
     RefusalCode::QuestionAnswerInvalid,
     Some((0, "skipOnRequired")),
+    "running"
+)]
+#[case::a_path_on_a_page_that_takes_none(
+    RefusedRecord::WaitHeld,
+    json!([{ "kind": "path", "path": "/Users/person/app" }, { "kind": "skipped" }]),
+    RefusalCode::QuestionAnswerInvalid,
+    Some((0, "pathOnPlain")),
+    "running"
+)]
+#[case::text_on_a_path_page(
+    RefusedRecord::WaitHeld,
+    json!([{ "kind": "picked", "labels": ["Alpha"] }, { "kind": "typed", "text": "/Users/person/app" }]),
+    RefusalCode::QuestionAnswerInvalid,
+    Some((1, "pathOnPlain")),
     "running"
 )]
 #[case::an_id_no_record_holds(
@@ -239,8 +254,19 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
             "waitingForRun",
         )),
         RefusedRecord::WaitHeld => {
-            let pages = serde_json::from_value::<Vec<QuestionPrompt>>(json!([form_field_page()]))
-                .expect("the test's pages read");
+            let path_page = json!({
+                "text": "Which folder?",
+                "options": [],
+                "severalAnswers": false,
+                "secret": false,
+                "path": true,
+                "required": false,
+            });
+            let pages = serde_json::from_value::<Vec<QuestionPrompt>>(json!([
+                form_field_page(),
+                path_page
+            ]))
+            .expect("the test's pages read");
             let question_id = fixture
                 .questions
                 .ask_for_wait(

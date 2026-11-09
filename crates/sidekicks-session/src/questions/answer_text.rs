@@ -11,8 +11,8 @@ const SECRET_ANSWER_LINE: &str = "Answered (secret)";
 /// The line a skipped question writes.
 const SKIPPED_ANSWER_LINE: &str = "Skipped";
 
-/// The person's turn for `answers`: the picked labels joined with `", "`, the typed text,
-/// `Skipped` or `Answered (secret)`, one line each.
+/// The person's turn for `answers`: the picked labels joined with `", "`, the typed text, the
+/// picked folder's path, `Skipped` or `Answered (secret)`, one line each.
 pub(crate) fn compose_answer_text(answers: &[QuestionAnswer]) -> String {
     answers
         .iter()
@@ -24,6 +24,7 @@ pub(crate) fn compose_answer_text(answers: &[QuestionAnswer]) -> String {
                 .collect::<Vec<_>>()
                 .join(", "),
             QuestionAnswer::Typed { text } => text.as_str().to_owned(),
+            QuestionAnswer::Path { path } => path.as_str().to_owned(),
             QuestionAnswer::Secret { .. } => SECRET_ANSWER_LINE.to_owned(),
             QuestionAnswer::Skipped {} => SKIPPED_ANSWER_LINE.to_owned(),
         })

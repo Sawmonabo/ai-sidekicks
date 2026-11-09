@@ -1,7 +1,8 @@
 //! A workflow's form and reply waits as session questions: each wait asked as one question record
 //! in its run's session under its workflow's name, a form's pages read from the fields' schema the
-//! record keeps, and the card's answers made the wait's answer, a form's checked against its
-//! fields, which the engine settles in the write that ends the wait.
+//! record keeps, a `path` field's page answered with a folder picked through the platform's
+//! chooser, and the card's answers made the wait's answer, a form's checked against its fields,
+//! which the engine settles in the write that ends the wait.
 
 #![expect(
     dead_code,
@@ -38,6 +39,9 @@ use sidekicks_workflow::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 
 /// The pages of a record, from one page up.
 type QuestionPages = BoundedVec<QuestionPrompt, 1, { usize::MAX }>;
+
+/// The `format` a form's string field carries when its answer is a folder's path.
+const PATH_FIELD_FORMAT: &str = "path";
 
 /// The bridge between the workflow engine's form and reply waits and the session's questions: it
 /// asks each wait's question and hands the card's answers to the engine.
@@ -140,18 +144,22 @@ fn form_params(prompt: &str, form_schema: &JsonRecord) -> Value {
 }
 
 /// The pages a form wait asks, one per field of `input_schema` in its order under the workflow's
-/// name, and the schema as the record keeps it. Fails when the schema holds a member no record
-/// takes.
+/// name, a string field of `format: "path"` asked as a path page, and the schema as the record
+/// keeps it. Fails when the schema holds a member no record takes.
 fn form_question(
     workflow_name: &WorkflowName,
     prompt: &ComposedText,
     input_schema: Map<String, Value>,
 ) -> Result<(QuestionPages, JsonRecord), serde_json::Error> {
     let form_schema: JsonRecord = serde_json::from_value(Value::Object(input_schema))?;
-    let pages = read_elicitation_questions(
-        &form_params(prompt.as_str(), &form_schema),
-        Some(workflow_header(workflow_name)),
-    );
+    let params = form_params(prompt.as_str(), &form_schema);
+    let mut pages = read_elicitation_questions(&params, Some(workflow_header(workflow_name)));
+    let properties = &params["requestedSchema"]["properties"];
+    for (page, field) in pages.iter_mut().zip(read_elicitation_field_names(&params)) {
+        if properties[field]["format"] == PATH_FIELD_FORMAT {
+            page.path = Some(true);
+        }
+    }
     let pages = BoundedVec::new(pages).expect("a form with a message asks at least its message");
     Ok((pages, form_schema))
 }
@@ -167,6 +175,7 @@ fn reply_question(workflow_name: &WorkflowName, prompt: &ComposedText) -> Questi
         options: Vec::new(),
         several_answers: false,
         secret: false,
+        path: None,
         required: Some(true),
         default: None,
         minimum: None,
@@ -308,6 +317,47 @@ mod tests {
         assert_eq!(
             Value::Object(fields),
             json!({ "zone": "us-east", "amount": 3 })
+        );
+    }
+
+    /// A string field of `format: "path"` is asked as a path page and no other field is, and the
+    /// folder picked on it becomes that field's value, the path as text. Kills: the format not
+    /// read; every page marked; the marks paired with the schema's fields rather than the pages'.
+    #[test]
+    fn a_path_field_is_asked_as_a_path_page_and_answered_with_the_path() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "unasked": true,
+                "note": { "type": "string", "title": "Note" },
+                "where": { "type": "string", "format": "path", "title": "Folder" },
+            },
+            "required": ["where"],
+        });
+        let (pages, _) = form_question(&workflow_name(), &prompt(), input_schema(schema.clone()))
+            .expect("the schema is a record");
+        assert_eq!(
+            pages
+                .as_slice()
+                .iter()
+                .map(|page| page.path)
+                .collect::<Vec<_>>(),
+            [None, Some(true)]
+        );
+        let answers: Vec<QuestionAnswer> = serde_json::from_value(json!([
+            { "kind": "skipped" },
+            { "kind": "path", "path": "/Users/person/app" },
+        ]))
+        .expect("the test's answers");
+
+        let answered = wait_answer(&asked(pages, Some(schema)), &answers);
+
+        let Ok(PersonWaitAnswer::Form(fields)) = answered else {
+            panic!("a picked folder is taken: {answered:?}");
+        };
+        assert_eq!(
+            Value::Object(fields),
+            json!({ "where": "/Users/person/app" })
         );
     }
 

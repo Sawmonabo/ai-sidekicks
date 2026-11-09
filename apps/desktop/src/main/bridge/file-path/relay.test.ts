@@ -1,11 +1,12 @@
-// The relay rule at the trust boundary, checked against the verb's own contract: every absolute
-// path a reply offers to open comes back with one token the page can open it by, and a path that
-// is not absolute comes back with none.
+// The relay rule at the trust boundary: every absolute path a reply offers to open, read through
+// the verb's own contract, comes back with one token the page can open it by, and a path that is
+// not absolute comes back with none; a request's folder member crosses only as a token the page
+// was given for a folder, swapped for its path.
 
 import { SessionMemoryReadResponseSchema } from "@ai-sidekicks/contracts/session/inspector";
 import { describe, expect, it } from "vitest";
 
-import { mintTokensForPaths } from "./relay.js";
+import { mintTokensForPaths, swapTokensForPaths } from "./relay.js";
 import { FilePathRefs } from "./refs.js";
 import { pageOwner } from "./refs.test-support.js";
 
@@ -66,5 +67,38 @@ describe("a reply that offers a path to open", () => {
     );
 
     expect(Object.keys(minted)).toStrictEqual(["/Users/person/CLAUDE.md"]);
+  });
+});
+
+describe("a question card's answers", () => {
+  it("cross with a path page's folder token swapped for its path and every other answer as sent", () => {
+    const refs = new FilePathRefs();
+    const page = pageOwner(1);
+    const folder = "/Users/person/projects/app";
+    const folderRef = refs.mint(page, "folder", folder);
+    const answersWith = (path: string): unknown => ({
+      questionId: SESSION_ID,
+      answers: [
+        // A token typed as text is an answer's words, not a path, and crosses as sent.
+        { kind: "typed", text: folderRef },
+        { kind: "path", path },
+        { kind: "skipped" },
+      ],
+    });
+
+    expect(swapTokensForPaths(refs, page, "question.resolve", answersWith(folderRef))).toEqual({
+      questionId: SESSION_ID,
+      answers: [
+        { kind: "typed", text: folderRef },
+        { kind: "path", path: folder },
+        { kind: "skipped" },
+      ],
+    });
+    // A raw path, and a token minted for another purpose, never reach the daemon.
+    for (const unminted of [folder, refs.mint(page, "attach", folder)]) {
+      expect(() =>
+        swapTokensForPaths(refs, page, "question.resolve", answersWith(unminted)),
+      ).toThrow(TypeError);
+    }
   });
 });

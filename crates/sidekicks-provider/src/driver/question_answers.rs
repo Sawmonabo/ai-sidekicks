@@ -9,8 +9,8 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 pub(crate) const QUESTION_UNSHOWN_REASON: &str =
     "The question could not be put to the person, so it was not answered.";
 
-/// The texts one answer gives: the labels picked, the text typed or the secret; none if skipped
-/// or absent.
+/// The texts one answer gives: the labels picked, the text typed, the secret or the folder's path;
+/// none if skipped or absent.
 pub(crate) fn read_question_answer_texts(answer: Option<&QuestionAnswer>) -> Vec<&str> {
     match answer {
         Some(QuestionAnswer::Picked { labels }) => {
@@ -18,6 +18,7 @@ pub(crate) fn read_question_answer_texts(answer: Option<&QuestionAnswer>) -> Vec
         }
         Some(QuestionAnswer::Typed { text }) => vec![text.as_str()],
         Some(QuestionAnswer::Secret { value }) => vec![value.as_str()],
+        Some(QuestionAnswer::Path { path }) => vec![path.as_str()],
         Some(QuestionAnswer::Skipped {}) | None => Vec::new(),
     }
 }

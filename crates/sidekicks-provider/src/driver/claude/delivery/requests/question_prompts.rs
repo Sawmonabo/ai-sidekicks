@@ -46,6 +46,7 @@ pub(super) fn read_question_prompts(
                 options: read_question_options(question),
                 several_answers: question.get("multiSelect") == Some(&Value::Bool(true)),
                 secret: false,
+                path: None,
                 required: None,
                 default: None,
                 minimum: None,

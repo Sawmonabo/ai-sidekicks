@@ -38,6 +38,8 @@ const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = 
   ["workflow.humanFormSubmit", [{ location: ["paths", "*", "path"], purpose: "folder" }]],
   // A staged file: picked, dropped or pasted into the composer.
   [ATTACHMENT_ADD_METHOD, [{ location: ["items", "*", "path"], purpose: "attach" }]],
+  // A question card's path page, answered with a folder picked by the platform's chooser.
+  ["question.resolve", [{ location: ["answers", "*", "path"], purpose: "folder" }]],
 ]);
 
 /** The reply members that hold a path the page offers to open, by verb. */

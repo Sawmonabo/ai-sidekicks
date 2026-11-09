@@ -590,6 +590,9 @@ interface QuestionAskedPayload {
     // option rows, so a secret question carries no options; the value is never written into the
     // flow, and the person's turn afterwards records only that a secret was answered.
     secret: boolean;
+    // True on a workflow form's `path` field: the card draws `Browse…`, which opens the platform's
+    // folder chooser, and NO option rows, and the question takes only a path or a skip.
+    path?: boolean;
     // `required` comes only from a tool server's form; `default`, `minimum` and `maximum`
     // come from a tool server's form or a Claude Code number question. Each is present only
     // where its source sets it.
@@ -631,14 +634,17 @@ interface QuestionCanceledPayload {
 }
 
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the
-// picked labels, typed text, a secret, or a skip — which is why the arms are a closed union rather
-// than four optional members. A secret is delivered to the provider and NEVER stored: it reaches no
+// picked labels, typed text, a secret, a picked folder's path, or a skip — which is why the arms are
+// a closed union rather than five optional members. A path page's answer leaves the page as the
+// folder chooser's file token, and the desktop's main process puts the path it stands for in its
+// place before the call reaches the daemon, so no typed path stands for one. A secret is delivered to the provider and NEVER stored: it reaches no
 // event payload, no artifact and no projection. The person's turn is written as an ordinary message
 // record with the secret masked.
 type QuestionAnswer =
   | { kind: "picked"; labels: string[] } // at least one
   | { kind: "typed"; text: string }
   | { kind: "secret"; value: string }
+  | { kind: "path"; path: string }
   | { kind: "skipped" };
 interface QuestionResolveRequest {
   questionId: QuestionId;
