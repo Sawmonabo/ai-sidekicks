@@ -52,11 +52,15 @@ pub(super) struct HandedMessage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct UndoHoldId(u64);
 
-/// The undos holding one session, and the signal their last release closes.
+/// The undos holding one session, the runs whose resume they held back, and the signal their last
+/// release closes.
 #[derive(Default)]
 pub(super) struct UndoHolders {
     /// The hold of each undo holding the session.
     pub(super) holds: HashSet<UndoHoldId>,
+    /// The runs a resume read while the session was held, each owed one resume at the last
+    /// release, in the order their resumes came and each once.
+    pub(super) owed_resumes: Vec<RunId>,
     /// Sends nothing and closes as the session's last undo lets go; a start waiting to read its
     /// opening waits on it.
     pub(super) released: watch::Sender<()>,
@@ -145,6 +149,18 @@ impl DeliveryState {
                 },
             );
         }
+    }
+
+    /// Records `run_id` as owed a resume at the release of the undos holding `session_id`, once,
+    /// and answers whether any holds it; nothing is recorded when none does.
+    pub(super) fn owe_resume_after_undo(&mut self, session_id: SessionId, run_id: RunId) -> bool {
+        let Some(holders) = self.undo_holds.get_mut(&session_id) else {
+            return false;
+        };
+        if !holders.owed_resumes.contains(&run_id) {
+            holders.owed_resumes.push(run_id);
+        }
+        true
     }
 
     /// A fresh undo hold's id, no other hold's.

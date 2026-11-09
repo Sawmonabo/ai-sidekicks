@@ -16,7 +16,9 @@ use crate::command::running_set::{RunningCommandSets, unbound_running_command_se
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed};
 use crate::driver::contract::error::DriverError;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
-use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::running_command_publisher::{
+    CommandStopCause, RunningCommandParams, StopCommandParams,
+};
 use crate::run::delivery::LateAppendableRow;
 
 const CALL: &str = "call-1";
@@ -73,10 +75,13 @@ async fn a_commands_row_outlives_its_turn_and_service_and_its_stop_reaches_codex
         "the row outlives both"
     );
 
-    let params = RunningCommandParams {
-        session_id,
-        binding_id: session.binding_id.clone(),
-        command_id: CommandId::new(CALL.to_owned()).expect("a call id"),
+    let params = StopCommandParams {
+        command: RunningCommandParams {
+            session_id,
+            binding_id: session.binding_id.clone(),
+            command_id: CommandId::new(CALL.to_owned()).expect("a call id"),
+        },
+        cause: CommandStopCause::Person,
     };
     let (driver, scripted) = (&session.driver, &mut session.scripted);
     for terminated in [false, true] {
@@ -97,7 +102,7 @@ async fn a_commands_row_outlives_its_turn_and_service_and_its_stop_reaches_codex
         };
         let (stopped, ()) = tokio::join!(driver.stop_command(params.clone()), answering);
         match stopped {
-            Ok(()) => assert!(terminated),
+            Ok(_parties) => assert!(terminated),
             Err(DriverError::Refused(refusal)) => {
                 assert!(!terminated);
                 assert_eq!(refusal.code, RefusalCode::AgentCommandNotStopped);

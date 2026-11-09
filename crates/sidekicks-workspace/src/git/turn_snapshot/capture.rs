@@ -1,6 +1,7 @@
-//! What every capture shares besides its steps: the commit's subjects, trailers and identity, the
-//! listings it reads from the index, the size bound past which a file is left out, the once-only
-//! reports of a git too old, and the object format of the repository it writes to.
+//! What every capture shares besides its steps: the checkout input it takes, the commit's
+//! subjects, trailers and identity, the listings it reads from the index, the size bound past which
+//! a file is left out, the once-only reports of a git too old, and the object format of the
+//! repository it writes to.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -16,6 +17,34 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::git::process::version::{GitFeature, GitVersion};
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
+use crate::git::turn_snapshot::held_checkout::CaptureRoots;
+
+/// The checkout one capture records, every field resolved by the caller.
+#[derive(Clone, Debug)]
+pub struct CheckoutCaptureInput {
+    /// The folder of the capture's owner, whose capture folders hold its captures: a session's
+    /// storage folder, or the folder a workflow run's caller names.
+    pub owner_folder: PathBuf,
+    /// Where the run or the command works: the worktree, or the bound folder of a bound root.
+    pub execution_root: PathBuf,
+    /// The top level of the working tree holding `execution_root`, as its caller records it; a
+    /// value the live tree disagrees with fails the capture.
+    pub checkout_root: PathBuf,
+    /// When the capture is taken: both of its commit's dates, so its id never depends on the
+    /// host's time zone or on when the capture ran.
+    pub captured_at: Timestamp,
+}
+
+impl CheckoutCaptureInput {
+    /// The folders the capture's start checks and holds.
+    pub(crate) fn roots(&self) -> CaptureRoots<'_> {
+        CaptureRoots {
+            owner_folder: &self.owner_folder,
+            execution_root: &self.execution_root,
+            checkout_root: &self.checkout_root,
+        }
+    }
+}
 
 /// Set on every git call that reads or writes an index outside the repository: a split index
 /// would put its shared part in the repository's git folder and could expire one the live index
@@ -37,6 +66,10 @@ pub(crate) const CORE_FSYNC_PIN: [&str; 2] = ["-c", "core.fsync=objects,referenc
 /// would make identical state hash differently. Trailers derived from project state keep that
 /// property.
 pub(crate) const TURN_SNAPSHOT_SUBJECT: &str = "sidekicks: turn-boundary snapshot";
+
+/// The same bytes for every snapshot of a workflow run's checkout, for the same reason: the
+/// message is an object id input, so identity content would make identical state hash differently.
+pub(crate) const WORKFLOW_RUN_SNAPSHOT_SUBJECT: &str = "sidekicks: workflow run snapshot";
 
 /// The subject of each of a command's two captures, the same bytes every time for the same reason.
 pub(crate) const COMMAND_CAPTURE_SUBJECT: &str = "sidekicks: command capture";
@@ -120,22 +153,15 @@ pub(crate) struct SizePartition {
     pub(crate) left_out_entries: Vec<Vec<u8>>,
 }
 
-/// The places and features whose git was reported too old in this daemon run, so each is logged
-/// once.
-#[derive(Debug)]
-pub(crate) struct GitFloorReports {
+/// The daemon run's one record of the old gits already reported: the places and features whose git
+/// was reported too old, so each is logged once whichever capture or packing meets it.
+#[derive(Debug, Default)]
+pub struct GitFloorReports {
     /// The place and the feature of each report made.
     reported: Mutex<HashSet<(Option<Place>, GitFeature)>>,
 }
 
 impl GitFloorReports {
-    /// No report made yet.
-    pub(crate) fn new() -> Self {
-        Self {
-            reported: Mutex::new(HashSet::new()),
-        }
-    }
-
     /// Logs that the git at `place`, `git_version`, lacks `feature`, the first time this daemon run
     /// meets that place and feature.
     pub(crate) fn report_once(

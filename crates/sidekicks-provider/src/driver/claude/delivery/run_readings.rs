@@ -1,11 +1,12 @@
-//! What the stream reads off one session's process while it runs: the open turn's run and number,
-//! its readings (the refusal, spent retries, a failed call's words, the step messages counted),
-//! each run's start report, the rows held for their tool call's start, the blocks streaming, the
-//! events each message was written as, the steers written `now` and not yet named taken, the
-//! runs an interrupt stopped, the turn gate, the command and tool-server tasks running, and the
-//! running turn's tokens received and task list. A turn's end settles its run's readings: a paused
-//! run keeps them for its next turn, an interrupted one keeps them as the session's continuable
-//! run, and any other run's go with it.
+//! What the stream reads off one session's process while it runs: the open turn's run, number and
+//! opening message, the messages taken while no turn of their run was open, its readings (the
+//! refusal, spent retries, a failed call's words, the step messages counted), each run's start
+//! report, the rows held for their tool call's start, the blocks streaming, the events each message
+//! was written as, the steers written `now` and not yet named taken, the runs an interrupt stopped,
+//! the turn gate, the command and tool-server tasks running, and the running turn's tokens received
+//! and task list. A turn's end settles its run's readings: a paused run keeps them for its next
+//! turn, an interrupted one keeps them as the session's continuable run, and any other run's go
+//! with it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,6 +15,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
@@ -65,6 +67,19 @@ pub(crate) struct ClaudeOpenTurn {
     pub(crate) binding_id: RuntimeBindingId,
     /// The turn's number within its run; `None` once the run had ended as the turn opened.
     pub(crate) turn_number: Option<SafeInt<1>>,
+    /// The uuid of the message that opened it; `None` for a turn Claude Code started itself or a
+    /// continued one, which opened on no message written.
+    pub(crate) opening: Option<String>,
+}
+
+/// One of the person's messages Claude Code took while no turn of its run was open, which lands
+/// in that run's next turn once the turn is numbered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeTakenMessage {
+    /// The run it was written for.
+    pub(crate) run_id: RunId,
+    /// Its queue item.
+    pub(crate) message_id: QueueItemId,
 }
 
 /// What a row is written as: a row that takes the stamp when late, a row appended after its run,
@@ -185,6 +200,9 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) buffer: NormalizedEventReorderBuffer<ClaudeRowDelivery>,
     /// The turn the stream opened, until its end.
     pub(crate) turn: Option<ClaudeOpenTurn>,
+    /// The messages taken while no turn of their run was open, in the order taken, emptied at
+    /// every turn's opening.
+    pub(crate) taken_without_turn: Vec<ClaudeTakenMessage>,
     /// The runs whose start report was delivered.
     pub(crate) initialized_runs: HashSet<RunId>,
     /// The words Claude Code sent the model for each failed or denied call of the turn.
@@ -259,6 +277,7 @@ impl ClaudeStreamSession {
                 CLAUDE_THREAD_FRAME_ROUTER_CONFIG.pending_registration_timeout,
             ),
             turn: None,
+            taken_without_turn: Vec::new(),
             initialized_runs: HashSet::new(),
             failed_call_words: HashMap::new(),
             refusal: None,

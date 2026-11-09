@@ -15,14 +15,14 @@ use std::error::Error;
 use std::io;
 
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::{
-    CarryCheckoutRunningReason, RemovedWorktreeId, WorktreeCarryCheckoutRunningDetails, WorktreeId,
-    WorktreeRetireConflictDetails, WorktreeRetireIncompleteDetails,
+    CarryCheckoutRunningReason, RemovedWorktreeId, RunningHolder,
+    WorktreeCarryCheckoutRunningDetails, WorktreeId, WorktreeRetireConflictDetails,
+    WorktreeRetireIncompleteDetails,
 };
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use strum::IntoStaticStr;
@@ -60,8 +60,8 @@ pub enum WorktreeCreateFailureReason {
     CarryCheckoutRunning {
         /// The session running there.
         running_session_id: SessionId,
-        /// Its agent.
-        running_agent_id: AgentId,
+        /// Its run: an agent's or a workflow's.
+        running_holder: RunningHolder,
     },
     /// A step after the carry's stash was pushed failed; the work is kept in that stash.
     CarryFailed {
@@ -300,16 +300,16 @@ fn create_failed_message(reason: &WorktreeCreateFailureReason) -> Cow<'_, str> {
     }
 }
 
-// The reason by its name, and for a run in the way, the session and agent running there.
+// The reason by its name, and for a run in the way, the session and the run live there.
 fn create_failed_detail(reason: &WorktreeCreateFailureReason) -> Map<String, Value> {
     match reason {
         WorktreeCreateFailureReason::CarryCheckoutRunning {
             running_session_id,
-            running_agent_id,
+            running_holder,
         } => refusal_fields(WorktreeCarryCheckoutRunningDetails {
             reason: CarryCheckoutRunningReason::Value,
             running_session_id: *running_session_id,
-            running_agent_id: *running_agent_id,
+            running_holder: *running_holder,
         }),
         WorktreeCreateFailureReason::BaseRefOptionLike
         | WorktreeCreateFailureReason::BaseRefUnresolved

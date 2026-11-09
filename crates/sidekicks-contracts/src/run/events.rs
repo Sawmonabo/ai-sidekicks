@@ -20,6 +20,7 @@ use crate::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
 use crate::run::failure_cause::RunFailureCause;
 use crate::run::id::RunId;
 use crate::run::intervention::{InterventionId, InterventionType};
+use crate::run::queue::QueueItemId;
 use crate::run::state::RunState;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -295,9 +296,9 @@ pub enum TurnEndCause {
     TokenLimit,
 }
 
-/// Declares the payload of each forward run event, a provider's marker or a turn's start or end:
-/// the run and its version when the event was recorded, which the event leaves as it is, since it
-/// changes no state, and the event's own members.
+/// Declares the payload of each forward run event, a provider's marker or a turn's start, steer or
+/// end: the run and its version when the event was recorded, which the event leaves as it is,
+/// since it changes no state, and the event's own members.
 macro_rules! run_event_payloads {
     ($(
         $(#[doc = $doc:literal])+
@@ -334,12 +335,12 @@ run_event_payloads! {
         pub model: Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     }
 
-    /// The `agent.turn.started` payload: a turn opened within the run, at the session position and
-    /// under the provider's own turn id where the provider named them.
+    /// The `agent.turn.started` payload: a turn opened within the run, at the run position its
+    /// opening message takes and under the provider's own turn id where the provider named them.
     pub struct AgentTurnStartedPayload {
         /// The turn's number within its run, from 1.
         pub turn_number: SafeInt<1>,
-        /// The turn's session position.
+        /// The run position the turn's opening message takes.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -356,6 +357,17 @@ run_event_payloads! {
         )]
         #[schemars(with = "ProviderTurnId")]
         pub provider_turn_id: Option<ProviderTurnId>,
+    }
+
+    /// The `agent.turn.steered` payload: the provider took one of the person's waiting messages
+    /// into a running turn, and that message opens a run position of its own.
+    pub struct AgentTurnSteeredPayload {
+        /// The number of the turn the message joined, within its run.
+        pub turn_number: SafeInt<1>,
+        /// The run position the steer opens.
+        pub position: SourcePosition,
+        /// The queue item whose message the turn took.
+        pub message_id: QueueItemId,
     }
 
     /// The `agent.turn.completed` payload: the turn ended normally, as the provider reported it.
@@ -580,7 +592,7 @@ intervention_event_payloads! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/events",
     doc: "The stored payloads of a run's state changes, of the markers its provider reports, of \
-          its turns' starts and ends, and of its interventions, one per event type.",
+          its turns' starts, steers and ends, and of its interventions, one per event type.",
     definitions: &[
         Definition::read::<RunStateChangeState>(),
         Definition::read::<AgentRunStartingPayload>(),
@@ -595,6 +607,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AgentRunFailedPayload>(),
         Definition::read::<AgentRunProviderInitializedPayload>().checked(),
         Definition::read::<AgentTurnStartedPayload>().checked(),
+        Definition::read::<AgentTurnSteeredPayload>().checked(),
         Definition::read::<TurnEndOrigin>(),
         Definition::read::<TurnEndCause>(),
         Definition::read::<AgentTurnCompletedPayload>().checked(),

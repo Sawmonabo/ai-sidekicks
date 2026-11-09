@@ -25,11 +25,12 @@ use super::{
     next_sent_frame, next_sent_set_where,
 };
 use crate::command::channel::PartyId;
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::waiting_checks::WaitingState;
 use crate::driver::contract::MockProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::{
-    CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
+    CommandStart, CommandStopCause, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
 
 mod endings;
@@ -85,7 +86,7 @@ fn scripted_driver(script: &Arc<DriverScript>, moved: bool) -> MockProviderDrive
         // The provider answers after a turn of the runtime, so a second stop can come meanwhile.
         async move {
             tokio::task::yield_now().await;
-            refusal.map_or(Ok(()), Err)
+            refusal.map_or(Ok(StoppedCommandParties::default()), Err)
         }
         .boxed()
     });
@@ -214,7 +215,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .publish_output(session(), command("absent"), "lost".to_owned());
     fixture
         .sets
-        .stop(&driver, session(), &command("absent"))
+        .stop(
+            &driver,
+            session(),
+            &command("absent"),
+            CommandStopCause::Person,
+        )
         .await
         .expect("a command not running is stopped");
     let refused = fixture
@@ -270,8 +276,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // summary kept. A row stopping is moved by no one.
     let stop_me = command("stop-me");
     let (first, second) = tokio::join!(
-        fixture.sets.stop(&driver, session(), &stop_me),
-        fixture.sets.stop(&driver, session(), &stop_me),
+        fixture
+            .sets
+            .stop(&driver, session(), &stop_me, CommandStopCause::Person),
+        fixture
+            .sets
+            .stop(&driver, session(), &stop_me, CommandStopCause::Person),
     );
     first.expect("stopped");
     second.expect("stopped again");
@@ -300,8 +310,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     refused_stop(&acts);
     let refuse_stop = command("refuse-stop");
     let (first, second) = tokio::join!(
-        fixture.sets.stop(&driver, session(), &refuse_stop),
-        fixture.sets.stop(&driver, session(), &refuse_stop),
+        fixture
+            .sets
+            .stop(&driver, session(), &refuse_stop, CommandStopCause::Person),
+        fixture
+            .sets
+            .stop(&driver, session(), &refuse_stop, CommandStopCause::Person),
     );
     for refused in [first, second] {
         assert_eq!(
@@ -482,7 +496,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // A stopping row still takes the person's write.
     fixture
         .sets
-        .stop(&driver, session(), &command("typed"))
+        .stop(
+            &driver,
+            session(),
+            &command("typed"),
+            CommandStopCause::Person,
+        )
         .await
         .expect("stopped");
     fixture
@@ -497,7 +516,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // stopping. A listed command the set lacks is added in the background.
     fixture
         .sets
-        .stop(&driver, session(), &command("missed"))
+        .stop(
+            &driver,
+            session(),
+            &command("missed"),
+            CommandStopCause::Person,
+        )
         .await
         .expect("stopped");
     fixture.sets.wrapper_started(
@@ -545,7 +569,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // its exit by that code.
     fixture
         .sets
-        .stop(&driver, session(), &command("listed"))
+        .stop(
+            &driver,
+            session(),
+            &command("listed"),
+            CommandStopCause::Person,
+        )
         .await
         .expect("stopped");
     fixture.sets.wrapper_exited(session(), 7, exit_code(128));

@@ -339,8 +339,9 @@ pub(super) fn read_tally_seed(
     }))
 }
 
-/// The epoch and turn of `run_id`'s newest turn the provider opened under `provider_turn_id`, as
-/// the run stood once that turn started; `None` when no such turn is in the readable log.
+/// The epoch and run position of `run_id`'s newest turn the provider opened under
+/// `provider_turn_id`, as the run stood once that turn started; `None` when no such turn is in the
+/// readable log.
 pub(super) fn read_turn_opening(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,

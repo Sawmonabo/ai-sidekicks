@@ -1,7 +1,16 @@
-use serde_json::json;
+use std::io::{BufRead as _, BufReader};
+use std::time::Duration;
+
+use serde_json::{Value, json};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
+use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 
+use crate::command::channel::test_support::{
+    end_party, new_party_keys, party_command, ready_parties, sent_requests, write_party_record,
+};
+use crate::command::channel::{DaemonRequest, PartyRecord};
+use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
@@ -9,7 +18,9 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::run_control::OverrideDenialParams;
-use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::running_command_publisher::{
+    CommandStopCause, RunningCommandParams, StopCommandParams,
+};
 
 fn running_command(session: &ScriptedSession, command_id: &str) -> RunningCommandParams {
     RunningCommandParams {
@@ -19,15 +30,19 @@ fn running_command(session: &ScriptedSession, command_id: &str) -> RunningComman
     }
 }
 
-// Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
-// done, by a stop naming anything but the command's task, by an acknowledged stop the lead's
-// turn is not told of in the daemon's words, or a refused or cut one it is, by that text
-// written into the running turn as no steer, so the next turn opens on it, not the person's
-// message, and by a stop whose write was cut leaving the process running.
-#[tokio::test(start_paused = true)]
-async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
-    let session = ScriptedSession::new().await;
-    let run_id = session.hold_lead_turn("lead");
+fn stop_for(
+    session: &ScriptedSession,
+    command_id: &str,
+    cause: CommandStopCause,
+) -> StopCommandParams {
+    StopCommandParams {
+        command: running_command(session, command_id),
+        cause,
+    }
+}
+
+// Starts a Bash command `sleep 100` as the task `task-1` of the lead's held turn.
+fn start_sleep_task(session: &ScriptedSession) {
     session.frame(&json!({
         "type": "assistant",
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
@@ -48,21 +63,44 @@ async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         "task_type": "local_bash",
         "tool_use_id": "call-1",
     }));
+}
+
+// Waits up to five seconds for `holds`.
+async fn wait_until(holds: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !holds() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("it holds in time");
+}
+
+// Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
+// done, by a stop naming anything but the command's task, by an acknowledged stop the lead's
+// turn is not told of in the daemon's words, or a refused or cut one it is, by that text
+// written into the running turn as no steer, so the next turn opens on it, not the person's
+// message, and by a stop whose write was cut leaving the process running.
+#[tokio::test(start_paused = true)]
+async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    start_sleep_task(&session);
     settle().await;
     let controls = &session.parts.run_controls;
     session.channel.answer("stop_task", ScriptedAnswer::Refused);
 
     let refused = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
     let stopped = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
     session
         .channel
         .answer("stop_task", ScriptedAnswer::WriteCut);
     let cut = controls
-        .stop_command(&running_command(&session, "task-1"))
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
         .await;
 
     assert!(refused.is_err(), "a refused stop fails");
@@ -97,6 +135,79 @@ async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         prompts.take_turn_opening(session.session_id).as_deref(),
         Some("person")
     );
+}
+
+// An undo's stop reaches the command's wrapper only once Claude Code took its `stop_task`, and
+// tells the run nothing, while the person's stop still tells it. Killed by telling the run on every
+// cause, and by sending the wrapper's `Stop` before `stop_task`, which a refused `stop_task` then
+// leaves sent.
+#[tokio::test]
+async fn an_undo_stop_tells_the_run_nothing() {
+    if !RUNS_COMMAND_WRAPPER {
+        return;
+    }
+    let sets = unbound_running_command_sets();
+    let session = ScriptedSession::with_running_commands(std::sync::Arc::clone(&sets)).await;
+    session.hold_lead_turn("lead");
+    start_sleep_task(&session);
+    settle().await;
+    let channel = session
+        .live
+        .spawn_bound_legs
+        .command_channel
+        .clone()
+        .expect("the session's process has a channel");
+    // The test's own process stands in for Claude Code's, so the wrapper it starts is admitted.
+    channel.follow(std::process::id());
+    let keys = new_party_keys();
+    let mut wrapper = party_command(&keys, None)
+        .spawn()
+        .expect("the wrapper starts");
+    let mut lines = BufReader::new(wrapper.stdout.take().expect("its output")).lines();
+    let party = ready_parties(&mut lines, 1)[0];
+    write_party_record(
+        channel.command_channel(),
+        &keys,
+        party,
+        1,
+        &PartyRecord::Starting {
+            command: "sleep 100".to_owned(),
+            stdout_path: None,
+            process: None,
+        },
+    );
+    let command_id = CommandId::new("task-1".to_owned()).expect("a command id");
+    wait_until(|| sets.paired_wrapper(session.session_id, &command_id) == Some(party)).await;
+    let requests = || sent_requests(channel.command_channel(), &keys, party);
+    wait_until(|| requests().len() == 2).await;
+    let controls = &session.parts.run_controls;
+
+    session.channel.answer("stop_task", ScriptedAnswer::Refused);
+    let refused = controls
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Undo))
+        .await;
+    assert!(refused.is_err(), "a refused stop fails");
+    assert!(!requests().contains(&DaemonRequest::Stop {}));
+    let stopped = controls
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Undo))
+        .await
+        .expect("the undo's stop is acknowledged");
+
+    assert_eq!(requests().last(), Some(&DaemonRequest::Stop {}));
+    assert_eq!(stopped.process_ids(), [party]);
+    assert_eq!(session.channel.user_frames(), Vec::<Value>::new());
+    controls
+        .stop_command(&stop_for(&session, "task-1", CommandStopCause::Person))
+        .await
+        .expect("the person's stop is acknowledged");
+    let told = session.channel.user_frames();
+    assert_eq!(told.len(), 1);
+    assert!(
+        told[0]
+            .to_string()
+            .contains("The user stopped `sleep 100`.")
+    );
+    end_party(wrapper);
 }
 
 // Killed by moving a command to the background by its task id instead of the tool call that

@@ -5,16 +5,19 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use rstest::rstest;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
+use sidekicks_platforms::{make_folder_link, real_path};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
-    CommandCaptureInput, CommandCaptureService, IgnoredListing, TreeChange, TreeEntry,
-    read_diff_tree_records, read_ignored_listing,
+    CommandCaptureService, IgnoredListing, TreeChange, TreeEntry, read_diff_tree_records,
+    read_ignored_listing,
 };
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
-use crate::git::turn_snapshot::capture::{LARGE_FILE_BYTES, LargeFile};
+use crate::git::turn_snapshot::capture::{
+    CheckoutCaptureInput, GitFloorReports, LARGE_FILE_BYTES, LargeFile,
+};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
 use crate::git::turn_snapshot::capture_steps::DiffTreeReadError;
 use crate::git::turn_snapshot::repack::CapturePacking;
@@ -37,8 +40,8 @@ const SHA256_A: &str = "33333333333333333333333333333333333333333333333333333333
 const SHA256_B: &str = "4444444444444444444444444444444444444444444444444444444444444444";
 
 // A command capture of the checkout `repository`, owned by `owner`.
-fn command_in(repository: &Path, owner: &Path) -> CommandCaptureInput {
-    CommandCaptureInput {
+pub(super) fn command_in(repository: &Path, owner: &Path) -> CheckoutCaptureInput {
+    CheckoutCaptureInput {
         owner_folder: owner.to_path_buf(),
         execution_root: repository.to_path_buf(),
         checkout_root: repository.to_path_buf(),
@@ -55,7 +58,7 @@ fn write_sized(path: &Path, size: u64) {
 }
 
 // Writes each `(path, text)` under `folder`, making its parent folders.
-fn write_files(folder: &Path, files: &[(&str, &str)]) {
+pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) {
     for (path, text) in files {
         let path = folder.join(path);
         std::fs::create_dir_all(path.parent().expect("a file has a parent"))
@@ -122,9 +125,16 @@ async fn a_before_capture_stages_ignored_files_outside_ignored_folders_and_leave
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
     let database = TestDatabase::new(schema_parts());
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     let turns = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()), packing);
 
     let captured = service
@@ -195,7 +205,11 @@ async fn a_before_capture_in_a_sparse_root_keeps_the_paths_outside_its_cone() {
         "b/2 is outside the cone"
     );
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
 
     let captured = service
         .capture_before(None, &command_in(&repository, &owner))
@@ -206,6 +220,44 @@ async fn a_before_capture_in_a_sparse_root_keeps_the_paths_outside_its_cone() {
     assert_eq!(
         tree_paths(&git, &repository, &capture_folder, captured.tree.as_str()).await,
         ["a/1", "b/2"]
+    );
+}
+
+// Fails when the execution root, here a link, is named as the checkout, or when the linked
+// worktree's own git folder is named as the repository's.
+#[tokio::test]
+async fn a_capture_names_its_checkouts_real_path_and_its_repository() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let repository = make_test_repository(&git, root.path(), "repository").await;
+    write_files(&repository, &[("a.txt", "a\n")]);
+    git_in(&git, &repository, &["add", "a.txt"]).await;
+    commit_empty(&git, &repository, "base").await;
+    let worktree = root.path().join("linked");
+    git_in(
+        &git,
+        &repository,
+        &["worktree", "add", "-q", "-b", "linked", utf8(&worktree)],
+    )
+    .await;
+    let link = root.path().join("link");
+    make_folder_link(&worktree, &link).expect("the link to the worktree is made");
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
+
+    let captured = service
+        .capture_before(None, &command_in(&link, &root.path().join("owner")))
+        .await
+        .expect("the before-capture is taken");
+
+    let resolved = |path: &Path| real_path(path).expect("the path resolves");
+    assert_eq!(resolved(&captured.checkout_real_path), resolved(&worktree));
+    assert_eq!(
+        resolved(&captured.common_folder),
+        resolved(&repository.join(".git"))
     );
 }
 
@@ -228,7 +280,11 @@ async fn an_after_capture_reads_a_path_past_the_size_bound_as_deleted() {
     let live_index = repository.join(".git").join("index");
     let index_before = std::fs::read(&live_index).expect("the live index reads");
     let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
+    let service = CommandCaptureService::new(
+        git.clone(),
+        Arc::new(KeyedLock::new()),
+        Arc::new(GitFloorReports::default()),
+    );
     let input = command_in(&repository, &owner);
 
     let before = service

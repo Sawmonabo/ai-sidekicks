@@ -33,6 +33,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::time::timeout;
@@ -42,6 +43,7 @@ use crate::engine::chain::{KeepGoingAnswer, KeepGoingIntake};
 use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
+use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::ports::{
@@ -438,6 +440,8 @@ pub(in crate::engine::tick::turns) struct Harness {
     pub(in crate::engine::tick::turns) limits: Arc<ScriptedRunLimits>,
     /// A sending end of the loop's report channel, which the test reports on as a driver would.
     pub(in crate::engine::tick::turns) reports: mpsc::Sender<StepReport>,
+    /// The sessions the loop told its binder of, once per run ending.
+    pub(in crate::engine::tick::turns) notices: Arc<NoticedSessions>,
 }
 
 impl Harness {
@@ -491,6 +495,7 @@ impl Harness {
         let asks = Arc::new(RecordingAsks::new(database.reader(), Arc::clone(&order)));
         let points = Arc::new(RecordingSnapshotPoints::new(Arc::clone(&order)));
         let (inbox, received) = mpsc::channel(4);
+        let notices = Arc::new(NoticedSessions::default());
         let tick = EngineTick::new(EngineTickDependencies {
             dispatch,
             event_log: Arc::clone(&service),
@@ -510,6 +515,7 @@ impl Harness {
             },
             deadlines: Arc::clone(&deadlines),
             snapshot_points: Arc::clone(&points) as Arc<dyn RunSnapshotPoints>,
+            binder: Arc::clone(&notices) as Arc<dyn SessionRunBinder>,
         });
         tokio::spawn(tick.run());
         Self {
@@ -532,6 +538,7 @@ impl Harness {
             agents,
             limits,
             reports,
+            notices,
         }
     }
 

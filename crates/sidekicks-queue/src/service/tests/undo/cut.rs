@@ -1,8 +1,9 @@
 //! The conversation cut: refused or degraded cuts write nothing, a companion its check refuses is
 //! refused before the provider is asked, an applied one lands with its companions and keeps the
-//! hold, a fork moves the session to its binding, every later run rolls back in the same write, no
-//! cut is asked of the provider while a turn is open, and a turn the provider opens once it
-//! answered opens after the write.
+//! hold, a fork moves the session to its binding and records it with the conversation it left, a
+//! fork the daemon cannot record is closed and fails the cut, every later run rolls back in the
+//! same write, no cut is asked of the provider while a turn is open, and a turn the provider opens
+//! once it answered opens after the write. The undo to a steer is in `steer`.
 
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
@@ -11,18 +12,25 @@ use std::sync::{Arc, Mutex, OnceLock};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::types::Value as SqlValue;
-use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
+use serde_json::{Map, json};
+use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::{AgentRunRecoveryResolvedPayload, RunRecoveryChoice};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::restore::SessionRestoreTarget;
-use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::rewind::RewindConversationResult;
+use sidekicks_provider::driver::rewind::{ForkedBinding, RewindConversationResult};
+use sidekicks_provider::driver::session_control::SessionCloseCause;
+use sidekicks_provider::left_conversations::{LeftConversation, read_left_conversations};
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
 use sidekicks_provider::run::turn_end::StartedTurn;
-use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
-use sidekicks_session::checkpoints::store::list_checkpoints;
+use sidekicks_provider::runtime_binding::store::{mint_runtime_binding_id, read_binding};
+use sidekicks_provider::runtime_binding::test_store::{spawned_build, test_provider_account_id};
+use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
+use sidekicks_session::checkpoints::store::kept::list_checkpoints;
+use sidekicks_session::run::binding_cursors::RunBindingCursorError;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::engine::undo::{
@@ -36,9 +44,14 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use super::super::{HELD_WATCH, WAIT, client_key};
-use super::{RewindAnswer, Scene, TARGET_TURN, applied_in_place, position, scene};
+use super::{
+    OPENING_WORDS, ProcessClose, RewindAnswer, STEER_POSITION, Scene, TARGET_POSITION,
+    TARGET_TURN_NUMBER, applied_in_place, cut_words, epoch_position, position, scene, steer_scene,
+};
 use crate::error::QueueError;
+use crate::provider_session::errors::ProviderSessionError;
 use crate::service::undo::{ConversationCut, ConversationCutError};
+use crate::test_items::Form;
 
 /// The companions recovery passes when it undoes to where both sides agree: its resolution, and a
 /// guard that holds only while `run_id` stands at `run_version` once the rollback moved it, with
@@ -186,6 +199,7 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
     assert!(!types.contains(&"agent.run.rolledBack".to_owned()));
     assert!(!types.contains(&"agent.run.recovery.resolved".to_owned()));
     assert_eq!(fixture.run_version(scene.run_id), 1);
+    assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
 
 // An applied cut lands recovery's resolution, then the target run's rollback at its version plus
@@ -212,11 +226,7 @@ async fn an_applied_cut_lands_with_its_companions() {
         .await
         .expect("the cut applies");
 
-    let ConversationCut::Applied {
-        rollbacks,
-        cut_message_text,
-    } = cut
-    else {
+    let ConversationCut::Applied { rollbacks, reach } = cut else {
         panic!("the provider applied the cut");
     };
     let landed: Vec<(RunId, i64, SourcePosition)> = rollbacks
@@ -229,8 +239,8 @@ async fn an_applied_cut_lands_with_its_companions() {
             )
         })
         .collect();
-    assert_eq!(landed, [(scene.run_id, 2, position(TARGET_TURN - 1))]);
-    assert_eq!(cut_message_text.as_deref(), Some("Look again"));
+    assert_eq!(landed, [(scene.run_id, 2, position(TARGET_POSITION - 1))]);
+    assert_eq!(cut_words(&reach), [OPENING_WORDS]);
     assert_eq!(
         fixture.event_types(),
         [
@@ -241,6 +251,7 @@ async fn an_applied_cut_lands_with_its_companions() {
             "agent.run.rolledBack",
         ]
     );
+    assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
 
 // A checkpoint a cut already cut away is left out of the session's list, and a second cut to it
@@ -261,12 +272,15 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the cut applies");
-    let message_sequence = fixture.insert_sent_message(scene.run_id);
+    let (_, message_sequence) = fixture
+        .insert_sent_message(scene.run_id, Form::Words(OPENING_WORDS))
+        .await;
     let reopened = fixture
         .insert_checkpoint(
             scene.run_id,
             message_sequence,
-            SourceEpoch(SafeInt::new(1).expect("a small epoch")),
+            TARGET_TURN_NUMBER + 1,
+            epoch_position(1, TARGET_POSITION),
         )
         .await;
 
@@ -291,20 +305,51 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
     assert_eq!(scene.rewinds.load(Ordering::SeqCst), 1);
 }
 
-// A cut the provider applied by forking the conversation moves the session onto the fork's
-// binding. Killed by a fork fenced as a cut in place.
+/// A cut the provider applied by forking the conversation onto `binding_id`, which runs on the
+/// conversation `resume_handle` under the build `2.0.0` at `/opt/provider/fork`.
+fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> RewindAnswer {
+    let fork = ForkedBinding {
+        binding_id: binding_id.clone(),
+        resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
+        spawned_version: spawned_build("2.0.0", "/opt/provider/fork"),
+    };
+    Arc::new(move || {
+        Ok(RewindConversationResult::Applied {
+            fork: Some(fork.clone()),
+            cut_message_text: None,
+        })
+    })
+}
+
+// A cut to a steer the provider applied by forking the conversation moves the session onto the
+// fork's binding, whose cursor opens the next epoch at the steer's point and whose row carries the
+// scene's run on the fork's conversation and build, with the source conversation and the fork
+// both recorded as left on the predecessor's account and recovery data, so the purge reaches the
+// fork whatever becomes of its row, and closes nothing. Killed by a fork fenced as a cut in place,
+// by the fence at the opening's point, by no row written, by a row written through a path that
+// opens a cursor, by the left conversation taken from the fork, by the fork not recorded as left,
+// by the predecessor's recovery data dropped, and by the version or path kept from the
+// predecessor.
 #[tokio::test]
 async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fork_binding_id = mint_runtime_binding_id();
-    let fork = fork_binding_id.clone();
-    let scene = scene(Arc::new(move || {
-        Ok(RewindConversationResult::Applied {
-            binding_id: Some(fork.clone()),
-            cut_message_text: None,
-        })
-    }))
-    .await;
+    let scene = steer_scene(
+        applied_on_fork(&fork_binding_id, "fork-conversation"),
+        true,
+        Form::Words(OPENING_WORDS),
+    )
+    .await
+    .scene;
     let fixture = &scene.fixture;
+    let binding_cursors = fixture.queue.provider_sessions.binding_cursors();
+    let source_binding_id = binding_cursors
+        .current_binding(&fixture.session_id)
+        .expect("the scene's session runs on a binding");
+    let recovery_data = Map::from_iter([("home".to_owned(), json!("kept"))]);
+    binding_cursors
+        .keep_recovery_data(source_binding_id, recovery_data.clone())
+        .await
+        .expect("the source binding keeps its recovery data");
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, client_key())
@@ -317,12 +362,92 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
         .expect("the cut applies");
 
     assert_eq!(
+        binding_cursors.current_binding(&fixture.session_id),
+        Some(fork_binding_id.clone())
+    );
+    assert_eq!(
+        binding_cursors.standing(&fork_binding_id),
+        Some(epoch_position(1, STEER_POSITION - 1))
+    );
+    let reader = fixture.database.reader();
+    let fork_row = read_binding(&reader, &fork_binding_id)
+        .expect("the fork's row reads")
+        .expect("the fork's row is recorded");
+    let forked_build = spawned_build("2.0.0", "/opt/provider/fork");
+    assert_eq!(fork_row.run_id, scene.run_id);
+    assert_eq!(fork_row.resume_handle.as_deref(), Some("fork-conversation"));
+    assert_eq!(fork_row.cli_version, forked_build.cli_version);
+    assert_eq!(
+        fork_row.resolved_executable_path,
+        forked_build.resolved_executable_path.to_string_lossy()
+    );
+    let mut left: Vec<LeftConversation> = read_left_conversations(&reader, &fixture.session_id)
+        .expect("the left conversations read")
+        .into_iter()
+        .map(|record| record.conversation)
+        .collect();
+    // Both may be stamped the same instant, so they are compared in one order.
+    left.sort_by(|first, second| first.conversation_id.cmp(&second.conversation_id));
+    let left_conversation = |conversation_id: &str| LeftConversation {
+        session_id: fixture.session_id,
+        provider_account_id: test_provider_account_id(),
+        conversation_id: conversation_id.to_owned(),
+        runtime_metadata: recovery_data.clone(),
+    };
+    assert_eq!(
+        left,
+        [
+            left_conversation("conversation-1"),
+            left_conversation("fork-conversation")
+        ]
+    );
+    assert!(scene.closes.lock().expect("unpoisoned").is_empty());
+}
+
+// A fork whose row the store refuses, its handle past the bound, fails the cut once its process is
+// closed with the append lock free, leaving the session on no binding and the fork's cursor
+// closed, while the rollback stays recorded. Killed by the store's failure swallowed, by the
+// fork's cursor left open, by no close, by a close with another cause, and by a close made under
+// the append hold or the queue's hold.
+#[tokio::test]
+async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
+    let fork_binding_id = mint_runtime_binding_id();
+    let scene = scene(applied_on_fork(&fork_binding_id, &"f".repeat(4_097))).await;
+    let fixture = &scene.fixture;
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, client_key())
+        .await;
+
+    let cut = fixture
+        .queue
+        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .await;
+
+    assert!(
+        matches!(
+            cut,
+            Err(ConversationCutError::ForkUnrecorded(
+                ProviderSessionError::Cursor(RunBindingCursorError::Store(_))
+            ))
+        ),
+        "{cut:?}"
+    );
+    assert_eq!(
+        *scene.closes.lock().expect("unpoisoned"),
+        [ProcessClose {
+            cause: SessionCloseCause::UnrecordedOpening,
+            is_append_lock_free: true,
+            is_queue_lock_free: true,
+        }]
+    );
+    let binding_cursors = fixture.queue.provider_sessions.binding_cursors();
+    assert_eq!(binding_cursors.current_binding(&fixture.session_id), None);
+    assert!(!binding_cursors.is_binding_open(&fork_binding_id));
+    assert!(
         fixture
-            .queue
-            .provider_sessions
-            .binding_cursors()
-            .current_binding(&fixture.session_id),
-        Some(fork_binding_id)
+            .event_types()
+            .contains(&"agent.run.rolledBack".to_owned())
     );
 }
 
@@ -364,7 +489,7 @@ async fn a_target_in_an_earlier_run_rolls_back_every_later_run_in_one_write() {
     assert_eq!(
         landed,
         [
-            (scene.run_id, position(TARGET_TURN - 1)),
+            (scene.run_id, position(TARGET_POSITION - 1)),
             (later_run_id, position(0)),
         ]
     );
@@ -389,7 +514,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
     let scene = scene(applied_in_place()).await;
     let fixture = &scene.fixture;
     fixture
-        .append_turn_event(scene.run_id, "agent.turn.started")
+        .append_turn_event(scene.run_id, "agent.turn.started", TARGET_TURN_NUMBER)
         .await;
     fixture.set_run_state(scene.run_id, "interrupted");
     let hold = fixture
@@ -404,7 +529,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
     let version_while_open = fixture.run_version(scene.run_id);
     fixture
-        .append_turn_event(scene.run_id, "agent.turn.completed")
+        .append_turn_event(scene.run_id, "agent.turn.completed", TARGET_TURN_NUMBER)
         .await;
     let applied = fixture
         .queue
@@ -452,7 +577,7 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
             );
         }
         Ok(RewindConversationResult::Applied {
-            binding_id: None,
+            fork: None,
             cut_message_text: None,
         })
     }))

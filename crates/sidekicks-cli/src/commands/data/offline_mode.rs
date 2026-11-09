@@ -135,6 +135,7 @@ mod tests {
                     argument_record: None,
                     ..StandInAnswer::default()
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

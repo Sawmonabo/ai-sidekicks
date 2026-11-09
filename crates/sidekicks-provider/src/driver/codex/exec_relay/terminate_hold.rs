@@ -1,7 +1,8 @@
 //! A relayed command's end. Codex's terminate kills the wrapper's process group alone, which
-//! leaves the command's own group running, so the relay first has the wrapper end its command's
-//! whole session and passes the terminate on once the command ended or the hold ran out; a stop
-//! the person asks takes the same ladder and waits longer for its end.
+//! leaves the command's own group running, so the relay first has every party under the wrapper
+//! end, then the wrapper end its command's whole session, and passes the terminate on once the
+//! command ended or the hold ran out; a stop the person or an undo asks takes the same ladder and
+//! waits longer for its end.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,9 +11,9 @@ use serde::Deserialize;
 use sidekicks_contracts::command::CommandId;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::command::channel::{DaemonRequest, PartyId};
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
-use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, SessionChannel, forward};
+use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, forward};
 
 /// How long a terminate waits for the wrapper's end of its command before it passes on.
 const TERMINATE_HOLD: Duration = Duration::from_millis(50);
@@ -51,6 +52,7 @@ impl CodexExecRelay {
             .ok()
             .and_then(|message| self.command_on(&message.params.process_id));
         if let Some((call, command)) = relayed {
+            // The terminate passes on whatever the wrapper's stop came to.
             self.stop_through_wrapper(&executor, &call, &command, TERMINATE_HOLD)
                 .await;
         }
@@ -58,34 +60,53 @@ impl CodexExecRelay {
         forward(&executor, line).await;
     }
 
-    /// Has the wrapper of `command`, the call `call`, end its command's whole session, then waits
-    /// up to `wait` for the executor to report it ended.
+    /// Has every party under the wrapper of `command`, the call `call`, end, then the wrapper end
+    /// its command's whole session, and waits up to `wait`, the parties' ends included, for the
+    /// executor to report the command ended; answers how it went, with the parties the stop
+    /// reached once it reached them all within the wait. The stop runs on a task of its own, so
+    /// the wait running out never leaves the wrapper unasked.
     pub(super) async fn stop_through_wrapper(
         &self,
         executor: &CodexExecutor,
         call: &str,
         command: &RelayedCommand,
         wait: Duration,
-    ) -> WrapperStop {
-        let Some((channel, party)) = self.wrapper_of(command, call) else {
-            return WrapperStop::NoWrapper;
+    ) -> (WrapperStop, StoppedCommandParties) {
+        let wrapper = self
+            .dependencies
+            .command_output
+            .port()
+            .zip(CommandId::new(call.to_owned()))
+            .and_then(|(sets, command_id)| sets.command_wrapper(command.session_id, &command_id))
+            .and_then(|(channel, party)| {
+                Some((party, channel.read_command_parties(party)?, channel))
+            });
+        let Some((party, parties, channel)) = wrapper else {
+            return (WrapperStop::NoWrapper, StoppedCommandParties::default());
         };
         let mut exited = executor.watch_exit(&command.executor_process_id);
-        if let Err(error) = channel
-            .channel
-            .send_request(party, &DaemonRequest::Stop {})
-            .await
-        {
-            tracing::warn!(
-                party,
-                error = &error as &(dyn std::error::Error + 'static),
-                "a relayed command's wrapper could not be asked to stop it"
-            );
-            return WrapperStop::NoWrapper;
-        }
-        match tokio::time::timeout(wait, exited.wait_for(Option::is_some)).await {
-            Ok(_ended) => WrapperStop::Ended,
-            Err(_elapsed) => WrapperStop::StillRunning,
+        let stopping = tokio::spawn(async move {
+            channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+        });
+        let stopped = tokio::time::timeout(wait, async {
+            let parties = stopping.await.map_err(std::io::Error::other)??;
+            let _ended = exited.wait_for(Option::is_some).await;
+            Ok::<_, std::io::Error>(parties)
+        })
+        .await;
+        match stopped {
+            Ok(Ok(parties)) => (WrapperStop::Ended, parties),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    party,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a relayed command's wrapper could not be asked to stop it"
+                );
+                (WrapperStop::NoWrapper, StoppedCommandParties::default())
+            }
+            Err(_elapsed) => (WrapperStop::StillRunning, StoppedCommandParties::default()),
         }
     }
 
@@ -97,18 +118,5 @@ impl CodexExecRelay {
                 record.end.is_none() && record.command.executor_process_id == executor_process_id
             })
             .map(|(call, record)| (call.clone(), record.command.clone()))
-    }
-
-    // The channel and the wrapper party that run `command`, the call `call`, once it paired.
-    fn wrapper_of(
-        &self,
-        command: &RelayedCommand,
-        call: &str,
-    ) -> Option<(Arc<SessionChannel>, PartyId)> {
-        let sets = self.dependencies.command_output.port()?;
-        let command_id = CommandId::new(call.to_owned())?;
-        let party = sets.paired_wrapper(command.session_id, &command_id)?;
-        let channel = Arc::clone(lock(&self.channels).get(&command.session_id)?.get()?);
-        Some((channel, party))
     }
 }

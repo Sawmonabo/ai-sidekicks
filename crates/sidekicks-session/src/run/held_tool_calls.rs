@@ -51,10 +51,12 @@ fn closes_held_call_sql() -> String {
 }
 
 // Each background row of the session with its call's last close, kept while there is none or it
-// is a `failed` row naming why the call ended with no result, newest first: its payload, its
-// call's latest opening's stored time before it, the close's `endCause`, and the binding its close
-// is appended on. That binding is the nearest run's up the provider subagent lineage that has one,
-// that run's newest by when each was recorded and then by id, so a helper's call answers its lead's
+// is a `failed` row naming why the call ended with no result, and, when `@opened_after` is set,
+// while its call's opening (else the background row itself, when no opening reads) is past that
+// sequence, newest first: its payload, its call's latest opening's stored time before it, the
+// close's `endCause`, and the binding its close is appended on. The opening is read once, by its
+// sequence. That binding is the nearest run's up the provider subagent lineage that has one, that
+// run's newest by when each was recorded and then by id, so a helper's call answers its lead's
 // binding, which its process runs on; a run with none anywhere up its lineage reads NULL, which
 // fails the read. `background` is read twice, so SQLite keeps it once. The type is written as a
 // literal so the planner can match the background index.
@@ -66,22 +68,24 @@ static SELECT_HELD_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(|| {
     (SELECT close.sequence FROM session_events AS close
       WHERE {closes_held_call}
       ORDER BY close.sequence DESC
-      LIMIT 1) AS close_sequence
+      LIMIT 1) AS close_sequence,
+    (SELECT invoked.sequence FROM session_events AS invoked
+      WHERE invoked.session_id = held.session_id
+        AND invoked.type = '{invoked}'
+        AND invoked.run_id = held.run_id
+        AND invoked.sequence < held.sequence
+        AND json_extract(invoked.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
+          = json_extract(held.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
+      ORDER BY invoked.sequence DESC
+      LIMIT 1) AS opening_sequence
   FROM session_events AS held
   WHERE held.session_id = @session_id
     AND held.type = '{backgrounded}'
 ),
 {lineage}
 SELECT background.payload,
-  (SELECT invoked.occurred_at FROM session_events AS invoked
-    WHERE invoked.session_id = @session_id
-      AND invoked.type = '{invoked}'
-      AND invoked.run_id = background.run_id
-      AND invoked.sequence < background.sequence
-      AND json_extract(invoked.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
-        = json_extract(background.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
-    ORDER BY invoked.sequence DESC
-    LIMIT 1),
+  (SELECT opening.occurred_at FROM session_events AS opening
+    WHERE opening.session_id = @session_id AND opening.sequence = background.opening_sequence),
   json_extract(close.payload, '$.{END_CAUSE_PAYLOAD_KEY}'),
   (SELECT binding.id FROM lineage
     JOIN runtime_bindings AS binding ON binding.run_id = lineage.run_id
@@ -90,9 +94,11 @@ SELECT background.payload,
 FROM background
 LEFT JOIN session_events AS close
   ON close.session_id = @session_id AND close.sequence = background.close_sequence
-WHERE close.sequence IS NULL
-  OR (close.type = '{failed}'
-    AND json_extract(close.payload, '$.{END_CAUSE_PAYLOAD_KEY}') IS NOT NULL)
+WHERE (close.sequence IS NULL
+    OR (close.type = '{failed}'
+      AND json_extract(close.payload, '$.{END_CAUSE_PAYLOAD_KEY}') IS NOT NULL))
+  AND (@opened_after IS NULL
+    OR COALESCE(background.opening_sequence, background.sequence) > @opened_after)
 ORDER BY background.sequence DESC
 LIMIT {HELD_TOOL_CALLS_READ_MAX}",
         closes_held_call = closes_held_call_sql(),
@@ -120,17 +126,22 @@ static SELECT_SESSIONS_HOLDING_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(
 /// [`HELD_TOOL_CALLS_READ_MAX`]: each call moved to the background with no close after it, and
 /// each whose last close is a `failed` row naming why it ended with no result, each with the
 /// binding its close is appended on: the newest of the nearest run up its provider subagent
-/// lineage that has one. Fails when SQLite refuses the read, a stored background payload, opening
-/// time, end cause or binding id does not read as its type, or no run up the call's lineage has a
-/// binding.
+/// lineage that has one. With `opened_after`, only the calls whose opening sits past that
+/// sequence, or whose background row does where no opening reads. Fails when SQLite refuses the
+/// read, a stored background payload, opening time, end cause or binding id does not read as its
+/// type, or no run up the call's lineage has a binding.
 pub fn read_held_tool_calls(
     reader: &Connection,
     session_id: &SessionId,
+    opened_after: Option<i64>,
 ) -> rusqlite::Result<Vec<HeldToolCall>> {
     reader
         .prepare_cached(&SELECT_HELD_TOOL_CALLS_SQL)?
         .query_map(
-            named_params! { "@session_id": session_id.text().as_str() },
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@opened_after": opened_after,
+            },
             |row| {
                 let held = text_column(row, 0, |text| {
                     serde_json::from_str::<ToolCallBackgroundedPayload>(&text)
@@ -172,7 +183,7 @@ impl HeldToolCallReads for StoredHeldToolCalls {
     ) -> BoxFuture<'_, Result<Vec<HeldToolCall>, Box<dyn Error + Send + Sync>>> {
         self.pool
             .read(ReadLength::Short, move |reader| {
-                Ok(read_held_tool_calls(reader, &session_id)?)
+                Ok(read_held_tool_calls(reader, &session_id, None)?)
             })
             .boxed()
     }
@@ -397,7 +408,7 @@ mod tests {
         let reader = database.reader();
 
         assert_eq!(
-            read_held_tool_calls(&reader, &session_a.0).expect("session A's held calls read"),
+            read_held_tool_calls(&reader, &session_a.0, None).expect("session A's held calls read"),
             [
                 held((helper.1, "binding-a-newer"), "call-9", None, None),
                 held(

@@ -1,9 +1,12 @@
-//! The conversation half of an undo: the provider's own cut of the bound conversation, in place,
-//! back to before one of the person's messages. Files are never the driver's; the daemon's file
-//! checkpoints put them back.
+//! The conversation half of an undo: the provider's own cut of the bound conversation back to
+//! before one of the person's messages, in place or on a fork the session restarts on. Files are
+//! never the driver's; the daemon's file checkpoints put them back.
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::NonEmptyText;
+
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 
 /// Params of `rewind_conversation` (gated on `rollback`). `target_message_id` is the stable id of
 /// the person's message the cut lands before: that message and everything after it leave the
@@ -19,14 +22,15 @@ pub struct RewindConversationParams {
     pub target_message_id: String,
 }
 
-/// What a rewind did: applied in place, or a fallback the driver took instead.
+/// What a rewind did: a cut landed in place or on a fork the session restarts on, or a fallback the
+/// driver took instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RewindConversationResult {
     /// The cut landed.
     Applied {
-        /// The new binding, when the cut restarted the process on a fork of the conversation (a
-        /// provider that cannot cut in place past its last compaction).
-        binding_id: Option<RuntimeBindingId>,
+        /// The binding the cut's restart runs under when the provider cut by forking, for the
+        /// daemon to record once the cut is fenced; `None` for a cut in place.
+        fork: Option<ForkedBinding>,
         /// The text of the message the cut removed, for the composer, where the provider returned
         /// it.
         cut_message_text: Option<String>,
@@ -36,4 +40,16 @@ pub enum RewindConversationResult {
         /// The fallback it took.
         fallback_action: Option<String>,
     },
+}
+
+/// The fork a cut restarted the session on, which the daemon records as a relaunch of the cut
+/// binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForkedBinding {
+    /// The new binding, which the driver minted.
+    pub binding_id: RuntimeBindingId,
+    /// The conversation the session runs on now: the fork.
+    pub resume_handle: NonEmptyText,
+    /// The restarted build's version and path, from the one reading its spawn took.
+    pub spawned_version: SpawnedVersionBindingCarriers,
 }

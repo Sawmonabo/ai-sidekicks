@@ -99,6 +99,7 @@ impl StandIn {
                         release: release.clone(),
                     }),
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

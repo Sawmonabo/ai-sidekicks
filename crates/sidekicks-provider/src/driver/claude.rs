@@ -21,6 +21,7 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
@@ -76,12 +77,15 @@ use crate::driver::session_control::{
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
-use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::running_command_publisher::{
+    RunningCommandParams, StopCommandParams, WriteCommandInputParams,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::receiver::TelemetryExportReader;
 use crate::pricing::rule::RequestPricer;
 
 mod account;
+mod agent_sdk;
 mod attachments;
 mod capabilities;
 mod capability_probe;
@@ -205,6 +209,11 @@ impl ProviderDriver for ClaudeDriver {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>> {
         self.rewind_conversation(params).boxed()
+    }
+
+    // Claude Code's rewind names any of the person's messages, a steer's included.
+    fn can_cut_inside_turn(&self) -> bool {
+        true
     }
 
     fn respond_to_request(
@@ -491,7 +500,10 @@ impl ProviderDriver for ClaudeDriver {
         self.list_provider_commands(params).boxed()
     }
 
-    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn stop_command(
+        &self,
+        params: StopCommandParams,
+    ) -> BoxFuture<'_, Result<StoppedCommandParties, DriverError>> {
         self.stop_command(params).boxed()
     }
 

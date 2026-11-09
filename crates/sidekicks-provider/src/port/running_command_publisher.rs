@@ -120,6 +120,53 @@ pub struct RunningCommandParams {
     pub(crate) command_id: CommandId,
 }
 
+/// Why a running command is stopped: the person's stop, whose run is told it, or an undo's, which
+/// tells no run, since the undo cuts the turns that started the command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandStopCause {
+    /// The person stopped the command.
+    Person,
+    /// An undo stops the command before it cuts the conversation; its ending is recorded
+    /// `EndedByPerson` all the same, since the person asked for the undo.
+    Undo,
+}
+
+/// Params of a running command's stop: the command, and why it is stopped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StopCommandParams {
+    /// The command.
+    pub(crate) command: RunningCommandParams,
+    /// Why it is stopped.
+    pub(crate) cause: CommandStopCause,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl StopCommandParams {
+    /// The command stopped, for another crate's test driver to read.
+    pub fn command_id(&self) -> &CommandId {
+        &self.command.command_id
+    }
+
+    /// Why it is stopped, for another crate's test driver to read.
+    pub fn cause(&self) -> CommandStopCause {
+        self.cause
+    }
+}
+
+/// A running command as a reader of the set sees it: its id, the run and tool call that started
+/// it, and when it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunningCommandStart {
+    /// The provider's own id for the command.
+    pub command_id: CommandId,
+    /// The run that started it.
+    pub run_id: RunId,
+    /// The tool call that started it, where the provider named one.
+    pub tool_call_id: Option<ToolCallId>,
+    /// When it started.
+    pub started_at: WireInstant,
+}
+
 /// Params of the person's write to a running command: the command, the typed text and whether the
 /// command's input then ends.
 #[derive(Clone, Debug, PartialEq, Eq)]

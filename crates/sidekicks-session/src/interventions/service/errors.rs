@@ -148,6 +148,22 @@ pub enum InterventionError {
         #[source]
         record: SessionEventAppendError,
     },
+    /// The daemon's own interrupt for an undo did not end the run's turn: its row ended in
+    /// `state`, degraded, failed or expired, or stayed `accepted` with the provider's answer
+    /// outstanding, with what its dispatch threw where it threw. The caller does not cut.
+    #[error(
+        "intervention {intervention_id} ended {} without ending the run's turn",
+        <&'static str>::from(*.state)
+    )]
+    TurnNotEnded {
+        /// The intervention.
+        intervention_id: InterventionId,
+        /// The state its row reached.
+        state: InterventionState,
+        /// What the dispatch threw, where it threw.
+        #[source]
+        dispatch: Option<Box<DispatchError>>,
+    },
     /// A step failed and so did the release of the queue's hold after it, both kept.
     #[error(transparent)]
     Several(Box<SettleFailures<InterventionError>>),
@@ -208,6 +224,7 @@ impl From<InterventionError> for HandlerError {
             | InterventionError::Queue(_)
             | InterventionError::NoDriver(LiveRunDriverError::Unbound { .. })
             | InterventionError::Unrecorded { .. }
+            | InterventionError::TurnNotEnded { .. }
             | InterventionError::Several(_)) => Self::Internal(Box::new(fault)),
         }
     }

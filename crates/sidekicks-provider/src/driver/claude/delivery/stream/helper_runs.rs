@@ -195,7 +195,8 @@ impl ClaudeDeliveryStream {
                     | InboundOutcome::AskAdmitted
                     | InboundOutcome::Appended { .. }
                     | InboundOutcome::AppendedStamped { .. }
-                    | InboundOutcome::Absorbed { .. },
+                    | InboundOutcome::Absorbed { .. }
+                    | InboundOutcome::NotSentByPerson,
                 )
                 | None => (None, None),
             }

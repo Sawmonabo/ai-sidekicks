@@ -51,6 +51,7 @@ pub(crate) fn dispatch_delivery<'d>(
             );
         }
         InboundDelivery::TurnBoundary { binding_id }
+        | InboundDelivery::TurnSteered { binding_id, .. }
         | InboundDelivery::AfterRunRow { binding_id, .. } => {
             details.insert("bindingId".to_owned(), json!(binding_id.as_str()));
         }

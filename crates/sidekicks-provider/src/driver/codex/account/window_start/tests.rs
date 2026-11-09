@@ -87,6 +87,7 @@ fn write_stand_in(root: &Path, record: &Path, exit_code: u8) -> std::path::PathB
                     release: with_suffix("release"),
                 }),
             },
+            first_call_wait: None,
         },
     )
     .expect("the stand-in is written")

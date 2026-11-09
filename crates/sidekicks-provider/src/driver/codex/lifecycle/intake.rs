@@ -2,14 +2,14 @@
 //! band and turn waits, and handles each frame, ask and call in arrival order. A frame first opens
 //! the run of a turn Codex started by itself, then feeds the speed, effort and profile readings,
 //! then is routed and delivered; what its delivery reports is applied after: each context-window
-//! reading filed on its turn's run, each steer Codex echoed taken from the queue once, each ended
-//! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
-//! its owed fork let go, each turn's readings and the session's context reading published, and the
-//! spend it metered recorded in metering order. Each settled step publishes the session's
-//! context reading again with no usage when its model or window changed. The driver's own calls on
-//! the record take their place among the frames too. Each completed response the export states is
-//! passed over where the stream stated it, else held until its turn settles and two export
-//! intervals pass, then passed over or priced; a session let go decides every one it holds.
+//! reading filed on its turn's run, the queue told of each steer Codex echoed, each ended turn's
+//! route retired, its end recorded where no run moved, its pause or continue acted on and its owed
+//! fork let go, each turn's readings and the session's context reading published, and the spend it
+//! metered recorded in metering order. Each settled step publishes the session's context reading
+//! again with no usage when its model or window changed. The driver's own calls on the record take
+//! their place among the frames too. Each completed response the export states is passed over where
+//! the stream stated it, else held until its turn settles and two export intervals pass, then passed
+//! over or priced; a session let go decides every one it holds.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other

@@ -119,7 +119,7 @@ impl CodexConversationRewind {
             });
         }
         Ok(RewindConversationResult::Applied {
-            binding_id: None,
+            fork: None,
             cut_message_text: None,
         })
     }
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(
             rewound.expect("the rewind is answered"),
             RewindConversationResult::Applied {
-                binding_id: None,
+                fork: None,
                 cut_message_text: None,
             }
         );

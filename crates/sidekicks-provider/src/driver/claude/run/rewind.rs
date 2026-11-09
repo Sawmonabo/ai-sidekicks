@@ -1,8 +1,11 @@
 //! The conversation cut on Claude Code: `rewind_conversation` cuts the live conversation in place,
-//! stopping a running turn first. A refusal arrives as a success carrying `rewound: false`, so the
-//! answer is read from `rewound`, never from the answer's kind. The person's undo cuts back to one
-//! of their messages, ending the run whose turn the cut took; a turn too long to fit even after
-//! compaction is cut back out, since every later turn would fail on it again.
+//! stopping a running turn first. A refusal arrives as a success carrying `rewound: false` and a
+//! `reason`, so the answer is read from `rewound`, never from the answer's kind. The reason is one
+//! of a closed set of codes, [`ClaudeRewindRefusal`], some of which Claude Code marks as worth
+//! sending again. The person's undo cuts back to one of their messages, and the run whose turn the
+//! cut took ends interrupted, its turn ended, before its binding goes, so the next send continues
+//! it; a turn too long to fit even after compaction is cut back out, since every later turn would
+//! fail on it again.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,22 +16,25 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use strum::EnumString;
 
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::contract::error::DriverError;
 use crate::driver::rewind::RewindConversationResult;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::reviewer_denial::ReviewerDenialPort;
-use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 
 // Why a run whose turn a cut took before Claude Code settled it ended failed.
 const CLAUDE_SUPERSEDED_RUN_DETAIL: &str = "The turn carrying this run's words was cut from the \
@@ -44,9 +50,105 @@ struct RewindReply {
     reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     prefill_text: Option<String>,
+    // Spelled in snake_case on the wire, unlike the reply's other members.
+    #[serde(
+        default,
+        rename = "target_not_found",
+        deserialize_with = "read_lenient"
+    )]
+    target_not_found: Option<bool>,
 }
 
 lenient_object!(RewindReply);
+
+/// Why Claude Code refused a cut: the `reason` of a refused `rewind_conversation`, read from its
+/// `snake_case` word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumString)]
+#[strum(serialize_all = "snake_case")]
+enum ClaudeRewindRefusal {
+    /// Messages were queued behind the running turn.
+    CommandsQueued,
+    /// A message was written and not yet taken into a turn.
+    PromptPending,
+    /// A turn was still running.
+    TurnRunning,
+    /// The message to cut back to is not in the conversation Claude Code holds.
+    TargetNotFound,
+    /// The message to cut back to is older than the conversation allows a cut to.
+    StaleTarget,
+    /// A later turn exists that the daemon has not seen.
+    UnseenLaterTurn,
+    /// The message to cut back to is a tool's result from a poll.
+    PollToolResultTarget,
+    /// The cut would fall between a tool call and its result.
+    TargetSplitsToolCall,
+    /// Events of a poll were already delivered inside the range the cut removes.
+    DeliveredPollEventsInRange,
+    /// Claude Code could not save where the cut lands.
+    PersistFailed,
+    /// The conversation changed while the cut was made.
+    StateChanged,
+    /// The account's usage limit was reached.
+    UsageLimited,
+    /// The request waited too long to be taken.
+    Expired,
+}
+
+impl ClaudeRewindRefusal {
+    /// Whether Claude Code marks a cut it refused for this reason as one a caller may send again.
+    fn may_be_sent_again(self) -> bool {
+        match self {
+            Self::CommandsQueued
+            | Self::TurnRunning
+            | Self::TargetNotFound
+            | Self::PersistFailed
+            | Self::StateChanged
+            | Self::Expired => true,
+            Self::PromptPending
+            | Self::StaleTarget
+            | Self::UnseenLaterTurn
+            | Self::PollToolResultTarget
+            | Self::TargetSplitsToolCall
+            | Self::DeliveredPollEventsInRange
+            | Self::UsageLimited => false,
+        }
+    }
+}
+
+// What one `rewind_conversation` answered.
+enum ClaudeCutAnswer {
+    // The cut landed, with the text of the message it removed where Claude Code returned it.
+    Applied { cut_message_text: Option<String> },
+    Refused(ClaudeCutRefusal),
+}
+
+// A refused cut: the reason's word as sent, its code when the word is one of the set, and whether
+// Claude Code also found the target missing.
+struct ClaudeCutRefusal {
+    reason: Option<String>,
+    refusal: Option<ClaudeRewindRefusal>,
+    is_target_not_found: bool,
+}
+
+impl ClaudeCutRefusal {
+    // A cut refused for a code Claude Code marks sendable again, with its target found, goes once
+    // more; a missing target is no resend, and a word outside the set is final.
+    fn may_be_sent_again(&self) -> bool {
+        !self.is_target_not_found
+            && self.refusal.is_some_and(|refusal| {
+                refusal != ClaudeRewindRefusal::TargetNotFound && refusal.may_be_sent_again()
+            })
+    }
+
+    fn into_degraded(self) -> RewindConversationResult {
+        RewindConversationResult::Degraded {
+            fallback_action: self
+                .reason
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| format!("rewind-refused: {reason}")),
+        }
+    }
+}
 
 /// The person's undo and the cut of a turn too long to fit, on live Claude Code sessions.
 pub(crate) struct ClaudeConversationCuts {
@@ -63,8 +165,12 @@ pub(crate) struct ClaudeConversationCuts {
 impl ClaudeConversationCuts {
     /// Cuts the live conversation back to before the person's message `target_message_id`. A
     /// choice the running turn is held on is settled as an interrupt's is, and the run whose turn
-    /// the cut took ends failed before its route retires, since no turn end can reach it after. A
-    /// refused cut is `Degraded` with Claude Code's reason; fails as the settle or the request
+    /// the cut took ends interrupted, its open turn ended, before its binding goes, since no turn
+    /// end can reach it after; a turn end Claude Code sends while the cut is unanswered is held,
+    /// dropped once the cut lands and delivered as sent when it does not. A refusal Claude Code
+    /// marks sendable again, but a missing target, is sent once more after the session's turn
+    /// settles; any other refusal, a second one, or a turn still held at the request deadline is
+    /// `Degraded` with Claude Code's reason. Fails as the settle or a request
     /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
     /// served, through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
@@ -73,31 +179,108 @@ impl ClaudeConversationCuts {
         target_message_id: &str,
         reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
     ) -> Result<RewindConversationResult, DriverError> {
-        if let Some(lead) = self.routes.lead_run_on(live.session_id) {
-            settle_claude_choice(
+        let session_id = live.session_id;
+        // A run whose end the settle already delivered takes no second end from the cut.
+        let mut settled_run = None;
+        if let Some(lead) = self.routes.lead_run_on(session_id)
+            && settle_claude_choice(
                 &self.dialogs,
                 live,
                 lead.run_id,
                 ClaudeChoiceSettling::Interrupt,
             )
-            .await?;
+            .await?
+        {
+            settled_run = Some(lead.run_id);
         }
+        let stream = self.streams.get(session_id);
+        let stream = stream.as_deref();
+        // Taken before the first send, so a turn released while it goes still wakes the wait.
+        let mark = self.routes.turn_mark(session_id);
+        let (mut answer, mut held_lead) = self
+            .cut_holding_lead(live, target_message_id, stream, settled_run)
+            .await?;
+        // A refusal Claude Code marks sendable goes once more after the turn settles; one whose
+        // turn is still held at the deadline is final. The refusal released the held turn end
+        // first, so the turn the wait watches can change.
+        if let ClaudeCutAnswer::Refused(refusal) = &answer
+            && refusal.may_be_sent_again()
+            && (!self.routes.is_turn_held(session_id)
+                || self
+                    .routes
+                    .when_turn_changed_after(session_id, mark, CLAUDE_REQUEST_DEADLINE)
+                    .await)
+        {
+            (answer, held_lead) = self
+                .cut_holding_lead(live, target_message_id, stream, settled_run)
+                .await?;
+        }
+        let cut_message_text = match answer {
+            ClaudeCutAnswer::Applied { cut_message_text } => cut_message_text,
+            ClaudeCutAnswer::Refused(refusal) => return Ok(refusal.into_degraded()),
+        };
+        if let (Some(stream), Some(lead)) = (stream, &held_lead) {
+            let turn_end = stream
+                .take_open_turn_number(lead.run_id)
+                .map(|turn_number| ProviderTurnEnd {
+                    turn_number,
+                    outcome: TurnOutcome::Interrupted(None),
+                });
+            let change = RunStateReport::new(
+                lead.run_id,
+                RunStateEntry::Interrupted {
+                    intended_close: None,
+                    trigger: None,
+                },
+            );
+            // Written before the binding goes, since no end can reach the run after; `None` is a
+            // session task already ended, which delivers nothing more.
+            dispatch_run_end(stream, lead.binding_id.clone(), change, turn_end, true).await;
+            stream.confirm_daemon_end(lead.run_id);
+        }
+        if let Some(lead) = held_lead.or_else(|| self.routes.lead_run_on(session_id)) {
+            self.routes.forget_run(lead.run_id);
+        }
+        self.routes.retire_run_routes(session_id);
+        self.lock_prompts().forget_session(session_id);
+        // Every run the process served is retired, so none still needs its presses.
+        live.release_served_presses(reviewer_denials);
+        Ok(RewindConversationResult::Applied {
+            fork: None,
+            cut_message_text,
+        })
+    }
+
+    // Sends the cut back to before `target_message_id`, naming the newest message written as it
+    // goes. A turn end the run holding the turn sends meanwhile is held for the daemon's end,
+    // unless the settle already ended that run, and released when the cut is refused or fails;
+    // answers the run held, whose hold an applied cut settles.
+    async fn cut_holding_lead(
+        &self,
+        live: &LiveClaudeSession,
+        target_message_id: &str,
+        stream: Option<&ClaudeSessionStream>,
+        settled_run: Option<RunId>,
+    ) -> Result<(ClaudeCutAnswer, Option<ClaudeBoundRun>), ClaudeSessionError> {
+        let held_lead = stream.and_then(|stream| {
+            let lead = self
+                .routes
+                .lead_run_on(live.session_id)
+                .filter(|lead| Some(lead.run_id) != settled_run)?;
+            stream.hold_turn_end_for_interrupt(lead.run_id);
+            Some(lead)
+        });
         let newest = self
             .lock_prompts()
             .newest_for(live.session_id)
             .map(str::to_owned);
-        let result = cut_claude_conversation(live, target_message_id, newest).await?;
-        if matches!(result, RewindConversationResult::Applied { .. }) {
-            if let Some(lead) = self.routes.lead_run_on(live.session_id) {
-                self.fail_superseded_run(live, lead.run_id, lead.binding_id);
-                self.routes.forget_run(lead.run_id);
-            }
-            self.routes.retire_run_routes(live.session_id);
-            self.lock_prompts().forget_session(live.session_id);
-            // Every run the process served is retired, so none still needs its presses.
-            live.release_served_presses(reviewer_denials);
+        let answer = cut_claude_conversation(live, target_message_id, newest).await;
+        if let (Some(stream), Some(lead)) = (stream, &held_lead)
+            && !matches!(answer, Ok(ClaudeCutAnswer::Applied { .. }))
+        {
+            stream.release_daemon_end(lead.run_id);
         }
-        Ok(result)
+        Ok((answer?, held_lead))
     }
 
     /// Cuts the newest message of a turn too long to fit back out of the conversation, off the
@@ -113,13 +296,13 @@ impl ClaudeConversationCuts {
         let cuts = Arc::clone(self);
         tokio::spawn(async move {
             match cut_claude_conversation(&live, &newest, Some(newest.clone())).await {
-                Ok(RewindConversationResult::Applied { .. }) => {
+                Ok(ClaudeCutAnswer::Applied { .. }) => {
                     cuts.lock_prompts().forget_session(live.session_id);
                 }
-                Ok(RewindConversationResult::Degraded { fallback_action }) => {
+                Ok(ClaudeCutAnswer::Refused(refusal)) => {
                     tracing::warn!(
                         session_id = %live.session_id,
-                        fallback_action,
+                        reason = refusal.reason,
                         "Claude Code refused to cut a turn too long to fit"
                     );
                 }
@@ -160,20 +343,32 @@ impl ClaudeConversationCuts {
                 },
             )
         };
-        drop(stream.arrivals().dispatch(InboundDelivery::RunLifecycle {
-            binding: DeliveryBinding {
-                binding_id,
-                operation: None,
-            },
-            change,
-            turn_end: None,
-            is_daemon_interrupt_end: false,
-        }));
+        drop(dispatch_run_end(&stream, binding_id, change, None, false));
     }
 
     fn lock_prompts(&self) -> std::sync::MutexGuard<'_, ClaudeSentPrompts> {
         lock(&self.prompts)
     }
+}
+
+// Queues a lead run's end on its binding in the session's queue, behind the turn's frames, and
+// answers the dispatch's outcome once the session's task reaches it.
+fn dispatch_run_end(
+    stream: &ClaudeSessionStream,
+    binding_id: RuntimeBindingId,
+    change: RunStateReport,
+    turn_end: Option<ProviderTurnEnd>,
+    is_daemon_interrupt_end: bool,
+) -> impl Future<Output = Option<InboundOutcome>> + Send + 'static {
+    stream.arrivals().dispatch(InboundDelivery::RunLifecycle {
+        binding: DeliveryBinding {
+            binding_id,
+            operation: None,
+        },
+        change,
+        turn_end,
+        is_daemon_interrupt_end,
+    })
 }
 
 // Cuts the live conversation back to before `target_message_id`, naming the newest message the
@@ -182,7 +377,7 @@ async fn cut_claude_conversation(
     live: &LiveClaudeSession,
     target_message_id: &str,
     newest_message_id: Option<String>,
-) -> Result<RewindConversationResult, ClaudeSessionError> {
+) -> Result<ClaudeCutAnswer, ClaudeSessionError> {
     let answer = live
         .channel
         .send_control_request(ClaudeControlRequest::RewindConversation {
@@ -196,15 +391,20 @@ async fn cut_claude_conversation(
         .and_then(|response| serde_json::from_str::<RewindReply>(response.get()).ok())
         .unwrap_or_default();
     if reply.rewound != Some(true) {
-        return Ok(RewindConversationResult::Degraded {
-            fallback_action: reply
-                .reason
-                .filter(|reason| !reason.is_empty())
-                .map(|reason| format!("rewind-refused: {reason}")),
-        });
+        let refusal = reply
+            .reason
+            .as_deref()
+            .and_then(|reason| reason.parse().ok());
+        return Ok(ClaudeCutAnswer::Refused(ClaudeCutRefusal {
+            reason: reply.reason,
+            refusal,
+            is_target_not_found: reply.target_not_found == Some(true),
+        }));
     }
-    Ok(RewindConversationResult::Applied {
-        binding_id: None,
+    Ok(ClaudeCutAnswer::Applied {
         cut_message_text: reply.prefill_text.filter(|text| !text.is_empty()),
     })
 }
+
+#[cfg(test)]
+mod tests;

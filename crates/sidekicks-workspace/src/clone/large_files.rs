@@ -6,12 +6,13 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use memchr::{memchr, memmem};
+use memchr::memmem;
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::{MissingEntry, is_missing_entry};
 
+use crate::git::index_objects::{IndexObjectsError, list_stage_entries, read_stage_entry};
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
 use crate::git::{GIT_ENTRY_NAME, GITLINK_MODE};
 
@@ -35,8 +36,11 @@ const LARGE_FILES_ATTRIBUTE: &[u8] = b"filter=lfs";
 /// Why the clone's repositories, or a repository's large-file attributes, could not be read.
 #[derive(Debug, thiserror::Error)]
 pub enum LargeFilesReadError {
-    /// git could not list a repository's index, or printed a path this system cannot name.
+    /// git could not list a repository's index.
     #[error("git could not list a cloned repository's submodules")]
+    Index(#[from] IndexObjectsError),
+    /// git printed a path this system cannot name.
+    #[error("git named a cloned repository's submodule by a path this system cannot name")]
     Git(#[from] GitError),
     /// A repository's folder, a submodule's folder or a `.gitattributes` file could not be read.
     #[error("a cloned repository's files could not be read")]
@@ -101,17 +105,20 @@ pub(crate) async fn clone_repositories(
 
 // The submodules the index of `repository` (resolved) records, in its order, each resolved and
 // kept only when it lies inside `repository` and is checked out. The index is listed entry by
-// entry, only its gitlinks kept, since a large one lists past what one read of git may hold.
+// entry, only its gitlinks kept, since a large one lists past what one read of git may hold, and
+// never fetches an object a partial clone lacks.
 async fn checked_out_submodules(
     git: &GitRunner,
     place: Option<&Place>,
     repository: &Path,
 ) -> Result<Vec<PathBuf>, LargeFilesReadError> {
     let mut gitlink_paths = Vec::new();
-    git.run_by_entry(
+    list_stage_entries(
+        git,
         place,
-        GitCall::read(background_read(repository, &["ls-files", "-z", "--stage"])),
-        0,
+        background_read(repository, &[]),
+        &[],
+        None,
         |entry| gitlink_paths.extend(gitlink_path(entry).map(<[u8]>::to_vec)),
     )
     .await?;
@@ -133,16 +140,11 @@ async fn checked_out_submodules(
     Ok(submodules)
 }
 
-// The path of one `ls-files --stage` entry (`<mode> <object> <stage>\t<path>`) when its mode
-// records a submodule.
+// The path of one `ls-files --stage` entry when its mode records a submodule.
 fn gitlink_path(entry: &[u8]) -> Option<&[u8]> {
-    let tab = memchr(b'\t', entry)?;
-    let (fields, path) = entry.split_at(tab);
-    let after_mode = fields.strip_prefix(GITLINK_MODE.as_bytes())?;
-    if !after_mode.starts_with(b" ") {
-        return None;
-    }
-    path.get(1..)
+    read_stage_entry(entry)
+        .filter(|entry| entry.mode == GITLINK_MODE)
+        .map(|entry| entry.path)
 }
 
 // Whether `folder` has its `.git` entry, which git writes when it checks a submodule out; a
@@ -175,7 +177,7 @@ mod tests {
 
     use sidekicks_platforms::real_path;
 
-    use super::{clone_repositories, keeps_large_files};
+    use super::{checked_out_submodules, clone_repositories, keeps_large_files};
     use crate::git::process::{
         GIT_OUTPUT_MAX_BYTES, GitCall, GitRunner, in_folder, strip_line_end, test_git_runner,
         write_link,
@@ -267,6 +269,124 @@ mod tests {
                 .await
                 .expect("the attributes are read")
         );
+    }
+
+    // The packs in the git folder of `repository`.
+    fn pack_count(repository: &Path) -> usize {
+        std::fs::read_dir(repository.join(".git/objects/pack"))
+            .expect("the pack folder is listed")
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .expect("the entry reads")
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "pack")
+            })
+            .count()
+    }
+
+    // A partial clone holding no tree, its index sparse with `outside/` one folder entry, lists the
+    // gitlink inside its cone and fetches nothing from its promisor remote. Killed by `--sparse`
+    // dropped (git expands the index and fetches `outside`'s tree, or fails without the fetch),
+    // and, on a git before 2.35, by the fetch guard dropped (the tree is fetched).
+    #[tokio::test]
+    async fn a_sparse_partial_clone_lists_its_submodules_without_fetching() {
+        let git = test_git_runner();
+        let temporary = tempfile::tempdir().expect("the temporary folder is made");
+        let outer = real_path(temporary.path()).expect("the temporary folder resolves");
+        let source = outer.join("source");
+        let clone = outer.join("clone");
+        make_repository(&git, &source, "").await;
+        for (path, text) in [
+            ("inside/kept.txt", "kept\n"),
+            ("outside/away.txt", "away\n"),
+        ] {
+            let file = source.join(path);
+            tokio::fs::create_dir_all(file.parent().expect("a file has a folder"))
+                .await
+                .expect("the folder is made");
+            tokio::fs::write(&file, text)
+                .await
+                .expect("the file is written");
+        }
+        run_in(&git, &source, &["add", "."]).await;
+        run_in(&git, &source, &["commit", "-m", "first"]).await;
+        let commit = strip_line_end(run_in(&git, &source, &["rev-parse", "HEAD"]).await);
+        let commit = String::from_utf8(commit).expect("an id is ASCII");
+        let gitlink = format!("160000,{commit},inside/sub");
+        run_in(
+            &git,
+            &source,
+            &["update-index", "--add", "--cacheinfo", &gitlink],
+        )
+        .await;
+        run_in(&git, &source, &["commit", "-m", "sub"]).await;
+        run_in(&git, &source, &["config", "uploadpack.allowFilter", "true"]).await;
+        run_in(
+            &git,
+            &source,
+            &[
+                "sparse-checkout",
+                "set",
+                "--cone",
+                "--sparse-index",
+                "inside",
+            ],
+        )
+        .await;
+        let source_url = format!(
+            "file://{}",
+            source.to_str().expect("the temporary path is Unicode")
+        );
+        let clone_text = clone.to_str().expect("the temporary path is Unicode");
+        run_in(
+            &git,
+            &outer,
+            &[
+                "clone",
+                "--quiet",
+                "--no-checkout",
+                "--filter=tree:0",
+                &source_url,
+                clone_text,
+            ],
+        )
+        .await;
+        // The source's sparse index, whose `outside/` entry names a tree the clone lacks.
+        tokio::fs::copy(source.join(".git/index"), clone.join(".git/index"))
+            .await
+            .expect("the index is copied");
+        tokio::fs::copy(
+            source.join(".git/info/sparse-checkout"),
+            clone.join(".git/info/sparse-checkout"),
+        )
+        .await
+        .expect("the sparse patterns are copied");
+        for [key, value] in [
+            ["core.sparseCheckout", "true"],
+            ["core.sparseCheckoutCone", "true"],
+            ["index.sparse", "true"],
+        ] {
+            run_in(&git, &clone, &["config", key, value]).await;
+        }
+        tokio::fs::create_dir_all(clone.join("inside/sub"))
+            .await
+            .expect("the submodule's folder is made");
+        tokio::fs::write(
+            clone.join("inside/sub/.git"),
+            "gitdir: ../../.git/modules/sub\n",
+        )
+        .await
+        .expect("the submodule's entry is written");
+        let packs = pack_count(&clone);
+
+        let submodules = checked_out_submodules(&git, None, &clone)
+            .await
+            .expect("the clone's submodules are listed");
+
+        assert_eq!(submodules, [clone.join("inside").join("sub")]);
+        assert_eq!(pack_count(&clone), packs);
     }
 
     // An index whose listing passes what one git read may hold still lists the submodule recorded

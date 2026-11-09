@@ -99,6 +99,9 @@ pub(crate) enum DaemonStartError {
     /// This machine's row could not be read or minted.
     #[error(transparent)]
     LocalMachine(#[from] LocalMachineError),
+    /// The client bun is fetched through could not be built.
+    #[error("bun's download client could not be built")]
+    BunClient(#[source] reqwest::Error),
     /// The thread that holds the machine awake could not start.
     #[error("the keep-awake hold's thread could not start")]
     KeepAwake(#[source] std::io::Error),

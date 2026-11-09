@@ -759,6 +759,7 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
                 argument_record: None,
                 ..StandInAnswer::default()
             },
+            first_call_wait: None,
         },
     )
     .expect("the failing Codex command is written")
