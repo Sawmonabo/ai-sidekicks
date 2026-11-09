@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The one entitlement every signed Mach-O in the macOS app carries: V8 compiles code at run time,
+     which the hardened runtime refuses without it. Library validation stays on, so the daemon's
+     signature check admits the client helper. -->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

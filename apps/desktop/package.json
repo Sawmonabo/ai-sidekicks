@@ -26,7 +26,7 @@
     "build": "electron-vite build",
     "build:smoke": "electron-vite build --mode=smoke",
     "build:fixtures": "electron-vite build --mode=fixtures",
-    "package": "electron-vite build && electron-builder --mac --dir",
+    "package": "electron-vite build && node --experimental-strip-types build/package-mac.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.browser-test.json && tsc -p tsconfig.electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint build scripts src fixtures tests vitest",
     "test:coverage": "vitest run --project=renderer --coverage",
@@ -46,11 +46,11 @@
     "test": "turbo run test:main-unit test:renderer --filter=@ai-sidekicks/desktop && turbo run test:browser --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:bundle budget:bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:e2e --filter=@ai-sidekicks/desktop --concurrency=1"
   },
   "dependencies": {
+    "@ai-sidekicks/client-sdk": "workspace:*",
     "electron-updater": "6.8.10",
     "notify-status": "1.1.1"
   },
   "devDependencies": {
-    "@ai-sidekicks/client-sdk": "workspace:*",
     "@ai-sidekicks/compression": "workspace:*",
     "@ai-sidekicks/contracts": "workspace:*",
     "@ai-sidekicks/markdown-parser": "workspace:*",

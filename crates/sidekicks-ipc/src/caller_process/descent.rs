@@ -87,8 +87,8 @@ impl CallerCheck {
     /// run by a held provider service's hook; refused when the daemon or a held provider service
     /// otherwise started it or nothing vouches for it; admitted by its signature when
     /// `is_tokenless` and it is the desktop's signed client helper; otherwise only with the session
-    /// token. A signature that does not meet the requirement is logged at debug with its status.
-    /// Fails when the system refuses a read.
+    /// token. An admission by signature is logged, and a signature that does not meet the
+    /// requirement is logged at debug with its status. Fails when the system refuses a read.
     async fn admit(
         &self,
         caller: PinnedProcess,
@@ -131,7 +131,12 @@ impl CallerCheck {
             .await
             .expect("the signature checks' semaphore is never closed");
         Ok(match self.reader.check_desktop_client(caller, app).await? {
-            Some(SignatureCheck::Met) => CallerAdmission::Signature,
+            Some(SignatureCheck::Met) => {
+                tracing::info!(
+                    "a tokenless caller was admitted as the desktop's client by its signature"
+                );
+                CallerAdmission::Signature
+            }
             Some(SignatureCheck::NotMet { status }) => {
                 tracing::debug!(
                     status,

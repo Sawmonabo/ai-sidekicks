@@ -147,6 +147,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@ai-sidekicks/client-sdk':
+        specifier: workspace:*
+        version: link:../../packages/client-sdk
       electron-updater:
         specifier: 6.8.10
         version: 6.8.10
@@ -154,9 +157,6 @@ importers:
         specifier: 1.1.1
         version: 1.1.1
     devDependencies:
-      '@ai-sidekicks/client-sdk':
-        specifier: workspace:*
-        version: link:../../packages/client-sdk
       '@ai-sidekicks/compression':
         specifier: workspace:*
         version: link:../../packages/compression

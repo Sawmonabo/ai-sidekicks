@@ -23,6 +23,7 @@ AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Cl
 - [V1 Scope](#v1-scope)
 - [Build Order](#build-order)
 - [Project Status](#project-status)
+- [Install](#install)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -213,6 +214,12 @@ Phases still to build, and the order between them, live in [`docs/architecture/c
 ## Project Status
 
 Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). Until SignPath Foundation accepts the project and signs the Windows builds, they publish unsigned, and a Windows machine with Smart App Control on cannot run them ([BL-108](docs/backlog.md#bl-108-signpath-foundations-acceptance-for-windows-signing)).
+
+---
+
+## Install
+
+On macOS, `CSC_NAME="<your Apple Development identity>" pnpm --filter @ai-sidekicks/desktop package` builds `AI Sidekicks.app` into `apps/desktop/dist/`, signed with your own Apple Development identity (`security find-identity -v -p codesigning` lists its name), after the workspace packages are built. The app is not notarized, so a copy opened on another Mac is blocked the first time: open it once, then choose **Open Anyway** in System Settings › Privacy & Security.
 
 ---
 
