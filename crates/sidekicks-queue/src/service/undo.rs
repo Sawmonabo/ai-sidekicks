@@ -5,23 +5,26 @@
 //! relaunch once the fence opened its cursor; and the release, which sends the edited message ahead
 //! of every send held meanwhile and opens the lead's next turn with it.
 
-use std::sync::{Arc, LazyLock, Weak};
+pub(crate) mod reach;
 
-use rusqlite::named_params;
+use std::sync::{Arc, Weak};
+
 use sidekicks_contracts::event::envelope::SourcePosition;
-use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemCreateRequest, QueueItemId, QueueItemState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::SessionEventCursorUnresolvable;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::restore::{SessionRestoreResend, SessionRestoreTarget};
+use sidekicks_contracts::session::restore::{
+    SessionRestoreResend, SessionRestoreScope, SessionRestoreTarget,
+};
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use sidekicks_provider::left_conversations::{
     LeftConversation, compose_fork_left_conversation_insert,
@@ -29,8 +32,6 @@ use sidekicks_provider::left_conversations::{
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, read_binding,
 };
-use sidekicks_session::checkpoints::store::{CheckpointReadError, read_checkpoint};
-use sidekicks_session::driver_resolution::read_run_driver;
 use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
 use sidekicks_session::run::engine::undo::{
     RollbackCheckError, RollbackCompanionCheck, RollbackCompanions, RunCut, RunRollback,
@@ -41,29 +42,14 @@ use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
-use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
-use sidekicks_store::events::session::read::SessionEventReads;
 
+use self::reach::{ReachRead, UndoReach, read_reach};
 use super::RunQueue;
 use crate::delivery::{UndoHoldId, reordered_of};
 use crate::error::QueueError;
 use crate::provider_session::close_unrecorded;
 use crate::provider_session::errors::ProviderSessionError;
-
-// The session's lead runs made after `@run_id` that have left `queued`, oldest first: a run id is
-// a UUIDv7, so the ids' order is the order the runs were made.
-static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT run_id FROM runs
-  WHERE session_id = @session_id
-    AND parent_run_id IS NULL
-    AND state <> '{}'
-    AND run_id > @run_id
-  ORDER BY run_id",
-        <&'static str>::from(RunState::Queued)
-    )
-});
 
 /// One undo's hold on a session's lead, from [`RunQueue::hold_for_undo`]: the cut borrows it and
 /// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped
@@ -126,10 +112,11 @@ pub enum ConversationCut {
     /// The provider cut the conversation; every run it reached is rolled back and the cut fenced,
     /// and a fork it cut onto is recorded as the session's binding.
     Applied {
-        /// The rollbacks written, the target's run first, then each later run oldest first.
+        /// The rollbacks written, the reach's run first, then each later run oldest first.
         rollbacks: Vec<RunRollback>,
-        /// The text of the message the cut removed, for the composer, where the provider gave it.
-        cut_message_text: Option<String>,
+        /// Where the cut went back to and the person's messages it took back, for the draft and a
+        /// resend.
+        reach: UndoReach,
     },
     /// The provider took a fallback instead; nothing was written.
     Degraded {
@@ -164,8 +151,9 @@ pub enum ConversationCutError {
     /// A stored rollback of the checkpoint's run does not match its contract.
     #[error(transparent)]
     Rollback(StoredRollbackMismatchError),
-    /// The person's message at the checkpoint does not read as one sent through the queue, so the
-    /// provider knows no id for it.
+    /// The person's message the cut goes back to, at the checkpoint or at the opening of the turn
+    /// it steered into, or one it takes back, does not read as one sent through the queue, so the
+    /// provider knows no id for it and no queue item holds its words.
     #[error("the message the undo goes back to was not sent through the queue")]
     MessageNotQueued,
     /// A run the cut reaches holds a turn with no end; the turn must end before the cut.
@@ -210,9 +198,11 @@ impl From<DatabaseReadError> for ConversationCutError {
 
 // What the cut reaches, read before the provider is asked.
 struct CutReach {
-    // The id the provider knows the person's message by.
-    target_message_id: QueueItemId,
-    // The target's run, cut at the turn before the target's.
+    // Where the cut goes back to and the messages it takes back.
+    reach: UndoReach,
+    // The driver of the reach's run, which cuts.
+    driver: Arc<dyn ProviderDriver>,
+    // The reach's run, cut at the position before the reach's.
     cut: RunCut,
     // The session's later lead runs, each cut whole.
     later_cuts: Vec<RunCut>,
@@ -241,13 +231,14 @@ impl RunQueue {
     }
 
     /// Cuts the held session's conversation before the person's message `target` names, as the
-    /// provider of the target's run does it, outside every lock. Once the provider applied it, one
-    /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
-    /// and of each later lead run at its start, with `companions` committing in it, and the cut is
-    /// fenced on the session's live binding; a fork the provider cut onto is recorded in that write
-    /// as a conversation the binding left, so the purge reaches it whatever follows, and then as
-    /// that binding's relaunch, the conversation it left with it, under the same holds; the hold
-    /// stays.
+    /// provider of the target's run does it, outside every lock: before that message, or, on a
+    /// provider whose cut lands only at turns, before the opening of the turn it steered into.
+    /// Once the provider applied it, one write records an `agent.run.rolledBack` of that run at the
+    /// position before the reach's and of each later lead run at its start, with `companions`
+    /// committing in it, and the cut is fenced on the session's live binding; a fork the provider
+    /// cut onto is recorded in that write as a conversation the binding left, so the purge reaches
+    /// it whatever follows, and then as that binding's relaunch, the conversation it left with it,
+    /// under the same holds; the hold stays.
     /// A turn opening on the session that meets the write in progress opens once the write has
     /// ended. Refuses as [`ConversationCutError`] says before the provider is asked, an open turn
     /// among the runs it reaches and a companion its check refuses included; a provider's fallback
@@ -269,21 +260,18 @@ impl RunQueue {
         let reach = self
             .read_cut_reach(session_id, target, binding_id, &companions.check)
             .await?;
-        let driver =
-            read_run_driver::<QueueError>(&self.pool, &self.providers, reach.cut.run_id).await?;
+        let driver = Arc::clone(&reach.driver);
         let rewound = driver
             .rewind_conversation(RewindConversationParams {
                 session_id,
                 binding_id: reach.binding.id.clone(),
-                target_message_id: reach.target_message_id.to_string(),
+                target_message_id: reach.reach.message_id.to_string(),
             })
             .await
             .map_err(QueueError::from)?;
-        let (fork, cut_message_text) = match rewound {
-            RewindConversationResult::Applied {
-                fork,
-                cut_message_text,
-            } => (fork, cut_message_text),
+        // The draft's words come from the daemon's own queue items, never the provider's.
+        let fork = match rewound {
+            RewindConversationResult::Applied { fork, .. } => fork,
             RewindConversationResult::Degraded { fallback_action } => {
                 return Ok(ConversationCut::Degraded { fallback_action });
             }
@@ -337,7 +325,7 @@ impl RunQueue {
                 .map_err(ConversationCutError::Fence)?;
             return Ok(ConversationCut::Applied {
                 rollbacks,
-                cut_message_text,
+                reach: reach.reach,
             });
         };
         // The fork's row is recorded once this fence opened its cursor, under both holds: a row
@@ -384,7 +372,7 @@ impl RunQueue {
         }
         Ok(ConversationCut::Applied {
             rollbacks,
-            cut_message_text,
+            reach: reach.reach,
         })
     }
 
@@ -519,43 +507,29 @@ impl RunQueue {
     ) -> Result<CutReach, ConversationCutError> {
         let target = target.clone();
         let check = Arc::clone(check);
+        let providers = Arc::clone(&self.providers);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
-                let read_damaged = |session: &SessionId| read_damaged_from_sequence(session);
-                let checkpoint = match read_checkpoint(reader, read_damaged, session_id, &target) {
-                    Ok(Some(stored)) => stored.checkpoint,
-                    Ok(None) => return Err(ConversationCutError::NoCheckpoint { source: None }),
-                    Err(CheckpointReadError::CursorUnresolvable(source)) => {
-                        return Err(ConversationCutError::NoCheckpoint {
-                            source: Some(source),
-                        });
-                    }
-                    Err(CheckpointReadError::Superseded { .. }) => {
-                        return Err(ConversationCutError::Superseded);
-                    }
-                    Err(CheckpointReadError::Database(error)) => {
-                        return Err(QueueError::from(error).into());
-                    }
-                    Err(CheckpointReadError::Rollback(error)) => {
-                        return Err(ConversationCutError::Rollback(error));
-                    }
-                };
-                let sent = SessionEventReads::new(reader, read_damaged)
-                    .read_at_sequences(&session_id, &[i64::from(checkpoint.message_sequence)])
-                    .map_err(QueueError::from)?;
-                let target_message_id = match sent
-                    .first()
-                    .map(SessionEvent::from_envelope)
-                    .transpose()
-                    .map_err(QueueError::from)?
-                {
-                    Some(SessionEvent::UserMessageSent(payload)) => payload.queue_item_id,
-                    _ => None,
-                }
-                .ok_or(ConversationCutError::MessageNotQueued)?;
-                // The kept turns of the target's run are those before the target's own.
-                let point = checkpoint
+                // A cut is made only with the conversation in scope, and both scopes holding it
+                // reach alike.
+                let ReachRead {
+                    reach,
+                    later_run_ids,
+                    driver,
+                } = read_reach(
+                    reader,
+                    &providers,
+                    &*read_damaged_from_sequence,
+                    session_id,
+                    &target,
+                    SessionRestoreScope::Conversation,
+                )?;
+                let driver =
+                    driver.expect("a reach with the conversation in scope resolves its driver");
+                // The kept positions of the reach's run are those before the reach's own.
+                let point = reach
+                    .checkpoint
                     .turn
                     .position
                     .0
@@ -563,27 +537,14 @@ impl RunQueue {
                     .checked_sub(1)
                     .and_then(SafeInt::new)
                     .map(SourcePosition)
-                    .expect("a turn a message opened sits past its run's start");
+                    .expect("a message the person sent sits past its run's start");
                 let cut = RunCut {
-                    run_id: checkpoint.run_id,
+                    run_id: reach.checkpoint.run_id,
                     target_position: point,
                 };
-                let later_cuts: Vec<RunCut> = reader
-                    .prepare_cached(&LATER_LEAD_RUNS_SQL)
-                    .and_then(|mut statement| {
-                        statement
-                            .query_map(
-                                named_params! {
-                                    "@session_id": session_id.text().as_str(),
-                                    "@run_id": checkpoint.run_id.text().as_str(),
-                                },
-                                |row| text_column(row, 0, |text| RunId::new(&text)),
-                            )?
-                            .collect::<rusqlite::Result<Vec<RunId>>>()
-                    })
-                    .map_err(QueueError::from)?
+                // A later run is cut before its first position, so every message it took goes.
+                let later_cuts: Vec<RunCut> = later_run_ids
                     .into_iter()
-                    // A later run is cut before its first turn, so every turn of it goes.
                     .map(|run_id| RunCut {
                         run_id,
                         target_position: RUN_START_POSITION.position,
@@ -606,13 +567,15 @@ impl RunQueue {
                 let binding = read_binding(reader, &binding_id)
                     .map_err(QueueError::from)?
                     .ok_or(ConversationCutError::NoLiveBinding)?;
+                // The fence opens the binding's run at the point its rollback writes.
                 let binding_point = cuts
                     .iter()
                     .find(|reached| reached.run_id == binding.run_id)
                     .map(|reached| reached.target_position)
                     .ok_or(ConversationCutError::NoLiveBinding)?;
                 Ok(CutReach {
-                    target_message_id,
+                    reach,
+                    driver,
                     cut,
                     later_cuts,
                     binding,

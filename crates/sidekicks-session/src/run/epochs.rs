@@ -209,6 +209,13 @@ impl ExecutionEpochs {
         }
     }
 
+    /// The epoch and run position a binding's cursor stands at, for a test that reads a fence's
+    /// point from outside; `None` for a binding with no cursor open.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn standing(&self, binding_id: &RuntimeBindingId) -> Option<EpochPosition> {
+        self.cursors.get(binding_id).map(|cursor| cursor.current)
+    }
+
     /// The binding a cursor counts for. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open.
     pub fn binding(

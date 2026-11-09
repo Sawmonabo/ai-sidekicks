@@ -141,6 +141,11 @@ pub trait ProviderDriver: Send + Sync {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>>;
 
+    /// Whether the provider's conversation cut can land before a message the person sent into a
+    /// running turn; where it cannot, it lands only before a turn's opening message. A fixed fact
+    /// of the driver, which the queue reads instead of naming the provider.
+    fn can_cut_inside_turn(&self) -> bool;
+
     /// Answers one interactive request the driver raised on a run.
     fn respond_to_request(
         &self,

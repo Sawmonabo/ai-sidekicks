@@ -476,6 +476,13 @@ impl RunBindingCursors {
         lock(&self.epochs).binding(binding_id).is_ok()
     }
 
+    /// The epoch and run position `binding_id`'s cursor stands at, for a test that reads a fence's
+    /// point from outside; `None` for a binding with no cursor open.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn standing(&self, binding_id: &RuntimeBindingId) -> Option<EpochPosition> {
+        lock(&self.epochs).standing(binding_id)
+    }
+
     /// The binding `session_id` runs on now: the one its cursors recorded or continued last,
     /// `None` once that run's cursors dropped or the session closed.
     pub fn current_binding(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
