@@ -14,7 +14,8 @@ mod walk;
 
 pub(crate) use self::branch_cancellation::BranchCancelReason;
 pub(crate) use self::turns::{
-    EngineTickInput, RunCancelIntake, RunCancelRefusal, RunResumeIntake, RunResumeRefusal,
+    EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
+    RunResumeIntake, RunResumeRefusal,
 };
 pub(crate) use self::walk::{ReusedSeedStep, ReusedStepRecord, RunGraph, RunGraphError};
 
@@ -105,6 +106,7 @@ pub(crate) struct RunScope {
 }
 
 /// The test items pinned onto one node for a manual run, hashed once at the run's start.
+#[derive(Clone)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunPin {
     /// The pinned items, which the node gives in place of running.

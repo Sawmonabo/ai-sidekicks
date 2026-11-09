@@ -1,21 +1,175 @@
 //! Whether a parked run may move to another version of its workflow on Resume: a run with nothing
 //! a Resume lifts, any attempt still in flight, or a target that cannot account for what the run
-//! already did refuses the move, each before anything is written.
+//! already did refuses the move, each before anything is written; and the target as a move the
+//! Resume takes reads it: its graph, checked as a start checks one, and the run's steps it keeps.
 
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "a Resume's version re-pin, which takes it")
-)]
+#![cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
+use rusqlite::Connection;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDocumentHashedBody, WorkflowNodeId,
+    WorkflowDocumentHashedBody, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
+use sidekicks_store::database::stored_column::{closed_word, text_column};
 
+use super::RunResumeRefusal;
+use crate::definitions::stored_document::{StoredDocumentError, parse_stored_workflow_body};
+use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
+use crate::engine::partial_run::{PartialRunPlanError, plan_repin};
+use crate::engine::start::check_run_graph;
+use crate::engine::tick::RunGraph;
 use crate::engine::tick::commit::RunLiveStep;
+use crate::engine::tick::live_runs::LiveRun;
+use crate::engine::tick::turns::EngineTick;
+use crate::engine::tick::walk::KeptStep;
+use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
+
+/// The statements a re-pin prepares on the tick's read connection: the target version's read,
+/// which also reads each version that computed a kept step's data, the nodes whose outputs the run
+/// holds, and the run's steps of one node.
+pub(crate) const REPIN_STATEMENT_CAPACITY: usize = 3;
+
+// The nodes of a run with a step that succeeded or was skipped, whose outputs the run holds.
+const HELD_NODES_SQL: &str = "SELECT DISTINCT node_id FROM workflow_steps
+  WHERE workflow_run_id = ?1 AND status IN ('succeeded', 'skipped')";
+
+/// A run's move to another version of its workflow as its Resume takes it: the version, its name,
+/// its nodes, the trigger's among them, its run graph, and the run's steps its rebuilt walk
+/// keeps.
+pub(super) struct RepinTarget {
+    /// The version the run joins.
+    pub(super) workflow_version_id: WorkflowVersionId,
+    /// The workflow's name in that version.
+    pub(super) workflow_name: WorkflowName,
+    /// The version's nodes by id, the trigger included.
+    pub(super) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
+    /// The version's run graph.
+    pub(super) graph: Arc<RunGraph>,
+    /// The places of the graph the rebuilt walk covers, by place.
+    pub(super) covered: Arc<[bool]>,
+    /// The run's steps the rebuilt walk settles again under their own keys, in execution order.
+    pub(super) kept: Vec<KeptStep>,
+}
+
+/// Why a re-pin's reads did not finish; the run is left as it was.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RepinReadError {
+    /// The read pool is closed, a connection did not open, or the read's task did not finish.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
+    /// The run's steps did not read.
+    #[error("the run's steps did not read")]
+    Rows(#[from] rusqlite::Error),
+    /// The target version did not read.
+    #[error(transparent)]
+    Version(#[from] WorkflowVersionsError),
+    /// The target version's stored body does not read.
+    #[error(transparent)]
+    Body(#[from] StoredDocumentError),
+    /// The plan of the steps the run keeps did not read.
+    #[error(transparent)]
+    Plan(#[from] PartialRunPlanError),
+}
+
+impl EngineTick {
+    /// The move of the run of `live`, which a Resume lifts, to `target`, or why it is refused with
+    /// nothing written: `workflow.version.notFound` for a version no saved version of the run's
+    /// workflow answers to, then each refusal of [`repin_refusal`] in its order, then a start's
+    /// checks of the target's graph for the run's repository and provider. The steps the run
+    /// keeps are planned by [`plan_repin`]; their outputs are the run's own, already held.
+    pub(super) async fn repin_target(
+        &self,
+        live: &LiveRun,
+        target: WorkflowVersionId,
+    ) -> Result<RepinTarget, RunResumeRefusal> {
+        let run_id = live.scope.run_id;
+        let (version, held_nodes) = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                let version = WorkflowVersions::new(connection).read_version(target);
+                Ok::<_, RepinReadError>((version, read_held_nodes(connection, run_id)?))
+            })
+            .await
+            .map_err(RunResumeRefusal::Unread)?;
+        let version = match version {
+            Ok(version) if version.definition_id == live.scope.workflow_id => version,
+            // Another workflow's version is none of this run's.
+            Ok(_) => {
+                let not_found = WorkflowNotFound::Version(WorkflowVersionAddress::Id {
+                    workflow_version_id: target,
+                });
+                return Err(RunResumeRefusal::Target(not_found.into()));
+            }
+            Err(WorkflowVersionsError::NotFound(not_found)) => {
+                return Err(RunResumeRefusal::Target(not_found.into()));
+            }
+            Err(error) => return Err(RunResumeRefusal::Unread(error.into())),
+        };
+        let body = parse_stored_workflow_body(&version.definition_body)
+            .map_err(|error| RunResumeRefusal::Unread(error.into()))?;
+        if let Some(refusal) = repin_refusal(
+            live.live_steps(),
+            live.is_parked_on_failure(),
+            &held_nodes,
+            &body,
+        ) {
+            return Err(RunResumeRefusal::Repin(refusal));
+        }
+        let (nodes, graph) = check_run_graph(
+            &self.kinds,
+            &body,
+            live.scope.project.is_some(),
+            live.scope.provider.is_some(),
+        )
+        .map_err(RunResumeRefusal::Target)?;
+        let graph = Arc::new(graph);
+        let planned = Arc::clone(&graph);
+        let plan = self
+            .pool
+            .read(ReadLength::Long, move |connection| {
+                Ok::<_, RepinReadError>(plan_repin(connection, &version, &planned, run_id)?)
+            })
+            .await
+            .map_err(RunResumeRefusal::Unread)?;
+        let (covered, replayed) = plan.replayed(&graph);
+        let mut kept: Vec<KeptStep> = replayed
+            .into_iter()
+            .map(|replayed| KeptStep {
+                step: replayed.settled.step,
+                output_lengths: replayed.output_lengths,
+            })
+            .collect();
+        kept.sort_by_key(|kept| kept.step.execution_index.get());
+        Ok(RepinTarget {
+            workflow_version_id: target,
+            workflow_name: body.name,
+            nodes,
+            graph,
+            covered,
+            kept,
+        })
+    }
+}
+
+/// The nodes of `run_id` whose outputs the run holds, each with a step that succeeded or was
+/// skipped, read on `connection`.
+fn read_held_nodes(
+    connection: &Connection,
+    run_id: WorkflowRunId,
+) -> rusqlite::Result<HashSet<WorkflowNodeId>> {
+    connection
+        .prepare_cached(HELD_NODES_SQL)?
+        .query_map([run_id.text().as_str()], |row| {
+            text_column(row, 0, closed_word)
+        })?
+        .collect()
+}
 
 /// Why a Resume may not move a run to another version.
 #[derive(Debug, PartialEq, Eq)]

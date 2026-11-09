@@ -11,6 +11,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{QuestionWaitOutcome, QuestionWaitSettledPayload};
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
     WorkflowRunCompletedPayload, WorkflowRunEndingStep, WorkflowRunFailedOutcome,
@@ -38,6 +39,10 @@ use crate::runs::step_rows;
 // Only a going or parked run's status moves here; an ended run's row is never written again.
 const RUN_STATUS_SQL: &str = "UPDATE workflow_runs SET status = @status,
     person_wait_since = @person_wait_since, person_wait_ms = @person_wait_ms
+  WHERE id = @id AND finished_at IS NULL";
+
+// A re-pin moves only a going or parked run's row to the version it joins.
+const RUN_VERSION_SQL: &str = "UPDATE workflow_runs SET workflow_version_id = @workflow_version_id
   WHERE id = @id AND finished_at IS NULL";
 
 /// A step of the run the tick keeps live after the turn, as a resumption point names it.
@@ -116,17 +121,27 @@ impl RunTurnCommit {
 
     /// Writes a person's Resume at `at` as `workflow.run.resumed` opening the run's execution
     /// `epoch`, lifting `lifted_parks` failed parks; the steps it runs again ride it, and the
-    /// turn's status move fills in where the run picks up. Answers the event's index.
+    /// turn's status move fills in where the run picks up. Where the Resume moves the run to the
+    /// version `repinned_to`, the event names the version it left and that one, the run's row
+    /// takes it, and the event and every later one of the turn name it. Answers the event's index.
     pub(crate) fn resume_run(
         &mut self,
         at: &WireInstant,
         epoch: WorkflowRunEpoch,
         lifted_parks: usize,
+        repinned_to: Option<WorkflowVersionId>,
     ) -> usize {
         for _ in 0..lifted_parks {
             self.counts.unparked();
         }
         self.epoch = epoch;
+        let mut repinned_from = None;
+        if let Some(joined) = repinned_to {
+            repinned_from = Some(self.keys.workflow_version_id);
+            self.keys.workflow_version_id = joined;
+            let moved = self.run_version_statement();
+            self.statements.push(moved);
+        }
         self.push(
             at,
             SessionEvent::WorkflowRunResumed(run_payload!(
@@ -138,8 +153,8 @@ impl RunTurnCommit {
                     active_steps: Vec::new(),
                     pending_gates: Vec::new(),
                 },
-                repinned_from_workflow_version_id: None,
-                repinned_to_workflow_version_id: None,
+                repinned_from_workflow_version_id: repinned_from,
+                repinned_to_workflow_version_id: repinned_to,
                 readied: Vec::new(),
             )),
         );
@@ -343,6 +358,22 @@ impl RunTurnCommit {
                 .into_iter()
                 .map(|step| step.node_id.clone())
                 .collect(),
+        }
+    }
+
+    /// The statement that moves the run's row to the version the turn's events name, refusing the
+    /// write unless the run is still going or parked.
+    fn run_version_statement(&self) -> WriteStatement {
+        WriteStatement {
+            sql: Cow::Borrowed(RUN_VERSION_SQL),
+            bindings: StatementBindings::Named(vec![
+                text_binding(
+                    "@workflow_version_id",
+                    self.keys.workflow_version_id.text().as_str(),
+                ),
+                text_binding("@id", self.run_id.text().as_str()),
+            ]),
+            expected_row_count: Some(1),
         }
     }
 

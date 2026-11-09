@@ -15,7 +15,7 @@ mod starting;
 mod tests;
 
 pub(crate) use ending::{RunCancelIntake, RunCancelRefusal, RunCancelReply};
-pub(crate) use resuming::{RunResumeIntake, RunResumeRefusal};
+pub(crate) use resuming::{RepinReadError, RepinRefusal, RunResumeIntake, RunResumeRefusal};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::definition::document::WorkflowNode;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowVersionId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -61,10 +61,10 @@ use self::starting::RunOpening;
 /// The most reports one turn takes, and the most inputs from its inbox, so a turn stays bounded.
 const TURN_REPORT_LIMIT: usize = 256;
 
-/// The statements the tick prepares on a read connection: the workflow's level, and a chain's
-/// held steps and its question, which Keep going reads.
+/// The statements the tick prepares on a read connection: the workflow's level, a chain's held
+/// steps and its question, which Keep going reads, and a re-pin's reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) const ENGINE_TICK_STATEMENT_CAPACITY: usize = 3;
+pub(crate) const ENGINE_TICK_STATEMENT_CAPACITY: usize = 3 + resuming::REPIN_STATEMENT_CAPACITY;
 
 // Why the kinds table lists every node of a live run.
 const KIND_CHECKED: &str = "the start checked that the table lists every node's kind";
@@ -182,8 +182,9 @@ struct RunTurn {
     /// The steps the turn resumed from a spent account, each with its kept agent run, taken
     /// again once the write commits.
     resumes: Vec<(WorkflowStepKey, ParkedAgentRun)>,
-    /// The replies to the person's Resumes the turn took, sent once its write commits.
-    resume_replies: Vec<resuming::RunResumeReply>,
+    /// The replies to the person's Resumes the turn took, each with the version a re-pin moved the
+    /// run from, sent once its write commits.
+    resume_replies: Vec<(resuming::RunResumeReply, Option<WorkflowVersionId>)>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
@@ -568,7 +569,7 @@ impl EngineTick {
             self.apply_follow_ups(&mut live, &mut turn).await;
         }
         for intake in resumes {
-            resuming::apply_resume(&mut live, &mut turn, intake);
+            self.apply_resume(&mut live, &mut turn, intake).await;
             self.apply_follow_ups(&mut live, &mut turn).await;
         }
         for intake in cancels {
@@ -649,8 +650,8 @@ impl EngineTick {
                 for reply in replies {
                     let _unheard = reply.send(Ok(()));
                 }
-                for reply in resume_replies {
-                    let _unheard = reply.send(Ok(()));
+                for (reply, left_version) in resume_replies {
+                    let _unheard = reply.send(Ok(left_version));
                 }
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {
                     live.record.decision(step.as_ref(), line).await;

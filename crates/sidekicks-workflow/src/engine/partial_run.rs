@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use fixedbitset::FixedBitSet;
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
@@ -119,6 +119,59 @@ impl PartialRunPlan {
         self.reused.clear();
         self.inputs.clear();
     }
+
+    /// The places of `graph`, the graph the plan was made on, that the plan covers, by place, and
+    /// each settled step a walk on it replays: every settled step of the nodes it reuses or reads as prior input, but those the walk skips
+    /// on its own and so never readies to replay, every step of a node `graph` disables and a skip
+    /// of its own that passed no items on.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn replayed(self, graph: &RunGraph) -> (Arc<[bool]>, Vec<ReplayedStep>) {
+        let mut covered = vec![false; graph.node_count()];
+        for node_id in &self.executed {
+            covered[graph.place(node_id)] = true;
+        }
+        let mut replayed = Vec::new();
+        for (node_id, steps) in self.reused.into_iter().chain(self.inputs) {
+            let place = graph.place(&node_id);
+            covered[place] = true;
+            if graph.node(place).is_disabled {
+                continue;
+            }
+            for settled in steps {
+                let output_lengths: Vec<usize> = settled
+                    .output_item_counts
+                    .iter()
+                    .map(|count| {
+                        usize::try_from(count.get())
+                            .expect("an output's item count fits in a pointer-sized integer")
+                    })
+                    .collect();
+                let is_own_skip =
+                    settled.status == WorkflowStepStatus::Skipped && settled.reused_from.is_none();
+                if is_own_skip && output_lengths.iter().all(|&length| length == 0) {
+                    continue;
+                }
+                replayed.push(ReplayedStep {
+                    node_id: node_id.clone(),
+                    settled,
+                    output_lengths,
+                });
+            }
+        }
+        (Arc::from(covered), replayed)
+    }
+}
+
+/// A settled step a walk on a plan's graph replays, beside its node and its main outputs' item
+/// counts in output order.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) struct ReplayedStep {
+    /// The step's node.
+    pub(crate) node_id: WorkflowNodeId,
+    /// The step.
+    pub(crate) settled: SettledStep,
+    /// How many items each main output holds, in output order.
+    pub(crate) output_lengths: Vec<usize>,
 }
 
 /// Why a partial run could not be planned.
@@ -466,39 +519,100 @@ pub(crate) fn plan_retry(
     target: &WorkflowNodeId,
 ) -> rusqlite::Result<PartialRunPlan> {
     let target_place = graph.place(target);
-    let mut node_steps = connection.prepare_cached(NODE_STEPS_SQL)?;
-    let mut settled = HashMap::new();
     let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
     needs_execution.insert(target_place);
-    for place in 0..graph.node_count() {
-        if place == target_place
-            || graph
-                .ancestors(place)
-                .any(|ancestor| ancestor == target_place)
-        {
-            continue;
+    let settled = read_run_settled_steps(
+        connection,
+        graph,
+        source_run_id,
+        &mut needs_execution,
+        |place| {
+            place == target_place
+                || graph
+                    .ancestors(place)
+                    .any(|ancestor| ancestor == target_place)
+        },
+    )?;
+    Ok(plan_over_run(graph, settled, needs_execution))
+}
+
+/// The plan of a run of `run_id` moved to `target_version`, whose run graph is `graph`: each node
+/// whose steps in the run all settled, were fed by the steps the plan keeps for its feeders and
+/// that `target_version` leaves as the version that computed their data held it reuses them; every
+/// other node executes, the target's changed, added and removed nodes as [`dirty_nodes`] marks
+/// them among them, with what [`executing_places`] adds. The trigger's steps, the run's start, are
+/// always kept. Reads the run's steps, the target's body and each version that computed the steps'
+/// data, and fails as [`PartialRunPlanError`] says.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) fn plan_repin(
+    connection: &Connection,
+    target_version: &VersionRow,
+    graph: &RunGraph,
+    run_id: WorkflowRunId,
+) -> Result<PartialRunPlan, PartialRunPlanError> {
+    let mut needs_execution = FixedBitSet::with_capacity(graph.node_count());
+    let settled =
+        read_run_settled_steps(connection, graph, run_id, &mut needs_execution, |_| false)
+            .map_err(PartialRunPlanError::SettledSteps)?;
+    let trigger_id = &graph.node(graph.trigger()).id;
+    for node_id in read_dirty_nodes(connection, target_version, graph, &settled)? {
+        if &node_id != trigger_id {
+            needs_execution.insert(graph.place(&node_id));
         }
+    }
+    Ok(plan_over_run(graph, settled, needs_execution))
+}
+
+/// The settled steps in `run_id` of each node of `graph` that `is_passed_over` does not name, each
+/// in execution order; a node the run never reached, or whose steps in it did not all settle, is
+/// added to `needs_execution` instead. Fails with the SQLite error, or
+/// `rusqlite::Error::FromSqlConversionFailure` for a stored value that does not read.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn read_run_settled_steps(
+    connection: &Connection,
+    graph: &RunGraph,
+    run_id: WorkflowRunId,
+    needs_execution: &mut FixedBitSet,
+    is_passed_over: impl Fn(usize) -> bool,
+) -> rusqlite::Result<HashMap<WorkflowNodeId, Vec<SettledStep>>> {
+    let mut node_steps = connection.prepare_cached(NODE_STEPS_SQL)?;
+    let mut settled = HashMap::new();
+    for place in (0..graph.node_count()).filter(|&place| !is_passed_over(place)) {
         let node_id = &graph.node(place).id;
         let steps = node_steps
             .query_map(
                 named_params! {
-                    "@run_id": source_run_id.text().as_str(),
+                    "@run_id": run_id.text().as_str(),
                     "@node_id": node_id.as_str(),
                 },
                 |row| settled_step_from_row(node_id, row),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        if steps.is_empty() {
-            needs_execution.insert(place);
-            continue;
-        }
-        match settled_steps_of(steps) {
+        let kept = if steps.is_empty() {
+            None
+        } else {
+            settled_steps_of(steps)
+        };
+        match kept {
             Some(steps) => {
                 settled.insert(node_id.clone(), steps);
             }
             None => needs_execution.insert(place),
         }
     }
+    Ok(settled)
+}
+
+/// The plan over every node of `graph` reusing steps of one run, given each node's `settled` steps
+/// in it and `needs_execution`, the places that cannot reuse theirs: a node whose steps were not
+/// fed by the steps the plan keeps for its feeders executes too, with what [`executing_places`]
+/// adds; every other node with settled steps reuses them.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn plan_over_run(
+    graph: &RunGraph,
+    mut settled: HashMap<WorkflowNodeId, Vec<SettledStep>>,
+    mut needs_execution: FixedBitSet,
+) -> PartialRunPlan {
     for (node_id, steps) in &settled {
         if !is_fed_by_reused_steps(steps, &settled) {
             needs_execution.insert(graph.place(node_id));
@@ -521,7 +635,7 @@ pub(crate) fn plan_retry(
             plan.reused.push((node_id.clone(), steps));
         }
     }
-    Ok(plan)
+    plan
 }
 
 /// Whether every step of `steps`, one node's settled steps, was fed by the very steps `settled`

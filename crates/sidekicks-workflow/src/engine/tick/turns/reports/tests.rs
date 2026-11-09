@@ -9,11 +9,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::time::timeout;
 
 use crate::engine::ports::AgentStepOutcome;
-use crate::engine::tick::turns::resuming::tests::resume;
+use crate::engine::tick::turns::resuming::tests::{
+    resume, run_version, store_versions, target_version,
+};
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
-use crate::engine::tick::turns::{EngineTickInput, RunResumeRefusal};
+use crate::engine::tick::turns::{EngineTickInput, RepinRefusal, RunResumeRefusal};
+use crate::test_rows::stored_rows;
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
@@ -530,7 +533,10 @@ async fn the_cap_passing_during_an_account_park_ends_the_run() {
     let cleared = cap_lines(&harness, "deadlineCleared");
     assert_eq!(cleared.len(), 1, "the ending clears the cap");
     assert_eq!(cleared[0]["at"], json!(cap_at));
-    assert_eq!(resume(&harness).await, Err(RunResumeRefusal::NotHeld));
+    assert!(matches!(
+        resume(&harness, None).await,
+        Err(RunResumeRefusal::NotHeld)
+    ));
     assert_eq!(harness.agents.resumes(), 0);
     assert_eq!(harness.armed(), None, "nothing of the run stays armed");
 }
@@ -603,6 +609,59 @@ async fn a_parked_step_resumes_once_its_reset_passes() {
     );
 }
 
+/// A re-pin while A waits on its spent account is refused as an attempt in flight, naming A, with
+/// the rows and A's armed resume as they were; the armed resume then takes A's run again on the
+/// pinned version, its `workflow.run.resumed` naming no version pair. Kills: the refused re-pin
+/// clearing the armed resume; the armed resume moving the run to the version a refused re-pin
+/// named.
+#[tokio::test]
+async fn a_scheduled_resume_never_repins() {
+    let mut harness = Harness::new(None).await;
+    let pinned = harness.scope.workflow_version_id;
+    let nodes = [
+        node("trigger", "test.trigger", 0, None),
+        node("A", "test.agent", 1, None),
+    ];
+    let edges = [edge("trigger", "A", 0)];
+    let mut changed_a = node("A", "test.agent", 1, None);
+    changed_a.params =
+        serde_json::from_value(json!({ "changed": true })).expect("the test's params read");
+    let target_nodes = [node("trigger", "test.trigger", 0, None), changed_a];
+    store_versions(&harness, (&nodes, &edges), (&target_nodes, &edges));
+    let resets_at = park_until_a_minute_from_now(&mut harness).await;
+    let before = stored_rows(&harness.rows);
+
+    let refused = resume(&harness, Some(target_version()))
+        .await
+        .expect_err("the re-pin is refused");
+    harness.wait_for_earlier_turns().await;
+
+    assert!(
+        matches!(
+            &refused,
+            RunResumeRefusal::Repin(RepinRefusal::AttemptInFlight(step))
+                if step.node_id.as_str() == "A"
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(stored_rows(&harness.rows), before);
+    assert_eq!(harness.armed(), Some(wall_instant(&resets_at)));
+    harness
+        .clock
+        .set_now(wall_instant(&resets_at) + Duration::from_secs(1));
+    timeout(WAIT, harness.agents.wait_for_resume())
+        .await
+        .expect("A's kept run is taken again");
+    let (_, _, _, resumed) = harness
+        .events()
+        .into_iter()
+        .find(|(_, event_type, _, _)| event_type == "workflow.run.resumed")
+        .expect("the run resumes");
+    assert_eq!(resumed.get("repinnedToWorkflowVersionId"), None);
+    assert_eq!(resumed["workflowVersionId"], json!(pinned));
+    assert_eq!(run_version(&harness.rows), pinned.text().as_str());
+}
+
 /// A person's Resume while A waits on its spent account, its reset a minute away, and W waits on
 /// a reply lifts A's wait now: its row back to `running` with its resume cleared, its kept run
 /// taken again, while W keeps waiting. Kills: the Resume refused until the reset passes; W's wait
@@ -636,7 +695,10 @@ async fn a_resume_lifts_an_account_park_ahead_of_its_reset_and_leaves_a_person_w
         .await;
     harness.wait_for_earlier_turns().await;
 
-    assert_eq!(resume(&harness).await, Ok(()));
+    assert_eq!(
+        resume(&harness, None).await.expect("the Resume is taken"),
+        None
+    );
     timeout(WAIT, harness.agents.wait_for_resume())
         .await
         .expect("A's kept run is taken again");

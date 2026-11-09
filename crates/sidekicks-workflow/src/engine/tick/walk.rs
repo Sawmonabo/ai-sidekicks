@@ -34,7 +34,7 @@ use self::first_to_arrive::{DecidedWin, FirstToArriveWin};
 use self::graph::SlotTarget;
 pub(crate) use self::graph::{RunGraph, RunGraphError};
 use self::lineage::StepLineage;
-pub(crate) use self::reuse::ReusedSeedStep;
+pub(crate) use self::reuse::{KeptStep, ReusedSeedStep};
 use self::round::{NodeRounds, Round, RoundSlot, SlotOpenings};
 use crate::expressions::lineage::{StepKey, StepOutputs};
 
@@ -121,8 +121,9 @@ struct LiveStep {
 }
 
 /// The walk of one run over its graph: the steps live, each node's open rounds, the feeds its
-/// disabled skips passed on, the first-to-arrive wins decided, the next execution index, and for a
-/// partial run the places it covers and the earlier steps it replays.
+/// disabled skips passed on, the first-to-arrive wins decided, the next execution index, for a
+/// partial run the places it covers and the earlier steps it replays, and for a walk rebuilt on
+/// another version the steps it keeps and the attempts its steps run again carry.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunWalk {
     /// The run's graph.
@@ -135,6 +136,12 @@ pub(crate) struct RunWalk {
     covered: Option<Arc<[bool]>>,
     /// The earlier steps still to replay at each place, by place, in their run's execution order.
     reused: BTreeMap<usize, VecDeque<ReusedSeedStep>>,
+    /// For a walk rebuilt on another version, the run's own steps still to settle again under
+    /// their own keys at each place, by place, in execution order.
+    kept: BTreeMap<usize, VecDeque<KeptStep>>,
+    /// For a walk rebuilt on another version, the attempt each place's next step readied to run
+    /// takes, by place, in order: a step run again keeps counting its tries.
+    carried_attempts: BTreeMap<usize, VecDeque<SafeInt<1>>>,
     /// The steps readied and not yet settled, by execution index.
     live: BTreeMap<u64, LiveStep>,
     /// Each node's rounds, by its place in the graph.
@@ -173,6 +180,8 @@ impl RunWalk {
             next_execution_index: 0,
             covered: None,
             reused: BTreeMap::new(),
+            kept: BTreeMap::new(),
+            carried_attempts: BTreeMap::new(),
             live: BTreeMap::new(),
             rounds,
             passed_on: BTreeMap::new(),
@@ -633,9 +642,10 @@ impl RunWalk {
             .expect("a round taken is open")
     }
 
-    /// Readies `step` of the node at `place`, of `lineage`, making it live, or, where the place has
-    /// an earlier step left to replay, settles it at once as that step. A loop node's step
-    /// belongs to the passes around its loop, not its own; it starts a new pass of what it leads
+    /// Readies `step` of the node at `place`, of `lineage`, making it live, or, where the place
+    /// keeps a step of the run's own, settles that step again in its stead, writing nothing, or,
+    /// where it has an earlier step left to replay, settles it at once as that step. A loop node's
+    /// step belongs to the passes around its loop, not its own; it starts a new pass of what it leads
     /// to, so it closes the rounds of earlier passes nothing can fill, and no win at a node its
     /// body holds reaches it: such a win's pass is over, and the new pass's feeds open new rounds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -656,6 +666,20 @@ impl RunWalk {
                 .retain(|&win| !graph.is_in_loop_body(wins[win].place, place));
             self.close_passed_rounds(place, turn);
         }
+        if let Some(kept) = self.take_kept(place, &step) {
+            self.live.insert(
+                kept.step.execution_index.get(),
+                LiveStep {
+                    step: kept.step.clone(),
+                    place,
+                    run_index,
+                    sources,
+                    lineage,
+                },
+            );
+            self.settle_into(&kept.step, &kept.output_lengths, turn);
+            return;
+        }
         self.live.insert(
             step.execution_index.get(),
             LiveStep {
@@ -667,6 +691,7 @@ impl RunWalk {
             },
         );
         if !self.replay_reused(place, &step, run_index, &sources, turn) {
+            let step = self.carry_attempt(place, step);
             turn.ready.push(WalkReady {
                 step,
                 run_index,

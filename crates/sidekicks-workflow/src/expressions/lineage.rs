@@ -76,6 +76,13 @@ impl StepOutputs {
         }
     }
 
+    /// Labels the run's nodes as `nodes` say, each a node's id and label, keeping every execution
+    /// recorded: a run moved to another version reads its labels.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn relabel(&mut self, nodes: impl IntoIterator<Item = (WorkflowNodeId, String)>) {
+        self.labels = Self::new(nodes).labels;
+    }
+
     /// Records what the execution `key` read and wrote, replacing what it held.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn record(&mut self, key: StepKey, output: StepOutput) {

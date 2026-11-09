@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 
 use super::{WorkflowRunControlError, WorkflowRunControls};
 use crate::engine::ports::noticed_sessions::NoticedSessions;
-use crate::engine::tick::{EngineTickInput, RunCancelRefusal, RunResumeRefusal};
+use crate::engine::tick::{EngineTickInput, RepinRefusal, RunCancelRefusal, RunResumeRefusal};
 use crate::schema::schema_parts;
 use crate::test_rows::{
     TEST_SESSION_ID, TestStep, insert_chain_run, insert_run, insert_step, insert_workflow_version,
@@ -38,7 +38,7 @@ const STARTED: &str = "2026-10-02T00:00:00.000Z";
 const ENDED: &str = "2026-10-02T00:05:00.000Z";
 
 /// The controls over a test database holding one workflow version, a tick that answers every
-/// cancel `cancel` and every Resume `resume`, and the binder they tell.
+/// cancel `cancel` and its one Resume `resume`, and the binder they tell.
 struct ControlsTest {
     run_controls: WorkflowRunControls,
     rows: Connection,
@@ -69,12 +69,13 @@ impl ControlsTest {
     }
 }
 
-/// A tick's inbox that answers every cancel `cancel` and every Resume `resume`.
+/// A tick's inbox that answers every cancel `cancel` and its one Resume `resume`.
 fn refusing_tick(
     cancel: RunCancelRefusal,
     resume: RunResumeRefusal,
 ) -> mpsc::Sender<EngineTickInput> {
     let (inbox, mut inputs) = mpsc::channel(8);
+    let mut resume = Some(resume);
     tokio::spawn(async move {
         while let Some(input) = inputs.recv().await {
             match input {
@@ -82,7 +83,8 @@ fn refusing_tick(
                     let _unheard = intake.reply.send(Err(cancel));
                 }
                 EngineTickInput::Resume(intake) => {
-                    let _unheard = intake.reply.send(Err(resume));
+                    let refusal = resume.take().expect("the test resumes once");
+                    let _unheard = intake.reply.send(Err(refusal));
                 }
                 EngineTickInput::Started(_)
                 | EngineTickInput::Answer(_)
@@ -258,8 +260,9 @@ async fn a_cancel_of_an_ended_run_is_refused_and_writes_nothing(
 /// The tick's refusals reach the caller as their codes: a cancel of a run whose ending is under
 /// way is not cancelable; a Resume of a run waiting only on an answer awaits it, one with nothing
 /// to lift is not parked; a Resume of a run the tick does not hold is not parked where its row
-/// stands and not found where none does. Mutations: map the ending to a cancel written from the
-/// rows; swap the Resume refusals; answer an unheld run as not found whatever its row.
+/// stands and not found where none does; a re-pin's refusal answers its repair code. Mutations: map
+/// the ending to a cancel written from the rows; swap the Resume refusals; answer an unheld run as
+/// not found whatever its row; answer a re-pin's refusal as the plain Resume's.
 #[rstest]
 #[case::awaits_answer(
     RunResumeRefusal::AwaitsAnswer,
@@ -277,6 +280,11 @@ async fn a_cancel_of_an_ended_run_is_refused_and_writes_nothing(
     RefusalCode::WorkflowRunResumeNotParked
 )]
 #[case::missing(RunResumeRefusal::NotHeld, false, RefusalCode::WorkflowRunNotFound)]
+#[case::repin_unaccountable(
+    RunResumeRefusal::Repin(RepinRefusal::VersionUnaccountable),
+    true,
+    RefusalCode::WorkflowRunRepairVersionUnaccountable
+)]
 #[tokio::test]
 async fn the_ticks_refusals_answer_their_codes(
     #[case] resume: RunResumeRefusal,
@@ -301,7 +309,7 @@ async fn the_ticks_refusals_answer_their_codes(
         RefusalCode::WorkflowRunNotCancelable
     );
     assert_eq!(
-        refusal_code(test.run_controls.resume(run_id(RUN_ID)).await),
+        refusal_code(test.run_controls.resume(run_id(RUN_ID), None).await),
         code
     );
     assert_eq!(stored_rows(&test.rows), before);

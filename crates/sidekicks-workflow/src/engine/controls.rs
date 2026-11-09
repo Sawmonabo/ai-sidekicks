@@ -15,8 +15,10 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::control::{
     WorkflowCancelReason, WorkflowRunCancelResponse, WorkflowRunCanceledStatus,
+    WorkflowRunResumeVersionRepin,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
@@ -37,7 +39,8 @@ use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBin
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::tick::{
-    EngineTickInput, RunCancelIntake, RunCancelRefusal, RunResumeIntake, RunResumeRefusal,
+    EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
+    RunResumeIntake, RunResumeRefusal,
 };
 use crate::kinds::uncoded_step_error;
 use crate::runs::cancellation::{
@@ -72,9 +75,13 @@ pub(crate) struct WorkflowRunControls {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunControlError {
     /// Refused: `workflow.run.notFound`, `workflow.run.notCancelable`,
-    /// `workflow.run.resumeNotParked` or `workflow.run.resumeAwaitsAnswer`.
+    /// `workflow.run.resumeNotParked`, `workflow.run.resumeAwaitsAnswer`, a re-pin's
+    /// `workflow.run.repair*` codes, or a start's refusal of the version a re-pin names.
     #[error(transparent)]
     Refused(#[from] DomainError),
+    /// A re-pin's reads of the run and the version it names did not finish.
+    #[error(transparent)]
+    Repin(#[from] RepinReadError),
     /// The tick has stopped, or dropped the reply when the run's write failed.
     #[error("the workflow engine did not answer")]
     EngineGone,
@@ -98,6 +105,7 @@ impl From<WorkflowRunControlError> for HandlerError {
         match error {
             WorkflowRunControlError::Refused(refusal) => Self::Refused(refusal),
             fault @ (WorkflowRunControlError::EngineGone
+            | WorkflowRunControlError::Repin(_)
             | WorkflowRunControlError::Pool(_)
             | WorkflowRunControlError::Rows(_)
             | WorkflowRunControlError::Draft(_)
@@ -175,24 +183,29 @@ impl WorkflowRunControls {
         }
     }
 
-    /// Resumes `workflow_run_id` on its pinned version through the tick. Refused
-    /// `workflow.run.resumeNotParked` for a run with nothing a Resume lifts,
-    /// `workflow.run.resumeAwaitsAnswer` for one waiting only on a person's answer, and
-    /// `workflow.run.notFound` for one no row answers to.
+    /// Resumes `workflow_run_id` through the tick, on its pinned version, or, where `version_repin`
+    /// names another version of its workflow, on that one; answers the version the run left on an
+    /// accepted re-pin. Refused `workflow.run.resumeNotParked` for a run with nothing a Resume
+    /// lifts, `workflow.run.resumeAwaitsAnswer` for one waiting only on a person's answer,
+    /// `workflow.run.notFound` for one no row answers to, and, on a re-pin,
+    /// `workflow.version.notFound`, the `workflow.run.repair*` codes in their order and a start's
+    /// refusal of the version's graph.
     pub(crate) async fn resume(
         &self,
         workflow_run_id: WorkflowRunId,
-    ) -> Result<(), WorkflowRunControlError> {
+        version_repin: Option<WorkflowRunResumeVersionRepin>,
+    ) -> Result<Option<WorkflowVersionId>, WorkflowRunControlError> {
         let (reply, replied) = oneshot::channel();
         let intake = RunResumeIntake {
             run_id: workflow_run_id,
+            version_repin: version_repin.map(|repin| repin.target_workflow_version_id),
             reply,
         };
         let refusal = match self
             .ask_tick(EngineTickInput::Resume(intake), replied)
             .await?
         {
-            Ok(()) => return Ok(()),
+            Ok(left_version) => return Ok(left_version),
             Err(RunResumeRefusal::AwaitsAnswer) => DomainError::new(
                 format!(
                     "Workflow run {workflow_run_id} waits on an answer: answer the waiting step."
@@ -201,6 +214,9 @@ impl WorkflowRunControls {
             )
             .with_detail(json!({ "workflowRunId": workflow_run_id })),
             Err(RunResumeRefusal::NotParked) => not_parked(workflow_run_id),
+            Err(RunResumeRefusal::Repin(refusal)) => repin_refused(workflow_run_id, refusal),
+            Err(RunResumeRefusal::Target(refusal)) => refusal,
+            Err(RunResumeRefusal::Unread(unread)) => return Err(unread.into()),
             Err(RunResumeRefusal::NotHeld) => {
                 let progress = self
                     .pool
@@ -389,6 +405,38 @@ fn not_cancelable(workflow_run_id: WorkflowRunId, why: &str) -> DomainError {
         RefusalCode::WorkflowRunNotCancelable,
     )
     .with_detail(json!({ "workflowRunId": workflow_run_id }))
+}
+
+/// The refusal of a move of `workflow_run_id` to another version for `refusal`.
+fn repin_refused(workflow_run_id: WorkflowRunId, refusal: RepinRefusal) -> DomainError {
+    match refusal {
+        RepinRefusal::NotParked => DomainError::new(
+            format!(
+                "Workflow run {workflow_run_id} is not waiting on a Resume, so it stays on its \
+                 version."
+            ),
+            RefusalCode::WorkflowRunRepairNotParked,
+        )
+        .with_detail(json!({ "workflowRunId": workflow_run_id })),
+        RepinRefusal::AttemptInFlight(step) => DomainError::new(
+            format!(
+                "Workflow run {workflow_run_id} cannot move to another version while its step at \
+                 node {} is still under way: cancel the run and retry it from that step to start \
+                 it fresh.",
+                step.node_id.as_str()
+            ),
+            RefusalCode::WorkflowRunRepairAttemptInFlight,
+        )
+        .with_detail(json!({ "workflowRunId": workflow_run_id, "step": step })),
+        RepinRefusal::VersionUnaccountable => DomainError::new(
+            format!(
+                "Workflow run {workflow_run_id} cannot move to that version: it lacks a step the \
+                 run already finished, or cannot reach one."
+            ),
+            RefusalCode::WorkflowRunRepairVersionUnaccountable,
+        )
+        .with_detail(json!({ "workflowRunId": workflow_run_id })),
+    }
 }
 
 /// `workflow.run.resumeNotParked` for `workflow_run_id`.

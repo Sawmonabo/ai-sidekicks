@@ -11,7 +11,8 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::list::{BoundedVec, UniqueList};
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerInput,
+    WorkflowDefinitionId, WorkflowDocumentHashedBody, WorkflowEdge, WorkflowNode, WorkflowNodeId,
+    WorkflowTriggerInput,
 };
 use sidekicks_contracts::workflow::definition::handle::{
     WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
@@ -163,71 +164,9 @@ impl WorkflowRunStarter {
                 input.as_deref().unwrap_or_default(),
             )?),
         };
-        let trigger_node = WorkflowNode::from(&body.trigger);
-        // A step that needs a repository runs only in a project's: a project session's, whose
-        // workspace the start binds even while it is still preparing, or a named project's; a
-        // chat's own folder is none.
-        if session.shape != SessionShape::Project && project_root.is_none() {
-            let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
-                self.kinds
-                    .kind_of(node)
-                    .is_some_and(|kind| kind.spec.needs_repository())
-            });
-            if let Some(node_ids) = BoundedVec::new(needing) {
-                return Err(DomainError::new(
-                    "The workflow holds a step that needs a project's repository, and this start \
-                     works in none.",
-                    RefusalCode::WorkflowRunRepositoryRequired,
-                )
-                .with_detail(WorkflowRunRepositoryRequiredDetails { node_ids })
-                .into());
-            }
-        }
-        // A step that runs in a sandbox runs in the workflow's provider's; with none it cannot.
-        if provider.is_none() {
-            let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
-                self.kinds
-                    .kind_of(node)
-                    .is_some_and(|kind| kind.spec.runs_in_sandbox(&node.params))
-            });
-            if let Some(node_ids) = BoundedVec::new(needing) {
-                return Err(DomainError::new(
-                    "The workflow holds a step that runs in a provider's sandbox, and it names no \
-                     provider.",
-                    RefusalCode::WorkflowRunProviderRequired,
-                )
-                .with_detail(WorkflowRunProviderRequiredDetails { node_ids })
-                .into());
-            }
-        }
-        // The graph holds every node, disabled ones too, so each node's kind must be listed at its
-        // version; every node that is not is named at once, in document order.
-        let unavailable: Vec<WorkflowNodeId> = std::iter::once(&trigger_node)
-            .chain(&body.nodes)
-            .filter(|node| self.kinds.kind_of(node).is_none())
-            .map(|node| node.id.clone())
-            .collect();
-        if !unavailable.is_empty() {
-            return Err(node_kind_unavailable(unavailable).into());
-        }
-        // The run's nodes are its trigger's and its version's.
-        let nodes: HashMap<WorkflowNodeId, WorkflowNode> = std::iter::once(trigger_node)
-            .chain(body.nodes)
-            .map(|node| (node.id.clone(), node))
-            .collect();
-        let undeclared = undeclared_handles(&nodes, &body.edges, &self.kinds);
-        if !undeclared.is_empty() {
-            return Err(handle_undeclared(undeclared).into());
-        }
-        let graph =
-            RunGraph::new(&nodes, &body.trigger.id, &body.edges, &self.kinds).map_err(|error| {
-                match error {
-                    RunGraphError::UnknownKind { node_id } => node_kind_unavailable(vec![node_id]),
-                    RunGraphError::UndeclaredHandle { node_id, handle } => {
-                        handle_undeclared(vec![(node_id, handle)])
-                    }
-                }
-            })?;
+        let works_in_repository = session.shape == SessionShape::Project || project_root.is_some();
+        let (nodes, graph) =
+            check_run_graph(&self.kinds, &body, works_in_repository, provider.is_some())?;
         let pins = hash_run_pins(pin_data_json.as_deref(), start.mode)?;
         Ok(CheckedStart {
             definition_id: version.definition_id,
@@ -246,6 +185,88 @@ impl WorkflowRunStarter {
             provider,
         })
     }
+}
+
+/// The nodes of `body`, its trigger's among them, by id, and its run graph over `kinds`, for a run
+/// that works in a project's repository where `works_in_repository` holds and has a provider where
+/// `has_provider` does. Refuses `workflow.run.repositoryRequired` or
+/// `workflow.run.providerRequired` for an enabled step that needs what the run lacks, then
+/// `workflow.run.nodeKindUnavailable` for each node whose kind the table does not list at its
+/// version, then `workflow.run.handleUndeclared` for each edge end its node's kind does not declare.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+pub(crate) fn check_run_graph(
+    kinds: &NodeKindTable,
+    body: &WorkflowDocumentHashedBody,
+    works_in_repository: bool,
+    has_provider: bool,
+) -> Result<(HashMap<WorkflowNodeId, WorkflowNode>, RunGraph), DomainError> {
+    let trigger_node = WorkflowNode::from(&body.trigger);
+    // A step that needs a repository runs only in a project's: a project session's, whose
+    // workspace the start binds even while it is still preparing, or a named project's; a chat's
+    // own folder is none.
+    if !works_in_repository {
+        let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
+            kinds
+                .kind_of(node)
+                .is_some_and(|kind| kind.spec.needs_repository())
+        });
+        if let Some(node_ids) = BoundedVec::new(needing) {
+            return Err(DomainError::new(
+                "The workflow holds a step that needs a project's repository, and this start \
+                     works in none.",
+                RefusalCode::WorkflowRunRepositoryRequired,
+            )
+            .with_detail(WorkflowRunRepositoryRequiredDetails { node_ids }));
+        }
+    }
+    // A step that runs in a sandbox runs in the workflow's provider's; with none it cannot.
+    if !has_provider {
+        let needing = enabled_nodes_needing(Some(&trigger_node), &body.nodes, |node| {
+            kinds
+                .kind_of(node)
+                .is_some_and(|kind| kind.spec.runs_in_sandbox(&node.params))
+        });
+        if let Some(node_ids) = BoundedVec::new(needing) {
+            return Err(DomainError::new(
+                "The workflow holds a step that runs in a provider's sandbox, and it names no \
+                     provider.",
+                RefusalCode::WorkflowRunProviderRequired,
+            )
+            .with_detail(WorkflowRunProviderRequiredDetails { node_ids }));
+        }
+    }
+    // The graph holds every node, disabled ones too, so each node's kind must be listed at its
+    // version; every node that is not is named at once, in document order.
+    let unavailable: Vec<WorkflowNodeId> = std::iter::once(&trigger_node)
+        .chain(&body.nodes)
+        .filter(|node| kinds.kind_of(node).is_none())
+        .map(|node| node.id.clone())
+        .collect();
+    if !unavailable.is_empty() {
+        return Err(node_kind_unavailable(unavailable));
+    }
+    // The run's nodes are its trigger's and its version's.
+    let nodes: HashMap<WorkflowNodeId, WorkflowNode> = std::iter::once(trigger_node)
+        .chain(body.nodes.iter().cloned())
+        .map(|node| (node.id.clone(), node))
+        .collect();
+    let undeclared = undeclared_handles(&nodes, &body.edges, kinds);
+    if !undeclared.is_empty() {
+        return Err(handle_undeclared(undeclared));
+    }
+    let graph =
+        RunGraph::new(&nodes, &body.trigger.id, &body.edges, kinds).map_err(
+            |error| match error {
+                RunGraphError::UnknownKind { node_id } => node_kind_unavailable(vec![node_id]),
+                RunGraphError::UndeclaredHandle { node_id, handle } => {
+                    handle_undeclared(vec![(node_id, handle)])
+                }
+            },
+        )?;
+    Ok((nodes, graph))
 }
 
 /// The items a trigger declaring `declared` starts on, given `input`: one item of the declared

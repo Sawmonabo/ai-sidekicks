@@ -77,6 +77,7 @@ use crate::runs::deletion::remove_run_folder;
 use crate::runs::step_payload::{StepPayloadWriteError, write_step_payload};
 use crate::secrets::redaction::RunRedaction;
 
+pub(crate) use self::check::check_run_graph;
 pub(crate) use self::errors::WorkflowRunStartError;
 use self::folder::{PreparedStart, RunFolder};
 pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};

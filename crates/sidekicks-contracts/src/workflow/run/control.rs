@@ -743,6 +743,10 @@ methods! {
                 WorkflowRunRepairNotParked,
                 WorkflowRunRepairAttemptInFlight,
                 WorkflowRunRepairVersionUnaccountable,
+                WorkflowRunRepositoryRequired,
+                WorkflowRunProviderRequired,
+                WorkflowRunNodeKindUnavailable,
+                WorkflowRunHandleUndeclared,
             ],
         },
         /// Starts a new run from a named step of a run, its upstream data pinned.

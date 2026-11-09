@@ -9,14 +9,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
-use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::check::fill_start_items;
 use super::{WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter, WorkflowStartOutcome};
 use crate::definitions::versions::history::WorkflowVersions;
-use crate::engine::partial_run::{PartialRunPlan, plan_partial_run, read_settled_steps};
+use crate::engine::partial_run::{
+    PartialRunPlan, ReplayedStep, plan_partial_run, read_settled_steps,
+};
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::{ReusedSeedStep, ReusedStepRecord, RunGraph};
 use crate::runs::step_payload::{
@@ -173,53 +174,32 @@ impl StartedNodeRun {
         plan: PartialRunPlan,
         payloads: &dyn StepPayloadArtifacts,
     ) -> Result<Self, StepPayloadReadError> {
-        let mut covered = vec![false; graph.node_count()];
-        for node_id in &plan.executed {
-            covered[graph.place(node_id)] = true;
-        }
-        let mut reused = Vec::new();
-        for (node_id, steps) in plan.reused.into_iter().chain(plan.inputs) {
-            let place = graph.place(&node_id);
-            covered[place] = true;
-            if graph.node(place).is_disabled {
-                continue;
-            }
-            for settled in steps {
-                let output_lengths: Vec<usize> = settled
-                    .output_item_counts
-                    .iter()
-                    .map(|count| {
-                        usize::try_from(count.get())
-                            .expect("an output's item count fits in a pointer-sized integer")
-                    })
-                    .collect();
-                let is_own_skip =
-                    settled.status == WorkflowStepStatus::Skipped && settled.reused_from.is_none();
-                if is_own_skip && output_lengths.iter().all(|&length| length == 0) {
-                    continue;
-                }
-                let items = read_step_payload(payloads, &settled.output_ref).await?;
-                let outputs = split_step_outputs(items, &output_lengths)?;
-                let from = settled.origin();
-                reused.push(StartedReusedStep {
-                    seed: ReusedSeedStep {
-                        node_id: node_id.clone(),
-                        output_lengths,
-                        record: ReusedStepRecord {
-                            from,
-                            output_ref: settled.output_ref,
-                            pin_hash: settled.pin_hash,
-                        },
+        let (covered, replayed) = plan.replayed(graph);
+        let mut reused = Vec::with_capacity(replayed.len());
+        for ReplayedStep {
+            node_id,
+            settled,
+            output_lengths,
+        } in replayed
+        {
+            let items = read_step_payload(payloads, &settled.output_ref).await?;
+            let outputs = split_step_outputs(items, &output_lengths)?;
+            let from = settled.origin();
+            reused.push(StartedReusedStep {
+                seed: ReusedSeedStep {
+                    node_id,
+                    output_lengths,
+                    record: ReusedStepRecord {
+                        from,
+                        output_ref: settled.output_ref,
+                        pin_hash: settled.pin_hash,
                     },
-                    outputs,
-                    session_id: settled.session_id,
-                });
-            }
+                },
+                outputs,
+                session_id: settled.session_id,
+            });
         }
-        Ok(Self {
-            covered: Arc::from(covered),
-            reused,
-        })
+        Ok(Self { covered, reused })
     }
 
     /// Stores again in `session_id`, the run's session, each replayed output kept as an artifact
