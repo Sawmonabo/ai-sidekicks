@@ -1,4 +1,3 @@
-/* eslint-disable */
 // Generated from the Rust contracts by `pnpm --filter @ai-sidekicks/contracts generate`.
 // Change the Rust source and regenerate; never edit this file.
 

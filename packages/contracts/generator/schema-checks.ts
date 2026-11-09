@@ -109,6 +109,15 @@ export function createCheckCompiler(schemas: readonly SchemaObject[]): Ajv2020 {
     formats,
     code: { source: true, esm: true, lines: false, optimize: true, formats: _`SCHEMA_FORMATS` },
   });
+  // Ajv registers `discriminator` after `unevaluatedProperties`, which then compiles before the
+  // chosen arm's members count as evaluated and refuses a tagged union's own tag. Registered
+  // before it, the union's members are evaluated first, as without the discriminator.
+  const discriminator = ajv.getKeyword("discriminator");
+  if (typeof discriminator !== "object") {
+    throw new Error("Ajv has no discriminator keyword to order");
+  }
+  ajv.removeKeyword("discriminator");
+  ajv.addKeyword({ ...discriminator, before: "unevaluatedProperties" });
   ajv.addKeyword({ keyword: "tsType", schemaType: "string" });
   ajv.addKeyword({
     keyword: "minBytes",

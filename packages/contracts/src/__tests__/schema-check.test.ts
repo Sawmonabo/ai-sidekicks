@@ -1,18 +1,27 @@
-// The runtime pieces every generated check calls: the byte measure of a capped value and the
-// format rules, run against the Rust checks' web-address case table, parsed strictly with zod.
+// The runtime pieces every generated check calls, the byte measure of a capped value and the format
+// rules, and the generated checks themselves, run against the Rust checks' web-address and
+// tagged-union case tables, parsed strictly with zod.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { readCaseTable } from "./case-table.test-support.js";
+import { validateApprovalProjectionRow } from "../generated/approval.js";
+import { validateArtifactReadRequest } from "../generated/artifacts/operations.js";
 import { validateHostingAddress } from "../generated/git/shared.js";
+import { validateMcpServerReadResponse } from "../generated/mcp/server.js";
 import { validatePreviewPortTicketIssueResponse } from "../generated/preview/port.js";
 import {
   PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
   validateProviderAccountSignInResponse,
 } from "../generated/provider/account/sign-in.js";
-import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
-import { SCHEMA_FORMATS, wireByteLength } from "../schema-check.js";
+import { validateAgentRunInterveneRequest } from "../generated/run/intervention.js";
+import { validateTerminalControlChangedPayload } from "../generated/terminal.js";
+import { validateTranscriptBodyReadResponse } from "../generated/transcript/operations.js";
+import { validateTranscriptRowContent } from "../generated/transcript/row.js";
 import { WEB_ADDRESS_FAULTS } from "../generated/web-address.js";
+import { validateWorkflowRunReadResponse } from "../generated/workflow/run/records.js";
+import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
+import { SCHEMA_FORMATS, wireByteLength, type SchemaCheck } from "../schema-check.js";
 import { webAddressFault } from "../web-address/rule.js";
 
 describe("wireByteLength", () => {
@@ -103,4 +112,42 @@ describe("the generated web address checks", () => {
       expect(validateProviderAccountSignInResponse(response)).toBe(https !== null);
     },
   );
+});
+
+// The check of each type the tagged-union table names, one per shape a union takes: at a type's
+// root, reached through a member, written in place in members, inside another union's arm, and
+// beside a conditional, dependent-member or rule-list keyword.
+const TAGGED_UNION_CHECKS: Readonly<Record<string, SchemaCheck<unknown>>> = {
+  TranscriptRowContent: validateTranscriptRowContent,
+  TranscriptBodyReadResponse: validateTranscriptBodyReadResponse,
+  ArtifactReadRequest: validateArtifactReadRequest,
+  McpServerReadResponse: validateMcpServerReadResponse,
+  AgentRunInterveneRequest: validateAgentRunInterveneRequest,
+  TerminalControlChangedPayload: validateTerminalControlChangedPayload,
+  ApprovalProjectionRow: validateApprovalProjectionRow,
+  WorkflowRunReadResponse: validateWorkflowRunReadResponse,
+};
+
+const taggedUnionCases = readCaseTable(
+  z
+    .object({
+      cases: z.array(
+        z
+          .object({
+            name: z.string(),
+            type: z.enum(Object.keys(TAGGED_UNION_CHECKS) as [string, ...string[]]),
+            value: z.unknown(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  "tagged-unions.json",
+);
+
+describe("the generated checks of tagged unions", () => {
+  it.each(taggedUnionCases.cases)("take $name, which the Rust type takes", ({ type, value }) => {
+    const check = TAGGED_UNION_CHECKS[type]!;
+    expect(check(value), JSON.stringify(check.errors)).toBe(true);
+  });
 });

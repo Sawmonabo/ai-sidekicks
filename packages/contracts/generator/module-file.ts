@@ -13,9 +13,6 @@ import { generateTypes } from "./type-declarations.ts";
 const GENERATED_HEADER =
   "// Generated from the Rust contracts by `pnpm --filter @ai-sidekicks/contracts generate`.\n" +
   "// Change the Rust source and regenerate; never edit this file.";
-// File-scoped, and only where a file holds Ajv's code, which is held to its generator rather than
-// to the hand-written code's lint rules; a file of types alone meets them.
-const LINT_EXEMPTION = "/* eslint-disable */";
 
 /** `text` as a block comment, one `*` line per line of text. */
 function docComment(text: string): string {
@@ -161,7 +158,7 @@ export async function writeModuleFile(
   const tables = module.methodTables.map((table) => writeMethodTable(table, module, imports));
 
   const source = [
-    checks === "" ? GENERATED_HEADER : `${LINT_EXEMPTION}\n${GENERATED_HEADER}`,
+    GENERATED_HEADER,
     module.doc
       .split("\n")
       .map((line) => (line === "" ? "//" : `// ${line}`))

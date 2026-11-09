@@ -1,0 +1,138 @@
+{
+  "cases": [
+    {
+      "name": "a transcript row whose body cannot be read",
+      "type": "TranscriptRowContent",
+      "value": {
+        "status": "unavailable",
+        "reason": "absent"
+      }
+    },
+    {
+      "name": "a transcript body read that finds no body",
+      "type": "TranscriptBodyReadResponse",
+      "value": {
+        "status": "unavailable",
+        "reason": "absent"
+      }
+    },
+    {
+      "name": "an artifact read of the whole payload, its union reached through a member",
+      "type": "ArtifactReadRequest",
+      "value": {
+        "artifactId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "payloadSelection": {
+          "kind": "whole"
+        }
+      }
+    },
+    {
+      "name": "an MCP server's tool reading, whose members are unions written in place",
+      "type": "McpServerReadResponse",
+      "value": {
+        "server": {
+          "scope": "user",
+          "provider": "claude",
+          "serverName": "files",
+          "serverBindingId": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+          "config": {
+            "transport": "stdio",
+            "command": "npx"
+          },
+          "status": "connected",
+          "enabled": true,
+          "tools": [
+            {
+              "toolName": "read_file",
+              "enabled": {
+                "source": "override",
+                "value": false,
+                "serverValue": true
+              },
+              "approvalMode": {
+                "source": "server",
+                "value": "prompt"
+              },
+              "idempotencyClass": {
+                "source": "server",
+                "value": "manualReconcileOnly"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an interrupt, a union inside another union's arm",
+      "type": "AgentRunInterveneRequest",
+      "value": {
+        "type": "interrupt",
+        "pending": "nextTurn",
+        "targetRunId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "expectedRunVersion": 3,
+        "clientIdempotencyKey": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "a terminal taken by force, a union beside a dependent-member rule",
+      "type": "TerminalControlChangedPayload",
+      "value": {
+        "reason": "takenByForce",
+        "sessionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "terminalId": "terminal-1",
+        "leaseVersion": 2,
+        "holderDeviceId": "device-a",
+        "previousHolderDeviceId": "device-b"
+      }
+    },
+    {
+      "name": "a pending approval offering project scope, a union beside a conditional rule",
+      "type": "ApprovalProjectionRow",
+      "value": {
+        "state": "pending",
+        "id": "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+        "holder": {
+          "kind": "run",
+          "runId": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        },
+        "requestedBy": "agent",
+        "category": "fileWrite",
+        "scope": "src/main.rs",
+        "resourceDescriptor": {},
+        "subject": "Write src/main.rs",
+        "standingAllowOffered": true,
+        "projectScopeOffered": true,
+        "createdAt": "2026-11-09T06:00:00.000Z",
+        "updatedAt": "2026-11-09T06:00:00.000Z"
+      }
+    },
+    {
+      "name": "a new workflow run, a union beside a list of conditional rules",
+      "type": "WorkflowRunReadResponse",
+      "value": {
+        "status": "new",
+        "workflowRunId": "9b2f1c3e-4d5a-4b6c-8d7e-0f1a2b3c4d5e",
+        "sessionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "definitionId": "1e2d3c4b-5a69-4788-97a6-b5c4d3e2f1a0",
+        "workflowVersionId": "2f3e4d5c-6b7a-4899-a8b7-c6d5e4f3a2b1",
+        "mode": "trigger",
+        "triggerKind": "trigger.schedule",
+        "startedBy": {
+          "kind": "schedule"
+        },
+        "keep": false,
+        "startedAt": "2026-11-09T06:00:00.000Z",
+        "chainRoot": {
+          "runId": "9b2f1c3e-4d5a-4b6c-8d7e-0f1a2b3c4d5e",
+          "definitionId": "1e2d3c4b-5a69-4788-97a6-b5c4d3e2f1a0",
+          "workflowName": "Nightly",
+          "startedAt": "2026-11-09T06:00:00.000Z",
+          "runCount": 1
+        },
+        "executionContextCaptured": false,
+        "steps": [],
+        "edgeItemCounts": []
+      }
+    }
+  ]
+}

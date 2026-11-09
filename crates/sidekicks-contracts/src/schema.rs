@@ -546,3 +546,66 @@ fn close(schema: &mut Value, is_inside_closed: bool) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use serde::de::DeserializeOwned;
+    use serde_json::Value;
+
+    use super::received_check;
+    use crate::approval::ApprovalProjectionRow;
+    use crate::artifacts::operations::ArtifactReadRequest;
+    use crate::mcp::server::requests::McpServerReadResponse;
+    use crate::run::intervention::AgentRunInterveneRequest;
+    use crate::terminal::control::TerminalControlChangedPayload;
+    use crate::transcript::content::{TranscriptBodyReadResponse, TranscriptRowContent};
+    use crate::workflow::run::records::WorkflowRunReadResponse;
+
+    /// The case table: a value of each shape a tagged union takes in the contracts, which the
+    /// generated TypeScript checks read too.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct CaseTable {
+        cases: Vec<TaggedUnionCase>,
+    }
+
+    /// A value its contract type takes, named by the type.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct TaggedUnionCase {
+        name: String,
+        r#type: String,
+        value: Value,
+    }
+
+    /// Whether `value` passes `T`'s received check and reads as a `T`, as a received message does.
+    fn takes<T: DeserializeOwned + JsonSchema + 'static>(value: &Value) -> bool {
+        received_check::<T>()
+            .expect("the received check builds")
+            .is_valid(value)
+            && serde_json::from_value::<T>(value.clone()).is_ok()
+    }
+
+    #[test]
+    fn every_tagged_union_shape_takes_its_case() {
+        let table: CaseTable =
+            serde_json::from_str(include_str!("../tests/fixtures/tagged-unions.json"))
+                .expect("the case table reads");
+        for case in table.cases {
+            let takes_case: fn(&Value) -> bool = match case.r#type.as_str() {
+                "TranscriptRowContent" => takes::<TranscriptRowContent>,
+                "TranscriptBodyReadResponse" => takes::<TranscriptBodyReadResponse>,
+                "ArtifactReadRequest" => takes::<ArtifactReadRequest>,
+                "McpServerReadResponse" => takes::<McpServerReadResponse>,
+                "AgentRunInterveneRequest" => takes::<AgentRunInterveneRequest>,
+                "TerminalControlChangedPayload" => takes::<TerminalControlChangedPayload>,
+                "ApprovalProjectionRow" => takes::<ApprovalProjectionRow>,
+                "WorkflowRunReadResponse" => takes::<WorkflowRunReadResponse>,
+                other => panic!("the table names {other}, which no reader here reads"),
+            };
+            assert!(takes_case(&case.value), "{}", case.name);
+        }
+    }
+}
