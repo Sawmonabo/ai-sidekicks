@@ -1,6 +1,14 @@
 //! The completed responses Codex's export states that a session holds: each passed over where the
 //! stream stated it, else held until its turn settles and two export intervals pass, then passed
-//! over or priced on the session.
+//! over or priced on the session. One its rollout file stated is passed over where its account
+//! already holds its key, and a spawned helper's takes its root thread's tier from the stored rows.
+
+use std::sync::Arc;
+
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::BoundedText;
 
 use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::intake::routed_frames::attribute_codex_usage;
@@ -8,15 +16,35 @@ use crate::driver::codex::telemetry::held_responses::{
     CodexExportedResponse, CodexHeldResponse, CodexOffStreamPlacement,
 };
 use crate::driver::codex::telemetry::placement::refuse_response;
-use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 
 impl CodexSessionIntake {
     /// Passes over each of `decided` the stream stated by now, and prices the rest on their
     /// session.
     pub(super) async fn decide_held_responses(&mut self, decided: Vec<CodexHeldResponse>) {
+        // With no record registered, nothing is recorded, so nothing is checked.
+        let checked = self.parts.ports.usage.port().map(Arc::clone).zip(
+            self.record
+                .as_ref()
+                .map(|record| record.provider_account_id.clone()),
+        );
         let mut usage = Vec::new();
-        for held in decided {
-            usage.extend(self.price_held_response(held));
+        for mut held in decided {
+            let is_priced = match &checked {
+                Some((sink, provider_account_id)) => {
+                    check_rollout_response(
+                        &**sink,
+                        self.session_id,
+                        provider_account_id,
+                        &mut held.exported,
+                    )
+                    .await
+                }
+                None => true,
+            };
+            if is_priced {
+                usage.extend(self.price_held_response(held));
+            }
         }
         self.record_usage(usage).await;
     }
@@ -45,6 +73,9 @@ impl CodexSessionIntake {
         };
         let mut delta = response.meter();
         delta.attributed_turn_id.clone_from(&turn_id);
+        if let Some(rollout) = &exported.rollout {
+            delta.request.request_key = Some(rollout.request_key.clone());
+        }
         let mut usage = attribute_codex_usage(
             &Self::routed_frames_intake(&self.parts),
             record,
@@ -121,6 +152,80 @@ impl CodexSessionIntake {
                 "a codex session's held responses are full; the oldest is decided now"
             );
             self.decide_held_responses(vec![pushed_out]).await;
+        }
+    }
+}
+
+// Whether `exported` is still to be priced on `session_id`: one its rollout file stated whose key
+// its account, else `session_account`, already holds in `sink` is passed over, and a spawned
+// helper's takes the thread tier of the session's stored rows live at its record, the standard
+// rates where no row carries one. One the record cannot be read for is refused.
+async fn check_rollout_response(
+    sink: &dyn UsageSink,
+    session_id: SessionId,
+    session_account: &ProviderAccountId,
+    exported: &mut CodexExportedResponse,
+) -> bool {
+    let Some(rollout) = &exported.rollout else {
+        return true;
+    };
+    let response = &mut exported.response;
+    let provider_account_id = response
+        .provider_account_id
+        .clone()
+        .unwrap_or_else(|| session_account.clone());
+    let request_key = rollout.request_key.as_str().to_owned();
+    match sink
+        .is_request_recorded(provider_account_id, request_key)
+        .await
+    {
+        Ok(false) => {}
+        Ok(true) => {
+            tracing::debug!(
+                conversation_id = response.conversation_id.as_str(),
+                "a codex rollout response is already priced; it is passed over"
+            );
+            return false;
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &*error as &(dyn std::error::Error + 'static),
+                "a codex rollout response could not be checked against the priced requests"
+            );
+            refuse_response(response, "the priced requests could not be read");
+            return false;
+        }
+    }
+    if !rollout.is_root_tier {
+        return true;
+    }
+    let at = i64::try_from(response.observed_at_ms)
+        .ok()
+        .and_then(|at_ms| jiff::Timestamp::from_millisecond(at_ms).ok())
+        .and_then(WireInstant::from_timestamp);
+    let Some(at) = at else {
+        refuse_response(response, "its record's time does not read");
+        return false;
+    };
+    match sink.read_thread_speed_at(session_id, at).await {
+        Ok(thread_speed) => {
+            if thread_speed.is_none() {
+                tracing::info!(
+                    conversation_id = response.conversation_id.as_str(),
+                    "a codex helper's rollout response is priced at the standard rates: no \
+                     stored row of its session carries a thread tier at its time"
+                );
+            }
+            response.service_tier = thread_speed.and_then(BoundedText::new);
+            true
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = &*error as &(dyn std::error::Error + 'static),
+                "a codex helper's root thread tier could not be read"
+            );
+            refuse_response(response, "its root thread's tier could not be read");
+            false
         }
     }
 }

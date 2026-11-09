@@ -742,3 +742,83 @@ async fn a_whole_set_files_rows_only_when_it_moved_from_the_stored_windows(
 
     assert_eq!(rate_limit_rows(&harness.database), rows);
 }
+
+// The two reads a request from a provider's own usage file is checked by: its key held under its
+// own account only, and the thread tier of the session's latest row carrying one at or before an
+// instant. Killed by matching a key on any account, by reading a row's own `speed`, by taking the
+// session's latest row whatever its time, and by a row with no tier hiding an earlier one's.
+#[tokio::test]
+async fn a_usage_file_request_reads_its_key_and_the_thread_tier_live_at_it() {
+    let harness = Harness::new(None, true).await;
+    let rows = [
+        (
+            "row-1",
+            "2026-11-09T10:00:00.000Z",
+            Some("resp-1"),
+            Some("priority"),
+            Some("default"),
+        ),
+        (
+            "row-2",
+            "2026-11-09T10:05:00.000Z",
+            None,
+            Some("priority"),
+            None,
+        ),
+        (
+            "row-3",
+            "2026-11-09T10:10:00.000Z",
+            None,
+            Some("default"),
+            Some("priority"),
+        ),
+    ];
+    let connection = harness.database.reader();
+    for (turn_id, occurred_at, request_key, speed, thread_speed) in rows {
+        connection
+            .execute(
+                "INSERT INTO provider_account_usage_turns (turn_id, account_id, provider,
+                   occurred_at, session_id, request_key, speed, thread_speed,
+                   observed_credential_generation)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
+                params![
+                    turn_id,
+                    ACCOUNT,
+                    test_provider().as_str(),
+                    occurred_at,
+                    harness.session_id.text().as_str(),
+                    request_key,
+                    speed,
+                    thread_speed,
+                ],
+            )
+            .expect("the test writes the row");
+    }
+    let ran_on = ProviderAccountId::new(RAN_ON_ACCOUNT.to_owned()).expect("an account id");
+    for (provider_account_id, request_key, is_recorded) in [
+        (account(), "resp-1", true),
+        (account(), "resp-2", false),
+        (ran_on, "resp-1", false),
+    ] {
+        let read = harness
+            .record
+            .is_request_recorded(provider_account_id, request_key.to_owned())
+            .await
+            .expect("the record reads");
+        assert_eq!(read, is_recorded, "{request_key}");
+    }
+
+    for (at, thread_speed) in [
+        ("2026-11-09T09:59:59.999Z", None),
+        ("2026-11-09T10:07:00.000Z", Some("default")),
+        ("2026-11-09T10:10:00.000Z", Some("priority")),
+    ] {
+        let at = WireInstant::try_from(at.to_owned()).expect("an instant");
+        let read = harness
+            .record
+            .read_thread_speed_at(harness.session_id, at)
+            .await
+            .expect("the record reads");
+        assert_eq!(read.as_deref(), thread_speed);
+    }
+}

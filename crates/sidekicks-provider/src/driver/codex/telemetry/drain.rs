@@ -2,8 +2,9 @@
 //! to the session holding its thread on its own launch, to the session its launch streamed it for
 //! before the thread moved to another launch, or to its copy's ledger; a response on a thread
 //! another launch streams that its own launch never did is refused; anything that waits on Codex
-//! (a walk off the stream, a retry of kept responses, an ended copy's filing) goes to the work
-//! queue of its own launch, whose task runs it, so one launch's hang stalls no other.
+//! (a walk off the stream, a retry of kept responses, an ended copy's filing, a read of the
+//! launch's rollout files while its export is absent) goes to the work queue of its own launch,
+//! whose task runs it, so one launch's hang stalls no other.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -29,13 +30,17 @@ use crate::driver::codex::telemetry::held_responses::{
 use crate::driver::codex::telemetry::placement::{
     CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
 };
+use crate::driver::codex::telemetry::rollouts::{
+    CodexLaunchRollouts, CodexRolloutFallback, CodexStatusTurn,
+};
 
 // Why a response whose placement the daemon's stop abandoned was refused.
 const STOPPED: &str = "the daemon stopped before its thread could be placed";
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
 // state: one completed response of the export numbered `export_number`, or, after that export's
-// responses, a retry of the responses the launch kept before it.
+// responses, a retry of the responses the launch kept before it; or what the register hands it as
+// the launch settles a request turn, with the launch's rollout fallback's handles.
 pub(super) enum CodexExportItem {
     Response {
         service: Weak<CodexService>,
@@ -48,6 +53,11 @@ pub(super) enum CodexExportItem {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
         export_number: u64,
+    },
+    Settled {
+        service: Weak<CodexService>,
+        launch: Weak<Mutex<CodexLaunchPlacement>>,
+        rollouts: CodexLaunchRollouts,
     },
 }
 
@@ -62,6 +72,7 @@ enum CodexLaunchWork {
         export_number: u64,
     },
     FileCopies(Vec<CodexEndedCopy>),
+    Settled(CodexLaunchRollouts),
 }
 
 impl CodexLaunchWork {
@@ -70,7 +81,7 @@ impl CodexLaunchWork {
     fn refuse(self, reason: &str) {
         match self {
             Self::Place { response, .. } => refuse_response(&response, reason),
-            Self::Retry { .. } => {}
+            Self::Retry { .. } | Self::Settled(_) => {}
             Self::FileCopies(copies) => {
                 for response in copies.iter().flat_map(|copy| &copy.unclaimed) {
                     refuse_response(response, reason);
@@ -178,6 +189,7 @@ impl CodexExportDrain {
                         response: *response,
                         arrived_at,
                         placed: None,
+                        rollout: None,
                     };
                     push_exported_response(&live_service, session_id, exported);
                     return None;
@@ -212,6 +224,11 @@ impl CodexExportDrain {
                 launch,
                 export_number,
             } => Some((service, launch, CodexLaunchWork::Retry { export_number })),
+            CodexExportItem::Settled {
+                service,
+                launch,
+                rollouts,
+            } => Some((service, launch, CodexLaunchWork::Settled(rollouts))),
         }
     }
 
@@ -249,20 +266,67 @@ impl CodexExportDrain {
     }
 }
 
+// What wakes a launch's task: its next work, or its export status turning.
+enum CodexLaunchEvent {
+    Work(Option<CodexLaunchWork>),
+    Status(CodexStatusTurn),
+}
+
 // Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
 // against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
-// naming its thread. Work whose service or launch is gone is refused.
+// naming its thread. Work whose service or launch is gone is refused. From the launch's first
+// settled request turn on, the task also owns its rollout fallback, which reads while the export
+// status reads stopped: once as it turns stopped and at each settled request turn.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
     mut work: mpsc::Receiver<CodexLaunchWork>,
     stop: CancellationToken,
 ) {
+    let mut fallback: Option<CodexRolloutFallback> = None;
     loop {
-        let next = tokio::select! {
+        let status_turned = async {
+            match fallback.as_mut() {
+                Some(fallback) => fallback.status_turned().await,
+                None => std::future::pending().await,
+            }
+        };
+        let event = tokio::select! {
             biased;
             () = stop.cancelled() => break,
-            next = work.recv() => next,
+            next = work.recv() => CodexLaunchEvent::Work(next),
+            turn = status_turned => CodexLaunchEvent::Status(turn),
+        };
+        let next = match event {
+            CodexLaunchEvent::Work(next) => next,
+            CodexLaunchEvent::Status(turn) => {
+                match turn {
+                    CodexStatusTurn::Stopped => {
+                        if let Some(fallback) = fallback.as_mut() {
+                            fallback.start_reading();
+                        }
+                    }
+                    CodexStatusTurn::Arriving => {
+                        if let Some(fallback) = fallback.as_mut() {
+                            fallback.stop_reading();
+                        }
+                        continue;
+                    }
+                    CodexStatusTurn::Gone => {
+                        fallback = None;
+                        continue;
+                    }
+                }
+                let (Some(service), Some(fallback)) = (service.upgrade(), fallback.as_mut()) else {
+                    continue;
+                };
+                tokio::select! {
+                    biased;
+                    () = stop.cancelled() => break,
+                    () = fallback.pass(&service) => {}
+                }
+                continue;
+            }
         };
         let Some(next) = next else {
             return;
@@ -272,6 +336,16 @@ async fn run_launch_work(
             continue;
         };
         match next {
+            CodexLaunchWork::Settled(rollouts) => {
+                let fallback = fallback.get_or_insert_with(|| CodexRolloutFallback::new(rollouts));
+                if fallback.is_reading() {
+                    tokio::select! {
+                        biased;
+                        () = stop.cancelled() => break,
+                        () = fallback.pass(&service) => {}
+                    }
+                }
+            }
             CodexLaunchWork::Place {
                 response,
                 arrived_at,
@@ -397,6 +471,7 @@ fn deliver_moved(
         response,
         arrived_at,
         placed: Some(CodexOffStreamPlacement::Released),
+        rollout: None,
     };
     match attached {
         Some(attached) => push_exported_response(attached, session_id, exported),

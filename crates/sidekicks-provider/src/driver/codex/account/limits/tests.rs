@@ -115,6 +115,22 @@ impl UsageSink for RecordedWindows {
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
         async { Ok(UsageAxisCounts::default()) }.boxed()
     }
+
+    fn is_request_recorded(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _request_key: String,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async { Ok(false) }.boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 /// A registered Codex account whose home's own service the test scripts, and the legs over a

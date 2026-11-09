@@ -345,6 +345,22 @@ impl UsageSink for RecordingUsage {
         ready(Ok(*lock(&self.reported))).boxed()
     }
 
+    fn is_request_recorded(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _request_key: String,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async { Ok(false) }.boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
     fn record_quota_windows(
         &self,
         _provider: ProviderId,

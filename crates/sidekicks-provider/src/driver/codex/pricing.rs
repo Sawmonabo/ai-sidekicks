@@ -294,7 +294,7 @@ fn rate_speed(key: &UnpricedUsageKey) -> Option<&str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use rstest::rstest;
     use sidekicks_contracts::event::usage::UsageCostSource;
     use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
@@ -335,14 +335,15 @@ mod tests {
     }"#;
 
     const API_KEY: Option<ProviderAuthMode> = Some(ProviderAuthMode::ApiKey);
-    const PLAN: Option<ProviderAuthMode> = Some(ProviderAuthMode::OauthSubscription);
+    /// A plan sign-in, valued at the standard rates or its tier's.
+    pub(crate) const PLAN: Option<ProviderAuthMode> = Some(ProviderAuthMode::OauthSubscription);
 
-    // One request's counts: input, output, cache read and cache write.
-    type Counts = [u64; 4];
+    /// One request's counts: input, output, cache read and cache write.
+    pub(crate) type Counts = [u64; 4];
 
-    // What one request of `counts` on `model` at `speed` in `region` makes under `sign_in_kind`,
-    // through `prices_key` first as both callers ask.
-    fn price(
+    /// What one request of `counts` on `model` at `speed` in `region` makes under `sign_in_kind`,
+    /// through `prices_key` first as both callers ask, from two rows as the list carries them.
+    pub(crate) fn price(
         model: &str,
         speed: Option<&str>,
         region: Option<&str>,

@@ -132,13 +132,6 @@ impl ExportStatusTracker {
     }
 
     /// The process's export status, `None` until an export arrives or a check finds none.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the export status line and the usage-file fallback read it"
-        )
-    )]
     pub(crate) fn status(&self) -> watch::Receiver<Option<ExportStatus>> {
         self.status.clone()
     }

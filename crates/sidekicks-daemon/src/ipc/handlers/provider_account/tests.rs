@@ -320,6 +320,22 @@ impl UsageSink for UnreadUsage {
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
         async { Err("no thread resumes here".into()) }.boxed()
     }
+
+    fn is_request_recorded(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _request_key: String,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async { Ok(false) }.boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 // No session holds a turn or a running process here.

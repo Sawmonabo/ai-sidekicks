@@ -171,6 +171,22 @@ impl UsageSink for CostRecord {
     ) -> BoxedAnswer<'_, UsageAxisCounts> {
         async { Err("the cost record keeps no sum".into()) }.boxed()
     }
+
+    fn is_request_recorded(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _request_key: String,
+    ) -> BoxedAnswer<'_, bool> {
+        async { Ok(false) }.boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxedAnswer<'_, Option<String>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 // A session log beside the accounts `account-a` of `table-rule` and `account-b` of

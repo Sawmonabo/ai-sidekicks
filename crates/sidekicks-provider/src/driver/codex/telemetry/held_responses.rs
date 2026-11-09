@@ -1,8 +1,11 @@
 //! The export's completed responses one session holds until its stream could have stated them,
-//! then passes over or prices.
+//! then passes over or prices; a response its rollout file stated while the export was absent is
+//! held the same way.
 
 use std::collections::VecDeque;
 
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::wire::text::BoundedText;
 use tokio::time::Instant;
 
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
@@ -21,6 +24,19 @@ pub(crate) struct CodexExportedResponse {
     pub(crate) arrived_at: Instant,
     /// Where it was placed off the session's stream; `None` on a thread the session streams.
     pub(crate) placed: Option<CodexOffStreamPlacement>,
+    /// What a response read from its rollout file carries; `None` for one an export stated.
+    pub(crate) rollout: Option<CodexRolloutFacts>,
+}
+
+/// What a response read from its rollout file carries beside its counts: the key its rows are
+/// stored under, which an account holding it already passes over, and whether its tier is its
+/// root thread's, read from the session's stored rows as it is decided.
+#[derive(Clone)]
+pub(crate) struct CodexRolloutFacts {
+    /// Codex's id of the response.
+    pub(crate) request_key: BoundedText<1, EVENT_FIELD_MAX_LEN>,
+    /// Whether a spawned helper sent it, at its root thread's tier.
+    pub(crate) is_root_tier: bool,
 }
 
 /// Where the drain placed a response on a thread no session streams.

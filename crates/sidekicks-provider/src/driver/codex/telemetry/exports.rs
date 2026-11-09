@@ -1,11 +1,12 @@
 //! The driver's register of its Codex launches' exports: the tag each exporting launch carries,
-//! its export status, placement state and copies' threads, and the hand-off of each completed
-//! response its exports state to the drain; and the tag of each one-shot exec that exports, with
-//! the responses its exports state, collected for the exec's caller.
+//! its export status, placement state, copies' threads and rollout fallback, and the hand-off of
+//! each completed response its exports state, and of each request turn it settles, to the drain;
+//! and the tag of each one-shot exec that exports, with the responses its exports state, collected
+//! for the exec's caller.
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -25,8 +26,10 @@ use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
 use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, refuse_unplaced};
+use crate::driver::codex::telemetry::rollouts::CodexLaunchRollouts;
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
+use crate::pricing::receiver::records::read_unix_time_ms;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 #[cfg(test)]
@@ -130,8 +133,8 @@ struct CodexExecExportEntry {
 }
 
 // One launch: the service it started, its tag's guard and resource tag, its export status, how
-// many of its exports were read, and where its off-stream threads were placed and the responses
-// it keeps, which go with it.
+// many of its exports were read, where its off-stream threads were placed and the responses it
+// keeps, which go with it, and its rollout fallback's handles.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
@@ -140,6 +143,7 @@ struct CodexLaunchExport {
     tracker: Arc<ExportStatusTracker>,
     exports_read: u64,
     placement: Arc<Mutex<CodexLaunchPlacement>>,
+    rollouts: CodexLaunchRollouts,
 }
 
 impl CodexLaunchExport {
@@ -275,6 +279,7 @@ impl CodexExports {
             CODEX_EXPORT_INTERVAL,
         ));
         let registered = Arc::new(());
+        let rollouts = CodexLaunchRollouts::new(tracker.status(), read_unix_time_ms());
         let (number, resource_tag) = self.with_live(|launches| {
             let number = launches.next_number;
             launches.next_number += 1;
@@ -289,6 +294,7 @@ impl CodexExports {
                     tracker,
                     exports_read: 0,
                     placement: Arc::default(),
+                    rollouts,
                 },
             );
             (number, resource_tag)
@@ -341,12 +347,17 @@ impl CodexExports {
         made_request: bool,
         started_at: Instant,
     ) {
-        let tracker = self.with_live(|launches| {
-            launches
-                .newest_of(service_id)
-                .map(|launch| Arc::clone(&launch.tracker))
+        let launch = self.with_live(|launches| {
+            launches.newest_of(service_id).map(|launch| {
+                let settled = CodexExportItem::Settled {
+                    service: Weak::clone(&launch.service),
+                    launch: Arc::downgrade(&launch.placement),
+                    rollouts: launch.rollouts.clone(),
+                };
+                (Arc::clone(&launch.tracker), settled)
+            })
         });
-        let Some(tracker) = tracker else {
+        let Some((tracker, settled)) = launch else {
             return;
         };
         if let Err(error) = tracker.turn_settled(made_request, started_at) {
@@ -356,6 +367,24 @@ impl CodexExports {
                 "a codex launch's export check could not be armed"
             );
         }
+        // While the status reads stopped, the launch's rollout files hold the turn's requests.
+        if made_request {
+            self.offer(settled);
+        }
+    }
+
+    /// The rollout files `service_id`'s newest launch's fallback cannot read; `None` for a service
+    /// with no exporting launch.
+    #[expect(dead_code, reason = "the export status line reads it")]
+    pub(crate) fn unreadable_rollouts(
+        &self,
+        service_id: CodexServiceId,
+    ) -> Option<watch::Receiver<Vec<PathBuf>>> {
+        self.with_live(|launches| {
+            launches
+                .newest_of(service_id)
+                .map(|launch| launch.rollouts.unreadable.subscribe())
+        })
     }
 
     /// Whether `service_id`'s service has an exporting launch, whose responses the session's
@@ -523,6 +552,7 @@ impl CodexExports {
                 }
                 Some(launch) => {
                     launch.exports_read += 1;
+                    launch.rollouts.export_read(read_unix_time_ms());
                     CodexLaunchLookup::Read(
                         CodexLaunchRead {
                             service: Weak::clone(&launch.service),
@@ -561,6 +591,13 @@ impl CodexExports {
                 | TrySendError::Closed(CodexExportItem::Retry { .. }),
             ) => {
                 tracing::debug!("a codex launch's retry of its kept responses was not handed off");
+            }
+            Err(
+                TrySendError::Full(CodexExportItem::Settled { .. })
+                | TrySendError::Closed(CodexExportItem::Settled { .. }),
+            ) => {
+                // The launch's next settled request turn reads what this one wrote.
+                tracing::debug!("a codex launch's settled turn was not handed to its fallback");
             }
         }
     }

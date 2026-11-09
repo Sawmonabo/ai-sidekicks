@@ -440,6 +440,7 @@ fn push_bucket(
             response: kept.response,
             arrived_at: kept.arrived_at,
             placed: placed.cloned(),
+            rollout: None,
         };
         push_exported_response(service, session_id, exported);
     }

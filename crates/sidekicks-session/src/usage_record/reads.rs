@@ -1,7 +1,8 @@
 //! The usage record's reads of the log and the accounts: where a reading's row goes, an account's
 //! generation and the quota windows kept for it, a run's tally seeded once per run, the turn a
-//! provider's turn id opened, and a thread's prior counts; and the one expression of a token count,
-//! which the agent tree's heads read too.
+//! provider's turn id opened, a thread's prior counts, whether a request's rows are held and the
+//! thread tier live at an instant; and the one expression of a token count, which the agent tree's
+//! heads read too.
 
 use std::sync::LazyLock;
 
@@ -114,6 +115,17 @@ static SELECT_TURN_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
 // The cumulative counts the rows of a thread's own runs carry, the helpers' rows aside, since a
 // helper meters a thread of its own; an axis no row reported is NULL. A row's input is put back to
 // the provider's raw figure by adding the cache reads and writes its containment took out.
+// Whether one account holds a row of one request, found by the account and key index.
+const SELECT_REQUEST_RECORDED_SQL: &str = "SELECT EXISTS (
+  SELECT 1 FROM provider_account_usage_turns
+   WHERE account_id = @account_id AND request_key = @request_key)";
+
+// The thread tier of a session's latest row carrying one at or before an instant, found by the
+// session and time index; the stored instants share one fixed-width form, so text orders them.
+const SELECT_THREAD_SPEED_AT_SQL: &str = "SELECT thread_speed FROM provider_account_usage_turns
+   WHERE session_id = @session_id AND occurred_at <= @at AND thread_speed IS NOT NULL
+   ORDER BY occurred_at DESC LIMIT 1";
+
 static SELECT_PRIOR_EMITTED_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     let subtracted = serde_json::to_value(UsageContainment::ConfirmedSubtracted)
@@ -391,4 +403,42 @@ pub(super) fn read_prior_emitted(
             },
         )?;
     Ok(sums)
+}
+
+/// Whether `account_id`'s account holds a row of the request keyed `request_key`.
+pub(super) fn read_request_recorded(
+    reader: &Connection,
+    account_id: &str,
+    request_key: &str,
+) -> Result<bool, UsageRecordError> {
+    let is_recorded = reader
+        .prepare_cached(SELECT_REQUEST_RECORDED_SQL)?
+        .query_row(
+            named_params! {
+                "@account_id": account_id,
+                "@request_key": request_key,
+            },
+            |row| row.get(0),
+        )?;
+    Ok(is_recorded)
+}
+
+/// The thread tier of `session_id`'s latest row that carries one at or before `at`, in the stored
+/// form; `None` where no such row carries one.
+pub(super) fn read_thread_speed_at(
+    reader: &Connection,
+    session_id: SessionId,
+    at: &str,
+) -> Result<Option<String>, UsageRecordError> {
+    let thread_speed = reader
+        .prepare_cached(SELECT_THREAD_SPEED_AT_SQL)?
+        .query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@at": at,
+            },
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(thread_speed)
 }

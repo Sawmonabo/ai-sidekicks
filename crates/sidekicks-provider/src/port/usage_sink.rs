@@ -1,8 +1,9 @@
 //! Where a provider's metered usage, the price of each request it metered, and its account's quota
 //! windows go, a turn's push and an account read's whole set alike, and the sums the daemon already
 //! reported for a thread a resumed session meters on from. Recording a reading answers the event it
-//! became, so a priced request can name its rows. The usage service registers it once it runs;
-//! until then a reading meters against a zero base and its delta goes nowhere.
+//! became, so a priced request can name its rows; a request read from a provider's own usage file
+//! is checked against the rows already held. The usage service registers it once it runs; until
+//! then a reading meters against a zero base and its delta goes nowhere.
 
 use std::error::Error;
 
@@ -17,6 +18,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
@@ -154,4 +156,22 @@ pub trait UsageSink: Send + Sync {
         session_id: SessionId,
         thread_id: String,
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>>;
+
+    /// Whether `provider_account_id`'s account already holds a row of the request the provider
+    /// keys `request_key`, so a request read a second time is not counted again. Fails when the
+    /// record is unreadable.
+    fn is_request_recorded(
+        &self,
+        provider_account_id: ProviderAccountId,
+        request_key: String,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>>;
+
+    /// The thread tier of `session_id`'s latest row that carries one at or before `at`, the tier
+    /// a helper's request made then is priced at; `None` where no such row carries one. Fails when
+    /// the record is unreadable.
+    fn read_thread_speed_at(
+        &self,
+        session_id: SessionId,
+        at: WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>>;
 }

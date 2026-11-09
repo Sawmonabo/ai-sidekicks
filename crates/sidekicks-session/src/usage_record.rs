@@ -63,7 +63,8 @@ use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
     MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
-    read_prior_emitted, read_stored_windows, read_tally_seed, read_turn_opening,
+    read_prior_emitted, read_request_recorded, read_stored_windows, read_tally_seed,
+    read_thread_speed_at, read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
@@ -499,6 +500,38 @@ impl UsageSink for UsageRecord {
             self.pool
                 .read(ReadLength::Short, move |reader| {
                     read_prior_emitted(reader, session_id, &thread_id)
+                })
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    fn is_request_recorded(
+        &self,
+        provider_account_id: ProviderAccountId,
+        request_key: String,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.pool
+                .read(ReadLength::Short, move |reader| {
+                    read_request_recorded(reader, provider_account_id.as_str(), &request_key)
+                })
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    fn read_thread_speed_at(
+        &self,
+        session_id: SessionId,
+        at: WireInstant,
+    ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.pool
+                .read(ReadLength::Short, move |reader| {
+                    read_thread_speed_at(reader, session_id, at.as_str())
                 })
                 .await
                 .map_err(Into::into)
