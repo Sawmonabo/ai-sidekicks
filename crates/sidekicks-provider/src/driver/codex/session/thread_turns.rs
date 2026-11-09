@@ -13,6 +13,11 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::transport::connection::read_codex_object;
 
+/// The most threads whose last settled turn is kept, so a helper thread that settles and never
+/// starts again is let go; past it the one that began longest ago goes, its late reading the least
+/// likely still to come.
+const SETTLED_TURNS_KEPT: usize = 64;
+
 /// The members of a frame a turn id is read from.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +41,7 @@ pub(crate) struct FrameTurn {
 #[derive(Default)]
 pub(crate) struct CodexThreadTurns {
     live: HashMap<String, CodexLiveTurn>,
-    // Until the thread's next turn starts.
+    // Until the thread's next turn starts or its thread is let go, at most `SETTLED_TURNS_KEPT`.
     last_settled: HashMap<String, CodexLastSettledTurn>,
 }
 
@@ -124,6 +129,16 @@ impl CodexThreadTurns {
             return None;
         }
         let settled = self.live.remove(&thread_id)?;
+        if self.last_settled.len() >= SETTLED_TURNS_KEPT
+            && !self.last_settled.contains_key(&thread_id)
+            && let Some(oldest) = self
+                .last_settled
+                .iter()
+                .min_by_key(|(_thread, kept)| kept.started_at)
+                .map(|(thread, _kept)| thread.clone())
+        {
+            self.last_settled.remove(&oldest);
+        }
         self.last_settled.insert(
             thread_id.clone(),
             CodexLastSettledTurn {
@@ -154,8 +169,10 @@ impl CodexThreadTurns {
             .map(|(thread_id, live)| (thread_id, live.turn_id))
     }
 
-    /// Ends `thread_id`'s live turn, whose completion will never come, answering its id.
+    /// Ends `thread_id`'s live turn, whose completion will never come, answering its id, and lets
+    /// go the turn that settled last there, since the thread is let go.
     pub(crate) fn end_live_turn(&mut self, thread_id: &str) -> Option<String> {
+        self.last_settled.remove(thread_id);
         self.live.remove(thread_id).map(|live| live.turn_id)
     }
 
@@ -208,7 +225,7 @@ mod tests {
     use serde_json::value::to_raw_value;
     use tokio::time::Instant;
 
-    use super::{CodexEndedTurn, CodexThreadTurns};
+    use super::{CodexEndedTurn, CodexThreadTurns, SETTLED_TURNS_KEPT};
     use crate::driver::codex::event_normalizer::{
         CODEX_TURN_COMPLETED_METHOD, CODEX_TURN_STARTED_METHOD,
     };
@@ -268,5 +285,34 @@ mod tests {
         assert_eq!(armed.turn_id, TURN);
         // Marked once: a second reading arms nothing more.
         assert!(turns.request_made(THREAD).is_none());
+    }
+
+    // Settles one turn on `thread` at `at`.
+    fn settle(turns: &mut CodexThreadTurns, thread: &str, at: Instant) {
+        let params = to_raw_value(&json!({"threadId": thread, "turn": {"id": TURN}}))
+            .expect("the params are JSON");
+        turns.observe(CODEX_TURN_STARTED_METHOD, &params, at);
+        turns.observe(CODEX_TURN_COMPLETED_METHOD, &params, at);
+    }
+
+    // Helper threads that settle and never start again are let go past the bound, the one that
+    // began first going first, and a let-go thread's settle goes with it. Killed by the bound
+    // dropped (the first thread is still kept), by the newest let go in place of the oldest, and
+    // by the let-go of a thread leaving its settle kept.
+    #[test]
+    fn settled_helper_threads_are_kept_to_their_bound_and_go_with_their_thread() {
+        let mut turns = CodexThreadTurns::default();
+        let mut at = Instant::now();
+        for index in 0..=SETTLED_TURNS_KEPT {
+            settle(&mut turns, &format!("thread-{index}"), at);
+            at += std::time::Duration::from_millis(1);
+        }
+        assert!(turns.hand_off_settled("thread-0", TURN).is_none());
+        assert!(turns.hand_off_settled("thread-1", TURN).is_some());
+        let newest = format!("thread-{SETTLED_TURNS_KEPT}");
+        assert!(turns.hand_off_settled(&newest, TURN).is_some());
+
+        turns.end_live_turn(&newest);
+        assert!(turns.hand_off_settled(&newest, TURN).is_none());
     }
 }

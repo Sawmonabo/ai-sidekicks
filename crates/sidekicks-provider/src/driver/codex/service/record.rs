@@ -176,10 +176,16 @@ pub(crate) struct LockedServiceRecord {
     hold: Arc<File>,
 }
 
+/// The folder under `data_folder` of every Codex folder's records, which hold each launch's live
+/// telemetry token, so no session's agent may read it.
+pub(crate) fn service_record_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(RECORD_FOLDER_NAME)
+}
+
 /// The folder of the records of the services on `codex_home`, named for the folder resolved.
 fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathBuf> {
     let key = provider_home_key(&real_path(codex_home)?);
-    Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
+    Ok(service_record_folder(data_folder).join(key))
 }
 
 /// The key of each Codex folder whose records' folder under `data_folder` holds a record, so a
@@ -210,8 +216,7 @@ pub(crate) fn one_recorded_file_per_folder(
 // Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
 // together; none when no record was ever kept. Blocking. Fails with a folder's read error.
 fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
-    let Some(folders) =
-        std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)).none_if_missing()?
+    let Some(folders) = std::fs::read_dir(service_record_folder(data_folder)).none_if_missing()?
     else {
         return Ok(Vec::new());
     };

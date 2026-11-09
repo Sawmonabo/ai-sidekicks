@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::mutex_lock::lock;
-use zeroize::Zeroizing;
 
 use crate::bearer_token::{BEARER_PREFIX, BearerToken};
 
@@ -108,12 +107,11 @@ pub struct TelemetryBearer {
 
 impl TelemetryBearer {
     /// The OTLP exporters' headers setting that presents the token, `authorization=Bearer <token>`,
-    /// which an exporter splits at its first `=`; Claude's settings file takes the same value.
-    pub fn exporter_headers(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!(
-            "authorization={BEARER_PREFIX}{}",
-            self.token.text()
-        ))
+    /// which an exporter splits at its first `=`; Claude's settings file takes the same value. A
+    /// plain string, since the token also sits in the process's environment and the daemon's
+    /// private records, so wiping this copy would shorten no copy's life.
+    pub fn exporter_headers(&self) -> String {
+        format!("authorization={BEARER_PREFIX}{}", self.token.text())
     }
 
     /// The token itself, for the daemon's private record of a process that outlives it, from

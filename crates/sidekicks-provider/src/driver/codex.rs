@@ -734,6 +734,10 @@ impl ProviderDriver for CodexDriver {
         self.remove_left_sign_in_folders().boxed()
     }
 
+    fn private_file_folders(&self) -> Vec<PathBuf> {
+        vec![self.registry.service_record_folder()]
+    }
+
     fn request_pricer(&self) -> Option<Arc<dyn RequestPricer>> {
         Some(Arc::new(pricing::CodexRequestPricer))
     }

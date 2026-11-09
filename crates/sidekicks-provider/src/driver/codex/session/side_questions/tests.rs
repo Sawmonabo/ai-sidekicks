@@ -499,7 +499,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
 // declared left unread in `ask` (no speed): the session's recorder would leave the copy's rows
 // unpriced or price them at the standard rates.
 #[tokio::test]
-async fn a_live_copys_reading_carries_its_model_and_declared_tier() {
+async fn a_live_copy_reading_carries_its_model_and_declared_tier() {
     let mut session = TestCodexSession::start().await;
     let tasks = TaskTracker::new();
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
@@ -517,6 +517,9 @@ async fn a_live_copys_reading_carries_its_model_and_declared_tier() {
 
     let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
         tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "config/read");
+            script.answer(&read, &json!({"config": {}, "origins": {}}));
             let fork = script.next_sent().await;
             assert_eq!(fork["method"], "thread/fork");
             script.answer(

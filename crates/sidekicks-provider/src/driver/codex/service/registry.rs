@@ -34,7 +34,7 @@ use crate::driver::codex::account::{
 use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
-use crate::driver::codex::service::record::recorded_home_keys;
+use crate::driver::codex::service::record::{recorded_home_keys, service_record_folder};
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
@@ -225,6 +225,11 @@ impl CodexServiceRegistry {
     /// one the registry holds; made but not started. The caller stops it and removes the folder.
     pub(crate) fn token_status_service(&self, codex_home: PathBuf) -> Arc<CodexService> {
         self.service_on_own_folder(codex_home, CodexHomeKind::TokenStatusRead)
+    }
+
+    /// The folder under the data folder of the lasting services' records.
+    pub(crate) fn service_record_folder(&self) -> PathBuf {
+        service_record_folder(&self.dependencies.data_folder)
     }
 
     /// The folder under the data folder each MCP sign-in's own folder is made in.

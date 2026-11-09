@@ -434,6 +434,11 @@ async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
             tokio::pin!(asked);
             let scripted = &mut live.scripted;
             let copy_turn = async {
+                // The copy reads the folder's starting level before its fork.
+                let read = scripted.next_request("config/read").await;
+                scripted
+                    .script
+                    .answer(&read, &json!({"config": {}, "origins": {}}));
                 let fork = scripted.next_request("thread/fork").await;
                 scripted.script.answer(
                     &fork,

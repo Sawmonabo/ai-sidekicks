@@ -156,10 +156,7 @@ fn compose_daemon_export(
     Ok(TelemetrySwitches {
         config_overrides,
         environment: vec![
-            (
-                LOGS_HEADERS_VARIABLE.to_owned(),
-                bearer.exporter_headers().as_str().to_owned(),
-            ),
+            (LOGS_HEADERS_VARIABLE.to_owned(), bearer.exporter_headers()),
             (
                 RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
                 tag.resource_attributes(),

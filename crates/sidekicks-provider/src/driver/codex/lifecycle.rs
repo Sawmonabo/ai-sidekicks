@@ -148,6 +148,8 @@ pub(crate) struct CodexDriver {
     // runs in.
     capability_read: tokio::sync::Mutex<()>,
     tasks: TaskTracker,
+    // The export drain and its launches' work, apart from `tasks` so the shutdown stops them first.
+    export_tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
     /// Codex's live pricing, which every session's recorder and every copy price through and a
     /// reroute marks its model in use on.
@@ -231,8 +233,8 @@ pub(crate) struct CodexDriverParts {
 
 impl CodexDriver {
     /// The driver over the shared services: its homes, services and slots are built now, with no
-    /// I/O and no process started, and its export drain spawned on its tasks; must be called within
-    /// the daemon's runtime.
+    /// I/O and no process started, and its export drain spawned on its own tasks; must be called
+    /// within the daemon's runtime.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let tasks = TaskTracker::new();
         let homes = Arc::new(CodexHomes::new(
@@ -261,7 +263,8 @@ impl CodexDriver {
         let drain = exports
             .take_drain()
             .expect("a new register's drain is untaken");
-        tasks.spawn(drain.run(tasks.clone()));
+        let export_tasks = TaskTracker::new();
+        export_tasks.spawn(drain.run(export_tasks.clone()));
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
             provider_services: Arc::clone(&services.provider_services),
@@ -358,6 +361,7 @@ impl CodexDriver {
             account_legs,
             capability_read: tokio::sync::Mutex::default(),
             tasks,
+            export_tasks,
             link,
             pricing: Arc::new(LivePricing::new(
                 DESCRIPTOR.provider_id(),
