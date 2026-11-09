@@ -2,12 +2,16 @@
 //! closed one's answers reaching no one, and every one answered by the executor's end and kept
 //! open.
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::{
-    ListeningRelay, admitted_socket, assert_quiet, initialize, listening_relay, next_forwarded,
-    next_text, send_text, wait_until,
+    ListeningRelay, admitted_socket, assert_quiet, initialize, initialized_executor,
+    listening_relay, next_forwarded, next_line, next_text, relay_for, send_text, wait_until,
 };
 use crate::driver::test_registry::new_session_id;
 
@@ -176,4 +180,55 @@ fn metadata(modified_at_ms: i64) -> Value {
         "createdAtMs": 0,
         "modifiedAtMs": modified_at_ms,
     })
+}
+
+// A connection whose queue toward its socket stays full is let go, its socket told to close,
+// and the executor's next line for another connection still reaches it. Killed by the executor's
+// reader waiting on a full connection's queue, which holds every later line.
+#[tokio::test]
+async fn a_connection_that_stops_reading_holds_up_no_other() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let relay = relay_for(new_session_id(), folder.path());
+    let (executor, mut fake) = initialized_executor().await;
+    relay.take_executor(Arc::clone(&executor));
+    let (stalled_client, _never_read) = mpsc::channel(1);
+    let stalled_closed = CancellationToken::new();
+    let (executor, stalled) = relay
+        .attach_client(stalled_client, stalled_closed.clone())
+        .expect("an executor runs");
+    let (client, mut received) = mpsc::channel(16);
+    let (_, reading) = relay
+        .attach_client(client, CancellationToken::new())
+        .expect("an executor runs");
+    let start = |id: u64, process: &str| {
+        json!({ "id": id, "method": "process/start", "params": {
+            "processId": process,
+            "argv": ["/bin/true"],
+            "cwd": "file:///tmp",
+            "env": {},
+            "tty": false,
+            "arg0": null,
+        }})
+        .to_string()
+    };
+
+    for (connection, id, process) in [
+        (stalled, 1, "first"),
+        (stalled, 2, "second"),
+        (reading, 3, "third"),
+    ] {
+        relay
+            .take_client_message(&executor, connection, start(id, process))
+            .await;
+        let sent = fake.next_sent().await;
+        let relay_process = sent["params"]["processId"].clone();
+        fake.write(&json!({ "id": sent["id"], "result": { "processId": relay_process } }))
+            .await;
+    }
+
+    assert_eq!(next_line(&mut received).await["id"], 3);
+    assert!(
+        stalled_closed.is_cancelled(),
+        "the stalled connection is let go"
+    );
 }

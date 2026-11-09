@@ -345,8 +345,8 @@ impl ClaudeRunPauses {
 
     /// Continues one helper and answers the callbacks it was held on: with no decision, each
     /// carrying its capture, or denied with `steer` as the reason, which the helper reads as the
-    /// person's words, so no call runs and none is captured. Also answers whether its pause lost a callback Claude Code
-    /// withdrew while it held.
+    /// person's words, so no call runs and none is captured. Also answers whether its pause lost a
+    /// callback Claude Code withdrew while it held.
     pub(crate) fn resume_helper(
         &mut self,
         session_id: &SessionId,
@@ -455,7 +455,8 @@ impl ClaudeRunPauses {
             .collect()
     }
 
-    /// Drops a callback Claude Code withdrew; it will not be answered, and its call is not captured.
+    /// Drops a callback Claude Code withdrew; it will not be answered, and its call is not
+    /// captured.
     pub(crate) fn withdraw_callback(&mut self, session_id: &SessionId, request_id: &str) {
         self.helper_pauses
             .withdraw_held(session_id, |held| held.request_id == request_id);

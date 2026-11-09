@@ -2,11 +2,11 @@
 //! run by, so a reader stamping a log follows the daemon's rules. A run position counts the
 //! person's messages the run took, a turn's opening or a steer, not turns. A turn boundary or a
 //! steer moves the run to its next position, an accepted rollback ends the epoch it rewound and
-//! opens the next at its point, and a row stamped late or belonging to a tool call takes the position it was made
-//! at. Each accepted rollback cuts the epoch it rewound; a position above its epoch's cut is
-//! superseded, and a later cut below an earlier epoch's point supersedes that epoch's positions
-//! down to it too, because the earlier epoch's surviving prefix is part of the history the later
-//! cut rewound.
+//! opens the next at its point, and a row stamped late or belonging to a tool call takes the
+//! position it was made at. Each accepted rollback cuts the epoch it rewound; a position above its
+//! epoch's cut is superseded, and a later cut below an earlier epoch's point supersedes that
+//! epoch's positions down to it too, because the earlier epoch's surviving prefix is part of the
+//! history the later cut rewound.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -38,7 +38,8 @@ pub const TURN_END_EVENT_TYPES: [&str; 3] = [
     SessionEventType::AgentTurnFailed.as_str(),
 ];
 
-/// The event type that opens a tool call; the call's later rows take the turn it opened in.
+/// The event type that opens a tool call; the call's later rows take the run position it opened
+/// at.
 pub const TOOL_CALL_OPENING_EVENT_TYPE: &str = SessionEventType::AgentToolCallInvoked.as_str();
 
 /// An execution epoch and a run position within it.

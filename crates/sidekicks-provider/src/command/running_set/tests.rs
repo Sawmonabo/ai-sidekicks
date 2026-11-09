@@ -24,7 +24,8 @@ use super::{
     CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandSets, WrapperCommand,
     next_sent_frame, next_sent_set_where,
 };
-use crate::command::channel::{PartyId, StoppedCommandParties};
+use crate::command::channel::PartyId;
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::waiting_checks::WaitingState;
 use crate::driver::contract::MockProviderDriver;
 use crate::driver::contract::error::DriverError;

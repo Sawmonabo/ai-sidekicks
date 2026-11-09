@@ -7,8 +7,6 @@
 //! its own whose commands are rows under that process's one run.
 
 mod apart_run;
-mod wrapper_stop;
-
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io;
@@ -516,7 +514,8 @@ pub(crate) struct ClaudeCommandChannels {
     programs: ClaudeCommandPrograms,
     caller_processes: Arc<dyn CallerProcessReader>,
     input_waits: Arc<dyn InputWaitReader>,
-    command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The running commands every channel's records reach, which find a command's wrapper.
+    pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
     line_capture: LineCapture,
     sessions: Mutex<HashMap<SessionId, Arc<ClaudeCommandChannel>>>,
     // Each session's channels apart from its own, while their callers hold them.
@@ -734,6 +733,12 @@ pub(crate) struct ClaudeCommandChannel {
 }
 
 impl ClaudeCommandChannel {
+    /// The channel the process's parties write to, which a test writes a party's records on.
+    #[cfg(test)]
+    pub(crate) fn command_channel(&self) -> &CommandChannel {
+        &self.channel
+    }
+
     /// The variables the process's commands carry so they run under the wrapper, which reaches
     /// the channel, and their git and ssh ask through the askpass.
     pub(crate) fn environment(&self) -> &[(String, String)] {

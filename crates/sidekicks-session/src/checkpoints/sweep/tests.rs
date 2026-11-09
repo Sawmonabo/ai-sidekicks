@@ -12,7 +12,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
-use sidekicks_platforms::{read_volume, real_path};
+use sidekicks_platforms::{file_facts, read_volume, real_path};
 use sidekicks_provider::port::command_capture::{
     CommandCapture as _, CommandWindowEnd, CommandWindowId as PortWindowId,
 };
@@ -22,7 +22,7 @@ use sidekicks_store::data_folder::{session_storage_folder, workflow_run_folder};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_workflow::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version};
-use sidekicks_workspace::git::process::test_repository::git_in;
+use sidekicks_workspace::git::process::test_repository::{git_in, git_in_with_input};
 use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
@@ -72,10 +72,13 @@ fn sweep_over(fixture: &Fixture) -> (CheckpointSweep, Arc<TestWallClock>) {
 // One whole pass, its clock set past the test's writes.
 async fn pass(sweep: &CheckpointSweep, clock: &TestWallClock) -> CheckpointSweepCounts {
     clock.set_now(SystemTime::now() + SETTLED_READ_DELAY);
-    sweep
+    let (counts, failure) = sweep
         .run_pass(&CancellationToken::new(), &ProcessorMeter::default())
-        .await
-        .expect("the pass runs")
+        .await;
+    if let Some(failure) = failure {
+        panic!("the pass runs, got {failure:?}");
+    }
+    counts
 }
 
 // Opens a window, lets its command begin covered, and closes it as exited once `during` ran.
@@ -95,12 +98,15 @@ async fn run_window(fixture: &Fixture, during: impl AsyncFnOnce()) -> PortWindow
     window
 }
 
-// The one capture folder under `owner`, the large files' folder aside.
+// The one capture folder under `owner`, the large files' and the copies' folders aside.
 fn capture_folder_of(owner: &Path) -> PathBuf {
     let mut folders: Vec<PathBuf> = fs::read_dir(owner.join(CAPTURES_SEGMENT))
         .expect("the captures folder is listed")
         .map(|entry| entry.expect("the entry reads").path())
-        .filter(|path| path.file_name().is_some_and(|name| name != "large"))
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name != "large" && name != "copies")
+        })
         .collect();
     assert_eq!(folders.len(), 1, "one capture folder: {folders:?}");
     folders.remove(0)
@@ -111,6 +117,22 @@ async fn git_succeeds(git: &GitRunner, folder: &Path, arguments: &[&str]) -> boo
     git.run(None, GitCall::read(in_folder(folder, arguments)))
         .await
         .is_ok()
+}
+
+// Writes `text` as a blob packed alone into the capture folder `folder`, its loose copy removed,
+// and answers its id.
+async fn pack_lone_blob(git: &GitRunner, folder: &Path, text: &str) -> String {
+    let blob = git_in_with_input(git, folder, &["hash-object", "-w", "--stdin"], text).await;
+    let listed = format!("{blob}\n");
+    git_in_with_input(
+        git,
+        folder,
+        &["pack-objects", "-q", "objects/pack/pack"],
+        &listed,
+    )
+    .await;
+    git_in(git, folder, &["prune-packed"]).await;
+    blob
 }
 
 // Commits every change in `repository` as `message`.
@@ -370,7 +392,7 @@ async fn a_retired_shadow_nothing_uses_goes_with_its_clone() {
                 clone_path: FilesystemPath::new(utf8(&clone).to_owned()).expect("a clone path"),
                 volume_id: None,
             },
-            facts: None,
+            facts: Some(file_facts(&clone).expect("the clone's facts are read")),
             taken_at: jiff::Timestamp::now(),
             time_precision: Duration::from_secs(1),
         };
@@ -424,9 +446,13 @@ async fn a_retired_shadow_nothing_uses_goes_with_its_clone() {
 }
 
 // Kills: the kept list read from refs only (the window's `window.txt` blobs go), the after point's
-// commit left out (its blob goes), the reclaim not run on a marked folder (the `deleted.txt` blob
-// stays), and a mark taken as due while its run's ref remains (the first pass reclaims and removes
-// it, so the second leaves the `deleted.txt` blob).
+// commit left out (its blob goes), a window's points kept only under the spelling its row records
+// (the row's spelling names a link since removed, so its blobs go), a kept index's entries left out
+// (the blob a capture under way staged goes), a pack written within the hour dropped (its blob
+// goes), the reclaim not run on a marked folder (the `deleted.txt` blob stays), a mark taken as
+// due while its run's ref remains (the first pass reclaims and removes it, so the second leaves the
+// `deleted.txt` blob), a mark removed while a fresh pack holds an object outside the kept set, and
+// a mark kept once the folder holds nothing else.
 #[tokio::test]
 async fn a_deleted_runs_objects_go_and_every_capture_the_store_holds_stays_whole() {
     let fixture = Fixture::with_repository(&[("file.txt", "base\n")]).await;
@@ -483,6 +509,18 @@ async fn a_deleted_runs_objects_go_and_every_capture_the_store_holds_stays_whole
         fs::write(repository.join("window.txt"), "two\n").expect("the file is rewritten");
     })
     .await;
+    // The window's row spells the repository through a link since removed, so no pair reads it.
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE checkpoint_commands SET git_common_dir = ?1 WHERE window_id = ?2",
+            params![
+                format!("{}/removed-link/.git", utf8(&fixture.data_folder)),
+                window.as_str()
+            ],
+        )
+        .expect("the window's spelling is set");
     fs::write(repository.join("window.txt"), "three\n").expect("the file is rewritten");
     let kept_commit = capture_as(mint_run_key()).await;
     // The prune's mark, written before its ref delete.
@@ -508,13 +546,51 @@ async fn a_deleted_runs_objects_go_and_every_capture_the_store_holds_stays_whole
         &["update-ref", "-d", &snapshot_ref(deleted_run)],
     )
     .await;
+    // A blob only a kept index names, as a command capture under way staged it.
+    let indexed_blob = pack_lone_blob(&git, &folder, "indexed\n").await;
+    let indexes = folder.join("indexes");
+    fs::create_dir_all(&indexes).expect("the indexes folder is made");
+    let staged = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&folder)
+        .args([
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{indexed_blob},indexed.txt"),
+        ])
+        .env("GIT_INDEX_FILE", indexes.join("ab".repeat(32)))
+        .status()
+        .expect("git runs");
+    assert!(staged.success(), "the blob is staged in the kept index");
     age_packs(&folder);
+    // A blob only a pack written within the hour holds.
+    let fresh_blob = pack_lone_blob(&git, &folder, "fresh\n").await;
 
     pass(&sweep, &clock).await;
 
     assert!(
         !git_succeeds(&git, &folder, &["cat-file", "-e", &deleted_blob]).await,
         "the deleted run's file goes"
+    );
+    for blob in [&indexed_blob, &fresh_blob] {
+        assert!(
+            git_succeeds(&git, &folder, &["cat-file", "-e", blob]).await,
+            "{blob} stays"
+        );
+    }
+    assert!(
+        mark.exists(),
+        "an object only a fresh pack holds keeps the mark"
+    );
+    age_packs(&folder);
+
+    pass(&sweep, &clock).await;
+
+    assert!(!mark.exists(), "the reclaimed mark goes");
+    assert!(
+        git_succeeds(&git, &folder, &["cat-file", "-e", &indexed_blob]).await,
+        "the kept index's blob stays"
     );
     // Attached only now, so the pass ran on the folder alone.
     let alternates = folder.join("objects").join("info");
@@ -544,8 +620,4 @@ async fn a_deleted_runs_objects_go_and_every_capture_the_store_holds_stays_whole
         listing.lines().all(|line| !line.starts_with('?')),
         "every kept capture is whole: {listing}"
     );
-    let marks = fs::read_dir(folder.join(RECLAIMS))
-        .expect("the marks are listed")
-        .count();
-    assert_eq!(marks, 0, "the reclaimed mark goes");
 }

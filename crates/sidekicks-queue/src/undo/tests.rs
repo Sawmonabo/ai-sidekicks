@@ -23,7 +23,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::pin_running_process;
-use sidekicks_provider::command::channel::{PartyId, StoppedCommandParties};
+use sidekicks_provider::command::channel::PartyId;
+use sidekicks_provider::command::channel::stop::StoppedCommandParties;
 use sidekicks_provider::command::running_set::{
     RunningCommandSets, TestCommandStart, test_bound_running_command_sets,
 };
@@ -383,10 +384,11 @@ fn ids(commands: &[(CommandId, CommandStopCause)]) -> Vec<CommandId> {
 
 // Three commands: one whose call opened before the point though it started after the point's
 // message, one whose call opened after the point though it started before that message, and one
-// with no call that started after it; and one helper queued after the point. The reader names the
-// second and third and the helper, the step stops exactly those for an undo and answers that set,
-// and the first still runs. Killed by stopping every command, by a reader placing a command by
-// its start alone, and by a reader taking every command of a run the cut reaches.
+// with no call that started after it; one helper queued after the point; and one wrapper admitted
+// after it that no command row names yet. The reader names the second and third, the helper and
+// the wrapper, the step stops exactly those for an undo and answers that set, and the first still
+// runs. Killed by stopping every command, by a reader placing a command by its start alone, by a
+// reader taking every command of a run the cut reaches, and by one dropping unpaired wrappers.
 #[tokio::test]
 async fn stops_exactly_what_the_reader_names() {
     let mut scene = scene().await;
@@ -397,6 +399,8 @@ async fn stops_exactly_what_the_reader_names() {
     let before = scene.start_command("before", Some("call-before"), &at(3));
     let after = scene.start_command("after", Some("call-after"), &at(1));
     let untracked = scene.start_command("untracked", None, &at(3));
+    let unpaired: PartyId = 4242;
+    scene.running.admit_test_wrapper(scene.session_id, unpaired);
 
     let stops = Arc::new(DriverStops::default());
     let ending = {
@@ -424,7 +428,7 @@ async fn stops_exactly_what_the_reader_names() {
         .await
         .expect("the reader reads the session");
     assert_eq!(named.commands, [after.clone(), untracked.clone()]);
-    assert_eq!(named.unpaired_wrappers, Vec::<PartyId>::new());
+    assert_eq!(named.unpaired_wrappers, [unpaired]);
     assert_eq!(
         named
             .agents

@@ -6,6 +6,7 @@ use std::time::Duration;
 use hpke::Kem as _;
 use sidekicks_platforms::pin_running_process;
 
+use super::stop::COMMAND_STOP_WAIT;
 use super::test_support::{
     KeyPair, end_party, names_in, new_party_keys, open_channel, open_channel_bound_to,
     party_command, ready_parties, sealed, sent_requests,
@@ -60,6 +61,7 @@ fn a_record_opens_only_under_its_own_context_key_and_a_rising_number() {
         first_argument: None,
         is_asking: false,
         wrapper: None,
+        parent: None,
         process: pin_running_process(std::process::id())
             .expect("the test pins itself")
             .expect("it runs"),
@@ -230,7 +232,14 @@ async fn a_stop_reaches_the_wrapper_and_each_nested_party() {
 
     let stopping = tokio::spawn({
         let channel = Arc::clone(&channel);
-        async move { channel.stop_command_parties(stopped_id).await }
+        async move {
+            let parties = channel
+                .read_command_parties(stopped_id)
+                .expect("the wrapper is admitted");
+            channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+        }
     });
     wait_until(|| sent_requests(&channel, &nested_keys, nested_id) == [DaemonRequest::Stop {}])
         .await;
@@ -364,4 +373,60 @@ async fn the_start_removes_left_channel_folders_and_nothing_else() {
 
     assert!(!left.exists());
     assert!(kept.exists());
+}
+
+// Fails when a wrapper let go between its read and its stop, as its row's end lets it go once the
+// provider stopped its command, leaves the party under it unstopped or unwaited. Mutation: read
+// the parties at the stop rather than before it.
+#[tokio::test]
+async fn a_wrapper_let_go_after_its_read_still_stops_and_answers_its_parties() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path(), std::process::id());
+    let (wrapper, wrapper_id, _keys, nested_id, nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+    let parties = channel
+        .read_command_parties(wrapper_id)
+        .expect("the wrapper is admitted");
+    channel.forget_party(wrapper_id).await;
+
+    let parties = channel
+        .stop_command_parties(parties, Duration::from_millis(100))
+        .await
+        .expect("the stop was sent");
+
+    assert_eq!(
+        sent_requests(&channel, &nested_keys, nested_id),
+        [DaemonRequest::Stop {}]
+    );
+    let mut expected = vec![wrapper_id, nested_id];
+    expected.sort_unstable();
+    assert_eq!(parties.process_ids(), expected);
+    end_party(wrapper);
+}
+
+// Fails when a party under the wrapper that never ends holds the stop past its wait, or the wait
+// running out leaves the wrapper unasked. Mutation: wait for the level with no bound.
+#[tokio::test]
+async fn a_party_that_never_ends_holds_the_stop_no_longer_than_its_wait() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path(), std::process::id());
+    let (wrapper, wrapper_id, keys, _nested_id, _nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+    let parties = channel
+        .read_command_parties(wrapper_id)
+        .expect("the wrapper is admitted");
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        channel.stop_command_parties(parties, Duration::from_millis(100)),
+    )
+    .await
+    .expect("the stop answers once its wait ran out")
+    .expect("the stop was sent");
+
+    assert_eq!(
+        sent_requests(&channel, &keys, wrapper_id),
+        [DaemonRequest::Stop {}]
+    );
+    end_party(wrapper);
 }

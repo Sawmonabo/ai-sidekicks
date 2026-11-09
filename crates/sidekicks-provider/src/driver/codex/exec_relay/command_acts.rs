@@ -14,11 +14,12 @@ use serde::Deserialize;
 use serde_json::json;
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::command::channel::StoppedCommandParties;
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
 use crate::command::running_set::takes_no_input;
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
 use crate::driver::codex::exec_relay::methods::PROCESS_WRITE_METHOD;
@@ -34,9 +35,6 @@ use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::{
     RunningCommandParams, StopCommandParams, WriteCommandInputParams,
 };
-
-/// How long a stop waits for the wrapper's end of its command.
-const STOP_WAIT: Duration = Duration::from_secs(5);
 
 /// How long one write waits for the executor's answer before it is sent again.
 const WRITE_WAIT: Duration = Duration::from_secs(5);
@@ -64,16 +62,32 @@ impl CodexDriver {
     /// through its wrapper where one runs it, then with Codex's terminate, answered done once it
     /// ended, a terminal Codex no longer holds included, with the parties the wrapper's stop
     /// reached; otherwise as Codex's background terminal, answered done only on Codex's
-    /// `terminated: true`. A command whose item already ended is answered done. Refused
-    /// `agent.command.notStopped` when it still runs or names no process to stop, as the session's
-    /// live record is missing, and as the service's request fails.
+    /// `terminated: true`. A command whose item already ended, or whose process exited while its
+    /// item is still open, is answered done. Refused `agent.command.notStopped` when it still runs
+    /// or names no process to stop, as the session's live record is missing, and as the service's
+    /// request fails.
     pub(crate) async fn stop_command(
         &self,
         params: StopCommandParams,
     ) -> Result<StoppedCommandParties, DriverError> {
         let params = params.command;
-        let Some((service, relay, command)) = self.find_relayed_command(&params) else {
-            self.stop_background_terminal(&params).await?;
+        let Some((service, relay, command)) =
+            self.find_relayed(&params, CodexExecRelay::relayed_command)
+        else {
+            match self.find_relayed(&params, CodexExecRelay::exited_command) {
+                // Its process ended on its own while its item is still open: the stop is done
+                // whatever Codex's terminate answers for the terminal it let go.
+                Some((service, _relay, command)) => {
+                    let connection = service.connection()?;
+                    terminate_codex_running_command(
+                        &connection,
+                        &command.thread_id,
+                        &command.terminal_process_id,
+                    )
+                    .await?;
+                }
+                None => self.stop_background_terminal(&params).await?,
+            }
             return Ok(StoppedCommandParties::default());
         };
         let (stop, parties) = match relay.executor() {
@@ -83,7 +97,7 @@ impl CodexDriver {
                         &executor,
                         params.command_id.as_str(),
                         &command,
-                        STOP_WAIT,
+                        COMMAND_STOP_WAIT,
                     )
                     .await
             }
@@ -148,7 +162,7 @@ impl CodexDriver {
     ) -> Result<(), DriverError> {
         let command_id = &params.command.command_id;
         let found = self
-            .find_relayed_command(&params.command)
+            .find_relayed(&params.command, CodexExecRelay::relayed_command)
             .and_then(|(_service, relay, command)| Some((relay.executor()?, command)));
         let Some((executor, command)) = found else {
             return Err(takes_no_input(command_id).into());
@@ -160,14 +174,16 @@ impl CodexDriver {
         write_input(&executor, &command, &text, command_id).await
     }
 
-    // The service, relay and record of the command `params` names, among every service's relay.
-    fn find_relayed_command(
+    // The service, relay and record of the command `params` names that `read` answers from a
+    // relay, among every service's relay.
+    fn find_relayed(
         &self,
         params: &RunningCommandParams,
+        read: impl Fn(&CodexExecRelay, SessionId, &CommandId) -> Option<RelayedCommand>,
     ) -> Option<(Arc<CodexService>, Arc<CodexExecRelay>, RelayedCommand)> {
         self.registry.services().into_iter().find_map(|service| {
             let relay = service.exec_relay()?;
-            let command = relay.relayed_command(params.session_id, &params.command_id)?;
+            let command = read(&relay, params.session_id, &params.command_id)?;
             Some((service, relay, command))
         })
     }

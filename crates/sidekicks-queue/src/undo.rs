@@ -18,7 +18,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::command::channel::{PartyId, StoppedCommandParties};
+use sidekicks_provider::command::channel::PartyId;
+use sidekicks_provider::command::channel::stop::StoppedCommandParties;
 use sidekicks_provider::command::running_set::RunningCommandSets;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::port::running_command_publisher::CommandStopCause;
@@ -227,30 +228,32 @@ impl UndoStops {
         let set = self
             .read_set(session_id, after_sequence, read_bound)
             .await?;
-        let (_, _, driver) = read_session_driver::<UndoStopError>(
-            &self.pool,
-            &self.providers,
-            self.read_damaged_from_sequence.as_ref(),
-            session_id,
-        )
-        .await?;
-
         let mut stops = JoinSet::new();
-        for command_id in &set.commands {
-            let running = Arc::clone(&self.running_commands);
-            let driver = Arc::clone(&driver);
-            let command_id = command_id.clone();
-            stops.spawn(async move {
-                let stopped = running
-                    .stop(
-                        driver.as_ref(),
-                        session_id,
-                        &command_id,
-                        CommandStopCause::Undo,
-                    )
-                    .await;
-                StopAnswer::Command(command_id, stopped)
-            });
+        // The driver is read only for commands to stop, so a set without one needs no provider.
+        if !set.commands.is_empty() {
+            let (_, _, driver) = read_session_driver::<UndoStopError>(
+                &self.pool,
+                &self.providers,
+                self.read_damaged_from_sequence.as_ref(),
+                session_id,
+            )
+            .await?;
+            for command_id in &set.commands {
+                let running = Arc::clone(&self.running_commands);
+                let driver = Arc::clone(&driver);
+                let command_id = command_id.clone();
+                stops.spawn(async move {
+                    let stopped = running
+                        .stop(
+                            driver.as_ref(),
+                            session_id,
+                            &command_id,
+                            CommandStopCause::Undo,
+                        )
+                        .await;
+                    StopAnswer::Command(command_id, stopped)
+                });
+            }
         }
         for &party in &set.unpaired_wrappers {
             let running = Arc::clone(&self.running_commands);

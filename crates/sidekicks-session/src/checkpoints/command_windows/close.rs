@@ -104,7 +104,9 @@ impl WindowRecorder {
         // The capture's objects sit in its folder whether or not its rows were written.
         self.packing.pack(place, &after.capture.objects).await;
         match recorded {
-            Ok(()) => self.reclaim_unused_shadows(session_id).await,
+            Ok(()) => {
+                self.reclaim_unused_shadows(session_id).await;
+            }
             Err(failure) => log_unwritten_close(window_id, &failure),
         }
     }
@@ -119,7 +121,9 @@ impl WindowRecorder {
     ) {
         let statements = uncovered_close_statements(window_id, is_covered).into();
         match self.writer.write(statements).await {
-            Ok(_) => self.reclaim_unused_shadows(session_id).await,
+            Ok(_) => {
+                self.reclaim_unused_shadows(session_id).await;
+            }
             Err(failure) => log_unwritten_close(window_id, &WindowFailure::Write(failure)),
         }
     }
@@ -416,8 +420,9 @@ impl WindowRecorder {
     }
 
     // Deletes `session_id`'s shadows that are retired and used by no window or version, under its
-    // shadow lock, and removes each one's clone once the delete committed.
-    pub(super) async fn reclaim_unused_shadows(&self, session_id: SessionId) {
+    // shadow lock, and removes each one's clone once the delete committed; answers whether the
+    // reclaim ran through, a failure logged.
+    pub(super) async fn reclaim_unused_shadows(&self, session_id: SessionId) -> bool {
         let hold = self.shadow_lock.acquire(session_id).await;
         let reclaimed = async {
             let unused = self
@@ -452,13 +457,14 @@ impl WindowRecorder {
         }
         .await;
         drop(hold);
-        if let Err(error) = reclaimed {
+        if let Err(error) = &reclaimed {
             tracing::warn!(
                 session_id = %session_id,
-                error = &error as &(dyn Error + 'static),
+                error = error as &(dyn Error + 'static),
                 "a session's unused shadows could not be reclaimed"
             );
         }
+        reclaimed.is_ok()
     }
 }
 

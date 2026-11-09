@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rstest::rstest;
@@ -8,8 +9,9 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    MirrorReport, MirrorRoot, UnwrittenGitFolders, bring_level, copy_file, in_progress_path,
-    mirror_roots, probe_time_precision,
+    CopiedIndex, CopiedIndexCheck, LiveGitFolders, MirrorError, MirrorReport, MirrorRoot,
+    UnwrittenGitFolders, bring_level, copy_file, in_progress_path, mirror_roots,
+    probe_time_precision,
 };
 
 fn modified(path: &Path) -> std::time::SystemTime {
@@ -194,8 +196,8 @@ fn a_root_copied_from_another_folder_is_restored_to_its_own_place() {
 // A root kept as it is while its folder is away keeps its copy, and is not swept as no longer
 // listed; one still copied from that folder, as a listing that found it just before the folder went
 // would give it, keeps its copy too and names the folder skipped. Killed by a kept root leveled
-// against its missing source, by a kept root swept, by a removal made without the folder's check
-// (the copy is emptied), and by the skip not named.
+// against its missing source, by a kept root swept, by the folder's check at the leveling's start
+// dropped (the copy is emptied), and by the skip not named.
 #[test]
 fn a_root_whose_other_folder_is_away_keeps_its_copy() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -308,4 +310,118 @@ fn a_restores_leftovers_are_never_read_as_refs_and_its_next_pass_removes_them() 
     assert!(!in_progress_path(&placed_main).exists());
     assert!(!restore_leftover.exists());
     assert_eq!(git_in(&place, &refs), "refs/heads/main\n");
+}
+
+// Git folders whose hold runs `on_hold` the first time a copy takes it, held or not as `is_held`
+// says; their indexes always check whole.
+struct OnFirstHold {
+    on_hold: Box<dyn Fn() + Send + Sync>,
+    is_held: bool,
+    is_run: AtomicBool,
+}
+
+impl LiveGitFolders for OnFirstHold {
+    fn hold(
+        &self,
+        _git_folder: &Path,
+        _stop: &CancellationToken,
+    ) -> Result<Option<Box<dyn Send + '_>>, MirrorError> {
+        if !self.is_run.swap(true, Ordering::SeqCst) {
+            (self.on_hold)();
+        }
+        Ok(self.is_held.then(|| Box::new(()) as Box<dyn Send>))
+    }
+
+    fn check_copied_indexes(
+        &self,
+        _git_folder: &Path,
+        _copy_objects: &Path,
+        _indexes: &[CopiedIndex],
+        _stop: &CancellationToken,
+    ) -> Result<CopiedIndexCheck, MirrorError> {
+        Ok(CopiedIndexCheck::Whole)
+    }
+}
+
+// A repository at `folder` with one commit on `main`.
+fn make_repository(folder: &Path) {
+    fs::create_dir_all(folder).expect("the repository's folder is made");
+    git_in(folder, &["init", "--quiet"]);
+    fs::write(folder.join("notes.md"), b"notes").expect("written");
+    git_in(folder, &["add", "notes.md"]);
+    git_in(folder, &["commit", "--quiet", "-m", "first"]);
+}
+
+// A drive taken away while a git folder on it is copied, once the leveling's first check passed,
+// keeps the git folder's copy and names the folder skipped. Killed by the removal's own check of
+// the folder dropped (the git folder's copy is removed).
+#[test]
+fn a_folder_taken_away_during_the_copy_keeps_its_copy() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    let place = home.join("data/restored-clones/s/v");
+    let volume_folder = scratch.path().join("volume/s");
+    make_repository(&volume_folder.join("clone"));
+    let mirror = scratch.path().join("backups/mirror");
+    let roots = [
+        MirrorRoot::under_home("restored-clones-s-v".to_owned(), &home, &place)
+            .expect("a root")
+            .copied_from(volume_folder.clone()),
+    ];
+    let stop = CancellationToken::new();
+    mirror_roots(&mirror, &home, &roots, &UnwrittenGitFolders, &stop)
+        .expect("the first run copies");
+    let taken_away = volume_folder.clone();
+    let unplugged = OnFirstHold {
+        on_hold: Box::new(move || {
+            fs::remove_dir_all(&taken_away).expect("the volume folder is taken away");
+        }),
+        is_held: false,
+        is_run: AtomicBool::new(false),
+    };
+
+    let away = mirror_roots(&mirror, &home, &roots, &unplugged, &stop).expect("the run reads");
+
+    assert_eq!(away.skipped_folders, [volume_folder]);
+    assert_eq!(away.removed_entries, 0);
+    let copied = mirror.join("restored-clones-s-v/clone");
+    assert_eq!(git_in(&copied, &["log", "--format=%s"]), "first\n");
+}
+
+// A held git folder whose ref is deleted, and its objects pruned, between the ref's read and the
+// hold copies the refs again, so the copy names only objects it holds. Killed by the refs not read
+// again once the hold is taken (the copy keeps `topic` over a commit it lacks).
+#[test]
+fn a_held_folders_refs_moved_before_its_hold_are_read_again() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    let place = home.join("data/repository");
+    make_repository(&place);
+    git_in(&place, &["switch", "--quiet", "-c", "topic"]);
+    fs::write(place.join("topic.md"), b"topic").expect("written");
+    git_in(&place, &["add", "topic.md"]);
+    git_in(&place, &["commit", "--quiet", "-m", "topic"]);
+    git_in(&place, &["switch", "--quiet", "main"]);
+    let mirror = scratch.path().join("backups/mirror");
+    let roots = [MirrorRoot::under_home("repository".to_owned(), &home, &place).expect("a root")];
+    let pruned: PathBuf = place;
+    let moved = OnFirstHold {
+        on_hold: Box::new(move || {
+            git_in(&pruned, &["branch", "--quiet", "-D", "topic"]);
+            git_in(&pruned, &["reflog", "expire", "--expire=now", "--all"]);
+            git_in(&pruned, &["gc", "--quiet", "--prune=now"]);
+        }),
+        is_held: true,
+        is_run: AtomicBool::new(false),
+    };
+
+    mirror_roots(&mirror, &home, &roots, &moved, &CancellationToken::new())
+        .expect("the run copies");
+
+    let copied = mirror.join("repository");
+    assert_eq!(
+        git_in(&copied, &["for-each-ref", "--format=%(refname)"]),
+        "refs/heads/main\n"
+    );
+    git_in(&copied, &["fsck", "--connectivity-only", "--no-dangling"]);
 }

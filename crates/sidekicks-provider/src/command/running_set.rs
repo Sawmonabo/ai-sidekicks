@@ -27,7 +27,8 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::command::channel::{CommandChannel, PartyId, StoppedCommandParties};
+use crate::command::channel::stop::StoppedCommandParties;
+use crate::command::channel::{CommandChannel, PartyId};
 use crate::command::waiting_checks::WaitingState;
 use crate::driver::contract::ProviderDriver;
 use crate::port::inbound_dispatch::InboundDispatch;
@@ -731,6 +732,13 @@ impl SessionCommands {
         self.rows
             .iter()
             .position(|row| &row.start.command_id == command_id)
+    }
+
+    // The channel of the process that runs `run` apart from the session's own where one does,
+    // else the session's own; `None` while that channel is not followed.
+    fn run_channel(&self, run: Option<RunId>) -> Option<Arc<CommandChannel>> {
+        let apart_run = run.filter(|run| self.apart_runs.contains(run));
+        self.channels.get(&apart_run)?.upgrade()
     }
 
     fn row(&self, command_id: &CommandId) -> Option<&CommandRow> {

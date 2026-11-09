@@ -154,7 +154,7 @@ async fn a_landed_steer_moves_its_binding_to_the_next_position(#[case] steer: St
             content: None,
         })
         .await;
-    let InboundOutcome::Appended { event_id } = late else {
+    let InboundOutcome::AppendedStamped { event_id, .. } = late else {
         panic!("the late row is appended with its stamp: {late:?}");
     };
     let stamp: (Option<i64>, Option<i64>) = harness

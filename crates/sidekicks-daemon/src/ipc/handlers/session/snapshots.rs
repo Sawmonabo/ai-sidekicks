@@ -1,7 +1,7 @@
-//! `session.snapshot.list`: the inspector's list of a project session's snapshots, one per prompt
-//! a run took, a turn's opening or a steer, each the checkpoint standing before that prompt and
-//! named `Before` and the prompt's first words. The session's row, its checkpoints and their prompts come from one
-//! database read; a chat has none.
+//! `session.snapshot.list`: the inspector's list of a project session's snapshots, one per prompt a
+//! run took, a turn's opening or a steer, each the checkpoint standing before that prompt and named
+//! `Before` and the prompt's first words. The session's row, its checkpoints and their prompts come
+//! from one database read; a chat has none.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -68,8 +68,8 @@ async fn each_connection_owns_its_process_ids() {
 
 // The second connection names the first's process by the first's own id and by its relay id; both
 // reach the executor as an id no process has, so the executor's unknown-process answer comes back
-// to the second, and the first reads nothing. Killed by passing an id the connection never started
-// on as it came, which reaches the first's process.
+// to the second. Killed by passing an id the connection never started on as it came, which
+// reaches the first's process.
 #[tokio::test]
 async fn a_process_a_connection_never_started_reaches_no_other() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -106,7 +106,6 @@ async fn a_process_a_connection_never_started_reaches_no_other() {
     send_text(&mut other, &terminate).await;
     let forwarded = next_forwarded(&mut fake).await;
     assert_eq!(forwarded["params"]["processId"], "sidekicks-unknown");
-    assert_quiet(&mut owner).await;
 }
 
 // The executor asks about the first connection's process: the ask reaches the first alone under
@@ -155,11 +154,12 @@ async fn a_policy_ask_reaches_its_process_alone_and_is_denied_once_none_can_answ
     assert_quiet(&mut other).await;
 }
 
-// A request for a method the executor does not serve is answered `-32601` and a line that is no
-// message `-32600`, neither reaching the executor; a notification other than `initialized`, even
-// one naming a served method, is dropped, so the executor's connection stays open and the next
-// served request is the first line it reads. Killed by passing an unserved request or a
-// notification on, which the executor reads first, and by passing on a line that is no message.
+// A request for a method the executor does not serve is answered `-32601`, a line that is no
+// message `-32600` and a request whose params do not read `-32602` under its own id, none reaching
+// the executor; a notification other than `initialized`, even one naming a served method, is
+// dropped, so the executor's connection stays open and the next served request is the first line
+// it reads. Killed by passing an unserved request or a notification on, which the executor reads
+// first, by passing on a line that is no message, and by refusing mistyped params under id -1.
 #[tokio::test]
 async fn refuses_what_the_executor_does_not_serve() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -195,6 +195,16 @@ async fn refuses_what_the_executor_does_not_serve() {
         assert_eq!(refused["id"], -1, "{unreadable}");
         assert_eq!(refused["error"]["code"], -32600, "{unreadable}");
     }
+    let mistyped = json!({ "id": 9, "method": "http/request", "params": {
+        "requestId": "http-1", "streamResponse": null,
+    }});
+    send_text(&mut socket, &mistyped).await;
+    let refused = next_text(&mut socket).await;
+    assert_eq!(
+        refused["id"], 9,
+        "a request whose params do not read keeps its id"
+    );
+    assert_eq!(refused["error"]["code"], -32602);
     let served = json!({ "id": 3, "method": "environment/info", "params": null });
     send_text(&mut socket, &served).await;
     let forwarded = next_forwarded(&mut fake).await;

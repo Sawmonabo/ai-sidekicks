@@ -589,8 +589,8 @@ impl MachineScopedRow {
 }
 
 /// Stamps a payload's source pair with `source` and answers the pair it took; a payload that
-/// carries its own pair, where its provider named the run position it belongs to, keeps it. Epochs are
-/// run-local, so a stamp on a row that names no run fails that row's draft.
+/// carries its own pair, where its provider named the run position it belongs to, keeps it. Epochs
+/// are run-local, so a stamp on a row that names no run fails that row's draft.
 pub fn stamp(
     source_epoch: &mut Option<SourceEpoch>,
     source_position: &mut Option<SourcePosition>,

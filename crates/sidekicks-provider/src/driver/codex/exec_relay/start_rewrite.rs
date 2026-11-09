@@ -151,12 +151,15 @@ impl CodexExecRelay {
     /// Passes the start in `line`, under the relay's own id for its process, on to `executor`,
     /// rewritten as this module says, keeping the command under its call so the person's acts
     /// reach it until its start is refused or its process ends; `own_process_id` is the id its
-    /// connection gave the process. A start that cannot be read passes as it came.
+    /// connection gave the process, and `is_minted` whether this start minted its relay id, so a
+    /// refusal of a start that reused a live process's id leaves that process's exit watched. A
+    /// start that cannot be read passes as it came.
     pub(super) async fn forward_process_start(
         self: Arc<Self>,
         executor: Arc<CodexExecutor>,
         line: String,
         own_process_id: String,
+        is_minted: bool,
     ) {
         let Ok(mut message) = serde_json::from_str::<Map<String, Value>>(&line) else {
             forward(&executor, line).await;
@@ -197,7 +200,9 @@ impl CodexExecRelay {
         drop(self);
         if answered.await.unwrap_or(false) {
             // A refused start runs nothing, so nothing of it is kept.
-            executor.forget_exit(&process_id);
+            if is_minted {
+                executor.forget_exit(&process_id);
+            }
             if let Some(relay) = relay.upgrade() {
                 relay.forget_command(&call);
             }

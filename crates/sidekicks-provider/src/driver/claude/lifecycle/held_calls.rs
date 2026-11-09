@@ -32,19 +32,39 @@ pub(super) const HELD_TASK_STOP_BOUND: Duration = Duration::from_secs(2);
 /// their answers; the caller bounds the wait, and dropping it withdraws the stops still waiting. A
 /// refused or failed stop is logged.
 pub(super) async fn stop_held_tasks(channel: &dyn ClaudeProcessChannel, task_ids: Vec<String>) {
-    let stops = task_ids.into_iter().map(|task_id| async move {
-        let stop = ClaudeControlRequest::StopTask {
-            task_id: task_id.clone(),
-        };
-        if let Err(error) = channel.send_control_request(stop).await {
+    join_all(
+        task_ids
+            .into_iter()
+            .map(|task_id| stop_held_task(channel, task_id)),
+    )
+    .await;
+}
+
+// Sends Claude Code's `stop_task` for `task_id` on `channel` and answers whether Claude Code took
+// it; a refused or failed stop is logged.
+async fn stop_held_task(channel: &dyn ClaudeProcessChannel, task_id: String) -> bool {
+    let stop = ClaudeControlRequest::StopTask {
+        task_id: task_id.clone(),
+    };
+    match channel.send_control_request(stop).await {
+        Ok(_) => true,
+        Err(error) => {
             tracing::warn!(
                 %task_id,
                 error = &error as &(dyn Error + 'static),
                 "Claude Code did not take the stop of a held background task"
             );
+            false
         }
-    });
-    join_all(stops).await;
+    }
+}
+
+/// The held background tasks of an undo's cut turns whose stop Claude Code refused or did not
+/// answer within the bound, so their calls stay open and the undo does not go on.
+#[derive(Debug, thiserror::Error)]
+#[error("Claude Code did not take the stop of background task {}", .task_ids.join(", "))]
+struct HeldTasksNotStopped {
+    task_ids: Vec<String>,
 }
 
 impl ClaudeDriver {
@@ -87,9 +107,10 @@ impl ClaudeDriver {
 
     // Ends each of `calls`, the open calls of the turns an undo cuts, stopped on `session_id`'s
     // live process: each is taken off the session's stream, its task stopped through Claude Code's
-    // `stop_task`, and its close sent, landed before this answers. A stop not answered within the
-    // bound is logged and the closes still go out, since the call is cut either way. Fails
-    // `NoLiveSession` when no process of the session lives.
+    // `stop_task`, each stop held to the bound alone, and the close of each stop Claude Code took
+    // sent, landed before this answers. Fails `NoLiveSession` when no process of the session
+    // lives, and naming each task whose stop was refused or not answered within the bound, whose
+    // call stays open.
     async fn settle_cut_held_calls(
         &self,
         session_id: SessionId,
@@ -98,31 +119,43 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let live = parts.run_start.live_session(session_id)?;
         let stream = parts.establishment.streams.get(session_id);
-        let task_ids = calls
+        let task_ids: Vec<String> = calls
             .iter()
             .map(|call| call.task_id.as_str().to_owned())
             .collect();
         let ends = ClaudeDeliveryStream::take_cut_held_calls(stream.as_deref(), calls);
-        if timeout(
-            HELD_TASK_STOP_BOUND,
-            stop_held_tasks(&*live.channel, task_ids),
-        )
-        .await
-        .is_err()
-        {
-            tracing::warn!(
-                %session_id,
-                "Claude Code had not answered every stop of an undo's cut background calls within \
-                 the bound, so their closes go out regardless"
-            );
+        let channel = &*live.channel;
+        let stops = join_all(task_ids.iter().map(|task_id: &String| async move {
+            timeout(
+                HELD_TASK_STOP_BOUND,
+                stop_held_task(channel, task_id.clone()),
+            )
+            .await
+            .unwrap_or(false)
+        }))
+        .await;
+        let mut stopped = Vec::with_capacity(ends.len());
+        let mut not_stopped = Vec::new();
+        for ((end, task_id), is_stopped) in ends.into_iter().zip(task_ids).zip(stops) {
+            if is_stopped {
+                stopped.push(end);
+            } else {
+                not_stopped.push(task_id);
+            }
         }
         parts
             .establishment
             .task_services
             .delivery
-            .close_held_calls_directly(session_id, ends)
+            .close_held_calls_directly(session_id, stopped)
             .await;
-        Ok(())
+        if not_stopped.is_empty() {
+            Ok(())
+        } else {
+            Err(DriverError::Internal(Box::new(HeldTasksNotStopped {
+                task_ids: not_stopped,
+            })))
+        }
     }
 
     /// Settles `session_id`'s open held calls for `settle`, by what `conversation` keeps of them,

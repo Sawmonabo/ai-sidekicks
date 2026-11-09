@@ -7,9 +7,9 @@
 //! waiting messages the same way: one it holds admitted, and when it is unreadable every one ended
 //! not delivered in the run's own write, or alone where the run is left as it is. An item an
 //! undo's release reserved as the run's opening goes first; while an undo holds the session the
-//! read answers held, reading nothing, and the run is owed a resume at the undo's release. A paused run continued in a session no
-//! process of this daemon holds since its restart has the session opened first, as its first
-//! admission would. A paused run continued while the restart still holds its session's lead, a
+//! read answers held, reading nothing, and the run is owed a resume at the undo's release. A paused
+//! run continued in a session no process of this daemon holds since its restart has the session
+//! opened first, as its first admission would. A paused run continued while the restart still holds its session's lead, a
 //! helper beneath it or the lead itself, keeps its messages for the lead's continue, which carries
 //! them as that run's words and has them delivered with it once the provider took it.
 

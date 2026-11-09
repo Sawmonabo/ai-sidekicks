@@ -5,6 +5,7 @@
 //! whose own pack failed, reclaiming a deleted run's objects and folding the packs. A session
 //! marked for its purge is left to the purge.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -24,7 +25,8 @@ use sidekicks_platforms::WallClock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+    BudgetTerm, FailedAfterWork, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter,
+    metered_job,
 };
 use sidekicks_store::data_folder::{session_storage_folder, workflow_run_folder};
 use sidekicks_store::database::connection::read_pool::{
@@ -251,12 +253,12 @@ async fn run_metered_pass(
     stop: &CancellationToken,
     meter: &ProcessorMeter,
 ) -> MeteredJobOutcome<CheckpointSweepWorkUnit> {
-    let counts = sweep.run_pass(stop, meter).await?;
+    let (counts, failure) = sweep.run_pass(stop, meter).await;
     if counts.pairs_examined == 0
         && counts.owed_folders_examined == 0
         && counts.sessions_reclaimed == 0
     {
-        return Ok(None);
+        return failure.map_or(Ok(None), |failure| Err(failure.into()));
     }
     if counts.pairs_swept > 0 || counts.owed_folders_examined > 0 || counts.sessions_reclaimed > 0 {
         tracing::info!(
@@ -278,7 +280,14 @@ async fn run_metered_pass(
         CheckpointSweepWorkUnit::SessionReclaimed,
         counts.sessions_reclaimed,
     );
-    Ok(Some(workload))
+    match failure {
+        None => Ok(Some(workload)),
+        Some(failure) => Err(FailedAfterWork {
+            workload,
+            failure: failure.into(),
+        }
+        .into()),
+    }
 }
 
 impl CheckpointSweep {
@@ -293,19 +302,19 @@ impl CheckpointSweep {
     /// One pass: the owed folders, the unused shadows, then every owner's capture folders, each
     /// part run whatever the one before it answered, its blocking work and reads charged to
     /// `meter`. A pass `stop` cuts answers its counts so far; a pair under way when it fires is
-    /// cut, and the next pass clears what the cut left. Fails with the first part's read or write
-    /// failure once every part ran; a pair whose pass failed is logged and the pass goes on.
+    /// cut, and the next pass clears what the cut left. Answers its counts beside the first
+    /// part's read or write failure, once every part ran; a pair whose pass failed is logged and
+    /// the pass goes on.
     pub async fn run_pass(
         &self,
         stop: &CancellationToken,
         meter: &ProcessorMeter,
-    ) -> Result<CheckpointSweepCounts, CheckpointSweepError> {
+    ) -> (CheckpointSweepCounts, Option<CheckpointSweepError>) {
         let mut counts = CheckpointSweepCounts::default();
         let owed = self.remove_owed_folders(stop, meter, &mut counts).await;
         let shadows = self.reclaim_unused_shadows(stop, meter, &mut counts).await;
         let pairs = self.sweep_pairs(stop, meter, &mut counts).await;
-        owed.and(shadows).and(pairs)?;
-        Ok(counts)
+        (counts, owed.and(shadows).and(pairs).err())
     }
 
     // Removes each owed folder whose volume is back and deletes its rows in one write; a folder on
@@ -381,8 +390,9 @@ impl CheckpointSweep {
             if stop.is_cancelled() {
                 break;
             }
-            self.deps.windows.reclaim_unused_shadows(session_id).await;
-            counts.sessions_reclaimed += 1;
+            if self.deps.windows.reclaim_unused_shadows(session_id).await {
+                counts.sessions_reclaimed += 1;
+            }
         }
         Ok(())
     }
@@ -397,14 +407,18 @@ impl CheckpointSweep {
     ) -> Result<(), CheckpointSweepError> {
         let pairs = self.read_pairs(meter).await?;
         let listed: HashSet<PairKey> = pairs.iter().map(|pair| pair.key.clone()).collect();
+        let mut session_windows = HashMap::new();
         let mut failure = None;
         for pair in pairs {
             if stop.is_cancelled() {
                 break;
             }
             counts.pairs_examined += 1;
-            let points = match self.read_window_points(&pair, meter).await {
-                Ok(points) => points,
+            let (points, kept_commits) = match self
+                .read_window_points(&pair, &mut session_windows, meter)
+                .await
+            {
+                Ok(read) => read,
                 // Without its windows' points a pass could drop their captures, so none runs.
                 Err(error) => {
                     lock(&self.passes).remove(&pair.key);
@@ -422,6 +436,7 @@ impl CheckpointSweep {
                     &pair.common_folder,
                     last.as_ref(),
                     &points,
+                    &kept_commits,
                     self.deps.clock.now(),
                     meter,
                 ) => swept,
@@ -519,36 +534,50 @@ impl CheckpointSweep {
         Ok(pairs)
     }
 
-    // The points of `pair`'s session's windows on its repository: each window's before-capture
-    // and, once taken, its after-capture. A workflow run's pair has none.
+    // The points of `pair`'s session's windows on its repository, each window's before-capture
+    // and, once taken, its after-capture, and the commit of every point of the session's windows
+    // whatever repository their rows spell, which the reclaim keeps; each session's windows are
+    // read once a pass, into `session_windows`. A workflow run's pair has none.
     async fn read_window_points(
         &self,
         pair: &Pair,
+        session_windows: &mut HashMap<SessionId, Vec<WindowPointRow>>,
         meter: &ProcessorMeter,
-    ) -> Result<Vec<SnapshotPoint>, CheckpointSweepError> {
+    ) -> Result<(Vec<SnapshotPoint>, Vec<GitObjectId>), CheckpointSweepError> {
         let Some(session_id) = pair.session_id else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         };
-        if pair.window_spellings.is_empty() {
-            return Ok(Vec::new());
-        }
-        let read_meter = meter.clone();
-        let rows = self
-            .deps
-            .reads
-            .read(ReadLength::Long, move |reader| {
-                read_meter
-                    .measure(|| read_window_point_rows(reader, session_id))
-                    .map_err(CheckpointSweepError::from)
-            })
-            .await?;
-        Ok(rows
-            .into_iter()
+        let rows = match session_windows.entry(session_id) {
+            Entry::Occupied(read) => read.into_mut(),
+            Entry::Vacant(unread) => {
+                let read_meter = meter.clone();
+                let rows = self
+                    .deps
+                    .reads
+                    .read(ReadLength::Long, move |reader| {
+                        read_meter
+                            .measure(|| read_window_point_rows(reader, session_id))
+                            .map_err(CheckpointSweepError::from)
+                    })
+                    .await?;
+                unread.insert(rows)
+            }
+        };
+        let points = rows
+            .iter()
             .filter(|(spelling, _)| pair.window_spellings.contains(spelling))
-            .flat_map(|(_, points)| points)
-            .collect())
+            .flat_map(|(_, points)| points.iter().cloned())
+            .collect();
+        let commits = rows
+            .iter()
+            .flat_map(|(_, points)| points.iter().map(|point| point.commit.clone()))
+            .collect();
+        Ok((points, commits))
     }
 }
+
+// A window's recorded common git folder and its points.
+type WindowPointRow = (String, Vec<SnapshotPoint>);
 
 // The rows of the pairs' read, in its order.
 fn read_pair_rows(reader: &Connection) -> rusqlite::Result<Vec<PairRow>> {
@@ -574,7 +603,7 @@ fn read_pair_rows(reader: &Connection) -> rusqlite::Result<Vec<PairRow>> {
 fn read_window_point_rows(
     reader: &Connection,
     session_id: SessionId,
-) -> rusqlite::Result<Vec<(String, Vec<SnapshotPoint>)>> {
+) -> rusqlite::Result<Vec<WindowPointRow>> {
     reader
         .prepare_cached(WINDOW_POINTS_SQL)?
         .query_map(

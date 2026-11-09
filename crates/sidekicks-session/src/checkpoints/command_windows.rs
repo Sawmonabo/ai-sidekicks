@@ -235,10 +235,10 @@ impl CommandWindows {
     }
 
     /// Deletes `session_id`'s shadows that are retired and used by no window or version, under its
-    /// shadow lock, and removes each one's clone once the delete committed. Never fails: a failure
-    /// is logged, and the next reclaim finds the shadows again.
-    pub async fn reclaim_unused_shadows(&self, session_id: SessionId) {
-        self.recorder.reclaim_unused_shadows(session_id).await;
+    /// shadow lock, and removes each one's clone once the delete committed, answering whether it
+    /// ran through. Never fails: a failure is logged, and the next reclaim finds the shadows again.
+    pub async fn reclaim_unused_shadows(&self, session_id: SessionId) -> bool {
+        self.recorder.reclaim_unused_shadows(session_id).await
     }
 
     /// Opens no window from now on and settles once every call's work under way has ended; none is

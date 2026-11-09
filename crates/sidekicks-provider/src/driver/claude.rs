@@ -20,7 +20,7 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::command::channel::StoppedCommandParties;
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;

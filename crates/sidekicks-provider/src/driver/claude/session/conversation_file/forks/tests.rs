@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{read_claude_fork_point, resolve_claude_message};
+use super::{ClaudeForkPoint, read_claude_fork_point, resolve_claude_message};
 
 // Writes conversation `id` into project folder `project` under `config`, one entry per line.
 fn write_conversation(config: &Path, project: &str, id: &str, entries: &[Value]) {
@@ -110,21 +110,38 @@ async fn a_message_is_found_through_each_fork_and_a_queued_prompt_by_its_source_
     assert_eq!(found.as_deref(), expected);
 }
 
+// What the conversation's file holds: the entries before the prompt `p2`, a folder in the file's
+// place, or nothing at all.
+#[derive(Clone, Copy)]
+enum ConversationFile {
+    BeforeThePrompt(&'static [&'static str]),
+    FolderInItsPlace,
+    Gone,
+}
+
 // Killed by a fork point taken from the row before in file order, one that keeps a `progress`
-// parent, or a read failure read as no fork point.
+// parent, a read failure read as no fork point, and by any two of the first entry, a missing
+// entry and a gone file answered alike.
 #[rstest::rstest]
-#[case::after_the_turn(Some(&["p1", "a1", "t1"][..]), Ok(Some("t1")))]
-#[case::past_a_progress_row(Some(&["p1", "a1", "t1", "progress"][..]), Ok(Some("t1")))]
-#[case::the_first_entry(Some(&[][..]), Ok(None))]
-#[case::a_folder_in_the_files_place(None, Err(()))]
+#[case::after_the_turn(ConversationFile::BeforeThePrompt(&["p1", "a1", "t1"]), "p2", Ok(After("t1")))]
+#[case::past_a_progress_row(
+    ConversationFile::BeforeThePrompt(&["p1", "a1", "t1", "progress"]),
+    "p2",
+    Ok(After("t1"))
+)]
+#[case::the_first_entry(ConversationFile::BeforeThePrompt(&[]), "p2", Ok(AtStart))]
+#[case::an_entry_the_file_lacks(ConversationFile::BeforeThePrompt(&["p1"]), "zzz", Ok(EntryMissing))]
+#[case::a_gone_file(ConversationFile::Gone, "p2", Ok(FileGone))]
+#[case::a_folder_in_the_files_place(ConversationFile::FolderInItsPlace, "p2", Err(()))]
 #[tokio::test]
 async fn the_fork_point_is_the_prompts_parent_past_progress_rows(
-    #[case] before_the_prompt: Option<&[&str]>,
-    #[case] expected: Result<Option<&str>, ()>,
+    #[case] file: ConversationFile,
+    #[case] entry_id: &str,
+    #[case] expected: Result<ExpectedForkPoint, ()>,
 ) {
     let config = tempfile::tempdir().expect("a scratch folder");
-    match before_the_prompt {
-        Some(uuids) => {
+    match file {
+        ConversationFile::BeforeThePrompt(uuids) => {
             let mut entries = Vec::new();
             let mut parent_uuid: Option<&str> = None;
             for uuid in uuids {
@@ -141,7 +158,7 @@ async fn the_fork_point_is_the_prompts_parent_past_progress_rows(
             entries.push(json!({"type": "user", "uuid": "p2", "parentUuid": parent_uuid}));
             write_conversation(config.path(), "-project", "conversation", &entries);
         }
-        None => {
+        ConversationFile::FolderInItsPlace => {
             fs::create_dir_all(
                 config
                     .path()
@@ -151,12 +168,38 @@ async fn the_fork_point_is_the_prompts_parent_past_progress_rows(
             )
             .expect("the folder is made");
         }
+        ConversationFile::Gone => {
+            fs::create_dir_all(config.path().join("projects").join("-project"))
+                .expect("the project folder is made");
+        }
     }
 
-    let fork_point = read_claude_fork_point(config.path(), "conversation", "p2").await;
+    let fork_point = read_claude_fork_point(config.path(), "conversation", entry_id).await;
 
     assert_eq!(
         fork_point.map_err(drop),
-        expected.map(|uuid| uuid.map(str::to_owned))
+        expected.map(ExpectedForkPoint::into_point)
     );
+}
+
+// A fork point a case expects, its uuid borrowed.
+#[derive(Clone, Copy, Debug)]
+enum ExpectedForkPoint {
+    AtStart,
+    After(&'static str),
+    EntryMissing,
+    FileGone,
+}
+
+use ExpectedForkPoint::{After, AtStart, EntryMissing, FileGone};
+
+impl ExpectedForkPoint {
+    fn into_point(self) -> ClaudeForkPoint {
+        match self {
+            Self::AtStart => ClaudeForkPoint::AtStart,
+            Self::After(uuid) => ClaudeForkPoint::After(uuid.to_owned()),
+            Self::EntryMissing => ClaudeForkPoint::EntryMissing,
+            Self::FileGone => ClaudeForkPoint::FileGone,
+        }
+    }
 }

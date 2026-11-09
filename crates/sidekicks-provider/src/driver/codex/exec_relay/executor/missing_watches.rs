@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
 
 use super::{CodexExecutor, RelayConnectionId};
+use crate::driver::codex::exec_relay::executor_end::compose_executor_ended_answer;
 use crate::driver::codex::exec_relay::message::RoutedParams;
 use crate::driver::codex::exec_relay::methods::{
     FS_MISSING_CHANGED_METHOD, FS_WATCH_MISSING_METHOD,
@@ -34,13 +35,6 @@ impl MissingWatches {
     /// or the next join narrows it.
     pub(super) fn forget_connection(&self, connection: RelayConnectionId) {
         lock(&self.table).observations.remove(&connection);
-    }
-
-    /// Forgets every observation, the executor having ended.
-    pub(super) fn clear(&self) {
-        let mut table = lock(&self.table);
-        table.observations.clear();
-        table.union_watch_id = None;
     }
 }
 
@@ -63,6 +57,12 @@ impl Default for WatchTable {
 }
 
 impl WatchTable {
+    // Takes every kept watcher out and forgets the union, whose watch is spent or gone.
+    fn take_watchers(&mut self) -> Vec<(RelayConnectionId, MissingObservation)> {
+        self.union_watch_id = None;
+        self.observations.drain().collect()
+    }
+
     // The one `present` path the kept observations name.
     fn present(&self) -> Option<&Value> {
         self.observations
@@ -143,23 +143,33 @@ impl CodexExecutor {
 
     /// Hands the fire of the executor's watch `watch_id` to each kept watcher under its own watch
     /// id, the watch being spent; a superseded union's fire reaches no one.
-    pub(super) async fn fire_missing_watch(&self, watch_id: Option<u64>) {
+    pub(super) fn fire_missing_watch(&self, watch_id: Option<u64>) {
         let fired: Vec<_> = {
             let mut table = lock(&self.missing_watches.table);
             if watch_id.is_none() || table.union_watch_id != watch_id {
                 tracing::debug!(?watch_id, "a superseded Codex missing watch fired");
                 return;
             }
-            table.union_watch_id = None;
-            table.observations.drain().collect()
+            table.take_watchers()
         };
-        for (connection, observation) in fired {
-            self.tell_missing_changed(connection, observation.own_watch_id)
-                .await;
+        self.tell_watchers_changed(fired);
+    }
+
+    /// Tells every kept watcher its watch changed and forgets the union, the executor having
+    /// ended, so nothing watches it any more.
+    pub(super) fn fire_every_missing_watch(&self) {
+        let fired = lock(&self.missing_watches.table).take_watchers();
+        self.tell_watchers_changed(fired);
+    }
+
+    fn tell_watchers_changed(&self, watchers: Vec<(RelayConnectionId, MissingObservation)>) {
+        for (connection, observation) in watchers {
+            self.tell_missing_changed(connection, observation.own_watch_id);
         }
     }
 
-    // Joins `observation` into the union for `connection`, answering its request `id`.
+    // Joins `observation` into the union for `connection`, answering its request `id`: once the
+    // executor ended, with the error naming the end, as every other request is.
     async fn join_union(
         &self,
         connection: RelayConnectionId,
@@ -167,6 +177,10 @@ impl CodexExecutor {
         observation: Option<MissingObservation>,
     ) {
         let _joining = self.missing_watches.joining.lock().await;
+        if *self.ended.borrow() {
+            self.answer_connection(connection, compose_executor_ended_answer(id.get()));
+            return;
+        }
         let union = {
             let mut table = lock(&self.missing_watches.table);
             // A newer watch supersedes the connection's earlier one, declined or not.
@@ -181,11 +195,16 @@ impl CodexExecutor {
                 .map(|joiner| (table.send_union(Some(&joiner)), joiner))
         };
         let Some(((watch_id, params), joiner)) = union else {
-            self.answer_watching(connection, id, false).await;
+            self.answer_watching(connection, id, false);
             return;
         };
         if !self.register_missing_watch(&params).await {
-            self.answer_watching(connection, id, false).await;
+            // The end's settle fired every kept watcher; this one is answered as a later request.
+            if *self.ended.borrow() {
+                self.answer_connection(connection, compose_executor_ended_answer(id.get()));
+                return;
+            }
+            self.answer_watching(connection, id, false);
             self.restore_missing_watch().await;
             return;
         }
@@ -198,10 +217,10 @@ impl CodexExecutor {
             }
             is_armed
         };
-        self.answer_watching(connection, id, true).await;
+        self.answer_watching(connection, id, true);
         // A fire that came ahead of the answer spent the union before the joiner was kept.
         if !is_armed {
-            self.tell_missing_changed(connection, own_watch_id).await;
+            self.tell_missing_changed(connection, own_watch_id);
         }
     }
 
@@ -218,14 +237,8 @@ impl CodexExecutor {
         if self.register_missing_watch(&params).await {
             return;
         }
-        let unwatched: Vec<_> = lock(&self.missing_watches.table)
-            .observations
-            .drain()
-            .collect();
-        for (connection, observation) in unwatched {
-            self.tell_missing_changed(connection, observation.own_watch_id)
-                .await;
-        }
+        let unwatched = lock(&self.missing_watches.table).take_watchers();
+        self.tell_watchers_changed(unwatched);
     }
 
     // Registers the union `params` and answers whether the executor watches it; it waits with no
@@ -249,26 +262,20 @@ impl CodexExecutor {
     }
 
     // Answers `connection`'s watch request `id` with `is_watching`.
-    async fn answer_watching(
-        &self,
-        connection: RelayConnectionId,
-        id: &RawValue,
-        is_watching: bool,
-    ) {
+    fn answer_watching(&self, connection: RelayConnectionId, id: &RawValue, is_watching: bool) {
         let answer = format!(
             "{{\"id\":{},\"result\":{{\"watching\":{is_watching}}}}}",
             id.get()
         );
-        self.answer_connection(connection, answer).await;
+        self.answer_connection(connection, answer);
     }
 
     // Tells `connection` its watch `own_watch_id` changed.
-    async fn tell_missing_changed(&self, connection: RelayConnectionId, own_watch_id: u64) {
+    fn tell_missing_changed(&self, connection: RelayConnectionId, own_watch_id: u64) {
         let changed = json!({
             "method": FS_MISSING_CHANGED_METHOD,
             "params": { "watchId": own_watch_id },
         });
-        self.answer_connection(connection, changed.to_string())
-            .await;
+        self.answer_connection(connection, changed.to_string());
     }
 }

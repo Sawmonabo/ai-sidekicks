@@ -13,6 +13,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, Lines};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
@@ -37,6 +38,19 @@ mod processes;
 mod starts;
 
 mod executor_end;
+
+/// How long a client attached to the executor waits for each line the relay owes it.
+const LINE_WAIT: Duration = Duration::from_secs(5);
+
+/// The next line the relay handed `client`, a queue attached to the executor, failing after a
+/// bound.
+async fn next_line(client: &mut mpsc::Receiver<String>) -> Value {
+    let line = tokio::time::timeout(LINE_WAIT, client.recv())
+        .await
+        .expect("the relay answers its client in time")
+        .expect("the client is still attached");
+    serde_json::from_str(&line).expect("the relay writes JSON")
+}
 
 const THREAD: &str = "thread-1";
 const COPY_THREAD: &str = "thread-copy";

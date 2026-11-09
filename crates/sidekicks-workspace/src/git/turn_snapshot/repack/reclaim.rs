@@ -20,9 +20,11 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::time::Instant;
 
+use super::answers::read_object_ids;
 use super::leftovers::STALE_LEFTOVER_AGE;
 use super::{
-    CapturePacking, FOLD_TIMEOUT, PACK_SEGMENT, PACK_SIZE_LIMIT_PIN, PATH_WALK_PIN, PackingError,
+    CapturePacking, FOLD_TIMEOUT, PACK_EXTENSION, PACK_INDEX_EXTENSION,
+    PACK_REVERSE_INDEX_EXTENSION, PACK_SEGMENT, PACK_SIZE_LIMIT_PIN, PATH_WALK_PIN, PackingError,
     SnapshotPoint, pack_name_base,
 };
 use crate::git::cat_file::object_lines;
@@ -43,21 +45,19 @@ const RECLAIMS_SEGMENT: &str = "reclaims";
 /// a `tmp_` name, which the leftovers' clearing removes an hour on should the daemon stop between.
 const RECLAIM_PACK_PREFIX: &str = "tmp_reclaim_";
 
-/// The extension of a pack's data file.
-const PACK_EXTENSION: &str = "pack";
-
-/// The extension of a pack's index, which lists its objects.
-const PACK_INDEX_EXTENSION: &str = "idx";
-
-/// The extension of a pack's reverse index, which a pack may have beside its index.
-const PACK_REVERSE_INDEX_EXTENSION: &str = "rev";
-
 /// One pack of the folder, by its data file, and when it was last written.
 struct FolderPack {
     /// The pack's `.pack` file.
     data_file: PathBuf,
     /// Its modified time when listed.
     modified: SystemTime,
+}
+
+/// The commits a reclaim keeps beside the folder's refs and kept indexes: the points recorded on
+/// its repository, and every other commit its owner's windows recorded.
+pub(super) struct ReclaimKept<'a> {
+    pub(super) points: &'a [SnapshotPoint],
+    pub(super) commits: &'a [GitObjectId],
 }
 
 impl CapturePacking {
@@ -130,7 +130,7 @@ impl CapturePacking {
     }
 
     /// Repacks the capture folder `folder`, with nothing attached, from what its refs, the commits
-    /// of `extra_points` and its kept indexes reach, dropping every pack older than an hour that
+    /// `kept` names and its kept indexes reach, dropping every pack older than an hour that
     /// held anything else, then removes `due_marks` once the folder holds nothing outside that
     /// set. Every git call shares one fold's time bound. Fails with the step's failure, the marks
     /// kept.
@@ -138,14 +138,14 @@ impl CapturePacking {
         &self,
         place: Option<&Place>,
         folder: &Path,
-        extra_points: &[SnapshotPoint],
+        kept: &ReclaimKept<'_>,
         due_marks: &[PathBuf],
         _hold: &KeyHold<'_, PathBuf>,
         meter: &ProcessorMeter,
     ) -> Result<(), PackingError> {
         let started = Instant::now();
         let kept = self
-            .read_kept_objects(place, folder, extra_points, started, meter)
+            .read_kept_objects(place, folder, kept, started, meter)
             .await?;
         let pack_folder = folder.join(OBJECTS_SEGMENT).join(PACK_SEGMENT);
         let listed_folder = pack_folder.clone();
@@ -227,13 +227,14 @@ impl CapturePacking {
         Ok(())
     }
 
-    // Every object of `folder` its refs, the commits of `points` and its kept indexes reach, the
-    // folder alone attached, so what the captures borrow from the repository is left out.
+    // Every object of `folder` its refs, the commits `kept` names and its kept indexes reach, the
+    // folder alone attached, so what the captures borrow from the repository is left out; a
+    // commit the folder lacks is skipped.
     async fn read_kept_objects(
         &self,
         place: Option<&Place>,
         folder: &Path,
-        points: &[SnapshotPoint],
+        kept: &ReclaimKept<'_>,
         started: Instant,
         meter: &ProcessorMeter,
     ) -> Result<HashSet<GitObjectId>, PackingError> {
@@ -246,7 +247,12 @@ impl CapturePacking {
         ];
         let mut arguments = LISTING.to_vec();
         arguments.extend(["--all", "--stdin"]);
-        let commits = object_lines(points.iter().map(|point| &point.commit));
+        let commits = object_lines(
+            kept.points
+                .iter()
+                .map(|point| &point.commit)
+                .chain(kept.commits),
+        );
         let call = GitCall::read(in_git_folder(folder, &[], &arguments)).with_input(commits);
         let output = self.git.run_within(place, call, remaining(started)).await?;
         let mut kept: HashSet<GitObjectId> = read_object_ids(&output.stdout, "rev-list")?
@@ -276,20 +282,6 @@ impl CapturePacking {
 // What is left of the fold's bound since `started`.
 fn remaining(started: Instant) -> std::time::Duration {
     FOLD_TIMEOUT.saturating_sub(started.elapsed())
-}
-
-// The ids in `stdout`, one per line. Fails with `UnreadableAnswer` for a line that is no id.
-fn read_object_ids(stdout: &[u8], command: &'static str) -> Result<Vec<GitObjectId>, PackingError> {
-    String::from_utf8_lossy(stdout)
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            GitObjectId::new(line.to_owned()).ok_or(PackingError::UnreadableAnswer {
-                command,
-                reason: "a line is not an object id",
-            })
-        })
-        .collect()
 }
 
 // The ids `show-index` lists in `stdout`, the second field of each line.

@@ -140,18 +140,22 @@ pub(super) fn read_bases_present(
         .collect())
 }
 
-/// Whether a ref of the repository reaches `base`, from `rev-list -n1 <base> --not --all`'s answer
-/// `stdout`: nothing printed when one does, the base when none does. Fails with `UnreadableAnswer`
-/// on anything else.
-pub(super) fn read_reach(stdout: &[u8], base: &GitObjectId) -> Result<bool, PackingError> {
-    match String::from_utf8_lossy(stdout).trim() {
-        "" => Ok(true),
-        printed if printed == base.as_str() => Ok(false),
-        _ => Err(PackingError::UnreadableAnswer {
-            command: "rev-list",
-            reason: "it printed an object other than the base",
-        }),
-    }
+/// The ids in `stdout` that `command` printed, one per line. Fails with `UnreadableAnswer` for a
+/// line that is no id.
+pub(super) fn read_object_ids(
+    stdout: &[u8],
+    command: &'static str,
+) -> Result<Vec<GitObjectId>, PackingError> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            GitObjectId::new(line.to_owned()).ok_or(PackingError::UnreadableAnswer {
+                command,
+                reason: "a line is not an object id",
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

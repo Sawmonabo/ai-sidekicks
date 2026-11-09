@@ -38,12 +38,13 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
 use self::executor_end::compose_executor_ended_answer;
-use self::message::{RoutedMessage, text_of};
+use self::message::{MessageHead, RoutedMessage, text_of};
 use self::methods::{ClientMethod, INITIALIZED_METHOD};
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
@@ -266,6 +267,19 @@ impl CodexExecRelay {
             .map(|record| record.command.clone())
     }
 
+    /// The command the relay started for `session_id` under the call `command_id` whose process
+    /// has exited while its item is still open; `None` for any other.
+    pub(crate) fn exited_command(
+        &self,
+        session_id: SessionId,
+        command_id: &CommandId,
+    ) -> Option<RelayedCommand> {
+        lock(&self.commands)
+            .get(command_id.as_str())
+            .filter(|record| record.command.session_id == session_id && record.end.is_some())
+            .map(|record| record.command.clone())
+    }
+
     /// Forgets the command of the call `command_id`, whose item ended.
     pub(crate) fn command_completed(&self, command_id: &CommandId) {
         lock(&self.commands).remove(command_id.as_str());
@@ -408,7 +422,7 @@ impl CodexExecRelay {
             tasks.spawn(async move {
                 on_executor_ended();
                 if let Some(executor) = watched.upgrade() {
-                    executor.settle_clients().await;
+                    executor.settle_clients();
                 }
             });
         });
@@ -416,13 +430,15 @@ impl CodexExecRelay {
     }
 
     /// Attaches `client`, a connection's queue, onto the running executor, answering the
-    /// executor and the connection's id; `None` while no executor runs.
+    /// executor and the connection's id; `None` while no executor runs. `closed` is cancelled once
+    /// the queue falls a full queue behind, for the connection to close.
     fn attach_client(
         &self,
         client: mpsc::Sender<String>,
+        closed: CancellationToken,
     ) -> Option<(Arc<CodexExecutor>, RelayConnectionId)> {
         let executor = lock(&self.executor).clone()?;
-        let connection = executor.attach_client(client)?;
+        let connection = executor.attach_client(client, closed)?;
         Some((executor, connection))
     }
 
@@ -443,7 +459,7 @@ impl CodexExecRelay {
     ) {
         let line = one_line(text);
         let Some(message) = RoutedMessage::read(&line) else {
-            refuse_unreadable(executor, connection).await;
+            refuse_unreadable(executor, connection, &line);
             return;
         };
         let Some(relay) = self.me.upgrade() else {
@@ -456,9 +472,7 @@ impl CodexExecRelay {
                         "code": JsonRpcErrorCode::MethodNotFound.code(),
                         "message": format!("The Codex executor does not serve {name}."),
                     }});
-                    executor
-                        .answer_connection(connection, refusal.to_string())
-                        .await;
+                    executor.answer_connection(connection, refusal.to_string());
                     return;
                 };
                 (id, method)
@@ -483,15 +497,13 @@ impl CodexExecRelay {
                 return;
             }
             (None, None) => {
-                refuse_unreadable(executor, connection).await;
+                refuse_unreadable(executor, connection, &line);
                 return;
             }
         };
         if method == ClientMethod::Initialize {
             let answer = json!({ "id": id, "result": executor.initialize_result() });
-            executor
-                .answer_connection(connection, answer.to_string())
-                .await;
+            executor.answer_connection(connection, answer.to_string());
             return;
         }
         if method == ClientMethod::WatchMissing {
@@ -504,12 +516,10 @@ impl CodexExecRelay {
             .and_then(|params| params.process_id)
             .filter(|_started| method == ClientMethod::ProcessStart)
             .and_then(text_of);
-        let Some(line) =
+        let Some((line, is_minted)) =
             executor.relay_client_request(connection, &line, id, method, message.params.as_ref())
         else {
-            executor
-                .answer_connection(connection, compose_executor_ended_answer(id.get()))
-                .await;
+            executor.answer_connection(connection, compose_executor_ended_answer(id.get()));
             return;
         };
         match method {
@@ -522,6 +532,7 @@ impl CodexExecRelay {
                             Arc::clone(executor),
                             line,
                             own_process_id,
+                            is_minted,
                         ));
                     }
                     None => forward(executor, line).await,
@@ -679,16 +690,23 @@ fn one_line(text: String) -> String {
     }
 }
 
-// Answers the connection `connection`'s line that is no JSON-RPC message as the executor does,
-// under the id -1.
-async fn refuse_unreadable(executor: &CodexExecutor, connection: RelayConnectionId) {
-    let refusal = json!({ "id": -1, "error": {
-        "code": JsonRpcErrorCode::InvalidRequest.code(),
-        "message": "The message is no JSON-RPC message.",
-    }});
-    executor
-        .answer_connection(connection, refusal.to_string())
-        .await;
+// Answers the connection `connection`'s `line` the relay cannot read: a request whose id and
+// method read but whose params do not, under its own id as params the executor refuses, so its
+// caller is not left waiting; any other as the executor answers a line that is no JSON-RPC
+// message, under the id -1.
+fn refuse_unreadable(executor: &CodexExecutor, connection: RelayConnectionId, line: &str) {
+    let request_id = MessageHead::read(line).and_then(|head| head.id.zip(head.method));
+    let refusal = match request_id {
+        Some((id, _method)) => json!({ "id": id, "error": {
+            "code": JsonRpcErrorCode::InvalidParams.code(),
+            "message": "The request's params cannot be read.",
+        }}),
+        None => json!({ "id": -1, "error": {
+            "code": JsonRpcErrorCode::InvalidRequest.code(),
+            "message": "The message is no JSON-RPC message.",
+        }}),
+    };
+    executor.answer_connection(connection, refusal.to_string());
 }
 
 // Passes `line` on to the executor as it came.

@@ -15,7 +15,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::remove_tree;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_gone};
 
-use super::PACK_SEGMENT;
+use super::{PACK_EXTENSION, PACK_INDEX_EXTENSION, PACK_REVERSE_INDEX_EXTENSION, PACK_SEGMENT};
 use crate::git::turn_snapshot::capture_folder::{
     CAPTURES_SEGMENT, INDEXES_SEGMENT, OBJECTS_SEGMENT, is_partial_capture_folder_name,
     is_scratch_index_file_name,
@@ -38,13 +38,31 @@ const TEMPORARY_PACK_PREFIXES: [&str; 2] = ["tmp_", ".tmp-"];
 /// it finishes.
 const TEMPORARY_OBJECT_PREFIX: &str = "tmp_obj_";
 
-/// Removes from `pack_folder` each temporary pack, a file or a folder, last written an hour or more
-/// ago, and answers how many it removed. Blocking. Fails as a listing, a stat or a removal does; a
-/// folder or an entry already gone is none.
+/// Removes from `pack_folder` each temporary pack, a file or a folder, and each index or reverse
+/// index whose pack's data file is gone, as a reclaim stopped between the two leaves one, each last
+/// written an hour or more ago, and answers how many it removed. Blocking. Fails as a listing, a
+/// stat or a removal does; a folder or an entry already gone is none.
 pub(super) fn remove_stale_temporary_packs(pack_folder: &Path) -> io::Result<u64> {
     remove_stale_entries(pack_folder, stale_cutoff(), |name| {
-        has_any_prefix(name, &TEMPORARY_PACK_PREFIXES)
+        has_any_prefix(name, &TEMPORARY_PACK_PREFIXES) || is_index_without_pack(pack_folder, name)
     })
+}
+
+// Whether `name` in `pack_folder` is a pack's index or reverse index whose data file reads as
+// gone; one whose data file cannot be read is kept.
+fn is_index_without_pack(pack_folder: &Path, name: &OsStr) -> bool {
+    let path = Path::new(name);
+    let is_index = path.extension().is_some_and(|extension| {
+        extension == PACK_INDEX_EXTENSION || extension == PACK_REVERSE_INDEX_EXTENSION
+    });
+    is_index
+        && name
+            .to_str()
+            .is_some_and(|name| name.starts_with(PACK_SEGMENT))
+        && matches!(
+            fs::symlink_metadata(pack_folder.join(path.with_extension(PACK_EXTENSION))),
+            Err(missing) if missing.kind() == io::ErrorKind::NotFound
+        )
 }
 
 /// Removes the stale leftovers of the capture folder `folder`: its temporary packs, then, when

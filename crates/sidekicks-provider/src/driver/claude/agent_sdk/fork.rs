@@ -1,16 +1,20 @@
 //! The fork of a Claude Code conversation up to one of its entries, made by the Agent SDK's own
 //! `forkSession` run under bun.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
 use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_std::child_run::ChildRunError;
 use uuid::Uuid;
 
 use super::{AgentSdkModule, SDK_FILE_NAME};
-use crate::program_run::{ProgramRunError, ProgramRunRequest, run_program_to_end};
+use crate::driver::claude::session::conversation_file::forks::read_claude_fork_source;
+use crate::program_run::{ProgramRunRequest, run_program_to_end};
 use crate::spawn_environment::remove_environment_prefixes;
 
 // Takes every input from its arguments, so none is ever read as code; sets the config folder
@@ -36,6 +40,9 @@ const WITHHELD_PREFIXES: &[&str] = &["BUN_", "NODE_"];
 const TRANSPILER_CACHE_VARIABLE: &str = "BUN_RUNTIME_TRANSPILER_CACHE_PATH";
 const TRANSPILER_CACHE_OFF: &str = "0";
 
+// The extension of a conversation's file, which the fork's file shares.
+const CONVERSATION_FILE_EXTENSION: &str = "jsonl";
+
 /// One fork of a Claude Code conversation: whose, up to which entry, under which title.
 pub(crate) struct ClaudeForkRequest {
     /// The session's spawn environment, which the fork runs in less every bun and Node setting.
@@ -43,6 +50,8 @@ pub(crate) struct ClaudeForkRequest {
     /// The Claude Code config folder the source conversation was read from, so the fork lands
     /// beside it.
     pub(crate) config_folder: PathBuf,
+    /// The folder holding the source conversation's file, where the SDK writes the fork's.
+    pub(crate) project_folder: PathBuf,
     /// The conversation forked.
     pub(crate) source_conversation_id: String,
     /// The last entry the fork keeps.
@@ -56,10 +65,13 @@ pub(crate) struct ClaudeForkRequest {
 /// Why a fork answered no conversation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeForkError {
+    /// The folder holding the source conversation's file could not be listed before the run.
+    #[error("the source conversation's folder could not be listed")]
+    Listing(#[source] io::Error),
     /// bun could not be started, its output could not be read or passed its bound, or it did not
     /// exit within the fork's deadline.
     #[error("the Agent SDK's fork did not run to its end")]
-    Run(#[source] ProgramRunError),
+    Run(#[source] ChildRunError),
     /// bun exited with a failure; `message` is its standard error, the SDK's refusal.
     #[error("the Agent SDK refused the fork: {message}")]
     Refused {
@@ -79,7 +91,8 @@ struct ForkAnswer {
 }
 
 /// The fork's conversation id, exactly as the SDK named the fork's file, or why there is none.
-/// Runs the SDK in `module` under the bun at `bun`; the caller bounds its own waits for both.
+/// Runs the SDK in `module` under the bun at `bun`; the caller bounds its own waits for both. A fork
+/// that fails after the SDK began writing has the file it began removed.
 #[cfg_attr(
     not(test),
     expect(
@@ -94,20 +107,72 @@ pub(crate) async fn fork_claude_conversation(
     request: ClaudeForkRequest,
 ) -> Result<String, ClaudeForkError> {
     let deadline = fork_deadline(request.source_bytes);
-    let output = run_program_to_end(
-        spawner,
-        fork_run_request(bun, module, request),
-        deadline,
-        FORK_OUTPUT_BOUND,
-    )
-    .await
-    .map_err(ClaudeForkError::Run)?;
+    let project_folder = request.project_folder.clone();
+    let source = request.source_conversation_id.clone();
+    let before = list_conversation_files(&project_folder)
+        .await
+        .map_err(ClaudeForkError::Listing)?;
+    let forked = run_fork(spawner, fork_run_request(bun, module, request), deadline).await;
+    if forked.is_err()
+        && let Err(error) = remove_begun_forks(&project_folder, &before, &source).await
+    {
+        tracing::error!(
+            error = &error as &dyn std::error::Error,
+            folder = %project_folder.display(),
+            "a failed fork's begun file could not be removed"
+        );
+    }
+    forked
+}
+
+// The fork run to its end and its answer read.
+async fn run_fork(
+    spawner: &Spawner,
+    run: ProgramRunRequest,
+    deadline: Duration,
+) -> Result<String, ClaudeForkError> {
+    let output = run_program_to_end(spawner, run, deadline, FORK_OUTPUT_BOUND)
+        .await
+        .map_err(ClaudeForkError::Run)?;
     if !output.status.success() {
         return Err(ClaudeForkError::Refused {
             message: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
     }
     read_fork_answer(&output.stdout).ok_or(ClaudeForkError::UnreadableAnswer)
+}
+
+// Every conversation file in `folder`.
+async fn list_conversation_files(folder: &Path) -> io::Result<HashSet<PathBuf>> {
+    let mut files = HashSet::new();
+    let mut entries = tokio::fs::read_dir(folder).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == CONVERSATION_FILE_EXTENSION)
+        {
+            files.insert(path);
+        }
+    }
+    Ok(files)
+}
+
+// Removes each conversation file in `folder` that `before` did not list and whose first entry
+// names `source` as the conversation it was forked from: the file a failed fork began.
+async fn remove_begun_forks(
+    folder: &Path,
+    before: &HashSet<PathBuf>,
+    source: &str,
+) -> io::Result<()> {
+    for file in list_conversation_files(folder).await? {
+        if !before.contains(&file)
+            && read_claude_fork_source(&file).await?.as_deref() == Some(source)
+        {
+            tokio::fs::remove_file(&file).await?;
+        }
+    }
+    Ok(())
 }
 
 // bun with every input an argument after `--`, run in the SDK's own folder, which holds no
@@ -171,7 +236,7 @@ mod tests {
 
     use super::{
         AgentSdkModule, ClaudeForkError, ClaudeForkRequest, FORK_SCRIPT, fork_claude_conversation,
-        fork_run_request,
+        fork_run_request, list_conversation_files, remove_begun_forks,
     };
 
     const SOURCE_ID: &str = "5b0c5a0e-6f2a-4d47-9a8e-0f6c2d1e3b4a";
@@ -205,6 +270,7 @@ mod tests {
                 ("NODE_PATH", "/home/person/modules"),
             ]),
             config_folder: PathBuf::from("/home/person/.claude"),
+            project_folder: PathBuf::from("/home/person/.claude/projects/-project"),
             source_conversation_id: SOURCE_ID.to_owned(),
             entry_id: "-e".to_owned(),
             title: title.to_owned(),
@@ -285,6 +351,7 @@ mod tests {
                     exit_code,
                     argument_record: None,
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in bun is written");
@@ -300,6 +367,7 @@ mod tests {
                 &std::env::var("PATH").expect("the test runs with a search path"),
             )]),
             config_folder: module_folder.path().join("config"),
+            project_folder: module_folder.path().to_path_buf(),
             source_conversation_id: SOURCE_ID.to_owned(),
             entry_id: "entry".to_owned(),
             title: String::new(),
@@ -314,6 +382,41 @@ mod tests {
             | (ForkOutcome::UnreadableAnswer, Err(ClaudeForkError::UnreadableAnswer)) => {}
             _ => panic!("expected {expected:?}, got {forked:?}"),
         }
+    }
+
+    // Killed by removing a file listed before the run, a fork of another conversation or a file
+    // that is no conversation's, and by keeping the fork the failed run began.
+    #[tokio::test]
+    async fn a_failed_forks_begun_file_alone_is_removed() {
+        let folder = tempfile::tempdir().expect("the project folder is made");
+        let write = |name: &str, first_entry: Value| {
+            std::fs::write(folder.path().join(name), format!("{first_entry}\n"))
+                .expect("the file is written");
+        };
+        let fork_of = |source: &str| json!({"type": "user", "uuid": "copy", "forkedFrom": {"sessionId": source, "messageUuid": "entry"}});
+        write("source.jsonl", json!({"type": "user", "uuid": "entry"}));
+        write("earlier-fork.jsonl", fork_of(SOURCE_ID));
+        let before = list_conversation_files(folder.path())
+            .await
+            .expect("the folder lists");
+        write("begun.jsonl", fork_of(SOURCE_ID));
+        write("other-fork.jsonl", fork_of(FORK_ID));
+        write("begun.txt", fork_of(SOURCE_ID));
+
+        remove_begun_forks(folder.path(), &before, SOURCE_ID)
+            .await
+            .expect("the begun fork is removed");
+
+        let kept: BTreeSet<PathBuf> = [
+            "source.jsonl",
+            "earlier-fork.jsonl",
+            "other-fork.jsonl",
+            "begun.txt",
+        ]
+        .iter()
+        .map(|name| folder.path().join(name))
+        .collect();
+        assert_eq!(list_files(folder.path()), kept);
     }
 
     // Every file under `folder`, at any depth.
@@ -422,6 +525,7 @@ mod tests {
         let request = |source_conversation_id: &str| ClaudeForkRequest {
             environment: environment.clone(),
             config_folder: config.clone(),
+            project_folder: project.clone(),
             source_conversation_id: source_conversation_id.to_owned(),
             entry_id: entry.clone(),
             title: "--".to_owned(),

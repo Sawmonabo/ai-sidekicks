@@ -5,6 +5,7 @@ use std::process::Stdio;
 
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::read_bounded_to_end;
+use sidekicks_std::child_run::end_failed_tree;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, BufReader};
 
 use super::{GitCall, GitError, GitRunner, exited_failure};
@@ -66,7 +67,7 @@ impl GitRunner {
             Ok(Err(failure)) => failure,
             Err(_elapsed) => GitError::TimedOut { timeout },
         };
-        self.end_failed_tree(child);
+        end_failed_tree(&self.tree_ends, child);
         Err(failure)
     }
 }

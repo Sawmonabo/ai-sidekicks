@@ -1,6 +1,6 @@
 //! A running set no session's binding or ending log is behind, one whose every session runs on the
-//! test binding, and a running command added straight to a session's set, for this crate's and
-//! other crates' tests.
+//! test binding, and a running command or an unpaired wrapper added straight to a session's set,
+//! for this crate's and other crates' tests.
 
 use std::sync::Arc;
 
@@ -14,7 +14,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use super::{CommandEndingAppender, RowState, RunningCommandSets};
+use super::{CommandEndingAppender, RowState, RunningCommandSets, WrapperCommand};
+use crate::command::channel::PartyId;
 use crate::port::running_command_publisher::CommandStart;
 
 /// The binding a test command starts on, which its ending is appended on.
@@ -69,6 +70,17 @@ impl CommandEndingAppender for DroppedEndings {
 }
 
 impl RunningCommandSets {
+    /// Admits the wrapper `party` to `session_id`'s own process, now, with no row its line pairs
+    /// with, so it waits unpaired as a wrapper the provider has not named yet does.
+    pub fn admit_test_wrapper(&self, session_id: SessionId, party: PartyId) {
+        let _paired = self.wrapper_started(
+            session_id,
+            party,
+            None,
+            WrapperCommand::Line("test wrapper's command".to_owned()),
+        );
+    }
+
     /// Adds a background command of `run_id` on [`TEST_COMMAND_BINDING`] to `session_id`'s set, as
     /// a provider's report of one does.
     pub fn start_test_command(&self, session_id: SessionId, run_id: RunId) {

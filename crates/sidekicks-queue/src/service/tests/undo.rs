@@ -6,7 +6,7 @@ mod cut;
 mod release;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::FutureExt as _;
 use serde_json::json;
@@ -29,6 +29,7 @@ use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio::time::timeout;
 
 use super::{DriverCalls, Fixture, HELD_WATCH, fixture, recording_driver};
+use crate::session_lock::QueueSessionLock;
 
 /// The turn position the undo's target message opened; the cut keeps the turns before it.
 const TARGET_TURN: u64 = 2;
@@ -56,6 +57,8 @@ struct ProcessClose {
     cause: SessionCloseCause,
     /// Whether the session's append lock could be taken while the close ran.
     is_append_lock_free: bool,
+    /// Whether the queue's hold on the session could be taken while the close ran.
+    is_queue_lock_free: bool,
 }
 
 /// A cut the provider applied in place.
@@ -83,22 +86,41 @@ async fn scene(answer: RewindAnswer) -> Scene {
         });
     let closes = Arc::new(Mutex::new(Vec::new()));
     let closing = Arc::clone(&closes);
+    // Set once the queue is built, before any close can run.
+    let queue_lock: Arc<OnceLock<Arc<QueueSessionLock>>> = Arc::new(OnceLock::new());
+    let closing_queue_lock = Arc::clone(&queue_lock);
     driver.expect_close_session().returning(move |params| {
         let closes = Arc::clone(&closing);
+        let queue_lock = Arc::clone(
+            closing_queue_lock
+                .get()
+                .expect("the queue is built before a close"),
+        );
         async move {
             let is_append_lock_free =
                 timeout(HELD_WATCH, SESSION_APPEND_LOCK.acquire(params.session_id))
                     .await
                     .is_ok();
+            let is_queue_lock_free =
+                timeout(HELD_WATCH, queue_lock.hold_session(params.session_id))
+                    .await
+                    .is_ok();
             closes.lock().expect("unpoisoned").push(ProcessClose {
                 cause: params.cause,
                 is_append_lock_free,
+                is_queue_lock_free,
             });
             Ok(())
         }
         .boxed()
     });
     let fixture = fixture(driver).await;
+    assert!(
+        queue_lock
+            .set(Arc::clone(&fixture.queue.session_lock))
+            .is_ok(),
+        "the queue's lock is set once"
+    );
     let run_id = fixture.insert_run("running").await;
     let message_sequence = fixture.insert_sent_message(run_id);
     let target = fixture

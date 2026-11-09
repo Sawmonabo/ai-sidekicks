@@ -1,9 +1,9 @@
-//! Which turn of its run each event belongs to. Folding a run's events in log order, a turn
+//! Which run position of its run each event belongs to. Folding a run's events in log order, a turn
 //! boundary or a steer moves the run to its next position, and an accepted rollback ends the epoch
-//! it rewound and opens the next at its point. Any other event takes the turn of its own execution: the source
-//! stamped on a row appended after a cut, else the turn its tool call opened in, else the turn the
-//! run stands at. A run first met partway through the log, or met again after its fold ended at a
-//! terminal event, is seeded from its log before that event.
+//! it rewound and opens the next at its point. Any other event takes the run position of its own
+//! execution: the source stamped on a row appended after a cut, else the run position its tool call
+//! opened at, else the run position the run stands at. A run first met partway through the log, or
+//! met again after its fold ended at a terminal event, is seeded from its log before that event.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;

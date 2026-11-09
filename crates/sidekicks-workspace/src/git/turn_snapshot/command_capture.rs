@@ -219,14 +219,20 @@ impl CommandCaptureService {
             .map_err(|failure| report_failure(phase, CaptureStep::DiffTrees, failure))?,
             Some(_) | None => Vec::new(),
         };
+        let objects = CapturedCommit::new(
+            held.capture_folder,
+            captured.commit,
+            captured.tree.clone(),
+            captured.head.clone(),
+        );
         let capture = CommandCapture {
             tree: captured.tree,
-            head: captured.head.clone(),
+            head: captured.head,
             large_files: captured.large_files,
             unread_paths: captured.unread_paths,
             ignored_folders: captured.ignored_folders,
             skipped_embedded_repositories: captured.skipped_embedded_repositories,
-            objects: CapturedCommit::new(held.capture_folder, captured.commit, captured.head),
+            objects,
             checkout_real_path: held.root,
             common_folder: held.common_folder,
         };

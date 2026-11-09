@@ -57,8 +57,8 @@ const fn shell_leg(is_background: bool) -> ClaudeCommandLeg {
 }
 
 // Killed by `Bash` given a hook window where the wrapper runs it (two windows for one command), the
-// `Bash` call left unnoted, its background flag dropped, a `Monitor` with no command opened, and the
-// tool-use id or the helper dropped.
+// `Bash` call left unnoted, its background flag dropped, a `Monitor` with no command opened, and
+// the tool-use id or the helper dropped.
 #[rstest]
 #[case::powershell(
     "PowerShell",

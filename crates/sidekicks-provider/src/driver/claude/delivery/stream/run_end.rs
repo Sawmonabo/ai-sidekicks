@@ -1,7 +1,7 @@
 //! A turn's opening and its end on the session's task. The first frame of a run's turn opens and
-//! numbers it, and the messages of its run taken while no turn of it was open land right after,
-//! its opening aside; the turn-ending lead `result` composes its end, passes the session's terminal gate
-//! once per turn, and is delivered, held while the daemon's own end of the run is not certain,
+//! numbers it, and the messages of its run taken while no turn of it was open land right after, its
+//! opening aside; the turn-ending lead `result` composes its end, passes the session's terminal
+//! gate once per turn, and is delivered, held while the daemon's own end of the run is not certain,
 //! carried while a steer of the run waits for the turn Claude Code starts with it, or written as a
 //! turn end alone where it moves no run. An end the run engine could not take is followed by a
 //! failed end, so no run is left open.

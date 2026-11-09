@@ -28,7 +28,7 @@ use sidekicks_contracts::session::id::SessionId;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
-use crate::command::channel::StoppedCommandParties;
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
 use crate::driver::codex::permission_level::list_codex_modes;

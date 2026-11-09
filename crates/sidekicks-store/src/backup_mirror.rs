@@ -9,11 +9,11 @@
 //! removed leaves the mirror at the next run. A file is copied under a temporary name starting with
 //! `.`, which git never reads as a ref, flushed and renamed over its copy, so a copy whose size and
 //! time reached the disk holds its bytes too; a leveling never copies such a name and removes every
-//! one it finds on the side it writes. Links
-//! are not followed and not copied. A run may take a root's copy from a folder other than its place,
-//! or keep the copy as the last run left it, while a restore always writes the copy to the place;
-//! a folder other than the place that is gone while its root is copied, a drive unplugged, never
-//! empties the copy.
+//! one it finds on the side it writes. Links are not followed and not copied. A run may take a
+//! root's copy from a folder other than its place, or keep the copy as the last run left it, while
+//! a restore always writes the copy to the place; a folder other than the place that is gone or
+//! cannot be read while its root is copied, a drive unplugged, never empties the copy.
+//!
 //! Each git folder under a root is copied whole by one routine in both directions: the files that
 //! name its objects read first, its objects copied next, under the hold its writer gives it, the
 //! files that name them placed last, so a copy cut short holds refs over a superset of their
@@ -22,7 +22,7 @@
 mod git_folder;
 
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, File};
+use std::fs::{self, FileTimes};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -47,8 +47,9 @@ pub const MIRROR_FOLDER_NAME: &str = "mirror";
 pub const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
 
 // The suffix of a copy on its way to its place, written after a leading `.` and the copy's name,
-// so git, which reads no ref whose name starts with `.`, never reads one a cut-short run left.
-const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy";
+// so git, which reads no ref whose name starts with `.`, never reads one a cut-short run left. Its
+// fixed random token keeps a person's own file of a like name from reading as one.
+const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy-0a48c3ed6f";
 
 // What starts the name of a copy on its way to its place.
 const COPY_IN_PROGRESS_PREFIX: &str = ".";
@@ -464,18 +465,11 @@ impl Leveling<'_> {
     }
 
     // Fails with `Away` when the folder the copy is taken from, other than the root's place, is
-    // gone.
+    // gone or its stat fails, as a drive pulled mid-read answers before its mount goes.
     fn check_away(&self) -> Result<(), LevelStop> {
-        let Some(folder) = self.away_folder else {
-            return Ok(());
-        };
-        match fs::symlink_metadata(folder) {
-            Ok(_) => Ok(()),
-            Err(error) if is_missing_entry(&error) => Err(LevelStop::Away),
-            Err(error) => Err(LevelStop::Failed(MirrorError::Io {
-                path: folder.to_path_buf(),
-                source: error,
-            })),
+        match self.away_folder {
+            Some(folder) if fs::symlink_metadata(folder).is_err() => Err(LevelStop::Away),
+            _ => Ok(()),
         }
     }
 
@@ -681,7 +675,7 @@ fn copy_when_changed(
     Ok(true)
 }
 
-// Where a copy on its way to `copy` is written: `.<name>.mirror-copy` beside it.
+// Where a copy on its way to `copy` is written: `.<name>` and the suffix beside it.
 fn in_progress_path(copy: &Path) -> PathBuf {
     let mut name = OsString::from(COPY_IN_PROGRESS_PREFIX);
     name.push(copy.file_name().expect("a copy is named"));
@@ -723,13 +717,10 @@ fn write_in_progress(
     copy_bytes: impl FnOnce(&Path, &Path) -> io::Result<u64>,
 ) -> io::Result<()> {
     fs::remove_file(in_progress).none_if_missing()?;
+    // The time is set by path, since the copy keeps a read-only source's permissions, as git's
+    // objects are.
     let written = copy_bytes(source, in_progress)
-        .and_then(|_bytes| {
-            File::options()
-                .write(true)
-                .open(in_progress)?
-                .set_modified(modified)
-        })
+        .and_then(|_bytes| fs::set_times(in_progress, FileTimes::new().set_modified(modified)))
         .and_then(|()| flush_file(in_progress));
     written.map_err(|failure| {
         remove_file_after_failure(failure, in_progress, "the mirror's copy").into_io_error()

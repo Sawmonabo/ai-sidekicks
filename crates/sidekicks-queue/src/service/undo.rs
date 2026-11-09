@@ -23,7 +23,9 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-use sidekicks_provider::left_conversations::LeftConversation;
+use sidekicks_provider::left_conversations::{
+    LeftConversation, compose_fork_left_conversation_insert,
+};
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, read_binding,
 };
@@ -242,8 +244,10 @@ impl RunQueue {
     /// provider of the target's run does it, outside every lock. Once the provider applied it, one
     /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
     /// and of each later lead run at its start, with `companions` committing in it, and the cut is
-    /// fenced on the session's live binding; a fork the provider cut onto is then recorded as that
-    /// binding's relaunch, the conversation it left with it, under the same holds; the hold stays.
+    /// fenced on the session's live binding; a fork the provider cut onto is recorded in that write
+    /// as a conversation the binding left, so the purge reaches it whatever follows, and then as
+    /// that binding's relaunch, the conversation it left with it, under the same holds; the hold
+    /// stays.
     /// A turn opening on the session that meets the write in progress opens once the write has
     /// ended. Refuses as [`ConversationCutError`] says before the provider is asked, an open turn
     /// among the runs it reaches and a companion its check refuses included; a provider's fallback
@@ -284,6 +288,23 @@ impl RunQueue {
                 return Ok(ConversationCut::Degraded { fallback_action });
             }
         };
+        // Pushed after the caller's statements, so each keeps the index its check names.
+        let mut companion_write = companions.write;
+        if let Some(fork) = &fork {
+            match compose_fork_left_conversation_insert(
+                session_id,
+                &reach.binding,
+                fork.resume_handle.as_str(),
+            ) {
+                Ok(statement) => companion_write.statements.push(statement),
+                Err(error) => tracing::error!(
+                    session_id = %session_id,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the provider forked the session's conversation onto a handle the daemon \
+                     cannot record"
+                ),
+            }
+        }
         // A turn opening that meets this mark waits for the write to end, so it cannot refuse the
         // rollback; one already past its check can, and the write then answers `Unrecorded`.
         let undo_write = self.engine.mark_undo_write(session_id);
@@ -291,7 +312,7 @@ impl RunQueue {
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
         let written = self
             .engine
-            .roll_back(reach.cut, reach.later_cuts, companions.write, &append_hold)
+            .roll_back(reach.cut, reach.later_cuts, companion_write, &append_hold)
             .await;
         drop(undo_write);
         let rollbacks = match written {

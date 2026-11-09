@@ -196,6 +196,7 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
     assert!(!types.contains(&"agent.run.rolledBack".to_owned()));
     assert!(!types.contains(&"agent.run.recovery.resolved".to_owned()));
     assert_eq!(fixture.run_version(scene.run_id), 1);
+    assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
 
 // An applied cut lands recovery's resolution, then the target run's rollback at its version plus
@@ -251,6 +252,7 @@ async fn an_applied_cut_lands_with_its_companions() {
             "agent.run.rolledBack",
         ]
     );
+    assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
 
 // A checkpoint a cut already cut away is left out of the session's list, and a second cut to it
@@ -319,10 +321,11 @@ fn applied_on_fork(binding_id: &RuntimeBindingId, resume_handle: &str) -> Rewind
 
 // A cut the provider applied by forking the conversation moves the session onto the fork's
 // binding, whose row carries the scene's run on the fork's conversation and build, with the
-// source conversation recorded as left on the predecessor's account and recovery data, and closes
-// nothing. Killed by a fork fenced as a cut in place, by no row written, by a row written through
-// a path that opens a cursor, by the left conversation taken from the fork, by the predecessor's
-// recovery data dropped, and by the version or path kept from the predecessor.
+// source conversation and the fork both recorded as left on the predecessor's account and recovery
+// data, so the purge reaches the fork whatever becomes of its row, and closes nothing. Killed by a
+// fork fenced as a cut in place, by no row written, by a row written through a path that opens a
+// cursor, by the left conversation taken from the fork, by the fork not recorded as left, by the
+// predecessor's recovery data dropped, and by the version or path kept from the predecessor.
 #[tokio::test]
 async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fork_binding_id = mint_runtime_binding_id();
@@ -364,19 +367,25 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
         fork_row.resolved_executable_path,
         forked_build.resolved_executable_path.to_string_lossy()
     );
-    let left: Vec<LeftConversation> = read_left_conversations(&reader, &fixture.session_id)
+    let mut left: Vec<LeftConversation> = read_left_conversations(&reader, &fixture.session_id)
         .expect("the left conversations read")
         .into_iter()
         .map(|record| record.conversation)
         .collect();
+    // Both may be stamped the same instant, so they are compared in one order.
+    left.sort_by(|first, second| first.conversation_id.cmp(&second.conversation_id));
+    let left_conversation = |conversation_id: &str| LeftConversation {
+        session_id: fixture.session_id,
+        provider_account_id: test_provider_account_id(),
+        conversation_id: conversation_id.to_owned(),
+        runtime_metadata: recovery_data.clone(),
+    };
     assert_eq!(
         left,
-        [LeftConversation {
-            session_id: fixture.session_id,
-            provider_account_id: test_provider_account_id(),
-            conversation_id: "conversation-1".to_owned(),
-            runtime_metadata: recovery_data,
-        }]
+        [
+            left_conversation("conversation-1"),
+            left_conversation("fork-conversation")
+        ]
     );
     assert!(scene.closes.lock().expect("unpoisoned").is_empty());
 }
@@ -385,7 +394,7 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
 // closed with the append lock free, leaving the session on no binding and the fork's cursor
 // closed, while the rollback stays recorded. Killed by the store's failure swallowed, by the
 // fork's cursor left open, by no close, by a close with another cause, and by a close made under
-// the append hold.
+// the append hold or the queue's hold.
 #[tokio::test]
 async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
     let fork_binding_id = mint_runtime_binding_id();
@@ -415,6 +424,7 @@ async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
         [ProcessClose {
             cause: SessionCloseCause::UnrecordedOpening,
             is_append_lock_free: true,
+            is_queue_lock_free: true,
         }]
     );
     let binding_cursors = fixture.queue.provider_sessions.binding_cursors();

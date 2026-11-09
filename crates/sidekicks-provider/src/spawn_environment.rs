@@ -227,16 +227,31 @@ pub(crate) fn remove_environment_prefixes(
     prefixes: &[&str],
     rules: PathRules,
 ) {
-    let removed_prefix_keys: Vec<Cow<'_, str>> = prefixes
-        .iter()
-        .map(|prefix| rules.environment_name_key(prefix))
-        .collect();
-    environment.retain(|(name, _)| {
-        let key = rules.environment_name_key(name);
-        !removed_prefix_keys
-            .iter()
-            .any(|prefix| key.starts_with(&**prefix))
-    });
+    let removed_prefixes = EnvironmentPrefixes::keyed(prefixes, rules);
+    environment.retain(|(name, _)| !removed_prefixes.matches(&rules.environment_name_key(name)));
+}
+
+/// Environment name prefixes keyed under one system's rules, so a name keyed the same way is
+/// matched as that system compares names.
+struct EnvironmentPrefixes<'p> {
+    keys: Vec<Cow<'p, str>>,
+}
+
+impl<'p> EnvironmentPrefixes<'p> {
+    /// `prefixes`, each keyed under `rules`.
+    fn keyed(prefixes: &'p [&'p str], rules: PathRules) -> Self {
+        Self {
+            keys: prefixes
+                .iter()
+                .map(|prefix| rules.environment_name_key(prefix))
+                .collect(),
+        }
+    }
+
+    /// Whether `key`, a name keyed under the same rules, starts with one of the prefixes.
+    fn matches(&self, key: &str) -> bool {
+        self.keys.iter().any(|prefix| key.starts_with(&**prefix))
+    }
 }
 
 /// The session's environment for a provider, `withheld` removed with the driver's own names, with
@@ -314,10 +329,7 @@ fn layer_session_environment<'n>(
         .into_iter()
         .map(|name| rules.environment_name_key(name))
         .collect();
-    let removed_prefix_keys: Vec<Cow<'n, str>> = removed_prefixes
-        .iter()
-        .map(|prefix| rules.environment_name_key(prefix))
-        .collect();
+    let removed_prefixes = EnvironmentPrefixes::keyed(removed_prefixes, rules);
     let reserved_keys: HashSet<Cow<'static, str>> = session
         .reserved_names
         .names
@@ -346,11 +358,7 @@ fn layer_session_environment<'n>(
     let mut environment = EnvironmentByName::default();
     for (name, value) in pairs {
         let key = rules.environment_name_key(name);
-        if !removed_keys.contains(&*key)
-            && !removed_prefix_keys
-                .iter()
-                .any(|prefix| key.starts_with(&**prefix))
-        {
+        if !removed_keys.contains(&*key) && !removed_prefixes.matches(&key) {
             environment.set(key.into_owned(), name, value);
         }
     }

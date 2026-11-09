@@ -292,12 +292,13 @@ impl TurnSnapshotService {
             Ok(None) => {
                 committed.warn_skipped(run_key, Some(&snapshot_ref));
                 let CommittedCheckout {
+                    tree,
                     snapshot_commit,
                     base_commit,
                     skipped_embedded_repositories,
                     ..
                 } = committed;
-                let captured = release(held, snapshot_commit.clone(), base_commit.clone());
+                let captured = release(held, snapshot_commit.clone(), tree, base_commit.clone());
                 match input.point {
                     RunSnapshotPoint::Turn { .. } => self.packing.pack(place, &captured).await,
                     RunSnapshotPoint::WorkflowRun { .. } => {
@@ -366,7 +367,12 @@ impl TurnSnapshotService {
             base_commit,
             ..
         } = committed;
-        let captured = release(held, snapshot_commit.clone(), base_commit.clone());
+        let captured = release(
+            held,
+            snapshot_commit.clone(),
+            tree.clone(),
+            base_commit.clone(),
+        );
         self.packing.pack(place, &captured).await;
         CheckoutTreeOutcome::Captured {
             tree,
@@ -749,10 +755,11 @@ fn read_run_context(
 }
 
 // Lets the checkout go, so the next capture of it does not wait, and answers the capture
-// `snapshot_commit` on `base_commit` for its pack.
+// `snapshot_commit` of `tree` on `base_commit` for its pack.
 fn release(
     held: HeldCheckout<'_>,
     snapshot_commit: GitObjectId,
+    tree: GitObjectId,
     base_commit: Option<GitObjectId>,
 ) -> CapturedCommit {
     let HeldCheckout {
@@ -761,7 +768,7 @@ fn release(
         ..
     } = held;
     drop(hold);
-    CapturedCommit::new(capture_folder, snapshot_commit, base_commit)
+    CapturedCommit::new(capture_folder, snapshot_commit, tree, base_commit)
 }
 
 // The commit subject of a snapshot at `point`: a turn's, or a workflow run's.

@@ -44,6 +44,7 @@ fn write_stand_in(folder: &Path, listing: &str, list_exit: u8, arguments: &Path)
                 exit_code: 1,
                 argument_record: Some(arguments.to_owned()),
             },
+            first_call_wait: None,
         },
     )
     .expect("the stand-in is written")

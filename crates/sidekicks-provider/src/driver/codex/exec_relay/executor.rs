@@ -13,6 +13,7 @@
 mod connection_ids;
 mod missing_watches;
 mod policy_requests;
+mod routing;
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -24,25 +25,24 @@ use futures::{SinkExt as _, StreamExt as _};
 use process_wrap::tokio::ChildWrapper;
 use serde_json::json;
 use serde_json::value::RawValue;
-use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_platforms::{Spawner, wrap_child_command};
 use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Command;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+use tokio_util::sync::CancellationToken;
 
 use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
 use self::missing_watches::MissingWatches;
 use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::executor_end::{
-    ProcessEventKind, ProcessLedger, compose_executor_ended_answer,
+    ProcessLedger, compose_executor_ended_answer, compose_executor_ended_body_delta,
 };
-use crate::driver::codex::exec_relay::message::{RoutedMessage, RoutedParams, splice, text_of};
+use crate::driver::codex::exec_relay::message::{RoutedParams, splice, text_of};
 use crate::driver::codex::exec_relay::methods::{
-    ClientMethod, FS_CLOSE_METHOD, FS_MISSING_CHANGED_METHOD, HTTP_REQUEST_BODY_DELTA_METHOD,
-    INITIALIZE_METHOD, INITIALIZED_METHOD, NETWORK_POLICY_REQUEST_METHOD, PROCESS_CLOSED_METHOD,
-    RelayIdKind, is_process_notification,
+    ClientMethod, FS_CLOSE_METHOD, INITIALIZE_METHOD, INITIALIZED_METHOD, RelayIdKind,
 };
 use crate::driver::codex::session::errors::CodexError;
 
@@ -84,6 +84,13 @@ pub(super) struct ProcessEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct RelayConnectionId(u64);
 
+// One connection's queue toward its socket, which its own task drains, and the token that tells
+// its socket to close once the queue fell behind its bound.
+struct ConnectionQueue {
+    lines: mpsc::Sender<String>,
+    closed: CancellationToken,
+}
+
 // A client's request the executor has not answered: the connection that sent it, the id it sent
 // it under, as raw JSON text, how the relay carries its method, and the relay id it names in its
 // method's table: the one it minted, forgotten when the mint is refused, or the handle a close
@@ -102,7 +109,7 @@ pub(super) struct CodexExecutor {
     pending: Mutex<HashMap<String, oneshot::Sender<RelayAnswer>>>,
     next_request: AtomicU64,
     // Each connection's only sender, so removing its entry closes the connection.
-    clients: Mutex<HashMap<RelayConnectionId, mpsc::Sender<String>>>,
+    clients: Mutex<HashMap<RelayConnectionId, ConnectionQueue>>,
     next_connection: AtomicU64,
     // Keyed by the relay id as raw JSON text.
     client_requests: Mutex<HashMap<String, ClientRequest>>,
@@ -234,14 +241,25 @@ impl CodexExecutor {
 
     /// Attaches `client`, a connection's queue, beside the others and answers the connection's
     /// id; `None` once the executor's connection ended. The executor keeps the queue's only
-    /// sender, so the connection's detach or the executor's end closes it.
-    pub(super) fn attach_client(&self, client: mpsc::Sender<String>) -> Option<RelayConnectionId> {
+    /// sender, so the connection's detach or the executor's end closes it, and cancels `closed`
+    /// once the queue is full, for the connection to close as a closed socket does.
+    pub(super) fn attach_client(
+        &self,
+        client: mpsc::Sender<String>,
+        closed: CancellationToken,
+    ) -> Option<RelayConnectionId> {
         let mut clients = lock(&self.clients);
         if *self.ended.borrow() {
             return None;
         }
         let connection = RelayConnectionId(self.next_connection.fetch_add(1, Ordering::Relaxed));
-        clients.insert(connection, client);
+        clients.insert(
+            connection,
+            ConnectionQueue {
+                lines: client,
+                closed,
+            },
+        );
         Some(connection)
     }
 
@@ -254,24 +272,27 @@ impl CodexExecutor {
     /// Lets the connection `connection` go, forgetting every request it has in flight but its
     /// opens, whose answers then reach no one, and its ids, whose messages then reach no one,
     /// closing its queue, denying every policy ask it had not answered and closing its open files
-    /// on the executor; a file still opening is closed at its open's answer.
-    pub(super) async fn detach_client(&self, connection: RelayConnectionId) {
+    /// on the executor, those lines sent on a task of their own; a file still opening is closed at
+    /// its open's answer.
+    pub(super) fn detach_client(&self, connection: RelayConnectionId) {
         lock(&self.client_requests).retain(|_relay_id, request| {
             request.connection != connection || request.method == ClientMethod::FileOpen
         });
         lock(&self.process_ids).forget_connection(connection);
         let open_files = lock(&self.file_handles).forget_connection(connection);
-        // A streamed body runs on to its last delta, since no method cancels it, and reaches no one.
+        // A streamed body runs on to its last delta, since no method cancels it, and reaches no
+        // one.
         lock(&self.http_requests).forget_connection(connection);
         lock(&self.clients).remove(&connection);
         // After the connection's queue goes, so a join answered meanwhile finds it gone or is
         // forgotten here.
         self.missing_watches.forget_connection(connection);
         let unanswered = lock(&self.policy_requests).take_connection(connection);
-        for id in unanswered {
-            self.deny_policy_request(&id).await;
-        }
-        self.close_file_handles(open_files).await;
+        let denies = unanswered.iter().map(|id| deny_answer(id));
+        let closes = open_files
+            .into_iter()
+            .map(|handle| self.compose_file_close(&handle));
+        self.send_own_lines(denies.chain(closes).collect());
     }
 
     /// Whether the connection `connection`'s answer under `id` to one of the executor's requests
@@ -285,8 +306,9 @@ impl CodexExecutor {
     /// relay's id in its place: minted for a method that mints one, and for any other the one
     /// minted for it, or [`UNKNOWN_ID`] for an id the connection never minted. Both are slices of
     /// `line` its parse read. The connection and its id are kept under the relay id until the
-    /// executor answers it, the connection goes or the executor's end answers it. `None` once the
-    /// executor ended, nothing then kept.
+    /// executor answers it, the connection goes or the executor's end answers it. Answers the line
+    /// with whether it minted a new relay id, which only its refusal then forgets; `None` once
+    /// the executor ended, nothing then kept.
     pub(super) fn relay_client_request(
         &self,
         connection: RelayConnectionId,
@@ -294,7 +316,7 @@ impl CodexExecutor {
         id: &RawValue,
         method: ClientMethod,
         params: Option<&RoutedParams<'_>>,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         let relay_request_id = format!(
             "\"{CLIENT_REQUEST_PREFIX}{}\"",
             self.next_client_request.fetch_add(1, Ordering::Relaxed)
@@ -327,6 +349,7 @@ impl CodexExecutor {
                     .map(|(raw, relay_id)| (*raw, relay_id.as_str())),
             ),
         );
+        let is_minted = method.named_id().is_some_and(|named| named.mints) && kept_id.is_some();
         let mut client_requests = lock(&self.client_requests);
         // Read under the requests' lock, which the end's settle drains, so a request kept here is
         // answered by that settle.
@@ -344,7 +367,7 @@ impl CodexExecutor {
                     && params.is_some_and(|params| params.stream_response),
             },
         );
-        Some(relayed)
+        Some((relayed, is_minted))
     }
 
     // The table of `kind`'s ids.
@@ -356,23 +379,37 @@ impl CodexExecutor {
         }
     }
 
-    /// Hands `line`, an answer the relay gives in the executor's place, to the connection
-    /// `connection` alone; dropped once that connection is gone.
-    pub(super) async fn answer_connection(&self, connection: RelayConnectionId, line: String) {
-        let client = lock(&self.clients).get(&connection).cloned();
-        let Some(client) = client else {
-            tracing::debug!("the Codex relay's client went away before its answer was handed on");
-            return;
+    /// Hands `line` to the connection `connection` alone without waiting, answering whether it
+    /// was handed on: dropped once that connection is gone, and a connection whose queue is full
+    /// is let go as a closed socket is, so one connection that stops reading never holds up
+    /// another's lines.
+    pub(super) fn answer_connection(&self, connection: RelayConnectionId, line: String) -> bool {
+        let mut clients = lock(&self.clients);
+        let Some(queue) = clients.get(&connection) else {
+            tracing::debug!("the Codex relay's client went away before its line was handed on");
+            return false;
         };
-        if client.send(line).await.is_err() {
-            tracing::debug!("the Codex relay's client went away before its answer reached it");
+        match queue.lines.try_send(line) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_line)) => {
+                tracing::warn!("a Codex relay client fell a full queue behind, so it is let go");
+                if let Some(queue) = clients.remove(&connection) {
+                    queue.closed.cancel();
+                }
+                false
+            }
+            Err(TrySendError::Closed(_line)) => {
+                tracing::debug!("the Codex relay's client went away before its line reached it");
+                false
+            }
         }
     }
 
-    /// Hands each attached connection what the executor's end owes it: an error answer to each of
-    /// its requests left unanswered and the end of each of its processes the executor had not
-    /// closed, under its own ids.
-    pub(super) async fn settle_clients(&self) {
+    /// Hands each attached connection what the executor's end owes it, under its own ids: an
+    /// error answer to each of its requests left unanswered, the end of each of its processes the
+    /// executor had not closed, a last delta carrying the error to each of its streamed http
+    /// bodies, and the fire of its missing-path watch.
+    pub(super) fn settle_clients(&self) {
         let requests: Vec<_> = lock(&self.client_requests)
             .drain()
             .map(|(_relay_id, request)| {
@@ -389,9 +426,22 @@ impl CodexExecutor {
             process_ids.clear();
             owed
         };
-        for (connection, line) in requests.into_iter().chain(process_ends) {
-            self.answer_connection(connection, line).await;
+        let body_ends = lock(&self.http_requests)
+            .clear()
+            .into_iter()
+            .map(|(owner, last_seq)| {
+                let line = compose_executor_ended_body_delta(&owner.own_id, last_seq + 1);
+                (owner.connection, line)
+            });
+        let lines: Vec<_> = requests
+            .into_iter()
+            .chain(process_ends)
+            .chain(body_ends)
+            .collect();
+        for (connection, line) in lines {
+            self.answer_connection(connection, line);
         }
+        self.fire_every_missing_watch();
     }
 
     /// Writes one message to the executor as its own line. Fails with `CodexError::Transport`
@@ -479,334 +529,40 @@ impl CodexExecutor {
         )
     }
 
-    // Closes each of `handles` on the executor, one `fs/close` apiece under a relay request id no
-    // one waits on, whose answer is dropped; a close cannot fail and runs on the executor's control
-    // lane, so none is awaited.
-    async fn close_file_handles(&self, handles: Vec<String>) {
-        for handle in handles {
-            let close = json!({
-                "id": self.next_relay_request_id(),
-                "method": FS_CLOSE_METHOD,
-                "params": { "handleId": handle },
-            });
-            if let Err(error) = self.send_line(close.to_string()).await {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "the relay's close of a Codex file could not be sent"
-                );
-                return;
-            }
-        }
+    // The `fs/close` of `handle` under a relay request id no one waits on, whose answer is
+    // dropped; a close cannot fail and runs on the executor's control lane, so none is awaited.
+    fn compose_file_close(&self, handle: &str) -> String {
+        json!({
+            "id": self.next_relay_request_id(),
+            "method": FS_CLOSE_METHOD,
+            "params": { "handleId": handle },
+        })
+        .to_string()
     }
 
-    // Routes one line the executor wrote.
-    async fn take_line(&self, line: String) {
-        let Some(message) = RoutedMessage::read(&line) else {
-            tracing::warn!(
-                length = line.len(),
-                "the Codex executor wrote a line that is no message"
-            );
-            return;
-        };
-        if message.method.is_none()
-            && let Some(id) = message
-                .id
-                .and_then(|id| serde_json::from_str::<String>(id.get()).ok())
-                .filter(|id| id.starts_with(RELAY_REQUEST_PREFIX))
-        {
-            let answer = match (message.result, message.error) {
-                (Some(result), _) => Ok(result.to_owned()),
-                (None, error) => Err(error
-                    .and_then(|error| error.message)
-                    .unwrap_or_else(|| "no reason given".to_owned())),
-            };
-            if let Some(waiting) = lock(&self.pending).remove(&id)
-                && waiting.send(answer).is_err()
-            {
-                tracing::debug!(id, "a relay request's caller stopped waiting");
-            }
+    // Sends `own_lines`, the relay's own, to the executor in order on a task of their own, so the
+    // reader or the detach that composed them never waits on the executor's input; lines the
+    // ended connection no longer takes are dropped.
+    fn send_own_lines(&self, own_lines: Vec<String>) {
+        if own_lines.is_empty() {
             return;
         }
-        if message.method.is_none()
-            && let Some(id) = message.id
-        {
-            let watching = lock(&self.client_replies).remove(id.get());
-            if let Some(watching) = watching {
-                // The relay's watch may have stopped waiting; the client still gets the answer.
-                let _unheard = watching.send(message.error.is_some());
-            }
-            let request = lock(&self.client_requests).remove(id.get());
-            let Some(request) = request else {
-                tracing::debug!(
-                    length = line.len(),
-                    "the Codex executor answered a request no connection waits on"
-                );
-                return;
-            };
-            let (answer, unowned_file) = self.client_answer(&line, &message, id, &request);
-            self.answer_connection(request.connection, answer).await;
-            if let Some(handle) = unowned_file {
-                self.close_file_handles(vec![handle]).await;
-            }
-            return;
-        }
-        if message.method.as_deref() == Some(NETWORK_POLICY_REQUEST_METHOD)
-            && let Some(id) = message.id
-        {
-            let params = message.params.unwrap_or_default();
-            self.take_policy_request(&line, id, &params).await;
-            return;
-        }
-        if message.method.as_deref() == Some(HTTP_REQUEST_BODY_DELTA_METHOD) && message.id.is_none()
-        {
-            let params = message.params.unwrap_or_default();
-            self.take_body_delta(&line, &params).await;
-            return;
-        }
-        if let Some(method) = message.method.as_deref()
-            && message.id.is_none()
-            && is_process_notification(method)
-        {
-            let params = message.params.unwrap_or_default();
-            self.take_process_notification(&line, method, &params).await;
-            return;
-        }
-        match (message.method.as_deref(), message.id) {
-            (Some(FS_MISSING_CHANGED_METHOD), None) => {
-                let watch_id = message.params.and_then(|params| params.watch_id);
-                self.fire_missing_watch(watch_id).await;
-            }
-            // No connection owns it, so it is refused as Codex's client refuses one it lacks.
-            (Some(method), Some(id)) => {
-                let refusal = json!({ "id": id, "error": {
-                    "code": JsonRpcErrorCode::MethodNotFound.code(),
-                    "message": format!("The relay does not serve {method}."),
-                }});
-                if let Err(error) = self.send_line(refusal.to_string()).await {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "the relay's refusal of a Codex executor request could not be sent"
+        let lines = self.lines.clone();
+        tokio::spawn(async move {
+            for line in own_lines {
+                if lines.send(line).await.is_err() {
+                    tracing::debug!(
+                        "the Codex executor ended before the relay's own lines went out"
                     );
+                    return;
                 }
             }
-            (Some(method), None) => {
-                tracing::debug!(
-                    method,
-                    "the Codex executor's notification reached no connection"
-                );
-            }
-            (None, _) => tracing::debug!(
-                length = line.len(),
-                "the Codex executor wrote a message with no method and no id"
-            ),
-        }
-    }
-
-    // The executor's answer `line` to the client's `request` under the client's own id, the table
-    // its method names kept in step, and the handle of a file opened after its connection went,
-    // for the caller to close.
-    fn client_answer(
-        &self,
-        line: &str,
-        message: &RoutedMessage<'_>,
-        id: &RawValue,
-        request: &ClientRequest,
-    ) -> (String, Option<String>) {
-        match request.method {
-            // A process started after its connection went runs on; only a file is closed.
-            ClientMethod::ProcessStart => {
-                let (answer, _unowned) =
-                    self.mint_answer(RelayIdKind::Process, line, message, id, request);
-                if message.error.is_none()
-                    && let Some(minted) = &request.relay_id
-                {
-                    lock(&self.ledger).open_process(minted);
-                }
-                (answer, None)
-            }
-            ClientMethod::FileOpen => {
-                self.mint_answer(RelayIdKind::FileHandle, line, message, id, request)
-            }
-            ClientMethod::FileClose => {
-                if let Some(handle) = &request.relay_id {
-                    lock(&self.file_handles).close(handle);
-                }
-                (splice(line, [(id, &*request.client_id)]), None)
-            }
-            // A streamed request's id lives until its last delta; any other's ends at its answer.
-            ClientMethod::HttpRequest => {
-                if let Some(minted) = &request.relay_id {
-                    let mut ids = lock(&self.http_requests);
-                    if request.streams && message.error.is_none() {
-                        ids.mark_live(minted);
-                    } else {
-                        ids.forget(minted);
-                    }
-                }
-                (splice(line, [(id, &*request.client_id)]), None)
-            }
-            ClientMethod::Initialize
-            | ClientMethod::Initialized
-            | ClientMethod::ProcessTerminate
-            | ClientMethod::ProcessNamed
-            | ClientMethod::FileNamed
-            | ClientMethod::WatchMissing
-            | ClientMethod::Passed => (splice(line, [(id, &*request.client_id)]), None),
-        }
-    }
-
-    // The executor's answer `line` to `request`, which minted an id of `kind`, under the client's
-    // own id: a refused mint's id is forgotten, and an answered one is live and names the
-    // connection's own id again. The relay id an answer names that no connection holds any more is
-    // answered beside it.
-    fn mint_answer(
-        &self,
-        kind: RelayIdKind,
-        line: &str,
-        message: &RoutedMessage<'_>,
-        id: &RawValue,
-        request: &ClientRequest,
-    ) -> (String, Option<String>) {
-        let mut ids = lock(self.ids_of(kind));
-        if message.error.is_some()
-            && let Some(minted) = &request.relay_id
-        {
-            ids.forget(minted);
-        }
-        let mut unowned = None;
-        let named = message
-            .result
-            .and_then(|result| serde_json::from_str::<RoutedParams<'_>>(result.get()).ok())
-            .and_then(|result| result.id_of(kind))
-            .and_then(|raw| {
-                let relay_id = text_of(raw)?;
-                let Some(owner) = ids.owner(&relay_id) else {
-                    unowned = Some(relay_id);
-                    return None;
-                };
-                let own_id = serde_json::to_string(&owner.own_id).ok()?;
-                ids.mark_live(&relay_id);
-                Some((raw, own_id))
-            });
-        drop(ids);
-        let answer = splice(
-            line,
-            std::iter::once((id, &*request.client_id))
-                .chain(named.as_ref().map(|(raw, own_id)| (*raw, own_id.as_str()))),
-        );
-        (answer, unowned)
-    }
-
-    // Hands `line`, the executor's policy ask `id` about the process `params` names by its relay
-    // id, to the connection that started it under its own id, keeping the ask until that
-    // connection answers it or goes; an ask no connection can answer is denied at once.
-    async fn take_policy_request(&self, line: &str, id: &RawValue, params: &RoutedParams<'_>) {
-        let owner = params
-            .process_id
-            .and_then(text_of)
-            .and_then(|relay_id| lock(&self.process_ids).owner(&relay_id).cloned());
-        let routed = owner.and_then(|owner| {
-            let raw = params.process_id?;
-            let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
-            // Kept while the connection is held, so its detach either finds the ask or comes first.
-            let clients = lock(&self.clients);
-            let client = clients.get(&owner.connection)?.clone();
-            lock(&self.policy_requests).ask(id, owner.connection);
-            drop(clients);
-            Some((
-                owner.connection,
-                client,
-                splice(line, [(raw, own_id.as_str())]),
-            ))
         });
-        let Some((connection, client, routed)) = routed else {
-            self.deny_policy_request(id.get()).await;
-            return;
-        };
-        if client.send(routed).await.is_err() && lock(&self.policy_requests).answer(id, connection)
-        {
-            self.deny_policy_request(id.get()).await;
-        }
-    }
-
-    // Answers the executor's policy ask `id`, raw JSON text, with the relay's deny.
-    async fn deny_policy_request(&self, id: &str) {
-        if let Err(error) = self.send_line(deny_answer(id)).await {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the relay's deny of a Codex policy ask could not be sent"
-            );
-        }
-    }
-
-    // Hands `line`, the executor's `method` about the process `params` names by its relay id, to
-    // the connection that started it under its own id, recording the process's end; a process no
-    // connection owns has its message reach no one.
-    async fn take_process_notification(&self, line: &str, method: &str, params: &RoutedParams<'_>) {
-        let relay_id = params.process_id.and_then(text_of);
-        if let Some(relay_id) = &relay_id
-            && let Some(kind) = ProcessEventKind::from_method(method)
-        {
-            lock(&self.ledger).record_event(relay_id, kind, params.seq, params.stream);
-            if kind != ProcessEventKind::Output {
-                let mut exits = lock(&self.exits);
-                if let Some(exit) = exits.get(relay_id) {
-                    record_end(exit, params.exit_code);
-                }
-                if kind == ProcessEventKind::Closed {
-                    exits.remove(relay_id);
-                }
-            }
-        }
-        let owned = relay_id.as_ref().and_then(|relay_id| {
-            let mut ids = lock(&self.process_ids);
-            let owner = ids.owner(relay_id).cloned();
-            if method == PROCESS_CLOSED_METHOD {
-                ids.close(relay_id);
-            }
-            owner
-        });
-        let (Some(raw), Some(owner)) = (params.process_id, owned) else {
-            tracing::debug!(
-                method,
-                process_id = relay_id.as_deref().unwrap_or(UNKNOWN_ID),
-                "the Codex executor wrote of a process no connection owns"
-            );
-            return;
-        };
-        let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
-        let routed = splice(line, [(raw, own_id.as_str())]);
-        self.answer_connection(owner.connection, routed).await;
-    }
-
-    // Hands `line`, a body delta of the http request `params` names by its relay id, to the
-    // connection that sent it under its own id, forgetting the id at its last delta; a delta no
-    // connection owns reaches no one, as Codex drops one.
-    async fn take_body_delta(&self, line: &str, params: &RoutedParams<'_>) {
-        let relay_id = params.request_id.and_then(text_of);
-        let owned = relay_id.as_ref().and_then(|relay_id| {
-            let mut ids = lock(&self.http_requests);
-            let owner = ids.owner(relay_id).cloned();
-            if params.done || params.error.is_some() {
-                ids.close(relay_id);
-            }
-            owner
-        });
-        let (Some(raw), Some(owner)) = (params.request_id, owned) else {
-            tracing::debug!(
-                request_id = relay_id.as_deref().unwrap_or(UNKNOWN_ID),
-                "the Codex executor streamed a body no connection asked for"
-            );
-            return;
-        };
-        let own_id = serde_json::to_string(&owner.own_id).expect("a string serializes");
-        let routed = splice(line, [(raw, own_id.as_str())]);
-        self.answer_connection(owner.connection, routed).await;
     }
 
     // Marks the connection ended: every waiting request fails, every watched process ends and the
-    // connections' files, http requests, watches and policy asks are forgotten. The connections
-    // stay attached, and their requests and processes kept, for what the end owes them.
+    // connections' files and policy asks are forgotten. The connections stay attached, and their
+    // requests, processes, streamed bodies and watches kept, for what the end owes them.
     fn end(&self) {
         self.ended.send_replace(true);
         lock(&self.pending).clear();
@@ -815,8 +571,6 @@ impl CodexExecutor {
             record_end(exit, None);
         }
         lock(&self.file_handles).clear();
-        lock(&self.http_requests).clear();
-        self.missing_watches.clear();
         lock(&self.policy_requests).clear();
     }
 }
@@ -872,7 +626,7 @@ async fn read_lines(output: impl AsyncRead + Send + Unpin, executor: Weak<CodexE
             return;
         };
         match read {
-            Ok(line) => executor.take_line(line).await,
+            Ok(line) => executor.take_line(&line),
             Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),

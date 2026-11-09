@@ -41,6 +41,27 @@ impl<'line> RoutedMessage<'line> {
     }
 }
 
+/// A message's id and method alone, read where the members the relay routes by do not read.
+#[derive(Deserialize)]
+pub(super) struct MessageHead<'line> {
+    /// The request's id, as raw JSON.
+    #[serde(borrow, default)]
+    pub(super) id: Option<&'line RawValue>,
+    /// The request's method.
+    #[serde(borrow, default)]
+    pub(super) method: Option<Cow<'line, str>>,
+}
+
+impl<'line> MessageHead<'line> {
+    /// `line`'s id and method; `None` for a line that is no JSON object or whose two do not read.
+    pub(super) fn read(line: &'line str) -> Option<Self> {
+        if !line.trim_start().starts_with('{') {
+            return None;
+        }
+        serde_json::from_str(line).ok()
+    }
+}
+
 /// The members of a message's params, or of an answer's result, the relay reads.
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

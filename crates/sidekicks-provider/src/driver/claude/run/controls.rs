@@ -6,7 +6,6 @@
 
 mod lead_writes;
 
-use std::io;
 use std::sync::{Arc, Mutex};
 
 use futures::future::try_join_all;
@@ -16,7 +15,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
-use crate::command::channel::{CommandChannel, PartyId, StoppedCommandParties};
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
@@ -325,7 +324,7 @@ impl ClaudeRunControls {
             .map_err(|_held| unavailable(ClaudeSessionUnavailableReason::SessionTurnInFlight))?;
         // Continued before the write, so the process's first frames for the answers, which can
         // arrive before the write returns, read as the lead's turn.
-        let before = stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        let before = stream.continue_turn(&turn.run, turn.turn_number, turn.provider_turn_id);
         let message_uuid = mint_uuid_v7().to_string();
         let written = self
             .write_message(
@@ -467,10 +466,14 @@ impl ClaudeRunControls {
         let stop = || ClaudeControlRequest::StopTask {
             task_id: task_id.to_owned(),
         };
-        // Read before the stop, whose notification ends the row and lets its wrapper go.
+        // Read before the stop, whose notification ends the row and lets its wrapper go, so the
+        // processes of the wrapper and of each party under it are pinned while they still run.
         let wrapper = self
             .command_channels
-            .command_wrapper(command.session_id, &command.command_id);
+            .command_output
+            .port()
+            .and_then(|sets| sets.command_wrapper(command.session_id, &command.command_id))
+            .and_then(|(channel, party)| Some((channel.read_command_parties(party)?, channel)));
         let apart = self
             .command_channels
             .apart_command(command.session_id, task_id);
@@ -495,7 +498,10 @@ impl ClaudeRunControls {
         };
         // After the stop Claude Code answered, so the task is marked stopped before its shell ends.
         let parties = match wrapper {
-            Some((channel, party)) => stop_wrapper_parties(&channel, party).await?,
+            Some((parties, channel)) => channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))?,
             None => StoppedCommandParties::default(),
         };
         if *cause == CommandStopCause::Person
@@ -643,21 +649,6 @@ impl ClaudeRunControls {
                 cause,
             } => Err(DriverError::Internal(Box::new(cause))),
         }
-    }
-}
-
-// The wrapper `party`'s stop on `channel`, with every party under it; a wrapper already let go
-// reached no party. Fails as the channel's write or wait fails.
-async fn stop_wrapper_parties(
-    channel: &CommandChannel,
-    party: PartyId,
-) -> Result<StoppedCommandParties, DriverError> {
-    match channel.stop_command_parties(party).await {
-        Ok(parties) => Ok(parties),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Ok(StoppedCommandParties::default())
-        }
-        Err(error) => Err(DriverError::Internal(Box::new(error))),
     }
 }
 

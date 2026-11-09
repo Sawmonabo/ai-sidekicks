@@ -117,12 +117,14 @@ async fn wraps_a_sessions_start_and_gives_a_copy_s_start_no_way_to_ask() {
         Arc::clone(&executor),
         start(1, THREAD, CALL, EXECUTOR_PROCESS),
         EXECUTOR_PROCESS.to_owned(),
+        true,
     ));
     let wrapped = fake.next_sent().await;
     let copy_start = tokio::spawn(Arc::clone(&relay).forward_process_start(
         Arc::clone(&executor),
         start(2, COPY_THREAD, "call-copy", "8-copy"),
         "8-copy".to_owned(),
+        true,
     ));
     let unwrapped = fake.next_sent().await;
     fake.write(&json!({
@@ -218,6 +220,7 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
             Arc::clone(&executor),
             line.to_string(),
             process.clone(),
+            true,
         )));
         let sent = fake.next_sent().await;
         fake.write(&json!({ "id": sent["id"], "result": {} })).await;

@@ -3,8 +3,10 @@
 //! end, and every process of the connection's the executor reported and had not closed is reported
 //! ended under the connection's own id: the error's text as its last output, then its exit and its
 //! close, each numbered after the last event the connection got of it, as the client publishes a
-//! process's events only in order. So Codex's turn settles on its own, and no call waits on the
-//! executor while its connections stay open.
+//! process's events only in order. Each streamed http body gets a last delta carrying the error,
+//! and each missing-path watch is told its watch changed, since nothing watches it any more. So
+//! Codex's turn settles on its own, and no call waits on the executor while its connections stay
+//! open.
 
 use std::collections::HashMap;
 
@@ -15,14 +17,17 @@ use serde_json::json;
 use serde_json::value::RawValue;
 
 use super::executor::RelayConnectionId;
-use super::methods::{PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD, PROCESS_OUTPUT_METHOD};
+use super::methods::{
+    HTTP_REQUEST_BODY_DELTA_METHOD, PROCESS_CLOSED_METHOD, PROCESS_EXITED_METHOD,
+    PROCESS_OUTPUT_METHOD,
+};
 
 /// The JSON-RPC code of the answer a request gets once the executor ended: the internal error,
 /// which Codex's own executor answers with when it fails to carry out a request.
 const EXECUTOR_ENDED_ERROR_CODE: i64 = -32603;
 
 /// The error's text, also each running process's last output.
-const EXECUTOR_ENDED_MESSAGE: &str = "The Codex executor running this service's commands ended; \
+pub(super) const EXECUTOR_ENDED_MESSAGE: &str = "The Codex executor running this service's commands ended; \
                                       the service starts a new one.";
 
 /// The exit code a process the executor's end took is reported with, the one Codex's executor
@@ -155,6 +160,19 @@ impl ProcessLedger {
 }
 
 /// The answer to a connection's request `id`, its own id as compact JSON, once the executor ended.
+/// The last body delta of the streamed http request its connection calls `own_request_id`,
+/// numbered `seq`, carrying the error that names the end, so the body's reader stops.
+pub(super) fn compose_executor_ended_body_delta(own_request_id: &str, seq: u64) -> String {
+    json!({ "method": HTTP_REQUEST_BODY_DELTA_METHOD, "params": {
+        "requestId": own_request_id,
+        "seq": seq,
+        "deltaBase64": "",
+        "done": true,
+        "error": EXECUTOR_ENDED_MESSAGE,
+    }})
+    .to_string()
+}
+
 pub(super) fn compose_executor_ended_answer(id: &str) -> String {
     let id = RawValue::from_string(id.to_owned()).expect("a request's id was read as JSON");
     json!({ "id": id, "error": {

@@ -106,6 +106,14 @@ impl AgentSdkFetchState {
     }
 }
 
+// What a fetch asked for finds of a refused fetch: kept for a session start's fetch, which only
+// readies the file, or fetched again for the undo, which needs it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettledRefusal {
+    Kept,
+    FetchedAgain,
+}
+
 /// The version folder holding `sdk.mjs`; the fork runs bun in this folder and imports `sdk.mjs`
 /// from it by path.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,10 +233,14 @@ impl ClaudeAgentSdk {
         }
     }
 
-    /// Starts the fetch for `claude_code_version` unless one is live, and answers once it is
-    /// started, without waiting on it.
+    /// Starts the fetch for `claude_code_version` unless one is live or one was refused, and
+    /// answers once it is started, without waiting on it; a refusal stands for the daemon's run,
+    /// so each session start does not fetch the record again for the same refusal.
     pub(crate) async fn start_fetch(&self, claude_code_version: &Version) {
-        drop(self.fetch_for(claude_code_version).await);
+        drop(
+            self.fetch_for(claude_code_version, SettledRefusal::Kept)
+                .await,
+        );
     }
 
     /// The SDK's file for `claude_code_version`, from a live fetch, a new one, or the folder
@@ -245,7 +257,9 @@ impl ClaudeAgentSdk {
         &self,
         claude_code_version: &Version,
     ) -> Result<AgentSdkModule, Arc<AgentSdkFetchError>> {
-        let mut state = self.fetch_for(claude_code_version).await;
+        let mut state = self
+            .fetch_for(claude_code_version, SettledRefusal::FetchedAgain)
+            .await;
         let mut settled = None;
         // A closed channel with no answer leaves `settled` empty.
         drop(
@@ -259,14 +273,18 @@ impl ClaudeAgentSdk {
         settled.unwrap_or_else(|| Err(Arc::new(AgentSdkFetchError::Ended)))
     }
 
-    // The live fetch for `claude_code_version`, or a new one in place of a settled one.
+    // The live fetch for `claude_code_version`, a refused one where `refusal` keeps it, or a new
+    // one in place of a settled one.
     async fn fetch_for(
         &self,
         claude_code_version: &Version,
+        refusal: SettledRefusal,
     ) -> watch::Receiver<AgentSdkFetchState> {
         let mut fetches = self.fetches.lock().await;
         if let Some(fetch) = fetches.get(claude_code_version)
-            && !fetch.task.is_finished()
+            && (!fetch.task.is_finished()
+                || (refusal == SettledRefusal::Kept
+                    && matches!(*fetch.state.borrow(), AgentSdkFetchState::Failed(_))))
         {
             return fetch.state.clone();
         }

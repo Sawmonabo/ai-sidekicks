@@ -108,7 +108,7 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
 }
 
-/// A steer Codex took into a turn and echoed, already landed in the turn's run, for the queue to
+/// A steer Codex took into a turn and echoed, landed where its turn has a number, for the queue to
 /// be told of once the frames are delivered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexTakenMessage {

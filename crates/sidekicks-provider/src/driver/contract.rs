@@ -29,7 +29,7 @@ use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
-use crate::command::channel::StoppedCommandParties;
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{

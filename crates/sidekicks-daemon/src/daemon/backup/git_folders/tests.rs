@@ -205,6 +205,11 @@ impl LiveGitFolders for SweepDuringCopy {
         let held = self.inner.hold(git_folder, stop)?;
         let runtime = Handle::current();
         let folder_lock = self.packing.folder_lock();
+        // Read before the pass starts, so only the copy's own hold can hold the lock.
+        assert!(
+            folder_lock.try_acquire(self.folder.clone()).is_err(),
+            "the copy holds the capture folder's lock"
+        );
         let handles = folder_lock.queue_handle_count(self.folder.clone());
         let packing = Arc::clone(&self.packing);
         let (owner, common, is_swept) = (
@@ -219,6 +224,7 @@ impl LiveGitFolders for SweepDuringCopy {
                     &owner,
                     &common,
                     None,
+                    &[],
                     &[],
                     SystemTime::now(),
                     &ProcessorMeter::default(),
@@ -281,7 +287,7 @@ impl LiveGitFolders for SweepDuringCopy {
 // A copy stopped at its capture folder's hold leaves no ref git reads; a sweep pass of that folder
 // started while the copy holds it waits until the copy lets go, and the refs the copy placed name
 // only objects it holds or the repository supplies, a capture written as the hold drops never
-// among them. Killed by no hold (the pass ends inside the copy's hold), by the refs copied once
+// among them. Killed by no hold (the lock is free under the copy's hold), by the refs copied once
 // the hold drops (`turn-2` is copied without its objects), and by the refs placed before the
 // objects or staged under a name git reads (the stopped copy leaves a ref).
 #[tokio::test(flavor = "multi_thread")]

@@ -774,3 +774,67 @@ async fn an_undo_settle_with_no_live_process_fails() {
     );
     assert_eq!(closed_calls(&fixture), []);
 }
+
+// How Claude Code answers the first of an undo's stops.
+#[derive(Clone, Copy, Debug)]
+enum FirstStop {
+    Refused,
+    Unanswered,
+}
+
+// An undo's settle whose stop of one task Claude Code refuses, or does not answer within the
+// bound, fails naming that task and leaves its call open, while the call whose stop was taken
+// closes stopped. Mutations: a refused or unanswered stop read as taken (call-A closes and the
+// settle answers), and every close held back by one failed stop (call-B stays open).
+#[rstest]
+#[case::refused(FirstStop::Refused)]
+#[case::unanswered(FirstStop::Unanswered)]
+#[tokio::test(start_paused = true)]
+async fn an_undo_whose_stop_is_not_taken_fails_and_leaves_that_call_open(
+    #[case] first_stop: FirstStop,
+) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, run_id, _start) = holding_session(
+        &fixture,
+        &channel,
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
+    let _held = match first_stop {
+        FirstStop::Refused => {
+            channel.answer("stop_task", ScriptedAnswer::Refused);
+            None
+        }
+        FirstStop::Unanswered => Some(channel.hold_next_control("stop_task")),
+    };
+
+    let settled = fixture
+        .driver
+        .settle_held_tool_calls(undo_settle(
+            session_id,
+            vec![
+                held_call("call-A", "task-A", (run_id, "lead"), None, None),
+                held_call("call-B", "task-B", (run_id, "lead"), None, None),
+            ],
+        ))
+        .await;
+    settle().await;
+
+    match &settled {
+        Err(DriverError::Internal(failure)) => {
+            assert!(failure.to_string().contains("task-A"), "{failure}");
+            assert!(!failure.to_string().contains("task-B"), "{failure}");
+        }
+        other => panic!("expected the settle to fail naming task-A, got {other:?}"),
+    }
+    assert_eq!(stopped_tasks(&channel), ["task-A", "task-B"]);
+    assert_eq!(
+        closed_calls(&fixture),
+        [(
+            "call-B".to_owned(),
+            Ending::Failed(Some(ToolCallEndCause::Stopped)),
+            None,
+        )]
+    );
+}

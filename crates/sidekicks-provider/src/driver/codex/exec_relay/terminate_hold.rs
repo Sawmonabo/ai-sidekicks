@@ -11,9 +11,9 @@ use serde::Deserialize;
 use sidekicks_contracts::command::CommandId;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::command::channel::{PartyId, StoppedCommandParties};
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
-use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, SessionChannel, forward};
+use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, forward};
 
 /// How long a terminate waits for the wrapper's end of its command before it passes on.
 const TERMINATE_HOLD: Duration = Duration::from_millis(50);
@@ -72,12 +72,24 @@ impl CodexExecRelay {
         command: &RelayedCommand,
         wait: Duration,
     ) -> (WrapperStop, StoppedCommandParties) {
-        let Some((channel, party)) = self.wrapper_of(command, call) else {
+        let wrapper = self
+            .dependencies
+            .command_output
+            .port()
+            .zip(CommandId::new(call.to_owned()))
+            .and_then(|(sets, command_id)| sets.command_wrapper(command.session_id, &command_id))
+            .and_then(|(channel, party)| {
+                Some((party, channel.read_command_parties(party)?, channel))
+            });
+        let Some((party, parties, channel)) = wrapper else {
             return (WrapperStop::NoWrapper, StoppedCommandParties::default());
         };
         let mut exited = executor.watch_exit(&command.executor_process_id);
-        let stopping =
-            tokio::spawn(async move { channel.channel.stop_command_parties(party).await });
+        let stopping = tokio::spawn(async move {
+            channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+        });
         let stopped = tokio::time::timeout(wait, async {
             let parties = stopping.await.map_err(std::io::Error::other)??;
             let _ended = exited.wait_for(Option::is_some).await;
@@ -106,18 +118,5 @@ impl CodexExecRelay {
                 record.end.is_none() && record.command.executor_process_id == executor_process_id
             })
             .map(|(call, record)| (call.clone(), record.command.clone()))
-    }
-
-    // The channel and the wrapper party that run `command`, the call `call`, once it paired.
-    fn wrapper_of(
-        &self,
-        command: &RelayedCommand,
-        call: &str,
-    ) -> Option<(Arc<SessionChannel>, PartyId)> {
-        let sets = self.dependencies.command_output.port()?;
-        let command_id = CommandId::new(call.to_owned())?;
-        let party = sets.paired_wrapper(command.session_id, &command_id)?;
-        let channel = Arc::clone(lock(&self.channels).get(&command.session_id)?.get()?);
-        Some((channel, party))
     }
 }

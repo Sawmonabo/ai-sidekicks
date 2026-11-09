@@ -5,7 +5,7 @@
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
-mod forks;
+pub(crate) mod forks;
 pub(crate) mod lines;
 pub(crate) mod peer_replies;
 pub(crate) mod title;
@@ -72,8 +72,18 @@ pub(crate) async fn find_claude_conversation_file(
     provider_session_id: &str,
 ) -> io::Result<Option<PathBuf>> {
     check_session_id(provider_session_id)?;
+    let project_folders = list_project_folders(config_folder).await?;
+    find_conversation_file_in(&project_folders, provider_session_id).await
+}
+
+// The conversation's file in the first of `project_folders` holding it, or `None`; the id is one
+// plain path component already checked. Fails as a file's presence cannot be read.
+async fn find_conversation_file_in(
+    project_folders: &[PathBuf],
+    provider_session_id: &str,
+) -> io::Result<Option<PathBuf>> {
     let file_name = format!("{provider_session_id}.jsonl");
-    for project_folder in list_project_folders(config_folder).await? {
+    for project_folder in project_folders {
         let file = project_folder.join(&file_name);
         if tokio::fs::try_exists(&file).await? {
             return Ok(Some(file));

@@ -22,6 +22,7 @@ use crate::command::channel::{DaemonRequest, PartyRecord};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::codex::exec_relay::RelayedCommand;
 use crate::driver::codex::exec_relay::command_acts::write_input;
+use crate::driver::codex::exec_relay::executor::ProcessEnd;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
@@ -321,4 +322,55 @@ async fn a_stop_the_wrapper_ended_still_terminates_in_codex() {
     let parties = stopped.expect("a terminal Codex already let go reads as stopped");
     assert_eq!(parties.process_ids(), [party]);
     end_party(wrapper);
+}
+
+// A stop of a relayed command whose process exited on its own while its item is still open is
+// answered done, Codex's terminate still sent and its answer for the terminal it let go read as
+// the stop done. Killed by taking such a command for Codex's background terminal.
+#[tokio::test]
+async fn a_stop_of_a_command_that_exited_before_its_item_ended_is_done() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let session_id = new_session_id();
+    let mut scripted = start_scripted_codex_service();
+    let mut driver = CodexDriver::new(&test_driver_services());
+    driver.registry = CodexServiceRegistry::holding(&scripted);
+    let relay = scripted
+        .service
+        .exec_relay_or_insert_with(|| relay_for(session_id, folder.path()));
+    relay.record_command(
+        CALL.to_owned(),
+        RelayedCommand {
+            session_id,
+            thread_id: THREAD.to_owned(),
+            executor_process_id: EXECUTOR_PROCESS.to_owned(),
+            terminal_process_id: "7".to_owned(),
+            accepts_input: false,
+            service_start: 0,
+        },
+    );
+    relay.command_exited(CALL, Some(ProcessEnd { exit_code: Some(0) }));
+    let params = StopCommandParams {
+        command: RunningCommandParams {
+            session_id,
+            binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a binding id"),
+            command_id: command_id(),
+        },
+        cause: CommandStopCause::Undo,
+    };
+
+    let answering = async {
+        let request = scripted
+            .next_request("thread/backgroundTerminals/terminate")
+            .await;
+        assert_eq!(
+            request["params"],
+            json!({ "threadId": THREAD, "processId": "7" })
+        );
+        scripted
+            .script
+            .answer(&request, &json!({ "terminated": false }));
+    };
+    let (stopped, ()) = tokio::join!(driver.stop_command(params), answering);
+
+    stopped.expect("a command whose process exited reads as stopped");
 }

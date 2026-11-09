@@ -40,6 +40,9 @@ enum IdState {
 struct OwnedId {
     owner: IdOwner,
     state: IdState,
+    // The number of the last event the executor reported under the id, an http request's body
+    // delta.
+    last_seq: u64,
 }
 
 /// Every connection's ids of one kind and the relay ids they map to, both ways.
@@ -100,6 +103,7 @@ impl ConnectionIds {
                     own_id: own_id.to_owned(),
                 },
                 state: IdState::Pending,
+                last_seq: 0,
             },
         );
         (relay_id, true)
@@ -177,9 +181,23 @@ impl ConnectionIds {
             .collect()
     }
 
-    /// Forgets every id, the executor having ended.
-    pub(super) fn clear(&mut self) {
+    /// Notes `seq` as the number of the last event the executor reported under `relay_id`.
+    pub(super) fn note_seq(&mut self, relay_id: &str, seq: u64) {
+        if let Some(owned) = self.owned.get_mut(relay_id) {
+            owned.last_seq = owned.last_seq.max(seq);
+        }
+    }
+
+    /// Forgets every id, the executor having ended, and answers the owner of each live one with
+    /// the number of the last event reported under it.
+    pub(super) fn clear(&mut self) -> Vec<(IdOwner, u64)> {
+        let owned = std::mem::take(&mut self.owned);
         *self = Self::new(self.kind);
+        owned
+            .into_values()
+            .filter(|owned| owned.state == IdState::Live)
+            .map(|owned| (owned.owner, owned.last_seq))
+            .collect()
     }
 
     // Forgets the closed ids the executor no longer keeps.

@@ -126,7 +126,8 @@ pub struct RunningCommandParams {
 pub enum CommandStopCause {
     /// The person stopped the command.
     Person,
-    /// An undo stops the command before it cuts the conversation.
+    /// An undo stops the command before it cuts the conversation; its ending is recorded
+    /// `EndedByPerson` all the same, since the person asked for the undo.
     Undo,
 }
 

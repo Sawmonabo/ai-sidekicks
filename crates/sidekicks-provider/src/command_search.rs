@@ -20,12 +20,13 @@ use sidekicks_platforms::{
     PathRules, ProgramFolder, Spawner, file_facts, find_executables, program_install_folders,
     real_path, user_programs_folder,
 };
+use sidekicks_std::child_run::ChildRunError;
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::OnceCell;
 
 use crate::driver::{InstallFolderBase, ProviderDescriptor};
-use crate::program_run::{ProgramRunError, ProgramRunRequest, run_program_to_end};
+use crate::program_run::{ProgramRunRequest, run_program_to_end};
 use crate::spawn_environment::{place_folder_first_on_search_path, remove_environment_names};
 use crate::spawned_version::parse_cli_version_report;
 
@@ -73,7 +74,7 @@ struct BuildStamp {
 #[derive(Debug, thiserror::Error)]
 enum VersionReadError {
     #[error("the build's version read did not run to its end")]
-    Run(#[source] ProgramRunError),
+    Run(#[source] ChildRunError),
     #[error("the build exited with {0}")]
     Exited(ExitStatus),
 }
@@ -384,44 +385,54 @@ fn log_unlisted_folder(folder: &Path, error: &io::Error) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rstest::rstest;
-    use sidekicks_platforms::{ProgramFolder, Spawner};
-    use sidekicks_std::file::atomic_write::write_file_atomically;
+    use sidekicks_platforms::{
+        ProgramFolder, Spawner, StandInAnswer, StandInProgram, write_stand_in_program,
+    };
 
     use super::ProviderCommandSearch;
 
-    // A build whose first version read sleeps past its deadline and whose later ones print 2.0.0.
-    const SLOW_ON_FIRST_READ: &str = "marker=\"$(dirname \"$0\")/read\"
-if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30; fi";
+    // A build's first version read waits this long, past the read's deadline, where a case asks.
+    const FIRST_READ_WAIT: Duration = Duration::from_secs(30);
 
     // Fails when an older build beats a newer one (by folder order or by text order of versions),
     // when a build that prints no version beats one that does, when the later of two builds of
     // equal version wins, or when a read that timed out is kept, so no later search reads that
-    // build again. Each build runs its script; each search in turn finds the build `winners` names.
+    // build again. Each build prints its report, its first read first waiting past the deadline
+    // where its case says; each search in turn finds the build `winners` names.
     #[rstest]
-    #[case::newest_last(&["echo 'tool 1.2.3'", "echo 'tool 1.10.0'"], &[1])]
-    #[case::newest_first(&["echo 'tool 2.0.0'", "echo 'tool 1.9.9'"], &[0])]
-    #[case::unreadable_first(&["echo 'tool '", "echo 'tool 0.0.1'"], &[1])]
-    #[case::equal_versions(&["echo 'tool 1.2.3'", "echo 'tool 1.2.3'"], &[0])]
-    #[case::timed_out_read_again(&[SLOW_ON_FIRST_READ, "echo 'tool 1.0.0'"], &[1, 0])]
+    #[case::newest_last(&[("tool 1.2.3\n", false), ("tool 1.10.0\n", false)], &[1])]
+    #[case::newest_first(&[("tool 2.0.0\n", false), ("tool 1.9.9\n", false)], &[0])]
+    #[case::unreadable_first(&[("tool \n", false), ("tool 0.0.1\n", false)], &[1])]
+    #[case::equal_versions(&[("tool 1.2.3\n", false), ("tool 1.2.3\n", false)], &[0])]
+    #[case::timed_out_read_again(&[("tool 2.0.0\n", true), ("tool 1.0.0\n", false)], &[1, 0])]
     #[tokio::test]
     async fn the_newest_readable_build_wins_and_ties_keep_the_earlier_folder(
-        #[case] scripts: &[&str],
+        #[case] builds: &[(&str, bool)],
         #[case] winners: &[usize],
     ) {
         let root = tempfile::tempdir().expect("the temporary folder is made");
         let mut folders = Vec::new();
-        for (index, script) in scripts.iter().enumerate() {
+        for (index, (report, is_first_read_slow)) in builds.iter().enumerate() {
             let folder = root.path().join(index.to_string());
             tokio::fs::create_dir(&folder)
                 .await
                 .expect("the folder is made");
-            write_file_atomically(
-                &folder.join("tool"),
-                format!("#!/bin/sh\n{script}\n"),
-                0o755,
+            write_stand_in_program(
+                &folder,
+                "tool",
+                &StandInProgram {
+                    answers_by_first_argument: Vec::new(),
+                    otherwise: StandInAnswer {
+                        standard_output: (*report).to_owned(),
+                        exit_code: 0,
+                        argument_record: None,
+                    },
+                    first_call_wait: is_first_read_slow.then_some(FIRST_READ_WAIT),
+                },
             )
-            .await
             .expect("the build is written");
             folders.push(folder);
         }
@@ -444,7 +455,7 @@ if [ -e \"$marker\" ]; then echo 'tool 2.0.0'; else touch \"$marker\"; sleep 30;
             assert_eq!(
                 Some(hit.folder.as_str()),
                 folders[winner].to_str(),
-                "{scripts:?}"
+                "{builds:?}"
             );
         }
     }

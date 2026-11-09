@@ -4,11 +4,13 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{result, tool_call};
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::scripted::held_calls::{init, stand_in};
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::port::run_host::test_host::{EngineCall, RecordedDelivery};
 use crate::run::delivery::LateAppendableRow;
@@ -103,9 +105,10 @@ fn deliveries_after_start(
 // A steer taken mid-turn lands once, at its first sign, between the tool result before it and the
 // reply after it; one kept past its turn's end lands right after the next turn's start; the
 // opening's `started` lands nothing; of two written messages taken into one turn, the newer lands
-// right after the turn's start, before its rows, and the older, which opens it, lands nothing.
-// Killed by a `started` with no turn open dropped, by both signs landing, by the opening landed
-// and by a turn's later message dropped.
+// right after the turn's start, before its rows, and the older, which opens it, lands nothing; one
+// kept past its turn's end lands in the turn a continue reopens, before that turn's rows. Killed
+// by a `started` with no turn open dropped, by both signs landing, by the opening landed, by a
+// turn's later message dropped and by a continue that leaves the kept message for a later turn.
 #[tokio::test(start_paused = true)]
 async fn a_claude_steer_lands_where_claude_code_took_it() {
     // Mid-turn: a tool result, the steer's echo, its `started`, a reply.
@@ -211,4 +214,43 @@ async fn a_claude_steer_lands_where_claude_code_took_it() {
         "{after_start:?}"
     );
     assert_eq!(landings(&session), [(newer, 1)]);
+
+    // Kept past the turn's end, then the turn continued: `result`, the steer's `started`, the
+    // continue, a reply.
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let steer = new_item();
+    write(&session, run_id, steer, true);
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+    session.frame(&started(steer));
+    settle().await;
+    let first_turn = SafeInt::<1>::new(1).expect("1 is a turn number");
+    session.stream.continue_turn(
+        &ClaudeBoundRun {
+            run_id,
+            binding_id: binding_id("lead"),
+        },
+        first_turn,
+        None,
+    );
+    session.frame(&reply("message-3"));
+    settle().await;
+    assert_eq!(landings(&session), [(steer, 1)]);
+    let deliveries = session.engine.deliveries();
+    let landed_at = deliveries
+        .iter()
+        .position(|delivery| delivery.kind == "turnSteered")
+        .expect("the steer lands");
+    let reply_at = deliveries
+        .iter()
+        .position(|delivery| {
+            delivery
+                .row
+                .as_ref()
+                .is_some_and(|row| matches!(row, LateAppendableRow::AgentMessageSent(_)))
+        })
+        .expect("the reply is delivered");
+    assert!(landed_at < reply_at, "{deliveries:?}");
 }

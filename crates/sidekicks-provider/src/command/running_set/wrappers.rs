@@ -3,7 +3,7 @@
 //! that row until the wrapper is let go. A wrapper is stopped through the channel its process is
 //! followed on, paired or not.
 
-use std::io::{self, ErrorKind};
+use std::io;
 use std::sync::Arc;
 
 use jiff::Timestamp;
@@ -17,7 +17,8 @@ use super::{
     OpenPrompt, PromptAnswer, RowWrapper, RunningCommandSets, UnpairedWrapper, WrapperCommand,
     WrapperExit, WrapperFacts, is_channel_row, row_runs,
 };
-use crate::command::channel::{CommandChannel, PartyId, StoppedCommandParties};
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
+use crate::command::channel::{CommandChannel, PartyId};
 use crate::command::waiting_checks::WaitingState;
 
 impl RunningCommandSets {
@@ -146,6 +147,7 @@ impl RunningCommandSets {
 
     /// The wrapper that runs `command_id` in `session_id`; `None` before one pairs with its row
     /// and once it ended.
+    #[cfg(test)]
     pub(crate) fn paired_wrapper(
         &self,
         session_id: SessionId,
@@ -187,6 +189,25 @@ impl RunningCommandSets {
             })
     }
 
+    /// The wrapper that runs `command_id` in `session_id` and the channel it reaches the daemon
+    /// on, that of the process that runs the command's run apart from the session's own where one
+    /// does; `None` before a wrapper pairs with the command's row, once it ended, and while its
+    /// channel is not followed.
+    pub(crate) fn command_wrapper(
+        &self,
+        session_id: SessionId,
+        command_id: &CommandId,
+    ) -> Option<(Arc<CommandChannel>, PartyId)> {
+        let sessions = self.lock();
+        let commands = sessions.get(&session_id)?;
+        let row = commands.row(command_id)?;
+        let RowWrapper::Paired(party) = row.wrapper else {
+            return None;
+        };
+        let channel = commands.run_channel(Some(row.start.run_id))?;
+        Some((channel, party))
+    }
+
     /// Stops the command the wrapper `party` of `session_id` runs, paired with its row or not,
     /// through its channel's `Stop` to it and to every party under it, and answers the parties it
     /// reached; none for a wrapper already let go. Fails with the channel's write or wait error.
@@ -198,7 +219,7 @@ impl RunningCommandSets {
         let channel = {
             let sessions = self.lock();
             sessions.get(&session_id).and_then(|commands| {
-                let apart_run = match commands
+                let run = match commands
                     .unpaired
                     .iter()
                     .find(|unpaired| unpaired.party == party)
@@ -208,22 +229,19 @@ impl RunningCommandSets {
                         .rows
                         .iter()
                         .find(|row| row.wrapper == RowWrapper::Paired(party))
-                        .map(|row| {
-                            Some(row.start.run_id).filter(|run| commands.apart_runs.contains(run))
-                        })?,
+                        .map(|row| Some(row.start.run_id))?,
                 };
-                commands.channels.get(&apart_run)?.upgrade()
+                commands.run_channel(run)
             })
         };
-        let Some(channel) = channel else {
+        let Some((parties, channel)) =
+            channel.and_then(|channel| Some((channel.read_command_parties(party)?, channel)))
+        else {
             return Ok(StoppedCommandParties::default());
         };
-        match channel.stop_command_parties(party).await {
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                Ok(StoppedCommandParties::default())
-            }
-            stopped => stopped,
-        }
+        channel
+            .stop_command_parties(parties, COMMAND_STOP_WAIT)
+            .await
     }
 
     /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process

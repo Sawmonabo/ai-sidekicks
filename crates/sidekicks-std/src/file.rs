@@ -1,7 +1,8 @@
 //! Files: the crash-safe write and removal, publishing without replacing, a read held to a ceiling,
 //! a copy to a new path, a copy that hashes as it goes, an open file's clone to a new path, where a
 //! file is really reached, the precision of the times a folder keeps, the recursive copy of a tree,
-//! the folder of a fetched program's versions, and a file-system step run off the runtime's threads.
+//! the folder of a fetched program's versions, and a file-system step run off the runtime's
+//! threads.
 
 use std::io;
 
