@@ -27,6 +27,7 @@ use crate::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove};
 use crate::driver::contract::error::DriverError;
@@ -219,6 +220,8 @@ impl CodexSessionInboundHandler for SessionQueue {
 
     fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
 
+    fn side_question_released(&mut self, _thread_id: String) {}
+
     fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
         unreachable!("the driver makes no call")
     }
@@ -242,6 +245,10 @@ impl CodexSessionInboundHandler for SessionQueue {
         };
         // The test's task meters no spend, so the bindings move at once.
         async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
+    }
+
+    fn exported_response(&mut self, _response: CodexExportedResponse) -> BoxFuture<'_, ()> {
+        async {}.boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {

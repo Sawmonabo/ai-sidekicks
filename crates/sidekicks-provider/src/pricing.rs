@@ -4,21 +4,19 @@
 //! export status.
 
 pub mod decimal;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver's telemetry feeds it")
-)]
 pub(crate) mod export_status;
 mod fetch;
 pub mod held;
 pub mod list;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver prices its requests through it")
-)]
+pub(crate) mod live;
 pub(crate) mod quote;
 pub mod receiver;
 pub mod rule;
 pub mod store;
 #[cfg(test)]
-mod test_fixture;
+pub(crate) mod test_fixture;
+
+use std::error::Error;
+
+/// A failure a pricing port or store answers, boxed so each port keeps its own error type.
+pub(crate) type BoxedError = Box<dyn Error + Send + Sync>;

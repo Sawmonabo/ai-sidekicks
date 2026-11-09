@@ -8,6 +8,7 @@
 
 mod account;
 pub(crate) mod kept_records;
+pub(super) mod lasting_launch;
 mod terminal;
 
 use std::io;
@@ -15,17 +16,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sidekicks_platforms::{create_private_folder, read_socket_link};
+use sidekicks_platforms::create_private_folder;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::ReportedVersionReading;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
-use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
+use crate::driver::codex::exec_relay::{
+    CodexExecRelay, RelayedThread, compose_codex_executor_arguments,
+};
 use crate::driver::codex::native_program::{
     CodexNativeCommand, CodexNativeProgram, resolve_codex_native_program,
 };
@@ -36,30 +38,27 @@ use crate::driver::codex::service::command_line::{
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, CodexServiceExit, LastingCodexService, ManagedCodexService,
-    start_lasting_codex_service, start_managed_codex_service,
+    start_managed_codex_service,
 };
-use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
-};
+use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::own_record::{
-    EarlierRecordFile, PublishedRecordFile,
-};
+use crate::driver::codex::service::supervisor::own_record::EarlierRecordFile;
 use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
-use crate::driver::codex::service::supervisor::start::kept_records::on_record;
-use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
-use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::transport::connection::{
-    CodexAppServerConnection, open_codex_connection, read_codex_object,
+use crate::driver::codex::service::supervisor::start::lasting_launch::{
+    connect, read_physical_socket,
 };
-use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
+use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
+use crate::driver::codex::service::telemetry_switches::CodexLaunchTelemetry;
+use crate::driver::codex::service::telemetry_switches::compose_telemetry_switches;
+use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::socket::CodexSocketWait;
 use crate::driver::codex::version::{
     CODEX_CLIENT_NAME, CodexInitializeReply, read_reported_version,
 };
 use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::output_validation::check_cli_version_report;
-use crate::service_log::provider_service_log_file;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
@@ -242,10 +241,7 @@ async fn start_relayed_service(
     let executor_launch = compose_codex_native_launch(
         &service.dependencies().data_folder,
         executable,
-        CODEX_EXECUTOR_ARGUMENTS
-            .iter()
-            .map(|argument| (*argument).to_owned())
-            .collect(),
+        compose_codex_executor_arguments(&service.home().kind),
     )
     .await?
     .launch;
@@ -326,7 +322,8 @@ async fn start_own_child_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
 ) -> Result<StartedService, StartFailure> {
-    let process_launch = compose_launch(
+    // Its home exports nothing, so the launch carries no token.
+    let (process_launch, _no_bearer) = compose_launch(
         service,
         executable,
         service.launch_config_overrides(),
@@ -373,179 +370,6 @@ async fn start_own_child_service(
             process: process.map(Box::new),
             earlier_record_file: None,
         }),
-    }
-}
-
-/// A lasting service launched and answering on its socket, kept in its record: its process, the
-/// daemon's connection and its `initialize` reply, and where its socket really is.
-pub(super) struct LaunchedLastingService {
-    /// The process, kept in its record.
-    pub(super) process: CodexServiceProcess,
-    /// The daemon's connection.
-    pub(super) connection: Arc<CodexAppServerConnection>,
-    /// The service's answer to the connection's `initialize`.
-    pub(super) reply: Box<RawValue>,
-    /// Where its socket really is.
-    pub(super) physical_socket: PathBuf,
-    /// The name its launch published its own over.
-    pub(super) earlier_record_file: EarlierRecordFile,
-}
-
-/// Names the log every lasting service on `service`'s home writes and records it as the service's.
-/// Fails when the log cannot be named.
-pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, StartFailure> {
-    let log_file = provider_service_log_file(
-        &service.dependencies().logs_folder,
-        &DESCRIPTOR.provider_id(),
-        &service.home().codex_home,
-    )
-    .map_err(|error| start_failed("The Codex service's log could not be named.", error))?;
-    service.set_lasting_log_file(log_file.clone());
-    Ok(log_file)
-}
-
-/// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
-/// `locked`, published on `service` first, as launched and, once it answers on `launch_socket`
-/// under the ticket `launch`, with where its socket really is; `cancel` stands the wait down.
-/// Fails as the launch, the connect, the socket's read or a record's write does, a launched
-/// process handed back for the start's teardown with the name published before, which that
-/// teardown puts back once it stopped the process.
-pub(super) async fn launch_lasting_service(
-    service: &Arc<CodexService>,
-    launch: u64,
-    cancel: &CancellationToken,
-    process_launch: CodexProcessLaunch,
-    log_file: &Path,
-    locked: &Arc<LockedServiceRecord>,
-    launch_socket: &Path,
-) -> Result<LaunchedLastingService, StartFailure> {
-    let lasting =
-        start_lasting_codex_service(&service.dependencies().spawner, process_launch, log_file)
-            .await
-            .map_err(|error| start_failed("The Codex service could not be started.", error))?;
-    let record_file = locked.file().clone();
-    // Published before the write, so a daemon stop under way leaves the record to this service.
-    let published = PublishedRecordFile::publish(service, record_file.clone());
-    let launched = LastingServiceRecord::launched(
-        lasting.record().clone(),
-        service.socket.home_socket.clone(),
-    );
-    if let Err(error) = on_record(locked, move |locked| locked.write(&launched)).await {
-        return Err(StartFailure {
-            error: record_unkept(error),
-            process: Some(Box::new(CodexServiceProcess::Lasting {
-                service: lasting,
-                record_file,
-            })),
-            earlier_record_file: Some(Box::new(published.hand_back())),
-        });
-    }
-    let opened = connect(
-        service,
-        launch_socket,
-        launch,
-        CodexSocketWait::UntilListening,
-        lasting.exited(),
-        cancel,
-    )
-    .await;
-    let answered = LastingServiceRecord::launched(
-        lasting.record().clone(),
-        service.socket.home_socket.clone(),
-    );
-    let process = CodexServiceProcess::Lasting {
-        service: lasting,
-        record_file,
-    };
-    let kept = async {
-        let (connection, reply) = opened?;
-        let physical_socket = read_physical_socket(launch_socket).await?;
-        // Kept under the same hold, so a later daemon finds the socket the service really holds.
-        let answered = LastingServiceRecord {
-            physical_socket: Some(physical_socket.clone()),
-            ..answered
-        };
-        on_record(locked, move |locked| locked.write(&answered))
-            .await
-            .map_err(record_unkept)?;
-        Ok::<_, CodexError>((connection, reply, physical_socket))
-    }
-    .await;
-    match kept {
-        Ok((connection, reply, physical_socket)) => Ok(LaunchedLastingService {
-            process,
-            connection,
-            reply,
-            physical_socket,
-            earlier_record_file: published.hand_back(),
-        }),
-        Err(error) => Err(StartFailure {
-            error,
-            process: Some(Box::new(process)),
-            earlier_record_file: Some(Box::new(published.hand_back())),
-        }),
-    }
-}
-
-// A record write that failed, which fails the start.
-fn record_unkept(error: io::Error) -> CodexError {
-    CodexError::Transport {
-        detail: "The Codex service's record could not be kept.".to_owned(),
-        cause: Some(Box::new(error)),
-    }
-}
-
-/// Dials the service's socket at `socket` under the ticket `dial` and opens the connection,
-/// within the start's deadline and ended early by `exit`, the process's end, or `cancel`. Answers
-/// the connection and its `initialize` reply.
-pub(super) async fn connect(
-    service: &Arc<CodexService>,
-    socket: &Path,
-    dial: u64,
-    wait: CodexSocketWait,
-    exit: Option<CodexServiceExit>,
-    cancel: &CancellationToken,
-) -> Result<(Arc<CodexAppServerConnection>, Box<RawValue>), CodexError> {
-    let dependencies = service.dependencies();
-    let startup_timeout = dependencies.startup_timeout;
-    let opening = async {
-        let (sender, receiver) =
-            dial_codex_service_socket(socket, wait, &dependencies.provider_services, cancel)
-                .await?;
-        service.start_connection();
-        open_codex_connection(
-            sender,
-            receiver,
-            service.connection_handlers(dial),
-            CODEX_CLIENT_NAME,
-            startup_timeout,
-        )
-        .await
-    };
-    let ended = async {
-        match exit {
-            Some(exit) => exit.await,
-            None => std::future::pending().await,
-        }
-    };
-    tokio::select! {
-        biased;
-        exit = ended.fuse() => Err(CodexError::Transport {
-            detail: "The Codex service ended before it answered.".to_owned(),
-            cause: Some(match exit {
-                Ok(exit) => format!("{exit:?}").into(),
-                Err(error) => Box::new(std::io::Error::new(error.kind(), error.to_string())),
-            }),
-        }),
-        opened = tokio::time::timeout(startup_timeout, opening) => match opened {
-            Ok(opened) => opened.map(|(connection, reply)| (Arc::new(connection), reply)),
-            Err(_elapsed) => Err(CodexError::Transport {
-                detail: format!(
-                    "The Codex service did not answer within {startup_timeout:?} of its start."
-                ),
-                cause: None,
-            }),
-        },
     }
 }
 
@@ -623,26 +447,44 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder. Every service carries the privacy choices read now
-// from the person's own Codex folder, last, so they win over any switch before them, whichever
-// home it runs on. Fails as that read does.
+// set, in the dedicated empty working folder, and its export tag and own telemetry token where it
+// exports to the daemon. Its home's telemetry switches come first, composed against the
+// telemetry target as registered now, with their environment pairs set past the withhold; every service carries the
+// privacy choices read now from the person's own Codex folder, last, so they win over any switch
+// before them, whichever home it runs on. Fails as the token's mint or that read does.
 async fn compose_launch(
-    service: &CodexService,
+    service: &Arc<CodexService>,
     executable: &ResolvedProviderExecutable,
-    mut additional_config_overrides: Vec<String>,
+    additional_config_overrides: Vec<String>,
     launch_socket: &Path,
-) -> Result<CodexProcessLaunch, StartFailure> {
+) -> Result<(CodexProcessLaunch, Option<CodexLaunchTelemetry>), StartFailure> {
+    let target = service
+        .dependencies()
+        .telemetry_target
+        .port()
+        .map(Arc::as_ref);
+    let switches = compose_telemetry_switches(service, target).map_err(|error| {
+        start_failed(
+            "The Codex service's telemetry token could not be minted.",
+            error,
+        )
+    })?;
     let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
-    additional_config_overrides.extend(privacy.config_overrides());
+    let mut config_overrides = switches.config_overrides;
+    config_overrides.extend(additional_config_overrides);
+    config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: service.listen_address(launch_socket),
-        additional_config_overrides,
+        additional_config_overrides: config_overrides,
     });
-    let CodexNativeLaunch { launch, command } =
-        compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
-            .await?;
+    let CodexNativeLaunch {
+        mut launch,
+        command,
+    } = compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
+        .await?;
+    launch.environment.extend(switches.environment);
     service.set_native_command(Some(command));
-    Ok(launch)
+    Ok((launch, switches.launch))
 }
 
 /// A launch of the native Codex program, with the command it runs, which a command run beside a
@@ -709,22 +551,6 @@ async fn take_start_lock(
     take_codex_start_lock(codex_home, remaining)
         .await
         .map_err(|error| start_failed("Codex's start lock on the folder was not free.", error))
-}
-
-// Where the socket at `socket` really is: the link's target, or `socket` itself where it is no
-// link. Fails with the link's read error, since a socket recorded wrong leaves the home's link on
-// nothing later.
-async fn read_physical_socket(socket: &Path) -> Result<PathBuf, CodexError> {
-    let path = socket.to_owned();
-    tokio::task::spawn_blocking(move || read_socket_link(&path))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|read| read)
-        .map(|target| target.unwrap_or_else(|| socket.to_owned()))
-        .map_err(|error| CodexError::Transport {
-            detail: "Where the Codex service's socket really is could not be read.".to_owned(),
-            cause: Some(Box::new(error)),
-        })
 }
 
 /// A start's failure for `detail`, caused by `error`, with nothing launched to tear down.

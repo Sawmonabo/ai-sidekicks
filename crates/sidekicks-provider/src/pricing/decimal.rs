@@ -3,6 +3,8 @@
 
 use std::cmp::Ordering;
 
+use crate::record_readers::is_digits;
+
 /// A non-negative decimal, `significand × 10^-scale`, kept normalized: no trailing zero while the
 /// scale is above 0, so one value has one form and equality is by value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -132,10 +134,6 @@ fn parse_exponent(text: &str) -> Option<i64> {
     }
     let magnitude: i64 = digits.parse().ok()?;
     Some(if is_negative { -magnitude } else { magnitude })
-}
-
-fn is_digits(text: &str) -> bool {
-    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[cfg(test)]

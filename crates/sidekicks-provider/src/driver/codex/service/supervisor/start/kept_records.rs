@@ -25,7 +25,7 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry, repin_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+    KeptLaunchTelemetry, LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
     one_recorded_file_per_folder,
 };
 use crate::driver::codex::service::socket_link::{
@@ -263,13 +263,14 @@ async fn remove_record(locked: &Arc<LockedServiceRecord>) -> Result<(), StartFai
 }
 
 /// The running service an account home's record `locked` keeps, to join, with where its record
-/// says its socket really is, so a turn it was running when the daemon restarted goes on in it;
+/// says its socket really is and its export's token and tag, so a turn it was running when the
+/// daemon restarted goes on in it and its exports are still taken;
 /// with none running, the record is retired as [`retire_kept_record`] retires it, so a fresh
 /// launch follows. Fails as the read, the re-pin or the retire does.
 pub(super) async fn take_kept_service(
     locked: &Arc<LockedServiceRecord>,
     control_socket: &Path,
-) -> Result<Option<(LastingCodexService, PathBuf)>, StartFailure> {
+) -> Result<Option<(LastingCodexService, PathBuf, Option<KeptLaunchTelemetry>)>, StartFailure> {
     let Some(record) = read_record(locked).await? else {
         return Ok(None);
     };
@@ -280,7 +281,7 @@ pub(super) async fn take_kept_service(
             retire_former_service(locked, record).await?;
             return Ok(None);
         };
-        return Ok(Some((lasting, physical_socket)));
+        return Ok(Some((lasting, physical_socket, record.telemetry)));
     }
     retire_kept_record(locked, control_socket).await?;
     Ok(None)
@@ -830,6 +831,7 @@ mod tests {
             home_socket: PathBuf::from(HOME),
             physical_socket: Some(PathBuf::from(socket)),
             is_draining,
+            telemetry: None,
         }
     }
 

@@ -2,32 +2,41 @@
 //! from the session's process, in its level's own mode and on a channel of its own, its command
 //! stopped and moved on that process.
 
+use std::pin::pin;
 use std::sync::Arc;
 
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::command::CommandId;
+use sidekicks_contracts::event::usage::UsageCostSource;
+use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
+use tokio_util::sync::CancellationToken;
 
-use super::session_controls::one_turn_reply;
+use super::session_controls::{one_turn_outcome, one_turn_reply, opus_spend};
 use super::start_params;
+use crate::bounded_poll::poll_until;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::driver::claude::session::scripted::{binding_id, settle};
+use crate::driver::claude::session::scripted::{binding_id, register_claude_price_list, settle};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
+use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnReply};
 use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::test_registry::new_run_id;
 use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::state_entry::RunStateEntry;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Lets the session's process run Claude Code's `code-review` skill.
 fn offer_review_skill(fixture: &ScriptedDriver, session_id: SessionId) {
@@ -151,10 +160,13 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .expect("the running commands register once");
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     offer_review_skill(&fixture, session_id);
-    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+    let reported = ClaudeOneTurnReply {
         provider_message_id: Some("review".to_owned()),
-        ..one_turn_reply("Nothing to change.", None)
-    });
+        ..one_turn_reply("Nothing to change.")
+    };
+    fixture
+        .starts
+        .script_one_turn(one_turn_outcome(reported, None));
     let run_id = new_run_id();
     let mut params = start_params(session_id, run_id);
     params.opening.item = RunOpeningItem::Review {
@@ -166,14 +178,17 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .start_run(params)
         .await
         .expect("the review starts");
-    ScriptedDriver::wait_for(|| {
-        fixture.engine.moves_of_run(run_id).iter().any(|entry| {
-            matches!(
-                entry,
-                RunStateEntry::Completed { .. } | RunStateEntry::Failed { .. }
-            )
-        })
-    })
+    poll_until(
+        || fixture.engine.moves_of_run(run_id),
+        |moves| {
+            moves.iter().any(|entry| {
+                matches!(
+                    entry,
+                    RunStateEntry::Completed { .. } | RunStateEntry::Failed { .. }
+                )
+            })
+        },
+    )
     .await;
 
     let modes: Vec<_> = fixture
@@ -183,6 +198,137 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .map(|one_turn| one_turn.permission_mode)
         .collect();
     assert_eq!(modes, [None]);
+}
+
+// Killed by recording only a review that reported, by recording its spend after its run's end,
+// and by owning its rows as the session's copy rather than its run's: a refused review keeps its
+// result's figure and a stopped one is priced from the list, each on the review's own binding.
+#[rstest]
+#[case::refused(true, UsageCostSource::ProviderReported)]
+#[case::stopped(false, UsageCostSource::DerivedExact)]
+#[tokio::test]
+async fn a_staged_reviews_spend_is_recorded_on_its_run_however_it_ends(
+    #[case] is_refused: bool,
+    #[case] cost_source: UsageCostSource,
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder is made");
+    let stop = CancellationToken::new();
+    let fixture = ScriptedDriver::new();
+    register_claude_price_list(&fixture.services.ports.price_list, &scratch, &stop).await;
+    make_test_repository(&test_git_runner(), fixture.folder.path(), "work").await;
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+    let outcome = if is_refused {
+        let refused = ClaudeOneTurnReply {
+            refusal: Some(RunFailureCause::Refused {
+                origin: RunRefusedOrigin::Provider,
+                model: FreeFormText::new("claude-opus-5-5".to_owned()).expect("a model id"),
+                sentence: None,
+                explanation: None,
+                safety_category: None,
+            }),
+            ..one_turn_reply("")
+        };
+        let spend = opus_spend(&[(1_000, 500)], Some((1_000, 500, 0.014)));
+        one_turn_outcome(refused, Some(spend))
+    } else {
+        ClaudeOneTurnOutcome {
+            reply: Err(ClaudeLaunchError::TurnStopped),
+            spend: Some(opus_spend(&[(1_000, 500)], None)),
+        }
+    };
+    fixture.starts.script_one_turn(outcome);
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
+    };
+
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+    poll_until(
+        || fixture.engine.moves_of_run(run_id),
+        |moves| (moves.iter()).any(|entry| matches!(entry, RunStateEntry::Failed { .. })),
+    )
+    .await;
+    stop.cancel();
+
+    let metered: Vec<_> = fixture
+        .usage
+        .metered()
+        .into_iter()
+        .map(|metered| (metered.owner, metered.binding_id))
+        .collect();
+    assert_eq!(metered, [(MeteredUsageOwner::Run, binding_id("lead"))]);
+    let account = test_provider_account_id().as_str().to_owned();
+    assert_eq!(
+        fixture.usage.priced_shares(),
+        [(cost_source, vec![(account, 14_000)])]
+    );
+}
+
+// Killed by the review's turn recorded on the review's own task, which nothing waits for: the
+// daemon's stop would end the runtime under the turn and its spend row would be lost.
+#[tokio::test]
+async fn the_stop_waits_out_a_staged_review_mid_turn_and_its_spend_is_recorded() {
+    let fixture = ScriptedDriver::new();
+    make_test_repository(&test_git_runner(), fixture.folder.path(), "work").await;
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+    let reported = ClaudeOneTurnReply {
+        provider_message_id: Some("review".to_owned()),
+        ..one_turn_reply("Nothing to change.")
+    };
+    let release = fixture
+        .starts
+        .script_one_turn_until_released(one_turn_outcome(
+            reported,
+            Some(opus_spend(&[(1_000, 500)], None)),
+        ));
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
+    };
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+    poll_until(
+        || fixture.starts.take_one_turns(),
+        |turns| !turns.is_empty(),
+    )
+    .await;
+
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let mut stop_waits = pin!(parts.session_controls.wait_for_recorded_turns());
+    assert!(
+        futures::poll!(stop_waits.as_mut()).is_pending(),
+        "the stop waits for the review's turn"
+    );
+    release.send(()).expect("the turn waits for its release");
+    stop_waits.await;
+
+    let metered: Vec<_> = (fixture.usage.metered().into_iter())
+        .map(|metered| (metered.owner, metered.delta.axis_deltas.input))
+        .collect();
+    assert_eq!(metered, [(MeteredUsageOwner::Run, Some(1_000))]);
 }
 
 // A staged review's run, on a binding of its own.

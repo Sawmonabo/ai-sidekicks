@@ -2,6 +2,7 @@
 //! names an account's credential home, and no failure underneath carries one, so neither a reply
 //! nor the service log line that keeps the failure shows a home's path.
 
+use std::error::Error;
 use std::io;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -85,4 +86,13 @@ impl From<ProviderAccountRegistryError> for HandlerError {
             | ProviderAccountRegistryError::Write(_)) => Self::Internal(Box::new(error)),
         }
     }
+}
+
+/// Whether `error` is a registry's [`ProviderAccountRegistryError::NotFound`]: the account is not
+/// registered, or its removal has begun.
+pub(crate) fn is_account_not_found(error: &(dyn Error + Send + Sync + 'static)) -> bool {
+    matches!(
+        error.downcast_ref::<ProviderAccountRegistryError>(),
+        Some(ProviderAccountRegistryError::NotFound)
+    )
 }

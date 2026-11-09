@@ -4,6 +4,7 @@
 
 use sidekicks_contracts::event::usage::UsageCostSource;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::session::cost::UsdMicros;
 
 use crate::account::usage_turns::unpriced::{UnpricedRequest, UnpricedUsageKey};
@@ -18,6 +19,13 @@ pub trait RequestPricer: Send + Sync {
     /// Whether `table` holds every rate `key`'s requests take; a key it does not price stays
     /// held, its rows unread.
     fn prices_key(&self, table: &PriceTable, key: &UnpricedUsageKey) -> bool;
+
+    /// Whether `table` prices `model`, as its provider lists it, at every speed the listing
+    /// offers, so a speed the table lacks is fetched for before a request at it is held. A rule
+    /// that reads no speed asks only for the model's row.
+    fn prices_listed_model(&self, table: &PriceTable, model: &ProviderModel) -> bool {
+        table.row(model.id.as_str()).is_some()
+    }
 
     /// What `request`, one of `key`'s, costs at `table`'s rates, under the account's
     /// `sign_in_kind` where the rule reads one and the account's row names it.

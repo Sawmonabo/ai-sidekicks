@@ -36,8 +36,8 @@ pub enum DriverDiagnosticKind {
     /// A wire-declared per-turn figure disagrees with the derived interval; recorded, never
     /// substituted.
     UsageCrossCheckMismatch,
-    /// A token breakdown satisfying no containment identity is emitted unsubtracted, so the
-    /// overstatement surfaces instead of a silent understatement.
+    /// A token breakdown whose declared total satisfies no containment identity is emitted
+    /// unsubtracted, so the overstatement surfaces instead of a silent understatement.
     UsageContainmentIdentityUnconfirmed,
     /// The router refused a frame with an absent or unrecognized identity.
     ThreadFrameQuarantined,
@@ -149,6 +149,11 @@ pub enum DriverDiagnosticKind {
     /// A plan the provider proposed could not be recorded (no plan text, no plan record
     /// registered, or its record's write failed), so its request is refused; the reason says which.
     PlanNotRecorded,
+    /// A telemetry record read for price named no conversation or model, carried a count or word
+    /// its reader cannot read, or could not be placed on a session, so it was refused whole; its
+    /// details name the field, or the thread a record could not be placed under, never a value read
+    /// from a count.
+    TelemetryRecordRefused,
 }
 
 impl DriverDiagnosticKind {
@@ -209,6 +214,7 @@ impl DriverDiagnosticKind {
             Self::SessionInboxFailed => "driver.sessionInbox.failed",
             Self::PermissionModeUnknown => "driver.permissionMode.unknown",
             Self::PlanNotRecorded => "driver.plan.notRecorded",
+            Self::TelemetryRecordRefused => "driver.telemetry.recordRefused",
         }
     }
 }

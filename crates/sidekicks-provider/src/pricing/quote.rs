@@ -146,6 +146,46 @@ pub(crate) fn quote_request(
     total.to_usd_micros()
 }
 
+/// Prices one request of several rows, each row as a [`RequestUsage`] naming the request's own
+/// selectors and its whole long-context sum: the figure is one quote over the rows' summed counts
+/// and searches, shared across them by [`split_figure`] over each row's own quote. Answers one
+/// share per row, in order; refused as [`quote_request`] refuses any of those quotes, or with
+/// [`QuoteRefusal::Overflow`] when a sum passes the integers.
+pub(crate) fn quote_request_rows(
+    table: &PriceTable,
+    rows: &[RequestUsage<'_>],
+) -> Result<Vec<UsdMicros>, QuoteRefusal> {
+    let Some(first) = rows.first() else {
+        return Ok(Vec::new());
+    };
+    let mut tokens = RequestTokenCounts {
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        cache_write_extended: 0,
+    };
+    let mut web_searches: u64 = 0;
+    let mut row_quotes = Vec::with_capacity(rows.len());
+    for row in rows {
+        let sum = |total: u64, count: u64| total.checked_add(count).ok_or(QuoteRefusal::Overflow);
+        tokens.input = sum(tokens.input, row.tokens.input)?;
+        tokens.output = sum(tokens.output, row.tokens.output)?;
+        tokens.cache_read = sum(tokens.cache_read, row.tokens.cache_read)?;
+        tokens.cache_write = sum(tokens.cache_write, row.tokens.cache_write)?;
+        tokens.cache_write_extended =
+            sum(tokens.cache_write_extended, row.tokens.cache_write_extended)?;
+        web_searches = sum(web_searches, row.web_searches)?;
+        row_quotes.push(quote_request(table, row)?.0.get());
+    }
+    let whole = RequestUsage {
+        tokens,
+        web_searches,
+        ..*first
+    };
+    Ok(split_figure(quote_request(table, &whole)?, &row_quotes))
+}
+
 /// Shares one request's figure across its rows by weight: each share but the last is the floor of
 /// its weighted part and the last takes the remainder, so the shares add up to the figure. The
 /// whole figure goes on the last share when every weight is zero; no weights give no shares.

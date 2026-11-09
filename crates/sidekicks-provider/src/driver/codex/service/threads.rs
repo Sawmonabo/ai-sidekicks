@@ -3,7 +3,9 @@
 //! session's own thread, and every child thread a helper opened beneath it. A frame can name a
 //! thread before it is registered: a start's or a fork's ahead of its reply, a spawned helper's
 //! ahead of the spawn item. Such frames are held, within a frame count, a byte bound and a
-//! timeout, until it is; a held frame no registration took is reported at its deadline.
+//! timeout, until it is; a held frame no registration took is reported at its deadline. A
+//! released thread is remembered with the session it ran for, so its last exported records still
+//! reach that session.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -23,6 +25,10 @@ use crate::driver::codex::service::supervisor::routing::CODEX_THREAD_CLOSED_METH
 /// fault when no session holds the conversation.
 const CODEX_UNHELD_THREAD_BROADCASTS: [&str; 2] =
     [CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_CLOSED_METHOD];
+
+/// How many released threads one service remembers; past it the oldest is forgotten and logged.
+/// A thread's last exported record follows its release within one log batch interval.
+const RELEASED_THREADS_KEPT: usize = 64;
 
 /// The most the hold keeps of its frames' params, in bytes, the oldest pushed out past it: one
 /// `item/completed` can carry a command's whole output.
@@ -45,6 +51,12 @@ impl PartialEq for CodexHeldThreadFrame {
             && self.params.get() == other.params.get()
             && self.thread_id == other.thread_id
     }
+}
+
+// A thread the service released and the session it was bound to.
+struct CodexReleasedThread {
+    thread: String,
+    session: SessionId,
 }
 
 /// Where a frame naming a thread goes, settled under one lock of the index.
@@ -70,6 +82,8 @@ pub(crate) struct CodexServiceThreads {
     report_unclaimed: UnclaimedThreadFrameReport,
     session_by_thread: BTreeMap<String, SessionId>,
     side_question_threads: BTreeSet<String>,
+    /// The threads this service released, oldest first, each once.
+    released: VecDeque<CodexReleasedThread>,
     /// The held frames in arrival order, each with when it arrived.
     held_frames: VecDeque<(Instant, CodexHeldThreadFrame)>,
     /// The bytes of the held frames' params.
@@ -96,6 +110,7 @@ impl CodexServiceThreads {
             report_unclaimed,
             session_by_thread: BTreeMap::new(),
             side_question_threads: BTreeSet::new(),
+            released: VecDeque::new(),
             held_frames: VecDeque::new(),
             held_bytes: 0,
             claims_in_flight: 0,
@@ -173,6 +188,7 @@ impl CodexServiceThreads {
                 self.held_frames.push_back((arrived_at, frame));
             }
         }
+        self.released.retain(|former| former.thread != thread_id);
         self.session_by_thread.insert(thread_id, session_id);
         if !released.is_empty() {
             self.rearm_expiry();
@@ -180,10 +196,35 @@ impl CodexServiceThreads {
         released
     }
 
-    /// Forgets one thread.
-    pub(crate) fn release(&mut self, thread_id: &str) {
-        self.session_by_thread.remove(thread_id);
-        self.side_question_threads.remove(thread_id);
+    /// Forgets one thread, remembering the session it was bound to until it is registered again;
+    /// past the bound the oldest is forgotten and logged. Answers that session where the thread
+    /// was a side question's copy.
+    pub(crate) fn release(&mut self, thread_id: &str) -> Option<SessionId> {
+        let was_side_question = self.side_question_threads.remove(thread_id);
+        let session_id = self.session_by_thread.remove(thread_id)?;
+        self.released.retain(|former| former.thread != thread_id);
+        if self.released.len() >= RELEASED_THREADS_KEPT
+            && let Some(forgotten) = self.released.pop_front()
+        {
+            tracing::info!(
+                conversation_id = forgotten.thread.as_str(),
+                "a codex service keeps too many released threads; the oldest is forgotten"
+            );
+        }
+        self.released.push_back(CodexReleasedThread {
+            thread: thread_id.to_owned(),
+            session: session_id,
+        });
+        was_side_question.then_some(session_id)
+    }
+
+    /// The session `thread_id` was bound to when this service released it, `None` for a thread
+    /// this service holds now, never held or forgot.
+    pub(crate) fn former_session_for(&self, thread_id: &str) -> Option<SessionId> {
+        self.released
+            .iter()
+            .find(|former| former.thread == thread_id)
+            .map(|former| former.session)
     }
 
     /// Opens a claim for a start or fork whose thread is not known yet; while any claim is open no

@@ -5,9 +5,11 @@ use std::time::Duration;
 use futures::StreamExt as _;
 use interprocess::local_socket::tokio::Listener;
 use rstest::rstest;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
@@ -62,6 +64,7 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
                 .expect("the question is asked at rest"),
             &params,
             Arc::new(PortRegistration::new("usage")),
+            Arc::clone(&session.task.pricing),
         )
         .await
         .expect("the copy takes the question");
@@ -145,6 +148,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
                 .expect("the question is asked at rest"),
             &params,
             Arc::new(PortRegistration::new("usage")),
+            Arc::clone(&session.task.pricing),
         )
         .await
         .expect("the copy takes the question");
@@ -286,6 +290,7 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
                     .expect("the question is asked at rest"),
                 &params,
                 Arc::new(PortRegistration::new("usage")),
+                Arc::clone(&session.task.pricing),
             ),
             async {
                 held_came.await.expect("the service took the held request");
@@ -490,6 +495,94 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
     );
 }
 
+// Killed by a live copy's usage stamped with no facts (all `None`), and by the tier its fork
+// declared left unread in `ask` (no speed): the session's recorder would leave the copy's rows
+// unpriced or price them at the standard rates.
+#[tokio::test]
+async fn a_live_copy_reading_carries_its_model_and_declared_tier() {
+    let mut session = TestCodexSession::start().await;
+    let tasks = TaskTracker::new();
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
+    let session_id = session.task.record.session_id;
+    let params = AskSideQuestionParams {
+        resume: None,
+        ..resting_question(session_id, Path::new("/"))
+    };
+    let profile = compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &session.task.record.thread_settings.profile_folders,
+    );
+    let script = &mut session.scripted.script;
+    let service = &*session.scripted.service;
+
+    let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
+        tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], "config/read");
+            script.answer(&read, &json!({"config": {}, "origins": {}}));
+            let fork = script.next_sent().await;
+            assert_eq!(fork["method"], "thread/fork");
+            script.answer(
+                &fork,
+                &json!({
+                    "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                    "activePermissionProfile": {"id": profile},
+                    "serviceTier": "priority",
+                }),
+            );
+            let start = script.next_sent().await;
+            assert_eq!(start["method"], "turn/start");
+            script.answer(&start, &turn_reply(COPY_TURN));
+        })
+    })
+    .await
+    .expect("the ask ends once its turn started");
+    let answer = asked.expect("the copy takes the question");
+    let counts = json!({"inputTokens": 1_000, "outputTokens": 100, "totalTokens": 1_100});
+    let reading = RawValue::from_string(
+        json!({
+            "threadId": COPY_THREAD,
+            "turnId": COPY_TURN,
+            "tokenUsage": {"total": counts, "last": counts},
+        })
+        .to_string(),
+    )
+    .expect("the reading is JSON");
+    let diverted = side_questions
+        .divert("thread/tokenUsage/updated", &reading)
+        .expect("the copy takes its own reading");
+    tokio::time::timeout(
+        SERVE_WAIT,
+        futures::future::join(
+            end_copies(&side_questions, &CopyEnd::SessionClosed, session_id),
+            answer_copy_stopped(script, service, session_id),
+        ),
+    )
+    .await
+    .expect("the copy's turn is stopped and the copy let go");
+    tasks.close();
+    tokio::time::timeout(SERVE_WAIT, tasks.wait())
+        .await
+        .expect("no copy's task is left");
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("a stopped copy delivers nothing");
+
+    let request = diverted
+        .usage
+        .expect("the reading metered usage")
+        .delta
+        .request;
+    assert_eq!(
+        (
+            request.speed.as_ref().map(BoundedText::as_str),
+            request.thread_speed.as_ref().map(BoundedText::as_str),
+            request.model_id.as_ref().map(FreeFormText::as_str),
+        ),
+        (Some("priority"), Some("priority"), Some("gpt-5"))
+    );
+}
+
 // Killed by a shutdown that only stops the copies it finds: a copy asked for after it forks,
 // which on the live path waits on its fork and on the resting path on a service that never answers.
 #[tokio::test(flavor = "multi_thread")]
@@ -517,6 +610,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
                 .expect("the question is asked at rest"),
             &params,
             Arc::new(PortRegistration::new("usage")),
+            Arc::clone(&session.task.pricing),
         ),
     )
     .await

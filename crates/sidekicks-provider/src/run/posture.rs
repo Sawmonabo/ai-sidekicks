@@ -161,6 +161,8 @@ pub(crate) enum CredentialPolicyResolveError {
 pub struct ExecutionPostureService {
     // The curated list's entries, each path expanded against the home folder.
     deny_entries: [CredentialDenyPath; 3],
+    // The drivers' private-file folders, denied beside the entries once the drivers are built.
+    private_folders: SetOnce<Vec<PathBuf>>,
     // The runs' and the moved sessions' postures, under one lock so a move and a gate's insert
     // never interleave.
     postures: Mutex<ResolvedPostures>,
@@ -238,9 +240,19 @@ impl ExecutionPostureService {
                     kind: CredentialDenyPathKind::File,
                 },
             ],
+            private_folders: SetOnce::new(),
             postures: Mutex::default(),
             stored_postures: SetOnce::new(),
         }
+    }
+
+    /// Hands the service the folders the drivers keep their private files in, each denied to
+    /// every provider's sessions beside the curated entries. Fails once folders are set.
+    pub fn set_private_folders(
+        &self,
+        folders: Vec<PathBuf>,
+    ) -> Result<(), SetOnceError<Vec<PathBuf>>> {
+        self.private_folders.set(folders)
     }
 
     /// Hands the service where a session's stored level is read. Fails once a source is set.
@@ -251,8 +263,9 @@ impl ExecutionPostureService {
         self.stored_postures.set(source)
     }
 
-    /// The curated list `credential_policy_ref` names, resolved now so a moved symlink is followed.
-    /// Fails with [`CredentialPolicyResolveError::Rejected`] for any other reference, and with
+    /// The curated list `credential_policy_ref` names with the drivers' private-file folders
+    /// beside it, resolved now so a moved symlink is followed. Fails with
+    /// [`CredentialPolicyResolveError::Rejected`] for any other reference, and with
     /// [`CredentialPolicyResolveError::DenyPath`] for a path read that fails for any reason but the
     /// path being absent.
     pub(crate) async fn resolve_credential_policy(
@@ -260,7 +273,18 @@ impl ExecutionPostureService {
         credential_policy_ref: &str,
     ) -> Result<ResolvedCredentialPolicy, CredentialPolicyResolveError> {
         require_curated_policy_ref(credential_policy_ref)?;
-        let deny_paths = try_join_all(self.deny_entries.iter().map(canonical_deny_path)).await?;
+        let mut deny_paths =
+            try_join_all(self.deny_entries.iter().map(canonical_deny_path)).await?;
+        let private_folders = self.private_folders.get().map_or(&[][..], Vec::as_slice);
+        for folder in try_join_all(
+            private_folders
+                .iter()
+                .map(|folder| deny_folder_spellings(folder)),
+        )
+        .await?
+        {
+            deny_paths.extend(folder);
+        }
         Ok(ResolvedCredentialPolicy {
             credential_policy_ref: curated_policy_ref(),
             deny_paths,
@@ -486,6 +510,9 @@ async fn canonical_writable_root(
         .map_err(|refusal| unresolvable(io::Error::other(refusal)))
 }
 
+/// `entry` with its path resolved through every link, as the curated list's paths are; a path
+/// absent now keeps its own form. Fails with [`CredentialPolicyResolveError::DenyPath`] for a read
+/// that fails for any reason but the path being absent.
 async fn canonical_deny_path(
     entry: &CredentialDenyPath,
 ) -> Result<CredentialDenyPath, CredentialPolicyResolveError> {
@@ -504,6 +531,49 @@ async fn canonical_deny_path(
         path,
         kind: entry.kind,
     })
+}
+
+// `folder` denied as spelled and, where they differ, as resolved through every link: a folder made
+// only when its first file is written resolves through its nearest existing ancestor, so a linked
+// data folder still denies the real folder its files land in.
+async fn deny_folder_spellings(
+    folder: &Path,
+) -> Result<Vec<CredentialDenyPath>, CredentialPolicyResolveError> {
+    let spelled = CredentialDenyPath {
+        path: folder.to_path_buf(),
+        kind: CredentialDenyPathKind::Folder,
+    };
+    let mut resolved = None;
+    for ancestor in folder.ancestors() {
+        match resolve_real_path(ancestor).await {
+            Ok(real) => {
+                let rest = folder
+                    .strip_prefix(ancestor)
+                    .expect("an ancestor prefixes its descendant");
+                // Joined only where something is left, so the folder gains no trailing separator.
+                resolved = Some(if rest.as_os_str().is_empty() {
+                    real
+                } else {
+                    real.join(rest)
+                });
+                break;
+            }
+            Err(cause) if cause.kind() == io::ErrorKind::NotFound => {}
+            Err(cause) => {
+                return Err(CredentialPolicyResolveError::DenyPath {
+                    path: ancestor.to_path_buf(),
+                    cause,
+                });
+            }
+        }
+    }
+    let resolved = resolved
+        .filter(|resolved| *resolved != spelled.path)
+        .map(|path| CredentialDenyPath {
+            path,
+            kind: CredentialDenyPathKind::Folder,
+        });
+    Ok(std::iter::once(spelled).chain(resolved).collect())
 }
 
 #[cfg(test)]

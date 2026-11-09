@@ -166,6 +166,7 @@ impl UsageRecord {
             binding_id,
             owner,
             delta,
+            provider_account_id,
         } = metered;
         let read_binding_id = binding_id.clone();
         let read_owner = owner.clone();
@@ -173,7 +174,7 @@ impl UsageRecord {
             MeteredUsageOwner::Helper(subagent_id) => {
                 self.engine.helper_run(&binding_id, subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
         let target = self
             .pool
@@ -184,6 +185,7 @@ impl UsageRecord {
                     &read_binding_id,
                     &read_owner,
                     kept_helper_run,
+                    provider_account_id,
                 )
             })
             .await?;
@@ -200,11 +202,11 @@ impl UsageRecord {
                 }
                 Some(subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::Session => None,
         };
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
-            // A copy of the session's conversation is the session's, counted toward no run.
+            // The session's own spend, counted toward no run.
             let outcome = self
                 .dispatch
                 .dispatch(InboundDelivery::SessionEvent {
@@ -513,15 +515,18 @@ fn usage_row(
     helper: Option<SubagentId>,
     delta: &MeteredUsageDelta,
 ) -> Result<UsageTokenCountRecordedPayload, UsageRecordError> {
+    let figures = delta
+        .row_figures()
+        .ok_or(UsageRecordError::FigureOutOfRange)?;
     Ok(UsageTokenCountRecordedPayload {
         session_id,
         run_id: target.run_id,
-        token_count: axis_figure(delta.axis_deltas.total)?,
-        input_tokens: normalized_figure(delta.axis_deltas.input, delta.normalized_input_tokens)?,
-        output_tokens: normalized_figure(delta.axis_deltas.output, delta.normalized_output_tokens)?,
-        cache_read_tokens: axis_figure(delta.axis_deltas.cached_input)?,
-        cache_write_tokens: axis_figure(delta.axis_deltas.cache_write_input)?,
-        reasoning_tokens: axis_figure(delta.axis_deltas.reasoning_output)?,
+        token_count: figures.total,
+        input_tokens: figures.input,
+        output_tokens: figures.output,
+        cache_read_tokens: figures.cache_read,
+        cache_write_tokens: figures.cache_write,
+        reasoning_tokens: figures.reasoning,
         containment: delta.containment,
         provider_account_id: target.provider_account_id.clone(),
         credential_generation: target.credential_generation,
@@ -530,8 +535,8 @@ fn usage_row(
         request_key: delta.request.request_key.clone(),
         speed: delta.request.speed.clone(),
         processing_region: delta.request.processing_region.clone(),
-        cache_write_extended_tokens: axis_figure(delta.request.cache_write_extended_tokens)?,
-        web_search_requests: axis_figure(delta.request.web_search_requests)?,
+        cache_write_extended_tokens: figures.cache_write_extended,
+        web_search_requests: figures.web_searches,
         thread_speed: delta.request.thread_speed.clone(),
         source_epoch: None,
         source_position: None,
@@ -610,21 +615,6 @@ fn cost_row(
 fn row_token_count(payload: &UsageTokenCountRecordedPayload) -> u64 {
     let figure = |figure: Option<SafeInt<0>>| figure.map_or(0, SafeInt::get);
     figure(payload.input_tokens).saturating_add(figure(payload.output_tokens))
-}
-
-// A count on the row: absent where the reading carried none, never zero.
-fn axis_figure(figure: Option<u64>) -> Result<Option<SafeInt<0>>, UsageRecordError> {
-    figure
-        .map(|figure| SafeInt::new(figure).ok_or(UsageRecordError::FigureOutOfRange))
-        .transpose()
-}
-
-// A normalized figure on the row, present where the reading carried its axis.
-fn normalized_figure(
-    axis: Option<u64>,
-    normalized: u64,
-) -> Result<Option<SafeInt<0>>, UsageRecordError> {
-    axis_figure(axis.map(|_| normalized))
 }
 
 // Every window of a non-empty set, by its limit and length, as each of its rows names the set.

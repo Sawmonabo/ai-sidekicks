@@ -180,13 +180,6 @@ pub(crate) async fn read_codex_config<Config: DeserializeOwned>(
 
 /// Where a Codex service's model requests are processed, by the host of its model provider's base
 /// URL.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexProcessingRegion {
     /// The API's own host, `api.openai.com`, set or by default: no regional processing.
@@ -198,45 +191,17 @@ pub(crate) enum CodexProcessingRegion {
 }
 
 /// The API's own host, which processes requests with no regional processing.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 const OPENAI_API_HOST: &str = "api.openai.com";
 
 /// The API's data-residency domain prefixes, each labeling a host `<prefix>.api.openai.com`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
-const OPENAI_REGION_PREFIXES: [&str; 10] =
+pub(crate) const OPENAI_REGION_PREFIXES: [&str; 10] =
     ["us", "eu", "ae", "au", "ca", "jp", "in", "sg", "kr", "gb"];
 
 /// Codex's built-in model provider, whose base URL is `openai_base_url`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 const OPENAI_PROVIDER_ID: &str = "openai";
 
 // The effective config's keys that name where model requests go: the provider, the built-in
 // provider's base URL and each other provider's.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 #[derive(Deserialize)]
 struct CodexEndpointConfig {
     #[serde(default)]
@@ -247,13 +212,6 @@ struct CodexEndpointConfig {
     model_providers: HashMap<String, CodexModelProviderEndpoint>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 #[derive(Deserialize)]
 struct CodexModelProviderEndpoint {
     #[serde(default)]
@@ -262,10 +220,6 @@ struct CodexModelProviderEndpoint {
 
 /// The processing region of the Codex service `connection` reaches, read from its settings for
 /// `cwd`. Fails as [`read_codex_config`] does.
-#[expect(
-    dead_code,
-    reason = "Codex's pricing reads each service's region through it"
-)]
 pub(crate) async fn read_codex_processing_region(
     connection: &CodexAppServerConnection,
     cwd: &Path,
@@ -277,13 +231,6 @@ pub(crate) async fn read_codex_processing_region(
 // The region of the base URL `config`'s model provider sends to: the built-in provider's own
 // setting, unset or empty meaning OpenAI's host as Codex reads it, or another provider's entry,
 // which has no default host.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Codex's pricing reads each service's region through it"
-    )
-)]
 fn processing_region_of(config: &CodexEndpointConfig) -> CodexProcessingRegion {
     let base_url = match config.model_provider.as_deref() {
         None | Some(OPENAI_PROVIDER_ID) => {

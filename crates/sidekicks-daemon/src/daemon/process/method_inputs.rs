@@ -646,6 +646,7 @@ pub(crate) async fn register_method_inputs(
         pool: Arc::clone(&reads),
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        price_list: Arc::clone(&providers.ports.price_list),
     });
     // The messages waiting for a paused run, which a run's and a child's continue deliver.
     let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());

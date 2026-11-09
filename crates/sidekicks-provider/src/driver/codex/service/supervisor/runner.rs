@@ -30,8 +30,9 @@ use crate::driver::codex::service::supervisor::drain::drain_lasting_service;
 use crate::driver::codex::service::supervisor::own_record::{EarlierRecordFile, retire_own_record};
 use crate::driver::codex::service::supervisor::reconnect::reconnect_wait;
 use crate::driver::codex::service::supervisor::refusals::SharedCodexError;
+use crate::driver::codex::service::supervisor::start::lasting_launch::connect;
 use crate::driver::codex::service::supervisor::start::{
-    CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
+    CodexServiceProcess, StartedService, read_codex_loaded_threads, read_service_version,
     start_codex_service,
 };
 use crate::driver::codex::service::supervisor::transition::SERVICE_SILENCE_LIMIT;

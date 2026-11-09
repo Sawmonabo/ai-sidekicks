@@ -16,13 +16,6 @@ pub(crate) mod ipc;
 pub(crate) mod observability;
 pub(crate) mod orchestration;
 pub(crate) mod plan_verdict;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the start hands it to the held price list when no copy is on disk"
-    )
-)]
 pub(crate) mod price_list_seed;
 pub mod program;
 #[cfg_attr(

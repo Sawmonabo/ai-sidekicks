@@ -16,7 +16,9 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
+use crate::bounded_poll::poll_until;
 use crate::pricing::store::{HeldPriceList, PriceListConfig};
 
 const SEED_COPY: &[u8] =
@@ -37,14 +39,14 @@ struct ScriptedAnswer {
 /// The list's stand-in server: it answers from its script and records each request's
 /// `If-None-Match`, whose count is the requests made.
 #[derive(Default)]
-pub(super) struct ListServer {
+pub(crate) struct ListServer {
     answers: Mutex<VecDeque<ScriptedAnswer>>,
     if_none_match: Mutex<Vec<Option<String>>>,
 }
 
 impl ListServer {
     /// Queues the answer to the next request not yet scripted.
-    pub(super) fn script(
+    pub(crate) fn script(
         &self,
         status: StatusCode,
         etag: Option<&'static str>,
@@ -54,7 +56,7 @@ impl ListServer {
     }
 
     /// Each request's `If-None-Match`, in order.
-    pub(super) fn if_none_match(&self) -> Vec<Option<String>> {
+    pub(crate) fn if_none_match(&self) -> Vec<Option<String>> {
         lock(&self.if_none_match).clone()
     }
 }
@@ -80,7 +82,7 @@ async fn answer(State(server): State<Arc<ListServer>>, headers: HeaderMap) -> Re
 }
 
 /// Serves `server` on a loopback port and answers the list's address on it.
-pub(super) async fn serve(server: &Arc<ListServer>) -> Url {
+pub(crate) async fn serve(server: &Arc<ListServer>) -> Url {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a loopback port binds");
@@ -94,7 +96,7 @@ pub(super) async fn serve(server: &Arc<ListServer>) -> Url {
 
 /// Opens the list in `folder` against `url`, with `m1` and `seed-only` in use, its scheduler and
 /// the list on one test clock.
-pub(super) async fn open_held(
+pub(crate) async fn open_held(
     folder: &Path,
     url: Url,
     clock: &Arc<TestWallClock>,
@@ -112,4 +114,28 @@ pub(super) async fn open_held(
         seed: test_seed,
     };
     HeldPriceList::open(config, scheduler, wall_clock, in_use).await
+}
+
+/// A list opened in `folder` that took `copy` under `etag` from a stand-in server of its own, its
+/// fetch task running until `stop`; answers the list and its server, which a test scripts further.
+/// `copy` must decode with rows for `m1` and `seed-only`, the models in use, or the list keeps its
+/// seed and the wait for the copy fails.
+pub(crate) async fn started_list(
+    folder: &Path,
+    etag: &'static str,
+    copy: &'static [u8],
+    stop: &CancellationToken,
+) -> (Arc<HeldPriceList>, Arc<ListServer>) {
+    let server = Arc::new(ListServer::default());
+    let clock = Arc::new(TestWallClock::default());
+    let price_list = open_held(folder, serve(&server).await, &clock).await;
+    let table_watch = price_list.subscribe();
+    server.script(StatusCode::OK, Some(etag), copy);
+    drop(price_list.start(stop.clone()));
+    poll_until(
+        || table_watch.has_changed().is_ok_and(|is_changed| is_changed),
+        |is_changed| *is_changed,
+    )
+    .await;
+    (price_list, server)
 }

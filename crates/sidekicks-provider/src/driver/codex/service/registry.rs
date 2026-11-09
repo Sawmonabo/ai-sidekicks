@@ -34,7 +34,7 @@ use crate::driver::codex::account::{
 use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
-use crate::driver::codex::service::record::recorded_home_keys;
+use crate::driver::codex::service::record::{recorded_home_keys, service_record_folder};
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
@@ -44,6 +44,7 @@ use crate::driver::codex::service::supervisor::test_service::ScriptedCodexServic
 use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
+use crate::driver::codex::service::telemetry_switches::compose_command_telemetry_switches;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -224,6 +225,11 @@ impl CodexServiceRegistry {
     /// one the registry holds; made but not started. The caller stops it and removes the folder.
     pub(crate) fn token_status_service(&self, codex_home: PathBuf) -> Arc<CodexService> {
         self.service_on_own_folder(codex_home, CodexHomeKind::TokenStatusRead)
+    }
+
+    /// The folder under the data folder of the lasting services' records.
+    pub(crate) fn service_record_folder(&self) -> PathBuf {
+        service_record_folder(&self.dependencies.data_folder)
     }
 
     /// The folder under the data folder each MCP sign-in's own folder is made in.
@@ -720,11 +726,13 @@ pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
     }
 }
 
-/// The switches of [`home_config_overrides`] as the `-c` pairs a `codex exec` or another short
-/// command on a home of `kind` starts with, before its own arguments.
+/// The switches of [`home_config_overrides`], then every exporter off on a home of the daemon's
+/// own, as the `-c` pairs any Codex process on a home of `kind` that is not a service starts with
+/// before its own arguments: `codex exec`, the executor and the other short commands.
 pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
     home_config_overrides(kind)
         .into_iter()
+        .chain(compose_command_telemetry_switches(kind))
         .flat_map(|config_override| ["-c".to_owned(), config_override])
         .collect()
 }
