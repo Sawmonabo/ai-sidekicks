@@ -40,6 +40,7 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
+use crate::port::in_process_tool_servers::SpawnInProcessToolServers;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::thread_frame_router::{
@@ -244,6 +245,9 @@ pub(crate) struct LiveClaudeSession {
     /// The spawn's callback-tool registry, released once no process of the session holds it; a
     /// rewind's fork shares its predecessor's.
     pub(crate) callback_tool_binding: Arc<CallbackToolSpawnBinding>,
+    /// The daemon's in-process tool servers the spawn opened, admitted while the process lives;
+    /// `None` before the tool-server front registered them.
+    pub(crate) tool_servers: Option<Arc<dyn SpawnInProcessToolServers>>,
     /// The exit the process ended with, set once it ended, for a rewind's predecessor whose exit
     /// is taken up only once its fork fails.
     pub(crate) process_exit: OnceLock<ProcessExit>,

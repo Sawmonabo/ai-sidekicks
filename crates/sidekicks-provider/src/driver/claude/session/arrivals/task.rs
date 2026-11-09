@@ -59,7 +59,6 @@ use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
-use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_directory_lookup::SessionDirectoryLookup;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
@@ -103,8 +102,6 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) scheduler: Arc<Scheduler>,
     /// Every provider's background work, which the background-work hook refuses.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
-    /// The in-process tool servers, once registered.
-    pub(crate) tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// The session's agent tree, once registered, which the message-target check reads a
     /// helper's stored stop from, the helper-wake check whether it has ended and the send hook
     /// whether a recipient is a helper.
@@ -425,7 +422,7 @@ impl ClaudeSessionTask {
                     channel: Arc::clone(&live.channel),
                     level,
                     tool_server_calls: &self.tool_server_calls,
-                    tool_servers: services.tool_servers.port().cloned(),
+                    tool_servers: live.tool_servers.clone(),
                 };
                 services.requests.take_request(&session, event).await;
             }

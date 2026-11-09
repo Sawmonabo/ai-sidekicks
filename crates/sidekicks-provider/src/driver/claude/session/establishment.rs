@@ -40,6 +40,7 @@ use self::figures::ClaudeHeldFigures;
 use self::resume::ClaudeContinuedTurn;
 use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::driver::callback_tool::CallbackToolDispatcher;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
@@ -82,6 +83,7 @@ use crate::driver::claude::spawn::environment::{
 };
 use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSessionSpawn, claude_spawn_permission_mode,
+    open_claude_tool_servers,
 };
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
@@ -100,6 +102,7 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
     SubagentPolicy,
 };
+use crate::port::tool_server_route::ToolServerConversation;
 use crate::run::delivery::InboundDelivery;
 use crate::run::posture::CredentialPolicyResolveError;
 use crate::tool_call_arguments::ToolCallArgumentStore;
@@ -148,6 +151,13 @@ impl ClaudeCallbackBinding {
         match self {
             Self::Own(binding) => binding.rollback(),
             Self::Shared(_) => {}
+        }
+    }
+
+    fn dispatcher(&self) -> &CallbackToolDispatcher {
+        match self {
+            Self::Own(binding) => binding.dispatcher(),
+            Self::Shared(binding) => binding.dispatcher(),
         }
     }
 
@@ -569,7 +579,19 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&stream),
             arrivals,
         ));
-        let in_process_servers = sources.ports.in_process_tool_servers.port();
+        // Opened before the process starts, since its `initialize` names the servers.
+        let tool_servers = match open_claude_tool_servers(
+            sources.ports.in_process_tool_servers.port(),
+            session_id,
+            ToolServerConversation::of_session(session_id),
+            callback_tools.dispatcher(),
+        ) {
+            Ok(tool_servers) => tool_servers,
+            Err(error) => {
+                callback_tools.roll_back();
+                return Err(ClaudeEstablishmentError::ToolServerSecret(error));
+            }
+        };
         let messaging_socket = self.task_services.inboxes.mint_process_socket(session_id);
         let started = self
             .starts
@@ -579,7 +601,7 @@ impl ClaudeSessionEstablishment {
                     session_rules: &session_rules,
                     step_bound: step_bound
                         .map(|bound| u32::try_from(bound.get()).unwrap_or(u32::MAX)),
-                    in_process_servers,
+                    in_process_servers: tool_servers.as_ref(),
                     path_rules: PathRules::NATIVE,
                 },
                 provider_session_id: provider_session_id.clone(),
@@ -679,6 +701,7 @@ impl ClaudeSessionEstablishment {
             permission_mode,
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
+            tool_servers,
             process_exit: OnceLock::new(),
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),

@@ -69,7 +69,7 @@ use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::in_process_tool_servers::SpawnInProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::{
     PermissionAskPort, ProviderAnswerRule, ProviderPermissionAnswer, ProviderPermissionAsk,
@@ -118,8 +118,8 @@ pub(crate) struct ClaudeRequestSession<'a> {
     pub(crate) level: Option<PermissionLevel>,
     /// The process's in-process tool-server calls still running.
     pub(crate) tool_server_calls: &'a ClaudeToolServerCalls,
-    /// The in-process tool servers, once registered.
-    pub(crate) tool_servers: Option<Arc<dyn InProcessToolServers>>,
+    /// The in-process tool servers the process's spawn opened.
+    pub(crate) tool_servers: Option<Arc<dyn SpawnInProcessToolServers>>,
 }
 
 /// Why an answer to a held request could not go back.

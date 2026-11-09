@@ -4,14 +4,13 @@
 //! dropped: each loaded server is switched off unless the session switches it on here, a `local`
 //! or `project` binding only in its own repository; a server the session switches on that the
 //! read does not load is sent whole, its values read for this call from the person's own Codex
-//! folder; and the daemon's own server goes on its route.
+//! folder; and the daemon's own server goes on its route, its secret in a header.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
-use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::mcp::config::server_entry::{ARGS_MEMBER, COMMAND_MEMBER, ENV_MEMBER};
 use crate::driver::codex::mcp::sandbox_wrap::{CodexSandboxWrap, wrap_codex_stdio_server};
@@ -22,7 +21,7 @@ use crate::driver::codex::thread::settings::tool_servers::{
 };
 use crate::driver::mcp_server::write::{ENTRY_SWITCH_MEMBER, McpServerEntry};
 use crate::driver::session_control::SessionToolServer;
-use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::tool_server_route::OpenedToolServerRoute;
 use crate::tool_server_name::McpServerNameRefusal;
 
 /// The servers one call's `config/read` loads, by name, each with its entry's members, values
@@ -82,8 +81,6 @@ impl CodexLoadedServers {
 /// Everything one call's `mcp_servers` table is composed from.
 #[derive(Clone, Copy)]
 pub(crate) struct CodexSessionTableInput<'input> {
-    /// The session, which names its servers' addresses on the daemon's route.
-    pub(crate) session_id: SessionId,
     /// The session's own tool servers, each with the person's switch.
     pub(crate) tool_servers: &'input [SessionToolServer],
     /// What the call's own `config/read` loads.
@@ -91,8 +88,8 @@ pub(crate) struct CodexSessionTableInput<'input> {
     /// The whole entry of each server [`codex_unloaded_bindings`] names, read for this call from
     /// the person's own Codex folder; a binding the folder declares no transport for has none.
     pub(crate) unloaded_entries: &'input [(McpServerBindingRef, McpServerEntry)],
-    /// The route to the daemon's tool servers, once its owner registered it.
-    pub(crate) route: Option<&'input dyn ToolServerRoute>,
+    /// The daemon's tool-server entries the spawn opened, once the route's owner registered it.
+    pub(crate) route: Option<&'input OpenedToolServerRoute>,
     /// The root of the repository the conversation runs in, which a
     /// `local` or `project` binding must name to be switched on here.
     pub(crate) repository_root: &'input Path,
@@ -156,7 +153,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
         }
     }
     if let Some(route) = table.route {
-        insert_codex_daemon_tool_servers(&mut servers, route, &table.session_id);
+        insert_codex_daemon_tool_servers(&mut servers, route);
     }
     servers
 }
@@ -224,7 +221,6 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
-    use sidekicks_contracts::session::id::SessionId;
 
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
@@ -240,18 +236,22 @@ mod tests {
     use crate::driver::codex::thread::settings::CodexThreadSettings;
     use crate::driver::mcp_server::write::McpServerEntry;
     use crate::driver::session_control::SessionToolServer;
-    use crate::port::tool_server_route::ToolServerRoute;
+    use crate::port::tool_server_route::{OpenedToolServerRoute, ToolServerRouteEntry};
+    use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
     /// The repository every test conversation runs in, from a linked worktree of it.
     const REPOSITORY: &str = "/work/app";
 
-    /// A route that names each server's address by the server alone.
-    struct TestRoute;
-
-    impl ToolServerRoute for TestRoute {
-        fn url_for(&self, _session_id: &SessionId, server_name: &str) -> String {
-            format!("http://127.0.0.1:1/{server_name}")
-        }
+    // The daemon's entry a spawn opened, at a fixed address under a fixed secret.
+    fn opened_route() -> OpenedToolServerRoute {
+        OpenedToolServerRoute::new(
+            vec![ToolServerRouteEntry {
+                server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
+                url: "http://127.0.0.1:1/tools/sidekicks".to_owned(),
+                http_headers: vec![("Authorization".to_owned(), "Bearer spawn-secret".to_owned())],
+            }],
+            Box::new(()),
+        )
     }
 
     // The binding `json`, a Codex binding in the wire's form.
@@ -318,13 +318,12 @@ mod tests {
             codex_unloaded_bindings(tool_servers, loaded, repository_root)
                 .map(|binding| (binding.clone(), docs_entry()))
                 .collect();
+        let route = opened_route();
         Value::Object(compose_codex_session_table(CodexSessionTableInput {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
             tool_servers,
             loaded,
             unloaded_entries: &unloaded,
-            route: Some(&TestRoute),
+            route: Some(&route),
             repository_root,
             is_copy_fork,
             sandbox_wrap: None,
@@ -333,7 +332,8 @@ mod tests {
 
     fn daemon_entry() -> Value {
         json!({
-            "url": "http://127.0.0.1:1/sidekicks",
+            "url": "http://127.0.0.1:1/tools/sidekicks",
+            "http_headers": { "Authorization": "Bearer spawn-secret" },
             "enabled": true,
             "default_tools_approval_mode": "approve",
             "tool_timeout_sec": 300,
@@ -344,8 +344,9 @@ mod tests {
     // loaded server the session leaves out (it stays on in the person's config), by sending a
     // loaded server as a `url` on the daemon's route, by leaving out the entry of a switched-on
     // server the read does not load, by a copy fork whose table is empty or reaches a server, by
-    // comparing a `local` binding's root with the worktree in place of its repository, and by
-    // switching a `local` or `project` binding on outside its root.
+    // comparing a `local` binding's root with the worktree in place of its repository, by
+    // switching a `local` or `project` binding on outside its root, and by a daemon entry that
+    // leaves out the spawn's `Authorization` header, which the route then refuses.
     #[rstest]
     #[case::left_out_and_switched_off(
         vec![switched(user("github"), false)],
@@ -425,8 +426,6 @@ mod tests {
             command_channel_folder: PathBuf::from("/work/channel"),
         };
         let settings = CodexThreadSettings {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
             working_directory: folders.working_directory.clone(),
             model: "gpt-5".to_owned(),
             model_context_window: None,
@@ -466,7 +465,6 @@ mod tests {
         let unloaded = [(user("docs"), docs_entry())];
 
         let table = compose_codex_session_table(CodexSessionTableInput {
-            session_id: settings.session_id,
             tool_servers: &settings.tool_servers,
             loaded: &loaded,
             unloaded_entries: &unloaded,

@@ -1,4 +1,4 @@
-//! The shared tool server's live entries, one per session spawn and tool server: the spawn's
+//! The shared tool server's live entries, one per conversation spawn and tool server: the spawn's
 //! provider, its secret, the dispatcher bound to that spawn and the MCP sessions admitted for it.
 //! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops, and every
 //! call the spawn's process left open is canceled with it.
@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::bearer_token::BearerToken;
 use sidekicks_provider::driver::callback_tool::CallbackToolDispatcher;
 use sidekicks_std::mutex_lock::lock;
@@ -15,11 +14,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::tools::server::ToolServerPath;
 
-/// The table's key: the session and the tool server's name on its route.
-type EntryKey = (SessionId, String);
-
-/// The live entries by their key.
-type EntryMap = Mutex<HashMap<EntryKey, Arc<ToolServerEntry>>>;
+/// The live entries by the route each sits at: the session, its conversation and the server.
+type EntryMap = Mutex<HashMap<ToolServerPath, Arc<ToolServerEntry>>>;
 
 /// One session spawn's entry on one tool server.
 pub struct ToolServerEntry {
@@ -70,8 +66,8 @@ impl ToolServerEntry {
     }
 }
 
-/// Every live spawn's entry, by session and tool server name; adding an entry for a key replaces
-/// the one there, so a session's earlier spawn is admitted no more.
+/// Every live spawn's entry, by its route; adding an entry at a route replaces the one there, so a
+/// conversation's earlier spawn is admitted no more.
 #[derive(Default)]
 pub struct ToolServerEntries {
     /// The live entries.
@@ -79,13 +75,12 @@ pub struct ToolServerEntries {
 }
 
 impl ToolServerEntries {
-    /// Adds the entry of a spawn of `session_id` on `server_name`, run by `provider`, presenting
-    /// `token` and answered by `dispatcher`, replacing the session's earlier entry there. The entry
-    /// leaves the table when the returned guard drops.
+    /// Adds the entry of a spawn at `path`, run by `provider`, presenting `token` and answered by
+    /// `dispatcher`, replacing the conversation's earlier entry there. The entry leaves the table
+    /// when the returned guard drops.
     pub fn insert(
         &self,
-        session_id: SessionId,
-        server_name: &str,
+        path: ToolServerPath,
         provider: ProviderId,
         token: BearerToken,
         dispatcher: CallbackToolDispatcher,
@@ -97,13 +92,12 @@ impl ToolServerEntries {
             mcp_sessions: Mutex::new(HashSet::new()),
             spawn_ended: CancellationToken::new(),
         });
-        let key = (session_id, server_name.to_owned());
         let guard = ToolServerEntryGuard {
             entries: Arc::downgrade(&self.entries),
-            key: key.clone(),
+            path: path.clone(),
             entry: Arc::downgrade(&entry),
         };
-        lock(&self.entries).insert(key, entry);
+        lock(&self.entries).insert(path, entry);
         guard
     }
 
@@ -115,20 +109,20 @@ impl ToolServerEntries {
         authorization: Option<&[u8]>,
     ) -> Option<Arc<ToolServerEntry>> {
         let entries = lock(&self.entries);
-        let entry = entries.get(&(path.session_id, path.server_name.clone()))?;
+        let entry = entries.get(path)?;
         entry.token.admits(authorization).then(|| Arc::clone(entry))
     }
 }
 
 /// A spawn's hold on its entry: dropping it cancels the calls the spawn left open and takes the
 /// entry out of the table, with the MCP sessions admitted for it, unless a later spawn of the
-/// session replaced it already.
+/// conversation replaced it already.
 #[must_use = "dropping the guard takes the spawn's entry out of the table"]
 pub struct ToolServerEntryGuard {
     /// The table the entry sits in.
     entries: Weak<EntryMap>,
     /// Where it sits.
-    key: EntryKey,
+    path: ToolServerPath,
     /// The entry itself, to tell it from a later spawn's under the same key.
     entry: Weak<ToolServerEntry>,
 }
@@ -143,10 +137,10 @@ impl Drop for ToolServerEntryGuard {
         };
         let mut entries = lock(&entries);
         if entries
-            .get(&self.key)
+            .get(&self.path)
             .is_some_and(|live| Weak::ptr_eq(&Arc::downgrade(live), &self.entry))
         {
-            entries.remove(&self.key);
+            entries.remove(&self.path);
         }
     }
 }
@@ -162,6 +156,7 @@ pub(super) mod tests {
     use sidekicks_provider::driver::callback_tool::{
         CallbackToolDispatcher, CallbackToolInvocation, CallbackToolResult,
     };
+    use sidekicks_provider::port::tool_server_route::ToolServerConversation;
 
     use super::ToolServerEntries;
     use crate::tools::server::ToolServerPath;
@@ -179,53 +174,89 @@ pub(super) mod tests {
         })
     }
 
-    /// The `Authorization` header that presents `token`.
-    fn header(token: &str) -> Vec<u8> {
-        format!("Bearer {token}").into_bytes()
+    /// A provider id for the tests' entries.
+    fn provider(id: &str) -> ProviderId {
+        ProviderId::new(id.to_owned()).expect("the id is well formed")
     }
 
-    // A later spawn's entry replaces the earlier one: the replaced token is admitted no more, the
-    // new one answers the new entry, and the replaced spawn's drop leaves the new entry in place.
-    // Killed by a replace that keeps the old token admitted, or a drop that removes by key alone.
+    // A later spawn of a conversation replaces its entry: the replaced token is admitted no more,
+    // the new one answers the new entry, and the replaced spawn's drop leaves the new entry in
+    // place; a copy beside the conversation has an entry of its own, whose drop leaves the
+    // conversation's. Killed by a replace that keeps the old token admitted, a drop that removes by
+    // key alone, or a key that leaves the conversation out.
     #[test]
-    fn a_replaced_spawns_token_answers_nothing_and_the_new_token_answers_the_new_entry() {
+    fn a_replaced_spawns_token_answers_nothing_and_a_dropped_copy_leaves_the_conversation() {
         let session_id = SessionId::new(SESSION).expect("the text is a UUID");
         let path = ToolServerPath {
             session_id,
+            conversation: ToolServerConversation::of_session(session_id),
             server_name: SERVER.to_owned(),
         };
         let entries = ToolServerEntries::default();
         let first_token = BearerToken::mint().expect("the system's random source reads");
-        let first_header = header(first_token.text());
-        let first = entries.insert(
-            session_id,
-            SERVER,
-            ProviderId::new("codex".to_owned()).expect("the id is well formed"),
-            first_token,
-            dispatcher(),
+        let first_header = first_token.header_value();
+        let first = entries.insert(path.clone(), provider("codex"), first_token, dispatcher());
+        assert!(
+            entries
+                .admitted(&path, Some(first_header.as_bytes()))
+                .is_some()
         );
-        assert!(entries.admitted(&path, Some(&first_header)).is_some());
 
         let second_token = BearerToken::mint().expect("the system's random source reads");
-        let second_header = header(second_token.text());
+        let second_header = second_token.header_value();
         let second = entries.insert(
-            session_id,
-            SERVER,
-            ProviderId::new("claude-code".to_owned()).expect("the id is well formed"),
+            path.clone(),
+            provider("claude-code"),
             second_token,
             dispatcher(),
         );
-        assert!(entries.admitted(&path, Some(&first_header)).is_none());
+        assert!(
+            entries
+                .admitted(&path, Some(first_header.as_bytes()))
+                .is_none()
+        );
         drop(first);
         let live = entries
-            .admitted(&path, Some(&second_header))
+            .admitted(&path, Some(second_header.as_bytes()))
             .expect("the new spawn's token answers its entry");
         assert_eq!(live.provider().as_str(), "claude-code");
-
         drop(live);
+
+        let copy_path = ToolServerPath {
+            conversation: ToolServerConversation::mint(),
+            ..path.clone()
+        };
+        let copy_token = BearerToken::mint().expect("the system's random source reads");
+        let copy_header = copy_token.header_value();
+        let copy = entries.insert(
+            copy_path.clone(),
+            provider("claude-code"),
+            copy_token,
+            dispatcher(),
+        );
+        assert!(
+            entries
+                .admitted(&copy_path, Some(copy_header.as_bytes()))
+                .is_some()
+        );
+        assert!(
+            entries
+                .admitted(&path, Some(copy_header.as_bytes()))
+                .is_none()
+        );
+        drop(copy);
+        assert!(
+            entries
+                .admitted(&path, Some(second_header.as_bytes()))
+                .is_some(),
+            "a copy's drop leaves the conversation's entry"
+        );
+
         drop(second);
         assert!(
-            entries.admitted(&path, Some(&second_header)).is_none(),
+            entries
+                .admitted(&path, Some(second_header.as_bytes()))
+                .is_none(),
             "the entry leaves the table when its spawn drops"
         );
     }

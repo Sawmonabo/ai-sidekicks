@@ -29,7 +29,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::write::{McpServerEntry, McpServerObservedEntry};
-use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::tool_server_route::OpenedToolServerRoute;
 
 /// How Codex's refusal of a call whose configuration it could not load begins.
 const CODEX_CONFIGURATION_LOAD_FAILURE: &str = "failed to load configuration:";
@@ -52,17 +52,18 @@ pub(crate) async fn read_codex_loaded_servers(
 }
 
 /// The `mcp_servers` table one start, resume or fork of `settings`' session carries over
-/// `loaded`, the call's own read, with the daemon's server on `route` and each stdio server in the
-/// sandbox of `service`, the session's own, where the session runs sandboxed: the whole entry of
-/// each server the session switches on that the read does not load is read through `services`
-/// from the person's own Codex folder on one service, at most one started for it, with one
-/// `config/read` per folder those servers are read at, and none when the read loads them all.
+/// `loaded`, the call's own read, with the daemon's entries the spawn opened on `route` and each
+/// stdio server in the sandbox of `service`, the session's own, where the session runs sandboxed:
+/// the whole entry of each server the session switches on that the read does not load is read
+/// through `services` from the person's own Codex folder on one service, at most one started for
+/// it, with one `config/read` per folder those servers are read at, and none when the read loads
+/// them all.
 /// Fails as the sandbox's wrap fails, as the folder's service cannot be started or a read fails.
 pub(crate) async fn compose_codex_call_table(
     services: &CodexServiceRegistry,
     service: &CodexService,
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    route: Option<&OpenedToolServerRoute>,
     loaded: &CodexLoadedServers,
 ) -> Result<Map<String, Value>, CodexError> {
     let sandbox_wrap = compose_codex_sandbox_wrap(
@@ -101,7 +102,6 @@ pub(crate) async fn compose_codex_call_table(
             .await?
     };
     Ok(compose_codex_session_table(CodexSessionTableInput {
-        session_id: settings.session_id,
         tool_servers: &settings.tool_servers,
         loaded,
         unloaded_entries: &unloaded_entries,
@@ -163,7 +163,6 @@ mod tests {
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_contracts::session::id::SessionId;
 
     use super::{compose_codex_call_table, send_with_stale_name_resend};
     use crate::driver::child_records::UnrecordedChildren;
@@ -195,8 +194,6 @@ mod tests {
 
     fn settings() -> CodexThreadSettings {
         CodexThreadSettings {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
             working_directory: PathBuf::from(WORKTREE),
             model: "gpt-5".to_owned(),
             model_context_window: None,
@@ -222,7 +219,6 @@ mod tests {
         loaded: &CodexLoadedServers,
     ) -> Map<String, Value> {
         compose_codex_session_table(CodexSessionTableInput {
-            session_id: settings.session_id,
             tool_servers: &settings.tool_servers,
             loaded,
             unloaded_entries: &[],

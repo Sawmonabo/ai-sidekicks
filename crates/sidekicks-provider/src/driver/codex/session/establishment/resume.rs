@@ -18,6 +18,7 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
@@ -44,12 +45,26 @@ impl CodexSessionEstablishment {
         // Asked for before the resume, so no report of it can arrive ahead of the record knowing.
         task.record.permission_profiles =
             CodexThreadPermissionProfiles::established(&task.record.thread_settings);
-        let resumed = loop {
-            match self.resume_thread(task.record, &service).await {
-                Err(error) if error.is_active_writer_refusal() && writer_left().await => {}
-                resumed => break resumed,
-            }
-        };
+        // Opened once, so every resume sent again carries the same secret.
+        let resumed =
+            match self.open_tool_servers(task.record.session_id, task.record.callback_tools()) {
+                Ok(tool_servers) => loop {
+                    match self
+                        .resume_thread(task.record, &service, tool_servers.as_ref())
+                        .await
+                    {
+                        Err(error) if error.is_active_writer_refusal() && writer_left().await => {}
+                        Ok(resumed) => break Ok((resumed, tool_servers)),
+                        Err(error) => {
+                            if let Some(tool_servers) = tool_servers {
+                                tool_servers.rollback();
+                            }
+                            break Err(error);
+                        }
+                    }
+                },
+                Err(error) => Err(error),
+            };
         match self
             .adopt_resumed_thread(
                 task,
@@ -83,8 +98,8 @@ impl CodexSessionEstablishment {
     }
 
     // Moves the record onto the resumed conversation: its service, binding, status sink, turns,
-    // tier and effort, its mode sent again, and its routing band rebound on the sum already
-    // metered; the binding it retires lets go of its held presses and ends its leg's status, once,
+    // tier and effort, its hold on the daemon's tool servers, its mode sent again, and its routing
+    // band rebound on the sum already metered; the binding it retires lets go of its held presses and ends its leg's status, once,
     // where its process's end has not. The record changes only once every step that can fail is
     // done; a failure releases the conversation's registration on `service` when the resume made
     // it.
@@ -94,9 +109,9 @@ impl CodexSessionEstablishment {
         service: Arc<CodexService>,
         binding_id: RuntimeBindingId,
         function_legs: ResumeFunctionLegs,
-        resumed: Result<CodexResumedThread, CodexError>,
+        resumed: Result<(CodexResumedThread, Option<CodexDaemonToolServers>), CodexError>,
     ) -> Result<CodexInPlaceResume, CodexError> {
-        let resumed = resumed?;
+        let (resumed, tool_servers) = resumed?;
         let runs = answer_codex_resumed_turns(
             resumed.status,
             &resumed.listed_turns,
@@ -109,11 +124,15 @@ impl CodexSessionEstablishment {
                 if !resumed.was_held {
                     service.release_thread(&task.record.thread_id);
                 }
+                if let Some(tool_servers) = tool_servers {
+                    tool_servers.rollback();
+                }
                 return Err(error);
             }
         };
         let record = &mut *task.record;
         record.service = service;
+        record.daemon_tool_servers = tool_servers;
         let retired = record.binding_id.replace(binding_id);
         record.end_mcp_server_status_leg();
         record.on_mcp_server_status = function_legs.on_mcp_server_status;
@@ -155,11 +174,12 @@ impl CodexSessionEstablishment {
         &self,
         record: &CodexSessionRecord,
         service: &CodexService,
+        tool_servers: Option<&CodexDaemonToolServers>,
     ) -> Result<CodexResumedThread, CodexError> {
         let connection = service.connection()?;
         let _claim = service.begin_thread_claim();
         let reply = self
-            .request_resume_with_settings(record, service, &connection)
+            .request_resume_with_settings(record, service, &connection, tool_servers)
             .await?;
         let was_held = service
             .threads_of(&record.session_id)

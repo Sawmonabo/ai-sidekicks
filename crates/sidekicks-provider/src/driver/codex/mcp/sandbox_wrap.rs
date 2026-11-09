@@ -226,7 +226,6 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_contracts::session::id::SessionId;
 
     use super::{compose_codex_sandbox_wrap, wrap_codex_stdio_server};
     use crate::driver::codex::native_program::CodexNativeCommand;
@@ -246,8 +245,6 @@ mod tests {
             command_channel_folder: PathBuf::from("/data/command-channels/session"),
         };
         CodexThreadSettings {
-            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
-                .expect("the text is a UUID"),
             working_directory: folders.working_directory.clone(),
             model: "gpt-5".to_owned(),
             model_context_window: None,

@@ -30,6 +30,7 @@ use sidekicks_provider::driver::ProviderDescriptor;
 use sidekicks_provider::driver::agent_tools::{AgentToolInstructions, AgentToolLoading};
 use sidekicks_provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::port::tool_server_route::ToolServerConversation;
 use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use tokio::time::{Instant, interval_at};
 
@@ -38,7 +39,7 @@ use crate::tools::group::{AgentTool, AgentToolGroup, ToolGroupLoading};
 use crate::tools::session::rules::SHARED_RULES;
 
 #[cfg(test)]
-mod tests;
+pub(in crate::tools) mod tests;
 
 /// How often a held call tells its caller it is still running, inside both providers' idle limits.
 const PROGRESS_PERIOD: Duration = Duration::from_secs(45);
@@ -53,30 +54,41 @@ const NO_CALLING_RUN: &str =
 /// What a denied or failed call is answered when the host gave no words of its own.
 const NO_WORDS: &str = "The call was not run.";
 
-/// Where a request reached the daemon's tool servers: the session and the tool server its path
-/// names, `/tools/<session id>/<server name>`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Where a request reached the daemon's tool servers: the session, the conversation of it and the
+/// tool server its path names, `/tools/<session id>/<conversation>/<server name>`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ToolServerPath {
     /// The session.
     pub session_id: SessionId,
+    /// The conversation of the session whose spawn holds the route.
+    pub conversation: ToolServerConversation,
     /// The tool server's name on the session's route.
     pub server_name: String,
 }
 
 impl ToolServerPath {
-    /// Reads a request's path; `None` for a path naming no session and tool server.
+    /// Reads a request's path; `None` for a path naming no session, conversation and tool server.
     pub fn parse(path: &str) -> Option<Self> {
         let mut segments = path.strip_prefix('/')?.split('/');
-        let (Some(TOOL_SERVER_PATH_ROOT), Some(session), Some(server_name), None) = (
+        let (
+            Some(TOOL_SERVER_PATH_ROOT),
+            Some(session),
+            Some(conversation),
+            Some(server_name),
+            None,
+        ) = (
             segments.next(),
             segments.next(),
             segments.next(),
             segments.next(),
-        ) else {
+            segments.next(),
+        )
+        else {
             return None;
         };
         Some(Self {
             session_id: SessionId::new(session).ok()?,
+            conversation: conversation.parse().ok()?,
             server_name: (!server_name.is_empty()).then(|| server_name.to_owned())?,
         })
     }
@@ -86,8 +98,8 @@ impl fmt::Display for ToolServerPath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "/{TOOL_SERVER_PATH_ROOT}/{}/{}",
-            self.session_id, self.server_name
+            "/{TOOL_SERVER_PATH_ROOT}/{}/{}/{}",
+            self.session_id, self.conversation, self.server_name
         )
     }
 }
@@ -95,6 +107,8 @@ impl fmt::Display for ToolServerPath {
 /// The daemon's server for its own agent tools, one for every session and provider: it reads each
 /// request's spawn entry, asks the spawn's driver which run made a call, and dispatches the call
 /// through the entry's dispatcher, so the host's approval seam and activity records run on it.
+/// A clone shares every part, one for each connection a provider opens.
+#[derive(Clone)]
 pub struct AgentToolServer {
     /// Every live spawn's entry.
     entries: Arc<ToolServerEntries>,

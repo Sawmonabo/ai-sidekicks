@@ -9,9 +9,11 @@ use std::sync::Arc;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 
+use crate::driver::callback_tool::CallbackToolDispatcher;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::registration::compose_claude_initialize_request;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
@@ -43,7 +45,10 @@ use crate::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, ClaudePreApprovals, compose_claude_spawn_settings,
 };
 use crate::driver::session_control::SubagentPolicy;
-use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::in_process_tool_servers::{InProcessToolServers, SpawnInProcessToolServers};
+use crate::port::tool_server_route::{
+    ToolServerConversation, ToolServerSecretError, ToolServerSpawn,
+};
 use crate::spawned_version::ResolvedProviderExecutable;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
@@ -55,8 +60,9 @@ pub(crate) struct ClaudeSessionSpawn<'a> {
     pub(crate) session_rules: &'a [ProviderAskRule],
     /// The session's step bound, `None` where it sets none.
     pub(crate) step_bound: Option<u32>,
-    /// The daemon's in-process tool servers, once registered.
-    pub(crate) in_process_servers: Option<&'a Arc<dyn InProcessToolServers>>,
+    /// The daemon's in-process tool servers the spawn opened; `None` for a spawn that reaches
+    /// none.
+    pub(crate) in_process_servers: Option<&'a Arc<dyn SpawnInProcessToolServers>>,
     /// How the place the process runs in spells paths.
     pub(crate) path_rules: PathRules,
 }
@@ -163,7 +169,7 @@ pub(crate) async fn bring_up_claude_process(
         if has_managed_mcp_file {
             vec![DAEMON_TOOL_SERVER_NAME.to_owned()]
         } else {
-            servers.server_names(&legs.session_id)
+            servers.server_names()
         }
     });
     let process = launcher
@@ -248,6 +254,27 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
         attached_advisor: read_claude_attached_advisor(&reply),
         ultracode: read_claude_ultracode(&reply),
     }
+}
+
+/// Opens `servers`, the daemon's in-process tool servers once registered, for one spawn of
+/// `session_id`'s `conversation`, its calls answered by `dispatcher`; `None` while none are
+/// registered. Fails when the spawn's secret cannot be minted.
+pub(crate) fn open_claude_tool_servers(
+    servers: Option<&Arc<dyn InProcessToolServers>>,
+    session_id: SessionId,
+    conversation: ToolServerConversation,
+    dispatcher: &CallbackToolDispatcher,
+) -> Result<Option<Arc<dyn SpawnInProcessToolServers>>, ToolServerSecretError> {
+    servers
+        .map(|servers| {
+            servers.open(ToolServerSpawn {
+                session_id,
+                conversation,
+                provider: DESCRIPTOR.provider_id(),
+                dispatcher: Arc::clone(dispatcher),
+            })
+        })
+        .transpose()
 }
 
 /// The mode a process starts in: `requested` where given, else the mode the posture's level runs

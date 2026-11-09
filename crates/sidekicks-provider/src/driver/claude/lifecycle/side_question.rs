@@ -11,6 +11,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeDriver, ClaudeSessionParts};
+use crate::callback_tools::host::CallbackToolSpawnRequest;
+use crate::callback_tools::spawn_binding::bind_callback_tools_for_spawn;
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeOneTurnReach, ClaudeSideQuestionCopy, claude_full_model_id,
     without_credential_prompts,
@@ -110,9 +113,10 @@ async fn lock_down(
 }
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, in the
-// home that holds its conversation, with no callback tools and on the full id of its model, which
-// the build's catalog resolves since no process of the session declared it. Fails as the context,
-// the legs or the catalog cannot be read.
+// home that holds its conversation, offering no callback tools, its calls to the daemon's tool
+// servers answered by an installation of its own, and on the full id of its model, which the
+// build's catalog resolves since no process of the session declared it. Fails as the context, the
+// legs or the catalog cannot be read, and while no callback-tool host is registered.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
@@ -151,6 +155,17 @@ async fn compose_resting_side_question_copy(
         )
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
+    // No process of the session holds an installation, so the copy's calls to the daemon's tool
+    // servers are answered by one of its own.
+    let callback_tools = bind_callback_tools_for_spawn(
+        sources.ports.callback_tool_host.require_port()?,
+        CallbackToolSpawnRequest {
+            session_id: resume.session_id,
+            provider: DESCRIPTOR.provider_id(),
+            requested_tools: resume.callback_tools.unwrap_or_default(),
+            provider_registration_unavailable: None,
+        },
+    );
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
@@ -158,6 +173,6 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
-        reach: ClaudeOneTurnReach::PLAN,
+        reach: ClaudeOneTurnReach::plan(Arc::new(callback_tools)),
     })
 }

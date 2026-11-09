@@ -115,6 +115,10 @@ impl CodexSessionEstablishment {
         let loaded = read_codex_loaded_threads(&connection).await?;
         let session_id = params.session_id;
         let thread_id = params.resume_handle.clone();
+        let daemon_tool_servers = self.open_tool_servers(
+            session_id,
+            params.callback_tools.clone().unwrap_or_default(),
+        )?;
         let (inbound, receiver) = codex_session_inbound(session_id);
         let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id,
@@ -136,6 +140,7 @@ impl CodexSessionEstablishment {
             reasoning_effort: None,
             // The resume's own sink, bound to the binding it runs under.
             on_mcp_server_status: params.on_mcp_server_status.clone(),
+            daemon_tool_servers,
         });
         let mut helpers = order_parents_first(
             find_live_helpers(&params.live_runs, &loaded),
@@ -275,8 +280,13 @@ impl CodexSessionEstablishment {
                 // Codex applies no setting to a loaded conversation, so none is sent.
                 request_bare_thread_resume(connection, &record.thread_id, None).await
             } else {
-                self.request_resume_with_settings(record, service, connection)
-                    .await
+                self.request_resume_with_settings(
+                    record,
+                    service,
+                    connection,
+                    record.daemon_tool_servers.as_ref(),
+                )
+                .await
             };
             match reply {
                 Err(error)

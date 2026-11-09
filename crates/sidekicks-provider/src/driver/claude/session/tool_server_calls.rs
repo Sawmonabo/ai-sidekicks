@@ -21,7 +21,7 @@ use crate::driver::claude::session::transport::inbound::{
     ClaudeMcpMessage, ClaudeMcpMessageAnswer,
 };
 use crate::port::in_process_tool_servers::{
-    InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
+    InProcessToolServerError, InProcessToolServerOutbound, SpawnInProcessToolServers,
     compose_in_band_reply,
 };
 
@@ -33,15 +33,15 @@ pub(crate) struct ClaudeToolServerCalls {
 
 /// Who one call is for, and the channel its answer goes back on.
 pub(crate) struct ClaudeToolServerCallContext {
-    /// The session whose servers take the call.
+    /// The session the call came from.
     pub(crate) session_id: SessionId,
     /// The account the process runs on, named if the answer cannot be written.
     pub(crate) provider_account_id: ProviderAccountId,
     /// The process the call came from.
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
-    /// The servers, once the tool-server front registered them; without them every server is
-    /// unknown, as `initialize` named none.
-    pub(crate) servers: Option<Arc<dyn InProcessToolServers>>,
+    /// The servers the process's spawn opened; without them every server is unknown, as
+    /// `initialize` named none.
+    pub(crate) servers: Option<Arc<dyn SpawnInProcessToolServers>>,
 }
 
 impl ClaudeToolServerCalls {
@@ -120,9 +120,7 @@ async fn call_server(
             let outbound = Arc::new(ClaudeToolServerOutbound {
                 channel: Arc::clone(&context.channel),
             });
-            servers
-                .handle(context.session_id, server_name, sent.clone(), outbound)
-                .await
+            servers.handle(server_name, sent.clone(), outbound).await
         }
         None => Err(InProcessToolServerError::ServerNotFound { server_name }),
     };
@@ -161,7 +159,6 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
     use serde_json::value::RawValue;
-    use sidekicks_contracts::session::id::SessionId;
 
     use super::{ClaudeToolServerCallContext, ClaudeToolServerCalls};
     use crate::driver::claude::session::transport::channel::MockClaudeProcessChannel;
@@ -169,7 +166,7 @@ mod tests {
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::test_registry::fixed_session_id;
     use crate::port::in_process_tool_servers::{
-        InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
+        InProcessToolServerError, InProcessToolServerOutbound, SpawnInProcessToolServers,
     };
     use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -194,14 +191,13 @@ mod tests {
         }
     }
 
-    impl InProcessToolServers for Server {
-        fn server_names(&self, _session_id: &SessionId) -> Vec<String> {
+    impl SpawnInProcessToolServers for Server {
+        fn server_names(&self) -> Vec<String> {
             vec!["sidekicks".to_owned()]
         }
 
         fn handle(
             &self,
-            _session_id: SessionId,
             server_name: String,
             message: Box<RawValue>,
             _outbound: Arc<dyn InProcessToolServerOutbound>,
@@ -239,7 +235,7 @@ mod tests {
 
     fn context(
         answers: &Answers,
-        servers: Option<Arc<dyn InProcessToolServers>>,
+        servers: Option<Arc<dyn SpawnInProcessToolServers>>,
     ) -> ClaudeToolServerCallContext {
         let mut channel = MockClaudeProcessChannel::new();
         let sink = Arc::clone(answers);
@@ -311,7 +307,7 @@ mod tests {
         calls.start(
             context(
                 &answers,
-                Some(Arc::clone(&server) as Arc<dyn InProcessToolServers>),
+                Some(Arc::clone(&server) as Arc<dyn SpawnInProcessToolServers>),
             ),
             "3".to_owned(),
             message(
@@ -351,7 +347,7 @@ mod tests {
         calls.start(
             context(
                 &answers,
-                Some(Arc::clone(&server) as Arc<dyn InProcessToolServers>),
+                Some(Arc::clone(&server) as Arc<dyn SpawnInProcessToolServers>),
             ),
             "4".to_owned(),
             message(

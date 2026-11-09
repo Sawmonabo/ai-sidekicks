@@ -46,7 +46,6 @@ mod tests {
         CodexThreadSettings, compose_codex_thread_fork_params, compose_codex_thread_resume_params,
         compose_codex_thread_start_params,
     };
-    use crate::driver::test_registry::new_session_id;
 
     /// A request that loads a conversation and carries the session's memory switch.
     #[derive(Clone, Copy, Debug)]
@@ -73,7 +72,7 @@ mod tests {
     ) {
         let settings = CodexThreadSettings {
             auto_memory,
-            ..test_thread_settings(new_session_id())
+            ..test_thread_settings()
         };
         let config = match request {
             MemoryRequest::Start => compose_codex_thread_start_params(&settings, Map::new()).config,

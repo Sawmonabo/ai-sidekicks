@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
@@ -26,6 +27,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
+use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::run_control::{PickedSkill, ResumeRunParams};
@@ -232,6 +234,9 @@ pub(crate) struct CodexSessionRecord {
     /// What the tool servers' startups on the conversation said, which the leg's list of their
     /// tools reads; begun afresh whenever the conversation is bound.
     pub(crate) mcp_server_startups: CodexMcpServerStartups,
+    /// The spawn's hold on the daemon's tool servers, which every start, resume and fork opens
+    /// anew and installs here once it established; `None` until the route is registered.
+    pub(crate) daemon_tool_servers: Option<CodexDaemonToolServers>,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -267,6 +272,8 @@ pub(crate) struct CodexEstablishedConversation {
     pub(crate) reasoning_effort: Option<String>,
     /// The status sink the create or resume handed in, bound to the established leg.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// The established spawn's hold on the daemon's tool servers.
+    pub(crate) daemon_tool_servers: Option<CodexDaemonToolServers>,
 }
 
 /// The interrupted turns a session can keep were all taken, so one more interrupt is refused.
@@ -316,6 +323,7 @@ impl CodexSessionRecord {
             delivery: CodexDeliveryMemory::new(),
             on_mcp_server_status: established.on_mcp_server_status,
             mcp_server_startups: CodexMcpServerStartups::default(),
+            daemon_tool_servers: established.daemon_tool_servers,
         }
     }
 
@@ -325,6 +333,14 @@ impl CodexSessionRecord {
         if let Some(producer) = self.on_mcp_server_status.take() {
             producer.end_leg();
         }
+    }
+
+    /// The callback tools the session asked for, which each new spawn of it installs again.
+    pub(crate) fn callback_tools(&self) -> Vec<SessionCallbackTool> {
+        self.daemon_tool_servers
+            .as_ref()
+            .map(|held| held.callback_tools().to_vec())
+            .unwrap_or_default()
     }
 
     /// The run of the live turn `turn_id`, if it is live.

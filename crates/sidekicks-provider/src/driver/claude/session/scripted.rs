@@ -165,6 +165,7 @@ pub(crate) fn scripted_live_session(
             spawn_sequence: 0,
         },
         callback_tool_binding: test_callback_tool_binding(session_id),
+        tool_servers: None,
         process_exit: OnceLock::new(),
         task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),

@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
-use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::app_server_protocol::{
     ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, ReasoningEffort, Settings,
@@ -41,8 +40,6 @@ const CODEX_UNLIMITED_HELPERS: i64 = i64::MAX;
 /// Everything one conversation's thread settings are composed from.
 #[derive(Clone, Debug)]
 pub(crate) struct CodexThreadSettings {
-    /// The session the conversation belongs to, which names its tool servers' addresses.
-    pub(crate) session_id: SessionId,
     /// The conversation's working folder, absolute.
     pub(crate) working_directory: PathBuf,
     /// The model the conversation runs.
@@ -485,7 +482,6 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::PathRules;
 
@@ -510,9 +506,7 @@ mod tests {
     fn settings_with(subagent_policy: Option<SubagentPolicy>) -> CodexThreadSettings {
         CodexThreadSettings {
             subagent_policy,
-            ..test_thread_settings(
-                SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID"),
-            )
+            ..test_thread_settings()
         }
     }
 

@@ -17,6 +17,7 @@ use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::legs::ClaudeSpawnLegsError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::{ProviderAxisInvalid, provider_failure_refusal};
+use crate::port::tool_server_route::ToolServerSecretError;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]
@@ -74,6 +75,9 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The session's command channel could not be opened.
     #[error("the session's command channel could not be opened")]
     CommandChannel(#[source] io::Error),
+    /// The secret the process reaches the daemon's tool servers with could not be minted.
+    #[error(transparent)]
+    ToolServerSecret(#[from] ToolServerSecretError),
 }
 
 impl ClaudeEstablishmentError {
@@ -96,7 +100,8 @@ impl ClaudeEstablishmentError {
             | Self::Closed
             | Self::LevelNotOffered(_)
             | Self::AxisNotOffered(_)
-            | Self::CommandChannel(_) => RecoveryCondition::RecoveryNeeded,
+            | Self::CommandChannel(_)
+            | Self::ToolServerSecret(_) => RecoveryCondition::RecoveryNeeded,
         }
     }
 }
@@ -132,7 +137,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::Rebind(_)
             | ClaudeEstablishmentError::ConversationUnreadable { .. }
             | ClaudeEstablishmentError::Closed
-            | ClaudeEstablishmentError::CommandChannel(_)) => Self::Internal(Box::new(error)),
+            | ClaudeEstablishmentError::CommandChannel(_)
+            | ClaudeEstablishmentError::ToolServerSecret(_)) => Self::Internal(Box::new(error)),
         }
     }
 }

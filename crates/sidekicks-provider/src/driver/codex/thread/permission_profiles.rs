@@ -154,7 +154,6 @@ mod tests {
     use crate::driver::codex::permission_level::compose_codex_profile_name;
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::driver::codex::session::test_fixture::test_thread_settings;
-    use crate::driver::test_registry::new_session_id;
 
     fn settings_updated(thread_id: &str, profile: Option<&str>) -> Box<RawValue> {
         let profile = profile.map(|id| json!({"id": id}));
@@ -202,7 +201,7 @@ mod tests {
     #[tokio::test]
     async fn a_permission_profile_drift_asks_the_session_s_posture_back() {
         let mut scripted = start_scripted_codex_service();
-        let settings = test_thread_settings(new_session_id());
+        let settings = test_thread_settings();
         let own_profile = compose_codex_profile_name(settings.level, &settings.profile_folders);
         let mut profiles = CodexThreadPermissionProfiles::established(&settings);
         let service = Arc::clone(&scripted.service);

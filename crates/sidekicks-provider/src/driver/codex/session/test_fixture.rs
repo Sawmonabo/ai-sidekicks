@@ -246,6 +246,7 @@ impl TestCodexSession {
                 bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                 services: CodexServiceRegistry::holding(&scripted),
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
+                callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
                 session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
@@ -366,6 +367,7 @@ impl TestCodexSession {
             reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
             helper_roles_folder: folder.join("roles"),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
+            callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
             delivery: Arc::clone(&self.task.calls.forks.delivery),
             run_routes: Arc::clone(&self.task.run_routes),
             pending_compactions: self.task.calls.forks.pending_compactions.clone(),
@@ -556,13 +558,14 @@ pub(crate) async fn open_test_record(
         binding_id: None,
         provider_account_id: test_provider_account_id(),
         turn_boundaries: Vec::new(),
-        thread_settings: test_thread_settings(session_id),
+        thread_settings: test_thread_settings(),
         execution_posture: test_record_posture(),
         session_mode: SessionMode::Build,
         output_speed_request: None,
         declared_output_speed: None,
         reasoning_effort: None,
         on_mcp_server_status: None,
+        daemon_tool_servers: None,
     });
     routing
         .bind_session_thread(
@@ -584,9 +587,8 @@ fn test_record_posture() -> ExecutionPosture {
 }
 
 /// The settings of a test session's conversation at Ask.
-pub(crate) fn test_thread_settings(session_id: SessionId) -> CodexThreadSettings {
+pub(crate) fn test_thread_settings() -> CodexThreadSettings {
     CodexThreadSettings {
-        session_id,
         working_directory: PathBuf::from("/work/repository"),
         model: "gpt-5".to_owned(),
         model_context_window: None,

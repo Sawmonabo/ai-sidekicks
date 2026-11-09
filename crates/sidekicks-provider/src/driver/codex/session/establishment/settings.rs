@@ -122,7 +122,6 @@ impl CodexSessionEstablishment {
         .map_err(CodexError::Driver)?;
         report_withheld_definition_fields(definitions, request.provider_account_id);
         let thread_settings = CodexThreadSettings {
-            session_id: request.session_id,
             working_directory: context.working_directory.clone(),
             model: request.model.to_owned(),
             // A resume sends the recorded figure whatever the catalog offers now; Codex refuses

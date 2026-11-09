@@ -41,7 +41,6 @@ use crate::driver::codex::thread::settings::{
 use crate::driver::codex::thread::view::{
     THREAD_START_METHOD, assert_active_permission_profile, read_thread,
 };
-use crate::driver::test_registry::new_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::tool_server_name::DAEMON_HOOKS_TOOL_SERVER_NAME;
 
@@ -237,7 +236,7 @@ async fn a_session_ask_copy_refuses_a_pre_approved_write_and_leaves_no_file() {
             command_channel_folder: command_channel,
         },
         command_environment: environment,
-        ..test_thread_settings(new_session_id())
+        ..test_thread_settings()
     };
     let read_only_profile =
         compose_codex_profile_name(PermissionLevel::Readonly, &settings.profile_folders);

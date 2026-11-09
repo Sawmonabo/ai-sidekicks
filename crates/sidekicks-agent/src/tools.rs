@@ -7,6 +7,8 @@ mod admission;
 pub mod entries;
 pub mod gate;
 pub mod group;
+pub mod in_process;
 pub mod listener;
+pub mod route;
 pub mod server;
 pub mod session;

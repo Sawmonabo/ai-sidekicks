@@ -504,7 +504,6 @@ impl ClaudeDriver {
                 shell_lines: Arc::clone(&self.shell_lines),
                 scheduler: Arc::clone(&self.scheduler),
                 background_work: Arc::clone(&self.sources.background_work),
-                tool_servers: Arc::clone(&ports.in_process_tool_servers),
                 agent_tree_lookup: Arc::clone(&ports.agent_tree_lookup),
                 session_directory_lookup: Arc::clone(&ports.session_directory_lookup),
                 provider_account_registry: Arc::clone(&ports.provider_account_registry),

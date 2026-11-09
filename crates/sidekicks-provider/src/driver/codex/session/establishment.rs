@@ -20,11 +20,13 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::callback_tools::host::CallbackToolHost;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::SessionSpawnContextResolver;
 use crate::driver::codex::app_server_protocol::ThreadResumeParams;
@@ -60,6 +62,7 @@ use crate::driver::codex::session::owed_turn_ends::{
 };
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_resume_params,
     compose_codex_thread_start_params,
@@ -105,6 +108,8 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     pub(crate) helper_roles_folder: PathBuf,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
+    /// The callback-tool host each spawn installs its own registry on, beside the route.
+    pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The frame delivery, which the frames that waited for a conversation go to.
     pub(crate) delivery: Arc<CodexFrameDelivery>,
     /// The driver's run routes, which an adopted conversation's live turns are bound on again.
@@ -298,8 +303,13 @@ impl CodexSessionEstablishment {
         let claim = service.begin_thread_claim();
         let service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
-        let route = self.tool_server_route();
-        let (services, route) = (&*self.dependencies.services, route.as_deref());
+        // Opened once, so a start sent again carries the same secret.
+        let tool_servers = self.open_tool_servers(
+            params.session_id,
+            params.callback_tools.clone().unwrap_or_default(),
+        )?;
+        let route = tool_servers.as_ref().map(CodexDaemonToolServers::route);
+        let services = &*self.dependencies.services;
         let (start_settings, start_connection, start_service) =
             (&settings, &*connection, &*service);
         let reply = send_with_stale_name_resend(
@@ -359,6 +369,7 @@ impl CodexSessionEstablishment {
             declared_output_speed: read_codex_declared_tier(params.session_id, &reply),
             reasoning_effort: read_thread_reasoning_effort(&reply),
             on_mcp_server_status: params.on_mcp_server_status.clone(),
+            daemon_tool_servers: tool_servers,
         });
         // `id` is the resume key; `sessionId` groups a thread tree, so the two differ.
         let handle = ProviderSessionHandle {
@@ -481,13 +492,15 @@ impl CodexSessionEstablishment {
 
     // `thread/resume` of the record's conversation on `service` with every setting the record
     // holds, its output speed rebuilt from the record and its tool servers against the resume's own
-    // read, and the reply. Fails as the reads or the request do, and when the reply names another
-    // conversation or runs it under another profile.
+    // read, the daemon's on the entries `tool_servers` opened for the resume, and the reply. Fails
+    // as the reads or the request do, and when the reply names another conversation or runs it
+    // under another profile.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
         service: &CodexService,
         connection: &CodexAppServerConnection,
+        tool_servers: Option<&CodexDaemonToolServers>,
     ) -> Result<Box<RawValue>, CodexError> {
         let settings = &record.thread_settings;
         // The level rebuilt from the record; one the model no longer lists resumes at standard.
@@ -500,8 +513,8 @@ impl CodexSessionEstablishment {
         .map_err(CodexError::Driver)?;
         let service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
-        let route = self.tool_server_route();
-        let (services, route) = (&*self.dependencies.services, route.as_deref());
+        let route = tool_servers.map(CodexDaemonToolServers::route);
+        let services = &*self.dependencies.services;
         let thread_id = record.thread_id.as_str();
         let reply =
             send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
@@ -543,8 +556,19 @@ impl CodexSessionEstablishment {
         Ok(service)
     }
 
-    fn tool_server_route(&self) -> Option<Arc<dyn ToolServerRoute>> {
-        self.dependencies.tool_server_route.port().cloned()
+    // The daemon's tool servers opened for a new spawn of `session_id`, installing
+    // `callback_tools`.
+    fn open_tool_servers(
+        &self,
+        session_id: SessionId,
+        callback_tools: Vec<SessionCallbackTool>,
+    ) -> Result<Option<CodexDaemonToolServers>, CodexError> {
+        CodexDaemonToolServers::open(
+            &self.dependencies.tool_server_route,
+            &self.dependencies.callback_tool_host,
+            session_id,
+            callback_tools,
+        )
     }
 
     // Records `service`'s process as the one running `session_id`, under the identity the

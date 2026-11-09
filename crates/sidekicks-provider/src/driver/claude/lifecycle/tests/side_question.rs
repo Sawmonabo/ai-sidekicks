@@ -11,7 +11,6 @@ use futures::future::BoxFuture;
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::controls::methods::SideQuestionId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, ProgramStart, Spawner};
@@ -41,7 +40,9 @@ use crate::driver::{CurrentProviderAccount, PROVIDERS};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::{
     InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
+    SpawnInProcessToolServers,
 };
+use crate::port::tool_server_route::{ToolServerSecretError, ToolServerSpawn};
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -52,17 +53,25 @@ const PERSON_DENY_RULE: &str = "Read(./secrets/**)";
 // The allow rule the person keeps beside it, which pre-approves every write.
 const PERSON_ALLOW_RULE: &str = "Write";
 
-// The daemon's in-process tool servers, named but never called.
+// The daemon's in-process tool servers, opened and named but never called.
 struct NamedServers;
 
 impl InProcessToolServers for NamedServers {
-    fn server_names(&self, _session_id: &SessionId) -> Vec<String> {
+    fn open(
+        &self,
+        _spawn: ToolServerSpawn,
+    ) -> Result<Arc<dyn SpawnInProcessToolServers>, ToolServerSecretError> {
+        Ok(Arc::new(Self))
+    }
+}
+
+impl SpawnInProcessToolServers for NamedServers {
+    fn server_names(&self) -> Vec<String> {
         vec!["sidekicks".to_owned()]
     }
 
     fn handle(
         &self,
-        _session_id: SessionId,
         server_name: String,
         _message: Box<RawValue>,
         _outbound: Arc<dyn InProcessToolServerOutbound>,

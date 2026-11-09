@@ -246,6 +246,7 @@ impl ClaudeSessionControls {
             None,
             ClaudeOneTurnReach::Session {
                 permission_mode: None,
+                callback_tools: Arc::clone(&live.callback_tool_binding),
             },
             review_text(SessionReviewTarget::Staged).text,
             stop.clone(),

@@ -16,6 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::callback_tools::host::CallbackToolHost;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
@@ -42,6 +43,7 @@ use crate::driver::codex::session::history::read_codex_turns;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_fork_params,
 };
@@ -83,6 +85,8 @@ pub(crate) struct CodexForkDependencies {
     pub(crate) services: Arc<CodexServiceRegistry>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
+    /// The callback-tool host each fork installs its own registry on, beside the route.
+    pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The reviewer's denials, whose held presses on a binding the fork retires are released.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
@@ -153,33 +157,41 @@ async fn fork_onto_settings(
     // Frames of the fork that arrive before it is registered are held for it.
     let _claim = service.begin_thread_claim();
     let boundary = before_turn_id.map_or(CodexForkBoundary::Whole, CodexForkBoundary::BeforeTurn);
-    let forked = request_codex_fork(
-        record_fork_source(task.record),
-        dependencies,
-        &service,
-        &connection,
-        boundary,
-    )
-    .await?;
-    if forked.thread_id == task.record.thread_id
-        || task.routing.is_metered_thread(&forked.thread_id)
-    {
-        return Err(CodexError::Transport {
-            detail: "The Codex fork did not start a new conversation.".to_owned(),
-            cause: None,
-        });
+    let mut tool_servers = open_fork_tool_servers(task.record, dependencies)?;
+    let moved = async {
+        let forked = request_codex_fork(
+            record_fork_source(task.record),
+            dependencies,
+            tool_servers.as_ref(),
+            &service,
+            &connection,
+            boundary,
+        )
+        .await?;
+        if forked.thread_id == task.record.thread_id
+            || task.routing.is_metered_thread(&forked.thread_id)
+        {
+            return Err(CodexError::Transport {
+                detail: "The Codex fork did not start a new conversation.".to_owned(),
+                cause: None,
+            });
+        }
+        let turn_ids = read_codex_fork_or_let_go(
+            &task.record.thread_settings,
+            task.record.session_mode,
+            &service,
+            &connection,
+            &forked,
+        )
+        .await?;
+        let routed =
+            move_record_to_fork(task, dependencies, &forked, binding_id, &mut tool_servers).await?;
+        task.record.turn_boundaries = turn_ids;
+        Ok::<_, CodexError>(routed)
     }
-    let turn_ids = read_codex_fork_or_let_go(
-        &task.record.thread_settings,
-        task.record.session_mode,
-        &service,
-        &connection,
-        &forked,
-    )
-    .await?;
-    let routed = move_record_to_fork(task, dependencies, &forked, binding_id).await?;
-    task.record.turn_boundaries = turn_ids;
-    Ok(routed)
+    .await;
+    roll_back_unused_tool_servers(tool_servers);
+    moved
 }
 
 /// Forks the session's conversation after the turn at `params.position` and moves the session,
@@ -210,31 +222,48 @@ pub(crate) async fn move_codex_session_to_fork(
     let service = Arc::clone(&task.record.service);
     let connection = service.connection()?;
     let _claim = service.begin_thread_claim();
-    let forked = request_codex_fork(
-        record_fork_source(task.record),
-        dependencies,
-        &service,
-        &connection,
-        CodexForkBoundary::AfterTurn(&boundary_turn_id),
-    )
-    .await
-    .map_err(classify_rewind_fork_failure)?;
-    if forked.thread_id == task.record.thread_id {
-        return Ok((degraded(REWIND_NOT_FORKED), no_frames()));
+    let mut tool_servers = open_fork_tool_servers(task.record, dependencies)?;
+    let moved = async {
+        let forked = request_codex_fork(
+            record_fork_source(task.record),
+            dependencies,
+            tool_servers.as_ref(),
+            &service,
+            &connection,
+            CodexForkBoundary::AfterTurn(&boundary_turn_id),
+        )
+        .await
+        .map_err(classify_rewind_fork_failure)?;
+        if forked.thread_id == task.record.thread_id {
+            return Ok(Err(degraded(REWIND_NOT_FORKED)));
+        }
+        if task.routing.is_metered_thread(&forked.thread_id) {
+            return Ok(Err(degraded(REWIND_TARGET_ALREADY_REGISTERED)));
+        }
+        let turn_ids = read_codex_fork_or_let_go(
+            &task.record.thread_settings,
+            task.record.session_mode,
+            &service,
+            &connection,
+            &forked,
+        )
+        .await?;
+        let routed = move_record_to_fork(
+            task,
+            dependencies,
+            &forked,
+            Some(params.binding_id.clone()),
+            &mut tool_servers,
+        )
+        .await?;
+        Ok::<_, CodexError>(Ok((turn_ids, routed)))
     }
-    if task.routing.is_metered_thread(&forked.thread_id) {
-        return Ok((degraded(REWIND_TARGET_ALREADY_REGISTERED), no_frames()));
-    }
-    let turn_ids = read_codex_fork_or_let_go(
-        &task.record.thread_settings,
-        task.record.session_mode,
-        &service,
-        &connection,
-        &forked,
-    )
-    .await?;
-    let routed =
-        move_record_to_fork(task, dependencies, &forked, Some(params.binding_id.clone())).await?;
+    .await;
+    roll_back_unused_tool_servers(tool_servers);
+    let (turn_ids, routed) = match moved? {
+        Ok(moved) => moved,
+        Err(degraded) => return Ok((degraded, no_frames())),
+    };
     if turn_ids.len() != position {
         CodexTransportDiagnostic::ForkTurnLedgerUnconfirmed {
             expected_turn_count: position,
@@ -301,12 +330,13 @@ pub(crate) async fn bind_codex_first_run(
 /// Sends `thread/fork` of `source`'s conversation up to `boundary` with every setting it carries,
 /// its output speed resolved afresh against the model's tier list, which can change, and its tool
 /// servers against the fork's own read, read through `dependencies`' services, with the daemon's
-/// on its route once its owner registered it and each stdio server in `service`'s sandbox where the
-/// session runs sandboxed. Fails as the catalog read, the tool servers' reads, the sandbox's wrap
+/// on the entries `tool_servers` opened for the fork and each stdio server in `service`'s sandbox
+/// where the session runs sandboxed. Fails as the catalog read, the tool servers' reads, the sandbox's wrap
 /// or the request does, and with `CodexError::Transport` for a reply that names no conversation.
 pub(crate) async fn request_codex_fork(
     source: CodexForkSource<'_>,
     dependencies: &CodexForkDependencies,
+    tool_servers: Option<&CodexDaemonToolServers>,
     service: &CodexService,
     connection: &CodexAppServerConnection,
     boundary: CodexForkBoundary<'_>,
@@ -322,10 +352,7 @@ pub(crate) async fn request_codex_fork(
     let service_tier =
         compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
     let services = &*dependencies.services;
-    let route = dependencies
-        .tool_server_route
-        .port()
-        .map(|route| &**route as &dyn ToolServerRoute);
+    let route = tool_servers.map(CodexDaemonToolServers::route);
     let thread_id = source.thread_id.as_str();
     let reply =
         send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
@@ -407,6 +434,7 @@ async fn move_record_to_fork(
     dependencies: &CodexForkDependencies,
     forked: &CodexForkReply,
     binding_id: Option<RuntimeBindingId>,
+    tool_servers: &mut Option<CodexDaemonToolServers>,
 ) -> Result<CodexRoutedFrames, CodexError> {
     let pre_fork_thread_id = task.record.thread_id.clone();
     let service = Arc::clone(&task.record.service);
@@ -441,6 +469,7 @@ async fn move_record_to_fork(
         denials.release_held_presses(&retired);
     }
     record.thread_id.clone_from(&forked.thread_id);
+    record.daemon_tool_servers = tool_servers.take();
     record.permission_profiles =
         CodexThreadPermissionProfiles::established(&record.thread_settings);
     record.declared_output_speed = read_codex_declared_tier(session_id, &forked.reply);
@@ -480,6 +509,28 @@ async fn move_record_to_fork(
         .let_go(&service, pre_fork_thread_id, session_id)
         .await;
     Ok(routed)
+}
+
+// The daemon's tool servers opened for a fork of the record's session, which replaces the
+// conversation's entries once Codex is sent them.
+fn open_fork_tool_servers(
+    record: &CodexSessionRecord,
+    dependencies: &CodexForkDependencies,
+) -> Result<Option<CodexDaemonToolServers>, CodexError> {
+    CodexDaemonToolServers::open(
+        &dependencies.tool_server_route,
+        &dependencies.callback_tool_host,
+        record.session_id,
+        record.callback_tools(),
+    )
+}
+
+// Rolls back the tool servers a fork opened and the record did not take, so the session's own
+// installation answers again.
+fn roll_back_unused_tool_servers(tool_servers: Option<CodexDaemonToolServers>) {
+    if let Some(tool_servers) = tool_servers {
+        tool_servers.rollback();
+    }
 }
 
 // The legs the session directory answers for a fork of `session_id` under a binding minted for

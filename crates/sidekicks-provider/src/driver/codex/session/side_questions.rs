@@ -505,7 +505,6 @@ fn compose_copy_fork(
     is_project_untrusted: bool,
 ) -> ThreadForkParams {
     let mcp_servers = compose_codex_session_table(CodexSessionTableInput {
-        session_id: settings.session_id,
         tool_servers: &settings.tool_servers,
         loaded,
         unloaded_entries: &[],

@@ -1,7 +1,8 @@
 //! The daemon's tool servers as a provider reaches them in process, over its own control channel
-//! rather than an address: each JSON-RPC message a provider sends one of a session's servers, the
-//! reply that server writes, and the server's own messages back. The tool-server front registers
-//! the port once it runs; until then a session names no in-process server.
+//! rather than an address: one spawn opens its servers, then hands each JSON-RPC message it sends
+//! one of them to that server, takes the reply that server writes, and the server's own messages
+//! back. The tool-server front registers the port once it runs; until then a spawn names no
+//! in-process server.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -10,21 +11,32 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::session::id::SessionId;
 
-/// A session's in-process tool servers, registered through a `PortRegistration`.
+use crate::port::tool_server_route::{ToolServerSecretError, ToolServerSpawn};
+
+/// The daemon's in-process tool servers, registered through a `PortRegistration`.
 pub trait InProcessToolServers: Send + Sync {
-    /// The names of `session_id`'s servers, the daemon's own among them.
-    fn server_names(&self, session_id: &SessionId) -> Vec<String>;
+    /// Opens `spawn`'s servers under a secret minted for it, replacing any earlier spawn's of the
+    /// same conversation, which is refused from then on. The servers stay open while the answer is
+    /// held.
+    fn open(
+        &self,
+        spawn: ToolServerSpawn,
+    ) -> Result<Arc<dyn SpawnInProcessToolServers>, ToolServerSecretError>;
+}
+
+/// One spawn's open in-process tool servers.
+pub trait SpawnInProcessToolServers: Send + Sync {
+    /// The names of the spawn's servers, the daemon's own among them.
+    fn server_names(&self) -> Vec<String>;
 
     /// Hands `message`, one JSON-RPC message the provider sent `server_name`, to that server and
-    /// answers its reply, or `None` for a notification. A server takes a second `initialize` on a
-    /// live connection, which a provider sends to retry its handshake, and a
+    /// answers its reply, or `None` for a notification or a response. A server takes a second
+    /// `initialize` on a live connection, which a provider sends to retry its handshake, and a
     /// `notifications/cancelled` like any message; dropping the future cancels the call. Fails
-    /// with `ServerNotFound` when the session has no such server, `Failed` when the server did.
+    /// with `ServerNotFound` when the spawn has no such server, `Failed` when the server did.
     fn handle(
         &self,
-        session_id: SessionId,
         server_name: String,
         message: Box<RawValue>,
         outbound: Arc<dyn InProcessToolServerOutbound>,
@@ -46,8 +58,8 @@ pub trait InProcessToolServerOutbound: Send + Sync {
 /// Why an in-process server could not answer a message.
 #[derive(Debug, thiserror::Error)]
 pub enum InProcessToolServerError {
-    /// The session has no server of the name the message named.
-    #[error("the session has no tool server named {server_name}")]
+    /// The spawn has no server of the name the message named.
+    #[error("the spawn has no tool server named {server_name}")]
     ServerNotFound {
         /// The name, as the provider sent it.
         server_name: String,
@@ -85,8 +97,8 @@ struct JsonRpcError {
 
 /// The reply a provider reads for one message to an in-process server, always in band so the
 /// provider's MCP client fails only that message: the server's reply; `{"result": {}}` for a
-/// notification; a `-32601` error echoing the message's `id` (or `null` where it has none) for a
-/// server the session lacks, or for a message naming no server or carrying none; and a `-32603`
+/// notification or a response; a `-32601` error echoing the message's `id` (or `null` where it has
+/// none) for a server the spawn lacks, or for a message naming no server or carrying none; and a `-32603`
 /// error for a server that failed.
 pub(crate) fn compose_in_band_reply(
     message: Option<&RawValue>,

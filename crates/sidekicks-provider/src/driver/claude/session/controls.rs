@@ -38,6 +38,7 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeCommandChannels};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::pricing::{ClaudeOneTurnCharge, ClaudeOneTurnPricing};
@@ -60,7 +61,9 @@ use crate::driver::claude::session::transport::control::{
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
+use crate::driver::claude::spawn::launch::bring_up::{
+    ClaudeSessionSpawn, open_claude_tool_servers,
+};
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnOutcome, ClaudeOneTurnReply, ClaudeOneTurnRequest,
@@ -76,6 +79,7 @@ use crate::driver::session_control::{
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_rules::SessionRulePort;
+use crate::port::tool_server_route::ToolServerConversation;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 
@@ -128,6 +132,8 @@ pub(crate) enum ClaudeOneTurnReach {
     Session {
         /// The mode in place of the level's own.
         permission_mode: Option<ClaudePermissionMode>,
+        /// The callback-tool installation that answers its calls to the daemon's tool servers.
+        callback_tools: Arc<CallbackToolSpawnBinding>,
     },
     /// Read only: in `dontAsk`, pre-approved nothing and holding none of the daemon's tool
     /// servers, so it asks no one and refuses whatever would need an approval; only deny rules
@@ -139,10 +145,14 @@ pub(crate) enum ClaudeOneTurnReach {
 }
 
 impl ClaudeOneTurnReach {
-    /// The reach of a copy that answers the person: plan mode, which runs nothing.
-    pub(crate) const PLAN: Self = Self::Session {
-        permission_mode: Some(ClaudePermissionMode::Plan),
-    };
+    /// The reach of a copy that answers the person: plan mode, which runs nothing, its calls
+    /// answered by `callback_tools`.
+    pub(crate) fn plan(callback_tools: Arc<CallbackToolSpawnBinding>) -> Self {
+        Self::Session {
+            permission_mode: Some(ClaudePermissionMode::Plan),
+            callback_tools,
+        }
+    }
 }
 
 /// The copy a side question runs on: the legs at the session's full model id, the account, the
@@ -165,7 +175,7 @@ impl ClaudeSideQuestionCopy {
             legs: without_credential_prompts(one_turn_legs(live, None, None)),
             provider_account_id: live.admitted_provider_account_id(),
             parent_provider_session_id: live.provider_session_id.clone(),
-            reach: ClaudeOneTurnReach::PLAN,
+            reach: ClaudeOneTurnReach::plan(Arc::clone(&live.callback_tool_binding)),
         }
     }
 }
@@ -636,15 +646,32 @@ impl ClaudeSessionControls {
                         };
                     }
                 };
-            let (permission_mode, in_process_servers, pre_approvals) = match &reach {
-                ClaudeOneTurnReach::Session { permission_mode } => (
-                    *permission_mode,
+            let opened = match &reach {
+                ClaudeOneTurnReach::Session { callback_tools, .. } => open_claude_tool_servers(
                     in_process_tool_servers.port(),
-                    ClaudePreApprovals::Kept,
+                    legs.session_id,
+                    ToolServerConversation::mint(),
+                    callback_tools.dispatcher(),
                 ),
+                ClaudeOneTurnReach::LockedDown { .. } => Ok(None),
+            };
+            let in_process_servers = match opened {
+                Ok(in_process_servers) => in_process_servers,
+                Err(error) => {
+                    return ClaudeOneTurnOutcome {
+                        reply: Err(ClaudeLaunchError::Build(DriverError::Internal(Box::new(
+                            error,
+                        )))),
+                        spend: None,
+                    };
+                }
+            };
+            let (permission_mode, pre_approvals) = match &reach {
+                ClaudeOneTurnReach::Session {
+                    permission_mode, ..
+                } => (*permission_mode, ClaudePreApprovals::Kept),
                 ClaudeOneTurnReach::LockedDown { person_deny_rules } => (
                     Some(ClaudePermissionMode::DontAsk),
-                    None,
                     ClaudePreApprovals::DenyRulesOnly(person_deny_rules),
                 ),
             };
@@ -654,7 +681,7 @@ impl ClaudeSessionControls {
                         legs: &legs,
                         session_rules: &session_rules,
                         step_bound: None,
-                        in_process_servers,
+                        in_process_servers: in_process_servers.as_ref(),
                         path_rules: PathRules::NATIVE,
                     },
                     provider_account_id,

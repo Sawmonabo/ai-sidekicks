@@ -455,7 +455,7 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_at_that_turns_end() {
     let steer = new_message_id();
     let mut session = LiveCodexSession::retriable(&[steer]).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
-    let settings = test_thread_settings(session.session_id);
+    let settings = test_thread_settings();
     let queue = Arc::clone(&session.queue);
     let retry = parts.retries.retry(retry_params(&session));
     let script = &mut session.scripted.script;

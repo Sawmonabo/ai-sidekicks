@@ -34,6 +34,12 @@ impl BearerToken {
         &self.0
     }
 
+    /// The `Authorization` header value that presents this token, for a client the daemon hands
+    /// its configuration to.
+    pub fn header_value(&self) -> Zeroizing<String> {
+        Zeroizing::new(format!("{BEARER_PREFIX}{}", self.0.as_str()))
+    }
+
     /// Whether `authorization`, a request's `Authorization` header, presents this token after
     /// `Bearer `; the bytes are compared in constant time.
     pub fn admits(&self, authorization: Option<&[u8]>) -> bool {

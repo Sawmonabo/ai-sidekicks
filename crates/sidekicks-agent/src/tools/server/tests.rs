@@ -32,6 +32,7 @@ use sidekicks_provider::driver::agent_tools::AgentToolCaller;
 use sidekicks_provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_providers};
+use sidekicks_provider::port::tool_server_route::ToolServerConversation;
 use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use tokio::sync::Notify;
 
@@ -40,14 +41,14 @@ use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
 use crate::tools::session::rules::SHARED_RULES;
 use crate::tools::session::{TOOLS, list, read, remind, wait};
 
-const CLAUDE_SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
+pub(in crate::tools) const CLAUDE_SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
 const CODEX_SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abce";
 
 /// The approval seam, executor and activity sink at once: the seam allows every call, and the
 /// executor counts the calls it runs and holds `session_wait` open until it is dropped.
 #[derive(Default)]
-struct Ports {
-    executed: AtomicUsize,
+pub(in crate::tools) struct Ports {
+    pub(in crate::tools) executed: AtomicUsize,
     wait_started: Notify,
     is_wait_dropped: Arc<AtomicBool>,
 }
@@ -158,13 +159,24 @@ impl ServerHandler for Routed {
     }
 }
 
+/// The route of `session`'s own conversation on the daemon's server.
+fn session_path(session: &str) -> ToolServerPath {
+    let session_id = SessionId::new(session).expect("the text is a UUID");
+    ToolServerPath {
+        session_id,
+        conversation: ToolServerConversation::of_session(session_id),
+        server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
+    }
+}
+
 /// The host, the entry table and the two providers' drivers every connection shares, and the
-/// spawns of one Claude Code session and one Codex session.
-struct Fixture {
-    ports: Arc<Ports>,
-    entries: Arc<ToolServerEntries>,
-    server: Arc<dyn Fn() -> AgentToolServer>,
-    spawns: Vec<(
+/// spawns of one Claude Code session and one Codex session, each a callback-tool binding, its
+/// entry's guard and its secret.
+pub(in crate::tools) struct Fixture {
+    pub(in crate::tools) ports: Arc<Ports>,
+    pub(in crate::tools) entries: Arc<ToolServerEntries>,
+    pub(in crate::tools) server: Arc<dyn Fn() -> AgentToolServer>,
+    pub(in crate::tools) spawns: Vec<(
         CallbackToolSpawnBinding,
         Option<ToolServerEntryGuard>,
         String,
@@ -186,7 +198,7 @@ fn driver_answering(run_id: RunId) -> MockProviderDriver {
     driver
 }
 
-fn fixture() -> Fixture {
+pub(in crate::tools) fn fixture() -> Fixture {
     let ports = Arc::new(Ports::default());
     let host = Arc::new(CallbackToolHost::new(
         Arc::clone(&ports) as _,
@@ -223,8 +235,7 @@ fn fixture() -> Fixture {
             let token = BearerToken::mint().expect("the system's random source reads");
             let secret = token.text().to_owned();
             let guard = entries.insert(
-                session_id,
-                DAEMON_TOOL_SERVER_NAME,
+                session_path(session),
                 provider,
                 token,
                 Arc::clone(binding.dispatcher()),
@@ -249,13 +260,9 @@ fn fixture() -> Fixture {
 
 /// A client connected to the server on `session`'s route, spawn `spawn` of the fixture.
 async fn connect(fixture: &Fixture, spawn: usize, session: &str) -> RunningService<RoleClient, ()> {
-    let path = ToolServerPath {
-        session_id: SessionId::new(session).expect("the text is a UUID"),
-        server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
-    };
     let routed = Routed {
         server: (fixture.server)(),
-        path: path.to_string(),
+        path: session_path(session).to_string(),
         secret: fixture.spawns[spawn].2.clone(),
     };
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
@@ -374,10 +381,7 @@ async fn a_held_call_is_canceled_and_its_work_dropped_when_its_process_is_gone()
         fixture
             .entries
             .admitted(
-                &ToolServerPath {
-                    session_id: SessionId::new(CODEX_SESSION).expect("the text is a UUID"),
-                    server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
-                },
+                &session_path(CODEX_SESSION),
                 Some(format!("Bearer {}", fixture.spawns[1].2).as_bytes()),
             )
             .is_none()

@@ -150,7 +150,7 @@ async fn an_idle_switch_answers_as_its_fork_ends(
             }));
             return;
         }
-        let settings = test_thread_settings(session_id);
+        let settings = test_thread_settings();
         scripted
             .script
             .answer(&forked, &fork_reply("thread-2", &settings));

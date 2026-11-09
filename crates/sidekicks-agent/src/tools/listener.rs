@@ -228,6 +228,7 @@ pub(super) mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_provider::bearer_token::BearerToken;
+    use sidekicks_provider::port::tool_server_route::ToolServerConversation;
     use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
     use tempfile::TempDir;
     use tokio::time::timeout;
@@ -333,18 +334,19 @@ pub(super) mod tests {
         let session_id = SessionId::new(session).expect("the text is a UUID");
         let token = BearerToken::mint().expect("the system's random source reads");
         let secret = token.text().to_owned();
-        let guard = entries.insert(
+        let path = ToolServerPath {
             session_id,
-            DAEMON_TOOL_SERVER_NAME,
+            conversation: ToolServerConversation::of_session(session_id),
+            server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
+        };
+        let printed = path.to_string();
+        let guard = entries.insert(
+            path,
             ProviderId::new("codex".to_owned()).expect("the id is well formed"),
             token,
             dispatcher(),
         );
-        let path = ToolServerPath {
-            session_id,
-            server_name: DAEMON_TOOL_SERVER_NAME.to_owned(),
-        };
-        (guard, path.to_string(), secret)
+        (guard, printed, secret)
     }
 
     /// The handshake at `revision` on `path`, with no secret yet.
