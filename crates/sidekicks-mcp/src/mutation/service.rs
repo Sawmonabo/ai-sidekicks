@@ -4,6 +4,9 @@
 //! then writes the provider's config and settles the receipt by what the config holds afterwards,
 //! committing the binding's rows in the receipt's own write. A switch the daemon keeps is committed
 //! with no provider call. Each committed change sends `mcp.server.config.changed` for its binding.
+//! The sign-in and sign-out commands take the same key, lock and saved check, and a command's
+//! receipt a stop left `pending` is expired, since a command writes no config to settle against.
+//! A removal owes its server's sign-out before its write and settles it once the write answers.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -52,6 +55,8 @@ use crate::mutation::receipts::{
 };
 use crate::mutation::reconciler::McpIntentSettlement;
 use crate::mutation::saved_answer::McpSavedAnswer;
+use crate::mutation::service::command::{McpCommand, McpCommandSettler};
+use crate::mutation::service::removal_sign_out::{McpRemovalSignOut, McpRemovalSignOutHold};
 use crate::mutation::settle::{
     McpIntentSettler, McpIntentSettlers, McpLandedCommit, McpPendingSettle, apply_settlement,
     commit_refusal, observe_settlement, rebuilt_binding, store_unavailable,
@@ -69,7 +74,8 @@ pub const MCP_MUTATION_SERVICE_STATEMENT_CAPACITY: usize =
 pub type McpRemovalRows = Arc<dyn Fn(&McpBindingKey) -> Vec<WriteStatement> + Send + Sync>;
 
 /// The daemon's words when the provider's config could not be read before a write.
-const CONFIG_UNREAD_WORDS: &str = "the provider's config could not be read, so nothing was written";
+pub(crate) const CONFIG_UNREAD_WORDS: &str =
+    "the provider's config could not be read, so nothing was written";
 
 /// The daemon's words when the provider's servers could not be read to check a change.
 const DECLARATIONS_UNREAD_WORDS: &str =
@@ -115,6 +121,8 @@ pub struct McpMutationService {
     key_locks: Arc<KeyedLock<ClientUuid>>,
     /// The pass over the receipts a stop left `pending`.
     pending: McpPendingSettle,
+    /// The sign-outs a removal owes; `None` owes none.
+    removal_sign_out: Option<Arc<dyn McpRemovalSignOut>>,
 }
 
 /// What a mutation and a settle reach: the drivers, the inventory, the receipts, the removal's
@@ -156,6 +164,26 @@ impl McpOperation {
     }
 }
 
+/// What a receipt is spent on: a governance mutation, settled against its provider's config, or
+/// a command, whose `pending` receipt is expired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum McpReceiptOperation {
+    /// A governance mutation.
+    Mutation(McpOperation),
+    /// A sign-in or sign-out command.
+    Command(McpCommand),
+}
+
+impl McpReceiptOperation {
+    // The wire method the receipt is spent on.
+    fn method(self) -> &'static str {
+        match self {
+            Self::Mutation(operation) => operation.method(),
+            Self::Command(command) => command.method(),
+        }
+    }
+}
+
 /// How a mutation goes on once its idempotency key is held: answered from its receipt, or run
 /// fresh under the hold.
 enum McpMutationStart<'lock> {
@@ -173,8 +201,9 @@ enum McpMutationStart<'lock> {
 }
 
 impl McpMutationService {
-    /// The service over `sources`, its three settlers registered with the pass over `pending`
-    /// receipts; nothing is read until the first mutation or [`Self::settle_pending`].
+    /// The service over `sources`, a settler for each mutation and each command registered with
+    /// the pass over `pending` receipts; nothing is read until the first call or
+    /// [`Self::settle_pending`].
     pub fn new(sources: McpMutationSources) -> Self {
         let receipts =
             McpMutationReceipts::new(Arc::clone(&sources.writer), Arc::clone(&sources.reads));
@@ -193,23 +222,32 @@ impl McpMutationService {
             board: sources.board,
             is_unregistered_provider_logged: AtomicBool::new(false),
         });
-        let settlers = McpIntentSettlers::new(
-            [
-                McpOperation::Upsert,
-                McpOperation::Delete,
-                McpOperation::SetEnabled,
-            ]
-            .map(|operation| {
-                let settler = McpOperationSettler {
-                    parts: Arc::clone(&parts),
-                    operation,
-                };
-                (
-                    operation.method(),
-                    Box::new(settler) as Box<dyn McpIntentSettler>,
-                )
-            }),
-        );
+        let mutation_settlers = [
+            McpOperation::Upsert,
+            McpOperation::Delete,
+            McpOperation::SetEnabled,
+        ]
+        .map(|operation| {
+            let settler = McpOperationSettler {
+                parts: Arc::clone(&parts),
+                operation,
+            };
+            (
+                operation.method(),
+                Box::new(settler) as Box<dyn McpIntentSettler>,
+            )
+        });
+        let command_settlers = [McpCommand::SignIn, McpCommand::SignOut].map(|command| {
+            let settler = McpCommandSettler {
+                receipts: receipts.clone(),
+            };
+            (
+                command.method(),
+                Box::new(settler) as Box<dyn McpIntentSettler>,
+            )
+        });
+        let settlers =
+            McpIntentSettlers::new(mutation_settlers.into_iter().chain(command_settlers));
         let pending = McpPendingSettle::new(
             receipts,
             Arc::clone(&receipt_keys),
@@ -221,6 +259,17 @@ impl McpMutationService {
             receipt_keys,
             key_locks,
             pending,
+            removal_sign_out: None,
+        }
+    }
+
+    /// This service, each removal owing its server's sign-out through `removal_sign_out` before
+    /// its write and settling the owed sign-outs once the write answers.
+    #[must_use]
+    pub fn with_removal_sign_out(self, removal_sign_out: Arc<dyn McpRemovalSignOut>) -> Self {
+        Self {
+            removal_sign_out: Some(removal_sign_out),
+            ..self
         }
     }
 
@@ -253,7 +302,12 @@ impl McpMutationService {
         };
         let operation = McpOperation::Upsert;
         let (receipt_key, request_digest, _hold) = match self
-            .start(operation, idempotency_key, &request, &binding)
+            .start(
+                McpReceiptOperation::Mutation(operation),
+                idempotency_key,
+                &request,
+                &binding,
+            )
             .await?
         {
             McpMutationStart::Answered(answer) => return response_of(answer),
@@ -307,8 +361,8 @@ impl McpMutationService {
     }
 
     /// Removes `request`'s binding from its provider's config, committing the removal's rows in
-    /// the receipt's write. Refuses as [`Self::upsert`] does, and where the provider declares no
-    /// such binding.
+    /// the receipt's write, and signs its server out where no binding still names it. Refuses as
+    /// [`Self::upsert`] does, and where the provider declares no such binding.
     pub async fn delete(
         &self,
         request: McpServerDeleteRequest,
@@ -329,7 +383,12 @@ impl McpMutationService {
         }) = &request;
         let operation = McpOperation::Delete;
         let (receipt_key, request_digest, _hold) = match self
-            .start(operation, idempotency_key, &request, &binding)
+            .start(
+                McpReceiptOperation::Mutation(operation),
+                idempotency_key,
+                &request,
+                &binding,
+            )
             .await?
         {
             McpMutationStart::Answered(answer) => return response_of(answer),
@@ -344,6 +403,10 @@ impl McpMutationService {
         check_mutation(&check, &bindings_of(&declarations))?;
         let driver = self.parts.driver(&binding)?;
         let before = observe_before(driver, &binding).await?;
+        let owed = match &self.removal_sign_out {
+            Some(removal_sign_out) => removal_sign_out.owe_sign_out(&binding).await?,
+            None => McpRemovalSignOutHold::default(),
+        };
         let key = McpBindingKey::of(&binding);
         let intent = McpIntentReceipt {
             idempotency_key: idempotency_key.clone(),
@@ -358,8 +421,12 @@ impl McpMutationService {
         let answer = self
             .parts
             .write_and_settle(operation, driver, &intent, &receipt_key, write, before)
-            .await?;
-        response_of(answer)
+            .await;
+        drop(owed);
+        if let Some(removal_sign_out) = &self.removal_sign_out {
+            removal_sign_out.settle_owed_sign_outs().await;
+        }
+        response_of(answer?)
     }
 
     /// Starts the pass over the receipts a stop left `pending` in the background, as the daemon's
@@ -375,11 +442,12 @@ impl McpMutationService {
         self.pending.stop().await;
     }
 
-    // A mutation's first steps, in their order: the receipt key, then `idempotency_key`'s lock,
-    // then its receipt's answer, a pending one settled under the lock.
+    // A receipted call's first steps, in their order: the receipt key, then `idempotency_key`'s
+    // lock, then its receipt's answer, a mutation's pending one settled under the lock and a
+    // command's expired, so the command runs fresh under it.
     async fn start(
         &self,
-        operation: McpOperation,
+        operation: McpReceiptOperation,
         idempotency_key: &ClientUuid,
         request: &impl Serialize,
         binding: &McpServerBindingRef,
@@ -424,16 +492,30 @@ impl McpMutationService {
                 binding: Box::new(binding.clone()),
             }
             .into()),
-            McpSavedCheck::Pending(intent) => {
-                let settlement = self
-                    .parts
-                    .settlement(operation, &intent, &receipt_key)
-                    .await;
-                self.parts
-                    .commit_settlement(operation, &intent, settlement, None)
-                    .await
-                    .map(McpMutationStart::Answered)
-            }
+            McpSavedCheck::Pending(intent) => match operation {
+                McpReceiptOperation::Mutation(operation) => {
+                    let settlement = self
+                        .parts
+                        .settlement(operation, &intent, &receipt_key)
+                        .await;
+                    self.parts
+                        .commit_settlement(operation, &intent, settlement, None)
+                        .await
+                        .map(McpMutationStart::Answered)
+                }
+                McpReceiptOperation::Command(_) => {
+                    self.parts
+                        .receipts
+                        .expire(idempotency_key)
+                        .await
+                        .map_err(store_unavailable)?;
+                    Ok(McpMutationStart::Fresh {
+                        receipt_key,
+                        request_digest,
+                        hold,
+                    })
+                }
+            },
         }
     }
 }
@@ -749,14 +831,16 @@ fn bindings_of(declarations: &[McpServerDeclaration]) -> Vec<McpServerBindingRef
         .collect()
 }
 
-// A response as its receipt saves it and the wire carries it.
-fn response_value(response: &impl Serialize) -> Value {
+/// A response as its receipt saves it and the wire carries it.
+pub(crate) fn response_value(response: &impl Serialize) -> Value {
     serde_json::to_value(response).expect("a mutation's response writes as JSON")
 }
 
-// `answer`, a response the service built or a receipt saved, as the method's response; a saved
-// one that no longer reads as it fails closed.
-fn response_of<Response: DeserializeOwned>(answer: Value) -> Result<Response, DomainError> {
+/// `answer`, a response the service built or a receipt saved, as the method's response; a saved
+/// one that no longer reads as it fails closed.
+pub(crate) fn response_of<Response: DeserializeOwned>(
+    answer: Value,
+) -> Result<Response, DomainError> {
     serde_json::from_value(answer).map_err(|error| stored_answer_unreadable(error).into())
 }
 
@@ -768,6 +852,8 @@ fn stored_answer_unreadable(error: serde_json::Error) -> McpRefusal {
     }
 }
 
+pub(crate) mod command;
+pub mod removal_sign_out;
 mod switch;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

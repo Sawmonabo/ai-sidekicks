@@ -37,6 +37,9 @@ const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 /// The account Claude Code files its keychain item under when the user's name is unusable.
 const CLAUDE_KEYCHAIN_FALLBACK_ACCOUNT: &str = "claude-code-user";
 
+/// The variable Claude Code names its keychain account by.
+pub(crate) const KEYCHAIN_ACCOUNT_VARIABLE: &str = "USER";
+
 /// The variable that moves Claude Code's config home, the folder of its settings, its config file
 /// and, unless the secure-storage folder is named, its sign-in.
 pub(crate) const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
@@ -608,7 +611,7 @@ pub(crate) fn claude_keychain_service(environment: &[(String, String)]) -> Strin
 /// outside letters, digits, `.`, `_` and `-`.
 pub(crate) fn claude_keychain_account(environment: &[(String, String)]) -> String {
     let name = PathRules::NATIVE
-        .environment_value(environment, "USER")
+        .environment_value(environment, KEYCHAIN_ACCOUNT_VARIABLE)
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .or_else(sidekicks_platforms::current_user_name);

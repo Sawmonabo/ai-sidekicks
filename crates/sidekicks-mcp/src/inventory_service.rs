@@ -23,7 +23,9 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::redaction::{sanitize_failure_chain, sanitize_failure_reason};
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::account::homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -103,6 +105,22 @@ pub enum McpInventoryError {
         #[source]
         source: DriverError,
     },
+}
+
+impl From<McpInventoryError> for HandlerError {
+    /// The reply to an inventory failure: a refusal by its code, a driver's read as the driver's
+    /// error answers a call, and every other source that could not be read a fault inside the
+    /// daemon.
+    fn from(error: McpInventoryError) -> Self {
+        match error {
+            McpInventoryError::Refused(refusal) => Self::Refused(DomainError::from(refusal)),
+            McpInventoryError::Driver { source, .. } => Self::from(source),
+            fault @ (McpInventoryError::Projects(_)
+            | McpInventoryError::ProjectRoot(_)
+            | McpInventoryError::Accounts(_)
+            | McpInventoryError::AccountId { .. }) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// The inventory `mcp.server.list` and `mcp.server.read` answer from. It keeps nothing between
@@ -247,6 +265,38 @@ impl McpInventoryService {
             .into_iter()
             .map(|(_key, row)| row.declaration)
             .collect())
+    }
+
+    /// Every registered provider's declarations, in the registry's order, read as
+    /// [`Self::read_declarations`] reads one provider's, over the attached roots and `extra_roots`
+    /// besides, the attached roots and the accounts read once for every provider. Fails as a
+    /// source or a provider's driver cannot be read.
+    pub(crate) async fn read_every_declaration(
+        &self,
+        extra_roots: &[PlacedPath],
+    ) -> Result<Vec<(ProviderId, Vec<McpServerDeclaration>)>, McpInventoryError> {
+        let mut context = self.read_context().await?;
+        context.attached_roots.extend(extra_roots.iter().cloned());
+        let mut declarations = Vec::new();
+        for (provider, driver) in self.sources.providers.drivers() {
+            let rows = self
+                .read_resolved_rows(
+                    provider,
+                    driver.as_ref(),
+                    &context,
+                    false,
+                    McpProbeScope::None,
+                    None,
+                )
+                .await?;
+            declarations.push((
+                provider.clone(),
+                rows.into_iter()
+                    .map(|(_key, row)| row.declaration)
+                    .collect(),
+            ));
+        }
+        Ok(declarations)
     }
 
     /// Fills the attribution table from one read per provider of what it loads at each attached

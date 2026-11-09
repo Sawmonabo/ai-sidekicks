@@ -4,8 +4,9 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpServerConfigInput};
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use super::{HTTP_TYPE, SSE_TYPE, STDIO_TYPE, URL_MEMBER};
+use super::{HTTP_TYPE, OAUTH_MEMBER, SSE_TYPE, STDIO_TYPE, URL_MEMBER};
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, SubmittedMember,
     apply_submitted_member, provider_words_without_values, set_member,
@@ -26,6 +27,9 @@ pub(super) const ENV_MEMBER: &str = "env";
 /// The member holding the headers sent with each request, values included.
 pub(super) const HEADERS_MEMBER: &str = "headers";
 
+/// The member of an entry's `oauth` naming the scopes a sign-in asks for, space-separated.
+const OAUTH_SCOPES_MEMBER: &str = "scopes";
+
 /// The members only an entry that starts a program holds, removed when it moves to an address.
 const PROGRAM_MEMBERS: [&str; 3] = [COMMAND_MEMBER, ARGS_MEMBER, ENV_MEMBER];
 
@@ -44,6 +48,16 @@ struct SubmittedMembers {
     other_transport_members: &'static [&'static str],
     /// The members submitted, each set or cleared; a member left absent is not listed.
     members: Vec<SubmittedMember>,
+    /// The scopes submitted; `None` keeps the held ones.
+    oauth_scopes: Option<SubmittedScopes>,
+}
+
+/// The scopes one declaration submits.
+enum SubmittedScopes {
+    /// The scopes, space-joined.
+    Set(String),
+    /// No scopes, which clears the held ones.
+    Cleared,
 }
 
 /// The entry Claude Code holds for a binding once `config` is written over `before`: `before`'s
@@ -90,7 +104,33 @@ pub(crate) fn compose_claude_mcp_entry(
     for submitted_member in submitted.members {
         apply_submitted_member(&mut members, submitted_member);
     }
+    if let Some(scopes) = submitted.oauth_scopes {
+        set_oauth_scopes(&mut members, scopes);
+    }
     Ok(McpServerEntry::from_members(members))
+}
+
+// Sets `scopes` as the `oauth` member's `scopes`, keeping its other members, or removes them for
+// `Cleared`; an `oauth` that is no object is replaced by one holding the scopes alone.
+fn set_oauth_scopes(members: &mut Map<String, Value>, scopes: SubmittedScopes) {
+    match scopes {
+        SubmittedScopes::Set(scopes) => {
+            let oauth = members
+                .entry(OAUTH_MEMBER)
+                .or_insert_with(|| Value::Object(Map::new()));
+            if !oauth.is_object() {
+                *oauth = Value::Object(Map::new());
+            }
+            if let Value::Object(oauth) = oauth {
+                oauth.insert(OAUTH_SCOPES_MEMBER.to_owned(), Value::from(scopes));
+            }
+        }
+        SubmittedScopes::Cleared => {
+            if let Some(Value::Object(oauth)) = members.get_mut(OAUTH_MEMBER) {
+                oauth.remove(OAUTH_SCOPES_MEMBER);
+            }
+        }
+    }
 }
 
 // The `type`, the other transport's members and the submitted members of `config`, by the names
@@ -134,6 +174,7 @@ fn read_submitted_members(
                 .into_iter()
                 .flatten()
                 .collect(),
+                oauth_scopes: None,
             })
         }
         McpServerConfigInput::Http {
@@ -169,7 +210,6 @@ fn read_submitted_members(
                     McpDeclaredConfigMember::EnvHttpHeaders,
                     env_http_headers.is_some(),
                 ),
-                (McpDeclaredConfigMember::OauthScopes, oauth_scopes.is_some()),
                 (
                     McpDeclaredConfigMember::OauthResource,
                     oauth_resource.is_some(),
@@ -198,6 +238,23 @@ fn read_submitted_members(
                 .into_iter()
                 .flatten()
                 .collect(),
+                // Claude Code reads one space-separated string; no scopes clears it.
+                oauth_scopes: oauth_scopes.as_ref().map(|scopes| {
+                    match scopes
+                        .as_ref()
+                        .map(|scopes| {
+                            scopes
+                                .iter()
+                                .map(FreeFormText::as_str)
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
+                        .filter(|scopes| !scopes.is_empty())
+                    {
+                        Some(scopes) => SubmittedScopes::Set(scopes),
+                        None => SubmittedScopes::Cleared,
+                    }
+                }),
             })
         }
     }
@@ -220,6 +277,7 @@ fn refuse_unread_members(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 
@@ -251,6 +309,37 @@ mod tests {
 
         let mut expected = held;
         expected["args"] = json!(["docs-server", "--verbose"]);
+        assert_eq!(composed, McpServerEntry::from_json(expected));
+    }
+
+    // Submitted scopes land as `oauth.scopes`, space-joined, beside the `oauth` members held, and
+    // `null` removes them alone. Killed by the scopes refused, by `oauth` rewritten whole (the
+    // client id is lost) and by the scopes written as a list.
+    #[rstest]
+    #[case::set(json!(["read", "write"]), json!({"clientId": "c", "scopes": "read write"}))]
+    #[case::cleared(json!(null), json!({"clientId": "c"}))]
+    fn submitted_scopes_are_written_into_the_oauth_member(
+        #[case] scopes: serde_json::Value,
+        #[case] expected_oauth: serde_json::Value,
+    ) {
+        let held = json!({
+            "type": "http",
+            "url": "https://docs.example.test/mcp",
+            "oauth": {"clientId": "c", "scopes": "old"},
+        });
+        let config: McpServerConfigInput = serde_json::from_value(json!({
+            "transport": "http", "url": "https://docs.example.test/mcp", "oauthScopes": scopes
+        }))
+        .expect("the test's declaration reads");
+
+        let composed = compose_claude_mcp_entry(
+            &config,
+            &McpServerObservedEntry::Present(McpServerEntry::from_json(held.clone())),
+        )
+        .expect("the scopes are written");
+
+        let mut expected = held;
+        expected["oauth"] = expected_oauth;
         assert_eq!(composed, McpServerEntry::from_json(expected));
     }
 }

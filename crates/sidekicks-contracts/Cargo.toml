@@ -56,6 +56,8 @@ getrandom_03 = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
 
 [features]
+# The environment row builder other crates' tests use.
+test-support = []
 # The workflow checks' WebAssembly exports, which the builder runs in the page.
 workflow-check-wasm = ["dep:wasm-bindgen"]
 

@@ -20,7 +20,6 @@ use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId,
 };
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
@@ -41,7 +40,7 @@ use sidekicks_provider::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build,
@@ -63,10 +62,6 @@ use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 64;
-
-fn first_provider() -> ProviderId {
-    ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
-}
 
 // A keychain holding no token, which no account the tests register reads.
 struct NoTokens;

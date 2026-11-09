@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::mcp::governance::{
     McpServerList, McpServerRead, McpServerStatusChangedNotice,
 };
@@ -20,12 +21,16 @@ use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::registry::{Dispatch as _, DispatchError, EncodedFeed, Reply};
 use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
-use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::binding::store::{
+    MCP_BINDING_STORE_STATEMENT_CAPACITY, McpBindingStore, open_first_observation_drain,
+};
 use sidekicks_mcp::inventory_service::McpInventorySources;
-use sidekicks_mcp::mutation::service::McpMutationSources;
+use sidekicks_mcp::sign_in::admitted_client::MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY;
+use sidekicks_mcp::sign_in::sign_out::owed::MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
 use sidekicks_platforms::CredentialStore;
+use sidekicks_provider::account::resolver::PROVIDER_ACCOUNTS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::mcp_server::read::{
     McpAccountServers, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
@@ -34,22 +39,31 @@ use sidekicks_provider::driver::mcp_server::read::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
-use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope};
 use sidekicks_store::events::log_service::EventLogAppendOptions;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-use sidekicks_workspace::project::records::ProjectRecords;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::machine_settings::{FixedMachineSettings, MachineSettingsReader};
+use sidekicks_workspace::project::records::{PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords};
 
 use super::*;
+use crate::daemon::process::method_inputs::mcp::{McpSignInStart, build_sign_ins};
 use crate::daemon::schema::schema_parts;
 
-/// The statements the inventory's read connections keep prepared: the binding store's, the
-/// accounts' and the attached roots'.
-const INVENTORY_READ_STATEMENT_CAPACITY: usize = 8;
+/// The statements the methods' read connections keep prepared: the binding store's, the
+/// accounts' and the project records', which the inventory and the targets read, the sign-ins'
+/// admitted clients' and the owed sign-outs'.
+const MCP_METHODS_READ_STATEMENT_CAPACITY: usize = MCP_BINDING_STORE_STATEMENT_CAPACITY
+    + PROVIDER_ACCOUNTS_STATEMENT_CAPACITY
+    + PROJECT_RECORDS_STATEMENT_CAPACITY
+    + MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY
+    + MCP_OWED_SIGN_OUT_STATEMENT_CAPACITY;
 
 /// Long enough for a frame that is coming to come, many windows over.
 const QUIET: Duration = Duration::from_millis(250);
@@ -77,8 +91,9 @@ async fn sign_in_completed(log: &EventLogService, server_name: &str) {
     .expect("the append commits");
 }
 
-/// The `mcp.*` methods over `log`, `board`, and an inventory and a mutation service of
-/// `providers` on `database`; no test here calls a mutation, so nothing reads its keychain.
+/// The `mcp.*` methods over `log`, `board`, and an inventory and the sign-ins the daemon's start
+/// builds for `providers` on `database`, their keychains in memory; no test here calls a mutation,
+/// a sign-in or a sign-out.
 async fn mcp_methods_over(
     database: &TestDatabase,
     log: &TestLog,
@@ -87,21 +102,22 @@ async fn mcp_methods_over(
 ) -> MethodRegistryBuilder {
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),
-        INVENTORY_READ_STATEMENT_CAPACITY,
+        MCP_METHODS_READ_STATEMENT_CAPACITY,
     ));
     let store = McpBindingStore::new(Arc::clone(&log.writer), Arc::clone(&reads));
     let (first_observations, drain) = open_first_observation_drain(store.clone()).await;
     // The drain records each binding the tracker observes; it ends when the tracker drops.
     tokio::spawn(drain);
     let providers = Arc::new(providers);
+    let projects = Arc::new(ProjectRecords::new(
+        Arc::clone(&reads),
+        Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
+    ));
     let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
         providers: Arc::clone(&providers),
         reads: Arc::clone(&reads),
         meter: ProcessorMeter::default(),
-        projects: Arc::new(ProjectRecords::new(
-            Arc::clone(&reads),
-            Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
-        )),
+        projects: Arc::clone(&projects),
         store,
         tracker: Arc::new(McpServerStatusTracker::new(
             Arc::clone(board),
@@ -121,15 +137,26 @@ async fn mcp_methods_over(
         call_timeout: READ_BOUND,
     })
     .expect("the system gives random bytes");
-    let mutations = Arc::new(McpMutationService::new(McpMutationSources {
-        providers,
-        inventory: Arc::clone(&inventory),
-        keychain: Arc::new(secret_items.keychain(KeychainService::McpReceiptKey)),
-        writer: Arc::clone(&log.writer),
-        reads,
-        removal_rows: None,
-        board: Arc::clone(board),
-    }));
+    let accounts = Arc::new(PortRegistration::new("provider accounts"));
+    let settings: Arc<dyn MachineSettingsReader> =
+        Arc::new(FixedMachineSettings(MachineSettings::default()));
+    let appender = Arc::new(SessionEventAppender::new(
+        Arc::clone(&log.service),
+        SESSION_EVENT_VERSION.clone(),
+    ));
+    let sign_ins = build_sign_ins(&McpSignInStart {
+        providers: &providers,
+        inventory: &inventory,
+        board,
+        provider_accounts: &accounts,
+        settings: &settings,
+        projects: &projects,
+        secret_items: &secret_items,
+        writer: &log.writer,
+        reads: &reads,
+        appender: &appender,
+    })
+    .expect("the sign-ins' pools build");
     let mut builder = MethodRegistryBuilder::new();
     register_mcp_methods(
         &mut builder,
@@ -137,7 +164,8 @@ async fn mcp_methods_over(
             log: Arc::clone(&log.service),
             board: Arc::clone(board),
             inventory,
-            mutations,
+            mutations: sign_ins.mutations,
+            sign_ins: sign_ins.commands,
         },
     )
     .expect("the methods register");
@@ -235,7 +263,7 @@ fn declaration_of(
         superseded_in: Vec::new(),
         disabled_in: vec![McpOverrideOrigin::Placed(switched_off_at.clone())],
         is_read_only: false,
-        sign_in_client: None,
+        sign_in_settings: None,
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Prompt),
         organization_managed: None,

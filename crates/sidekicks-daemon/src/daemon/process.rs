@@ -8,7 +8,7 @@ pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
 mod mcp_attribution;
-mod method_inputs;
+pub(crate) mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
 mod provider_accounts;
@@ -43,6 +43,7 @@ use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_mcp::client::McpClient;
 use sidekicks_mcp::mutation::service::McpMutationService;
+use sidekicks_mcp::sign_in::service::SignInService;
 use sidekicks_platforms::{
     KeepAwakeHold, PowerSourceWatch, Spawner, WakeWatch, WallClock, WallClockTimer,
     askpass_socket_path, check_socket_path, read_command_argument_limit,
@@ -197,6 +198,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) mcp_client: Option<Arc<McpClient>>,
     /// The MCP binding edits' service, whose settle pass the stop waits for before the drivers.
     pub(crate) mcp_mutations: Option<Arc<McpMutationService>>,
+    /// The MCP server sign-ins, whose open attempts the stop closes before the drivers.
+    pub(crate) mcp_sign_ins: Option<Arc<SignInService>>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -293,6 +296,7 @@ impl DaemonProcess {
             mcp_attribution_fills: None,
             mcp_client: None,
             mcp_mutations: None,
+            mcp_sign_ins: None,
             repo: None,
             repo_attachments: None,
             session: None,
@@ -667,7 +671,9 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        let mcp_owed_sign_outs = inputs.mcp_owed_sign_outs;
         let mcp_mutations = Arc::clone(self.mcp_mutations.insert(inputs.mcp_mutations));
+        self.mcp_sign_ins = Some(inputs.mcp_sign_ins);
         self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
         self.restart_settle = Some(inputs.restart_settle);
@@ -798,6 +804,7 @@ impl DaemonProcess {
         // After the first reads too: a settle reads each provider's config, which may start its
         // service. It runs in the background and never holds the start.
         mcp_mutations.settle_pending();
+        mcp_owed_sign_outs.start_settle();
         // After the first reads, so each provider's read joins what its start runs.
         self.mcp_attribution_fills = Some(McpAttributionFills::start(
             mcp_inventory,

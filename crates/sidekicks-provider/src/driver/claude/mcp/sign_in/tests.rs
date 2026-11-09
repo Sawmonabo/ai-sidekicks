@@ -4,17 +4,19 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use rstest::rstest;
 use secrecy::SecretString;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_platforms::PathRules;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::CLAUDE_MCP_SIGN_IN_FOLDER;
 use super::saved_credentials::read_claude_saved_sign_in;
+use super::{CLAUDE_MCP_SIGN_IN_FOLDER, SIGN_IN_KEYCHAIN_ACCOUNT_FILE, sign_in_with_claude_client};
 use crate::driver::DriverServices;
 use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -37,7 +39,7 @@ use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The server signed in to.
-const SERVER_NAME: &str = "docs";
+pub(super) const SERVER_NAME: &str = "docs";
 
 /// Its address as the binding keeps it.
 const SERVER_ADDRESS: &str = "https://docs.example.test/mcp";
@@ -53,14 +55,14 @@ const PERSON_SIGN_INS: &str = concat!(
 );
 
 /// The person's own Claude Code config, declaring the server.
-const PERSON_CONFIG: &str =
+pub(super) const PERSON_CONFIG: &str =
     r#"{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}"#;
 
 /// Where the daemon's receiver takes the browser back, and where the browser came back.
 const REDIRECT_URL: &str = "https://receiver.example.test/callback";
 const RETURNED_URL: &str = "https://receiver.example.test/callback?code=one";
 
-fn name() -> McpServerName {
+pub(super) fn name() -> McpServerName {
     McpServerName::new(SERVER_NAME.to_owned()).expect("a test server name is a name")
 }
 
@@ -68,7 +70,8 @@ fn address() -> McpServerAddress {
     McpServerAddress::new(SERVER_ADDRESS).expect("a test address is a web address")
 }
 
-fn user_binding() -> McpServerBindingRef {
+/// The environment rows of `entries`, each a name and its value.
+pub(super) fn user_binding() -> McpServerBindingRef {
     McpServerBindingRef::User {
         provider: DESCRIPTOR.provider_id(),
         server_name: name(),
@@ -130,6 +133,8 @@ fn request(
         binding,
         root_folder: None,
         server_address: address(),
+        every_project_rows: Vec::new(),
+        project_rows: Vec::new(),
         lifetime: Duration::from_secs(30),
         authorization_url,
         browser_return: ProviderSignInReturn::ThroughDaemonReceiver {
@@ -141,7 +146,7 @@ fn request(
 }
 
 // A driver on `services`, whose base environment a test sets, over a fixture's starts and engine.
-fn driver_on_environment(
+pub(super) fn driver_on_environment(
     services: &DriverServices,
     starts: &Arc<ScriptedStarts>,
     engine: &Arc<RecordingRunEngine>,
@@ -372,8 +377,10 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         },
         "oauth": {"clientId": "client-one"},
     });
-    assert_eq!(start.servers, json!({"mcpServers": {SERVER_NAME: filled}}));
-    assert!(start.loads_only_its_servers);
+    assert_eq!(
+        start.servers,
+        Some(json!({"mcpServers": {SERVER_NAME: filled}}))
+    );
 
     let connector = McpServerBindingRef::Connector {
         provider: DESCRIPTOR.provider_id(),
@@ -391,6 +398,78 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         "a connector reads the no-entry arm, not {refused:?}"
     );
     assert!(scripted.starts.take_sign_in_starts().is_empty());
+}
+
+// Beside an administrator's MCP file that declares the server, a sign-in for its organization
+// binding starts one process handed no servers file, and one for the person's own binding of the
+// same name starts none and makes no folder, since Claude Code loads no server of a person's
+// there. Killed by `--mcp-config` passed beside the file, and by a person's server started where
+// Claude Code cannot load it.
+#[rstest]
+#[case::managed(
+    McpServerBindingRef::Managed { provider: DESCRIPTOR.provider_id(), server_name: name() },
+    true
+)]
+#[case::person(user_binding(), false)]
+#[tokio::test]
+async fn a_sign_in_beside_a_managed_file_passes_no_servers_file(
+    #[case] binding: McpServerBindingRef,
+    #[case] is_signed_in: bool,
+) {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
+        .expect("the person's config is written");
+    scripted.starts.script_mcp_sign_in(
+        custom_scheme_channel(),
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
+        ScriptedSignInPlace::File,
+        Vec::new(),
+    );
+    let servers: Map<String, Value> =
+        serde_json::from_value(json!({SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}))
+            .expect("the file's servers are an object");
+    let (request, opened, returned) = request(binding.clone());
+    let driver = Arc::clone(&scripted.driver);
+    let signing_in = tokio::spawn(async move {
+        sign_in_with_claude_client(
+            &*driver.starts,
+            driver.sign_in_sources_for(Some(servers)).await,
+            |folder| driver.sign_in_environment(folder, &[], &[]),
+            request,
+        )
+        .await
+    });
+    if is_signed_in {
+        opened
+            .await
+            .expect("the authorization address is handed out");
+        returned
+            .send(Url::parse(RETURNED_URL).expect("an address"))
+            .expect("the sign-in waits for the browser");
+    }
+
+    let signed_in = signing_in.await.expect("the sign-in runs");
+
+    let starts = scripted.starts.take_sign_in_starts();
+    if is_signed_in {
+        assert_eq!(
+            signed_in.expect("the sign-in reads back").access_token,
+            "access-one"
+        );
+        let [start] = starts.try_into().ok().expect("one");
+        assert_eq!(start.servers, None);
+    } else {
+        assert!(
+            matches!(
+                &signed_in,
+                Err(DriverError::NoPersonServerEntry(no_entry)) if no_entry.binding == binding
+            ),
+            "a person's server reads the no-entry arm, not {signed_in:?}"
+        );
+        assert!(starts.is_empty());
+        assert!(!sign_ins_folder(&scripted).exists());
+    }
 }
 
 // A binding whose server the person's config no longer declares, or declares at another address,
@@ -483,19 +562,24 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
         .expect("one");
     assert_eq!(
         start.servers,
-        json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}})
+        Some(json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}}))
     );
 }
 
 // An entry whose `url` names variables matches the request at the address Claude Code connects
 // to, each variable filled from the sign-in process's own environment: a default where the
-// variable is unset, the variable's value where it is set, and a covered credential name read as
-// empty though set. The entry still goes to the process as declared, and its saved sign-in reads
-// back whether Claude Code saved the address filled or as declared. Killed by matching the `url`
-// as written, which names no server, by filling it from no environment, by expanding a covered
-// credential name, and by matching the saved address only as written.
+// variable is unset, the variable's value where it is set, a row's value where only the request's
+// rows set it, and a covered credential name read as empty though set. The process takes every
+// row, `USER` included, and its folder records the keychain account that environment files the
+// sign-in under while the process runs. The entry still goes to the process as declared, and its
+// saved sign-in reads back whether Claude Code saved the address filled or as declared. Killed by
+// matching the `url` as written, which names no server, by filling it from no environment, by the
+// rows not handed to the process's environment (the row case reads the no-entry arm), by no
+// record kept or one written after the start, by expanding a covered credential name, and by
+// matching the saved address only as written.
 #[rstest]
 #[case::a_default_where_unset(
+    &[],
     &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     SERVER_ADDRESS,
@@ -503,18 +587,28 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 )]
 #[case::the_value_where_set(
     &[("API_BASE_URL", "https://set.example.test")],
+    &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     "https://set.example.test/mcp",
     "https://set.example.test/mcp"
 )]
+#[case::a_rows_value_and_user(
+    &[],
+    &[("API_BASE_URL", "https://row.example.test"), ("USER", "row-user")],
+    "${API_BASE_URL:-https://docs.example.test}/mcp",
+    "https://row.example.test/mcp",
+    "https://row.example.test/mcp"
+)]
 #[case::a_credential_read_empty(
     &[("NPM_TOKEN", "/npm-secret")],
+    &[],
     "https://docs.example.test${NPM_TOKEN}/mcp",
     SERVER_ADDRESS,
     SERVER_ADDRESS
 )]
 #[case::a_saved_address_as_declared(
     &[("API_BASE_URL", "https://set.example.test")],
+    &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
     "https://set.example.test/mcp",
     "${API_BASE_URL:-https://docs.example.test}/mcp"
@@ -522,6 +616,7 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 #[tokio::test]
 async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it(
     #[case] variables: &[(&str, &str)],
+    #[case] rows: &[(&str, &str)],
     #[case] declared_url: &str,
     #[case] requested_address: &str,
     #[case] saved_address: &str,
@@ -559,6 +654,7 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
     let (mut request, opened, returned) = request(user_binding());
     request.server_address =
         McpServerAddress::new(requested_address).expect("a test address is a web address");
+    request.project_rows = EnvironmentRow::test_rows(rows);
     let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
     opened
         .await
@@ -581,7 +677,17 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
         .expect("one");
     assert_eq!(
         start.servers,
-        json!({"mcpServers": {SERVER_NAME: declared}})
+        Some(json!({"mcpServers": {SERVER_NAME: declared}}))
+    );
+    for (name, value) in rows {
+        assert_eq!(
+            PathRules::NATIVE.environment_value(&start.environment, name),
+            Some(*value)
+        );
+    }
+    assert_eq!(
+        start.keychain_account_record,
+        Some(claude_keychain_account(&start.environment))
     );
 }
 
@@ -692,8 +798,10 @@ async fn a_sign_in_that_ends_without_a_sign_in_reads_as_its_kind(
 }
 
 // A sign-in dropped while it waits for the browser leaves no folder, and the start's sweep removes
-// a folder a stopped daemon left, with the keychain item named for it. Killed by a folder with no
-// drop guard, by a start that sweeps nothing, and by a sweep that leaves the keychain item.
+// a folder a stopped daemon left, with the keychain item named for it by its folder and the
+// account its record names, one a row set. Killed by a folder with no drop guard, by a start that
+// sweeps nothing, by a sweep that leaves the keychain item, and by one that names the account from
+// an environment composed without the rows, which names the base's item.
 #[tokio::test]
 async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
     let scripted = ScriptedDriver::new();
@@ -730,10 +838,15 @@ async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
     let leftover = sign_ins.join("left-by-a-stopped-daemon");
     std::fs::create_dir_all(&leftover).expect("a leftover folder is planted");
     std::fs::write(leftover.join(CLAUDE_CREDENTIALS_FILE), "{}").expect("its file is planted");
-    let leftover_environment = [(
-        SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-        leftover.to_string_lossy().into_owned(),
-    )];
+    std::fs::write(leftover.join(SIGN_IN_KEYCHAIN_ACCOUNT_FILE), "row-user")
+        .expect("its record is planted");
+    let leftover_environment = [
+        (
+            SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
+            leftover.to_string_lossy().into_owned(),
+        ),
+        ("USER".to_owned(), "row-user".to_owned()),
+    ];
     let keychain = &scripted.starts.keychain;
     let (service, account) = (
         claude_keychain_service(&leftover_environment),

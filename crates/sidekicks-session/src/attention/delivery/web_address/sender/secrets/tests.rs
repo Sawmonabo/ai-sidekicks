@@ -2,7 +2,6 @@
 //! database and a keychain in memory that refuses the calls a test names.
 
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,7 +30,7 @@ use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use sidekicks_workspace::machine_settings::FixedMachineSettings;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -50,17 +49,6 @@ use crate::attention::test_log::AttentionTestLog;
 const DECIDE_SENT_SQL: &str = "INSERT INTO attention_deliveries
     (entry_id, banner_state, web_address_state, web_address_attempt_count)
   VALUES (@entry_id, 'withheld', 'pending', 0)";
-
-/// The machine's settings as their defaults; the sender is never started here.
-struct DefaultSettings;
-
-impl MachineSettingsReader for DefaultSettings {
-    fn read_machine_settings(
-        &self,
-    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        async { Ok(MachineSettings::default()) }.boxed()
-    }
-}
 
 /// A keychain in memory that yields once in each write, so two calls interleave, and refuses the
 /// calls a test names with the refusal of a store that does not open.
@@ -208,7 +196,7 @@ impl Fixture {
             writer: Arc::clone(&log.writer),
             pool: Arc::clone(&log.pool),
             changes: log.changes.clone(),
-            settings: Arc::new(DefaultSettings),
+            settings: Arc::new(FixedMachineSettings(MachineSettings::default())),
             keychain: Arc::clone(&keychain) as _,
             scheduler,
             clock: clock as _,

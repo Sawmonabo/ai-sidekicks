@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
-use futures::future::ready;
+use futures::future::{BoxFuture, ready};
 use rstest::rstest;
 use rusqlite::{OptionalExtension as _, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
-use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
 use sidekicks_contracts::mcp::server::requests::{
     McpServerDeleteRequest, McpServerEnabledUpdateRequest, McpServerUpsertRequest,
 };
@@ -22,6 +22,8 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::sign_in::{McpServerAddressReading, NoPersonServerEntry};
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
     McpServerDeclaration, McpServerPolicy, McpServerToolDefaults, ProviderMcpServersReading,
@@ -30,7 +32,7 @@ use sidekicks_provider::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
     McpServerWriteOutcome, McpServerWriteRefusal,
 };
-use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+use sidekicks_provider::driver::test_registry::{first_provider, registry_of_first_providers};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::credential_store::test_keychain::{CountingKeychain, test_keychain};
@@ -51,11 +53,6 @@ use crate::test_inventory::open_test_inventory;
 const FAIL_COMMITS_SQL: &str = "CREATE TRIGGER fail_commits BEFORE UPDATE ON mcp_mutation_receipts
      BEGIN SELECT RAISE(ABORT, 'the test fails this commit'); END";
 
-/// The provider the test registry registers first, which every test's driver answers for.
-fn first_provider() -> ProviderId {
-    ProviderId::new(PROVIDER_REGISTRATIONS[0].descriptor.id.to_owned()).expect("a provider id")
-}
-
 /// The one entry every server's declaration holds in the scripted config.
 fn entry() -> McpServerEntry {
     McpServerEntry::from_members(
@@ -63,17 +60,38 @@ fn entry() -> McpServerEntry {
     )
 }
 
-/// A driver over a config holding the `user` servers `declared`, each write of which is answered
-/// `outcome` and is expected `writes` times; a write that is not refused adds or removes its
-/// server, which the next observe and read then see, an added `local` server as the off user entry
-/// a provider that emulates `local` writes. Each declaration says the daemon keeps its switch where
-/// `is_switch_kept_by_daemon` is set.
-fn scripted_driver(
+/// What every server a scripted config declares is.
+pub(crate) enum ScriptedServer {
+    /// A program the provider starts.
+    Program,
+    /// A server reached over streamable HTTP at `url`, whose address read answers `address`, or
+    /// `Unreadable` where it is `None`, while the server is declared and no entry after, and whose
+    /// every write first awaits `before_write`.
+    Remote {
+        /// The stripped address the declaration carries.
+        url: String,
+        /// The whole address its read answers.
+        address: Option<McpServerAddress>,
+        /// What each write awaits before it is applied.
+        before_write: WriteHook,
+    },
+}
+
+/// What a scripted write awaits before it is applied.
+pub(crate) type WriteHook = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
+
+/// A driver over a config holding the `user` servers `declared`, each declared as `server` is,
+/// each write of which is answered `outcome` and is expected `writes` times; a write that is not
+/// refused adds or removes its server, which the next observe and read then see, an added `local`
+/// server as the off user entry a provider that emulates `local` writes. Each declaration says the
+/// daemon keeps its switch where `is_switch_kept_by_daemon` is set.
+pub(crate) fn scripted_driver(
     provider: &ProviderId,
     declared: &[&str],
     outcome: McpServerWriteOutcome,
     writes: usize,
     is_switch_kept_by_daemon: bool,
+    server: ScriptedServer,
 ) -> MockProviderDriver {
     // Each declared server by name, with its entry's own switch.
     let config: Arc<Mutex<HashMap<String, Option<bool>>>> = Arc::new(Mutex::new(
@@ -83,12 +101,20 @@ fn scripted_driver(
             .collect(),
     ));
     let mut driver = MockProviderDriver::new();
-    let (read_config, read_provider) = (Arc::clone(&config), provider.clone());
+    let server = Arc::new(server);
+    let (read_config, read_provider, read_server) =
+        (Arc::clone(&config), provider.clone(), Arc::clone(&server));
     driver.expect_read_mcp_servers().returning(move |_request| {
         let declarations = lock(&read_config)
             .iter()
             .map(|(name, enabled)| {
-                declaration(&read_provider, name, *enabled, is_switch_kept_by_daemon)
+                declaration(
+                    &read_provider,
+                    name,
+                    *enabled,
+                    is_switch_kept_by_daemon,
+                    &read_server,
+                )
             })
             .collect();
         Box::pin(ready(Ok(ProviderMcpServersReading {
@@ -115,6 +141,32 @@ fn scripted_driver(
                 config_files: Vec::new(),
             })))
         });
+    let (address_config, address_server) = (Arc::clone(&config), Arc::clone(&server));
+    driver
+        .expect_read_mcp_server_addresses()
+        .returning(move |requests| {
+            let config = lock(&address_config);
+            let readings = requests
+                .into_iter()
+                .map(|request| {
+                    let is_present = config.contains_key(request.binding.server_name().as_str());
+                    match (&*address_server, is_present) {
+                        (ScriptedServer::Remote { address, .. }, true) => {
+                            Ok(address.clone().map_or(
+                                McpServerAddressReading::Unreadable,
+                                McpServerAddressReading::Declared,
+                            ))
+                        }
+                        (ScriptedServer::Remote { .. } | ScriptedServer::Program, _) => Err(
+                            DriverError::NoPersonServerEntry(Box::new(NoPersonServerEntry {
+                                binding: request.binding,
+                            })),
+                        ),
+                    }
+                })
+                .collect();
+            Box::pin(ready(readings))
+        });
     driver
         .expect_compose_mcp_server()
         .returning(|_binding, _config, _before| Ok(entry()));
@@ -122,41 +174,58 @@ fn scripted_driver(
         .expect_write_mcp_server()
         .times(writes)
         .returning(move |write, _before| {
-            if !matches!(outcome, McpServerWriteOutcome::Refused(_)) {
-                let mut config = lock(&config);
-                match &write {
-                    McpServerWrite::Upsert { binding, .. } => {
-                        let binding = binding.binding();
-                        let enabled =
-                            matches!(binding, McpServerBindingRef::Local { .. }).then_some(false);
-                        config.insert(binding.server_name().as_str().to_owned(), enabled);
-                    }
-                    McpServerWrite::Remove { binding } => {
-                        config.remove(binding.binding().server_name().as_str());
-                    }
-                    McpServerWrite::SetEnabled { binding, .. } => {
-                        config
-                            .entry(binding.server_name().as_str().to_owned())
-                            .or_insert(None);
-                    }
-                }
-            }
-            Box::pin(ready(outcome.clone()))
+            let before_write = match &*server {
+                ScriptedServer::Remote { before_write, .. } => before_write(),
+                ScriptedServer::Program => Box::pin(ready(())),
+            };
+            let config = Arc::clone(&config);
+            let outcome = outcome.clone();
+            Box::pin(async move {
+                before_write.await;
+                apply_write(&config, &write, &outcome);
+                outcome
+            })
         });
     driver
 }
 
-/// The `user` server `name`'s declaration, with the entry's command and its own switch `enabled`,
-/// its switch kept by the daemon where `is_switch_kept_by_daemon` is set.
+// Applies `write` to `config` unless `outcome` refuses it.
+fn apply_write(
+    config: &Mutex<HashMap<String, Option<bool>>>,
+    write: &McpServerWrite,
+    outcome: &McpServerWriteOutcome,
+) {
+    if !matches!(outcome, McpServerWriteOutcome::Refused(_)) {
+        let mut config = lock(config);
+        match write {
+            McpServerWrite::Upsert { binding, .. } => {
+                let binding = binding.binding();
+                let enabled = matches!(binding, McpServerBindingRef::Local { .. }).then_some(false);
+                config.insert(binding.server_name().as_str().to_owned(), enabled);
+            }
+            McpServerWrite::Remove { binding } => {
+                config.remove(binding.binding().server_name().as_str());
+            }
+            McpServerWrite::SetEnabled { binding, .. } => {
+                config
+                    .entry(binding.server_name().as_str().to_owned())
+                    .or_insert(None);
+            }
+        }
+    }
+}
+
+/// The `user` server `name`'s declaration as `server`, a program with the entry's command, with
+/// its own switch `enabled`, its switch kept by the daemon where `is_switch_kept_by_daemon` is set.
 fn declaration(
     provider: &ProviderId,
     name: &str,
     enabled: Option<bool>,
     is_switch_kept_by_daemon: bool,
+    server: &ScriptedServer,
 ) -> McpServerDeclaration {
-    McpServerDeclaration {
-        binding: serde_json::from_value(user_binding(provider, name)).expect("a binding"),
-        config: McpServerConfigView::Stdio {
+    let config = match server {
+        ScriptedServer::Program => McpServerConfigView::Stdio {
             command: "npx".to_owned(),
             args: None,
             env_var_names: None,
@@ -165,10 +234,27 @@ fn declaration(
             startup_timeout_sec: None,
             tool_timeout_sec: None,
         },
+        ScriptedServer::Remote { url, .. } => McpServerConfigView::Http {
+            url: url.clone(),
+            url_query_param_names: None,
+            header_names: None,
+            bearer_token_env_var: None,
+            env_http_headers: None,
+            oauth_scopes: None,
+            oauth_resource: None,
+            enabled,
+            required: None,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        },
+    };
+    McpServerDeclaration {
+        binding: serde_json::from_value(user_binding(provider, name)).expect("a binding"),
+        config,
         superseded_in: Vec::new(),
         disabled_in: Vec::new(),
         is_read_only: false,
-        sign_in_client: None,
+        sign_in_settings: None,
         is_switch_kept_by_daemon,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
         organization_managed: None,
@@ -193,7 +279,11 @@ fn upsert(
 }
 
 /// A removal of the `user` server `name` under `key`.
-fn delete(provider: &ProviderId, key: &ClientUuid, name: &str) -> McpServerDeleteRequest {
+pub(crate) fn delete(
+    provider: &ProviderId,
+    key: &ClientUuid,
+    name: &str,
+) -> McpServerDeleteRequest {
     let mut request = user_binding(provider, name);
     request["clientIdempotencyKey"] = json!(key.as_str());
     serde_json::from_value(request).expect("a delete request")
@@ -219,17 +309,17 @@ fn code<Response>(answer: &Result<Response, DomainError>) -> Option<RefusalCode>
 /// A mutation service over a fresh database and keychain, the table's first providers answered by
 /// a test's drivers in order, with the real inventory, binding store and receipts under it, and a
 /// feed reading the board its tracker and the service send on.
-struct Fixture {
+pub(super) struct Fixture {
     database: TestDatabase,
     keychain: Arc<CountingKeychain>,
-    service: McpMutationService,
+    pub(super) service: McpMutationService,
     notices: Box<dyn Feed<Emission = McpSubscribeEmission>>,
     _data_folder: TempDir,
     _platform_store: PlatformCredentialStore,
 }
 
 impl Fixture {
-    async fn new(
+    pub(super) async fn new(
         drivers: Vec<Arc<dyn ProviderDriver>>,
         removal_rows: Option<McpRemovalRows>,
     ) -> Self {
@@ -266,7 +356,7 @@ impl Fixture {
     }
 
     /// `key`'s receipt status, `None` where it has no receipt.
-    fn receipt_status(&self, key: &ClientUuid) -> Option<String> {
+    pub(super) fn receipt_status(&self, key: &ClientUuid) -> Option<String> {
         self.database
             .reader()
             .query_row(
@@ -278,7 +368,7 @@ impl Fixture {
             .expect("the test reads the receipt")
     }
 
-    fn count(&self, sql: &str) -> i64 {
+    pub(super) fn count(&self, sql: &str) -> i64 {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
@@ -294,7 +384,7 @@ impl Fixture {
 
     /// The config-changed notices waiting on the fixture's feed, in the order it reads them; the
     /// tracker's status notices are passed over.
-    fn config_notices(&mut self) -> Vec<McpServerConfigChangedNotice> {
+    pub(super) fn config_notices(&mut self) -> Vec<McpServerConfigChangedNotice> {
         let gate = CreditGate::with_credit(1);
         let mut notices = Vec::new();
         while let Some(read) = self.notices.next(&gate).now_or_never() {
@@ -312,7 +402,7 @@ impl Fixture {
 }
 
 /// The `user` server `name`'s binding.
-fn user_binding_ref(provider: &ProviderId, name: &str) -> McpServerBindingRef {
+pub(super) fn user_binding_ref(provider: &ProviderId, name: &str) -> McpServerBindingRef {
     serde_json::from_value(user_binding(provider, name)).expect("a binding")
 }
 
@@ -347,6 +437,7 @@ async fn the_config_notice_follows_the_commit(
         },
         writes,
         is_switch_kept_by_daemon,
+        ScriptedServer::Program,
     );
     let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
@@ -389,6 +480,7 @@ async fn a_same_key_retry_with_another_request_conflicts_after_one_write() {
         },
         1,
         false,
+        ScriptedServer::Program,
     );
     let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
@@ -427,6 +519,7 @@ async fn a_landed_write_whose_commit_failed_is_committed_by_the_start() {
         },
         1,
         false,
+        ScriptedServer::Program,
     );
     let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
@@ -512,6 +605,7 @@ async fn a_definite_refusal_is_saved_and_replayed() {
         }),
         1,
         false,
+        ScriptedServer::Program,
     );
     let mut fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let key = idempotency_key();
@@ -552,6 +646,7 @@ async fn a_removal_settled_at_the_start_commits_the_ports_rows() {
         },
         1,
         false,
+        ScriptedServer::Program,
     );
     let marker: McpRemovalRows = Arc::new(|_key: &McpBindingKey| {
         vec![WriteStatement {
@@ -596,6 +691,7 @@ async fn two_first_mutations_both_land() {
         },
         2,
         false,
+        ScriptedServer::Program,
     );
     let fixture = Fixture::new(vec![Arc::new(driver)], None).await;
     let (docs_key, mail_key) = (idempotency_key(), idempotency_key());
@@ -653,6 +749,7 @@ async fn an_emulated_local_add_stores_the_switch_it_asks_for(
         applied,
         writes,
         false,
+        ScriptedServer::Program,
     )));
     let fixture = Fixture::new(drivers, None).await;
     let upsert_asking = |asked: Option<bool>| {

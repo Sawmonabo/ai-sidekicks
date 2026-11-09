@@ -2,8 +2,9 @@
 //! requests find the token run out, no renewal for a token another request already replaced, a
 //! renewal as the client a sign-in kept since names, a sign-out that overtakes a renewal under way
 //! and the refresh token that renewal received revoked, a `DPoP` sign-in's renewal signed with its
-//! key, which refused renewals forget the sign-in, which expired sign-ins mark the server signed
-//! out, and which issuers keep it.
+//! key, its request presenting the token with a proof of that request, which refused renewals
+//! forget the sign-in, which expired sign-ins mark the server signed out, and which issuers keep
+//! it.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +22,8 @@ use reqwest::header::{AUTHORIZATION, HeaderValue};
 use rmcp::transport::auth::{AuthorizationMetadata, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
 use secrecy::SecretBox;
-use serde_json::{Value, json};
+use serde_json::json;
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
@@ -33,9 +35,10 @@ use tokio_util::sync::CancellationToken;
 use super::{SignInAuthorizationError, SignInAuthorizer};
 use crate::client::http::McpRequestAuthorizer as _;
 use crate::oauth::dpop_proof::DpopKey;
-use crate::sign_in::canonical_server_address;
+use crate::oauth::dpop_proof::tests::{decode_part, proof_thumbprint};
 use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
+use crate::sign_in::sign_out::revocation::tests::signed_in;
 
 /// How the fake token endpoint answers a renewal.
 #[derive(Clone, Copy)]
@@ -198,12 +201,8 @@ async fn expired_sign_in_issued_by(
     )
     .with_issuer(held_issuer.map(str::to_owned));
     custody
-        .attempt_credential_store(
-            &address,
-            custody.sign_out_generation(&address),
-            dpop_key,
-            None,
-        )
+        .test_attempt_store(&address, dpop_key, None)
+        .await
         .save(credentials)
         .await
         .expect("the sign-in is kept");
@@ -223,6 +222,10 @@ async fn authorizer_for(
     metadata.issuer = issuer.map(str::to_owned);
     metadata.authorization_endpoint = format!("{base}/authorize");
     metadata.token_endpoint = format!("{base}/token");
+    metadata.additional_fields.insert(
+        "revocation_endpoint".to_owned(),
+        json!(format!("{base}/revoke")),
+    );
     SignInAuthorizer::new(
         custody,
         &OAuthHttpPools::new().expect("the pools build"),
@@ -267,7 +270,8 @@ async fn one_renewal_serves_every_request_that_found_the_token_run_out() {
     );
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let held = custody
-        .credential_store(&address)
+        .test_held_store(&address)
+        .await
         .held()
         .await
         .expect("the keychain answers")
@@ -327,16 +331,17 @@ async fn only_a_refused_grant_forgets_the_sign_in(
     }
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let held = custody
-        .credential_store(&address)
+        .test_held_store(&address)
+        .await
         .held()
         .await
         .expect("the keychain answers");
     assert_eq!(held.is_some(), is_kept);
     assert_eq!(
         custody
-            .signed_in_addresses()
+            .signed_in_servers()
             .borrow()
-            .contains(&canonical_server_address(&address)),
+            .contains(&custody.test_digest(&address).await),
         is_kept
     );
 }
@@ -357,14 +362,53 @@ async fn a_dpop_sign_ins_renewal_is_signed_for_the_token_endpoint() {
     let [Some(proof)] = &proofs[..] else {
         panic!("one renewal, carrying a proof: {proofs:?}");
     };
-    let claims: Value = serde_json::from_slice(
-        &URL_SAFE_NO_PAD
-            .decode(proof.split('.').nth(1).expect("a JWT's claims"))
-            .expect("base64url claims"),
-    )
-    .expect("JSON claims");
+    let claims = decode_part(proof.split('.').nth(1).expect("a JWT's claims"));
     assert_eq!(claims["htm"], "POST");
     assert_eq!(claims["htu"], format!("{base}/token"));
+}
+
+// Mutations: in `SignInAuthorizer::authorization`, present the token under
+// `BEARER_AUTHORIZATION_SCHEME`, hand `make_proof` `None` for the access token or for the nonce,
+// or make the key in `SignInAuthorizer::dpop_key` with `DpopKey::generate()` in place of
+// `DpopKey::from_scalar`; each fails an assertion below.
+#[tokio::test]
+async fn a_dpop_sign_in_presents_its_token_with_a_proof_of_the_request() {
+    let key = DpopKey::generate();
+    let (server, _harness, authorizer) = signed_in(
+        StatusCode::OK,
+        None,
+        Some(Arc::new(SecretBox::new(Box::new(key.to_scalar())))),
+    )
+    .await;
+    let base = &server.base;
+
+    let headers = authorizer
+        .authorize(
+            &Method::POST,
+            &format!("{base}/mcp?page=2"),
+            Some("server-nonce-1"),
+        )
+        .await
+        .expect("the request is authorized");
+
+    let header = |name: &str| {
+        let (_, value) = headers
+            .iter()
+            .find(|(header, _)| header.as_str() == name)
+            .unwrap_or_else(|| panic!("a {name} header"));
+        value.to_str().expect("a text header").to_owned()
+    };
+    assert_eq!(header(AUTHORIZATION.as_str()), "DPoP test-access-token-1");
+    let proof = header(DPOP_PROOF_HEADER_NAME);
+    assert_eq!(proof_thumbprint(&proof), key.thumbprint());
+    let claims = decode_part(proof.split('.').nth(1).expect("a proof has claims"));
+    assert_eq!(claims["htm"], "POST");
+    assert_eq!(claims["htu"], format!("{base}/mcp"));
+    assert_eq!(
+        claims["ath"],
+        URL_SAFE_NO_PAD.encode(Sha256::digest("test-access-token-1"))
+    );
+    assert_eq!(claims["nonce"], "server-nonce-1");
 }
 
 // Mutations: compare the issuers as exact text in `is_same_issuer`, drop only a slash ending an
@@ -401,7 +445,8 @@ async fn a_sign_in_is_kept_only_for_the_issuer_that_issued_it(
     }
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let held = custody
-        .credential_store(&address)
+        .test_held_store(&address)
+        .await
         .held()
         .await
         .expect("the keychain answers");
@@ -424,7 +469,8 @@ async fn a_sign_in_kept_since_renews_as_its_own_client() {
     }))
     .expect("a token response reads");
     custody
-        .attempt_credential_store(&address, custody.sign_out_generation(&address), None, None)
+        .test_attempt_store(&address, None, None)
+        .await
         .save(StoredCredentials::new(
             "test-other-client".to_owned(),
             Some(token_response),
@@ -463,9 +509,9 @@ async fn a_sign_out_during_a_renewal_lands_at_once_and_its_rotated_token_is_revo
         }
     });
     renewals.arrived.notified().await;
-    let store = custody.credential_store(&address);
+    let digest = custody.test_digest(&address).await;
 
-    let signed_out = tokio::time::timeout(Duration::from_secs(5), store.sign_out())
+    let signed_out = tokio::time::timeout(Duration::from_secs(5), custody.sign_out(&digest))
         .await
         .expect("the sign-out lands while the renewal waits")
         .expect("the keychain answers");
@@ -483,13 +529,16 @@ async fn a_sign_out_during_a_renewal_lands_at_once_and_its_rotated_token_is_revo
         *renewals.revoked_tokens.lock().expect("never poisoned"),
         ["test-refresh-token-2"]
     );
-    assert!(store.held().await.expect("the keychain answers").is_none());
     assert!(
-        !custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_server_address(&address))
+        custody
+            .test_held_store(&address)
+            .await
+            .held()
+            .await
+            .expect("the keychain answers")
+            .is_none()
     );
+    assert!(!custody.signed_in_servers().borrow().contains(&digest));
 }
 
 /// Keeps a bearer sign-in to the server at `address` holding `access_token` and, where given,
@@ -509,7 +558,8 @@ async fn keep_run_out_sign_in(
         token_response["refresh_token"] = json!(refresh_token);
     }
     custody
-        .attempt_credential_store(address, custody.sign_out_generation(address), None, None)
+        .test_attempt_store(address, None, None)
+        .await
         .save(StoredCredentials::new(
             "test-client".to_owned(),
             Some(serde_json::from_value(token_response).expect("a token response reads")),
@@ -529,7 +579,7 @@ async fn only_the_sign_in_a_request_found_unrenewable_is_marked_signed_out() {
     let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
-    let canonical_address = canonical_server_address(&address);
+    let digest = custody.test_digest(&address).await;
     keep_run_out_sign_in(&custody, &address, "test-access-token-1", None).await;
     let authorizer = authorizer_for(&custody, &base, None)
         .await
@@ -550,14 +600,9 @@ async fn only_the_sign_in_a_request_found_unrenewable_is_marked_signed_out() {
             .expect("never poisoned")
             .is_empty()
     );
-    assert!(
-        !custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_address)
-    );
+    assert!(!custody.signed_in_servers().borrow().contains(&digest));
 
-    let store = custody.credential_store(&address);
+    let store = custody.test_held_store(&address).await;
     let found = store.held().await.expect("the keychain answers");
     keep_run_out_sign_in(
         &custody,
@@ -571,10 +616,5 @@ async fn only_the_sign_in_a_request_found_unrenewable_is_marked_signed_out() {
         .await
         .expect("the keychain answers");
 
-    assert!(
-        custody
-            .signed_in_addresses()
-            .borrow()
-            .contains(&canonical_address)
-    );
+    assert!(custody.signed_in_servers().borrow().contains(&digest));
 }

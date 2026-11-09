@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
@@ -12,7 +13,6 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpConfigReading, ClaudeMcpServer, is_kept_out_server,
 };
-use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::mcp_server::read::{
     McpAccountServers, McpProbeReading, McpRootReading, McpServerDeclaration, McpServerToolDefaults,
 };
@@ -23,7 +23,7 @@ const CLAUDE_TOOL_APPROVAL_MODE: McpApprovalMode = McpApprovalMode::Prompt;
 
 /// The servers one account brings: its organization's servers and its connectors, with what the
 /// account's own process reported of each connector and each organization server, and each
-/// organization server a probe can send.
+/// organization server's entry as written.
 /// It derives no `Debug`, since an organization entry carries its headers' values.
 #[derive(Clone)]
 pub(crate) struct ClaudeMcpAccountServers {
@@ -38,9 +38,9 @@ pub(crate) struct ClaudeMcpAccountServers {
     /// What the account's process reported of each organization server past `pending`: its
     /// status, error text and tools, so only a server it reports nothing settled of is probed.
     pub(crate) organization_readings: Vec<McpProbeReading>,
-    /// Each organization server as `mcp_set_servers` takes it, by its name, where the account's
-    /// managed settings declare it whole.
-    pub(crate) organization_entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    /// Each organization server's entry as written in the account's managed settings, by its
+    /// name.
+    pub(crate) organization_entries: BTreeMap<McpServerName, Map<String, Value>>,
     /// Whether the account's process still reported fewer connectors than its connector list
     /// holds when the read stopped asking; such a read is never kept.
     pub(crate) lacks_listed_connectors: bool,
@@ -139,7 +139,7 @@ pub(crate) fn rank_claude_mcp_servers(
             .map(|root| McpOverrideOrigin::Placed(root.root.clone()))
             .collect(),
         is_read_only: !is_writable(&server.binding),
-        sign_in_client: None,
+        sign_in_settings: server.sign_in_settings.clone(),
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(CLAUDE_TOOL_APPROVAL_MODE),
         organization_managed: server.organization_managed,
@@ -378,6 +378,7 @@ mod tests {
             },
             endpoint: address.identity.map(ClaudeMcpEndpoint::Address),
             organization_managed: None,
+            sign_in_settings: None,
         }
     }
 

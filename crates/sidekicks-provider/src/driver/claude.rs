@@ -38,7 +38,10 @@ use crate::driver::contract::params_and_results::{
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -638,6 +641,13 @@ impl ProviderDriver for ClaudeDriver {
 
     fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
         self.remove_left_sign_in_folders().boxed()
+    }
+
+    fn read_mcp_server_addresses(
+        &self,
+        requests: Vec<McpServerAddressRead>,
+    ) -> BoxFuture<'_, Vec<Result<McpServerAddressReading, DriverError>>> {
+        self.read_mcp_server_addresses(requests).boxed()
     }
 }
 

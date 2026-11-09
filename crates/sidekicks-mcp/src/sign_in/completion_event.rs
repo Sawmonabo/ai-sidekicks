@@ -3,14 +3,6 @@
 //! from the daemon's own fixed words: never the authorization server's text, an error's
 //! description or an address.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the sign-in service whose settled attempts append it"
-    )
-)]
-
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::mcp::governance::{
