@@ -1,9 +1,8 @@
-/* The pane chrome's tab strip. No literal color: every value is read from a Meridian property. */
+/* The tab strip Preview and the terminal share. No literal color: every value is read from a
+   Meridian property. One row that scrolls rather than wraps, so a second row never pushes what
+   sits under the strip down. */
 
-/* One row above the address field. It scrolls rather than wraps, so a second row never moves
-   the address field down and makes the page area jump. */
-
-.meridian-preview-tabs {
+.meridian-tab-strip {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -12,7 +11,7 @@
   overflow-x: auto;
 }
 
-.meridian-preview-tabs__list {
+.meridian-tab-strip__list {
   display: flex;
   align-items: stretch;
   gap: var(--meridian-space-1);
@@ -21,7 +20,7 @@
   list-style: none;
 }
 
-.meridian-preview-tab {
+.meridian-tab {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -32,12 +31,12 @@
   background: var(--meridian-surface-sunken);
 }
 
-.meridian-preview-tab--selected {
+.meridian-tab--selected {
   border-color: var(--meridian-edge-strong);
   background: var(--meridian-surface-raised);
 }
 
-.meridian-preview-tab__face {
+.meridian-tab__face {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -51,25 +50,18 @@
   cursor: pointer;
 }
 
-.meridian-preview-tab__label {
+/* A tab whose subject has ended keeps its place until its own `×` clears it, in quiet ink. */
+.meridian-tab--ended .meridian-tab__face {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-tab__label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The page's own icon, sized from the tab's text so it scales with it. */
-.meridian-preview-tab__favicon {
-  flex: none;
-  inline-size: 1em;
-  block-size: 1em;
-  object-fit: contain;
-}
-
-.meridian-preview-tab__spinner {
-  color: var(--meridian-accent-text);
-}
-
-.meridian-preview-tab__close {
+.meridian-tab__close {
   display: inline-flex;
   align-items: center;
   padding: var(--meridian-space-1);
@@ -80,12 +72,13 @@
   cursor: pointer;
 }
 
-.meridian-preview-tab__close:hover {
+.meridian-tab__close:hover {
   color: var(--meridian-text);
 }
 
-/* A tab's menu: its four move rows on the raised ground, a space step clear of the tab. */
-.meridian-preview-tab-menu {
+/* A tab's menu: the pane's rows and the four move rows on the raised ground, a space step clear
+   of the tab. */
+.meridian-tab-menu {
   display: flex;
   flex-direction: column;
   margin-block: var(--meridian-space-1);
@@ -96,18 +89,23 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-preview-tab-menu__row {
+.meridian-tab-menu__row {
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border-radius: var(--meridian-radius-sm);
   color: var(--meridian-text);
   cursor: default;
 }
 
-.meridian-preview-tab-menu__row[data-highlighted] {
+.meridian-tab-menu__row[data-highlighted] {
   background: var(--meridian-surface-sunken);
 }
 
-/* A row with nowhere to move the tab. */
-.meridian-preview-tab-menu__row[data-disabled] {
+/* A row with nothing to act on. */
+.meridian-tab-menu__row[data-disabled] {
   color: var(--meridian-text-faint);
+}
+
+.meridian-tab-menu__separator {
+  margin-block: var(--meridian-space-1);
+  border-block-start: 1px solid var(--meridian-edge);
 }

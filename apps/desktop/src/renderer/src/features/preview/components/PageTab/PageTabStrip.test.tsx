@@ -1,8 +1,6 @@
-// The page tab strip appears only once there are two pages to choose between, a middle-click on
-// a tab closes that page as its close control does, and only the bare menu key or Shift+F10
-// opens its menu.
+// Preview's tab strip appears only once there are two pages to choose between.
 
-import { fireEvent, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -22,7 +20,7 @@ function wrapper(props: { readonly children: React.ReactNode }): React.JSX.Eleme
   );
 }
 
-describe("the tab strip", () => {
+describe("the page tab strip", () => {
   it("draws nothing for one page, and a strip for two", () => {
     const one = render(
       <PageTabStrip
@@ -33,7 +31,7 @@ describe("the tab strip", () => {
       />,
       { wrapper },
     );
-    expect(one.container.querySelector(".meridian-preview-tabs")).toBeNull();
+    expect(one.container.querySelector(".meridian-tab-strip")).toBeNull();
     one.unmount();
     render(
       <PageTabStrip
@@ -47,84 +45,6 @@ describe("the tab strip", () => {
       />,
       { wrapper },
     );
-    expect(document.querySelectorAll(".meridian-preview-tab")).toHaveLength(2);
-  });
-
-  it("closes the page a middle-click lands on, and only for the middle button", () => {
-    const onClose = vi.fn();
-    const onSelect = vi.fn();
-    render(
-      <PageTabStrip
-        reading={{
-          kind: "served",
-          frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
-        }}
-        onSelect={onSelect}
-        onClose={onClose}
-        onReorder={vi.fn()}
-      />,
-      { wrapper },
-    );
-    const label = [...document.querySelectorAll(".meridian-preview-tab__label")][1];
-    if (label === undefined) {
-      throw new Error("the strip drew no second tab");
-    }
-    fireEvent(label, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 2 }));
-    expect(onClose).not.toHaveBeenCalled();
-    const middleClick = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
-    fireEvent(label, middleClick);
-    expect(onClose).toHaveBeenCalledExactlyOnceWith("b");
-    expect(middleClick.defaultPrevented).toBe(true);
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("opens a tab's menu on the menu key alone or Shift+F10, and on no chord adding a modifier", () => {
-    const negatives = render(<TwoPageStrip />, { wrapper });
-    for (const chord of [
-      { key: "F10" },
-      { key: "F10", shiftKey: true, ctrlKey: true },
-      { key: "F10", shiftKey: true, metaKey: true },
-      { key: "F10", shiftKey: true, altKey: true },
-      { key: "ContextMenu", ctrlKey: true },
-      { key: "ContextMenu", shiftKey: true },
-    ]) {
-      const press = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...chord });
-      fireEvent(firstTabFace(), press);
-      expect(press.defaultPrevented).toBe(false);
-    }
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    negatives.unmount();
-
-    for (const opening of [{ key: "ContextMenu" }, { key: "F10", shiftKey: true }]) {
-      const strip = render(<TwoPageStrip />, { wrapper });
-      const press = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...opening });
-      fireEvent(firstTabFace(), press);
-      expect(press.defaultPrevented).toBe(true);
-      expect(document.querySelector('[role="menu"]')).not.toBeNull();
-      strip.unmount();
-    }
+    expect(document.querySelectorAll(".meridian-tab")).toHaveLength(2);
   });
 });
-
-/** A strip over two pages, the fewest that draw it. */
-function TwoPageStrip(): React.JSX.Element {
-  return (
-    <PageTabStrip
-      reading={{
-        kind: "served",
-        frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
-      }}
-      onSelect={vi.fn()}
-      onClose={vi.fn()}
-      onReorder={vi.fn()}
-    />
-  );
-}
-
-function firstTabFace(): Element {
-  const face = document.querySelector(".meridian-preview-tab__face");
-  if (face === null) {
-    throw new Error("the strip drew no tab");
-  }
-  return face;
-}

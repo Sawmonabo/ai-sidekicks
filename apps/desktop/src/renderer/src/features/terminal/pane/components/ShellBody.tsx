@@ -1,6 +1,6 @@
 // One shell on screen: its lease line, its emulator fed with its live output, the line saying its
 // program exited, and the line saying why its stream, a write or a size was refused. A shell that
-// did not start draws only its cause with `Try again`.
+// did not start draws only its cause with `Try again`. A shell this pane opened takes the focus.
 //
 // The write gate opens on the lease folded from the shell list's holder and the session's standing
 // events against this device's id, once the pane's own output feed is followed, since every write
@@ -34,6 +34,7 @@ import {
   projectTerminalLease,
   type TerminalLeaseState,
 } from "../../lease/state.js";
+import { useOpenOutputFocused } from "../hooks/useOpenOutputFocused.js";
 import { useShellOutput } from "../hooks/useShellOutput.js";
 
 /** The shell body's accessible name. */
@@ -46,6 +47,8 @@ export interface ShellBodyProps {
   readonly sessionStore: SessionStore;
   readonly frameStore: WindowStore;
   readonly shell: TerminalListEntry;
+  /** Whether the body takes the focus once its emulator is on screen: a shell this pane opened. */
+  readonly isFocusedOnOpen: boolean;
   /** Opens a fresh shell in place of one that did not start. */
   readonly onTryAgain: () => void;
 }
@@ -67,7 +70,7 @@ export function ShellBody(props: ShellBodyProps): React.JSX.Element {
 }
 
 function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
-  const { bridge, sessionId, sessionStore, frameStore, shell } = props;
+  const { bridge, sessionId, sessionStore, frameStore, shell, isFocusedOnOpen } = props;
   const { terminalId, status } = shell;
   const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
   const thisDeviceId = useMainProcessState(frameStore).negotiation?.deviceId;
@@ -85,6 +88,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
     [terminalId, thisDeviceId, standingEvents, shell.holder, shell.leaseVersion],
   );
   const { outputSubscriptionId, resizeShell } = output;
+  const openOutput = useOpenOutputFocused(output.openOutput, isFocusedOnOpen);
   const isHeldHere = lease.holder === "held-by-this-device";
   const hasExited = status.state === "exited";
 
@@ -114,7 +118,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
         onKeystroke={output.typeKeys}
         onPaste={output.pasteText}
         onGridResize={setGridSize}
-        openOutput={output.openOutput}
+        openOutput={openOutput}
       />
       {status.state === "exited" ? (
         <p className="meridian-terminal-pane__exit-line">

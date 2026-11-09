@@ -124,7 +124,7 @@ async function mountTabs(options: {
   await document.fonts.ready;
   return {
     container: mount.container,
-    tabs: () => [...mount.container.querySelectorAll<HTMLElement>(".meridian-preview-tab")],
+    tabs: () => [...mount.container.querySelectorAll<HTMLElement>(".meridian-tab")],
   };
 }
 
@@ -322,7 +322,7 @@ describe("browser — dragging a tab to reorder", () => {
   it("scrolls a strip held at its edge and drops the tab past what was in view", async () => {
     const onReorder = vi.fn();
     const strip = await mountTabs({ onReorder, pages: EIGHT_PAGES, stripWidth: "20rem" });
-    const scroller = strip.container.querySelector<HTMLElement>(".meridian-preview-tabs");
+    const scroller = strip.container.querySelector<HTMLElement>(".meridian-tab-strip");
     if (scroller === null) {
       throw new Error("the strip drew no scroller");
     }
@@ -358,7 +358,7 @@ describe("browser — dragging a tab to reorder", () => {
     const mouse = await RealMouse.calibrated(document);
 
     // Under the drag threshold: a click on the tab, not a drag.
-    const tabFace = tabAt(strip.tabs(), 1).querySelector(".meridian-preview-tab__face");
+    const tabFace = tabAt(strip.tabs(), 1).querySelector(".meridian-tab__face");
     if (tabFace === null) {
       throw new Error("the tab drew no face");
     }

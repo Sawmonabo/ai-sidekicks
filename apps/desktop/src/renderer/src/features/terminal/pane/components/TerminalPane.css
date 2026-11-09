@@ -38,3 +38,27 @@
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
 }
+
+/* The line under the strip: the session's project and tree, in quiet mono. */
+.meridian-terminal-pane__tree-line {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The question a close asks in place before it ends a shell another device holds. */
+.meridian-terminal-pane__close-question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-terminal-pane__close-answers {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}

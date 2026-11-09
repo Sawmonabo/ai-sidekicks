@@ -1,5 +1,6 @@
 // The terminal pane over a fake daemon wire: the shell list draws one tab per shell and a
-// middle-click closes one, a session read empty opens one shell and no more; an exited shell
+// middle-click closes one, a session read empty opens one shell and no more; a close of a shell
+// another device holds is asked first and forced on the answer, and a moved tab sends its order; an exited shell
 // reads its exit line and one that did not start reads its cause with `Try again`; the holding
 // pane tells the shell its grid's size; a paste goes as one paste; and keys typed while the
 // output stream is opened again go once the new subscription is acknowledged.
@@ -12,7 +13,7 @@ import type { TerminalId, TerminalListEntry } from "@ai-sidekicks/contracts/term
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { TERMINAL_LIST_STREAM, TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
-import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { RecordedShellWire } from "#renderer/services/daemon/terminal/output.test-support.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
@@ -26,6 +27,7 @@ import { SessionTerminalPane } from "./SessionTerminalPane.js";
 
 const SESSION_ID = "019b7b30-0280-79a4-8110-cca0117a0135";
 const THIS_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0137" as DeviceId;
+const OTHER_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0138" as DeviceId;
 const FIRST_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0141" as SubscriptionId;
 const SECOND_SUBSCRIPTION_ID = "019b7b30-0280-79a4-8110-cca0117a0142" as SubscriptionId;
 const TERMINAL_IDS = ["terminal-1", "terminal-2"] as const;
@@ -48,7 +50,7 @@ describe("the terminal pane's tab strip", () => {
 
     listShells(wire, [shellEntry("terminal-1")]);
     listShells(wire, [shellEntry("terminal-1"), shellEntry("terminal-2")]);
-    const tabs = container.querySelectorAll(".meridian-terminal-tab");
+    const tabs = container.querySelectorAll(".meridian-tab");
     expect(tabs).toHaveLength(2);
     const secondTab = tabs[1];
     if (secondTab === undefined) {
@@ -64,6 +66,43 @@ describe("the terminal pane's tab strip", () => {
     listShells(wire, []);
     expect(await screen.findByText("No active terminal.")).toBeDefined();
     expect(wire.paramsOf("terminal.open")).toHaveLength(1);
+  });
+});
+
+describe("closing and moving a shell's tab", () => {
+  it("asks before closing a shell another device holds, and closes it with force on the answer", async () => {
+    const wire = new RecordedShellWire();
+    mountPane(wire);
+    listShells(wire, [
+      shellEntry("terminal-1"),
+      shellEntry("terminal-2", { holder: { holderDeviceId: OTHER_DEVICE_ID }, leaseVersion: 1 }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Close zsh terminal-2" }));
+    expect(await screen.findByText("Another device holds zsh terminal-2. Close it?")).toBeDefined();
+    expect(wire.paramsOf("terminal.close")).toStrictEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => {
+      expect(wire.paramsOf("terminal.close")).toStrictEqual([
+        { sessionId: SESSION_ID, terminalId: "terminal-2", force: true },
+      ]);
+    });
+    expect(screen.queryByText("Another device holds zsh terminal-2. Close it?")).toBeNull();
+  });
+
+  it("sends a moved tab's new order once", async () => {
+    const wire = new RecordedShellWire();
+    mountPane(wire);
+    listShells(wire, [shellEntry("terminal-1"), shellEntry("terminal-2")]);
+    fireEvent.keyDown(screen.getByRole("button", { name: "zsh terminal-1" }), {
+      key: "ContextMenu",
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move right" }));
+    await waitFor(() => {
+      expect(wire.paramsOf("terminal.reorder")).toStrictEqual([
+        { sessionId: SESSION_ID, terminalIds: ["terminal-2", "terminal-1"] },
+      ]);
+    });
   });
 });
 
@@ -201,7 +240,7 @@ function mountPane(wire: RecordedShellWire): ReturnType<typeof render> {
       sessionStore={new SessionStore({ sessionId: SESSION_ID })}
       frameStore={frameStore}
     />,
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: withAnnouncer(bridgeWrapper(wire.bridge)) },
   );
 }
 

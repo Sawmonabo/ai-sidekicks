@@ -2,6 +2,8 @@
 // The favicon arrives as bytes and is drawn from an object address over them, so nothing is
 // fetched; the address is let go when the icon changes or the tab goes.
 
+import "./PageTabIcon.css";
+
 import { useEffect, useState } from "react";
 
 import type { PreviewFavicon, PreviewPage } from "@ai-sidekicks/contracts/preview/methods";

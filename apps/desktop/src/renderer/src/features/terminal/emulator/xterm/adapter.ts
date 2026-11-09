@@ -148,6 +148,11 @@ export class XtermTerminalAdapter {
     this.#mountBinding.detach();
   }
 
+  /** Put the typing cursor in the emulator, once it is on screen. */
+  public focus(): void {
+    this.#terminal?.focus();
+  }
+
   /** Say whether this user may type. The answer is the lease's, handed down. */
   public setWriteEnabled(isWriteEnabled: boolean): void {
     this.#mountBinding.setWriteEnabled(isWriteEnabled);
