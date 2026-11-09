@@ -31,11 +31,11 @@ import {
 afterEach(disposeTrackedReaders);
 
 /**
- * One `workspace.stale` frame, payload-free because the trigger keys on the kind alone; the
+ * One `workspace.rootLost` frame, payload-free because the trigger keys on the kind alone; the
  * envelope comes from the shared session-events helper.
  */
-function staleFrame(sessionId: string, sequence: number): ProjectedSessionEvent {
-  return eventOfKind(sessionId, "workspace.stale", sequence);
+function rootLostFrame(sessionId: string, sequence: number): ProjectedSessionEvent {
+  return eventOfKind(sessionId, "workspace.rootLost", sequence);
 }
 
 describe("RepoMountsReader — the read", () => {
@@ -58,7 +58,7 @@ describe("RepoMountsReader — the read", () => {
     expect(reading.mounts.map((mount) => mount.health.status)).toStrictEqual([
       "healthy",
       "unreachable",
-      "identity_mismatch",
+      "identityMismatch",
     ]);
   });
 
@@ -136,8 +136,8 @@ describe("RepoMountsReader — the read", () => {
 });
 
 describe("RepoMountsReader — the reasons it reads again", () => {
-  it("re-reads on a `workspace.stale` frame", async () => {
-    // A path that went stale while the window stayed focused would otherwise leave the mount
+  it("re-reads on a `workspace.rootLost` frame", async () => {
+    // A path that went away while the window stayed focused would otherwise leave the mount
     // health, workspace states, roots and mode controls on the first read.
     const clock = new ManualClock();
     const sessionStore = initializedStore(SESSION_ID);
@@ -146,7 +146,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.applyBatch([staleFrame(SESSION_ID, 1)]);
+    sessionStore.applyBatch([rootLostFrame(SESSION_ID, 1)]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -182,8 +182,8 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     sessionStore.applyBatch([
       eventOfKind(SESSION_ID, "workspace.preparing", 1),
       eventOfKind(SESSION_ID, "worktree.created", 2),
-      eventOfKind(SESSION_ID, "worktree.ready", 3),
-      eventOfKind(SESSION_ID, "workspace.ready", 4),
+      eventOfKind(SESSION_ID, "worktree.bound", 3),
+      eventOfKind(SESSION_ID, "workspace.prepared", 4),
     ]);
     await settle(clock, reader);
 
@@ -202,8 +202,8 @@ describe("RepoMountsReader — the reasons it reads again", () => {
       shape: "project",
       cursor: 1,
       entities: [],
-      // A stale frame inside the backfill is history the live read already reflects.
-      transcript: [staleFrame(SESSION_ID, 1)],
+      // A root-lost frame inside the backfill is history the live read already reflects.
+      transcript: [rootLostFrame(SESSION_ID, 1)],
     });
     sessionStore.applyBatch([
       {

@@ -1,7 +1,7 @@
 // The attach act: the call it sends and how the reply reads. A mount belongs to the machine,
 // so the call carries the path and nothing about the session.
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
+import type { RepoMountAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import { ActController } from "../../acts/controller.js";
 import { type ActSettlementReading } from "../../acts/reading.js";
 import type { RepoOperations } from "../../operations.js";
@@ -9,7 +9,7 @@ import type { RepoOperations } from "../../operations.js";
 /** What a finished attach carries: the mount the daemon minted for it. */
 export interface AttachSettlement {
   readonly status: "attached";
-  readonly response: RepoAttachResponse;
+  readonly response: RepoMountAttachResponse;
 }
 
 /**
@@ -40,7 +40,7 @@ export class AttachController extends ActController<AttachSettlement> {
   public async attach(localPath: string): Promise<void> {
     await this.act(
       async () => await this.#operations.attachRepository({ localPath }),
-      (response: RepoAttachResponse) => ({ status: "attached" as const, response }),
+      (response: RepoMountAttachResponse) => ({ status: "attached" as const, response }),
     );
   }
 }

@@ -1,6 +1,6 @@
 // One workspace row: binding, lifecycle position, and root. `lastError` is present only on a
-// `stale` row and is quoted, not paraphrased. There is no health chip: health belongs to the
-// mount, and a mismatching mount reaches this row as `stale` plus `lastError`. The root line
+// `rootLost` row and is quoted, not paraphrased. There is no health chip: health belongs to the
+// mount, and a mismatching mount reaches this row as `rootLost` plus `lastError`. The root line
 // prints the row's own `fsRoot`, never derived from the mount's `canonicalRoot`.
 
 import "./WorkspaceCard.css";
@@ -21,12 +21,12 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member
- * fails to compile here. Only `stale` (blocks writable runs until repair) earns a tone.
+ * fails to compile here. Only `rootLost` (blocks writable runs until repair) earns a tone.
  */
 const STATE_TONES: Readonly<Record<WorkspaceState, ChipTone>> = {
   preparing: "neutral",
   ready: "neutral",
-  stale: "failure",
+  rootLost: "failure",
   archived: "neutral",
 };
 

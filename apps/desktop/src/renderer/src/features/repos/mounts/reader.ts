@@ -40,7 +40,7 @@ export interface RepoMountsReaderOptions {
   readonly operations: RepoOperations;
   /**
    * The session being read and two of the three reasons to read again. A store, not a bare id:
-   * a `workspace.stale` frame and the repair edge that stands for reconnect are transitions of
+   * a `workspace.rootLost` frame and the repair edge that stands for reconnect are transitions of
    * this object, and the id is read off it so the two never name different sessions.
    */
   readonly sessionStore: SessionStore;

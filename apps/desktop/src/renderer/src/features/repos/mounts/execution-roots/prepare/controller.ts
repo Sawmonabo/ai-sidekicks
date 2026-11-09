@@ -2,7 +2,7 @@
 // put a second root on disk for one press.
 
 import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
-import type { ExecutionRootPrepareResponse } from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { WorkspaceExecutionRootPrepareResponse } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { ActController } from "#renderer/features/repos/acts/controller.js";
 import { type ActSettlementReading } from "#renderer/features/repos/acts/reading.js";
@@ -13,7 +13,7 @@ export type PrepareOperations = Pick<RepoOperations, "prepareExecutionRoot">;
 
 /** What a finished prepare carries: the root on disk, and the state it is in. */
 export type PrepareSettlement = { readonly status: "prepared" } & Readonly<
-  Pick<ExecutionRootPrepareResponse, "executionRoot" | "state">
+  Pick<WorkspaceExecutionRootPrepareResponse, "executionRoot" | "state">
 >;
 
 /** Where the prepare stands. What a form renders. */
@@ -44,7 +44,7 @@ export class ExecutionRootPrepareController extends ActController<PrepareSettlem
           workspaceId: this.#workspaceId as WorkspaceId,
           branchName,
         }),
-      (value: ExecutionRootPrepareResponse) => ({
+      (value: WorkspaceExecutionRootPrepareResponse) => ({
         status: "prepared" as const,
         executionRoot: value.executionRoot,
         state: value.state,

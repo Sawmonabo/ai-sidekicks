@@ -3,7 +3,10 @@
 // per rendered row by `intraline/segment-cache.ts`, never at parse time, because computing
 // every pair up front costs the whole change set before the virtualizer places a row.
 
-import type { DiffFileKind, DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
+import type {
+  DiffFile as WireDiffFile,
+  DiffFileUnreadableReason,
+} from "@ai-sidekicks/contracts/git/local";
 
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
@@ -68,8 +71,16 @@ export interface DiffHunk {
  * written down.
  */
 export type DiffFileChange =
-  | { readonly kind: Exclude<DiffFileKind, "renamed"> }
+  | { readonly kind: Exclude<WireDiffFile["kind"], "renamed"> }
   | { readonly kind: "renamed"; readonly renamedFrom: string };
+
+/**
+ * Why a tool call's patch for a file cannot be drawn: none came, one came in a form this version
+ * cannot read (kept as the provider sent it), or the log cannot read its stored text back.
+ */
+export type DiffPatchUnavailable =
+  | { readonly reason: "absent" | "damaged" }
+  | { readonly reason: "unreadable"; readonly rawPatch: string };
 
 /**
  * One file's change set. The extended-header members (mode, binary) and the change are why a
@@ -86,6 +97,8 @@ export interface DiffFile {
   readonly binary?: boolean;
   /** Why the daemon could not read the file's contents, where it could not. */
   readonly unreadable?: DiffFileUnreadableReason;
+  /** Why a tool call's patch for the file cannot be drawn, where it cannot. */
+  readonly patchUnavailable?: DiffPatchUnavailable;
   /** On a workflow run's comparison, the name of the step that changed the file. */
   readonly stepName?: string;
   /**
@@ -170,18 +183,40 @@ export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): r
 
 /**
  * Why a file's contents are not drawn, in the console's own words, written where its lines would
- * be: binary contents, or the cause the daemon could not read them; absent for a file whose lines
- * can be drawn.
+ * be: binary contents, the cause the daemon could not read them, or why a tool call's patch
+ * cannot be drawn; absent for a file whose lines can be drawn.
  */
 export function diffFileUnshownReason(file: DiffFile): string | undefined {
   if (file.binary === true) {
     return "binary — contents not shown";
   }
-  return file.unreadable === undefined ? undefined : UNREADABLE_REASON_COPY[file.unreadable];
+  if (file.unreadable !== undefined) {
+    return UNREADABLE_REASON_COPY[file.unreadable];
+  }
+  return file.patchUnavailable === undefined
+    ? undefined
+    : PATCH_UNAVAILABLE_COPY[file.patchUnavailable.reason];
+}
+
+/**
+ * The text a file's `Copy patch` lifts: its patch, or a patch this version cannot read as the
+ * provider sent it; absent where there is nothing to copy.
+ */
+export function diffFileCopiedPatch(file: DiffFile): string | undefined {
+  return file.patchUnavailable?.reason === "unreadable"
+    ? file.patchUnavailable.rawPatch
+    : file.patch;
 }
 
 /** What a file the daemon could not read says, naming the cause in the console's own words. */
 const UNREADABLE_REASON_COPY: Readonly<Record<DiffFileUnreadableReason, string>> = {
-  permission_denied: "Permission denied",
-  not_regular_file: "Not a regular file",
+  permissionDenied: "Permission denied",
+  notRegularFile: "Not a regular file",
+};
+
+/** What a file whose tool-call patch cannot be drawn says, one line per reason. */
+const PATCH_UNAVAILABLE_COPY: Readonly<Record<DiffPatchUnavailable["reason"], string>> = {
+  absent: "no patch was sent for this file",
+  unreadable: "this version cannot read this change — shown as sent",
+  damaged: "this change's stored text is damaged",
 };

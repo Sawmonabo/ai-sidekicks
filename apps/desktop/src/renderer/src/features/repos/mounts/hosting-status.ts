@@ -9,7 +9,7 @@ import type {
   ChangeRequestReviewDecision,
   ChangeRequestState,
   ReviewerVerdict,
-} from "@ai-sidekicks/contracts/gitflow/hosting";
+} from "@ai-sidekicks/contracts/git/hosting";
 
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 
@@ -79,11 +79,11 @@ export const CHANGE_REQUEST_REVIEW_DECISION_PRESENTATION: Readonly<
   Record<ChangeRequestReviewDecision, StatusPresentation>
 > = {
   approved: { tone: "neutral", meaning: "The request has the approval it needs." },
-  changes_requested: {
+  changesRequested: {
     tone: "attention",
     meaning: "A reviewer asked for changes.",
   },
-  review_required: {
+  reviewRequired: {
     tone: "attention",
     meaning: "The host requires a review nobody has given yet.",
   },
@@ -97,7 +97,7 @@ export const CHANGE_REQUEST_REVIEW_DECISION_PRESENTATION: Readonly<
 export const REVIEWER_VERDICT_PRESENTATION: Readonly<Record<ReviewerVerdict, StatusPresentation>> =
   {
     approved: { tone: "neutral", meaning: "This reviewer approved the request." },
-    changes_requested: {
+    changesRequested: {
       tone: "attention",
       meaning: "This reviewer asked for changes.",
     },

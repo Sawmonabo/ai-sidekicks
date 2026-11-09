@@ -72,7 +72,7 @@ describe("Review over a workflow run", () => {
     expect(calls.map((call) => call.params)).toStrictEqual([
       {
         sessionId: WORKFLOW_OWN_SESSION,
-        scope: "workflow_run",
+        scope: "workflowRun",
         workflowRunId: FINISHED_RUN.id,
         from: FINISHED_RUN.from,
         to: FINISHED_RUN.to,
@@ -112,7 +112,7 @@ describe("Review over a workflow run", () => {
           diffReads += 1;
           if (diffReads === 1) {
             throw {
-              code: "gitflow.read_failed",
+              code: "git.readFailed",
               message: "The run's snapshots could not be read.",
             };
           }

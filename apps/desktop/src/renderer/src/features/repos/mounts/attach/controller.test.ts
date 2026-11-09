@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
+import type { RepoMountAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import { scriptedRepoOperations } from "../../operations.test-support.js";
 import type { RepoOperations } from "../../operations.js";
@@ -15,7 +15,7 @@ const ATTACHED = {
   state: "attached",
   vcsType: "git",
   canonicalRoot: "/Users/dev/code/new-repo",
-} as unknown as RepoAttachResponse;
+} as unknown as RepoMountAttachResponse;
 
 /** An attach call that answers the minted mount. */
 function attachRepository(): Mock<RepoOperations["attachRepository"]> {

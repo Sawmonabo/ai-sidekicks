@@ -54,8 +54,23 @@
   contain: content;
 }
 
+/* A patch this version cannot read, as the provider sent it: plain lines, no wash, sign or number,
+   cut at the same height as a diff's rows. */
+.meridian-diff-block__raw {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  padding-inline: var(--meridian-space-3);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-12);
+  line-height: var(--meridian-diff-row-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* The fade at the cut, into the block's own ground. */
-.meridian-diff-block__rows--cut::after {
+.meridian-diff-block__rows--cut::after,
+.meridian-diff-block__raw--cut::after {
   position: absolute;
   inset-inline: 0;
   inset-block-end: 0;
@@ -65,7 +80,7 @@
   pointer-events: none;
 }
 
-/* A file with no lines to draw: what changed, where its lines would be. */
+/* A file with no lines to draw: what changed, where its lines would be, or why they are not. */
 .meridian-diff-block__note {
   margin: 0;
   padding-inline: var(--meridian-space-3);

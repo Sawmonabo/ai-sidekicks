@@ -84,7 +84,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
             bridge={context.bridge}
             request={{
               sessionId: sessionId as SessionId,
-              scope: "workflow_run",
+              scope: "workflowRun",
               workflowRunId: entity.id as WorkflowRunId,
               from: entity.from,
               to: entity.to,

@@ -38,19 +38,19 @@ describe("BindWorkspaceController", () => {
     });
     controllers.push(controller);
 
-    await controller.bind("provisioned-worktree", undefined);
-    await controller.bind("bound-root", "packages/contracts");
+    await controller.bind("provisionedWorktree", undefined);
+    await controller.bind("boundRoot", "packages/contracts");
 
     expect(requests).toStrictEqual([
       {
         sessionId: "session-repos",
         repoMountId: "mount-sidekicks",
-        executionMode: "provisioned-worktree",
+        executionMode: "provisionedWorktree",
       },
       {
         sessionId: "session-repos",
         repoMountId: "mount-sidekicks",
-        executionMode: "bound-root",
+        executionMode: "boundRoot",
         directory: "packages/contracts",
       },
     ]);

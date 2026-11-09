@@ -1,4 +1,4 @@
-// A workspace row: it wears its binding and lifecycle position, a stale row quotes its
+// A workspace row: it wears its binding and lifecycle position, a root-lost row quotes its
 // `lastError`, and the root preparation is held while the mount withholds its controls.
 
 import { render, within } from "@testing-library/react";
@@ -37,15 +37,15 @@ function renderRow(
 }
 
 /** A workspace whose row offers a root to prepare, in the mode that provisions one. */
-const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "provisioned-worktree" });
+const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "provisionedWorktree" });
 
 /** A withholding mount's real availability, composed by the module the card reads it from. */
 const DETACHED_MOUNT_BIND_CONTROLS = readBindControlAvailability(buildMount({ state: "detached" }));
 
-describe("WorkspaceCard — the stale row", () => {
+describe("WorkspaceCard — the root-lost row", () => {
   it("quotes `lastError` inline, verbatim", () => {
     const detail = "fatal: could not read from remote repository (exit 128)";
-    const { getByText, container } = renderRow(workspace({ state: "stale", lastError: detail }));
+    const { getByText, container } = renderRow(workspace({ state: "rootLost", lastError: detail }));
     expect(getByText(detail, { ignore: OUTSIDE_LIVE_REGIONS })).toBeDefined();
     // Drawn outside a list's first read, the error arrived live, and is said as a failure is.
     expect(liveRegionText(container, "assertive")).toBe(detail);
@@ -56,7 +56,7 @@ describe("WorkspaceCard — the stale row", () => {
 describe("WorkspaceCard — the row wears what the list gave it", () => {
   it("wears exactly the binding and the lifecycle position", () => {
     const { container } = renderRow(
-      workspace({ state: "preparing", executionMode: "provisioned-worktree" }),
+      workspace({ state: "preparing", executionMode: "provisionedWorktree" }),
     );
     const chips = container.querySelectorAll(".meridian-chip__label");
     expect([...chips].map((chip) => chip.textContent)).toStrictEqual([

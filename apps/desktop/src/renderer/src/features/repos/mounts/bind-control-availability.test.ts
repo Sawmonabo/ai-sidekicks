@@ -11,7 +11,7 @@ describe("bind-control availability — a drifted mount", () => {
     const availability = readBindControlAvailability(
       buildMount({
         health: {
-          status: "identity_mismatch",
+          status: "identityMismatch",
           isRepository: true,
           checkedAt: "2026-01-01T00:00:00Z",
         },

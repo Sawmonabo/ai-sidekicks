@@ -9,7 +9,7 @@ describe("mountRefusalRemedy — only the codes it owns", () => {
   it("invents nothing for a code the repo mounts do not own", () => {
     // The console must not answer a refusal it has no copy for with a generic sentence: the
     // daemon's own detail is then the only true thing on screen.
-    expect(mountRefusalRemedy("session.not_found")).toBeUndefined();
+    expect(mountRefusalRemedy("session.notFound")).toBeUndefined();
   });
 
   it("reads an inherited property name as no registered code", () => {

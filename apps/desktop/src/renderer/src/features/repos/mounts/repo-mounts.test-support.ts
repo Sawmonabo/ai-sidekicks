@@ -125,7 +125,7 @@ export function buildMount(
 ): RepoMountReadResponse {
   return {
     id: "mount-sidekicks",
-    nodeId: "node-workstation",
+    machineId: "machine-workstation",
     localPath: ENTERED_PATH,
     canonicalRoot: CANONICAL_ROOT,
     vcsType: "git",
@@ -144,7 +144,7 @@ export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): R
   return {
     id: "workspace-sidekicks",
     repoMountId: "mount-sidekicks",
-    executionMode: "bound-root",
+    executionMode: "boundRoot",
     state: "ready",
     fsRoot: CANONICAL_ROOT,
     ...overrides,
@@ -214,7 +214,7 @@ export const MOUNTS: readonly RepoMountReadResponse[] = [
     localPath: "/Users/dev/code/moved",
     origin: attachedOrigin(DRIFTED_MOUNT_ID, DRIFTED_PROJECT_ID),
     health: {
-      status: "identity_mismatch",
+      status: "identityMismatch",
       isRepository: true,
       checkedAt: "2026-01-01T09:05:01.000Z",
     },

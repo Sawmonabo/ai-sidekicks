@@ -1,11 +1,12 @@
 // One file's rows as the conversation's flow draws them: its lines, a quiet separator wherever the
 // file's lines are skipped between hunks, and no file or hunk header; a file with no lines keeps
-// its header alone. The flow's gutter numbers each line once, by the new file, so its width is read
+// its header alone, and a patch this version cannot read is drawn under it as sent. The flow's gutter numbers each line once, by the new file, so its width is read
 // off the same walk.
 
 import { DIFF_FLOW_FILE_BLOCK_SCREENS, DIFF_FLOW_SHARE_DIVISOR } from "../measures.js";
 import {
   diffFileChangeNotes,
+  diffFileCopiedPatch,
   diffFileUnshownReason,
   type DiffFile,
   type DiffLine,
@@ -30,6 +31,11 @@ export interface DiffFlowRows {
    * would be; empty for a file with lines.
    */
   readonly bodyNotes: readonly string[];
+  /**
+   * How many lines a patch this version cannot read draws under the notes, as sent; zero for any
+   * other file.
+   */
+  readonly rawLineCount: number;
   /** Whether the block has a footer: a count of its lines, or a patch to copy. */
   readonly hasFooter: boolean;
 }
@@ -90,7 +96,7 @@ export function diffFlowCutRowCount(flowHeightPx: number, rowHeightPx: number): 
 /**
  * How many of a call's files draw a block: as many as two screens of the flow hold, each block
  * reckoned at its rows of `rowHeightPx` up to the cut, a row for its notes where it has no lines,
- * its footer where it has one and the space under it, and always the first. A count of files, so
+ * the lines of a patch shown as sent up to the cut, its footer where it has one and the space under it, and always the first. A count of files, so
  * it never changes how any one block is drawn; it builds the rows of the files it reckons only.
  */
 export function diffFlowDrawnFileCount(
@@ -106,7 +112,9 @@ export function diffFlowDrawnFileCount(
   for (let fileIndex = 0; fileIndex < rowsByFile.fileCount; fileIndex += 1) {
     const flowRows = rowsByFile.rowsOf(fileIndex);
     const blockRowCount =
-      Math.min(flowRows.rows.length, cutRowCount) + (flowRows.bodyNotes.length > 0 ? 1 : 0);
+      Math.min(flowRows.rows.length, cutRowCount) +
+      (flowRows.bodyNotes.length > 0 ? 1 : 0) +
+      Math.min(flowRows.rawLineCount, cutRowCount);
     const blockPx =
       blockRowCount * rowHeightPx + (flowRows.hasFooter ? overhead.footerPx : 0) + overhead.gapPx;
     if (drawnFileCount > 0 && usedPx + blockPx > heldPx) {
@@ -169,6 +177,19 @@ function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
           ...(unshownReason === undefined ? [] : [unshownReason]),
         ]
       : [],
-    hasFooter: lineCount > 0 || file.patch !== undefined,
+    rawLineCount:
+      file.patchUnavailable?.reason === "unreadable"
+        ? textLineCount(file.patchUnavailable.rawPatch)
+        : 0,
+    hasFooter: lineCount > 0 || diffFileCopiedPatch(file) !== undefined,
   };
+}
+
+/** How many lines a text draws: one per line break, and one more for a last line with none. */
+function textLineCount(text: string): number {
+  let breakCount = 0;
+  for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
+    breakCount += 1;
+  }
+  return text.endsWith("\n") ? breakCount : breakCount + 1;
 }

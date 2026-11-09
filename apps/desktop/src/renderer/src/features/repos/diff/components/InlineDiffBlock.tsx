@@ -3,7 +3,8 @@
 // and faded there, with a footer counting the lines drawn, lifting the cut, and copying the
 // file's whole patch. A file inside the cut is drawn whole and its footer has nothing to lift. A
 // file with no lines to draw keeps its header and writes what changed where its lines would be,
-// with a footer only where it has a patch to copy.
+// with a footer only where it has a patch to copy; a patch this version cannot read is drawn under
+// that line as the provider sent it, cut and opened as rows are, with no count of lines.
 //
 // The rows are drawn in steps of a fixed count, each step one box, laid out and painted on its own,
 // so a step that lands or wraps again costs the browser its own rows rather than every row above
@@ -43,7 +44,7 @@ import { useRowsCut } from "../hooks/useRowsCut.js";
 import { useRowsMountedInSteps } from "../hooks/useRowsMountedInSteps.js";
 import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
 import { DIFF_FLOW_STEP_ROWS, DIFF_ROW_HEIGHT_REM } from "../measures.js";
-import type { DiffFile } from "../model.js";
+import { diffFileCopiedPatch, type DiffFile } from "../model.js";
 import { DIFF_FLOW_STEP_ATTRIBUTE, diffFlowCutRowCount, type DiffFlowRows } from "../rows/flow.js";
 import { DiffRowView } from "./DiffRowView.js";
 
@@ -69,6 +70,13 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   const rowCount = flowRows.rows.length;
   const intraline = useIntralineSegmentCache(flowRows.index.model);
   const [rowsElement, setRowsElement] = useState<HTMLDivElement | null>(null);
+  const [rawElement, setRawElement] = useState<HTMLPreElement | null>(null);
+  const { patchUnavailable } = props.file;
+  const rawPatch =
+    patchUnavailable?.reason === "unreadable" ? patchUnavailable.rawPatch : undefined;
+  // A patch shown as sent is what the cut holds; the rows above it are the header alone.
+  const cutElement = rawPatch === undefined ? rowsElement : rawElement;
+  const copiedPatch = diffFileCopiedPatch(props.file);
   const viewport = useContext(TranscriptBodyViewportContext);
   const isWindowed = isOpen && viewport !== undefined;
 
@@ -83,11 +91,12 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   const drawnRowCount = mountedRowCount ?? Math.min(rowCount, cutRowCount);
   const cutHeightPx = isOpen ? undefined : cutRowCount * rowHeightPx;
   const { isCut, drawnLineCount } = useRowsCut(
-    rowsElement,
+    cutElement,
     cutHeightPx,
     flowRows.lineCount,
-    !isWindowed && drawnRowCount < rowCount,
+    rawPatch === undefined && !isWindowed && drawnRowCount < rowCount,
   );
+  const rowsCutHeightPx = rawPatch === undefined ? cutHeightPx : undefined;
 
   // One element per step, so a step mounts its own rows and every other step's memo holds. A
   // window draws its own steps once the rows' element it lays them out in is mounted.
@@ -107,7 +116,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   const rowsClassName = [
     "meridian-diff-block__rows",
     "meridian-focus-inset",
-    isCut ? "meridian-diff-block__rows--cut" : "",
+    isCut && rawPatch === undefined ? "meridian-diff-block__rows--cut" : "",
   ]
     .filter((part) => part !== "")
     .join(" ");
@@ -130,7 +139,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
         style={
           {
             ...gutterStyleOf(flowRows),
-            ...(cutHeightPx === undefined ? {} : { maxBlockSize: cutHeightPx }),
+            ...(rowsCutHeightPx === undefined ? {} : { maxBlockSize: rowsCutHeightPx }),
           } as React.CSSProperties
         }
       >
@@ -150,6 +159,22 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
       {flowRows.bodyNotes.length === 0 ? null : (
         <p className="meridian-diff-block__note">{flowRows.bodyNotes.join(", ")}</p>
       )}
+      {rawPatch === undefined ? null : (
+        <pre
+          ref={setRawElement}
+          className={[
+            "meridian-diff-block__raw",
+            "meridian-focus-inset",
+            isCut ? "meridian-diff-block__raw--cut" : "",
+          ]
+            .filter((part) => part !== "")
+            .join(" ")}
+          tabIndex={-1}
+          style={cutHeightPx === undefined ? undefined : { maxBlockSize: cutHeightPx }}
+        >
+          {rawPatch}
+        </pre>
+      )}
       {flowRows.hasFooter ? (
         <div className="meridian-diff-block__footer">
           {flowRows.lineCount === 0 ? null : (
@@ -157,7 +182,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
           )}
           {isCut ? (
             <>
-              <span aria-hidden="true">·</span>
+              {flowRows.lineCount === 0 ? null : <span aria-hidden="true">·</span>}
               <button
                 type="button"
                 className="meridian-link-button"
@@ -165,15 +190,15 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
                   props.onOpen();
                   // The control leaves with the cut, so focus goes to the rows it opened rather
                   // than to the page; `preventScroll` keeps the rows above where they were.
-                  rowsElement?.focus({ preventScroll: true });
+                  cutElement?.focus({ preventScroll: true });
                 }}
               >
                 Show all
               </button>
             </>
           ) : null}
-          {props.file.patch === undefined ? null : (
-            <PatchCopy patch={props.file.patch} hasSeparator={flowRows.lineCount > 0} />
+          {copiedPatch === undefined ? null : (
+            <PatchCopy patch={copiedPatch} hasSeparator={flowRows.lineCount > 0 || isCut} />
           )}
         </div>
       ) : null}

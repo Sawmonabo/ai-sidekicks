@@ -1,15 +1,16 @@
-// The daemon's diff read as the pane's model: what happened to each file comes from the wire,
-// since a file with no patch has nothing else to say it.
+// The daemon's diff reads as the views' model: what happened to each file comes from the wire,
+// since a file with no patch has nothing else to say it, and a tool call's patches split across
+// pages are joined whole.
 
-import type { GitflowDiffReadResponse } from "@ai-sidekicks/contracts/gitflow/local";
+import type { GitDiffReadResponse } from "@ai-sidekicks/contracts/git/local";
 import { describe, expect, it } from "vitest";
 
 import { diffFileListReading } from "./file-entries.js";
 import { diffFileChangeNotes } from "./model.js";
-import { diffModelFromRead } from "./read-model.js";
+import { diffModelFromPatchList, diffModelFromRead } from "./read-model.js";
 import { DiffFlowRowsByFile } from "./rows/flow.js";
 
-const RESPONSE: GitflowDiffReadResponse = {
+const RESPONSE: GitDiffReadResponse = {
   head: "feature",
   base: "main",
   files: [
@@ -59,5 +60,48 @@ describe("diffModelFromRead", () => {
       "mode changed",
       "binary — contents not shown",
     ]);
+  });
+});
+
+describe("diffModelFromPatchList", () => {
+  it("joins a patch and a raw text split where a page ends, and starts afresh at offset zero", () => {
+    const patch = ["--- a/src/kept.ts", "+++ b/src/kept.ts", "@@ -1 +1 @@", "-a", "+b", ""].join(
+      "\n",
+    );
+    const cut = patch.indexOf("@@");
+    const model = diffModelFromPatchList(
+      [
+        {
+          files: [{ path: "src/kept.ts", patch: patch.slice(0, cut), additions: 1, deletions: 1 }],
+          next: { fileIndex: 0, offset: cut },
+        },
+        {
+          files: [
+            { path: "src/kept.ts", patch: patch.slice(cut), additions: 1, deletions: 1 },
+            { path: "notes.md", unavailable: "unreadable", rawPatch: "*** Begin" },
+          ],
+          next: { fileIndex: 1, offset: 9 },
+        },
+        {
+          files: [{ path: "notes.md", unavailable: "unreadable", rawPatch: " Patch\n" }],
+          next: { fileIndex: 2, offset: 0 },
+        },
+        { files: [{ path: "gone.md", unavailable: "absent" }], next: null },
+      ],
+      { baseRef: "main", headRef: "feature" },
+    );
+
+    expect(model.files.map((file) => file.path)).toStrictEqual([
+      "src/kept.ts",
+      "notes.md",
+      "gone.md",
+    ]);
+    expect(model.files[0]?.patch).toBe(patch);
+    expect(model.files[0]?.hunks).toHaveLength(1);
+    expect(model.files[1]?.patchUnavailable).toStrictEqual({
+      reason: "unreadable",
+      rawPatch: "*** Begin Patch\n",
+    });
+    expect(model.files[2]?.patchUnavailable).toStrictEqual({ reason: "absent" });
   });
 });

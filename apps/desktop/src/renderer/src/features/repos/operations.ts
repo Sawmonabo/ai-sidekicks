@@ -5,15 +5,15 @@
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type {
-  ExecutionRootPrepareRequest,
-  ExecutionRootPrepareResponse,
+  WorkspaceExecutionRootPrepareRequest,
+  WorkspaceExecutionRootPrepareResponse,
   WorktreeRetireRequest,
   WorktreeRetireResponse,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type {
-  RepoAttachRequest,
-  RepoAttachResponse,
+  RepoMountAttachRequest,
+  RepoMountAttachResponse,
   RepoMountReadResponse,
 } from "@ai-sidekicks/contracts/repo/folders";
 import type {
@@ -40,13 +40,13 @@ export interface RepoOperations {
     signal: AbortSignal,
   ) => Promise<WorktreeStatusReadResponse>;
   /** Attach one folder to this machine, by its path. */
-  readonly attachRepository: (request: RepoAttachRequest) => Promise<RepoAttachResponse>;
+  readonly attachRepository: (request: RepoMountAttachRequest) => Promise<RepoMountAttachResponse>;
   /** Bind a workspace on one mount, in one explicit execution mode. */
   readonly bindWorkspace: (request: WorkspaceBindRequest) => Promise<WorkspaceBindResponse>;
   /** Prepare an execution root now, ahead of any run. */
   readonly prepareExecutionRoot: (
-    request: ExecutionRootPrepareRequest,
-  ) => Promise<ExecutionRootPrepareResponse>;
+    request: WorkspaceExecutionRootPrepareRequest,
+  ) => Promise<WorkspaceExecutionRootPrepareResponse>;
   /**
    * Remove one worktree. `discard: false` is the ordinary removal, which removes nothing
    * the confirm did not show; `discard: true` is sent only from the discard confirm.

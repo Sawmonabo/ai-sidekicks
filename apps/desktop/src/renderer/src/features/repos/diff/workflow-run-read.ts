@@ -3,7 +3,7 @@
 // window's focus, a reconnect and a person pressing `Try again`, and another `Open in Review`
 // press re-points the pane, which reads a new comparison.
 
-import type { GitflowDiffReadRequest } from "@ai-sidekicks/contracts/gitflow/local";
+import type { GitDiffReadRequest } from "@ai-sidekicks/contracts/git/local";
 
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -13,8 +13,8 @@ import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 import type { DiffModel } from "./model.js";
 import { diffModelFromRead } from "./read-model.js";
 
-/** The `gitflow.diffRead` request for a workflow run's comparison. */
-export type WorkflowRunDiffRequest = Extract<GitflowDiffReadRequest, { scope: "workflow_run" }>;
+/** The `git.diff.read` request for a workflow run's comparison. */
+export type WorkflowRunDiffRequest = Extract<GitDiffReadRequest, { scope: "workflowRun" }>;
 
 /** The read of one run comparison; a refusal is its failed arm. */
 export function createWorkflowRunDiffRead(
