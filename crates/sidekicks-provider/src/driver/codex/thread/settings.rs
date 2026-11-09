@@ -10,6 +10,7 @@
 //! item-injection method a loaded conversation takes changed instructions through.
 
 pub(crate) mod memories;
+pub(crate) mod tool_servers;
 
 use std::path::{Path, PathBuf};
 

@@ -5,7 +5,7 @@
 //! of servers each start, resume and fork sends, against what that call's own read loads; the
 //! resources one of a session's servers offers; and a session's own switch of its servers.
 
-mod config;
+pub(super) mod config;
 pub(super) mod live_switch;
 pub(super) mod machine_probe;
 pub(super) mod requirements;

@@ -25,7 +25,7 @@ pub(super) mod compose;
 pub(super) mod observe;
 pub(super) mod plugins;
 mod project_file;
-pub(super) mod server_entry;
+pub(in crate::driver::codex) mod server_entry;
 #[cfg(test)]
 mod tests;
 mod write;

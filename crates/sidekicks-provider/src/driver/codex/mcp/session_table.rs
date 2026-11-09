@@ -13,21 +13,17 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::driver::codex::mcp::config::server_entry::{
-    ARGS_MEMBER, COMMAND_MEMBER, DEFAULT_TOOLS_APPROVAL_MODE_MEMBER, ENV_MEMBER,
-    TOOL_TIMEOUT_SEC_MEMBER, URL_MEMBER,
-};
+use crate::driver::codex::mcp::config::server_entry::{ARGS_MEMBER, COMMAND_MEMBER, ENV_MEMBER};
 use crate::driver::codex::mcp::sandbox_wrap::{CodexSandboxWrap, wrap_codex_stdio_server};
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
+use crate::driver::codex::thread::settings::tool_servers::{
+    CODEX_DAEMON_TOOL_SERVER_NAMES, insert_codex_daemon_tool_servers,
+};
 use crate::driver::mcp_server::write::{ENTRY_SWITCH_MEMBER, McpServerEntry};
 use crate::driver::session_control::SessionToolServer;
 use crate::port::tool_server_route::ToolServerRoute;
-use crate::tool_server_name::{DAEMON_TOOL_SERVER_NAME, McpServerNameRefusal};
-
-/// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
-/// route's own bound, so the route answers first.
-const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
+use crate::tool_server_name::McpServerNameRefusal;
 
 /// The servers one call's `config/read` loads, by name, each with its entry's members, values
 /// included. It lives in memory for that call alone and is written nowhere.
@@ -160,16 +156,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
         }
     }
     if let Some(route) = table.route {
-        servers.insert(
-            DAEMON_TOOL_SERVER_NAME.to_owned(),
-            json!({
-                URL_MEMBER: route.url_for(&table.session_id, DAEMON_TOOL_SERVER_NAME),
-                ENTRY_SWITCH_MEMBER: true,
-                // The daemon judges each of its own calls itself, so Codex asks nothing first.
-                DEFAULT_TOOLS_APPROVAL_MODE_MEMBER: "approve",
-                TOOL_TIMEOUT_SEC_MEMBER: CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
-            }),
-        );
+        insert_codex_daemon_tool_servers(&mut servers, route, &table.session_id);
     }
     servers
 }
@@ -188,14 +175,14 @@ pub(crate) fn codex_unloaded_bindings<'servers>(
 }
 
 /// Whether a call's table for `tool_servers` in `repository_root` leaves `name` running: the
-/// daemon's own server, a name Codex keeps for a server of its own, or a server the session
+/// daemon's own servers, a name Codex keeps for a server of its own, or a server the session
 /// switches on there.
 pub(crate) fn is_run_by_codex_table(
     tool_servers: &[SessionToolServer],
     repository_root: &Path,
     name: &str,
 ) -> bool {
-    name == DAEMON_TOOL_SERVER_NAME
+    CODEX_DAEMON_TOOL_SERVER_NAMES.contains(&name)
         || is_kept_by_codex(name)
         || switched_on_here(tool_servers, repository_root)
             .any(|binding| binding.server_name().as_str() == name)
