@@ -82,7 +82,7 @@ impl ShadowPlaces {
         session_id: SessionId,
         volume_folders: Vec<VolumeFolder>,
     ) -> io::Result<Self> {
-        let capture_folder = owner_folder.join(CAPTURES_SEGMENT).join(LARGE_SEGMENT);
+        let capture_folder = large_folder(owner_folder);
         create_missing_private_folders(&capture_folder)?;
         let mut session_folders: HashMap<VolumeId, Vec<VolumeFolder>> = HashMap::new();
         for known in volume_folders {
@@ -357,6 +357,11 @@ impl ShadowPlaces {
                 })
             })
     }
+}
+
+/// `<owner>/captures/large`, the folder of `owner_folder`'s clones on its own volume, made or not.
+pub fn large_folder(owner_folder: &Path) -> PathBuf {
+    owner_folder.join(CAPTURES_SEGMENT).join(LARGE_SEGMENT)
 }
 
 /// Whether the file whose facts read `now`, `None` when it is gone or did not read, changed since

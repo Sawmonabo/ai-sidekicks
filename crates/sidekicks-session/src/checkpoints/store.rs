@@ -151,6 +151,11 @@ const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kin
  WHERE earliest = 1
  ORDER BY path";
 
+const COPY_HASHES_SQL: &str = "SELECT DISTINCT versions.copy_hash
+  FROM checkpoint_versions AS versions
+  JOIN session_checkpoints AS checkpoints ON checkpoints.checkpoint_id = versions.checkpoint_id
+ WHERE checkpoints.session_id = @sessionId AND versions.copy_hash IS NOT NULL";
+
 const UNCOVERED_COMMANDS_SQL: &str = "SELECT commands.window_id, commands.command,
        commands.tool_call_id, commands.started_at
   FROM checkpoint_commands AS commands
@@ -660,6 +665,21 @@ pub fn holds_path(
         },
         |row| row.get(0),
     )
+}
+
+/// The hash of every copy a version of `session_id` names, as each copy's file is named. Fails as
+/// SQLite does.
+pub fn copy_hashes(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<HashSet<String>> {
+    connection
+        .prepare_cached(COPY_HASHES_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| row.get(0),
+        )?
+        .collect()
 }
 
 /// Every command window still open, with its checkpoint's session: the windows a stop left open,

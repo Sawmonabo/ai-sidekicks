@@ -1,13 +1,18 @@
 //! The checkpoint copies: one file per content, named for the SHA-256 of its bytes in the owner's
 //! `captures/copies` folder, so a content copied twice is kept once. A copy is a clone where the
 //! volume makes one and a byte copy where it cannot; it is written under a temporary name, flushed,
-//! and given its hash's name only whole, never over a copy already there.
+//! and given its hash's name only whole, never over a copy already there. A copy already there is
+//! taken as it stands, its times untouched, so every keeper holds the session's [`COPIES_LOCK`]
+//! shared until a row names its copy, and the orphans walk removes none meanwhile.
 
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use sidekicks_contracts::release_manifest::Sha256Hex;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
     RegularFileOpen, create_missing_private_folders, create_new_file, file_mode_of, flush_file,
     flush_folder, flush_open_file, open_regular_file,
@@ -19,11 +24,22 @@ use sidekicks_std::file::publish_without_replacing::{
     PublishOutcome, blocking_publish_without_replacing,
 };
 use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
+use sidekicks_std::keyed_lock::read_write::KeyedReadWriteLock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 
 /// The folder under the captures folder that holds the copies.
 const COPIES_SEGMENT: &str = "copies";
+
+/// The suffix of a copy's temporary name, `.<random>.copying`.
+const TEMPORARY_SUFFIX: &str = ".copying";
+
+/// Each session's copies lock: held shared by every keeper of a copy or a clone, from before it
+/// keeps it until the write of the row that names it returns, and exclusive by the orphans walk
+/// from before it reads the names until its removals end. One hold per operation, the copies lock
+/// taken before the command windows' shadow lock.
+pub static COPIES_LOCK: LazyLock<KeyedReadWriteLock<SessionId>> =
+    LazyLock::new(KeyedReadWriteLock::new);
 
 /// The mode a byte copy is made with: its owner's alone.
 const BYTE_COPY_MODE: u32 = 0o600;
@@ -82,7 +98,7 @@ impl CopyStore {
     /// Opens the copies folder under `owner_folder`, making it and any missing folder above it
     /// readable by their owner alone. Fails with the make's error.
     pub fn open(owner_folder: &Path) -> io::Result<Self> {
-        let folder = owner_folder.join(CAPTURES_SEGMENT).join(COPIES_SEGMENT);
+        let folder = copies_folder(owner_folder);
         create_missing_private_folders(&folder)?;
         Ok(Self { folder })
     }
@@ -203,12 +219,24 @@ impl CopyStore {
         Ok(hash)
     }
 
-    // A new name in the copies folder: `.<random>.copying`.
+    // A new name in the copies folder: `.<random>` and the temporary suffix.
     fn temporary_path(&self) -> Result<PathBuf, FileCopyError> {
         let random = random_hex(TEMPORARY_NAME_RANDOM_BYTES)
             .map_err(|failure| FileCopyError::Io(io::Error::other(failure)))?;
-        Ok(self.folder.join(format!(".{random}.copying")))
+        Ok(self.folder.join(format!(".{random}{TEMPORARY_SUFFIX}")))
     }
+}
+
+/// `<owner>/captures/copies`, the folder of `owner_folder`'s copies, made or not.
+pub fn copies_folder(owner_folder: &Path) -> PathBuf {
+    owner_folder.join(CAPTURES_SEGMENT).join(COPIES_SEGMENT)
+}
+
+/// Whether `name` in the copies folder is a copy's temporary file, written before the copy has
+/// its hash's name.
+pub fn is_copy_temporary(name: &OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|name| name.starts_with('.') && name.ends_with(TEMPORARY_SUFFIX))
 }
 
 // Writes every byte of `reader` to `writer` and answers their SHA-256 in lowercase hex.

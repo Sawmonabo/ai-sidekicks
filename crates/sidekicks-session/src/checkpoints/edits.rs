@@ -22,7 +22,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::task::JoinError;
 
-use crate::checkpoints::copies::{CopyStore, FileCopyError, FileCopyOutcome};
+use crate::checkpoints::copies::{COPIES_LOCK, CopyStore, FileCopyError, FileCopyOutcome};
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
@@ -124,6 +124,8 @@ impl EditCheckpoints {
                 return;
             }
         };
+        // Held until the version naming the copy is written, so the orphans walk keeps the copy.
+        let copies_hold = COPIES_LOCK.read(session_id).await;
         let owner_folder = session_storage_folder(&self.data_folder, &session_id);
         let copied_path = path.clone();
         let copied = tokio::task::spawn_blocking(move || -> Result<_, EditCopyError> {
@@ -187,6 +189,7 @@ impl EditCheckpoints {
             .writer
             .write(vec![insert_version_statement(&checkpoint_id, &version)])
             .await;
+        drop(copies_hold);
         if let Err(error) = written {
             tracing::error!(
                 %session_id,

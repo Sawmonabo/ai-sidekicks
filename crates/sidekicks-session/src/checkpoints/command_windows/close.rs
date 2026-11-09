@@ -32,7 +32,7 @@ use super::{
     BeforeCapture, OpenWindow, WindowFailure, WindowRecorder, push_taken_shadow,
     uncovered_close_statements,
 };
-use crate::checkpoints::copies::{CopyStore, FileCopyError};
+use crate::checkpoints::copies::{COPIES_LOCK, CopyStore, FileCopyError};
 use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionLeg, CopyMode, NotKeptReason,
 };
@@ -130,7 +130,7 @@ impl WindowRecorder {
 
     // Reads what changed between `before` and `after`, keeps each before-image as a copy, takes
     // the fresh shadows under the session's shadow lock and writes the versions and the close in
-    // one write there.
+    // one write there, the session's copies lock held shared from the first copy to that write.
     async fn record_close(
         &self,
         window_id: CommandWindowId,
@@ -189,6 +189,8 @@ impl WindowRecorder {
                 "a command window's changed paths no row can name were not recorded"
             );
         }
+        // Held until the versions naming the copies are written, so the orphans walk keeps them.
+        let copies_hold = COPIES_LOCK.read(session_id).await;
         let kept = self
             .keep_before_images(window_id, window, &before.objects, &reading)
             .await;
@@ -254,6 +256,7 @@ impl WindowRecorder {
         );
         self.writer.write(statements).await?;
         drop(hold);
+        drop(copies_hold);
         Ok(())
     }
 

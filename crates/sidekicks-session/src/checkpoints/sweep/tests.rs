@@ -53,7 +53,7 @@ const PACK_AGE: Duration = Duration::from_hours(2);
 const RECLAIMS: &str = "reclaims";
 
 // The sweep over the fixture's store, windows and packing, and the clock its passes read.
-fn sweep_over(fixture: &Fixture) -> (CheckpointSweep, Arc<TestWallClock>) {
+pub(super) fn sweep_over(fixture: &Fixture) -> (CheckpointSweep, Arc<TestWallClock>) {
     let clock = Arc::new(TestWallClock::default());
     let sweep = CheckpointSweep::new(CheckpointSweepDeps {
         reads: Arc::new(DatabaseReadPool::new(

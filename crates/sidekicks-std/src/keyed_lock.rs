@@ -13,6 +13,8 @@
 //! - Work that must land whole, or not at all, runs held in a task of its own (`run_held`), which
 //!   keeps the key until the work ends even after its caller stops waiting.
 
+pub mod read_write;
+
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::pin::Pin;

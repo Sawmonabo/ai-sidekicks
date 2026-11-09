@@ -2,8 +2,11 @@
 //! folder a purge owes once its volume is back, reclaims each session's shadows nothing uses with
 //! their clones, and passes over every capture folder of every session and workflow run, one per
 //! owner and repository: packing what no ref of the repository reaches, packing again a capture
-//! whose own pack failed, reclaiming a deleted run's objects and folding the packs. A session
-//! marked for its purge is left to the purge.
+//! whose own pack failed, reclaiming a deleted run's objects and folding the packs; then it walks
+//! each session due a walk for the copies and clones no row names. A session marked for its purge
+//! is left to the purge.
+
+mod orphans;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -46,14 +49,16 @@ use crate::checkpoints::command_windows::CommandWindows;
 use crate::checkpoints::store::shadows::{
     delete_owed_folder_statement, owed_folders, sessions_with_unused_shadows,
 };
+use crate::checkpoints::sweep::orphans::OrphanWalks;
 use crate::checkpoints::volume_folders::{VolumeFolderRemoval, remove_volume_folder};
 
 /// How often the sweep runs after its first pass at the daemon's start.
 pub const CHECKPOINT_SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 
 /// The statements the sweep prepares on a pooled connection: every owner's repositories, one
-/// session's window points, the owed folders, and the sessions holding unused shadows.
-pub const CHECKPOINT_SWEEP_STATEMENT_CAPACITY: usize = 4;
+/// session's window points, the owed folders, the sessions holding unused shadows, and the orphans
+/// walk's start, its sessions and one session's copy hashes, cloned shadows and volume folders.
+pub const CHECKPOINT_SWEEP_STATEMENT_CAPACITY: usize = 9;
 
 /// A pair's row from a session run's context; the parts are read in this order, so a pair keeps
 /// its first part's spelling and place.
@@ -132,10 +137,11 @@ pub struct CheckpointSweepDeps {
 }
 
 /// The checkpoint sweep, keeping, for each owner and repository its last pass kept, what that pass
-/// found, so an idle folder is skipped.
+/// found, so an idle folder is skipped, and what the orphans walk needs of the walk before it.
 pub struct CheckpointSweep {
     deps: CheckpointSweepDeps,
     passes: Mutex<HashMap<PairKey, CaptureFolderPass>>,
+    orphan_walks: OrphanWalks,
 }
 
 /// What one pass did.
@@ -149,6 +155,12 @@ pub struct CheckpointSweepCounts {
     pub owed_folders_examined: u64,
     /// The sessions whose unused shadows were reclaimed.
     pub sessions_reclaimed: u64,
+    /// The sessions the orphans walk walked.
+    pub sessions_walked: u64,
+    /// The files of the store's naming the orphans walk looked at.
+    pub entries_examined: u64,
+    /// The orphans it removed.
+    pub entries_removed: u64,
 }
 
 /// Why a part of a pass failed; every other part still ran.
@@ -206,10 +218,18 @@ enum CheckpointSweepWorkUnit {
     OwedFolderExamined,
     /// A session whose unused shadows were reclaimed.
     SessionReclaimed,
+    /// A session the orphans walk walked.
+    SessionWalked,
+    /// A file the orphans walk looked at.
+    EntryExamined,
+    /// An orphan removed.
+    EntryRemoved,
 }
 
 /// A pass's processor time on the daemon's own threads: 2 ms per pair examined, 20 ms more per
-/// pair swept, 2 ms per owed folder and 5 ms per session reclaimed; git's own time is its own.
+/// pair swept, 2 ms per owed folder, 5 ms per session reclaimed, and for the orphans walk 0.5 ms
+/// per session walked, 5 µs per file looked at and 1 ms per orphan removed; git's own time is its
+/// own.
 const CHECKPOINT_SWEEP_BUDGET: JobBudget<CheckpointSweepWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(2),
@@ -230,6 +250,21 @@ const CHECKPOINT_SWEEP_BUDGET: JobBudget<CheckpointSweepWorkUnit> = JobBudget::n
         figure: Duration::from_millis(5),
         per: 1,
         unit: CheckpointSweepWorkUnit::SessionReclaimed,
+    },
+    BudgetTerm {
+        figure: Duration::from_micros(500),
+        per: 1,
+        unit: CheckpointSweepWorkUnit::SessionWalked,
+    },
+    BudgetTerm {
+        figure: Duration::from_micros(5),
+        per: 1,
+        unit: CheckpointSweepWorkUnit::EntryExamined,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(1),
+        per: 1,
+        unit: CheckpointSweepWorkUnit::EntryRemoved,
     },
 ]);
 
@@ -257,15 +292,22 @@ async fn run_metered_pass(
     if counts.pairs_examined == 0
         && counts.owed_folders_examined == 0
         && counts.sessions_reclaimed == 0
+        && counts.sessions_walked == 0
     {
         return failure.map_or(Ok(None), |failure| Err(failure.into()));
     }
-    if counts.pairs_swept > 0 || counts.owed_folders_examined > 0 || counts.sessions_reclaimed > 0 {
+    if counts.pairs_swept > 0
+        || counts.owed_folders_examined > 0
+        || counts.sessions_reclaimed > 0
+        || counts.entries_removed > 0
+    {
         tracing::info!(
             pairs_examined = counts.pairs_examined,
             pairs_swept = counts.pairs_swept,
             owed_folders_examined = counts.owed_folders_examined,
             sessions_reclaimed = counts.sessions_reclaimed,
+            sessions_walked = counts.sessions_walked,
+            entries_removed = counts.entries_removed,
             "the checkpoint sweep passed over the capture folders"
         );
     }
@@ -279,6 +321,18 @@ async fn run_metered_pass(
     workload.add(
         CheckpointSweepWorkUnit::SessionReclaimed,
         counts.sessions_reclaimed,
+    );
+    workload.add(
+        CheckpointSweepWorkUnit::SessionWalked,
+        counts.sessions_walked,
+    );
+    workload.add(
+        CheckpointSweepWorkUnit::EntryExamined,
+        counts.entries_examined,
+    );
+    workload.add(
+        CheckpointSweepWorkUnit::EntryRemoved,
+        counts.entries_removed,
     );
     match failure {
         None => Ok(Some(workload)),
@@ -296,15 +350,16 @@ impl CheckpointSweep {
         Self {
             deps,
             passes: Mutex::new(HashMap::new()),
+            orphan_walks: OrphanWalks::default(),
         }
     }
 
-    /// One pass: the owed folders, the unused shadows, then every owner's capture folders, each
-    /// part run whatever the one before it answered, its blocking work and reads charged to
-    /// `meter`. A pass `stop` cuts answers its counts so far; a pair under way when it fires is
-    /// cut, and the next pass clears what the cut left. Answers its counts beside the first
-    /// part's read or write failure, once every part ran; a pair whose pass failed is logged and
-    /// the pass goes on.
+    /// One pass: the owed folders, the unused shadows, every owner's capture folders, then the
+    /// orphans walk, each part run whatever the one before it answered, its blocking work and
+    /// reads charged to `meter`. A pass `stop` cuts answers its counts so far; a pair under way
+    /// when it fires is cut, and the next pass clears what the cut left. Answers its counts beside
+    /// the first part's read or write failure, once every part ran; a pair whose pass failed is
+    /// logged and the pass goes on.
     pub async fn run_pass(
         &self,
         stop: &CancellationToken,
@@ -314,7 +369,8 @@ impl CheckpointSweep {
         let owed = self.remove_owed_folders(stop, meter, &mut counts).await;
         let shadows = self.reclaim_unused_shadows(stop, meter, &mut counts).await;
         let pairs = self.sweep_pairs(stop, meter, &mut counts).await;
-        (counts, owed.and(shadows).and(pairs).err())
+        let orphans = self.walk_orphans(stop, meter, &mut counts).await;
+        (counts, owed.and(shadows).and(pairs).and(orphans).err())
     }
 
     // Removes each owed folder whose volume is back and deletes its rows in one write; a folder on

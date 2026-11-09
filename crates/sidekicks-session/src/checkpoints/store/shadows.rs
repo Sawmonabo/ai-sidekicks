@@ -5,6 +5,7 @@
 //! caller's own write; the clones' bytes sit on disk, never in a row.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -112,6 +113,9 @@ static SESSIONS_WITH_UNUSED_SHADOWS_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(SessionState::PurgeRequested)
     )
 });
+
+const CLONED_SHADOW_IDS_SQL: &str = "SELECT shadow_id FROM checkpoint_shadows
+  WHERE session_id = @sessionId AND clone_path IS NOT NULL";
 
 const VOLUME_FOLDERS_SQL: &str = "SELECT folder, volume_id FROM checkpoint_volume_folders
   WHERE session_id = @sessionId ORDER BY folder";
@@ -393,6 +397,21 @@ pub fn sessions_with_unused_shadows(connection: &Connection) -> rusqlite::Result
     connection
         .prepare_cached(&SESSIONS_WITH_UNUSED_SHADOWS_SQL)?
         .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
+        .collect()
+}
+
+/// The id of every shadow of `session_id` that kept a clone, as each clone's file is named, in its
+/// capture folder, its folder on another volume or a restore's folder. Fails as SQLite does.
+pub fn cloned_shadow_ids(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<HashSet<String>> {
+    connection
+        .prepare_cached(CLONED_SHADOW_IDS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| row.get(0),
+        )?
         .collect()
 }
 
