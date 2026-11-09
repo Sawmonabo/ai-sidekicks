@@ -109,11 +109,13 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         options: AgentBindingSwitchBoundary::TurnBoundary,
         larger_window: AgentBindingSwitchBoundary::TurnBoundary,
     },
-    process_environment: &[
+    // Each goes in the `env` of the process's `--settings` document.
+    settings_environment: &[
         // Its two update switches, so the build recorded at start is the one that runs.
         ("DISABLE_AUTOUPDATER", "1"),
         ("DISABLE_UPDATES", "1"),
-        // A tool-server call or a helper still running after 120 s moves to the background.
+        // A tool-server call, or a helper started in the foreground, still running after 120 s
+        // moves to the background.
         ("CLAUDE_AUTO_BACKGROUND_TASKS", "1"),
         // A waiting dialog arms no deadline.
         ("CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "0"),

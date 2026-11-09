@@ -120,7 +120,7 @@ pub(crate) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         larger_window: AgentBindingSwitchBoundary::TurnBoundary,
     },
     // It documents no update switch; the driver runs one exact build path instead.
-    process_environment: &[],
+    settings_environment: &[],
     // Carries the app-server binary's path into the launch prelude, which never interpolates it;
     // and opens the shutdown request on the lasting service's control socket, which Codex reads on
     // Windows alone.

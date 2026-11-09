@@ -1,10 +1,10 @@
 //! The one place a Claude Code process's environment is composed: the session's environment with
 //! the run's credential variables and the withheld names (the person's telemetry settings among
-//! them) removed, then the variables the app sets on every Claude Code process, the question
-//! tool's switches among them, and the home it runs on: an account's folders with the scratch
-//! folder the daemon keeps under its own data folder for each configuration home, a throwaway
-//! folder that holds all three for one read, or a throwaway folder on an account's own credential
-//! store; or, for a read that fills a server entry's variables, no home at all.
+//! them) removed, then the home it runs on: an account's folders with the scratch folder the
+//! daemon keeps under its own data folder for each configuration home, a throwaway folder that
+//! holds all three for one read, or a throwaway folder on an account's own credential store; or,
+//! for a read that fills a server entry's variables, no home at all. The variables the app sets on
+//! every process travel in its settings document, never here.
 
 use std::path::{Path, PathBuf};
 
@@ -182,10 +182,9 @@ pub(crate) fn claude_text_variable<'environment>(
 }
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, the
-/// person's telemetry settings withheld, the question tool's previews and extended questions
-/// switched on, with `additional_mandated_pairs` (a pair a caller sets on this one process) over
-/// it. Fails as `build_provider_process_environment` does: a mandated name claimed twice, or an
-/// account or scratch folder that is relative or ends up empty.
+/// person's telemetry settings withheld, with `additional_mandated_pairs` (a pair a caller sets on
+/// this one process) over it. Fails as `build_provider_process_environment` does: a mandated name
+/// claimed twice, or an account or scratch folder that is relative or ends up empty.
 pub(crate) fn compose_claude_process_environment(
     request: ClaudeProcessEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],
@@ -231,10 +230,9 @@ pub(crate) fn compose_claude_process_environment(
 }
 
 /// The environment a Claude Code process composes from `session` on no home of the daemon's: the
-/// names [`compose_claude_process_environment`] withholds withheld and the app's variables set,
-/// with no config, credential or scratch folder, so a read fills an entry's variables as the
-/// process would. Fails as `build_provider_process_environment` does: an inherited account folder
-/// variable that is empty.
+/// names [`compose_claude_process_environment`] withholds withheld, with no config, credential or
+/// scratch folder, so a read fills an entry's variables as the process would. Fails as
+/// `build_provider_process_environment` does: an inherited account folder variable that is empty.
 pub(crate) fn compose_claude_environment_without_home(
     session: SessionEnvironment<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
@@ -300,14 +298,11 @@ mod tests {
     };
 
     // Killed by a scratch folder shared across homes, which a purge of one home would sweep for
-    // every other, by one named by the home's path, by a shell's own value winning over the
-    // home's or over the question tool's switches, and by either switch left off.
+    // every other, by one named by the home's path, and by a shell's own value winning over the
+    // home's.
     #[test]
     fn the_app_s_own_values_are_set_over_the_shells() {
-        let base = vec![
-            ("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned()),
-            ("CLAUDE_CODE_QUESTION_EXTENDED".to_owned(), "0".to_owned()),
-        ];
+        let base = vec![("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned())];
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
         let folders = |name: &str| ClaudeAccountFolders {
             config_folder: format!("/accounts/{name}/config"),
@@ -344,16 +339,6 @@ mod tests {
             "the folder names no path: {scratch}"
         );
         assert_ne!(scratch_of(&two), Some(scratch));
-        let environment = compose_claude_process_environment(request("/data", &one), &[])
-            .expect("the environment builds");
-        assert_eq!(
-            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_EXTENDED"),
-            Some("1")
-        );
-        assert_eq!(
-            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT"),
-            Some("markdown")
-        );
         assert_eq!(
             compose_claude_process_environment(request("data", &one), &[]),
             Err(SpawnEnvironmentError::AccountFolderNotAbsolute {

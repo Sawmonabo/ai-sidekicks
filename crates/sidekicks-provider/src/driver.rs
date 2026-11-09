@@ -135,9 +135,11 @@ pub struct ProviderDescriptor {
     /// Where a switch of each axis that settles in place applies on the provider: the next turn,
     /// or the end of the run in flight where the axis takes a new process.
     pub(crate) switch_boundaries: ProviderSwitchBoundaries,
-    /// The variables the app sets on every one of the provider's processes, each with its value,
-    /// over anything the base or a person's row sets; the auto-update opt-out is among them.
-    pub(crate) process_environment: &'static [(&'static str, &'static str)],
+    /// The variables the app sets inside every one of the provider's processes, each with its
+    /// value, which its driver hands over in the settings each process starts with, so neither the
+    /// person's own settings files nor their environment override them; the auto-update opt-out is
+    /// among them.
+    pub(crate) settings_environment: &'static [(&'static str, &'static str)],
     /// The variables the daemon sets on the provider's launch alone, their values per launch.
     pub(crate) launch_environment_names: &'static [&'static str],
     /// The variables that point the provider at one account's own folders, which only the daemon
@@ -364,10 +366,10 @@ impl ProviderDescriptor {
     }
 
     /// Every variable the app sets on the provider's processes or its Terminal pane's shells, which
-    /// a person's own environment row may not name: the process, launch, credential-home and
+    /// a person's own environment row may not name: the settings, launch, credential-home and
     /// screen-reader names. The withheld names are left out, since a person's command keeps them.
     pub(crate) fn app_set_environment_names(&self) -> impl Iterator<Item = &'static str> {
-        self.process_environment
+        self.settings_environment
             .iter()
             .map(|(name, _)| *name)
             .chain(self.launch_environment_names.iter().copied())

@@ -1,6 +1,7 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
 //! conversation, its agent view held off, a session's whole permission rules, its advisor and
-//! output style, the command sandbox at Sandboxed, and the telemetry switches in its `env`.
+//! output style, the command sandbox at Sandboxed, and in its `env` the variables the app sets on
+//! every process and the telemetry switches.
 
 pub(crate) mod private_file;
 pub(crate) mod telemetry_switches;
@@ -18,6 +19,7 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use crate::background_work::{BackgroundWorkForms, plain_background_work_forms};
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
@@ -80,8 +82,8 @@ pub(crate) struct ClaudeSpawnSettings {
     /// Every hook of the person's off, written only where `true`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) disable_all_hooks: bool,
-    /// The variables Claude Code sets inside the process, over its starting environment.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    /// The variables Claude Code sets inside the process, over its starting environment and the
+    /// person's own settings files: the app's own on every process, and the telemetry switches.
     pub(crate) env: BTreeMap<&'static str, String>,
     /// No exporter headers helper, written with the telemetry switches.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,8 +109,9 @@ impl fmt::Debug for ClaudeSpawnSettings {
 }
 
 impl ClaudeSpawnSettings {
-    /// A short process's document: the cleanup period and the agent view off, with every hook of
-    /// the person's off where `are_hooks_off`, and no rules, advisor, style or sandbox.
+    /// A short process's document: the cleanup period, the agent view off and the app's
+    /// variables, with every hook of the person's off where `are_hooks_off`, and no rules,
+    /// advisor, style or sandbox.
     pub(crate) fn short_process(are_hooks_off: bool) -> Self {
         Self {
             cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
@@ -118,7 +121,7 @@ impl ClaudeSpawnSettings {
             output_style: None,
             sandbox: None,
             disable_all_hooks: are_hooks_off,
-            env: BTreeMap::new(),
+            env: compose_app_variables(),
             otel_headers_helper: None,
         }
     }
@@ -306,9 +309,20 @@ pub(crate) fn compose_claude_spawn_settings(
         sandbox: (level == Some(PermissionLevel::Sandboxed))
             .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
         disable_all_hooks: false,
-        env: BTreeMap::new(),
+        env: compose_app_variables(),
         otel_headers_helper: None,
     })
+}
+
+// The variables the app sets on every Claude Code process, from its descriptor: in the
+// document's `env` they outrank an `env` in the person's own settings files, which would overwrite
+// them in the starting environment.
+fn compose_app_variables() -> BTreeMap<&'static str, String> {
+    DESCRIPTOR
+        .settings_environment
+        .iter()
+        .map(|(name, value)| (*name, (*value).to_owned()))
+        .collect()
 }
 
 /// The command sandbox at Sandboxed, writable in `writable_roots` and in `command_channel`'s
@@ -366,10 +380,12 @@ mod tests {
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
     use crate::driver::claude::DESCRIPTOR;
+    use crate::driver::claude::spawn::environment::compose_claude_environment_without_home;
     use crate::driver::claude::spawn::legs::compose_claude_memory_folders;
     use crate::pricing::receiver::TelemetryTarget;
     use crate::pricing::receiver::bearers::{TelemetryBearers, TelemetryHolderId};
     use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
+    use crate::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
 
     // Killed by the derived `Debug`, which writes the export's `Authorization` value into any log
     // line or panic that prints the document.
@@ -507,5 +523,55 @@ mod tests {
             advisor_setting(ClaudeSessionAdvisor::Model("opus".to_owned())),
             json!("opus")
         );
+    }
+
+    // Killed by a variable dropped from a session's or a short process's document or given another
+    // value there, which lets an `env` in the person's own settings files set it (the helper caps
+    // lowered under the person's limit, a dialog deadline armed, the build updated mid-session),
+    // and by any of them also set in the starting environment.
+    #[test]
+    fn every_process_sets_the_apps_variables_in_its_document_alone() {
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &[],
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+        let session = compose_claude_spawn_settings(
+            &request,
+            None,
+            &ClaudeSessionAdvisor::Unpicked,
+            None,
+            None,
+        )
+        .expect("the settings compose");
+
+        for settings in [session, ClaudeSpawnSettings::short_process(true)] {
+            assert_eq!(
+                serde_json::to_value(settings).expect("the settings serialize")["env"],
+                json!({
+                    "DISABLE_AUTOUPDATER": "1",
+                    "DISABLE_UPDATES": "1",
+                    "CLAUDE_AUTO_BACKGROUND_TASKS": "1",
+                    "CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS": "0",
+                    "BASH_MAX_TIMEOUT_MS": "2147483647",
+                    "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT": "markdown",
+                    "CLAUDE_CODE_QUESTION_EXTENDED": "1",
+                    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
+                    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
+                })
+            );
+        }
+        let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
+        let environment = compose_claude_environment_without_home(SessionEnvironment {
+            base: &[],
+            every_project_rows: &[],
+            project_rows: &[],
+            reserved_names: &reserved_names,
+            rules: PathRules::Posix,
+        })
+        .expect("the environment builds");
+        assert_eq!(environment, [] as [(String, String); 0]);
     }
 }

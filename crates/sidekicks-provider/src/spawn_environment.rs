@@ -2,10 +2,10 @@
 //! environment with the person's rows laid over it, a row naming a variable the app sets dropped:
 //!
 //! - a provider's process loses the run's credential variables, the names its driver withholds and
-//!   the names its spawn withholds (the person's telemetry settings), then gets its driver's
-//!   process variables and the account's folders, which nothing overrides;
+//!   the names its spawn withholds (the person's telemetry settings), then gets the account's
+//!   folders and the pairs its spawn sets, which nothing overrides;
 //! - the commands a provider's conversation runs lose the same names and get the account's folders,
-//!   without the process variables;
+//!   without the spawn's pairs;
 //! - a command the person's project runs (a setup command, a Terminal pane's shell) keeps every
 //!   variable, credentials included, since it may need them.
 //!
@@ -76,7 +76,7 @@ pub struct SessionEnvironment<'a> {
 pub struct ProviderEnvironmentRequest<'a> {
     /// The session's environment.
     pub session: SessionEnvironment<'a>,
-    /// The provider's descriptor, whose withheld and process names apply.
+    /// The provider's descriptor, whose withheld names apply.
     pub descriptor: &'a ProviderDescriptor,
     /// The run's credential variables to remove, its resolved credential policy's `deny_env_vars`.
     pub deny_env_vars: &'a [&'a str],
@@ -110,8 +110,8 @@ impl WithheldEnvironmentNames<'static> {
 /// which can hold a credential.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SpawnEnvironmentError {
-    /// Two mandated values claim one name, refused even when equal: the last winning could lower
-    /// the auto-update opt-out, and the first winning would drop an account's folder.
+    /// Two mandated values claim one name, refused even when equal: the last winning could move
+    /// an account's folder, and the first winning would drop the pair a spawn sets.
     #[error(
         "two mandated environment values claim the variable {name}, already claimed as \
          {claimed_as}"
@@ -138,23 +138,21 @@ pub enum SpawnEnvironmentError {
 }
 
 /// The provider process's whole environment: the session's, the run's credential variables, the
-/// driver's withheld names and `withheld` removed, then the driver's process variables (its
-/// auto-update opt-out among them), every driver's background-work switch, the account's folders
-/// and `additional_mandated_pairs` (a pair a caller sets on this one process), which no base pair
-/// or row overrides. Fails when two mandated pairs claim one name, or when an account folder is
-/// relative or ends up empty.
+/// driver's withheld names and `withheld` removed, then every driver's background-work switch,
+/// the account's folders and `additional_mandated_pairs` (a pair a caller sets on this one
+/// process), which no base pair or row overrides. Fails when two mandated pairs claim one name,
+/// or when an account folder is relative or ends up empty.
 pub(crate) fn build_provider_process_environment(
     request: &ProviderEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],
     withheld: WithheldEnvironmentNames<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
-    let process_pairs = request.descriptor.process_environment.iter().copied();
     let given_pairs = request
         .credential_homes
         .iter()
         .chain(additional_mandated_pairs)
         .map(|(name, value)| (name.as_str(), value.as_str()));
-    build_driver_environment(request, process_pairs.chain(given_pairs), withheld)
+    build_driver_environment(request, given_pairs, withheld)
 }
 
 /// The whole environment of the commands a provider's conversation runs: the session's, the run's
@@ -423,7 +421,7 @@ mod tests {
             options: AgentBindingSwitchBoundary::TurnBoundary,
             larger_window: AgentBindingSwitchBoundary::TurnBoundary,
         },
-        process_environment: &[("APP_UPDATES_OFF", "1")],
+        settings_environment: &[("APP_UPDATES_OFF", "1")],
         launch_environment_names: &["APP_LAUNCH"],
         credential_home_environment_names: &["APP_HOME"],
         withheld_environment_names: &["APP_WITHHELD"],
@@ -453,7 +451,7 @@ mod tests {
     /// background work every provider's process and conversation commands turn off.
     const OTHER_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         id: "second",
-        process_environment: &[],
+        settings_environment: &[],
         launch_environment_names: &[],
         credential_home_environment_names: &["OTHER_HOME"],
         withheld_environment_names: &[],
@@ -483,11 +481,7 @@ mod tests {
 
     #[test]
     fn denied_and_withheld_names_reach_no_provider_and_a_project_command_keeps_them() {
-        let base = pairs(&[
-            ("NPM_TOKEN", "from-shell"),
-            ("APP_WITHHELD", "1"),
-            ("APP_UPDATES_OFF", "0"),
-        ]);
+        let base = pairs(&[("NPM_TOKEN", "from-shell"), ("APP_WITHHELD", "1")]);
         let every_project_rows = EnvironmentRow::test_rows(&[("NPM_TOKEN", "from-row")]);
         let reserved_names = reserved();
         let request = ProviderEnvironmentRequest {
@@ -514,9 +508,6 @@ mod tests {
             assert_eq!(value(environment, "NPM_TOKEN"), None);
             assert_eq!(value(environment, "APP_WITHHELD"), None);
         }
-        // The opt-out holds over the shell's own value, on the process alone.
-        assert_eq!(value(&process, "APP_UPDATES_OFF"), Some("1"));
-        assert_eq!(value(&commands, "APP_UPDATES_OFF"), Some("0"));
         assert_eq!(value(&project, "NPM_TOKEN"), Some("from-row"));
         assert_eq!(value(&project, "APP_WITHHELD"), Some("1"));
     }
@@ -659,11 +650,11 @@ mod tests {
     #[rstest]
     #[case::equal_mandated_values(
         &[],
-        &[],
-        &[("APP_UPDATES_OFF", "1")],
+        &[("APP_HOME", "/accounts/work")],
+        &[("APP_HOME", "/accounts/work")],
         SpawnEnvironmentError::MandatedNameConflict {
-            name: "APP_UPDATES_OFF".to_owned(),
-            claimed_as: "APP_UPDATES_OFF".to_owned(),
+            name: "APP_HOME".to_owned(),
+            claimed_as: "APP_HOME".to_owned(),
         }
     )]
     #[case::relative_account_folder(
