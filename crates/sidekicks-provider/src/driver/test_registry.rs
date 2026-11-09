@@ -39,6 +39,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
+use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, KeychainTurn};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
@@ -298,6 +299,7 @@ pub fn test_driver_services() -> DriverServices {
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
         ),
         input_waits: Arc::new(SystemInputWaitReader { spawner }),
+        keychain_turn: KeychainTurn::new(KEYCHAIN_CALL_TIMEOUT),
         ports: Arc::new(DriverPorts::new()),
     }
 }

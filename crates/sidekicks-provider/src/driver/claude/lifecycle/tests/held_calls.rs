@@ -196,7 +196,7 @@ async fn a_closed_session_at_rest_settles_its_held_calls_by_what_claude_code_kep
                 let driver = Arc::new(ClaudeDriver::with_starts(
                     &fixture.services,
                     fixture.starts.clone(),
-                    fixture.starts.keychain.clone(),
+                    fixture.starts.keychain.sign_in_move(),
                 ));
                 (
                     session_id,
@@ -644,7 +644,7 @@ async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(
     let driver = ClaudeDriver::with_starts(
         &fixture.services,
         fixture.starts.clone(),
-        fixture.starts.keychain.clone(),
+        fixture.starts.keychain.sign_in_move(),
     );
 
     driver
@@ -794,7 +794,7 @@ async fn a_persons_close_at_rest_stops_each_surviving_task_in_a_resumed_process(
     let driver = ClaudeDriver::with_starts(
         &fixture.services,
         fixture.starts.clone(),
-        fixture.starts.keychain.clone(),
+        fixture.starts.keychain.sign_in_move(),
     );
 
     let mut close = pin!(driver.close_session(CloseSessionParams {
@@ -844,7 +844,7 @@ async fn the_start_after_a_restart_stops_a_closed_sessions_surviving_task() {
     let driver = ClaudeDriver::with_starts(
         &fixture.services,
         fixture.starts.clone(),
-        fixture.starts.keychain.clone(),
+        fixture.starts.keychain.sign_in_move(),
     );
 
     let mut settled = pin!(driver.settle_held_tool_calls(SettleHeldToolCallsParams {

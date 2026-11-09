@@ -2,7 +2,9 @@
 //! environment hands it, else `.credentials.json` in a process's credential folder, else, on
 //! macOS, the keychain item Claude Code files for that folder. They hold an account's claude.ai
 //! sign-in (`claudeAiOauth`) and the MCP sign-ins Claude Code saved (`mcpOAuth`). This is the one
-//! place the driver reads that record, through one parse and one keychain call path, and the
+//! place the driver reads that record, through one parse and one keychain call path: the
+//! keychain tool Claude Code itself reads and writes the item with, which the item trusts, so no
+//! prompt asks for the daemon, each call in the turn every keychain call takes. Also here is the
 //! person's approval of an API key the environment sets, which Claude Code keeps in its config
 //! file; only an MCP sign-in's own folder's item is ever removed. Nothing here logs a value; the
 //! claude.ai read logs its reason where no record is read.
@@ -11,15 +13,15 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
-use sidekicks_platforms::{CredentialStore, CredentialStoreError, PathRules, login_keychain};
+use sidekicks_platforms::{KeychainItemRefusal, PathRules, SignInMove, Spawner};
+use sidekicks_std::keyed_lock::HeldWorkEnd;
 use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_store::credential_store::os::KeychainTurn;
 use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
@@ -114,35 +116,39 @@ const OAUTH_SCOPES_VARIABLE: &str = "CLAUDE_CODE_OAUTH_SCOPES";
 /// The scopes Claude Code gives the environment's token where the scopes variable names none.
 const ENVIRONMENT_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
 
-/// Opens the credential store a keychain item is read from, blocking while it does.
-pub(crate) type ClaudeKeychainOpen =
-    Arc<dyn Fn() -> Result<CredentialStore, CredentialStoreError> + Send + Sync>;
-
-/// Reads an account's claude.ai sign-in from its file, else from the keychain this reader opens.
+/// Reads an account's claude.ai sign-in from its file, else from its keychain item, which this
+/// reader reaches through the keychain tool.
 #[derive(Clone)]
 pub(crate) struct ClaudeSignInReader {
-    keychain: Option<ClaudeKeychainOpen>,
-    keychain_timeout: Duration,
+    keychain: Option<ClaudeKeychainItems>,
+}
+
+// The keychain items Claude Code files, each call one run of the keychain tool on the spawner,
+// in the turn every keychain call takes and within its time from that turn.
+#[derive(Clone)]
+struct ClaudeKeychainItems {
+    tool: SignInMove,
+    spawner: Spawner,
+    turn: KeychainTurn,
 }
 
 impl ClaudeSignInReader {
-    /// The reader of this computer's stores: the file, then on macOS the login keychain, each
-    /// keychain call answered within the daemon's keychain call time.
-    pub(crate) fn system() -> Self {
+    /// The reader of the file, then of the keychain item through `tool`, the keychain tool where
+    /// the system has one (macOS), started on `spawner`, each call taking `turn`.
+    pub(crate) fn new(tool: Option<SignInMove>, spawner: &Spawner, turn: &KeychainTurn) -> Self {
         Self {
-            keychain: login_keychain()
-                .map(|opener| Arc::new(move || opener.open()) as ClaudeKeychainOpen),
-            keychain_timeout: sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT,
+            keychain: tool.map(|tool| ClaudeKeychainItems {
+                tool,
+                spawner: spawner.clone(),
+                turn: turn.clone(),
+            }),
         }
     }
 
-    /// A reader whose keychain is `store`, a test's own, in place of the system's.
+    /// A reader of the file alone, for a test whose reads never reach a keychain.
     #[cfg(test)]
-    pub(crate) fn with_keychain(store: CredentialStore) -> Self {
-        Self {
-            keychain: Some(Arc::new(move || Ok(store.clone()))),
-            keychain_timeout: Duration::from_secs(5),
-        }
+    pub(crate) fn without_keychain() -> Self {
+        Self { keychain: None }
     }
 
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
@@ -245,16 +251,22 @@ impl ClaudeSignInReader {
         &self,
         environment: &[(String, String)],
     ) -> Result<Option<ClaudeStoredCredentials>, ClaudeCredentialReadError> {
-        let Some(value) = self
-            .call_keychain(environment, |store, service, account| {
-                store.read(service, account)
-            })
-            .await?
-            .flatten()
-        else {
+        let Some(keychain) = &self.keychain else {
             return Ok(None);
         };
-        parse_stored_credentials(value.expose_secret().as_bytes()).map(Some)
+        let read = keychain
+            .call(environment, |items, service, account| async move {
+                let bound = items.turn.call_timeout();
+                items
+                    .tool
+                    .read_item(&items.spawner, &service, &account, bound)
+                    .await
+            })
+            .await?;
+        let Some(value) = read else {
+            return Ok(None);
+        };
+        parse_stored_credentials(&value).map(Some)
     }
 
     /// Removes the keychain item Claude Code started in `environment` files for its credential
@@ -264,33 +276,43 @@ impl ClaudeSignInReader {
         &self,
         environment: &[(String, String)],
     ) -> Result<bool, ClaudeCredentialReadError> {
-        Ok(self
-            .call_keychain(environment, |store, service, account| {
-                store.remove(service, account)
+        let Some(keychain) = &self.keychain else {
+            return Ok(false);
+        };
+        keychain
+            .call(environment, |items, service, account| async move {
+                let bound = items.turn.call_timeout();
+                items
+                    .tool
+                    .delete_item(&items.spawner, &service, &account, bound)
+                    .await
             })
-            .await?
-            .unwrap_or(false))
+            .await
     }
+}
 
-    // Runs `call` on the keychain item named for `environment`'s credential folder on a blocking
-    // thread, within the keychain call time; `None` where this reader has no keychain.
-    async fn call_keychain<Answer: Send + 'static>(
+impl ClaudeKeychainItems {
+    // Runs the tool call `call` makes on the item named for `environment`'s credential folder in
+    // the keychain's turn, waiting for it the call time from that turn.
+    async fn call<Answer, Call>(
         &self,
         environment: &[(String, String)],
-        call: fn(&CredentialStore, &str, &str) -> Result<Answer, CredentialStoreError>,
-    ) -> Result<Option<Answer>, ClaudeCredentialReadError> {
-        let Some(open) = &self.keychain else {
-            return Ok(None);
-        };
+        call: impl FnOnce(Self, String, String) -> Call,
+    ) -> Result<Answer, ClaudeCredentialReadError>
+    where
+        Answer: Send + 'static,
+        Call: Future<Output = Result<Answer, KeychainItemRefusal>> + Send + 'static,
+    {
         let service = claude_keychain_service(environment);
         let account = claude_keychain_account(environment);
-        let open = Arc::clone(open);
-        let blocking = tokio::task::spawn_blocking(move || call(&open()?, &service, &account));
-        match tokio::time::timeout(self.keychain_timeout, blocking).await {
-            Ok(Ok(Ok(answer))) => Ok(Some(answer)),
-            Ok(Ok(Err(error))) => Err(ClaudeCredentialReadError::KeychainRefused(error)),
-            Ok(Err(error)) => Err(ClaudeCredentialReadError::KeychainStopped(error)),
-            Err(_elapsed) => Err(ClaudeCredentialReadError::KeychainUnanswered),
+        let work = call(self.clone(), service.clone(), account);
+        match self.turn.run(&service, work, Result::is_ok).await {
+            Ok(Ok(answer)) => Ok(answer),
+            Ok(Err(refusal)) => Err(ClaudeCredentialReadError::KeychainRefused(refusal)),
+            Err(HeldWorkEnd::Interrupted(error)) => {
+                Err(ClaudeCredentialReadError::KeychainStopped(error))
+            }
+            Err(HeldWorkEnd::Unanswered) => Err(ClaudeCredentialReadError::KeychainUnanswered),
         }
     }
 }
@@ -343,9 +365,9 @@ pub(crate) enum ClaudeCredentialReadError {
         /// Its column.
         column: usize,
     },
-    /// The keychain refused the call.
+    /// The keychain refused the call, or its tool could not be run or gave no answer in time.
     #[error("the keychain refused the call on Claude Code's item")]
-    KeychainRefused(#[source] CredentialStoreError),
+    KeychainRefused(#[source] KeychainItemRefusal),
     /// The keychain call's thread stopped.
     #[error("the keychain call on Claude Code's item stopped")]
     KeychainStopped(#[source] tokio::task::JoinError),
@@ -629,218 +651,4 @@ pub(crate) fn claude_keychain_account(environment: &[(String, String)]) -> Strin
 }
 
 #[cfg(test)]
-mod tests {
-    use secrecy::SecretString;
-    use sidekicks_platforms::CredentialStore;
-
-    use super::{
-        ClaudeSignInReader, ClaudeSignInReading, SECURE_STORAGE_FOLDER_VARIABLE,
-        claude_keychain_account, claude_keychain_service,
-    };
-    use crate::captured_logs::CapturedLogs;
-
-    // A token no log line may hold.
-    const PLANTED_TOKEN: &str = "planted-access-token-value";
-
-    // Killed by a token account's sealed token left unread where the environment names no token,
-    // which reads the account as signed in to no one and lists none of its connectors.
-    #[tokio::test]
-    async fn a_token_account_s_sealed_token_is_its_sign_in() {
-        let environment = vec![(
-            "CLAUDE_CODE_OAUTH_SCOPES".to_owned(),
-            "user:inference user:mcp_servers".to_owned(),
-        )];
-        let reader = ClaudeSignInReader::with_keychain(CredentialStore::in_memory());
-        let sealed = SecretString::from(PLANTED_TOKEN);
-
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, Some(&sealed)).await
-        else {
-            panic!("the sealed token is the sign-in");
-        };
-
-        assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
-        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
-    }
-
-    // A credential file planted under a temporary folder is read, left byte for byte as it was,
-    // and no log line of the read holds its token, through a reading, an unreadable file and a
-    // keychain item alike. Killed by a write to the file, and by a log line carrying the token.
-    #[tokio::test]
-    async fn the_read_leaves_the_file_as_it_was_and_logs_no_token() {
-        let folder = tempfile::tempdir().expect("a test folder");
-        let credentials = folder.path().join(".credentials.json");
-        let planted = format!(
-            concat!(
-                r#"{{"claudeAiOauth":{{"accessToken":"{PLANTED_TOKEN}","#,
-                r#""refreshToken":"{PLANTED_TOKEN}-r","expiresAt":1767225600000,"#,
-                r#""scopes":["user:inference","user:mcp_servers"],"subscriptionType":"max"}}}}"#,
-            ),
-            PLANTED_TOKEN = PLANTED_TOKEN,
-        );
-        std::fs::write(&credentials, &planted).expect("the file is planted");
-        let environment = vec![
-            (
-                "CLAUDE_CONFIG_DIR".to_owned(),
-                folder.path().display().to_string(),
-            ),
-            (
-                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-                folder.path().display().to_string(),
-            ),
-            ("USER".to_owned(), "tester".to_owned()),
-        ];
-        let store = CredentialStore::in_memory();
-        let reader = ClaudeSignInReader::with_keychain(store.clone());
-        let (lines, _default) = CapturedLogs::start();
-
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
-            panic!("the file's record");
-        };
-        assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
-        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
-        assert!(!format!("{sign_in:?}").contains(PLANTED_TOKEN));
-        assert_eq!(
-            std::fs::read(&credentials).expect("the file is still there"),
-            planted.as_bytes()
-        );
-
-        // A file whose token sits where a number belongs is unreadable, and its parse error,
-        // which quotes the value, reaches no log line.
-        let unreadable = format!(r#"{{"claudeAiOauth":{{"expiresAt":"{PLANTED_TOKEN}"}}}}"#);
-        std::fs::write(&credentials, &unreadable).expect("the file is planted");
-        assert!(matches!(
-            reader.read(&environment, None).await,
-            ClaudeSignInReading::Absent
-        ));
-        assert_eq!(
-            std::fs::read(&credentials).expect("the file is still there"),
-            unreadable.as_bytes()
-        );
-
-        // With no file, the keychain item named for the folder is read.
-        std::fs::remove_file(&credentials).expect("the file is removed");
-        store
-            .write(
-                &claude_keychain_service(&environment),
-                &claude_keychain_account(&environment),
-                &SecretString::from(planted.clone()),
-            )
-            .expect("the item is planted");
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
-            panic!("the keychain item's record");
-        };
-        assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
-
-        let logged = lines.text();
-        assert!(!logged.is_empty(), "the unreadable file is logged");
-        assert!(
-            !logged.contains(PLANTED_TOKEN),
-            "a log line holds the token: {logged}"
-        );
-    }
-
-    // A token the environment hands Claude Code is its sign-in ahead of the stored record, with
-    // the scopes the scopes variable lists, else inference alone; a sign-in file descriptor, which
-    // never reaches the process, leaves the stored record its sign-in. Killed by the stored record
-    // read first, and by the descriptor read as a sign-in of its own.
-    #[tokio::test]
-    async fn a_token_the_environment_hands_claude_code_comes_ahead_of_the_stored_one() {
-        let folder = tempfile::tempdir().expect("a test folder");
-        std::fs::write(
-            folder.path().join(".credentials.json"),
-            r#"{"claudeAiOauth":{"accessToken":"stored","scopes":["user:mcp_servers"]}}"#,
-        )
-        .expect("the file is planted");
-        let reader = ClaudeSignInReader::with_keychain(CredentialStore::in_memory());
-        let read = |variables: &[(&str, &str)]| {
-            let environment: Vec<(String, String)> = [("CLAUDE_CONFIG_DIR", folder.path())]
-                .iter()
-                .map(|(name, path)| ((*name).to_owned(), path.display().to_string()))
-                .chain(
-                    variables
-                        .iter()
-                        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
-                )
-                .collect();
-            let reader = reader.clone();
-            async move { reader.read(&environment, None).await }
-        };
-
-        let ClaudeSignInReading::Read(sign_in) =
-            read(&[("CLAUDE_CODE_OAUTH_TOKEN", " handed ")]).await
-        else {
-            panic!("the environment's token");
-        };
-        assert_eq!(sign_in.access_token.as_str(), "handed");
-        assert_eq!(sign_in.scopes, ["user:inference"]);
-
-        let ClaudeSignInReading::Read(sign_in) = read(&[
-            ("CLAUDE_CODE_OAUTH_TOKEN", "handed"),
-            (
-                "CLAUDE_CODE_OAUTH_SCOPES",
-                "user:inference\tuser:mcp_servers",
-            ),
-        ])
-        .await
-        else {
-            panic!("the environment's token");
-        };
-        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
-
-        let ClaudeSignInReading::Read(sign_in) =
-            read(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")]).await
-        else {
-            panic!("the stored record past a descriptor");
-        };
-        assert_eq!(sign_in.access_token.as_str(), "stored");
-        assert_eq!(sign_in.scopes, ["user:mcp_servers"]);
-
-        let ClaudeSignInReading::Read(sign_in) = read(&[("CLAUDE_CODE_OAUTH_TOKEN", "  ")]).await
-        else {
-            panic!("the stored record");
-        };
-        assert_eq!(sign_in.access_token.as_str(), "stored");
-    }
-
-    // The keychain item's name: the base name where neither folder is named or the secure-storage
-    // folder is named empty, else suffixed with the first eight hex digits of the SHA-256 of the
-    // secure-storage folder where named, else of the config home, each in NFC. Killed by the salt
-    // taken from the wrong variable, by the suffix dropped, and by a salt read without NFC.
-    #[test]
-    fn the_keychain_service_is_suffixed_by_the_folder_claude_code_salts_with() {
-        let service = |variables: &[(&str, &str)]| {
-            let environment: Vec<(String, String)> = variables
-                .iter()
-                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                .collect();
-            claude_keychain_service(&environment)
-        };
-        let config_home = ("CLAUDE_CONFIG_DIR", "/accounts/work/.claude");
-
-        assert_eq!(service(&[]), "Claude Code-credentials");
-        assert_eq!(
-            service(&[(SECURE_STORAGE_FOLDER_VARIABLE, ""), config_home]),
-            "Claude Code-credentials"
-        );
-        assert_eq!(service(&[config_home]), "Claude Code-credentials-22d54fbb");
-        assert_eq!(
-            service(&[
-                (SECURE_STORAGE_FOLDER_VARIABLE, "/accounts/work/secure"),
-                config_home
-            ]),
-            "Claude Code-credentials-c8d32363"
-        );
-        // A decomposed `é` salts as the composed one.
-        assert_eq!(
-            service(&[(
-                SECURE_STORAGE_FOLDER_VARIABLE,
-                "/accounts/re\u{301}sume\u{301}"
-            )]),
-            "Claude Code-credentials-bdce0c9c"
-        );
-        assert_eq!(
-            service(&[("CLAUDE_CONFIG_DIR", "/accounts/re\u{301}sume\u{301}")]),
-            "Claude Code-credentials-bdce0c9c"
-        );
-    }
-}
+mod tests;

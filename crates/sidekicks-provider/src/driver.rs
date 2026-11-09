@@ -32,6 +32,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::credential_store::os::KeychainTurn;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
@@ -595,6 +596,9 @@ pub struct DriverServices {
     pub caller_processes: Arc<dyn CallerProcessReader>,
     /// Reads whether a running command waits for input.
     pub input_waits: Arc<dyn InputWaitReader>,
+    /// The turn every call on the operating system's credential store takes, which a driver's
+    /// calls on its provider's own keychain items take too.
+    pub keychain_turn: KeychainTurn,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub ports: Arc<DriverPorts>,
 }

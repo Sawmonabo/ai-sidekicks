@@ -17,7 +17,7 @@ use sidekicks_contracts::provider::driver::commands::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_platforms::PathRules;
+use sidekicks_platforms::{PathRules, sign_in_move};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::data_folder::program_link_folder;
@@ -161,37 +161,37 @@ impl ClaudeDriver {
             services,
             starts,
             launcher,
-            ClaudeSignInReader::system(),
+            ClaudeSignInReader::new(sign_in_move(), &services.spawner, &services.keychain_turn),
             check_claude_command_sandbox,
         )
     }
 
     /// The driver over the shared services, starting every process through `starts` and reading
-    /// sign-ins from `keychain`, a test's own, never the system's.
+    /// keychain items through `keychain`, a test's stand-in tool, never the system's.
     #[cfg(test)]
     pub(crate) fn with_starts(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
-        keychain: sidekicks_platforms::CredentialStore,
+        keychain: Option<sidekicks_platforms::SignInMove>,
     ) -> Self {
         Self::with_test_sign_in(services, starts, keychain, check_claude_command_sandbox)
     }
 
     // The driver over the shared services, starting every process through `starts`, reading
-    // sign-ins from `keychain`, the test's own, and checking the command sandbox with
-    // `command_sandbox_check`.
+    // keychain items through `keychain`, the test's stand-in tool, and checking the command
+    // sandbox with `command_sandbox_check`.
     #[cfg(test)]
     fn with_test_sign_in(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
-        keychain: sidekicks_platforms::CredentialStore,
+        keychain: Option<sidekicks_platforms::SignInMove>,
         command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {
         Self::with_sign_in(
             services,
             starts,
             compose_claude_launcher(services),
-            ClaudeSignInReader::with_keychain(keychain),
+            ClaudeSignInReader::new(keychain, &services.spawner, &services.keychain_turn),
             command_sandbox_check,
         )
     }
@@ -273,7 +273,7 @@ impl ClaudeDriver {
     pub(crate) fn with_engine(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
-        keychain: sidekicks_platforms::CredentialStore,
+        keychain: Option<sidekicks_platforms::SignInMove>,
         engine: &Arc<dyn RunHost>,
         dispatch: &Arc<dyn InboundDispatch>,
         command_sandbox_check: ClaudeCommandSandboxCheck,

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use rstest::rstest;
-use secrecy::SecretString;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -156,7 +155,7 @@ pub(super) fn driver_on_environment(
     ClaudeDriver::with_engine(
         services,
         starts.clone(),
-        starts.keychain.clone(),
+        starts.keychain.sign_in_move(),
         &host,
         &dispatch,
         sandbox_cannot_run,
@@ -278,6 +277,10 @@ async fn a_claude_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
 #[tokio::test]
 async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
     let scripted = ScriptedDriver::new();
+    // Only a system whose providers keep their sign-in in a keychain item reads one.
+    if scripted.starts.keychain.sign_in_move().is_none() {
+        return;
+    }
     std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
     std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
         .expect("the person's config is written");
@@ -299,14 +302,10 @@ async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
         .try_into()
         .ok()
         .expect("one");
-    let item = scripted
-        .starts
-        .keychain
-        .read(
-            &claude_keychain_service(&start.environment),
-            &claude_keychain_account(&start.environment),
-        )
-        .expect("the keychain reads");
+    let item = scripted.starts.keychain.item(
+        &claude_keychain_service(&start.environment),
+        &claude_keychain_account(&start.environment),
+    );
     assert!(item.is_none(), "the sign-in's keychain item is removed");
 }
 
@@ -852,9 +851,7 @@ async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
         claude_keychain_service(&leftover_environment),
         claude_keychain_account(&leftover_environment),
     );
-    keychain
-        .write(&service, &account, &SecretString::from("{}".to_owned()))
-        .expect("its keychain item is planted");
+    keychain.put_item(&service, &account, b"{}");
 
     scripted
         .driver
@@ -863,11 +860,10 @@ async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
         .expect("the sweep removes the leftovers");
 
     assert!(!sign_ins.exists(), "the left folder is removed");
-    assert!(
-        keychain
-            .read(&service, &account)
-            .expect("the keychain reads")
-            .is_none(),
+    // Only a system whose providers keep their sign-in in a keychain item has one to remove.
+    assert_eq!(
+        keychain.item(&service, &account).is_none(),
+        keychain.sign_in_move().is_some(),
         "the left folder's keychain item is removed"
     );
 }

@@ -1,7 +1,8 @@
 //! A sign-in's keychain item, reached only through Apple's `security` tool: read with
 //! `find-generic-password -w`, written with `add-generic-password -U` on the tool's standard input,
 //! and deleted with `delete-generic-password`. The provider reaches the item the same way, so the
-//! item keeps the access list the tool's writes give it and neither side meets a prompt.
+//! item keeps the access list the tool's writes give it, which trusts the tool, and neither side
+//! meets a prompt.
 
 use std::ffi::OsStr;
 use std::io;
@@ -17,7 +18,7 @@ use tokio::time::Instant;
 use super::SignInPlace;
 use crate::posix::child_command::prepare_child_command;
 use crate::spawner::Spawner;
-use crate::{KeychainItemRefusal, KeychainSignIn, SignInMoveError};
+use crate::{KeychainItemRefusal, SignInMoveError};
 
 // The tool's exit for `errSecItemNotFound`: a read or a delete found no item.
 const ITEM_NOT_FOUND: i32 = 44;
@@ -29,14 +30,15 @@ const NO_LOGIN_KEYCHAIN: [i32; 2] = [37, 50];
 
 /// The longest line, its newline included, `security -i` reads as one command: it reads each line
 /// into a 4096-byte buffer and splits a longer one silently, so a line past this is never sent.
-pub(super) const INTERACTIVE_LINE_LIMIT: usize = 4095;
+pub(crate) const INTERACTIVE_LINE_LIMIT: usize = 4095;
 
 // How much of the tool's output a read first makes room for; an item is a few kilobytes at most.
 const OUTPUT_START_CAPACITY: usize = 8 * 1024;
 
 /// A sign-in's keychain item, each call one child of the keychain tool held to the step bound.
 pub(super) struct KeychainItem<'a> {
-    sign_in: &'a KeychainSignIn,
+    service: &'a str,
+    account: &'a str,
     spawner: &'a Spawner,
     security_program: &'a Path,
     step_bound: Duration,
@@ -69,49 +71,101 @@ pub(super) enum AddForm {
 }
 
 impl<'a> KeychainItem<'a> {
-    /// The item `sign_in` names, reached through `security_program` started on `spawner`, each
-    /// call held to `step_bound`.
+    /// The item filed under `service` and `account`, reached through `security_program` started
+    /// on `spawner`, each call held to `step_bound`.
     pub(super) fn new(
-        sign_in: &'a KeychainSignIn,
+        service: &'a str,
+        account: &'a str,
         spawner: &'a Spawner,
         security_program: &'a Path,
         step_bound: Duration,
     ) -> Self {
         Self {
-            sign_in,
+            service,
+            account,
             spawner,
             security_program,
             step_bound,
         }
     }
 
+    /// The item's value, `None` where there is no item. Fails with the keychain's refusal, and
+    /// with [`KeychainItemRefusal::Unanswered`] past the step bound, the tool ended.
+    pub(super) async fn read_value(
+        &self,
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, KeychainItemRefusal> {
+        let ended = self
+            .run(
+                &self.named_arguments("find-generic-password", &["-w"]),
+                None,
+            )
+            .await?;
+        match tool_answer(ended.status)? {
+            ToolAnswer::Done => Ok(Some(item_from_printed(&ended.printed))),
+            ToolAnswer::NoItem => Ok(None),
+        }
+    }
+
+    /// Holds `value` in the item, in place of anything held before, its access list kept. Fails
+    /// as [`Self::read_value`] does.
+    pub(super) async fn write_value(&self, value: &[u8]) -> Result<(), KeychainItemRefusal> {
+        let mut hex_buffer = Zeroizing::new(vec![0; value.len() * 2]);
+        let hex = base16ct::lower::encode_str(value, &mut hex_buffer)
+            .expect("the buffer holds twice the value's bytes");
+        let ended = match add_form(self.service, self.account, hex)? {
+            AddForm::Line(line) => self.run(&[OsStr::new("-i")], Some(line)).await?,
+            AddForm::Arguments => {
+                let arguments = self.named_arguments("add-generic-password", &["-U", "-X", hex]);
+                self.run(&arguments, None).await?
+            }
+        };
+        match tool_answer(ended.status)? {
+            ToolAnswer::Done => Ok(()),
+            ToolAnswer::NoItem => Err(KeychainItemRefusal::Ended(ended.status)),
+        }
+    }
+
+    /// Deletes the item, answering whether there was one. Fails as [`Self::read_value`] does.
+    pub(super) async fn delete_value(&self) -> Result<bool, KeychainItemRefusal> {
+        let ended = self
+            .run(&self.named_arguments("delete-generic-password", &[]), None)
+            .await?;
+        match tool_answer(ended.status)? {
+            ToolAnswer::Done => Ok(true),
+            ToolAnswer::NoItem => Ok(false),
+        }
+    }
+
+    // `refusal` as the move's error: past the step bound the move stops there; any other refusal
+    // names the item.
     fn refused(&self, refusal: KeychainItemRefusal) -> SignInMoveError {
-        SignInMoveError::Keychain {
-            service: self.sign_in.service.clone(),
-            account: self.sign_in.account.clone(),
-            refusal,
+        match refusal {
+            KeychainItemRefusal::Unanswered => SignInMoveError::Overran,
+            refusal @ (KeychainItemRefusal::Locked
+            | KeychainItemRefusal::NoLoginKeychain
+            | KeychainItemRefusal::Ended(_)
+            | KeychainItemRefusal::Unreachable(_)
+            | KeychainItemRefusal::UnwritableName) => SignInMoveError::Keychain {
+                service: self.service.to_owned(),
+                account: self.account.to_owned(),
+                refusal,
+            },
         }
     }
 
     // `command` with the item's names, then `rest`.
     fn named_arguments<'b>(&'b self, command: &'b str, rest: &[&'b str]) -> Vec<&'b OsStr> {
-        let names = [
-            command,
-            "-a",
-            &self.sign_in.account,
-            "-s",
-            &self.sign_in.service,
-        ];
+        let names = [command, "-a", self.account, "-s", self.service];
         names.iter().chain(rest).copied().map(OsStr::new).collect()
     }
 
     // Runs the tool with `arguments` and `line` on its standard input, or none, on the spawner
-    // within the step bound; past it the child is ended and reaped before the move stops.
+    // within the step bound; past it the child is ended and reaped before the call answers.
     async fn run(
         &self,
         arguments: &[&OsStr],
         line: Option<Zeroizing<Vec<u8>>>,
-    ) -> Result<ToolEnd, SignInMoveError> {
+    ) -> Result<ToolEnd, KeychainItemRefusal> {
         let deadline = Instant::now() + self.step_bound;
         let mut command = Command::new(self.security_program);
         command
@@ -132,15 +186,13 @@ impl<'a> KeychainItem<'a> {
         .await
         {
             Ok(started) => started,
-            Err(_elapsed) => return Err(SignInMoveError::Overran),
+            Err(_elapsed) => return Err(KeychainItemRefusal::Unanswered),
         };
         let mut child = started
             .and_then(|spawned| spawned)
-            .map_err(|failure| self.refused(KeychainItemRefusal::Unreachable(failure)))?;
+            .map_err(KeychainItemRefusal::Unreachable)?;
         match tokio::time::timeout_at(deadline, talk(&mut child, line)).await {
-            Ok(ended) => {
-                ended.map_err(|failure| self.refused(KeychainItemRefusal::Unreachable(failure)))
-            }
+            Ok(ended) => ended.map_err(KeychainItemRefusal::Unreachable),
             Err(_elapsed) => {
                 if let Err(error) = child.kill().await {
                     tracing::warn!(
@@ -148,7 +200,7 @@ impl<'a> KeychainItem<'a> {
                         "a keychain call past its bound could not be ended"
                     );
                 }
-                Err(SignInMoveError::Overran)
+                Err(KeychainItemRefusal::Unanswered)
             }
         }
     }
@@ -156,52 +208,26 @@ impl<'a> KeychainItem<'a> {
 
 impl SignInPlace for KeychainItem<'_> {
     async fn read(&self) -> Result<Option<Zeroizing<Vec<u8>>>, SignInMoveError> {
-        let ended = self
-            .run(
-                &self.named_arguments("find-generic-password", &["-w"]),
-                None,
-            )
-            .await?;
-        match tool_answer(ended.status).map_err(|refusal| self.refused(refusal))? {
-            ToolAnswer::Done => Ok(Some(item_from_printed(&ended.printed))),
-            ToolAnswer::NoItem => Ok(None),
-        }
+        self.read_value()
+            .await
+            .map_err(|refusal| self.refused(refusal))
     }
 
     async fn write(&self, sign_in: &[u8]) -> Result<(), SignInMoveError> {
-        let mut hex_buffer = Zeroizing::new(vec![0; sign_in.len() * 2]);
-        let hex = base16ct::lower::encode_str(sign_in, &mut hex_buffer)
-            .expect("the buffer holds twice the sign-in's bytes");
-        let form = add_form(&self.sign_in.service, &self.sign_in.account, hex)
-            .map_err(|refusal| self.refused(refusal))?;
-        let ended = match form {
-            AddForm::Line(line) => self.run(&[OsStr::new("-i")], Some(line)).await?,
-            AddForm::Arguments => {
-                let arguments = self.named_arguments("add-generic-password", &["-U", "-X", hex]);
-                self.run(&arguments, None).await?
-            }
-        };
-        match tool_answer(ended.status) {
-            Ok(ToolAnswer::Done) => Ok(()),
-            Ok(ToolAnswer::NoItem) => Err(self.refused(KeychainItemRefusal::Ended(ended.status))),
-            Err(refusal) => Err(self.refused(refusal)),
-        }
+        self.write_value(sign_in)
+            .await
+            .map_err(|refusal| self.refused(refusal))
     }
 
     async fn delete(&self) -> Result<(), SignInMoveError> {
-        let ended = self
-            .run(&self.named_arguments("delete-generic-password", &[]), None)
-            .await?;
-        tool_answer(ended.status)
+        self.delete_value()
+            .await
             .map(drop)
             .map_err(|refusal| self.refused(refusal))
     }
 
     fn describe(&self) -> String {
-        format!(
-            "the keychain item {} for {}",
-            self.sign_in.service, self.sign_in.account
-        )
+        format!("the keychain item {} for {}", self.service, self.account)
     }
 }
 

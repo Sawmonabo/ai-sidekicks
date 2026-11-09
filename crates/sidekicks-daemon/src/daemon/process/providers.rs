@@ -75,6 +75,7 @@ use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::credential_store::os::KeychainTurn;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
@@ -129,6 +130,8 @@ pub(crate) struct ProviderStart {
     pub(crate) build_record_readers: Arc<dyn BuildRecordReaders>,
     /// The daemon's record of its own children, opened and swept before the providers are built.
     pub(crate) child_records: Arc<dyn DaemonChildRecords>,
+    /// The turn every call on the operating system's credential store takes, the secret items'.
+    pub(crate) keychain_turn: KeychainTurn,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -227,6 +230,7 @@ pub(crate) fn build_providers(
         input_waits: Arc::new(SystemInputWaitReader {
             spawner: start.spawner,
         }),
+        keychain_turn: start.keychain_turn,
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));

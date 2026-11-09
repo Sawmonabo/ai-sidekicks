@@ -134,6 +134,8 @@ mod sign_in_move;
 mod socket;
 mod spawner;
 #[cfg(any(test, feature = "test-support"))]
+mod stand_in_keychain;
+#[cfg(any(test, feature = "test-support"))]
 mod stand_in_program;
 mod standard_streams;
 #[cfg(any(test, feature = "test-support"))]
@@ -190,7 +192,7 @@ pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::seal::{CredentialSeal, SealFailure, SealHeader, SealKey};
 pub use credential_store::{
     CredentialStore, CredentialStoreError, SecretStoreOffer, StoreAccount, StoreOpener,
-    login_keychain, secret_store_offer,
+    secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use environment_value_limits::EnvironmentValueLimits;
@@ -529,6 +531,8 @@ pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
+#[cfg(any(test, feature = "test-support"))]
+pub use stand_in_keychain::{StandInKeychain, run_keychain_tool_stand_in};
 #[cfg(any(test, feature = "test-support"))]
 pub use stand_in_program::{
     StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,

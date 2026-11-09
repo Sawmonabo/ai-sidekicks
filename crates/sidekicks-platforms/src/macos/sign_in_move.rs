@@ -5,10 +5,14 @@
 //! its copy is written deletes the copy where the source still holds the same sign-in, so no
 //! sign-in is left in a file the person never chose. Each step is held to the caller's bound, and
 //! a step past it stops the move there, so nothing moves on after the caller has stopped waiting.
+//! One item's read and delete for a provider's driver go through the same tool.
 
 mod keychain_item;
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use self::keychain_item::INTERACTIVE_LINE_LIMIT;
 
 use std::fs;
 use std::io;
@@ -21,8 +25,8 @@ use subtle::ConstantTimeEq as _;
 use self::keychain_item::KeychainItem;
 use crate::spawner::Spawner;
 use crate::{
-    CopyLeftCause, KeychainSignIn, LeftoverSweep, SignInMoveError, flush_folder,
-    remove_atomic_write_leftovers, replace_file_atomically,
+    CopyLeftCause, KeychainItemRefusal, KeychainSignIn, LeftoverSweep, SignInMoveError,
+    flush_folder, remove_atomic_write_leftovers, replace_file_atomically,
 };
 
 // The mode a sign-in's file is written with: its owner reads and writes it, no one else.
@@ -46,6 +50,42 @@ pub fn sign_in_move() -> Option<SignInMove> {
 }
 
 impl SignInMove {
+    /// The move through `security_program` in place of Apple's tool, which a test's stand-in is.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn over_program(security_program: PathBuf) -> Self {
+        Self { security_program }
+    }
+
+    /// The value of the keychain item filed under `service` and `account`, read through the
+    /// keychain tool started on `spawner`; `None` where there is no such item. Fails with the
+    /// keychain's [`KeychainItemRefusal`], and with [`KeychainItemRefusal::Unanswered`] once the
+    /// tool runs past `bound`, the tool then ended.
+    pub async fn read_item(
+        &self,
+        spawner: &Spawner,
+        service: &str,
+        account: &str,
+        bound: Duration,
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, KeychainItemRefusal> {
+        KeychainItem::new(service, account, spawner, &self.security_program, bound)
+            .read_value()
+            .await
+    }
+
+    /// Deletes the keychain item filed under `service` and `account` through the keychain tool
+    /// started on `spawner`, answering whether there was one. Fails as [`Self::read_item`] does.
+    pub async fn delete_item(
+        &self,
+        spawner: &Spawner,
+        service: &str,
+        account: &str,
+        bound: Duration,
+    ) -> Result<bool, KeychainItemRefusal> {
+        KeychainItem::new(service, account, spawner, &self.security_program, bound)
+            .delete_value()
+            .await
+    }
+
     /// Moves each of `sign_ins` from its keychain item into its file at mode `0600`, in order: a
     /// sign-in with no item is already moved, or was never there. Starts the keychain tool on
     /// `spawner`. Fails with the first sign-in that cannot be moved, which keeps its item, and
@@ -59,7 +99,7 @@ impl SignInMove {
         step_bound: Duration,
     ) -> Result<(), SignInMoveError> {
         for sign_in in sign_ins {
-            let item = KeychainItem::new(sign_in, spawner, &self.security_program, step_bound);
+            let item = sign_in_item(sign_in, spawner, &self.security_program, step_bound);
             move_sign_in(&item, &SignInFile::new(sign_in, step_bound)).await?;
         }
         Ok(())
@@ -75,7 +115,7 @@ impl SignInMove {
         step_bound: Duration,
     ) -> Result<(), SignInMoveError> {
         for sign_in in sign_ins {
-            let item = KeychainItem::new(sign_in, spawner, &self.security_program, step_bound);
+            let item = sign_in_item(sign_in, spawner, &self.security_program, step_bound);
             move_sign_in(&SignInFile::new(sign_in, step_bound), &item).await?;
         }
         Ok(())
@@ -95,6 +135,22 @@ impl SignInMove {
             })
             .collect()
     }
+}
+
+// `sign_in`'s keychain item, reached through `security_program` on `spawner` within `step_bound`.
+fn sign_in_item<'a>(
+    sign_in: &'a KeychainSignIn,
+    spawner: &'a Spawner,
+    security_program: &'a Path,
+    step_bound: Duration,
+) -> KeychainItem<'a> {
+    KeychainItem::new(
+        &sign_in.service,
+        &sign_in.account,
+        spawner,
+        security_program,
+        step_bound,
+    )
 }
 
 // Where a sign-in is held: a keychain item or a file. Each call is one step of a move, held to the

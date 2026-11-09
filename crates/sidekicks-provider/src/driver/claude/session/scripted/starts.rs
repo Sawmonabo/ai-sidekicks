@@ -15,10 +15,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use secrecy::SecretString;
 use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::CredentialStore;
+use sidekicks_platforms::{StandInKeychain, harness_test_name, run_keychain_tool_stand_in};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -175,7 +174,7 @@ pub(crate) struct ScriptedStarts {
     tables: Mutex<ScriptedStartTables>,
     started: Notify,
     /// The keychain a scripted sign-in saves into, which the driver a test builds reads.
-    pub(crate) keychain: CredentialStore,
+    pub(crate) keychain: StandInKeychain,
 }
 
 impl Default for ScriptedStarts {
@@ -183,7 +182,7 @@ impl Default for ScriptedStarts {
         Self {
             tables: Mutex::default(),
             started: Notify::new(),
-            keychain: CredentialStore::in_memory(),
+            keychain: stand_in_keychain(),
         }
     }
 }
@@ -640,14 +639,11 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     .await
                     .map_err(ClaudeLaunchError::Spawn)?;
                 }
-                ScriptedSignInPlace::Keychain => self
-                    .keychain
-                    .write(
-                        &claude_keychain_service(&start.environment),
-                        &claude_keychain_account(&start.environment),
-                        &SecretString::from(credentials.to_string()),
-                    )
-                    .map_err(|error| ClaudeLaunchError::Spawn(std::io::Error::other(error)))?,
+                ScriptedSignInPlace::Keychain => self.keychain.put_item(
+                    &claude_keychain_service(&start.environment),
+                    &claude_keychain_account(&start.environment),
+                    credentials.to_string().as_bytes(),
+                ),
             }
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
             Ok(ClaudeMcpProcess {
@@ -726,4 +722,21 @@ fn scripted_arrivals(
 // A start that fails as a spawn the system refused.
 fn spawn_failure(reason: &str) -> ClaudeLaunchError {
     ClaudeLaunchError::Spawn(std::io::Error::other(reason.to_owned()))
+}
+
+/// A stand-in keychain whose tool is this module's stand-in test, answering every call as Apple's
+/// keychain tool would.
+pub(crate) fn stand_in_keychain() -> StandInKeychain {
+    StandInKeychain::new(
+        &harness_test_name(module_path!(), "the_keychain_tool_stand_in"),
+        &[],
+    )
+}
+
+/// The keychain tool's stand-in, run as `security` through a stand-in keychain's script; it does
+/// nothing in any other run.
+#[test]
+#[ignore = "run only as the keychain tool's stand-in, through a stand-in keychain's script"]
+fn the_keychain_tool_stand_in() {
+    run_keychain_tool_stand_in();
 }

@@ -153,7 +153,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     let driver = ClaudeDriver::with_starts(
         &fixture.services,
         Arc::clone(&one_turn) as _,
-        fixture.starts.keychain.clone(),
+        fixture.starts.keychain.sign_in_move(),
     );
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");

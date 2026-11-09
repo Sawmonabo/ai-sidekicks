@@ -421,7 +421,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let claude = Arc::new(ClaudeDriver::with_starts(
         &fixture.services,
         fixture.starts.clone(),
-        fixture.starts.keychain.clone(),
+        fixture.starts.keychain.sign_in_move(),
     ));
     let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());

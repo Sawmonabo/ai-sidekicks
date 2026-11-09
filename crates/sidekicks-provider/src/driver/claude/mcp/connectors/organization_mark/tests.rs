@@ -12,7 +12,6 @@ use rstest::rstest;
 use serde_json::json;
 use serde_json::value::to_raw_value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
-use sidekicks_platforms::CredentialStore;
 use zeroize::Zeroizing;
 
 use super::{ClaudeConnectorMarks, ClaudeOrganizationMarks};
@@ -166,9 +165,7 @@ fn sign_in(scopes: &[&str]) -> ClaudeAiSignIn {
 }
 
 fn marks() -> ClaudeOrganizationMarks {
-    ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-        CredentialStore::in_memory(),
-    ))
+    ClaudeOrganizationMarks::new(ClaudeSignInReader::without_keychain())
 }
 
 // The list is asked for with the line and the whole header set Claude Code sends, its user

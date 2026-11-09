@@ -153,7 +153,7 @@ The machine's Ed25519 identity key and its X25519 channel key MUST NOT be silent
 ### Option D: The Data Protection Keychain with a signed build (Rejected)
 
 - **What:** Keep the macOS items in the Data Protection Keychain, which needs an Apple-signed bundle and its entitlement.
-- **Why rejected:** What it adds over the login keychain is per-item access lists and an optional biometric gate, and a biometric gate would stop an unattended service.
+- **Why rejected:** It grants access by the keychain access groups a signed app's entitlement names, where the login keychain keeps an access list on each item, and what it adds beyond that is an optional biometric gate, which would stop an unattended service.
 
 ### Option E: A hardware security module plugin (Rejected)
 
@@ -222,7 +222,7 @@ This ADR makes the following explicit disclaimers to prevent misreading of the c
 - **Hardware binding beyond Linux's chip seal.** On Linux an item sealed with the chip opens only on this computer's chip, beside systemd's system key; an item sealed with the system key alone opens from a copy of the whole disk. On macOS and Windows no item is bound to a security chip, and a store's own protection is all the items have.
 - **Credential Guard protection (Windows).** Credential Guard protects `CRED_TYPE_DOMAIN_PASSWORD` only; our `CRED_TYPE_GENERIC` credential receives no Credential Guard protection. DPAPI wrapping is provided by the OS as an at-rest protection layer, rooted in the user's logon credential, but this is software-protected, not hardware-rooted.
 - **Attestation.** No item is used to attest the machine to anyone; no HSM is involved anywhere in the custody path.
-- **Data Protection Keychain (macOS).** The items use the login keychain, or `secrets.json` on a Mac whose logged-out service has moved them there; they do not get the Data Protection Keychain's per-item access lists, biometric gate or iCloud sync, which a launchd daemon cannot use ([TN3137: On Mac keychains](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)).
+- **Data Protection Keychain (macOS).** The items use the login keychain, or `secrets.json` on a Mac whose logged-out service has moved them there; they do not get the Data Protection Keychain's access groups, biometric gate or iCloud sync, which a launchd daemon cannot use ([TN3137: On Mac keychains](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)).
 
 ## Decision Validation
 

@@ -211,7 +211,6 @@ mod tests {
     use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
-    use sidekicks_platforms::CredentialStore;
     use sidekicks_std::mutex_lock::lock;
 
     use super::{ClaudeAccountReadAsk, ClaudeAccountServerReads, HeldRead};
@@ -239,9 +238,7 @@ mod tests {
         let reads = ClaudeAccountServerReads::new(
             fixture.starts.clone(),
             Arc::clone(&fixture.driver.sources),
-            ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-                CredentialStore::in_memory(),
-            )),
+            ClaudeOrganizationMarks::new(ClaudeSignInReader::without_keychain()),
         );
         let account = test_provider_account_id();
 
@@ -279,9 +276,7 @@ mod tests {
         let reads = ClaudeAccountServerReads::new(
             fixture.starts.clone(),
             Arc::clone(&fixture.driver.sources),
-            ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-                CredentialStore::in_memory(),
-            )),
+            ClaudeOrganizationMarks::new(ClaudeSignInReader::without_keychain()),
         );
         let account = test_provider_account_id();
         let kept = if is_short {
@@ -330,9 +325,7 @@ mod tests {
         let reads = ClaudeAccountServerReads::new(
             fixture.starts.clone(),
             Arc::clone(&fixture.driver.sources),
-            ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-                CredentialStore::in_memory(),
-            )),
+            ClaudeOrganizationMarks::new(ClaudeSignInReader::without_keychain()),
         );
         let account = test_provider_account_id();
         let short = Arc::new(ClaudeMcpAccountServers {

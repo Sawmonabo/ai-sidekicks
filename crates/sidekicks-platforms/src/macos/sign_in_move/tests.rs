@@ -2,10 +2,9 @@
 //! and exit rules the move keeps.
 
 use std::fs;
-use std::io::{self, Read as _, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::process::ExitStatusExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitStatus;
 use std::time::Duration;
 
@@ -15,101 +14,26 @@ use secrecy::zeroize::Zeroizing;
 use super::keychain_item::{
     AddForm, INTERACTIVE_LINE_LIMIT, ToolAnswer, add_form, item_from_printed, tool_answer,
 };
-use super::{SignInMove, sign_in_move};
+use super::sign_in_move;
 use crate::spawner::Spawner;
-use crate::test_program::{harness_test_name, this_test_arguments};
-use crate::{CopyLeftCause, KeychainItemRefusal, KeychainSignIn, SignInMoveError};
+use crate::stand_in_keychain::split_line;
+use crate::test_program::harness_test_name;
+use crate::{
+    CopyLeftCause, KeychainItemRefusal, KeychainSignIn, SignInMoveError, StandInKeychain,
+    run_keychain_tool_stand_in,
+};
 
 const SERVICE: &str = "Provider-credentials-test";
 
 // A bound no step of a test's move nears.
 const STEP_BOUND: Duration = Duration::from_secs(60);
 
-// The variable naming the stand-in's keychain folder on its first line and a switch on each line
-// after: `locked-once:<account>` answers the first call on that account as a locked keychain,
-// `delete-locked:<account>` answers every delete of that account's item as a locked keychain,
-// `keep-changed` keeps every added value with its last byte dropped, and `sleep` sleeps before
-// answering, its process id written to the folder's `pid` file.
-const STAND_IN_VARIABLE: &str = "SIDEKICKS_SECURITY_STAND_IN";
-
 // The test whose body is the keychain tool's stand-in.
 const STAND_IN_TEST: &str = "the_keychain_tool_stand_in";
 
-// The tool's exits the stand-in answers with.
-const ITEM_NOT_FOUND: i32 = 44;
-const KEYCHAIN_LOCKED: i32 = 36;
-
-// A stand-in keychain: a folder of items, one file each, and a script that runs this test program
-// as `security` over it, the harness's own output sent away and the tool's on descriptor 3 put in
-// its place.
-struct StandInKeychain {
-    folder: tempfile::TempDir,
-    program: PathBuf,
-}
-
-impl StandInKeychain {
-    fn new(switches: &[&str]) -> Self {
-        let folder = tempfile::tempdir().expect("the keychain's folder is made");
-        let folder_text = folder.path().to_str().expect("the folder's path is text");
-        let test_program = std::env::current_exe().expect("the test program names itself");
-        let test_program = test_program
-            .to_str()
-            .expect("the test program's path is text");
-        let variable = std::iter::once(folder_text)
-            .chain(switches.iter().copied())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let name = harness_test_name(module_path!(), STAND_IN_TEST);
-        let harness_arguments = this_test_arguments(&name);
-        for word in [variable.as_str(), test_program]
-            .into_iter()
-            .chain(harness_arguments)
-        {
-            assert!(!word.contains('\''), "a script word holds no single quote");
-        }
-        let script = format!(
-            "#!/bin/sh\n{STAND_IN_VARIABLE}='{variable}'\nexport {STAND_IN_VARIABLE}\n\
-             exec '{test_program}' '{}' -- \"$@\" 3>&1 1>/dev/null\n",
-            harness_arguments.join("' '"),
-        );
-        let program = folder.path().join("security");
-        fs::write(&program, script).expect("the stand-in's script is written");
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o755))
-            .expect("the stand-in's script runs");
-        Self { folder, program }
-    }
-
-    fn sign_in_move(&self) -> SignInMove {
-        SignInMove {
-            security_program: self.program.clone(),
-        }
-    }
-
-    fn item(&self, sign_in: &KeychainSignIn) -> Option<Vec<u8>> {
-        fs::read(item_path(
-            self.folder.path(),
-            &sign_in.service,
-            &sign_in.account,
-        ))
-        .ok()
-    }
-
-    fn put_item(&self, sign_in: &KeychainSignIn, value: &str) {
-        fs::write(
-            item_path(self.folder.path(), &sign_in.service, &sign_in.account),
-            value,
-        )
-        .expect("the item is written");
-    }
-}
-
-// The file holding the item filed under `service` and `account`.
-fn item_path(folder: &Path, service: &str, account: &str) -> PathBuf {
-    folder.join(format!(
-        "item-{}-{}",
-        base16ct::lower::encode_string(service.as_bytes()),
-        base16ct::lower::encode_string(account.as_bytes())
-    ))
+// A stand-in keychain answering as `switches` say, its tool this module's stand-in test.
+fn stand_in_keychain(switches: &[&str]) -> StandInKeychain {
+    StandInKeychain::new(&harness_test_name(module_path!(), STAND_IN_TEST), switches)
 }
 
 // Two sign-ins, each filed under its own account and moving to its own file in `folder`, whose
@@ -139,7 +63,7 @@ fn sign_in_text(sign_in: &KeychainSignIn) -> String {
 // it started with.
 fn assert_each_held_once(keychain: &StandInKeychain, sign_ins: &[KeychainSignIn], in_files: bool) {
     for sign_in in sign_ins {
-        let item = keychain.item(sign_in);
+        let item = keychain.item(&sign_in.service, &sign_in.account);
         let file = fs::read(&sign_in.file).ok();
         let expected = Some(sign_in_text(sign_in).into_bytes());
         if in_files {
@@ -158,13 +82,17 @@ fn spawner() -> Spawner {
 /// move back reverses it. Mutations: write the file at 0644; skip the source's delete.
 #[tokio::test]
 async fn the_sign_in_move_puts_each_sign_in_in_a_private_file_and_back() {
-    let keychain = StandInKeychain::new(&[]);
+    let keychain = stand_in_keychain(&[]);
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let sign_ins = two_sign_ins(folder.path());
     for sign_in in &sign_ins {
-        keychain.put_item(sign_in, &sign_in_text(sign_in));
+        keychain.put_item(
+            &sign_in.service,
+            &sign_in.account,
+            sign_in_text(sign_in).as_bytes(),
+        );
     }
-    let mover = keychain.sign_in_move();
+    let mover = keychain.sign_in_move().expect("macOS supplies the move");
     let spawner = spawner();
 
     mover
@@ -195,13 +123,17 @@ async fn the_sign_in_move_puts_each_sign_in_in_a_private_file_and_back() {
 /// it.
 #[tokio::test]
 async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
-    let keychain = StandInKeychain::new(&["locked-once:second"]);
+    let keychain = stand_in_keychain(&["locked-once:second"]);
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let sign_ins = two_sign_ins(folder.path());
     for sign_in in &sign_ins {
-        keychain.put_item(sign_in, &sign_in_text(sign_in));
+        keychain.put_item(
+            &sign_in.service,
+            &sign_in.account,
+            sign_in_text(sign_in).as_bytes(),
+        );
     }
-    let mover = keychain.sign_in_move();
+    let mover = keychain.sign_in_move().expect("macOS supplies the move");
     let spawner = spawner();
 
     let stopped = mover.move_into_files(&spawner, &sign_ins, STEP_BOUND).await;
@@ -223,7 +155,11 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
 
     // Stopped after the first copy reached the keychain and before its file was deleted.
     let [first, _] = &sign_ins;
-    keychain.put_item(first, &sign_in_text(first));
+    keychain.put_item(
+        &first.service,
+        &first.account,
+        sign_in_text(first).as_bytes(),
+    );
     mover
         .move_into_keychain(&spawner, &sign_ins, STEP_BOUND)
         .await
@@ -236,13 +172,14 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
 /// source before the copy is read back; leave the copy.
 #[tokio::test]
 async fn a_sign_in_move_keeps_the_source_when_its_copy_reads_back_differently() {
-    let keychain = StandInKeychain::new(&["keep-changed"]);
+    let keychain = stand_in_keychain(&["keep-changed"]);
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let [sign_in, _] = two_sign_ins(folder.path());
     fs::write(&sign_in.file, sign_in_text(&sign_in)).expect("the sign-in file is written");
 
     let refused = keychain
         .sign_in_move()
+        .expect("macOS supplies the move")
         .move_into_keychain(&spawner(), std::slice::from_ref(&sign_in), STEP_BOUND)
         .await;
 
@@ -255,7 +192,11 @@ async fn a_sign_in_move_keeps_the_source_when_its_copy_reads_back_differently() 
         Some(sign_in_text(&sign_in)),
         "the source file stays"
     );
-    assert_eq!(keychain.item(&sign_in), None, "the bad copy is deleted");
+    assert_eq!(
+        keychain.item(&sign_in.service, &sign_in.account),
+        None,
+        "the bad copy is deleted"
+    );
     let refusal = refused.expect_err("the move is refused");
     let shown = format!("{refusal} {refusal:?}");
     assert!(!shown.contains("secret-of-"), "{shown}");
@@ -271,13 +212,17 @@ async fn a_sign_in_move_keeps_the_source_when_its_copy_reads_back_differently() 
 #[case::copy_delete_refused(false)]
 #[tokio::test]
 async fn a_sign_in_move_refused_after_its_copy_takes_the_copy_back(#[case] is_toward_files: bool) {
-    let keychain = StandInKeychain::new(&["delete-locked:first"]);
+    let keychain = stand_in_keychain(&["delete-locked:first"]);
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let [sign_in, _] = two_sign_ins(folder.path());
     let sign_ins = std::slice::from_ref(&sign_in);
-    let mover = keychain.sign_in_move();
+    let mover = keychain.sign_in_move().expect("macOS supplies the move");
     if is_toward_files {
-        keychain.put_item(&sign_in, &sign_in_text(&sign_in));
+        keychain.put_item(
+            &sign_in.service,
+            &sign_in.account,
+            sign_in_text(&sign_in).as_bytes(),
+        );
         let refused = mover
             .move_into_files(&spawner(), sign_ins, STEP_BOUND)
             .await;
@@ -324,7 +269,7 @@ async fn a_sign_in_move_refused_after_its_copy_takes_the_copy_back(#[case] is_to
     );
     assert!(shown.contains("the copy could not be deleted"), "{shown}");
     assert_eq!(
-        keychain.item(&sign_in),
+        keychain.item(&sign_in.service, &sign_in.account),
         Some(sign_in_text(&sign_in).into_bytes())
     );
     assert_eq!(
@@ -338,13 +283,18 @@ async fn a_sign_in_move_refused_after_its_copy_takes_the_copy_back(#[case] is_to
 /// carries on past the bound, and by one that leaves the tool running.
 #[tokio::test]
 async fn a_step_past_its_bound_stops_the_move_and_ends_its_child() {
-    let keychain = StandInKeychain::new(&["sleep"]);
+    let keychain = stand_in_keychain(&["sleep"]);
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let [sign_in, _] = two_sign_ins(folder.path());
-    keychain.put_item(&sign_in, &sign_in_text(&sign_in));
+    keychain.put_item(
+        &sign_in.service,
+        &sign_in.account,
+        sign_in_text(&sign_in).as_bytes(),
+    );
 
     let stopped = keychain
         .sign_in_move()
+        .expect("macOS supplies the move")
         .move_into_files(
             &spawner(),
             std::slice::from_ref(&sign_in),
@@ -358,7 +308,7 @@ async fn a_step_past_its_bound_stops_the_move_and_ends_its_child() {
     );
     assert!(!sign_in.file.exists(), "no file is written past the bound");
     assert_each_held_once(&keychain, std::slice::from_ref(&sign_in), false);
-    let pid = fs::read_to_string(keychain.folder.path().join("pid"))
+    let pid = fs::read_to_string(keychain.folder().join("pid"))
         .expect("the stand-in wrote its process id before sleeping");
     let pid = nix::unistd::Pid::from_raw(pid.parse().expect("the process id is a number"));
     assert_eq!(
@@ -493,154 +443,10 @@ fn a_stopped_moves_leftover_is_swept() {
     );
 }
 
-/// The keychain tool's stand-in, run as `security` through the script a move test writes, its
-/// keychain the folder `STAND_IN_VARIABLE` names; it does nothing in any other run.
+/// The keychain tool's stand-in, run as `security` through the script a move test writes; it
+/// does nothing in any other run.
 #[test]
 #[ignore = "run only as the keychain tool's stand-in, through the script a move test writes"]
-#[expect(
-    clippy::exit,
-    reason = "the tool's exit code is what the move reads, where the harness would exit with \
-              its own"
-)]
 fn the_keychain_tool_stand_in() {
-    let Some(variable) = std::env::var_os(STAND_IN_VARIABLE) else {
-        return;
-    };
-    let variable = variable.into_string().expect("the variable is text");
-    let mut lines = variable.lines();
-    let folder = PathBuf::from(
-        lines
-            .next()
-            .expect("the variable names the keychain's folder"),
-    );
-    let switches: Vec<&str> = lines.collect();
-    let arguments: Vec<String> = std::env::args()
-        .skip_while(|argument| argument != "--")
-        .skip(1)
-        .collect();
-    std::process::exit(answer_as_security(&folder, &switches, &arguments));
-}
-
-// Answers one call of the keychain tool over the items in `folder`, as `security` answers it, and
-// gives its exit code.
-fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) -> i32 {
-    if switches.contains(&"sleep") {
-        fs::write(folder.join("pid"), std::process::id().to_string()).expect("the pid is written");
-        std::thread::sleep(Duration::from_secs(120));
-    }
-    let words = if arguments.first().is_some_and(|word| word == "-i") {
-        let mut input = String::new();
-        io::stdin()
-            .read_to_string(&mut input)
-            .expect("the input reads");
-        assert!(
-            input.len() <= INTERACTIVE_LINE_LIMIT,
-            "one line within the tool's bound"
-        );
-        let line = input
-            .strip_suffix('\n')
-            .expect("the line ends with a newline");
-        assert!(!line.contains('\n'), "the input is one line");
-        split_line(line)
-    } else {
-        arguments.to_vec()
-    };
-    let (command, options) = words.split_first().expect("the call names a command");
-    let option = |flag: &str| {
-        let at = options.iter().position(|word| word == flag)?;
-        options.get(at + 1).cloned()
-    };
-    let service = option("-s").expect("the call names a service");
-    let account = option("-a").expect("the call names an account");
-    let locked_once = switches
-        .iter()
-        .find_map(|switch| switch.strip_prefix("locked-once:"));
-    if locked_once == Some(account.as_str())
-        && fs::File::create_new(folder.join("locked-once-answered")).is_ok()
-    {
-        return KEYCHAIN_LOCKED;
-    }
-    let item = item_path(folder, &service, &account);
-    match command.as_str() {
-        "find-generic-password" => {
-            assert!(
-                options.iter().any(|word| word == "-w"),
-                "the read prints the item"
-            );
-            let value = match fs::read(&item) {
-                Ok(value) => value,
-                Err(missing) => {
-                    assert_eq!(missing.kind(), io::ErrorKind::NotFound, "the item reads");
-                    return ITEM_NOT_FOUND;
-                }
-            };
-            let mut printed = if value.iter().all(|byte| (0x20..=0x7E).contains(byte)) {
-                value
-            } else {
-                base16ct::lower::encode_string(&value).into_bytes()
-            };
-            printed.push(b'\n');
-            fs::OpenOptions::new()
-                .write(true)
-                .open("/dev/fd/3")
-                .and_then(|mut output| output.write_all(&printed))
-                .expect("the item is printed");
-            0
-        }
-        "add-generic-password" => {
-            assert!(options.iter().any(|word| word == "-U"), "the add updates");
-            let hex = option("-X").expect("the add carries the value as hex");
-            let mut value = base16ct::lower::decode_vec(hex).expect("the value is lowercase hex");
-            if switches.contains(&"keep-changed") {
-                value.pop();
-            }
-            fs::write(&item, value).expect("the item is written");
-            0
-        }
-        "delete-generic-password"
-            if switches
-                .iter()
-                .any(|switch| switch.strip_prefix("delete-locked:") == Some(account.as_str())) =>
-        {
-            KEYCHAIN_LOCKED
-        }
-        "delete-generic-password" => match fs::remove_file(&item) {
-            Ok(()) => 0,
-            Err(missing) => {
-                assert_eq!(
-                    missing.kind(),
-                    io::ErrorKind::NotFound,
-                    "the item is removed"
-                );
-                ITEM_NOT_FOUND
-            }
-        },
-        _ => 2,
-    }
-}
-
-// Splits `line` into words as `security -i` does: whitespace between words, a word opened by `"`
-// or `'` running to the same quote, and `\` taking the next character as it is.
-fn split_line(line: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut word: Option<String> = None;
-    let mut quote = None;
-    let mut characters = line.chars();
-    while let Some(character) = characters.next() {
-        match (quote, character) {
-            (_, '\\') => word.get_or_insert_default().extend(characters.next()),
-            (Some(open), _) if character == open => {
-                words.push(word.take().unwrap_or_default());
-                quote = None;
-            }
-            (None, '"' | '\'') if word.is_none() => {
-                quote = Some(character);
-                word = Some(String::new());
-            }
-            (None, _) if character.is_whitespace() => words.extend(word.take()),
-            _ => word.get_or_insert_default().push(character),
-        }
-    }
-    words.extend(word);
-    words
+    run_keychain_tool_stand_in();
 }

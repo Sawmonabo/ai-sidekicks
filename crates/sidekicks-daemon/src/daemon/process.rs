@@ -582,6 +582,7 @@ impl DaemonProcess {
                 caller_processes: Arc::clone(&caller_process_reader),
                 build_record_readers: Arc::new(attention_changes),
                 child_records: Arc::clone(&orphan_guard) as _,
+                keychain_turn: secret_items.keychain_turn(),
             },
         );
         let backups = Backups::new(BackupDeps {

@@ -2,7 +2,9 @@
 //! its caller: into files at mode `0600` when the service runs while its account is logged out,
 //! where the keychain is locked, and back into the keychain when that ends. Each sign-in is
 //! written at its destination, read back, and only then deleted from its source, so a move stopped
-//! partway finishes on the next call in the same direction. macOS supplies the move in its own
+//! partway finishes on the next call in the same direction. The same keychain tool the move runs
+//! reads and deletes one sign-in's item for a provider's driver, so the item is reached the way its
+//! provider reaches it and never by the daemon's own signature. macOS supplies the move in its own
 //! module; on any other system, where a provider keeps its sign-in in a file already,
 //! [`SignInMove`] has no value, so [`sign_in_move`] answers `None` there and nothing else is
 //! called.
@@ -112,6 +114,10 @@ pub enum KeychainItemRefusal {
     /// cannot carry.
     #[error("the item's name holds a line break or a NUL")]
     UnwritableName,
+    /// The keychain tool gave no answer within the call's bound, as while a prompt stays open,
+    /// so it was ended.
+    #[error("the keychain tool gave no answer in time")]
+    Unanswered,
 }
 
 /// The sign-in move on a system with none built: the type has no value, so no method is ever
@@ -144,6 +150,28 @@ impl SignInMove {
 
     /// Removes a stopped move's leftovers; never called, since no value exists.
     pub fn remove_leftovers(&self, _sign_in_files: &[PathBuf]) -> Vec<io::Error> {
+        match *self {}
+    }
+
+    /// Reads a keychain item; never called, since no value exists.
+    pub async fn read_item(
+        &self,
+        _spawner: &crate::Spawner,
+        _service: &str,
+        _account: &str,
+        _bound: std::time::Duration,
+    ) -> Result<Option<secrecy::zeroize::Zeroizing<Vec<u8>>>, KeychainItemRefusal> {
+        match *self {}
+    }
+
+    /// Deletes a keychain item; never called, since no value exists.
+    pub async fn delete_item(
+        &self,
+        _spawner: &crate::Spawner,
+        _service: &str,
+        _account: &str,
+        _bound: std::time::Duration,
+    ) -> Result<bool, KeychainItemRefusal> {
         match *self {}
     }
 }

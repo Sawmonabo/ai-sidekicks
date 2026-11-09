@@ -75,8 +75,8 @@ use crate::credential_store::file::{
     FileSecretKeychain, ItemsForm, ItemsReadFailure, SecretItemsFile,
 };
 use crate::credential_store::os::{
-    CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SEAL_CHECK_TIMEOUT_DIVISOR,
-    SecretsOffer,
+    CredentialStoreAccess, KeychainTurn, OsCredentialStore, OsSecretKeychain,
+    SEAL_CHECK_TIMEOUT_DIVISOR, SecretsOffer,
 };
 use crate::credential_store::place;
 use crate::credential_store::seal::SecretSeal;
@@ -124,6 +124,8 @@ pub struct SecretItems {
     runs_while_logged_out: bool,
     /// What holds the secrets, in words for the service log.
     description: String,
+    /// The turn every call on the operating system's store takes, a provider's own included.
+    keychain_turn: KeychainTurn,
     /// The calls on the operating system's store, where the machine offers one.
     os_store: Option<Arc<OsCredentialStore>>,
     /// systemd's credential service, where the machine offers it.
@@ -164,10 +166,12 @@ impl SecretItems {
             call_timeout,
         } = start;
         let probe_account = format!("store-verify-{}", random_hex(PROBE_ACCOUNT_BYTES)?);
+        let keychain_turn = KeychainTurn::new(call_timeout);
         let (os_store, seal) = match access.offer() {
-            SecretsOffer::OperatingSystem(open) => {
-                (Some(OsCredentialStore::new(open, call_timeout)), None)
-            }
+            SecretsOffer::OperatingSystem(open) => (
+                Some(OsCredentialStore::new(open, keychain_turn.clone())),
+                None,
+            ),
             SecretsOffer::SealService(seal) => (None, Some(seal)),
         };
         let view = Arc::new(Mutex::new(PlaceView::default()));
@@ -175,6 +179,7 @@ impl SecretItems {
             record_path: place::record_path(&data_folder),
             runs_while_logged_out,
             description: access.description(),
+            keychain_turn,
             os_store,
             items_file: SecretItemsFile::new(&data_folder),
             data_folder,
@@ -185,6 +190,12 @@ impl SecretItems {
             state: RwLock::new(PlaceState::new(Arc::clone(&view))),
             view,
         }))
+    }
+
+    /// The turn every call on the operating system's credential store takes, which a provider's
+    /// own calls on that store take too, so no call meets another's prompt.
+    pub fn keychain_turn(&self) -> KeychainTurn {
+        self.keychain_turn.clone()
     }
 
     /// The items filed under `service`, which a feature reads and writes through its

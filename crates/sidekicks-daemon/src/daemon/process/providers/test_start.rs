@@ -12,6 +12,7 @@ use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
 use sidekicks_session::attention::changes::attention_changes_after_commits;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, KeychainTurn};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -92,6 +93,7 @@ impl TestStart {
                 ),
                 build_record_readers: Arc::new(attention_changes_after_commits().1),
                 child_records: Arc::new(UnrecordedChildren),
+                keychain_turn: KeychainTurn::new(KEYCHAIN_CALL_TIMEOUT),
             },
         )
     }

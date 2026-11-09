@@ -6,7 +6,6 @@ use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::CredentialStore;
 
 use super::{ClaudeAccountServerAnswers, read_claude_account_answers, read_claude_account_servers};
 use crate::driver::claude::account::credentials::ClaudeSignInReader;
@@ -607,9 +606,7 @@ async fn read_account_answers(
             ScriptedAnswer::Reply(json!({ "mcpServers": rows })),
         );
     }
-    let marks = ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-        CredentialStore::in_memory(),
-    ));
+    let marks = ClaudeOrganizationMarks::new(ClaudeSignInReader::without_keychain());
 
     let (answers, _marks) = read_claude_account_answers(
         &channel,

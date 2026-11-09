@@ -14,7 +14,8 @@
 //! store holds at most one blocking thread, and a late answer always lands before the next call
 //! runs, so it never overwrites a retry's value. A call still waiting for its turn when its caller
 //! stops waiting leaves the line and never reaches the store; one that lands after its caller
-//! stopped waiting is logged.
+//! stopped waiting is logged. A provider's own calls on the store take the same turn, through
+//! [`KeychainTurn`].
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -92,6 +93,76 @@ impl CredentialStoreAccess for SystemCredentialStore {
     }
 }
 
+/// The turn every call on the operating system's credential store takes, one call at a time
+/// across every service, the daemon's own items and a provider's alike, and the time a call has
+/// from its turn; see the module doc.
+#[derive(Clone)]
+pub struct KeychainTurn {
+    /// Held by each call until it ends, so one call reaches the store at a time.
+    lock: Arc<KeyedLock<()>>,
+    /// How long a caller waits for its call from its turn.
+    call_timeout: Duration,
+}
+
+impl KeychainTurn {
+    /// A turn whose calls each have `call_timeout` from their turn.
+    pub fn new(call_timeout: Duration) -> Self {
+        Self {
+            lock: Arc::new(KeyedLock::new()),
+            call_timeout,
+        }
+    }
+
+    /// How long a call has from its turn.
+    pub fn call_timeout(&self) -> Duration {
+        self.call_timeout
+    }
+
+    /// Runs `work`, one call on the store for `service`, once every earlier call has ended, and
+    /// waits for it the call time from its turn. The turn stays held until `work` ends even after
+    /// the caller stops waiting, and a late end is logged with `is_answered`'s reading of it; a
+    /// call still waiting for its turn then leaves the line unrun. Fails `Unanswered` when `work`
+    /// does not end within the call time from its turn, and `Interrupted` when it panics.
+    pub async fn run<Answer: Send + 'static>(
+        &self,
+        service: &str,
+        work: impl Future<Output = Answer> + Send + 'static,
+        is_answered: impl FnOnce(&Answer) -> bool + Send + 'static,
+    ) -> Result<Answer, HeldWorkEnd> {
+        let logged_service = service.to_owned();
+        let (turn_taken, has_turn) = oneshot::channel::<()>();
+        let held_call = self.lock.run_held(
+            (),
+            async move {
+                // A caller that stopped waiting just now has nothing left to tell.
+                turn_taken.send(()).unwrap_or(());
+                work.await
+            },
+            move |answer| {
+                tracing::warn!(
+                    service = logged_service,
+                    is_answered = is_answered(answer),
+                    "A credential store call landed after its caller stopped waiting"
+                );
+            },
+        );
+        let mut held_call = std::pin::pin!(held_call);
+        // The wait for the turn is not timed: only the call at the store can be held by a prompt.
+        let ended_before_its_turn = tokio::select! {
+            biased;
+            ended = &mut held_call => Some(ended),
+            _ = has_turn => None,
+        };
+        match ended_before_its_turn {
+            Some(ended) => ended,
+            None => match tokio::time::timeout(self.call_timeout, held_call).await {
+                Ok(ended) => ended,
+                Err(_elapsed) => Err(HeldWorkEnd::Unanswered),
+            },
+        }
+    }
+}
+
 /// The operating system's credential store and the turn its calls take one at a time, shared by
 /// every service's keychain on it; see the module doc.
 pub(crate) struct OsCredentialStore {
@@ -99,21 +170,17 @@ pub(crate) struct OsCredentialStore {
     open: StoreOpen,
     /// The store once opened.
     opened: Mutex<Option<CredentialStore>>,
-    /// Held by each call until the store answers, so one call reaches the store at a time.
-    turn: Arc<KeyedLock<()>>,
-    /// How long a caller waits for its call from its turn.
-    call_timeout: Duration,
+    /// The turn each call takes, so one call reaches the store at a time.
+    turn: KeychainTurn,
 }
 
 impl OsCredentialStore {
-    /// The calls on the store `open` opens, one at a time, each answered within `call_timeout`
-    /// from its turn.
-    pub(crate) fn new(open: StoreOpen, call_timeout: Duration) -> Arc<Self> {
+    /// The calls on the store `open` opens, one at a time through `turn`.
+    pub(crate) fn new(open: StoreOpen, turn: KeychainTurn) -> Arc<Self> {
         Arc::new(Self {
             open,
             opened: Mutex::new(None),
-            turn: Arc::new(KeyedLock::new()),
-            call_timeout,
+            turn,
         })
     }
 
@@ -154,10 +221,9 @@ impl OsCredentialStore {
         .await
     }
 
-    // Runs `operation` on the entry under `service` and `account` once every earlier call has
-    // answered, on a blocking thread, and answers `locked` when it takes longer than the store's
-    // time from its turn. The turn stays held until the store answers even after the caller stops
-    // waiting; a call still waiting for its turn then leaves the line.
+    // Runs `operation` on the entry under `service` and `account` in the store's turn, on a
+    // blocking thread, and answers `locked` when it takes longer than the store's time from its
+    // turn.
     async fn call<Answer: Send + 'static>(
         self: &Arc<Self>,
         service: &str,
@@ -167,42 +233,23 @@ impl OsCredentialStore {
         + 'static,
     ) -> Result<Answer, KeychainRefusal> {
         let store = Arc::clone(self);
-        let (service, account) = (service.to_owned(), account.to_owned());
-        let logged_service = service.clone();
-        let (turn_taken, has_turn) = oneshot::channel::<()>();
-        let held_call = self.turn.run_held(
-            (),
-            async move {
-                // A caller that stopped waiting just now has nothing left to tell.
-                turn_taken.send(()).unwrap_or(());
-                tokio::task::spawn_blocking(move || {
-                    operation(&store.opened_store()?, &service, &account)
-                })
-                .await
-            },
-            move |answer| {
-                tracing::warn!(
-                    service = logged_service,
-                    is_answered = matches!(answer, Ok(Ok(_))),
-                    "A credential store call landed after its caller stopped waiting"
-                );
-            },
-        );
-        let mut held_call = std::pin::pin!(held_call);
-        // The wait for the turn is not timed: only the call at the store can be held by a prompt.
-        let ended_before_its_turn = tokio::select! {
-            biased;
-            ended = &mut held_call => Some(ended),
-            _ = has_turn => None,
-        };
-        let call_timeout = self.call_timeout;
-        let answered = match ended_before_its_turn {
-            Some(ended) => Ok(ended),
-            None => tokio::time::timeout(call_timeout, held_call).await,
-        };
+        let (item_service, item_account) = (service.to_owned(), account.to_owned());
+        let answered = self
+            .turn
+            .run(
+                service,
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        operation(&store.opened_store()?, &item_service, &item_account)
+                    })
+                    .await
+                },
+                |answer| matches!(answer, Ok(Ok(_))),
+            )
+            .await;
         match answered {
-            Ok(Ok(Ok(Ok(answer)))) => Ok(answer),
-            Ok(Ok(Ok(Err(refused)))) => {
+            Ok(Ok(Ok(answer))) => Ok(answer),
+            Ok(Ok(Err(refused))) => {
                 let cause = if refused.is_locked() {
                     KeychainRefusalCause::Locked
                 } else {
@@ -210,13 +257,16 @@ impl OsCredentialStore {
                 };
                 Err(KeychainRefusal::new(cause, refused.to_string()).with_failure(refused))
             }
-            Ok(Ok(Err(interrupted))) => Err(HeldWorkEnd::Interrupted(interrupted).into()),
-            Ok(Err(end @ HeldWorkEnd::Interrupted(_))) => Err(end.into()),
-            // The task skips the store only once this caller stopped waiting, so this arm is the
-            // same answer the timeout gives.
-            Ok(Err(HeldWorkEnd::Unanswered)) | Err(_) => Err(KeychainRefusal::new(
+            Ok(Err(interrupted)) => Err(HeldWorkEnd::Interrupted(interrupted).into()),
+            Err(end @ HeldWorkEnd::Interrupted(_)) => Err(end.into()),
+            // The turn skips the store only once this caller stopped waiting, so this arm is also
+            // the answer the call time gives.
+            Err(HeldWorkEnd::Unanswered) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Locked,
-                format!("the credential store gave no answer within {call_timeout:?}"),
+                format!(
+                    "the credential store gave no answer within {:?}",
+                    self.turn.call_timeout()
+                ),
             )),
         }
     }
@@ -367,7 +417,7 @@ mod tests {
     use sidekicks_contracts::keychain::KeychainRefusalCause;
     use sidekicks_platforms::{BlockingCredentialStore, CredentialStore};
 
-    use super::OsCredentialStore;
+    use super::{KeychainTurn, OsCredentialStore};
     use crate::credential_store::SecretKeychain;
     use crate::credential_store::service::KeychainService;
 
@@ -377,7 +427,10 @@ mod tests {
         call_timeout: Duration,
     ) -> Arc<OsCredentialStore> {
         let credentials = CredentialStore::from_store(blocking_store.clone());
-        OsCredentialStore::new(Arc::new(move || Ok(credentials.clone())), call_timeout)
+        OsCredentialStore::new(
+            Arc::new(move || Ok(credentials.clone())),
+            KeychainTurn::new(call_timeout),
+        )
     }
 
     /// A call held past its time by a prompt fails alone: a call on another service's item issued

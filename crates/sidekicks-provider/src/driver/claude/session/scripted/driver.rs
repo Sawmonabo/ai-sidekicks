@@ -504,7 +504,7 @@ impl ScriptedDriver {
         let driver = ClaudeDriver::with_engine(
             &base,
             starts.clone(),
-            starts.keychain.clone(),
+            starts.keychain.sign_in_move(),
             &host,
             &dispatch,
             sandbox_check,
