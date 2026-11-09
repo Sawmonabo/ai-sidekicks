@@ -1,5 +1,6 @@
 //! A completed response, as one resource's records in Codex's log export state it.
 
+use opentelemetry_proto::tonic::common::v1::KeyValue;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs};
 use serde_json::{Map, json};
@@ -53,6 +54,9 @@ pub(crate) struct CodexCompletedResponse {
     /// When the SDK observed the record, in Unix milliseconds by the process's wall clock; zero
     /// where the record carries none.
     pub(crate) observed_at_ms: u64,
+    /// The account the request ran on, which the reader stamps from its launch's service by the
+    /// time it was observed; `None` where the service carries none.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
 impl CodexCompletedResponse {
@@ -147,9 +151,9 @@ fn read_completed_response(
 ) -> Result<Option<CodexCompletedResponse>, RecordRefusal> {
     let is_completed_response = is_text(record, EVENT_NAME_KEY, SSE_EVENT_NAME)
         && is_text(record, EVENT_KIND_KEY, RESPONSE_COMPLETED_KIND)
-        && find_attribute(record, ERROR_MESSAGE_KEY).is_none()
-        && (find_attribute(record, INPUT_KEY).is_some()
-            || find_attribute(record, OUTPUT_KEY).is_some());
+        && find_attribute(&record.attributes, ERROR_MESSAGE_KEY).is_none()
+        && (find_attribute(&record.attributes, INPUT_KEY).is_some()
+            || find_attribute(&record.attributes, OUTPUT_KEY).is_some());
     if !is_completed_response {
         return Ok(None);
     }
@@ -198,13 +202,17 @@ fn read_completed_response(
         service_tier,
         counts,
         observed_at_ms: record.observed_time_unix_nano / 1_000_000,
+        provider_account_id: None,
     }))
 }
 
-// The value of `record`'s attribute `key`; `None` where it is absent or carries no value.
-fn find_attribute<'record>(record: &'record LogRecord, key: &str) -> Option<&'record Value> {
-    record
-        .attributes
+/// The value of the attribute `key` among `attributes`, a record's or a resource's; `None` where
+/// it is absent or carries no value.
+pub(super) fn find_attribute<'attributes>(
+    attributes: &'attributes [KeyValue],
+    key: &str,
+) -> Option<&'attributes Value> {
+    attributes
         .iter()
         .find(|attribute| attribute.key == key)
         .and_then(|attribute| attribute.value.as_ref())
@@ -213,7 +221,10 @@ fn find_attribute<'record>(record: &'record LogRecord, key: &str) -> Option<&'re
 
 // Whether `record`'s attribute `key` is the string `expected`.
 fn is_text(record: &LogRecord, key: &str, expected: &str) -> bool {
-    matches!(find_attribute(record, key), Some(Value::StringValue(text)) if text == expected)
+    matches!(
+        find_attribute(&record.attributes, key),
+        Some(Value::StringValue(text)) if text == expected
+    )
 }
 
 // `record`'s attribute `key` as a string, `None` where it is absent; refused in any other form.
@@ -221,7 +232,7 @@ fn read_text<'record>(
     record: &'record LogRecord,
     key: &'static str,
 ) -> Result<Option<&'record str>, RecordRefusal> {
-    match find_attribute(record, key) {
+    match find_attribute(&record.attributes, key) {
         None => Ok(None),
         Some(Value::StringValue(text)) => Ok(Some(text)),
         Some(
@@ -242,7 +253,7 @@ fn read_text<'record>(
 // `record`'s count `key`, `None` where it is absent: an integer from 0, or a string of ASCII digits
 // alone, at most the wire's integer bound; refused in any other form.
 fn read_token_count(record: &LogRecord, key: &'static str) -> Result<Option<u64>, RecordRefusal> {
-    let count = match find_attribute(record, key) {
+    let count = match find_attribute(&record.attributes, key) {
         None => return Ok(None),
         Some(Value::IntValue(count)) => u64::try_from(*count).ok(),
         Some(Value::StringValue(digits)) => {

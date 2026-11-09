@@ -11,8 +11,10 @@ use sidekicks_std::scheduler::{JobCondition, ScheduleError, ScheduledJobHandle, 
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-/// How many export intervals a request turn waits after its settle for an export.
-const INTERVALS_WAITED: u32 = 2;
+/// How many export intervals pass after a turn's settle before every export of that turn has
+/// arrived: a request turn's check waits that long, and so does a response the stream may yet
+/// state.
+pub(crate) const INTERVALS_WAITED: u32 = 2;
 
 /// What a process's exports read as, once one arrived or a request turn waited for one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

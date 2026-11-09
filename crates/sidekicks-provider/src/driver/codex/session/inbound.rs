@@ -81,6 +81,12 @@ pub(crate) enum CodexSessionInbound {
         /// Whether it is held, rather than let go of.
         is_held: bool,
     },
+    /// A side question's copy on the conversation was let go, so a turn of it that never
+    /// completed ends.
+    SideQuestionReleased {
+        /// The copy's conversation.
+        thread_id: String,
+    },
     /// A call the driver makes on the session's record, run on the session's task in its place
     /// among the frames.
     Call(CodexSessionCall),
@@ -373,6 +379,9 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Admits a held conversation's frames as the session's own, or stops admitting them.
     fn held_thread(&mut self, thread_id: String, is_held: bool);
 
+    /// Ends the live turn of a side question's copy that was let go.
+    fn side_question_released(&mut self, thread_id: String);
+
     /// Runs one call on the session's record.
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()>;
 
@@ -424,6 +433,9 @@ pub(crate) async fn drain_codex_session_inbound(
             }
             CodexSessionInbound::HeldThread { thread_id, is_held } => {
                 handler.held_thread(thread_id, is_held);
+            }
+            CodexSessionInbound::SideQuestionReleased { thread_id } => {
+                handler.side_question_released(thread_id);
             }
             CodexSessionInbound::Call(call) => handler.call(call).await,
             CodexSessionInbound::Lifecycle(call) => handler.lifecycle(call).await,

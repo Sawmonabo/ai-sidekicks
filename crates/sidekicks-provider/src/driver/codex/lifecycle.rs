@@ -260,7 +260,7 @@ impl CodexDriver {
         let drain = exports
             .take_drain()
             .expect("a new register's drain is untaken");
-        tasks.spawn(drain.run());
+        tasks.spawn(drain.run(tasks.clone()));
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),
             provider_services: Arc::clone(&services.provider_services),

@@ -12,7 +12,6 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -321,12 +320,9 @@ impl CodexService {
         self.lock_threads().session_for(thread_id).copied()
     }
 
-    /// The session `thread_id` was bound to when this service released it, with the account it
-    /// ran on; `None` for a thread the service holds now, never held or forgot.
-    pub(crate) fn former_session_of_thread(
-        &self,
-        thread_id: &str,
-    ) -> Option<(SessionId, Option<ProviderAccountId>)> {
+    /// The session `thread_id` was bound to when this service released it; `None` for a thread
+    /// the service holds now, never held or forgot.
+    pub(crate) fn former_session_of_thread(&self, thread_id: &str) -> Option<SessionId> {
         self.lock_threads().former_session_for(thread_id)
     }
 

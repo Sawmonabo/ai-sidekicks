@@ -1,6 +1,6 @@
-//! The driver's register of its Codex launches' exports: the tag each launch carries, its export
-//! status, placement state and copies' threads, and the reader that hands the receiver each
-//! export, whose completed responses it hands off to the drain.
+//! The driver's register of its Codex launches' exports: the tag each exporting launch carries,
+//! its export status, placement state and copies' threads, and the hand-off of each completed
+//! response its exports state to the drain.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -8,9 +8,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use futures::future::{BoxFuture, ready};
-use opentelemetry_proto::tonic::common::v1::any_value::Value;
-use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
@@ -21,15 +18,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
-use crate::driver::codex::telemetry::completed_response::{
-    RecordRefusal, read_codex_completed_responses,
-};
 use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
-use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, CodexReviewWindow};
+use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
+use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, refuse_unplaced};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 #[cfg(test)]
@@ -40,30 +34,43 @@ pub(crate) mod tests;
 pub(crate) const CODEX_EXPORT_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The resource attribute a launch's tag is carried under.
-const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
+pub(super) const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
 
-/// How many completed responses the reader's hand-off holds for the drain; a response past it is
-/// dropped and logged, as a full OpenTelemetry Collector exporter queue rejects new data.
-const CODEX_EXPORT_HAND_OFF_DEPTH: usize = 1_024;
+/// How many completed responses the reader's hand-off, and each launch's work queue, holds; a
+/// response past it is refused and counted, as a full OpenTelemetry Collector exporter queue
+/// rejects new data.
+pub(super) const CODEX_EXPORT_HAND_OFF_DEPTH: usize = 1_024;
 
-/// One launch's tag, minted by the register and never repeated within a daemon.
+/// One exporting launch's place in the register: the holder number its token is minted for,
+/// never repeated within a daemon, and the tag its resource carries, which a joined service kept
+/// from the daemon that launched it. The launch stays registered while this lives and its service
+/// does, so a draining launch's last exports are still placed.
 #[derive(Debug)]
-pub(crate) struct CodexExportTag(u64);
+pub(crate) struct CodexExportTag {
+    number: u64,
+    resource_tag: u64,
+    _registered: Arc<()>,
+}
 
 impl CodexExportTag {
     /// The tag as the launch's resource attributes carry it, `sidekicks.codex.service=<n>`: the
     /// SDK splits the variable on `,` and each pair at its first `=`, and a number holds neither.
     pub(crate) fn resource_attributes(&self) -> String {
-        format!("{SERVICE_TAG_KEY}={}", self.0)
+        format!("{SERVICE_TAG_KEY}={}", self.resource_tag)
     }
 
-    /// The holder the launch's telemetry token is minted for, named by the tag's number.
+    /// The holder the launch's telemetry token is minted for, named by the launch's number.
     pub(crate) fn holder(&self) -> TelemetryHolderId {
-        TelemetryHolderId::new(self.0)
+        TelemetryHolderId::new(self.number)
+    }
+
+    /// The tag the launch's resource carries, which its service's record keeps.
+    pub(crate) fn resource_tag(&self) -> u64 {
+        self.resource_tag
     }
 }
 
-/// The driver's register of its Codex launches: the tag each launch carries and its export
+/// The driver's register of its exporting Codex launches: the tag each carries and its export
 /// status, which the session's settled turns and the launch's exports feed, and the hand-off of
 /// each completed response the exports state to the register's one drain.
 pub(crate) struct CodexExports {
@@ -78,21 +85,75 @@ pub(crate) struct CodexExports {
     stop: CancellationToken,
 }
 
-// Each live launch by its tag, and the next tag to mint.
+// Each registered launch by its number, and the next number to mint.
 struct CodexLaunchExports {
-    next_tag: u64,
-    by_tag: HashMap<u64, CodexLaunchExport>,
+    next_number: u64,
+    by_number: HashMap<u64, CodexLaunchExport>,
 }
 
-// One launch: the service it started, which a later launch of the same service replaces, its
-// export status, how many of its exports were read, and where its off-stream threads were placed
-// and the responses it keeps, which go with it.
+// One launch: the service it started, its tag's guard and resource tag, its export status, how
+// many of its exports were read, and where its off-stream threads were placed and the responses
+// it keeps, which go with it.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
+    registered: Weak<()>,
+    resource_tag: u64,
     tracker: Arc<ExportStatusTracker>,
     exports_read: u64,
     placement: Arc<Mutex<CodexLaunchPlacement>>,
+}
+
+impl CodexLaunchExport {
+    // Whether the launch's tag and its service both still live.
+    fn is_live(&self) -> bool {
+        self.registered.strong_count() > 0 && self.service.strong_count() > 0
+    }
+}
+
+/// What the reader reads an export of a registered launch with: its service and placement state,
+/// and the export's number among the launch's.
+pub(super) struct CodexLaunchRead {
+    pub(super) service: Weak<CodexService>,
+    pub(super) placement: Weak<Mutex<CodexLaunchPlacement>>,
+    pub(super) export_number: u64,
+}
+
+/// One launch's copies due to be filed, with the launch's service and placement state.
+pub(super) struct CodexDueCopies {
+    pub(super) service: Weak<CodexService>,
+    pub(super) launch: Weak<Mutex<CodexLaunchPlacement>>,
+    pub(super) copies: Vec<CodexEndedCopy>,
+}
+
+/// What the register knows of the launch an export's token was minted for.
+pub(super) enum CodexLaunchLookup {
+    /// The launch, its export counted, and its export status, which the reader marks exporting
+    /// past the register's lock, since that cancels the launch's armed check.
+    Read(CodexLaunchRead, Arc<ExportStatusTracker>),
+    /// The launch lives, but the export's resource names another tag or none.
+    OtherTag(Weak<CodexService>),
+    /// The launch's tag or service is gone.
+    Gone,
+}
+
+impl CodexLaunchExports {
+    // Takes out every launch whose tag or service is gone, for the caller to drop past the lock.
+    fn take_gone(&mut self) -> Vec<CodexLaunchExport> {
+        self.by_number
+            .extract_if(|_, launch| !launch.is_live())
+            .map(|(_, launch)| launch)
+            .collect()
+    }
+
+    // The live launch of `service_id` registered last.
+    fn newest_of(&self, service_id: CodexServiceId) -> Option<&CodexLaunchExport> {
+        self.by_number
+            .iter()
+            .filter(|(_, launch)| launch.service_id == service_id && launch.is_live())
+            .max_by_key(|(number, _)| **number)
+            .map(|(_, launch)| launch)
+    }
 }
 
 impl CodexExports {
@@ -103,14 +164,26 @@ impl CodexExports {
         Self {
             scheduler,
             launches: Mutex::new(CodexLaunchExports {
-                next_tag: 0,
-                by_tag: HashMap::new(),
+                next_number: 0,
+                by_number: HashMap::new(),
             }),
             hand_off,
             drain_items: Mutex::new(Some(items)),
             copies_ended: Arc::default(),
             stop,
         }
+    }
+
+    // Runs `read` on the live launches under the register's lock, first taking out every launch
+    // whose tag or service is gone, which drops past the lock, since each drop cancels its check
+    // on the scheduler and refuses what its placement kept.
+    fn with_live<R>(&self, read: impl FnOnce(&mut CodexLaunchExports) -> R) -> R {
+        let mut launches = lock(&self.launches);
+        let gone = launches.take_gone();
+        let answer = read(&mut launches);
+        drop(launches);
+        drop(gone);
+        answer
     }
 
     /// The scheduler the launches' export checks run on, which a test counts them on.
@@ -130,60 +203,71 @@ impl CodexExports {
         })
     }
 
-    /// Stops the drain, which drops and logs the responses left in the hand-off.
+    /// Stops the drain, which refuses and counts the responses left in the hand-off.
     pub(crate) fn stop(&self) {
         self.stop.cancel();
     }
 
-    /// Registers a launch of `service` under a new tag with a fresh export status, dropping every
-    /// launch whose service is gone and the service's own earlier launch, whose armed check the
-    /// drop cancels.
+    /// Registers an exporting launch of `service` under a new number, which its resource carries
+    /// as its tag, with a fresh export status.
     pub(crate) fn launched(&self, service: &Arc<CodexService>) -> CodexExportTag {
-        let service_id = service.id();
+        self.register(service, None)
+    }
+
+    /// Registers `service`, a lasting service a former daemon launched and this one joined, under
+    /// a new number, its resource carrying `resource_tag`, the tag its record kept.
+    pub(crate) fn joined(&self, service: &Arc<CodexService>, resource_tag: u64) -> CodexExportTag {
+        self.register(service, Some(resource_tag))
+    }
+
+    // Registers a launch of `service` whose resource carries `resource_tag`, else its number; a
+    // launch still draining stays, so its last exports are placed, and the service's calls go to
+    // its newest launch.
+    fn register(&self, service: &Arc<CodexService>, resource_tag: Option<u64>) -> CodexExportTag {
         let tracker = Arc::new(ExportStatusTracker::new(
             Arc::clone(&self.scheduler),
             CODEX_EXPORT_INTERVAL,
         ));
-        let mut launches = lock(&self.launches);
-        let replaced: Vec<CodexLaunchExport> = launches
-            .by_tag
-            .extract_if(|_, launch| {
-                launch.service_id == service_id || launch.service.strong_count() == 0
-            })
-            .map(|(_, launch)| launch)
-            .collect();
-        let tag = launches.next_tag;
-        launches.next_tag += 1;
-        launches.by_tag.insert(
-            tag,
-            CodexLaunchExport {
-                service_id,
-                service: Arc::downgrade(service),
-                tracker,
-                exports_read: 0,
-                placement: Arc::default(),
-            },
-        );
-        drop(launches);
-        // Dropped past the lock, since each drop cancels its check on the scheduler.
-        drop(replaced);
-        CodexExportTag(tag)
+        let registered = Arc::new(());
+        let (number, resource_tag) = self.with_live(|launches| {
+            let number = launches.next_number;
+            launches.next_number += 1;
+            let resource_tag = resource_tag.unwrap_or(number);
+            launches.by_number.insert(
+                number,
+                CodexLaunchExport {
+                    service_id: service.id(),
+                    service: Arc::downgrade(service),
+                    registered: Arc::downgrade(&registered),
+                    resource_tag,
+                    tracker,
+                    exports_read: 0,
+                    placement: Arc::default(),
+                },
+            );
+            (number, resource_tag)
+        });
+        CodexExportTag {
+            number,
+            resource_tag,
+            _registered: registered,
+        }
     }
 
     /// A turn of `service_id`'s service that began at `started_at` settled, having made a model
-    /// request or not: its current launch's export status takes it. A service with no launch
-    /// changes nothing.
+    /// request or not: its newest launch's export status takes it. A service with no exporting
+    /// launch changes nothing.
     pub(crate) fn turn_settled(
         &self,
         service_id: CodexServiceId,
         made_request: bool,
         started_at: Instant,
     ) {
-        let tracker = lock(&self.launches)
-            .by_tag
-            .values()
-            .find(|launch| launch.service_id == service_id)
-            .map(|launch| Arc::clone(&launch.tracker));
+        let tracker = self.with_live(|launches| {
+            launches
+                .newest_of(service_id)
+                .map(|launch| Arc::clone(&launch.tracker))
+        });
         let Some(tracker) = tracker else {
             return;
         };
@@ -196,16 +280,23 @@ impl CodexExports {
         }
     }
 
-    /// Opens `window`, a review on a session of `service_id`'s current launch, which that launch's
-    /// unplaced reviewer requests are joined to. A service with no launch changes nothing.
+    /// Whether `service_id`'s service has an exporting launch, whose responses the session's
+    /// stream keeps a ledger of.
+    pub(crate) fn is_exporting(&self, service_id: CodexServiceId) -> bool {
+        self.with_live(|launches| launches.newest_of(service_id).is_some())
+    }
+
+    /// Opens or closes `window`, a review on a session of `service_id`'s newest launch, which
+    /// that launch's unplaced reviewer requests are joined to. A service with no exporting launch
+    /// changes nothing.
     pub(crate) fn review_window(&self, service_id: CodexServiceId, window: CodexReviewWindow) {
         if let Some(placement) = self.launch_placement(service_id) {
-            lock(&placement).open_review_window(window);
+            lock(&placement).joins().review_window(window);
         }
     }
 
-    /// `session_id`'s own turn `turn_id` on `service_id`'s current launch began at
-    /// `started_at_ms`, in Unix milliseconds. A service with no launch changes nothing.
+    /// `session_id`'s own turn `turn_id` on `service_id`'s newest launch began at
+    /// `started_at_ms`, in Unix milliseconds. A service with no exporting launch changes nothing.
     pub(crate) fn turn_started(
         &self,
         service_id: CodexServiceId,
@@ -214,23 +305,29 @@ impl CodexExports {
         started_at_ms: u64,
     ) {
         if let Some(placement) = self.launch_placement(service_id) {
-            lock(&placement).turn_started(session_id, turn_id, started_at_ms);
+            lock(&placement)
+                .joins()
+                .turn_started(session_id, turn_id, started_at_ms);
         }
     }
 
-    /// `session_id`'s turn `turn_id` on `service_id`'s current launch settled or went.
+    /// `session_id`'s turn `turn_id` on `service_id`'s newest launch settled or went at
+    /// `ended_at_ms`, in Unix milliseconds.
     pub(crate) fn turn_ended(
         &self,
         service_id: CodexServiceId,
         session_id: SessionId,
         turn_id: &str,
+        ended_at_ms: u64,
     ) {
         if let Some(placement) = self.launch_placement(service_id) {
-            lock(&placement).turn_ended(session_id, turn_id);
+            lock(&placement)
+                .joins()
+                .turn_ended(session_id, turn_id, ended_at_ms);
         }
     }
 
-    /// Registers the copy on `thread_id` of `service_id`'s current launch, a clone of `filing`
+    /// Registers the copy on `thread_id` of `service_id`'s newest launch, a clone of `filing`
     /// filing for `folder` what the copy's stream never stated; the answer marks the copy's read
     /// ended as it drops, so it is held for as long as the read runs.
     pub(crate) fn copy_thread(
@@ -253,7 +350,7 @@ impl CodexExports {
         }
     }
 
-    /// The copy on `thread_id` of `service_id`'s current launch filed a request of `counts` from
+    /// The copy on `thread_id` of `service_id`'s newest launch filed a request of `counts` from
     /// its own stream; a thread no copy holds changes nothing.
     pub(crate) fn copy_filed(
         &self,
@@ -282,144 +379,92 @@ impl CodexExports {
             .min()
     }
 
-    /// Takes every copy of every launch due at `now`, each with its launch's service.
-    pub(super) fn take_due_copies(
-        &self,
-        now: Instant,
-    ) -> Vec<(Weak<CodexService>, CodexEndedCopy)> {
+    /// Takes every copy of every launch due at `now`, each launch's with its service and its
+    /// placement state.
+    pub(super) fn take_due_copies(&self, now: Instant) -> Vec<CodexDueCopies> {
         self.placements()
             .into_iter()
-            .flat_map(|(service, placement)| {
-                let due = lock(&placement).copies().take_due(now);
-                due.into_iter()
-                    .map(move |copy| (Weak::clone(&service), copy))
+            .filter_map(|(service, placement)| {
+                let copies = lock(&placement).copies().take_due(now);
+                (!copies.is_empty()).then(|| CodexDueCopies {
+                    service,
+                    launch: Arc::downgrade(&placement),
+                    copies,
+                })
             })
             .collect()
     }
 
-    /// Every launch's service and placement state, taken out of the register's lock.
+    /// Every live launch's service and placement state, taken out of the register's lock.
     pub(super) fn placements(&self) -> Vec<(Weak<CodexService>, Arc<Mutex<CodexLaunchPlacement>>)> {
-        lock(&self.launches)
-            .by_tag
-            .values()
-            .map(|launch| (Weak::clone(&launch.service), Arc::clone(&launch.placement)))
-            .collect()
+        self.with_live(|launches| {
+            launches
+                .by_number
+                .values()
+                .map(|launch| (Weak::clone(&launch.service), Arc::clone(&launch.placement)))
+                .collect()
+        })
     }
 
-    // The placement state of `service_id`'s current launch, taken out of the register's lock.
+    // The placement state of `service_id`'s newest launch, taken out of the register's lock.
     fn launch_placement(
         &self,
         service_id: CodexServiceId,
     ) -> Option<Arc<Mutex<CodexLaunchPlacement>>> {
-        lock(&self.launches)
-            .by_tag
-            .values()
-            .find(|launch| launch.service_id == service_id)
-            .map(|launch| Arc::clone(&launch.placement))
+        self.with_live(|launches| {
+            launches
+                .newest_of(service_id)
+                .map(|launch| Arc::clone(&launch.placement))
+        })
     }
 
-    // Marks `holder`'s launch, whose token the export presented, as exporting and hands each
-    // completed response `resource_logs` states to the drain. A resource whose tag is absent,
-    // unreadable or names another launch is dropped and counted once under the holder's account;
-    // a holder whose launch was replaced is logged, and one whose service is gone with its count.
-    fn read_resource_logs(&self, holder: TelemetryHolderId, resource_logs: &ResourceLogs) {
-        let tag = resource_logs
-            .resource
-            .iter()
-            .flat_map(|resource| &resource.attributes)
-            .find(|attribute| attribute.key == SERVICE_TAG_KEY)
-            .and_then(|attribute| attribute.value.as_ref())
-            .and_then(|value| {
-                if let Some(Value::StringValue(text)) = &value.value {
-                    Some(text.as_str())
-                } else {
-                    None
+    /// Looks up `holder`'s launch for an export whose resource carries `resource_tag`: one whose
+    /// tag matches is marked as exporting and its export counted; one whose tag does not, or whose
+    /// tag or service is gone, is answered as such and left as it is.
+    pub(super) fn export_read(
+        &self,
+        holder: TelemetryHolderId,
+        resource_tag: Option<u64>,
+    ) -> CodexLaunchLookup {
+        self.with_live(
+            |launches| match launches.by_number.get_mut(&holder.number()) {
+                None => CodexLaunchLookup::Gone,
+                Some(launch) if resource_tag != Some(launch.resource_tag) => {
+                    CodexLaunchLookup::OtherTag(Weak::clone(&launch.service))
                 }
-            })
-            .and_then(|text| text.parse::<u64>().ok());
-        if tag != Some(holder.number()) {
-            let service = lock(&self.launches)
-                .by_tag
-                .get(&holder.number())
-                .map(|launch| Weak::clone(&launch.service));
-            let provider_account_id = service
-                .and_then(|service| service.upgrade())
-                .and_then(|service| service.provider_account_id());
-            RecordRefusal {
-                field: SERVICE_TAG_KEY,
-                reason: "its resource names no launch its token was minted for",
-            }
-            .report(provider_account_id.as_ref());
-            return;
-        }
-        let launch = lock(&self.launches)
-            .by_tag
-            .get_mut(&holder.number())
-            .map(|launch| {
-                launch.exports_read += 1;
-                (
-                    Arc::clone(&launch.tracker),
-                    Weak::clone(&launch.service),
-                    Arc::downgrade(&launch.placement),
-                    launch.exports_read,
-                )
-            });
-        let Some((tracker, service, placement, export_number)) = launch else {
-            tracing::info!(
-                tag = holder.number(),
-                "a codex export's launch was replaced; its records are dropped"
-            );
-            return;
-        };
-        tracker.export_arrived();
-        let arrived_at = Instant::now();
-        let Some(live_service) = service.upgrade() else {
-            let records: usize = resource_logs
-                .scope_logs
-                .iter()
-                .map(|scope_logs| scope_logs.log_records.len())
-                .sum();
-            tracing::info!(
-                records,
-                "a codex export's service is gone; its records are dropped"
-            );
-            return;
-        };
-        let provider_account_id = live_service.provider_account_id();
-        for response in read_codex_completed_responses(resource_logs, provider_account_id.as_ref())
-        {
-            self.offer(CodexExportItem::Response {
-                service: Weak::clone(&service),
-                launch: Weak::clone(&placement),
-                response,
-                arrived_at,
-                export_number,
-            });
-        }
-        self.offer(CodexExportItem::Retry {
-            service,
-            launch: placement,
-            export_number,
-        });
+                Some(launch) => {
+                    launch.exports_read += 1;
+                    CodexLaunchLookup::Read(
+                        CodexLaunchRead {
+                            service: Weak::clone(&launch.service),
+                            placement: Arc::downgrade(&launch.placement),
+                            export_number: launch.exports_read,
+                        },
+                        Arc::clone(&launch.tracker),
+                    )
+                }
+            },
+        )
     }
 
-    // Hands `item` to the drain without waiting; a full or closed hand-off drops it, logged. A
-    // dropped retry loses nothing, since the launch's next export retries what it keeps.
-    fn offer(&self, item: CodexExportItem) {
+    /// Hands `item` to the drain without waiting; a response a full or closed hand-off refuses is
+    /// counted under its account. A refused retry loses nothing, since the launch's next export
+    /// retries what it keeps.
+    pub(super) fn offer(&self, item: CodexExportItem) {
         match self.hand_off.try_send(item) {
             Ok(()) => {}
             Err(TrySendError::Full(CodexExportItem::Response { response, .. })) => {
-                tracing::warn!(
-                    conversation_id = response.conversation_id.as_str(),
-                    tokens = ?response.counts,
-                    "the codex export hand-off is full; a completed response is dropped"
+                refuse_unplaced(
+                    &response.conversation_id,
+                    response.provider_account_id.clone(),
+                    "the daemon's hand-off of exported responses is full",
                 );
             }
             Err(TrySendError::Closed(CodexExportItem::Response { response, .. })) => {
-                tracing::info!(
-                    conversation_id = response.conversation_id.as_str(),
-                    tokens = ?response.counts,
-                    "the codex export drain has stopped; a completed response is dropped"
+                refuse_unplaced(
+                    &response.conversation_id,
+                    response.provider_account_id.clone(),
+                    "the daemon's drain of exported responses has stopped",
                 );
             }
             Err(
@@ -445,24 +490,5 @@ impl Drop for CodexCopyThreadRead {
         if let Some(register) = self.register.upgrade() {
             register.copy_ended(self.service_id, &self.thread_id);
         }
-    }
-}
-
-impl TelemetryExportReader for CodexExports {
-    fn read_telemetry_export(
-        &self,
-        holder: TelemetryHolderId,
-        export: TelemetryExport,
-    ) -> BoxFuture<'_, ()> {
-        match export {
-            TelemetryExport::Logs(request) => {
-                for resource_logs in &request.resource_logs {
-                    self.read_resource_logs(holder, resource_logs);
-                }
-            }
-            // Every launch sets Codex's trace exporter off.
-            TelemetryExport::Traces(_) => {}
-        }
-        Box::pin(ready(()))
     }
 }

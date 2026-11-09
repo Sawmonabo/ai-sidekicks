@@ -344,10 +344,16 @@ impl CodexService {
 
     /// The account the service runs on: its home's, or the one the switching service carries;
     /// `None` on the person's own folder, the daemon's own folders for one read or sign-in, and a
-    /// switching service handed no account yet.
+    /// switching service handed no account yet. No switch lands after the end of time.
     pub(crate) fn provider_account_id(&self) -> Option<ProviderAccountId> {
+        self.account_at(u64::MAX)
+    }
+
+    /// The account the service ran on at `at_ms`, in Unix milliseconds: the account a switching
+    /// service carried then, else its home's; `None` where [`Self::provider_account_id`] is.
+    pub(crate) fn account_at(&self, at_ms: u64) -> Option<ProviderAccountId> {
         match &self.home.kind {
-            CodexHomeKind::Switching => self.dependencies.switching.carried_account(),
+            CodexHomeKind::Switching => self.dependencies.switching.carried_account_at(at_ms),
             CodexHomeKind::Account(_)
             | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
@@ -677,11 +683,22 @@ impl CodexService {
         self.register_thread(thread_id, session_id);
     }
 
-    /// Forgets one conversation, remembering the session it was bound to and the account it ran
-    /// on until it is registered again.
+    /// Forgets one conversation, remembering the session it was bound to until it is registered
+    /// again; a side question's copy's session is told, since the copy's turn now never ends.
     pub(crate) fn release_thread(&self, thread_id: &str) {
-        let provider_account_id = self.provider_account_id();
-        self.lock_threads().release(thread_id, provider_account_id);
+        if let Some(session_id) = self.lock_threads().release(thread_id) {
+            let thread_id = thread_id.to_owned();
+            // A session already let go holds no turn of the copy.
+            let _is_taken = self.push_session_item(
+                &session_id,
+                CodexSessionInbound::SideQuestionReleased { thread_id },
+            );
+        }
+    }
+
+    /// Whether `thread_id` is a live side question's copy, whose spend is its session's own.
+    pub(crate) fn is_side_question_thread(&self, thread_id: &str) -> bool {
+        self.lock_threads().is_side_question(thread_id)
     }
 
     /// Every conversation one session holds here: its own and its helpers'.

@@ -1,37 +1,46 @@
-//! The drain of the export register's hand-off: each completed response taken, one at a time, to
-//! the session holding its thread on its own launch, to the session its launch streamed it for
-//! before the thread moved to another launch, to its copy's ledger, or off the stream to the
-//! session its thread runs below; one on a thread another launch streams that its own launch
-//! never did is dropped and counted; each launch's kept responses retried; and each ended copy's
-//! unstated responses filed when due.
+//! The drain of the export register's hand-off, which only routes: each completed response taken
+//! to the session holding its thread on its own launch, to the session its launch streamed it for
+//! before the thread moved to another launch, or to its copy's ledger; a response on a thread
+//! another launch streams that its own launch never did is refused; anything that waits on Codex
+//! (a walk off the stream, a retry of kept responses, an ended copy's filing) goes to the work
+//! queue of its own launch, whose task runs it, so one launch's hang stalls no other.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
-use crate::driver::codex::telemetry::exports::CodexExports;
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::exports::{
+    CODEX_EXPORT_HAND_OFF_DEPTH, CodexDueCopies, CodexExports,
+};
+use crate::driver::codex::telemetry::held_responses::{
+    CodexExportedResponse, CodexOffStreamPlacement,
+};
 use crate::driver::codex::telemetry::placement::{
-    CodexLaunchPlacement, place_off_stream, refuse_unplaced, retry_kept,
+    CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
 };
 
+// Why a response whose placement the daemon's stop abandoned was refused.
+const STOPPED: &str = "the daemon stopped before its thread could be placed";
+
 // What the reader hands the drain, each with the service that ran it and its launch's placement
-// state, since a relaunch drops the tag it was read under: one completed response of the export
-// numbered `export_number`, or, after that export's responses, a retry of the responses the launch
-// kept before it.
+// state: one completed response of the export numbered `export_number`, or, after that export's
+// responses, a retry of the responses the launch kept before it.
 pub(super) enum CodexExportItem {
     Response {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
-        response: CodexCompletedResponse,
+        response: Box<CodexCompletedResponse>,
         arrived_at: Instant,
         export_number: u64,
     },
@@ -42,9 +51,43 @@ pub(super) enum CodexExportItem {
     },
 }
 
-/// The drain of the register's hand-off, which takes each completed response to the session it
-/// belongs to, one at a time, and files each ended copy's unstated responses when due, until the
-/// register stops.
+// The work a launch's own task runs.
+enum CodexLaunchWork {
+    Place {
+        response: Box<CodexCompletedResponse>,
+        arrived_at: Instant,
+        export_number: u64,
+    },
+    Retry {
+        export_number: u64,
+    },
+    FileCopies(Vec<CodexEndedCopy>),
+}
+
+impl CodexLaunchWork {
+    // Refuses each response the work carries, naming its thread and `reason`; a retry carries
+    // none, since its launch keeps what it retries.
+    fn refuse(self, reason: &str) {
+        match self {
+            Self::Place { response, .. } => refuse_response(&response, reason),
+            Self::Retry { .. } => {}
+            Self::FileCopies(copies) => {
+                for response in copies.iter().flat_map(|copy| &copy.unclaimed) {
+                    refuse_response(response, reason);
+                }
+            }
+        }
+    }
+}
+
+// A launch's work queue, and its placement state, whose drop ends the queue.
+struct CodexLaunchWorker {
+    launch: Weak<Mutex<CodexLaunchPlacement>>,
+    work: mpsc::Sender<CodexLaunchWork>,
+}
+
+/// The drain of the register's hand-off, which routes each completed response to the session it
+/// belongs to and hands what waits on Codex to its launch's own task, until the register stops.
 pub(crate) struct CodexExportDrain {
     pub(super) register: Weak<CodexExports>,
     pub(super) items: mpsc::Receiver<CodexExportItem>,
@@ -53,9 +96,11 @@ pub(crate) struct CodexExportDrain {
 }
 
 impl CodexExportDrain {
-    /// Takes each handed-off response to its session, one at a time, and files each ended copy
-    /// when due, until the register stops, then logs how many responses it leaves in the hand-off.
-    pub(crate) async fn run(mut self) {
+    /// Routes each handed-off response and files each ended copy when due, each launch's work on
+    /// a task of `tasks`, until the register stops; then refuses each response left in the
+    /// hand-off, naming its thread.
+    pub(crate) async fn run(mut self, tasks: TaskTracker) {
+        let mut workers: HashMap<usize, CodexLaunchWorker> = HashMap::new();
         loop {
             let next_due = self
                 .register
@@ -69,19 +114,20 @@ impl CodexExportDrain {
             };
             let item = tokio::select! {
                 biased;
-                () = self.stop.cancelled() => {
-                    tracing::info!(
-                        left = self.items.len(),
-                        "the codex export drain stopped; the responses left in its hand-off are \
-                         dropped"
-                    );
-                    return;
-                }
+                () = self.stop.cancelled() => break,
                 item = self.items.recv() => item,
                 // A copy's read ended, so the next copy due may be sooner.
                 () = self.copies_ended.notified() => continue,
                 () = copy_due => {
-                    self.file_due_copies().await;
+                    let due = self
+                        .register
+                        .upgrade()
+                        .map(|register| register.take_due_copies(Instant::now()))
+                        .unwrap_or_default();
+                    for CodexDueCopies { service, launch, copies } in due {
+                        let work = CodexLaunchWork::FileCopies(copies);
+                        self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+                    }
                     continue;
                 }
             };
@@ -89,107 +135,226 @@ impl CodexExportDrain {
             let Some(item) = item else {
                 return;
             };
-            deliver(&self.register, item).await;
+            if let Some((service, launch, work)) = self.route(item) {
+                self.hand_to_launch(&mut workers, &tasks, &service, &launch, work);
+            }
+        }
+        self.items.close();
+        while let Ok(item) = self.items.try_recv() {
+            if let CodexExportItem::Response { response, .. } = item {
+                refuse_response(&response, STOPPED);
+            }
         }
     }
 
-    // Files, as its session's own, each response a copy due now never stated on its stream; one
-    // whose service is gone is logged and dropped.
-    async fn file_due_copies(&self) {
-        let Some(register) = self.register.upgrade() else {
-            return;
-        };
-        for (service, copy) in register.take_due_copies(Instant::now()) {
-            let CodexEndedCopy {
-                mut filing,
-                folder,
-                unclaimed,
-            } = copy;
-            let Some(service) = service.upgrade() else {
-                for response in &unclaimed {
-                    tracing::info!(
-                        conversation_id = response.conversation_id.as_str(),
-                        tokens = ?response.counts,
-                        "a codex copy's service is gone; its unstated response is dropped"
-                    );
+    // Routes `item`: a response on a thread a session of its service holds goes onto that
+    // session's queue, one on a thread another live launch streams to the session its own service
+    // released the thread from, else refused, one on a copy's thread to the copy's ledger; any
+    // other, and a retry, is answered as work for its launch. A response whose service or launch
+    // is gone is refused.
+    fn route(
+        &self,
+        item: CodexExportItem,
+    ) -> Option<(
+        Weak<CodexService>,
+        Weak<Mutex<CodexLaunchPlacement>>,
+        CodexLaunchWork,
+    )> {
+        match item {
+            CodexExportItem::Response {
+                service,
+                launch,
+                response,
+                arrived_at,
+                export_number,
+            } => {
+                let Some(live_service) = service.upgrade() else {
+                    refuse_response(&response, "the service that sent it has ended");
+                    return None;
+                };
+                if let Some(session_id) = live_service.session_of_thread(&response.conversation_id)
+                {
+                    let exported = CodexExportedResponse {
+                        response: *response,
+                        arrived_at,
+                        placed: None,
+                    };
+                    push_exported_response(&live_service, session_id, exported);
+                    return None;
                 }
-                continue;
-            };
-            for response in unclaimed {
-                filing.file(response.meter(), &service, &folder).await;
-                response.log_read_for_price();
+                let others = self
+                    .register
+                    .upgrade()
+                    .map(|register| live_services(&register))
+                    .unwrap_or_default();
+                if others
+                    .iter()
+                    .any(|other| other.session_of_thread(&response.conversation_id).is_some())
+                {
+                    deliver_moved(&live_service, &others, *response, arrived_at);
+                    return None;
+                }
+                let Some(live_launch) = launch.upgrade() else {
+                    refuse_response(&response, "the launch that sent it has ended");
+                    return None;
+                };
+                // A copy's thread claims against the copy's own stream.
+                let response = Box::new(lock(&live_launch).copies().offer(*response)?);
+                let work = CodexLaunchWork::Place {
+                    response,
+                    arrived_at,
+                    export_number,
+                };
+                Some((service, launch, work))
             }
+            CodexExportItem::Retry {
+                service,
+                launch,
+                export_number,
+            } => Some((service, launch, CodexLaunchWork::Retry { export_number })),
+        }
+    }
+
+    // Hands `work` to the queue of `launch`, starting its task on `tasks` where none runs; a full
+    // queue refuses what the work carries. The queues of launches that are gone are let go here,
+    // which ends their tasks.
+    fn hand_to_launch(
+        &self,
+        workers: &mut HashMap<usize, CodexLaunchWorker>,
+        tasks: &TaskTracker,
+        service: &Weak<CodexService>,
+        launch: &Weak<Mutex<CodexLaunchPlacement>>,
+        work: CodexLaunchWork,
+    ) {
+        workers.retain(|_key, worker| worker.launch.strong_count() > 0);
+        let worker = workers.entry(launch.as_ptr() as usize).or_insert_with(|| {
+            // As deep as the hand-off, so one export's responses all fit.
+            let (sender, receiver) = mpsc::channel(CODEX_EXPORT_HAND_OFF_DEPTH);
+            tasks.spawn(run_launch_work(
+                Weak::clone(service),
+                Weak::clone(launch),
+                receiver,
+                self.stop.clone(),
+            ));
+            CodexLaunchWorker {
+                launch: Weak::clone(launch),
+                work: sender,
+            }
+        });
+        match worker.work.try_send(work) {
+            Ok(()) => {}
+            Err(TrySendError::Full(work)) => work.refuse("its launch's placement work is full"),
+            Err(TrySendError::Closed(work)) => work.refuse(STOPPED),
         }
     }
 }
 
-// Pushes `item`'s response onto the queue of the session holding its thread on its service; one
-// on a thread another live launch of `register` streams goes to the session its own service kept
-// for that thread, else is dropped and counted; any other is placed or kept off the stream on its
-// launch. A retry places what its launch kept. An item whose service or launch is gone is logged
-// and dropped.
-async fn deliver(register: &Weak<CodexExports>, item: CodexExportItem) {
-    match item {
-        CodexExportItem::Response {
-            service,
-            launch,
-            response,
-            arrived_at,
-            export_number,
-        } => {
-            let Some(service) = service.upgrade() else {
-                tracing::info!(
-                    conversation_id = response.conversation_id.as_str(),
-                    "a codex completed response's service is gone; it is dropped"
-                );
-                return;
-            };
-            if let Some(session_id) = service.session_of_thread(&response.conversation_id) {
-                let exported = CodexExportedResponse {
-                    response,
-                    arrived_at,
-                    placed: None,
-                    provider_account_id: None,
-                };
-                push_exported_response(&service, session_id, exported);
-                return;
+// Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
+// against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
+// naming its thread. Work whose service or launch is gone is refused.
+async fn run_launch_work(
+    service: Weak<CodexService>,
+    launch: Weak<Mutex<CodexLaunchPlacement>>,
+    mut work: mpsc::Receiver<CodexLaunchWork>,
+    stop: CancellationToken,
+) {
+    loop {
+        let next = tokio::select! {
+            biased;
+            () = stop.cancelled() => break,
+            next = work.recv() => next,
+        };
+        let Some(next) = next else {
+            return;
+        };
+        let Some((service, launch)) = service.upgrade().zip(launch.upgrade()) else {
+            next.refuse("the launch that sent it has ended");
+            continue;
+        };
+        match next {
+            CodexLaunchWork::Place {
+                response,
+                arrived_at,
+                export_number,
+            } => {
+                if let Some(bucket) =
+                    bucket_off_stream(&launch, *response, arrived_at, export_number)
+                {
+                    let refusal = bucket.refusal();
+                    tokio::select! {
+                        biased;
+                        () = stop.cancelled() => {
+                            refusal.refuse(STOPPED);
+                            break;
+                        }
+                        () = place_bucket(&service, &launch, bucket) => {}
+                    }
+                }
             }
-            let others = register
-                .upgrade()
-                .map(|register| live_services(&register))
-                .unwrap_or_default();
-            if others
-                .iter()
-                .any(|other| other.session_of_thread(&response.conversation_id).is_some())
-            {
-                deliver_moved(&service, &others, response, arrived_at);
-                return;
+            CodexLaunchWork::Retry { export_number } => {
+                let mut buckets = take_kept_buckets(&launch, export_number).into_iter();
+                while let Some(bucket) = buckets.next() {
+                    let refusal = bucket.refusal();
+                    tokio::select! {
+                        biased;
+                        () = stop.cancelled() => {
+                            refusal.refuse(STOPPED);
+                            for bucket in buckets {
+                                bucket.refusal().refuse(STOPPED);
+                            }
+                            break;
+                        }
+                        () = place_bucket(&service, &launch, bucket) => {}
+                    }
+                }
             }
-            let Some(launch) = launch.upgrade() else {
-                tracing::info!(
-                    conversation_id = response.conversation_id.as_str(),
-                    "a codex completed response's launch was replaced; it is dropped"
-                );
-                return;
-            };
-            // A copy's thread claims against the copy's own stream.
-            let offered = lock(&launch).copies().offer(response);
-            let Some(response) = offered else {
-                return;
-            };
-            place_off_stream(&service, &launch, response, arrived_at, export_number).await;
-        }
-        CodexExportItem::Retry {
-            service,
-            launch,
-            export_number,
-        } => {
-            // A launch that went logged its kept responses as it went.
-            if let Some((service, launch)) = service.upgrade().zip(launch.upgrade()) {
-                retry_kept(&service, &launch, export_number).await;
+            CodexLaunchWork::FileCopies(copies) => {
+                if !file_copies(&service, copies, &stop).await {
+                    break;
+                }
             }
         }
     }
+    work.close();
+    while let Ok(left) = work.try_recv() {
+        left.refuse(STOPPED);
+    }
+}
+
+// Files, as its session's own, each response a copy due now never stated on its stream, each
+// filing raced against the stop; answers `false` where the stop came first, every response not
+// yet filed then refused.
+async fn file_copies(
+    service: &CodexService,
+    copies: Vec<CodexEndedCopy>,
+    stop: &CancellationToken,
+) -> bool {
+    let mut unfiled = copies.into_iter().flat_map(|copy| {
+        let CodexEndedCopy {
+            filing,
+            folder,
+            unclaimed,
+        } = copy;
+        unclaimed
+            .into_iter()
+            .map(move |response| (filing.clone(), folder.clone(), response))
+    });
+    while let Some((mut filing, folder, response)) = unfiled.next() {
+        tokio::select! {
+            biased;
+            () = stop.cancelled() => {
+                refuse_response(&response, STOPPED);
+                for (_filing, _folder, response) in unfiled {
+                    refuse_response(&response, STOPPED);
+                }
+                return false;
+            }
+            () = filing.file(response.meter(), service, &folder) => {
+                response.log_read_for_price();
+            }
+        }
+    }
+    true
 }
 
 // Every live service a launch of `register` started, each once, taken out of its lock.
@@ -206,30 +371,21 @@ fn live_services(register: &CodexExports) -> Vec<Arc<CodexService>> {
 }
 
 // Files `response`, on a thread another of `services` streams now, on the session `service`, its
-// own launch's, streamed it for before releasing it, carrying the account it ran on, through the
-// first of `services` that session is attached to, else logs and drops it; one on a thread
-// `service` never streamed is dropped and counted, so no other launch's session takes it.
+// own launch's, streamed it for before releasing it, through the first of `services` that
+// session is attached to; one on a thread `service` never streamed, or whose session no service
+// holds, is refused, naming its thread, so no other launch's session takes it.
 fn deliver_moved(
     service: &CodexService,
     services: &[Arc<CodexService>],
     response: CodexCompletedResponse,
     arrived_at: Instant,
 ) {
-    let Some((session_id, provider_account_id)) =
-        service.former_session_of_thread(&response.conversation_id)
-    else {
-        refuse_unplaced(
-            &response.conversation_id,
-            service.provider_account_id(),
+    let Some(session_id) = service.former_session_of_thread(&response.conversation_id) else {
+        refuse_response(
+            &response,
             "another launch streams its thread and its own launch never did",
         );
         return;
-    };
-    let exported = CodexExportedResponse {
-        response,
-        arrived_at,
-        placed: None,
-        provider_account_id,
     };
     let attached = services.iter().find(|service| {
         service
@@ -237,30 +393,29 @@ fn deliver_moved(
             .iter()
             .any(|queue| queue.session_id() == session_id)
     });
-    if let Some(attached) = attached {
-        push_exported_response(attached, session_id, exported);
-    } else {
-        tracing::info!(
-            conversation_id = exported.response.conversation_id.as_str(),
-            %session_id,
-            "no codex session took a completed response; it is dropped"
-        );
+    let exported = CodexExportedResponse {
+        response,
+        arrived_at,
+        placed: Some(CodexOffStreamPlacement::Released),
+    };
+    match attached {
+        Some(attached) => push_exported_response(attached, session_id, exported),
+        None => refuse_response(
+            &exported.response,
+            "the session its launch streamed it for is attached to no service",
+        ),
     }
 }
 
-/// Pushes `exported` onto `session_id`'s queue on `service`; one no session took is logged and
-/// dropped.
+/// Pushes `exported` onto `session_id`'s queue on `service`; one no session takes is refused,
+/// naming its thread.
 pub(crate) fn push_exported_response(
     service: &CodexService,
     session_id: SessionId,
     exported: CodexExportedResponse,
 ) {
-    let conversation_id = exported.response.conversation_id.clone();
+    let response = exported.response.clone();
     if !service.push_session_item(&session_id, CodexSessionInbound::ExportedResponse(exported)) {
-        tracing::info!(
-            conversation_id = conversation_id.as_str(),
-            %session_id,
-            "no codex session took a completed response; it is dropped"
-        );
+        refuse_response(&response, "no session took it");
     }
 }

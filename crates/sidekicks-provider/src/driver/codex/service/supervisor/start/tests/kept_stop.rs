@@ -30,20 +30,20 @@ use crate::driver::codex::service::supervisor::own_record::{
 use crate::driver::codex::service::supervisor::start::kept_records::{
     KeptServicesStop, lock_record, stop_kept_services,
 };
+use crate::driver::codex::service::supervisor::start::lasting_launch::{
+    LaunchedLastingService, launch_lasting_service, name_lasting_log_file,
+};
 use crate::driver::codex::service::supervisor::start::take_start_lock;
 use crate::driver::codex::service::supervisor::start::terminal::{
     join_former_service, launch_terminal_service,
 };
-use crate::driver::codex::service::supervisor::start::{
-    LaunchedLastingService, StartFailure, compose_launch, launch_lasting_service,
-    name_lasting_log_file,
-};
+use crate::driver::codex::service::supervisor::start::{StartFailure, compose_launch};
 use crate::driver::codex::service::supervisor::test_service::{
     STAND_IN_CODEX, StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
     bind_test_listener, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
-use crate::pricing::receiver::bearers::TelemetryBearer;
+use crate::driver::codex::service::telemetry_switches::CodexLaunchTelemetry;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 // Fails when the erase's end of a recorded service that is gone leaves the home's link naming the
@@ -72,7 +72,7 @@ async fn an_erase_takes_the_home_link_off_a_gone_service_s_socket() {
         .expect("the records lock")
         .write(&LastingServiceRecord {
             physical_socket: Some(physical_socket.clone()),
-            ..LastingServiceRecord::launched(gone, home_socket.clone())
+            ..LastingServiceRecord::launched(gone, home_socket.clone(), None)
         })
         .expect("the record is written");
 
@@ -246,7 +246,7 @@ async fn a_daemon_stop_of_kept_records_leaves_a_live_service_s_record_to_its_sup
 struct BesideLaunch {
     service: Arc<CodexService>,
     // Taken by the one launch the set-up is for.
-    process_launch: Option<(CodexProcessLaunch, Option<TelemetryBearer>)>,
+    process_launch: Option<(CodexProcessLaunch, Option<CodexLaunchTelemetry>)>,
     executable: ResolvedProviderExecutable,
     log_file: PathBuf,
     own_socket: PathBuf,
@@ -655,7 +655,11 @@ async fn spawn_recorded_stand_in(
     record_file
         .lock()
         .expect("the records lock")
-        .write(&LastingServiceRecord::launched(process, socket.to_owned()))
+        .write(&LastingServiceRecord::launched(
+            process,
+            socket.to_owned(),
+            None,
+        ))
         .expect("the record is written");
     child
 }

@@ -5,10 +5,6 @@
 //! each provider's own driver. It sits over std, store, ipc, workspace and policy and is taken by
 //! mcp, shell, session, approval, queue, artifact, recovery and the program.
 
-// A Codex service's export register holds its copies' filings, whose live pricing nests an HTTP
-// client, so proving a service's futures `Send` walks deeper than the default 128 types.
-#![recursion_limit = "256"]
-
 pub mod account;
 pub mod background_work;
 pub mod bearer_token;

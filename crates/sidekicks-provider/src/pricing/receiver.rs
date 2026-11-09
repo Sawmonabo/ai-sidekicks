@@ -247,6 +247,12 @@ async fn receive(
             .get(header::AUTHORIZATION)
             .map(HeaderValue::as_bytes),
     ) else {
+        // The provider and signal only; the token presented is never logged.
+        tracing::info!(
+            provider = provider.as_str(),
+            signal = signal.name(),
+            "a telemetry export presented a token that is missing, wrong or no longer live"
+        );
         return refusal(
             StatusCode::UNAUTHORIZED,
             "The telemetry token is missing, wrong or no longer live.",
@@ -764,5 +770,38 @@ mod tests {
         assert_eq!(provider, &codex());
         let json: serde_json::Value = serde_json::from_str(message).expect("the message is JSON");
         assert!(json.get("resourceLogs").is_some(), "{message}");
+    }
+
+    // A token a former daemon minted for a lasting service, kept in that service's record, is
+    // admitted again under the joining daemon's holder until its guard drops; text that is no
+    // token is refused. Killed by a restore that admits nothing, admits any text, or outlives its
+    // guard.
+    #[test]
+    fn a_kept_token_is_admitted_again_under_the_joining_daemons_holder() {
+        let former = Arc::new(TelemetryBearers::default());
+        let minted = former
+            .mint(codex(), TelemetryHolderId::new(3))
+            .expect("the random source is readable");
+        let token = minted.token_text().to_owned();
+        let authorization = format!("Bearer {token}");
+        drop(minted);
+        let joining = Arc::new(TelemetryBearers::default());
+        let restored = joining
+            .restore(codex(), TelemetryHolderId::new(0), &token)
+            .expect("the kept text is a token");
+        assert_eq!(
+            joining.resolve(&codex(), Some(authorization.as_bytes())),
+            Some(TelemetryHolderId::new(0))
+        );
+        assert!(
+            joining
+                .restore(codex(), TelemetryHolderId::new(1), "not-a-token")
+                .is_none()
+        );
+        drop(restored);
+        assert_eq!(
+            joining.resolve(&codex(), Some(authorization.as_bytes())),
+            None
+        );
     }
 }

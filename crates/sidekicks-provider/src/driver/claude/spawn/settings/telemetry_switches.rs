@@ -253,7 +253,7 @@ mod tests {
                 "http://127.0.0.1:43210/telemetry/claude/v1/traces"
             );
             for name in HEADERS {
-                assert_eq!(value(name), headers);
+                assert_eq!(value(name), headers.as_str());
             }
             for name in SIGNAL_EXPORTERS {
                 assert_eq!(value(name), "otlp");

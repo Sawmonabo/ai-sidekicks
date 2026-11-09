@@ -26,7 +26,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
-use crate::driver::codex::telemetry::exports::tests::{export_checks, export_tagged};
+use crate::driver::codex::telemetry::exports::tests::{export_checks, export_tagged, refused};
 use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
 };
@@ -79,7 +79,7 @@ impl ExportingSession {
         let drain = exports
             .take_drain()
             .expect("the register's drain is untaken");
-        tokio::spawn(drain.run());
+        tokio::spawn(drain.run(tokio_util::task::TaskTracker::new()));
         let tag = exports.launched(&live.scripted.service);
         live.scripted.script.send(&turn_started(TEST_TURN));
         Self {
@@ -195,7 +195,7 @@ fn wire_counts(counts: &UsageAxisCounts) -> Value {
 
 // Killed: `stated_first` by a ledger the stream's metered delta never enters (two rows);
 // `exported_first` by deciding a held response two intervals after its arrival while its turn is
-// live (two rows); `export_only_on_a_streamed_thread` by passing over an export whose thread the
+// live (a row before the turn completes); `export_only_on_a_streamed_thread` by passing over an export whose thread the
 // stream metered on, whatever its counts (one row); `held_when_the_session_closes` by dropping
 // the held responses with the session's record (no row); `stated_after_its_decision` by a priced
 // response that keeps no claim on its stream's late twin (two rows).
@@ -220,6 +220,10 @@ async fn an_exported_response_is_counted_once_on_its_session(#[case] arrival: Ar
         Arrival::ExportedFirst => {
             session.export(&stated).await;
             tokio::time::sleep(PAST_TWO_INTERVALS).await;
+            assert!(
+                lock(&session.usage.metered).is_empty(),
+                "a response held on a live turn is not decided"
+            );
             session.state(&stated);
             answer_region_read(&mut session.live.scripted).await;
             session.complete_turn();
@@ -303,22 +307,14 @@ fn review_started(review_id: &str, turn_id: &str, started_at_ms: u64) -> Value {
     })
 }
 
-// How many recorded messages read `message`.
-fn messages_reading(recorded: &RecordedEvents, message: &str) -> usize {
-    recorded
-        .messages()
-        .iter()
-        .filter(|recorded| recorded.as_str() == message)
-        .count()
-}
-
 // A reviewer fork's requests, on a thread no listing names, are counted once on the session under
 // its account: joined to the latest review window on the session's turn, else to the turn live at
 // their first record, and none of the person's identity is logged. Killed: `latest_window` by
 // refusing a not-listed bucket without the join (no rows), by the first window in place of the
 // latest (rows on `turn-0`) and by logging a record's attributes (the identity in a log line);
 // `live_turn_only` by refusing a bucket no window covers while a turn is live (no rows);
-// `listing_fails` by an unbounded keep (no drop line, and 1,001 dropped with the launch).
+// `listing_fails` by an unbounded keep (no refusal, and 1,001 refused with the launch) and by a
+// launch dropped silently (no refusals with it).
 #[rstest]
 #[case::latest_window(ReviewCover::LatestWindow)]
 #[case::live_turn_only(ReviewCover::LiveTurnOnly)]
@@ -330,6 +326,8 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
     let recorded = RecordedEvents::default();
     let _recording = recorded.record_until_dropped();
     let mut session = ExportingSession::start().await;
+    // Read once the session's task stamped its turn's start, which the paused clock waits for.
+    tokio::time::sleep(Duration::from_millis(10)).await;
     let now = unix_time_ms();
     if let ReviewCover::LatestWindow = cover {
         let script = &session.live.scripted.script;
@@ -349,14 +347,20 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
             "id": list["id"],
             "error": { "code": -32603, "message": "the listing failed" },
         }));
-        let dropped = "a codex launch keeps too many unplaced responses; the oldest is dropped";
-        poll_until(|| messages_reading(&recorded, dropped), |count| *count >= 1).await;
+        poll_until(|| refused(&recorded), |count| *count >= 1).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
-        assert_eq!(messages_reading(&recorded, dropped), 1);
-        // The relaunch drops the launch with what it keeps, each logged.
-        session.exports.launched(&session.live.scripted.service);
-        let gone = "a codex launch that kept an unplaced response is gone; it is dropped";
-        assert_eq!(messages_reading(&recorded, gone), 1_000);
+        assert_eq!(
+            refused(&recorded),
+            1,
+            "only the oldest past the bound is refused"
+        );
+        // A relaunch, the old tag let go, drops the launch with what it keeps, each refused.
+        let relaunch = session.exports.launched(&session.live.scripted.service);
+        drop(std::mem::replace(&mut session.tag, relaunch));
+        session
+            .exports
+            .is_exporting(session.live.scripted.service.id());
+        assert_eq!(refused(&recorded), 1 + 1_000);
         return;
     }
     let first = counts(300, 20);
@@ -412,7 +416,7 @@ async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
     let mut live = LiveCodexSession::start(&[]).await;
     tokio::time::pause();
     let exports = Arc::clone(&live.scripted.service.dependencies().exports);
-    exports.launched(&live.scripted.service);
+    let _tag = exports.launched(&live.scripted.service);
     let reading = wire_counts(&counts(1_000, 500));
     match turn {
         RequestTurn::SessionOwn => {

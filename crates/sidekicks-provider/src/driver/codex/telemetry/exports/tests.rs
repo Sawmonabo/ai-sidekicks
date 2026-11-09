@@ -13,7 +13,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
-use tokio::time::{Instant, sleep};
+use tokio::time::Instant;
 
 use super::{CodexExportTag, CodexExports};
 use crate::bounded_poll::poll_until;
@@ -30,7 +30,9 @@ use crate::driver::codex::session::thread_turns::{CodexEndedTurn, CodexThreadTur
 use crate::driver::codex::telemetry::completed_response::tests::{
     codex_record, completed_response_attributes,
 };
-use crate::driver::codex::telemetry::held_responses::CodexExportedResponse;
+use crate::driver::codex::telemetry::held_responses::{
+    CodexExportedResponse, CodexOffStreamPlacement,
+};
 use crate::driver::diagnostics::RecordedEvents;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -99,12 +101,13 @@ pub(crate) fn export_tagged(tag: &CodexExportTag, records: Vec<LogRecord>) -> Te
     })
 }
 
-// The export status' budget: at most one export check per launch, none while idle. Real time,
-// since the tracker reads a turn begun at its export's instant as exported. Killed by a check per
-// turn (2 after two request turns), a check on a turn with no request (1 at the second step), an
-// export that leaves the check armed or a tag the reader cannot find (1 after the export), and a
-// relaunch keeping the old launch and its check (1 at the relaunch, or 2 at the end).
-#[tokio::test]
+// The export status' budget: at most one export check per launch, none while idle. Paused time,
+// advanced past the export's instant, since the tracker reads a turn begun at that instant as
+// exported. Killed by a check per turn (2 after two request turns), a check on a turn with no
+// request (1 at the second step), an export that leaves the check armed or a tag the reader
+// cannot find (1 after the export), and a relaunch keeping the old launch, whose tag was let go,
+// and its check (1 at the relaunch, or 2 at the end).
+#[tokio::test(start_paused = true)]
 async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_export() {
     let scheduler = Arc::new(Scheduler::start(
         Arc::new(TestWallClock::default()),
@@ -132,10 +135,11 @@ async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_ex
     assert_eq!(export_checks(&scheduler), 0);
 
     // A turn begun after the export, so the export does not count for it.
-    sleep(Duration::from_millis(2)).await;
+    tokio::time::advance(Duration::from_millis(2)).await;
     settle_turn(&mut turns, &exports, service_id, "turn-4", true);
     assert_eq!(export_checks(&scheduler), 1);
-    exports.launched(&scripted.service);
+    drop(tag);
+    let _relaunch = exports.launched(&scripted.service);
     assert_eq!(export_checks(&scheduler), 0);
     settle_turn(&mut turns, &exports, service_id, "turn-5", true);
     assert_eq!(export_checks(&scheduler), 1);
@@ -155,8 +159,8 @@ fn response_on(thread_id: &str, input: u64) -> LogRecord {
     codex_record(completed_response_attributes(thread_id, &counts))
 }
 
-// How many records were dropped and counted.
-fn refused(recorded: &RecordedEvents) -> usize {
+/// How many records were refused and counted.
+pub(crate) fn refused(recorded: &RecordedEvents) -> usize {
     recorded
         .counters()
         .iter()
@@ -191,7 +195,7 @@ impl TwoLaunches {
         let drain = exports
             .take_drain()
             .expect("the register's drain is untaken");
-        tokio::spawn(drain.run());
+        tokio::spawn(drain.run(tokio_util::task::TaskTracker::new()));
         let a = start_scripted_account_service_for(launch_a_account());
         let b_session = TestCodexSession::start_on(start_scripted_codex_service()).await;
         let tag_a = exports.launched(&a.service);
@@ -305,7 +309,14 @@ async fn a_record_on_a_thread_its_launch_streamed_before_a_move_is_filed_on_its_
     let exported = two.next_exported().await;
     assert_eq!(exported.response.conversation_id, MOVED_THREAD);
     assert_eq!(exported.response.counts.input, Some(333));
-    assert_eq!(exported.provider_account_id, Some(launch_a_account()));
+    assert_eq!(
+        exported.response.provider_account_id,
+        Some(launch_a_account())
+    );
+    assert!(matches!(
+        exported.placed,
+        Some(CodexOffStreamPlacement::Released)
+    ));
     assert_eq!(refused(&recorded), 0);
     assert_eq!(
         export_checks(&two.scheduler),

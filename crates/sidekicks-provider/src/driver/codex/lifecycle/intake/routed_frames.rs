@@ -66,12 +66,14 @@ pub(crate) async fn apply_codex_routed_frames(
     for delta in routed.metered_usage {
         publish_turn_usage(intake, record, &delta);
         let owner_thread = delta.thread_id.clone();
+        // The stream's reading ran on the account the record carries at its place in the frames.
+        let ran_on = Some(record.provider_account_id.clone());
         metered_usage.extend(attribute_codex_usage(
             intake,
             record,
             &owner_thread,
             delta,
-            None,
+            ran_on,
         ));
     }
     for dispatch in routed.dispatches {
@@ -182,7 +184,7 @@ fn publish_turn_usage(
 }
 
 /// The usage record's entry for a metered delta spent on `owner_thread` under
-/// `provider_account_id`, `None` for its binding's account: a helper's conversation's on its child
+/// `provider_account_id`, the account its turn ran on: a helper's conversation's on its child
 /// run's binding as that helper's own, any other on the binding of the run its turn belongs to,
 /// else the session's. One with no binding to file on is logged and left unrecorded.
 pub(super) fn attribute_codex_usage(

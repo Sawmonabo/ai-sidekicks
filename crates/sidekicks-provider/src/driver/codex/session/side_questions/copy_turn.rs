@@ -6,6 +6,8 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
@@ -203,13 +205,18 @@ impl SessionUsageFiling {
     /// Records `delta` as the session's own, counted toward no run, and prices it, its region read
     /// on `service` for `folder`; a refused record or region read is reported under the account.
     /// A copy's thread's ledger on the service's launch takes it first, so its exported twin is
-    /// passed over. With no usage record registered it goes nowhere and reads no region.
-    pub(crate) async fn file(
-        &mut self,
+    /// passed over. With no usage record registered it goes nowhere and reads no region. Boxed,
+    /// so a future that holds a filing does not nest the live pricing's whole type.
+    pub(crate) fn file<'filing>(
+        &'filing mut self,
         delta: MeteredUsageDelta,
-        service: &CodexService,
-        folder: &Path,
-    ) {
+        service: &'filing CodexService,
+        folder: &'filing Path,
+    ) -> BoxFuture<'filing, ()> {
+        async move { self.file_now(delta, service, folder).await }.boxed()
+    }
+
+    async fn file_now(&mut self, delta: MeteredUsageDelta, service: &CodexService, folder: &Path) {
         let exports = &service.dependencies().exports;
         exports.copy_filed(service.id(), &delta.thread_id, delta.axis_deltas);
         let Some(sink) = self.usage.port() else {

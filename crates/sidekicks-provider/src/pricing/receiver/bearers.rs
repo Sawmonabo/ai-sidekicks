@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::mutex_lock::lock;
+use zeroize::Zeroizing;
 
 use crate::bearer_token::{BEARER_PREFIX, BearerToken};
 
@@ -47,17 +48,39 @@ impl TelemetryBearers {
         provider: ProviderId,
         holder: TelemetryHolderId,
     ) -> Result<TelemetryBearer, getrandom::Error> {
-        let token = Arc::new(BearerToken::mint()?);
+        Ok(self.admit(provider, holder, BearerToken::mint()?))
+    }
+
+    /// Admits again `token`, the kept token of a process of `provider` that outlived the daemon
+    /// which minted it, for `holder`, until the answered guard drops; `None` for text that is no
+    /// token.
+    pub fn restore(
+        self: &Arc<Self>,
+        provider: ProviderId,
+        holder: TelemetryHolderId,
+        token: &str,
+    ) -> Option<TelemetryBearer> {
+        Some(self.admit(provider, holder, BearerToken::kept(token)?))
+    }
+
+    // Admits `token` for `holder` of `provider` until the answered guard drops.
+    fn admit(
+        self: &Arc<Self>,
+        provider: ProviderId,
+        holder: TelemetryHolderId,
+        token: BearerToken,
+    ) -> TelemetryBearer {
+        let token = Arc::new(token);
         lock(&self.live).push(LiveBearer {
             provider,
             holder,
             token: Arc::clone(&token),
         });
-        Ok(TelemetryBearer {
+        TelemetryBearer {
             bearers: Arc::downgrade(self),
             holder,
             token,
-        })
+        }
     }
 
     /// The holder of the live bearer `authorization`, a request's `Authorization` header,
@@ -86,8 +109,17 @@ pub struct TelemetryBearer {
 impl TelemetryBearer {
     /// The OTLP exporters' headers setting that presents the token, `authorization=Bearer <token>`,
     /// which an exporter splits at its first `=`; Claude's settings file takes the same value.
-    pub fn exporter_headers(&self) -> String {
-        format!("authorization={BEARER_PREFIX}{}", self.token.text())
+    pub fn exporter_headers(&self) -> Zeroizing<String> {
+        Zeroizing::new(format!(
+            "authorization={BEARER_PREFIX}{}",
+            self.token.text()
+        ))
+    }
+
+    /// The token itself, for the daemon's private record of a process that outlives it, from
+    /// which a later daemon restores it.
+    pub fn token_text(&self) -> &str {
+        self.token.text()
     }
 
     /// The process or launch the bearer was minted for.

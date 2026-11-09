@@ -14,7 +14,7 @@ use crate::driver::codex::delivery::reviewer::{
 use crate::driver::codex::delivery::rows::CodexRowRun;
 use crate::driver::codex::event_normalizer::CODEX_REVIEW_STARTED_METHOD;
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::telemetry::placement::CodexReviewWindow;
+use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::port::reviewer_denial::ProviderReviewerDenial;
 use crate::record_readers::read_non_empty_string;
@@ -65,7 +65,8 @@ impl CodexFrameDelivery {
         run: Option<CodexRowRun>,
         about_event_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     ) {
-        // A review's window, which its reviewer's off-stream requests are joined to.
+        // A review's window, opened at its start and closed at its completion, which its
+        // reviewer's off-stream requests are joined to.
         if matches!(
             method,
             CODEX_REVIEW_STARTED_METHOD | "item/autoApprovalReview/completed"

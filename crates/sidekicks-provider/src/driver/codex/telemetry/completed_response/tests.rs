@@ -180,6 +180,7 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
             service_tier: BoundedText::new("priority".to_owned()),
             counts: COUNTS,
             observed_at_ms: 1_762_600_000_123,
+            provider_account_id: None,
         }]
     );
     assert!(recorded.counters().is_empty(), "{:?}", recorded.texts());
@@ -202,9 +203,21 @@ fn a_mixed_export_yields_its_one_completed_response_and_logs_it_without_identity
 // dropped.
 #[rstest]
 #[case::input_absent_beside_output("input_token_count", None, None)]
-#[case::a_negative_output("output_token_count", Some(Value::StringValue("-5".to_owned())), Some("-5"))]
-#[case::a_signed_input("input_token_count", Some(Value::StringValue("+12".to_owned())), Some("+12"))]
-#[case::a_fractional_total("tool_token_count", Some(Value::StringValue("1.5".to_owned())), Some("1.5"))]
+#[case::a_negative_output(
+    "output_token_count",
+    Some(Value::StringValue("-5".to_owned())),
+    Some("-5")
+)]
+#[case::a_signed_input(
+    "input_token_count",
+    Some(Value::StringValue("+12".to_owned())),
+    Some("+12")
+)]
+#[case::a_fractional_total(
+    "tool_token_count",
+    Some(Value::StringValue("1.5".to_owned())),
+    Some("1.5")
+)]
 #[case::a_negative_integer_cached("cached_token_count", Some(Value::IntValue(-1)), Some("-1"))]
 #[case::a_word_for_reasoning(
     "reasoning_token_count",

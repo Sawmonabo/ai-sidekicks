@@ -3,27 +3,24 @@
 
 use std::collections::VecDeque;
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
 
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::exports::CODEX_EXPORT_INTERVAL;
+use crate::pricing::export_status::INTERVALS_WAITED;
 
 /// How many responses one session holds at once; past it the oldest is decided at once.
 pub(crate) const HELD_RESPONSES_KEPT: usize = 256;
 
-/// One completed response the export read, when the export carrying it arrived, and where the
-/// drain placed it when no session streams its thread.
+/// One completed response the export read, with the account it ran on, when the export carrying
+/// it arrived, and where the drain placed it when no session streams its thread.
 pub(crate) struct CodexExportedResponse {
-    /// The response.
+    /// The response, carrying the account it ran on.
     pub(crate) response: CodexCompletedResponse,
     /// When the export carrying it was read.
     pub(crate) arrived_at: Instant,
     /// Where it was placed off the session's stream; `None` on a thread the session streams.
     pub(crate) placed: Option<CodexOffStreamPlacement>,
-    /// The account it ran under, set only on a response whose launch streamed its thread before
-    /// the thread moved to another launch; `None` where it ran on its binding's account.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
 /// Where the drain placed a response on a thread no session streams.
@@ -43,13 +40,19 @@ pub(crate) enum CodexOffStreamPlacement {
         /// The turn it is filed on.
         turn_id: String,
     },
+    /// On its own thread, which the session streamed on the response's launch before releasing
+    /// it and another launch streams now, so no stream of this session states it.
+    Released,
 }
 
 impl CodexExportedResponse {
     /// The thread the response is filed as: the child it was placed through, else its own.
     pub(crate) fn owner_thread(&self) -> &str {
         match &self.placed {
-            None | Some(CodexOffStreamPlacement::OnTurn { .. }) => &self.response.conversation_id,
+            None
+            | Some(CodexOffStreamPlacement::OnTurn { .. } | CodexOffStreamPlacement::Released) => {
+                &self.response.conversation_id
+            }
             Some(CodexOffStreamPlacement::BelowThread { child_thread, .. }) => child_thread,
         }
     }
@@ -61,6 +64,8 @@ pub(crate) struct CodexHeldResponse {
     pub(crate) exported: CodexExportedResponse,
     /// The turn the response is filed on, `None` where no turn was live on its thread.
     pub(crate) turn_id: Option<String>,
+    /// Whether it is the session's own spend beside its runs: a live side question's copy's.
+    pub(crate) is_session_own: bool,
     // The thread and turn whose settle the response waits for; `None` once it settled, or where
     // it waits on none.
     awaited: Option<(String, String)>,
@@ -72,7 +77,7 @@ impl CodexHeldResponse {
     fn decision_at(&self) -> Option<Instant> {
         self.awaited
             .is_none()
-            .then(|| self.exported.arrived_at + CODEX_EXPORT_INTERVAL * 2)
+            .then(|| self.exported.arrived_at + CODEX_EXPORT_INTERVAL * INTERVALS_WAITED)
     }
 }
 
@@ -84,14 +89,15 @@ pub(crate) struct CodexHeldResponses {
 }
 
 impl CodexHeldResponses {
-    /// Holds `exported`, filed on `turn_id`, waiting for that turn's settle on `awaited_thread`
-    /// where one is named; answers the oldest response the bound pushes out, which the caller
-    /// decides at once.
+    /// Holds `exported`, filed on `turn_id` as the session's own where `is_session_own`, waiting
+    /// for that turn's settle on `awaited_thread` where one is named; answers the oldest response
+    /// the bound pushes out, which the caller decides at once.
     pub(crate) fn hold(
         &mut self,
         exported: CodexExportedResponse,
         turn_id: Option<String>,
         awaited_thread: Option<String>,
+        is_session_own: bool,
     ) -> Option<CodexHeldResponse> {
         let pushed_out = if self.held.len() >= HELD_RESPONSES_KEPT {
             self.held.pop_front()
@@ -102,6 +108,7 @@ impl CodexHeldResponses {
         self.held.push_back(CodexHeldResponse {
             exported,
             turn_id,
+            is_session_own,
             awaited,
         });
         pushed_out

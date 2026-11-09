@@ -4,15 +4,14 @@
 //! thread before it is registered: a start's or a fork's ahead of its reply, a spawned helper's
 //! ahead of the spawn item. Such frames are held, within a frame count, a byte bound and a
 //! timeout, until it is; a held frame no registration took is reported at its deadline. A
-//! released thread is remembered with the session and account it ran for, so its last exported
-//! records still reach that session.
+//! released thread is remembered with the session it ran for, so its last exported records still
+//! reach that session.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
@@ -54,11 +53,10 @@ impl PartialEq for CodexHeldThreadFrame {
     }
 }
 
-// A thread the service released: the session it was bound to and the account it ran on.
+// A thread the service released and the session it was bound to.
 struct CodexReleasedThread {
     thread: String,
     session: SessionId,
-    account: Option<ProviderAccountId>,
 }
 
 /// Where a frame naming a thread goes, settled under one lock of the index.
@@ -198,18 +196,12 @@ impl CodexServiceThreads {
         released
     }
 
-    /// Forgets one thread, remembering the session it was bound to and `provider_account_id`, the
-    /// account it ran on, until it is registered again; past the bound the oldest is forgotten and
-    /// logged.
-    pub(crate) fn release(
-        &mut self,
-        thread_id: &str,
-        provider_account_id: Option<ProviderAccountId>,
-    ) {
-        self.side_question_threads.remove(thread_id);
-        let Some(session_id) = self.session_by_thread.remove(thread_id) else {
-            return;
-        };
+    /// Forgets one thread, remembering the session it was bound to until it is registered again;
+    /// past the bound the oldest is forgotten and logged. Answers that session where the thread
+    /// was a side question's copy.
+    pub(crate) fn release(&mut self, thread_id: &str) -> Option<SessionId> {
+        let was_side_question = self.side_question_threads.remove(thread_id);
+        let session_id = self.session_by_thread.remove(thread_id)?;
         self.released.retain(|former| former.thread != thread_id);
         if self.released.len() >= RELEASED_THREADS_KEPT
             && let Some(forgotten) = self.released.pop_front()
@@ -222,20 +214,17 @@ impl CodexServiceThreads {
         self.released.push_back(CodexReleasedThread {
             thread: thread_id.to_owned(),
             session: session_id,
-            account: provider_account_id,
         });
+        was_side_question.then_some(session_id)
     }
 
-    /// The session `thread_id` was bound to when this service released it and the account it ran
-    /// on, `None` for a thread this service holds now, never held or forgot.
-    pub(crate) fn former_session_for(
-        &self,
-        thread_id: &str,
-    ) -> Option<(SessionId, Option<ProviderAccountId>)> {
+    /// The session `thread_id` was bound to when this service released it, `None` for a thread
+    /// this service holds now, never held or forgot.
+    pub(crate) fn former_session_for(&self, thread_id: &str) -> Option<SessionId> {
         self.released
             .iter()
             .find(|former| former.thread == thread_id)
-            .map(|former| (former.session, former.account.clone()))
+            .map(|former| former.session)
     }
 
     /// Opens a claim for a start or fork whose thread is not known yet; while any claim is open no

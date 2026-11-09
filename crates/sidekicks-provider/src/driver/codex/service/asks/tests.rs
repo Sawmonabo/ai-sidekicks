@@ -65,6 +65,10 @@ impl CodexSessionInboundHandler for ArrivalOrder {
         unreachable!("no conversation is held")
     }
 
+    fn side_question_released(&mut self, _thread_id: String) {
+        unreachable!("no side question is asked")
+    }
+
     fn next_deadline(&self) -> Option<Instant> {
         None
     }

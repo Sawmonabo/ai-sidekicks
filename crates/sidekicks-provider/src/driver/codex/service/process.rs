@@ -4,6 +4,7 @@
 //! drain and Codex's own shutdown request.
 
 use std::error::Error;
+use std::fmt;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -32,7 +33,8 @@ use crate::child_ending::ChildEnds;
 use crate::driver::child_records::{
     ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
-use crate::pricing::receiver::bearers::TelemetryBearer;
+use crate::driver::codex::service::record::KeptLaunchTelemetry;
+use crate::driver::codex::service::telemetry_switches::CodexLaunchTelemetry;
 use crate::process_exit::compose_process_exit;
 use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
@@ -58,8 +60,9 @@ const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 /// How long the shutdown request waits for the control socket's answer, as Codex's own does.
 const CODEX_CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// What one Codex process runs: a service start or a short command.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What one Codex process runs: a service start or a short command. Its debug form names each
+/// environment variable but never its value, which may be a token.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CodexProcessLaunch {
     /// The native Codex program, absolute, never the npm launcher, which would leave its native
     /// child unpinned: `resolve_codex_native_program` gives it.
@@ -71,6 +74,23 @@ pub(crate) struct CodexProcessLaunch {
     pub(crate) environment: Vec<(String, String)>,
     /// The folder the process starts in.
     pub(crate) working_folder: PathBuf,
+}
+
+impl fmt::Debug for CodexProcessLaunch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let variables: Vec<&str> = self
+            .environment
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        formatter
+            .debug_struct("CodexProcessLaunch")
+            .field("program", &self.program)
+            .field("arguments", &self.arguments)
+            .field("environment", &variables)
+            .field("working_folder", &self.working_folder)
+            .finish()
+    }
 }
 
 impl CodexProcessLaunch {
@@ -264,11 +284,23 @@ pub(crate) struct LastingCodexService {
     record: ProcessRecord,
     // Only for a service this daemon started, which is still its child.
     exit: Option<CodexServiceExit>,
-    // Held, never read: its drop refuses the launch's telemetry token once the service is gone.
-    _telemetry_bearer: Option<TelemetryBearer>,
+    // The launch's place in the export register and its telemetry token, both let go with the
+    // service, so its exports are taken only while it lives.
+    telemetry: Option<Box<CodexLaunchTelemetry>>,
 }
 
 impl LastingCodexService {
+    /// The token and tag of the launch's export to the daemon, which the service's record keeps
+    /// for a later daemon to admit again; `None` where it exports nowhere.
+    pub(crate) fn kept_telemetry(&self) -> Option<KeptLaunchTelemetry> {
+        self.telemetry.as_deref().map(CodexLaunchTelemetry::kept)
+    }
+
+    /// Keeps `telemetry`, a joined service's export admitted again, for as long as the service.
+    pub(crate) fn keep_telemetry(&mut self, telemetry: Option<CodexLaunchTelemetry>) {
+        self.telemetry = telemetry.map(Box::new);
+    }
+
     /// What a later daemon re-pins this service from, which the daemon keeps in the service's
     /// record file.
     pub(crate) fn record(&self) -> &ProcessRecord {
@@ -376,15 +408,15 @@ struct UnrecordedServiceError {
 /// Starts a lasting Codex service, on the person's own Codex folder or an account home, on
 /// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
 /// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
-/// then moved out of the daemon's scope where the system has one, keeping `telemetry_bearer`, the
-/// launch's own token, until the service is dropped. The caller keeps its record in the folder's
+/// then moved out of the daemon's scope where the system has one, keeping `telemetry`, the
+/// launch's export tag and own token, until the service is dropped. The caller keeps its record in the folder's
 /// record file. Fails when the log cannot be opened, or the start cannot be spawned
 /// or pinned (on Windows a refused breakaway from the daemon's job among them), with the log's
 /// tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,
-    telemetry_bearer: Option<TelemetryBearer>,
+    telemetry: Option<CodexLaunchTelemetry>,
     log_file: &Path,
 ) -> io::Result<LastingCodexService> {
     let error_output = open_provider_service_log(log_file).await?;
@@ -448,7 +480,7 @@ pub(crate) async fn start_lasting_codex_service(
         process,
         record,
         exit: Some(share_service_exit(exit_received)),
-        _telemetry_bearer: telemetry_bearer,
+        telemetry: telemetry.map(Box::new),
     })
 }
 
@@ -462,7 +494,7 @@ pub(crate) fn repin_lasting_codex_service(
         process,
         record,
         exit: None,
-        _telemetry_bearer: None,
+        telemetry: None,
     }))
 }
 

@@ -445,7 +445,9 @@ impl TestCodexTask {
                 .await;
                 self.apply(routed).await;
             }
-            CodexSessionInbound::HeldThread { .. } | CodexSessionInbound::ExportedResponse(_) => {}
+            CodexSessionInbound::HeldThread { .. }
+            | CodexSessionInbound::SideQuestionReleased { .. }
+            | CodexSessionInbound::ExportedResponse(_) => {}
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -728,6 +730,10 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn held_thread(&mut self, thread_id: String, is_held: bool) {
         self.hand(CodexSessionInbound::HeldThread { thread_id, is_held });
+    }
+
+    fn side_question_released(&mut self, thread_id: String) {
+        self.hand(CodexSessionInbound::SideQuestionReleased { thread_id });
     }
 
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {

@@ -52,6 +52,8 @@ impl CodexSessionInboundHandler for SessionFrames {
 
     fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
 
+    fn side_question_released(&mut self, _thread_id: String) {}
+
     fn next_deadline(&self) -> Option<Instant> {
         None
     }

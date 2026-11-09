@@ -3,12 +3,18 @@
 //! launch's own token and tag, every exporter off on a read service, on the executor, on the
 //! calibration run and on a short command on a home of the daemon's own, and nothing on the
 //! person's own folder's terminal service or short commands, which keep the person's own settings.
+//! A launch that exports is registered with the driver's export register there, and a joined
+//! service's kept token and tag are admitted again.
+
+use std::sync::Arc;
 
 use serde_json::json;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::command_line::write_config_override;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
+use crate::driver::codex::service::record::KeptLaunchTelemetry;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::telemetry::exports::CodexExportTag;
 use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TelemetryTarget};
@@ -54,33 +60,50 @@ pub(crate) struct TelemetrySwitches {
     pub(crate) config_overrides: Vec<String>,
     /// The environment pairs set on the process, past the withhold of the person's settings.
     pub(crate) environment: Vec<(String, String)>,
-    /// The guard of the launch's own token where it exports to the daemon, which the launch's
-    /// process keeps until it ends.
-    pub(crate) bearer: Option<TelemetryBearer>,
+    /// The launch's tag and the guard of its own token where it exports to the daemon, which the
+    /// launch's process keeps until it ends.
+    pub(crate) launch: Option<CodexLaunchTelemetry>,
 }
 
-/// The switches a service of `service_kind` on a home of `home_kind` launches with: the daemon's
-/// export, the launch's own token minted for `tag` and the tag itself where the daemon's sessions
-/// run and `target` is registered, every exporter off on a read service and before `target` is
-/// registered, and none on the person's own folder's terminal service. Fails when the token
-/// cannot be minted.
+/// What a launch exporting to the daemon holds for as long as its process exports: its place in
+/// the driver's export register and the guard of its own token.
+pub(crate) struct CodexLaunchTelemetry {
+    /// The launch's tag, whose drop takes the launch out of the register.
+    pub(crate) tag: CodexExportTag,
+    /// The guard of the token its exports present.
+    pub(crate) bearer: TelemetryBearer,
+}
+
+impl CodexLaunchTelemetry {
+    /// The token and tag the service's record keeps for a later daemon to admit again.
+    pub(crate) fn kept(&self) -> KeptLaunchTelemetry {
+        KeptLaunchTelemetry {
+            token: self.bearer.token_text().to_owned(),
+            resource_tag: self.tag.resource_tag(),
+        }
+    }
+}
+
+/// The switches a launch of `service` carries for its kind of home: the daemon's export, under a
+/// tag the driver's export register takes the launch under and the launch's own token minted for
+/// it, where the daemon's sessions run and `target` is registered; every exporter off on a read
+/// service and before `target` is registered; and none on the person's own folder's terminal
+/// service. Fails when the token cannot be minted.
 pub(crate) fn compose_telemetry_switches(
-    home_kind: &CodexHomeKind,
-    service_kind: CodexServiceKind,
+    service: &Arc<CodexService>,
     target: Option<&TelemetryTarget>,
-    tag: &CodexExportTag,
 ) -> Result<TelemetrySwitches, getrandom::Error> {
-    match home_kind {
+    match &service.home().kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             target.map_or_else(
                 || Ok(exporters_off()),
-                |target| compose_daemon_export(target, tag),
+                |target| compose_daemon_export(target, service),
             )
         }
         CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn
         | CodexHomeKind::TokenStatusRead => Ok(exporters_off()),
-        CodexHomeKind::PersonalFolder => Ok(match service_kind {
+        CodexHomeKind::PersonalFolder => Ok(match service.kind() {
             // A read's transient service on the folder.
             CodexServiceKind::Account => exporters_off(),
             CodexServiceKind::Terminal | CodexServiceKind::Joined => TelemetrySwitches::default(),
@@ -103,12 +126,14 @@ pub(crate) fn compose_command_telemetry_switches(home_kind: &CodexHomeKind) -> V
 }
 
 // The log export to `target`, with traces, metrics and each record's content off, and the token
-// minted for the launch's `tag` and the tag itself in the process's environment, the token never
-// on its command line. Fails when the token cannot be minted.
+// minted for the tag the launch of `service` takes from the export register and the tag itself in
+// the process's environment, the token never on its command line. Fails when the token cannot be
+// minted, which leaves the launch out of the register.
 fn compose_daemon_export(
     target: &TelemetryTarget,
-    tag: &CodexExportTag,
+    service: &Arc<CodexService>,
 ) -> Result<TelemetrySwitches, getrandom::Error> {
+    let tag = service.dependencies().exports.launched(service);
     let bearer = target
         .bearers()
         .mint(DESCRIPTOR.provider_id(), tag.holder())?;
@@ -131,21 +156,51 @@ fn compose_daemon_export(
     Ok(TelemetrySwitches {
         config_overrides,
         environment: vec![
-            (LOGS_HEADERS_VARIABLE.to_owned(), bearer.exporter_headers()),
+            (
+                LOGS_HEADERS_VARIABLE.to_owned(),
+                bearer.exporter_headers().as_str().to_owned(),
+            ),
             (
                 RESOURCE_ATTRIBUTES_VARIABLE.to_owned(),
                 tag.resource_attributes(),
             ),
         ],
-        bearer: Some(bearer),
+        launch: Some(CodexLaunchTelemetry { tag, bearer }),
     })
+}
+
+/// The daemon's export of `service`, a lasting service a former daemon launched and this one
+/// joined, admitted again from `kept`, its record's token and tag, so its exports reach the
+/// register under a launch of this daemon's; `None`, logged, where no telemetry target is
+/// registered or the kept token reads as none.
+pub(crate) fn restore_daemon_export(
+    service: &Arc<CodexService>,
+    kept: &KeptLaunchTelemetry,
+) -> Option<CodexLaunchTelemetry> {
+    let Some(target) = service.dependencies().telemetry_target.port() else {
+        tracing::info!("a joined codex service's exports find no telemetry target registered");
+        return None;
+    };
+    let tag = service
+        .dependencies()
+        .exports
+        .joined(service, kept.resource_tag);
+    let Some(bearer) =
+        target
+            .bearers()
+            .restore(DESCRIPTOR.provider_id(), tag.holder(), &kept.token)
+    else {
+        tracing::warn!("a joined codex service's record keeps no token its exports can present");
+        return None;
+    };
+    Some(CodexLaunchTelemetry { tag, bearer })
 }
 
 fn exporters_off() -> TelemetrySwitches {
     TelemetrySwitches {
         config_overrides: exporters_off_overrides(),
         environment: Vec::new(),
-        bearer: None,
+        launch: None,
     }
 }
 

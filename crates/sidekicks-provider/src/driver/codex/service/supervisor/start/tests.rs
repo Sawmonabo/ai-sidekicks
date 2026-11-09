@@ -173,6 +173,7 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         .write(&LastingServiceRecord::launched(
             record.clone(),
             socket.clone(),
+            None,
         ))
         .expect("the record is written");
     let is_pinned = repin_lasting_codex_service(record.clone())
@@ -181,7 +182,7 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
 
     let retired = retire_former_service(
         &locked,
-        LastingServiceRecord::launched(record, socket.clone()),
+        LastingServiceRecord::launched(record, socket.clone(), None),
     )
     .await;
     let mut rest = Vec::new();

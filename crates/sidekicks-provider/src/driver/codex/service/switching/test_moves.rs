@@ -220,6 +220,8 @@ impl CodexSessionInboundHandler for SessionQueue {
 
     fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
 
+    fn side_question_released(&mut self, _thread_id: String) {}
+
     fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
         unreachable!("the driver makes no call")
     }
