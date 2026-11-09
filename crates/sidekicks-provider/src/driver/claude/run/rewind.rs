@@ -24,6 +24,9 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
+use crate::driver::claude::session::conversation_file::{
+    conversation_file_of, find_claude_command_opened_by,
+};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -131,13 +134,18 @@ struct ClaudeCutRefusal {
 }
 
 impl ClaudeCutRefusal {
+    // Whether Claude Code found no entry for the cut's target: its flag, or the code.
+    fn is_target_missing(&self) -> bool {
+        self.is_target_not_found || self.refusal == Some(ClaudeRewindRefusal::TargetNotFound)
+    }
+
     // A cut refused for a code Claude Code marks sendable again, with its target found, goes once
     // more; a missing target is no resend, and a word outside the set is final.
     fn may_be_sent_again(&self) -> bool {
-        !self.is_target_not_found
-            && self.refusal.is_some_and(|refusal| {
-                refusal != ClaudeRewindRefusal::TargetNotFound && refusal.may_be_sent_again()
-            })
+        !self.is_target_missing()
+            && self
+                .refusal
+                .is_some_and(ClaudeRewindRefusal::may_be_sent_again)
     }
 
     fn into_degraded(self) -> RewindConversationResult {
@@ -170,9 +178,11 @@ impl ClaudeConversationCuts {
     /// dropped once the cut lands and delivered as sent when it does not. A refusal Claude Code
     /// marks sendable again, but a missing target, is sent once more after the session's turn
     /// settles; any other refusal, a second one, or a turn still held at the request deadline is
-    /// `Degraded` with Claude Code's reason. Fails as the settle or a request
-    /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
-    /// served, through `reviewer_denials` once the approvals are registered.
+    /// `Degraded` with Claude Code's reason. A target Claude Code finds missing that opens a
+    /// command it merged from several messages is cut once more before that command, whose
+    /// answer is final. Fails as the settle, a request or the conversation file's read fails. An
+    /// applied cut lets go the held `Allow once` presses of every binding the process served,
+    /// through `reviewer_denials` once the approvals are registered.
     pub(crate) async fn rewind(
         &self,
         live: &LiveClaudeSession,
@@ -213,6 +223,16 @@ impl ClaudeConversationCuts {
         {
             (answer, held_lead) = self
                 .cut_holding_lead(live, target_message_id, stream, settled_run)
+                .await?;
+        }
+        // Claude Code finds no entry for a message it merged into a command with others; the
+        // first member's undo reaches the whole command, so the cut goes before the command.
+        if let ClaudeCutAnswer::Refused(refusal) = &answer
+            && refusal.is_target_missing()
+            && let Some(command_uuid) = find_command_opened_by(live, target_message_id).await?
+        {
+            (answer, held_lead) = self
+                .cut_holding_lead(live, &command_uuid, stream, settled_run)
                 .await?;
         }
         let cut_message_text = match answer {
@@ -404,6 +424,27 @@ async fn cut_claude_conversation(
     Ok(ClaudeCutAnswer::Applied {
         cut_message_text: reply.prefill_text.filter(|text| !text.is_empty()),
     })
+}
+
+// The uuid of the command Claude Code merged `message_id` into as its first member, read from the
+// live conversation's file; `None` where the file holds no such command or no file is found.
+async fn find_command_opened_by(
+    live: &LiveClaudeSession,
+    message_id: &str,
+) -> Result<Option<String>, DriverError> {
+    let read_failure = |error: std::io::Error| DriverError::Internal(Box::new(error));
+    let file = conversation_file_of(
+        &live.signed_in_spawn_environment(),
+        &live.provider_session_id,
+    )
+    .await
+    .map_err(read_failure)?;
+    match file {
+        Some(file) => find_claude_command_opened_by(&file, message_id)
+            .await
+            .map_err(read_failure),
+        None => Ok(None),
+    }
 }
 
 #[cfg(test)]
