@@ -9,7 +9,8 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use super::ClaudeAccountLegs;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionRestarts};
+use crate::driver::claude::session::restart::ClaudeSessionRestarts;
+use crate::driver::claude::session::restart::account_move::ClaudeLegBinding;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;

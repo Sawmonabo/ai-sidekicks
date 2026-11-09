@@ -21,7 +21,8 @@ use crate::driver::claude::session::conversation_home::{
     ClaudeConversationHomeKeep, claude_conversation_home_metadata, read_claude_conversation_home,
 };
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionStanding};
+use crate::driver::claude::session::restart::ClaudeSessionStanding;
+use crate::driver::claude::session::restart::account_move::ClaudeLegBinding;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
@@ -48,6 +49,13 @@ pub(super) async fn move_claude_sessions(
         }
     }))
     .await
+}
+
+// A switch whose waiting move a later move onto another account replaced before it landed.
+#[derive(Debug, thiserror::Error)]
+#[error("a later move took the session onto account {} instead", .landed_on.as_str())]
+struct ClaudeMoveReplaced {
+    landed_on: ProviderAccountId,
 }
 
 // What a moved session hands back on a login refusal: the binding its lead runs on after the
@@ -106,7 +114,14 @@ async fn move_claude_session(
         bindings: Arc::clone(&legs.bindings),
         binding_id: session.binding_id,
     };
-    let binding_id = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
+    let landing = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
+    // A later move replaced this one while it waited, so the session did not land on `to` and no
+    // first request is watched for this switch.
+    if landing.provider_account_id != to {
+        return Err(DriverError::Internal(Box::new(ClaudeMoveReplaced {
+            landed_on: landing.provider_account_id,
+        })));
+    }
     let (watch, heard) = oneshot::channel();
     if let Some(stream) = establishment.streams.get(session.session_id) {
         stream.watch_first_request(watch);
@@ -115,7 +130,7 @@ async fn move_claude_session(
         establishment: Arc::clone(&establishment),
         bindings: Arc::clone(&legs.bindings),
         session_id: session.session_id,
-        binding_id,
+        binding_id: landing.binding_id,
         previous: from,
     };
     // Its own task, so the hand-back is made whether or not anyone waits on the answer.

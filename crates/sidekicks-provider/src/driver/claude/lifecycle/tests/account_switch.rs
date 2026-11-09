@@ -32,6 +32,7 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
+use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_run_id;
 use crate::runtime_binding::store::CreateRuntimeBindingInput;
 use crate::runtime_binding::test_store::{
@@ -107,11 +108,16 @@ impl SwitchFixture {
     }
 
     async fn switch(&self) -> SessionAccountMove {
+        self.switch_to(&self.to).await.expect("the move lands")
+    }
+
+    // The session's move from the default account onto `to`, as the switch leg answers it.
+    async fn switch_to(&self, to: &ProviderAccountId) -> Result<SessionAccountMove, DriverError> {
         let mut moves = self
             .legs
             .move_sessions(
                 test_provider_account_id(),
-                self.to.clone(),
+                to.clone(),
                 vec![SessionToMove {
                     session_id: self.session_id,
                     binding_id: binding_id("resting"),
@@ -120,10 +126,7 @@ impl SwitchFixture {
             )
             .await;
         assert_eq!(moves.len(), 1);
-        match moves.remove(0) {
-            Ok(moved) => moved,
-            Err((_, error)) => panic!("the move lands: {error:?}"),
-        }
+        moves.remove(0).map_err(|(_, error)| error)
     }
 
     fn admitted(&self) -> ProviderAccountId {
@@ -273,6 +276,73 @@ async fn a_switch_relaunches_between_turns_and_resumes_by_id(
         switch.fixture.bindings.moves(),
         [(binding_id("resting"), switch.to.clone())],
         "the binding the relaunch left is never moved again"
+    );
+}
+
+// A second switch asked while the session's turn is held replaces the one waiting: once the turn
+// settles the process starts again once, on the second switch's account, and the first switch is
+// answered with that account rather than told the provider is unavailable. Killed by the waiting
+// move's answer dropped when a later move replaces it, by a relaunch for each switch, and by a
+// relaunch on the first switch's account.
+#[tokio::test(start_paused = true)]
+async fn a_second_switch_during_a_held_turn_replaces_the_waiting_one() {
+    let switch = SwitchFixture::new(None).await;
+    let newest = ProviderAccountId::new("account-newest".to_owned()).expect("an account id fits");
+    switch.fixture.accounts.register(
+        newest.clone(),
+        folders(switch.fixture.folder.path(), "newest"),
+        None,
+    );
+    switch.start_turn().await;
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    // Each move records the conversation's home, then waits for the turn in the same poll.
+    let mut replaced = pin!(switch.switch_to(&switch.to));
+    while switch.fixture.bindings.recovery_data().is_empty() {
+        assert!(
+            poll!(&mut replaced).is_pending(),
+            "the move waits for the turn"
+        );
+        settle().await;
+    }
+    let mut newer = pin!(switch.switch_to(&newest));
+    while switch.fixture.bindings.recovery_data().len() < 2 {
+        assert!(
+            poll!(&mut newer).is_pending(),
+            "the move waits for the turn"
+        );
+        settle().await;
+    }
+    assert!(switch.fixture.starts.take_started().is_empty());
+    switch.fixture.end_turn(&switch.start, switch.session_id);
+    let relaunched = switch.fixture.next_start().await;
+    let (replaced, newer) = tokio::join!(replaced, newer);
+    settle().await;
+
+    drop(newer.expect("the newer move lands"));
+    let Err(replaced) = replaced else {
+        panic!("the replaced move reports a landing on its own account");
+    };
+    assert!(
+        std::error::Error::source(&replaced)
+            .is_some_and(|cause| cause.to_string().contains(newest.as_str())),
+        "the replaced move names the account the session landed on: {replaced:?}"
+    );
+    assert_eq!(
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
+        Some(switch.store("newest").as_str())
+    );
+    assert!(
+        switch.fixture.starts.take_started().is_empty(),
+        "one relaunch"
+    );
+    assert_eq!(switch.admitted(), newest);
+    assert_eq!(
+        switch.fixture.bindings.moves(),
+        [(binding_id("resting"), newest.clone())]
     );
 }
 
