@@ -270,12 +270,12 @@ pub struct SessionAutoMemoryUpdateRequest {
 pub enum SessionAutoMemoryAppliesAt {
     /// At once, where the provider takes the change live.
     Now,
-    /// At the provider's next start, where it reads the switch only when it starts.
-    NextStart,
+    /// From the session's next turn, where a running provider takes the change between turns.
+    NextTurn,
 }
 
-/// The switch, and when it takes effect: at once, or at the provider's next start where the
-/// provider reads it only then.
+/// The switch, and when it takes effect: at once, or from the session's next turn where a running
+/// provider takes it between turns.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

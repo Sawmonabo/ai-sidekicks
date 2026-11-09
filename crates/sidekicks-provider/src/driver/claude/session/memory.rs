@@ -79,8 +79,8 @@ pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> 
     }
 }
 
-/// When a press of the switch takes effect: at the next start while a process serves the session
-/// or a restart brings one back, since Claude Code reads it only when it starts, and at once
+/// When a press of the switch takes effect: from the session's next turn while a process serves
+/// the session or a restart brings one back, since Claude Code takes it between turns, and at once
 /// otherwise.
 #[cfg_attr(
     not(test),
@@ -94,7 +94,7 @@ pub(crate) fn claude_auto_memory_applies_at(
 ) -> SessionAutoMemoryAppliesAt {
     match state {
         SessionProcessState::Live | SessionProcessState::Restarting => {
-            SessionAutoMemoryAppliesAt::NextStart
+            SessionAutoMemoryAppliesAt::NextTurn
         }
         SessionProcessState::Down => SessionAutoMemoryAppliesAt::Now,
     }
@@ -199,13 +199,13 @@ mod tests {
     #[case::live(
         SessionProcessState::Live,
         ClaudeAutoMemorySources { running: Some(true), stored_switch: Some(false), ..no_sources() },
-        SessionAutoMemoryAppliesAt::NextStart,
+        SessionAutoMemoryAppliesAt::NextTurn,
         SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
     )]
     #[case::restarting(
         SessionProcessState::Restarting,
         ClaudeAutoMemorySources { running: Some(true), stored_switch: Some(false), ..no_sources() },
-        SessionAutoMemoryAppliesAt::NextStart,
+        SessionAutoMemoryAppliesAt::NextTurn,
         SessionAutoMemory { enabled: true, enabled_at_next_start: Some(false) }
     )]
     #[case::down(
@@ -214,7 +214,7 @@ mod tests {
         SessionAutoMemoryAppliesAt::Now,
         SessionAutoMemory { enabled: false, enabled_at_next_start: None }
     )]
-    fn a_running_process_takes_a_press_at_its_next_start(
+    fn a_running_process_takes_a_press_at_its_next_turn(
         #[case] state: SessionProcessState,
         #[case] sources: ClaudeAutoMemorySources<'static>,
         #[case] applies_at: SessionAutoMemoryAppliesAt,
