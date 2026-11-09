@@ -268,9 +268,9 @@ interface WorkflowNodeExecuteRequest {
   // data is reused. Items that differ from the trigger's earlier input run the trigger again.
   input?: WorkflowItem[];
 }
-// Refused as a start of the version is (workflow.version.notFound, workflow.run.repositoryRequired,
-// workflow.run.inputRequired, workflow.run.idempotencyConflict and the rest), and with
-// workflow.node.notFound for a nodeId the version does not hold.
+// Refused as a start of the version is (workflow.version.notFound, workflow.run.startDenied,
+// workflow.run.repositoryRequired, workflow.run.inputRequired, workflow.run.idempotencyConflict and
+// the rest), and with workflow.node.notFound for a nodeId the version does not hold.
 interface WorkflowNodeExecuteResponse {
   workflowRunId: WorkflowRunId;
   // The nodes the daemon actually executed, in execution order — the authoritative answer to what the
@@ -501,7 +501,9 @@ interface WorkflowProviderUpdateResponse {
 // `items: null`, from the inspector's Output panel, a run's step panel, or Copy this run into the
 // builder — without a new version, because pinned data sits outside the hashed body. Pinned data is
 // honored only in manual runs and ignored by every trigger-started run, and a node can be pinned
-// only where it has a single `main` output and its items carry no binary payload.
+// only where it has a single `main` output and its items carry no binary payload. A pin stored under
+// an empty key, or a key naming a node the version lacks, names no node: a manual run's start
+// ignores it and never refuses on it.
 interface WorkflowPinDataUpdateRequest {
   definitionId: WorkflowDefinitionId;
   nodeId: WorkflowNodeId;

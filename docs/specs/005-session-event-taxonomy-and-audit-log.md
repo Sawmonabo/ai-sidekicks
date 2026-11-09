@@ -461,7 +461,7 @@ Payload shape: `{sessionId, workflowRunId, definitionId, workflowVersionId}` —
 | `workflow.version.created` | A workflow definition was authored or a new immutable version of one was written. |
 | `workflow.run.started` | A run of a pinned definition version was started by the request, fire or call that asked for it, and its row written; the event's instant is the run's start. The run reads `new` until the engine admits it. |
 | `workflow.gate.reached` | A run reached a gate that must resolve before it continues. |
-| `workflow.run.failed` | A run ended on a failure, the failing step's cause recorded with it. |
+| `workflow.run.failed` | A run failed on a step and either parked or ended. A parked run leaves the cause to the failing step's own event; an ended run's payload carries the `endingStep` its ending sits on and the run's `error`, the ending step's own or, where the run passed its cap, the cap's. |
 | `workflow.run.completed` | A run reached its terminal steps and succeeded. |
 | `workflow.run.resumed` | A parked run resumed. The payload carries the structured resumption point — the phase runs that became active again and the gates still pending — and, where the person resuming it re-pinned the run to the definition's current version, the version the run left and the one it joined; an ordinary resume carries no version pair. |
 | `workflow.run.canceled` | The person canceled a run. This is the canonical record of that cancellation, carrying the `reason` the person gave, at most 8 KiB counted as the UTF-8 bytes of its JSON encoding, and it is appended in the same unit of work as the status write: without that, a projection rebuild would apply the last `workflow.phase.suspended` payload and resurrect a canceled run. |

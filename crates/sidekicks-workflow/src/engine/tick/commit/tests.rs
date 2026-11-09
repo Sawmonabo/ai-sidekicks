@@ -20,7 +20,6 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowPhaseCancellationReason, WorkflowReadiedStep, WorkflowReusedStep,
-    WorkflowStepSkipReason,
 };
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
@@ -36,7 +35,7 @@ use crate::engine::event_record::{EngineRecorder, RunEngineRecord};
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, StepPayloadArtifacts};
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
-use crate::engine::tick::walk::{ReusedStepRecord, WalkReady, WalkSkip};
+use crate::engine::tick::walk::{ReusedStepRecord, WalkReady, WalkSkip, WalkSkipReason};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::kinds::step_context::StepRunVariable;
 use crate::runs::gate_resolution::RunEventKeys;
@@ -414,10 +413,9 @@ async fn a_turn_is_one_write_in_report_order() {
     let skip = WalkSkip {
         step: step_key("skipped", 2),
         run_index: 0,
-        reason: WorkflowStepSkipReason::Disabled,
+        reason: WalkSkipReason::Disabled,
         sources: vec![source],
         output_lengths: vec![0],
-        reused: None,
     };
     let ready = WalkReady {
         step: step_key("next", 3),
@@ -472,7 +470,7 @@ async fn a_turn_is_one_write_in_report_order() {
             },
             person_wait: RunPersonWait::default(),
             dropped_kept_artifact_ids: Vec::new(),
-            ending_sequence: None,
+            ending_event_id: None,
         }
     );
     let events = harness.events();
@@ -561,14 +559,13 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
     let skip = WalkSkip {
         step: step_key(TEST_NODE_ID, 1),
         run_index: 0,
-        reason: WorkflowStepSkipReason::Reused,
-        sources: vec![None],
-        output_lengths: vec![3],
-        reused: Some(ReusedStepRecord {
+        reason: WalkSkipReason::Reused(ReusedStepRecord {
             from: from.clone(),
             output_ref: reused_output.clone(),
             pin_hash: Some(pin_hash),
         }),
+        sources: vec![None],
+        output_lengths: vec![3],
     };
     let input_artifact = artifact_id();
     let input_ref = artifact_payload(input_artifact);
@@ -671,16 +668,30 @@ async fn a_canceled_held_step_adds_its_cut_hold(
     }
 }
 
+/// How a turn that replaces a kept value is written.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeptWrite {
+    /// Alone, and committed.
+    Alone,
+    /// Alone, and refused.
+    Refused,
+    /// Committed beside an earlier turn of the session whose statements come first.
+    Joined,
+}
+
 /// A step that keeps a value above the cap under a name holding an artifact answers that artifact
-/// once its write commits; a refused write answers it nowhere, not even among the failure's
-/// artifacts, which the tick deletes, and neither deletes it. Mutations: the replaced artifact
-/// removed before the commit; the read's index not kept on the turn, or read off the wrong
-/// result; the replaced artifact handed to the failed write's cleanup.
+/// once its write commits, alone or beside another turn; a refused write answers it nowhere, not
+/// even among the failure's artifacts, which the tick deletes, and neither deletes it. Mutations:
+/// the replaced artifact removed before the commit; the read's index not kept on the turn, or
+/// read off the wrong result; a joined turn's reads dropped or read from its session's first
+/// statement; the replaced artifact handed to the failed write's cleanup.
 #[rstest]
-#[case::committed(false)]
-#[case::refused(true)]
+#[case::committed(KeptWrite::Alone)]
+#[case::refused(KeptWrite::Refused)]
+#[case::joined(KeptWrite::Joined)]
 #[tokio::test]
-async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] is_refused: bool) {
+async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] write: KeptWrite) {
+    let is_refused = write == KeptWrite::Refused;
     let harness = TurnHarness::new().await;
     // A step with no row refuses the write that settles it.
     let step = if is_refused {
@@ -693,12 +704,13 @@ async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] is_
         .rows
         .execute(
             "INSERT INTO workflow_node_state
-               (definition_id, node_id, key, value_json, kept_by_run_id, updated_at)
-             VALUES (?1, '', 'report', ?2, ?3, ?4)",
+               (definition_id, node_id, key, value_json, artifact_id, kept_by_run_id, updated_at)
+             VALUES (?1, '', 'report', ?2, ?3, ?4, ?5)",
             params![
                 DEFINITION_ID,
                 serde_json::to_string(&artifact_payload(replaced))
                     .expect("a payload ref writes as JSON"),
+                replaced.to_string(),
                 RUN_ID,
                 RUN_STARTED_AT,
             ],
@@ -732,7 +744,32 @@ async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] is_
         .collect();
     assert_eq!(kept.len(), 1, "only the kept value is above the cap");
 
-    match commit.append(&harness.appender, &harness.record, []).await {
+    let written = if write == KeptWrite::Joined {
+        let mut before = harness.commit();
+        let skip = WalkSkip {
+            step: step_key("skipped", 2),
+            run_index: 0,
+            reason: WalkSkipReason::Disabled,
+            sources: vec![None],
+            output_lengths: vec![0],
+        };
+        before.skipped(
+            &skip,
+            &empty_payload(),
+            &empty_payload(),
+            instant("2026-10-02T00:04:00.000Z"),
+        );
+        let writes = vec![
+            (before, Vec::new(), None),
+            (commit, Vec::new(), Some(&harness.record)),
+        ];
+        RunTurnCommit::append_together(writes, &harness.appender)
+            .await
+            .map(|mut committed| committed.remove(1))
+    } else {
+        commit.append(&harness.appender, &harness.record, []).await
+    };
+    match written {
         Ok(committed) => {
             assert!(!is_refused, "a step with no row refuses the write");
             assert_eq!(committed.dropped_kept_artifact_ids, [replaced]);

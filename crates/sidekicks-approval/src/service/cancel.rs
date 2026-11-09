@@ -1,6 +1,6 @@
-//! The cancels of pending asks: a run's end, a session's close and a provider's take-back each settle
-//! the asks they leave open with one `approval.canceled` apiece, and every wait on a canceled run's
-//! card hears it; a workflow wait's card is canceled only with its wait.
+//! The cancels of pending asks: a run's end, a session's close and a provider's take-back each
+//! settle the asks they leave open with one `approval.canceled` apiece, and every wait on a
+//! canceled run's card hears it; a workflow wait's card is canceled only with its wait.
 
 use sidekicks_contracts::approval::events::ApprovalCanceledPayload;
 use sidekicks_contracts::approval::holder::ApprovalHolder;
@@ -67,7 +67,7 @@ impl ApprovalService {
         session_id: SessionId,
     ) -> Result<(), SettleFailures<ApprovalServiceError>> {
         let unheld = self
-            .read(move |reader| reader.list_unheld_wait_requests(Some(&session_id)))
+            .read(move |reader| reader.list_unheld_wait_requests(&session_id))
             .await
             .map_err(SettleFailures::One)?;
         self.cancel_all(&unheld, None).await

@@ -49,9 +49,10 @@ ts_constants! {
     /// Where the file sits, relative to the person's home folder.
     pub const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: [&str; 2] =
         [DAEMON_DATA_FOLDER_NAME, "machine-settings.json"];
-    /// The most UTF-16 units one environment entry, `NAME=value` and its NUL, may fill, which also
-    /// caps a name or a value alone: Windows' 32,767 characters a variable, the tightest limit of
-    /// the three platforms, read as the whole entry.
+    /// The most UTF-16 units one environment entry, `NAME=value` and its NUL, may fill: Windows'
+    /// 32,767 characters a variable, the tightest limit of the three platforms, read as the whole
+    /// entry. A name's or a value's own cap takes the same number but counts code points; only the
+    /// whole-entry check counts UTF-16 units.
     pub const ENVIRONMENT_ENTRY_MAX_UNITS: usize = 32_767;
     /// The longest editor id, call voice name or dictation language.
     pub const MACHINE_SETTINGS_NAME_MAX_LEN: usize = 256;

@@ -302,15 +302,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
-        /// Always present: the log the step wrote before it waited.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowPayloadRef")]
+        /// The log the step wrote before it waited.
         #[garde(dive)]
-        log_ref: Option<WorkflowPayloadRef>,
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on a person's form.
     Form {
@@ -341,15 +335,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
-        /// Always present: the log the step wrote before it waited.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowPayloadRef")]
+        /// The log the step wrote before it waited.
         #[garde(dive)]
-        log_ref: Option<WorkflowPayloadRef>,
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -380,15 +368,9 @@ phase_suspended_payload! {
         wait_deadline_at: Option<WireInstant>,
         /// The wait the person's answer must name to settle it.
         wait_id: UuidTextForm,
-        /// Always present: the log the step wrote before it waited.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "WorkflowPayloadRef")]
+        /// The log the step wrote before it waited.
         #[garde(dive)]
-        log_ref: Option<WorkflowPayloadRef>,
+        log_ref: WorkflowPayloadRef,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -772,6 +754,17 @@ mod tests {
             .ok()
             .map(|read| serde_json::to_value(read).expect("a read payload writes"));
         assert_eq!(written, is_carried.then_some(wire));
+    }
+
+    /// A wait on a person is refused without the log its step wrote. Mutation: make the person
+    /// arms' `logRef` optional.
+    #[rstest]
+    #[case::approval("approval")]
+    #[case::form("form")]
+    #[case::reply("reply")]
+    fn phase_suspended_on_a_person_is_refused_without_its_log(#[case] wait_cause: &str) {
+        let wire = step_payload(json!({"waitCause": wait_cause, "waitId": WAIT}));
+        assert!(serde_json::from_value::<WorkflowPhaseSuspendedPayload>(wire).is_err());
     }
 
     /// The step a reused skip names, of node `node_id` in run `run`.

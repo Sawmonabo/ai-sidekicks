@@ -21,14 +21,15 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use crate::definitions::kept_values::{
     WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
 };
-use crate::engine::ports::{ScriptedAgentRunner, StepPayloadArtifacts};
+use crate::engine::ports::StepPayloadArtifacts;
+use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::tick::commit::tests::{
     DEFINITION_ID, TurnHarness, instant, report, run_id, sequence, step_key, test_node,
 };
 use crate::engine::tick::commit::{ReportedStep, SettlementAnswer};
 use crate::engine::tick::walk::WalkReady;
 use crate::engine::tick::{StepReportKind, StepSettlement};
-use crate::kinds::step_context::StepRunVariable;
+use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::kinds::{PersonAsk, PersonWait, StepFailure, uncoded_step_error};
 use crate::test_rows::{TEST_NODE_ID, TestStep, insert_step};
 
@@ -477,6 +478,10 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
             provider_account_id: account(),
             resets_at: None,
             run: runner.made_run(),
+            records: StepRecords {
+                log_lines: vec!["asked".to_owned()],
+                ..StepRecords::default()
+            },
         },
     };
 
@@ -519,8 +524,14 @@ async fn a_wait_is_stored_before_anyone_is_asked(#[case] case: WaitCase) {
                 assert_eq!(types, ["workflow.phase.suspended"]);
             }
         }
-        (WaitCase::Account, SettlementAnswer::AccountSpent { run, resume_at }) => {
+        (WaitCase::Account, SettlementAnswer::AccountSpent { parked, resume_at }) => {
             assert_eq!(resume_at, None);
+            assert_eq!(
+                parked.records.log_lines,
+                ["asked"],
+                "the park keeps the params' lines"
+            );
+            let run = parked.run;
             assert_eq!(step_json(&harness, "wait_cause", 1), json!("account"));
             assert_eq!(
                 step_json(&harness, "wait_account_id", 1),

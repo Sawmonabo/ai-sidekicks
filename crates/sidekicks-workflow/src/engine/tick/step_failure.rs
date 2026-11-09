@@ -207,19 +207,6 @@ pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
     )))
 }
 
-/// Whether `failure` is the run cap's, which the tick puts on the run's earliest running or
-/// parked step whichever step reported it.
-pub(crate) fn is_run_cap_failure(failure: &StepFailure) -> bool {
-    let StepFailure::EndsRun(error) = failure else {
-        return false;
-    };
-    let error = serde_json::to_value(error).expect("a step error writes as JSON");
-    error["code"] == RefusalCode::WorkflowStepTimedOut.as_str()
-        && error["details"]["cause"]
-            == serde_json::to_value(WorkflowStepTimedOutCause::RunCap)
-                .expect("a cause writes as JSON")
-}
-
 /// How a failure stops its run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]

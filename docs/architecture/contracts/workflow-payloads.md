@@ -341,7 +341,8 @@ interface WorkflowRunCancelResponse {
   // True when the run was ALREADY `canceled` and this call returned the saved
   // result: no second status write, no second event, and `canceledEventId` names
   // the original. Deliberately NOT how a run that already ended otherwise answers — a
-  // cancel against a run that has ended refuses `workflow.run.notCancelable`, because
+  // cancel against a run that has ended, or whose ending a step's failure, the run cap or its
+  // last step settling already decided, refuses `workflow.run.notCancelable`, because
   // reporting success for a run that had already ended would misinform the person about
   // what their action did. A run parked on a failed step reads `failed` while it waits
   // and has not ended, so a cancel acts on it.
@@ -604,12 +605,20 @@ type WorkflowRunResumedPayload = WorkflowRunEventPayload & {
 interface WorkflowRunCanceledPayload extends WorkflowRunEventPayload {
   reason?: string;
 }
-// workflow.run.failed — the run failed on a step, whose own event carries the cause. `parked`: a
-// step failed under `onError: stop` or the crash sweep failed it, and the run holds with no
-// `finished_at` until it is resumed, canceled or deleted; `ended`: the run ended on its failure.
-interface WorkflowRunFailedPayload extends WorkflowRunEventPayload {
-  outcome: "parked" | "ended";
-}
+// workflow.run.failed — the run failed on a step. `parked`: a step failed under `onError: stop` or
+// the crash sweep failed it, the step's own event carries the cause, and the run holds with no
+// `finished_at` until it is resumed, canceled or deleted. `ended`: the run ended on its failure,
+// and the event names the step its ending sits on and the run's `error`, the ending step's own or,
+// where the run passed its cap, the cap's; a parked run carries neither.
+type WorkflowRunFailedPayload = WorkflowRunEventPayload &
+  (
+    | { outcome: "parked" }
+    | {
+        outcome: "ended";
+        endingStep: { nodeId: string; attempt: number; executionIndex: number };
+        error: WorkflowStepError;
+      }
+  );
 // workflow.run.deleted — appended in the same unit of work as the delete of the run's rows, so a
 // projection rebuild leaves out a run the person deleted, whose earlier events the log keeps.
 type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
@@ -645,17 +654,16 @@ interface WorkflowPhaseWaitingOnPoolPayload extends WorkflowStepEventPayload {
 }
 // The step boundaries. A started event names the input it ran on, on an agent step whose account
 // cannot run its run's level the level it runs at in its place, and on a step that gave its node's
-// pinned items in a manual run the content hash of that pin; a finished event the
-// output and log it produced, how many items each of its main outputs holds, plus its cost where a
-// provider was billed; a failed event the error, the item index that failed, the words typed with
-// the `Decline` that failed a command step, its log and, where its node's `onError` passed its
-// input on, that output and its counts; a canceled event the step alone; and a skipped event why it
-// was skipped, what fed it, its input, and the output it passed on with its counts. A skip a partial
-// run reused names the step of its node in an earlier run whose data it carries, with the version
-// that run executed, and the hash of the pin that step ran on where it recorded one; it never names
-// a step of its own run. Each finished, failed, canceled or skipped event lists the steps its
-// write readied. A step's started event
-// precedes its finished, failed or canceled event.
+// pinned items in a manual run the content hash of that pin; a finished event the output and log it
+// produced, how many items each of its main outputs holds, plus its cost where a provider was
+// billed; a failed event the error, the item index that failed, the words typed with the `Decline`
+// that failed a command step, its log and, where its node's `onError` passed its input on, that
+// output and its counts; a canceled event the step alone; and a skipped event why it was skipped,
+// what fed it, its input, and the output it passed on with its counts. A skip a partial run reused
+// names the step of its node in an earlier run whose data it carries, with the version that run
+// executed, and the hash of the pin that step ran on where it recorded one; it never names a step
+// of its own run. Each finished, failed, canceled or skipped event lists the steps its write
+// readied. A step's started event precedes its finished, failed or canceled event.
 interface WorkflowStepStartedPayload extends WorkflowStepEventPayload {
   inputRef: WorkflowPayloadRef;
   permissionLevel?: PermissionLevel;
@@ -719,7 +727,7 @@ Daemon JSON-RPC; the `workflow` root, each name following the wire-name grammar,
 | `workflow.version.read` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body, addressed by definition id and version number; a running instance stays pinned to its own |
 | `workflow.run.start` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own, working in the repository `projectId` names, else in the asking session's recorded folder, else, with neither, in the run's own folder; refuses `workflow.run.projectOnProjectSession` for a `projectId` beside a project session's `sessionId`; emits `workflow.run.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.run.startDenied` (ADR-025), while the person's own start passes no policy check; refuses `workflow.run.repositoryRequired` for a start that names no project's repository — a `None` run, or a chat's start naming none — of a version holding a Git, Read a repo diff or Run tests step; refuses `workflow.run.providerRequired` for a start of a workflow that names no provider, of a version holding a `Run a command` or full-tier Code step; refuses `workflow.run.nodeKindUnavailable` for a start of a version holding nodes whose kind the daemon does not list at their version, and `workflow.run.handleUndeclared` for one with edges naming a main handle their node's kind does not declare; refuses `workflow.run.inputRequired` for a start that leaves a required declared input unfilled or gives an input a value that does not fit it |
 | `workflow.run.read` | `query` | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the step array with each waiting step's cause, instants and question and each answered step's resolution and an approval step's `reviewPause`, the chain's first run with its run count, whether the run's execution context was captured, the Keep mark, the fix session, the run's cost, a going run's live step, the per-edge item counts, a finished run's review epoch and the chain's question on its first run, so a waiting run renders from this one call (Spec-015 §Park surfacing on the read model) |
-| `workflow.run.cancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.run.canceled` in the same unit of work as the status write (I-014-21); refuses `workflow.run.notCancelable` against a run that has ended; a `failed` run parked on its failed step has not ended and is canceled (a cancel on an already-`canceled` run returns the saved result) |
+| `workflow.run.cancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.run.canceled` in the same unit of work as the status write (I-014-21); refuses `workflow.run.notCancelable` against a run that has ended or whose ending is already decided; a `failed` run parked on its failed step has not ended and is canceled (a cancel on an already-`canceled` run returns the saved result) |
 | `workflow.run.resume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-38 re-pin as a request member rather than a method of its own; emits `workflow.run.resumed` (with the re-pin member on an accepted repair); refuses `workflow.run.resumeNotParked`, or `workflow.run.repairNotParked`, `workflow.run.repairAttemptInFlight` or `workflow.run.repairVersionUnaccountable` on the re-pin leg |
 | `workflow.step.output.list` | `query` | `WorkflowStepOutputListRequest` → `WorkflowStepOutputListResponse` | The agent and human steps' output summaries and artifact references, for the CLI and an SDK; one step's full input, output or log comes only from `workflow.step.read`; a retry adds entries, never changes one (SA-16) |
 | `workflow.gate.resolve` | `mutation` | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Answers an approval step, or a chain's question (`approved` keeps going, `rejected` stops them all); appends one `workflow_gate_resolutions` row; emits `workflow.gate.resolved`; refuses `workflow.step.notWaiting` on a step no longer waiting |

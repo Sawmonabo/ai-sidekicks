@@ -29,6 +29,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId,
@@ -46,7 +47,7 @@ use tokio_util::sync::CancellationToken;
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::expressions::lineage::StepOutputs;
-use crate::kinds::step_context::StepRunVariable;
+use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::kinds::{PersonWait, StepFailure};
 use crate::secrets::redaction::RunRedaction;
 
@@ -233,11 +234,29 @@ pub(crate) enum StepReportKind {
         /// How many running branches the wave canceled.
         count: usize,
     },
-    /// The step's armed resume came due; the tick resumes it while it still waits on its spent
-    /// account.
-    ResumeDue,
+    /// The step's resume armed at `resume_at` came due; the tick resumes it while it still waits
+    /// on its spent account with that resume armed.
+    ResumeDue {
+        /// The resume the clock read on the step's row.
+        resume_at: WireInstant,
+    },
+    /// The step's run passed its cap of `limit_ms`; the tick ends the run on its earliest running
+    /// or parked step, whichever step the clock named.
+    RunCapped {
+        /// The cap the run passed, in milliseconds.
+        limit_ms: SafeInt<1>,
+    },
     /// The step ended.
     Settled(StepSettlement),
+}
+
+/// An agent run a spent account parked, kept with what its step's params recorded until its
+/// resume, which settles with those records.
+pub(crate) struct ParkedAgentRun {
+    /// The run, taken again when the account is back.
+    pub(crate) run: Box<dyn AgentStepRun>,
+    /// The log lines and run variables the step's params recorded before the run was created.
+    pub(crate) records: StepRecords,
 }
 
 /// How a step ended.
@@ -279,6 +298,9 @@ pub(crate) enum StepSettlement {
         resets_at: Option<WireInstant>,
         /// The step's agent run, kept to resume when the account is back.
         run: Box<dyn AgentStepRun>,
+        /// The log lines and run variables the step's params recorded, which the resumed run's
+        /// settlement carries.
+        records: StepRecords,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's
     /// pool wait.

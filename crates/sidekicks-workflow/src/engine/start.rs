@@ -30,7 +30,7 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
 };
-use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::events::WorkflowRunStartedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -439,8 +439,8 @@ impl WorkflowRunStarter {
     }
 
     // What the run's scope reads beside its version and its workflow's row: the stored pins parsed
-    // and hashed for a manual run only, one pooled read of the project's environment rows and the session's
-    // project, then the workflow's kept values.
+    // and hashed for a manual run only, one pooled read of the project's environment rows and the
+    // session's project, then the workflow's kept values.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -451,13 +451,7 @@ impl WorkflowRunStarter {
         mode: WorkflowRunMode,
         checked: &CheckedStart,
     ) -> Result<ScopeReads, WorkflowRunStartError> {
-        let pin_data = checked
-            .pin_data_json
-            .as_deref()
-            .filter(|_| mode == WorkflowRunMode::Manual)
-            .map(parse_stored_pin_data)
-            .transpose()?;
-        let pins = hash_run_pins(pin_data, mode)?;
+        let pins = hash_run_pins(checked.pin_data_json.as_deref(), mode)?;
         let session = checked.session.clone();
         let (environment_rows, project) = self
             .pool
@@ -652,21 +646,23 @@ fn read_session_project(
         })
 }
 
-/// The pins a run of `mode` honors, each node's items with their content hash taken once here:
-/// `pin_data` for a manual run and none for any other. Refuses a pin whose items do not
-/// canonicalize.
+/// The pins a run of `mode` honors, each node's items with their content hash taken once here: the
+/// stored `pin_data_json` parsed for a manual run, and none, unread, for any other. Refuses pins
+/// that do not parse or whose items do not canonicalize.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
 pub(crate) fn hash_run_pins(
-    pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+    pin_data_json: Option<&str>,
     mode: WorkflowRunMode,
-) -> Result<HashMap<WorkflowNodeId, RunPin>, CanonicalizationRefusal> {
+) -> Result<HashMap<WorkflowNodeId, RunPin>, WorkflowRunStartError> {
     if mode != WorkflowRunMode::Manual {
         return Ok(HashMap::new());
     }
-    pin_data
+    pin_data_json
+        .map(parse_stored_pin_data)
+        .transpose()?
         .map(Record::into_map)
         .unwrap_or_default()
         .into_iter()
@@ -674,7 +670,9 @@ pub(crate) fn hash_run_pins(
         // version lacks.
         .filter_map(|(node_id, items)| Some((WorkflowNodeId::new(node_id)?, items)))
         .map(|(node_id, items)| {
-            let hash = hash_canonical_json(&serde_json::to_value(&items)?)?.content_hash;
+            let hash = hash_canonical_json(
+                &serde_json::to_value(&items).map_err(CanonicalizationRefusal::from)?,
+            )?;
             Ok((node_id, RunPin { items, hash }))
         })
         .collect()

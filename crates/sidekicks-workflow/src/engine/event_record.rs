@@ -34,13 +34,7 @@ use crate::secrets::redaction::RunRedaction;
 
 /// Work the engine is about to dispatch, recorded before it is handed off and paired with its
 /// outcome; it says the work is being dispatched, never that it runs.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record the work they dispatch"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineIntent {
     /// The step is being handed to its driver.
     DispatchingStep,
@@ -62,13 +56,7 @@ pub(crate) enum EngineIntent {
 }
 
 /// How dispatched work ended, recorded against its intent.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record how each dispatch ended"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineOutcome {
     /// The dispatch went through.
     Done,
@@ -80,13 +68,7 @@ pub(crate) enum EngineOutcome {
 }
 
 /// A decision the engine took, recorded once as it is taken.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every decision they take"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineDecision<'report> {
     /// A step's report moved it; a step's progress is no transition and is never recorded.
     StepReported(StepTransition<'report>),
@@ -125,13 +107,7 @@ pub(crate) enum EngineDecision<'report> {
 }
 
 /// What a step's report did to it, as the record carries it: the typed values only.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepTransition<'report> {
     /// The memory gate holds the step.
     WaitingOnPool {
@@ -156,13 +132,7 @@ pub(crate) enum StepTransition<'report> {
 }
 
 /// How a step ended, carrying its failure where it failed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepEnding<Failure> {
     /// It finished with its outputs.
     Completed,
@@ -177,13 +147,7 @@ pub(crate) enum StepEnding<Failure> {
 }
 
 /// A deadline the engine arms or clears.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record each deadline they arm and clear"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum EngineDeadline {
     /// A person wait's deadline.
     Wait {
@@ -219,13 +183,7 @@ pub(crate) enum EngineFault {
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
 #[must_use = "an intent is answered by its outcome"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which answer each intent with its outcome"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct PendingIntent {
     /// The intent line's sequence.
     sequence: u64,
@@ -338,13 +296,7 @@ pub(crate) struct RunEngineRecord {
 
 impl RunEngineRecord {
     /// Records `intent`, on `step` where one is named, before its work is dispatched.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record the work they dispatch"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn intent(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -390,13 +342,7 @@ impl RunEngineRecord {
     }
 
     /// Records how the work of `intent` ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record how each dispatch ended"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn outcome(&self, intent: PendingIntent, outcome: EngineOutcome) {
         let mut line = self.line(self.next_sequence(), "outcome", Some(intent.sequence), None);
         match outcome {
@@ -414,13 +360,7 @@ impl RunEngineRecord {
     }
 
     /// Records `decision`, on `step` where one is named.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the engine's tick and waits, which record every decision they take"
-        )
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn decision(
         &self,
         step: Option<&WorkflowStepKey>,
@@ -615,13 +555,7 @@ fn says(line: &mut Map<String, Value>, record: &str, sentence: &str) {
 }
 
 /// Writes a step report's case: the report's word and its typed values.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>) {
     says(line, "stepReported", "A step's report moved it.");
     match transition {
@@ -667,13 +601,7 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
 
 /// A failure as the record carries it: its code, `uncoded` for a failure with none, or
 /// `declined` for a person's decline, whose words stay out.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record every report that moves a step"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn failure_code(failure: &StepFailure) -> Value {
     match failure {
         StepFailure::Failed(error) | StepFailure::EndsRun(error) => match error.as_ref() {
@@ -686,13 +614,7 @@ fn failure_code(failure: &StepFailure) -> Value {
 }
 
 /// Writes which deadline and its instant.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's tick and waits, which record each deadline they arm and clear"
-    )
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn deadline_members(line: &mut Map<String, Value>, deadline: &EngineDeadline, at: &WireInstant) {
     match deadline {
         EngineDeadline::Wait { wait_id } => {

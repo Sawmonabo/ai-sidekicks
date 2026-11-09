@@ -2,16 +2,16 @@
 //! memory map, a local connection's caller pinned with its responsible process and its code
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, a lasting child's and a session child's start through `posix_spawn` and their reap, the
-//! bounds on a program's argument and on its environment's entries and total, a process's memory and the machine's available memory, one user's
-//! processes and the arguments and environment a process started with, an open descriptor's path,
-//! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
-//! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
-//! a program's managed preferences, the Region setting's locale and hour cycle, the volume holding
-//! a path: its top and its id, the removal of an access list a mode change leaves, an address's
-//! opening in the application registered for it, the app's start with no window, the service's
-//! login agent and system service, the shells the live test opens on a folder, the wake helper, the
-//! move of named sign-ins between the keychain and files, and a command run behind the
-//! administrator prompt.
+//! bounds on a program's argument and on its environment's entries and total, a process's memory
+//! and the machine's available memory, one user's processes and the arguments and environment a
+//! process started with, an open descriptor's path, the wakes of a folder's and a file's watch,
+//! whether a terminal's program waits for input, the machine's wakes from sleep, whether it runs on
+//! AC power, a wall-clock timer, the login keychain, a program's managed preferences, the Region
+//! setting's locale and hour cycle, the volume holding a path: its top and its id, the removal of
+//! an access list a mode change leaves, an address's opening in the application registered for it,
+//! the app's start with no window, the service's login agent and system service, the shells the
+//! live test opens on a folder, the wake helper, the move of named sign-ins between the keychain
+//! and files, and a command run behind the administrator prompt.
 
 pub(crate) mod access_control_list;
 pub(crate) mod address_opening;

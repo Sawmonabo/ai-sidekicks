@@ -126,14 +126,63 @@ pub enum WorkflowRunFailedOutcome {
     Ended,
 }
 
-workflow_run_event! {
-    /// `workflow.run.failed`: the run failed on a step, whose cause that step's own event carries,
-    /// and either parked or ended.
+workflow_step_key! {
+    position
+    /// The step whose failure ended a run, by its node, its attempt and which execution of the
+    /// node; the run is the event's own.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowRunEndingStep {}
+}
+
+workflow_run_event! {
+    /// `workflow.run.failed`: the run failed on a step and either parked or ended. A parked run
+    /// leaves the cause to that step's own event; an ended run names the step its ending sits on
+    /// and the run's error, which a run cap makes the cap's own.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    #[garde(custom(|payload: &Self, (): &()| names_its_ending_only_when_ended(payload)))]
+    #[schemars(extend(
+        "if" = { "properties": { "outcome": { "const": "ended" } }, "required": ["outcome"] },
+        "then" = { "required": ["endingStep", "error"] },
+        "else" = {
+            "not": { "anyOf": [{ "required": ["endingStep"] }, { "required": ["error"] }] }
+        },
+    ))]
     pub struct WorkflowRunFailedPayload {
         /// Whether the run parked or ended.
         pub outcome: WorkflowRunFailedOutcome,
+        /// The step the run's ending sits on; present exactly when the run ended.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowRunEndingStep")]
+        pub ending_step: Option<WorkflowRunEndingStep>,
+        /// The run's error; present exactly when the run ended.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
+    }
+}
+
+/// Refuses a failed run's payload that names an ending step or an error unless the run ended, or
+/// that leaves either out when it did.
+fn names_its_ending_only_when_ended(payload: &WorkflowRunFailedPayload) -> garde::Result {
+    let is_ended = payload.outcome == WorkflowRunFailedOutcome::Ended;
+    if payload.ending_step.is_some() == is_ended && payload.error.is_some() == is_ended {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "an ended run names its ending step and its error, and a parked run neither",
+        ))
     }
 }
 
@@ -244,6 +293,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
         Definition::read::<WorkflowGateReachedPayload>().checked(),
         Definition::read::<WorkflowRunFailedOutcome>(),
+        Definition::read::<WorkflowRunEndingStep>(),
         Definition::read::<WorkflowRunFailedPayload>().checked(),
         Definition::read::<WorkflowRunCompletedPayload>().checked(),
         Definition::read::<WorkflowRunWaitingPayload>().checked(),
@@ -255,3 +305,56 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::WorkflowRunFailedPayload;
+
+    /// The step an ended run names.
+    fn ending_step() -> Value {
+        json!({"nodeId": "ask", "attempt": 1, "executionIndex": 2})
+    }
+
+    /// The run's error an ended run names.
+    fn run_error() -> Value {
+        json!({"message": "the run passed its cap", "nodeId": "ask"})
+    }
+
+    /// An ended run names its ending step and its error, and a parked run neither. Mutation:
+    /// drop the garde check on `WorkflowRunFailedPayload`, which lets every refused case through.
+    #[rstest]
+    #[case::parked("parked", None, None, true)]
+    #[case::parked_naming_an_error("parked", None, Some(run_error()), false)]
+    #[case::parked_naming_a_step("parked", Some(ending_step()), None, false)]
+    #[case::ended("ended", Some(ending_step()), Some(run_error()), true)]
+    #[case::ended_without_its_error("ended", Some(ending_step()), None, false)]
+    #[case::ended_without_its_step("ended", None, Some(run_error()), false)]
+    fn a_failed_run_names_its_ending_only_when_it_ended(
+        #[case] outcome: &str,
+        #[case] step: Option<Value>,
+        #[case] error: Option<Value>,
+        #[case] is_accepted: bool,
+    ) {
+        let mut wire = json!({
+            "sessionId": "018f0000-0000-7000-8000-000000000001",
+            "workflowRunId": "018f0000-0000-7000-8000-000000000004",
+            "definitionId": "018f0000-0000-7000-8000-000000000005",
+            "workflowVersionId": "018f0000-0000-7000-8000-000000000006",
+            "outcome": outcome,
+        });
+        if let Some(members) = wire.as_object_mut() {
+            if let Some(step) = step {
+                members.insert("endingStep".into(), step);
+            }
+            if let Some(error) = error {
+                members.insert("error".into(), error);
+            }
+        }
+        let payload =
+            serde_json::from_value::<WorkflowRunFailedPayload>(wire).expect("the payload reads");
+        assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
+    }
+}

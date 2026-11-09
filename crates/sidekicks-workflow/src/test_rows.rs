@@ -11,6 +11,9 @@ use sidekicks_contracts::workflow::run::status::{
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 #[cfg(test)]
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+
+#[cfg(test)]
 use crate::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
@@ -24,6 +27,12 @@ const CREATED_AT: &str = "2026-10-01T00:00:00.000Z";
 const STEP_STARTED_AT: &str = "2026-10-02T00:00:01.000Z";
 
 const EMPTY_PAYLOAD_REF: &str = r#"{"kind":"inline","items":[]}"#;
+
+/// The node id `id`, which a test names as text.
+#[cfg(test)]
+pub(crate) fn test_node_id(id: &str) -> WorkflowNodeId {
+    WorkflowNodeId::new(id.to_owned()).expect("the test's node id")
+}
 
 /// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
 #[cfg(test)]

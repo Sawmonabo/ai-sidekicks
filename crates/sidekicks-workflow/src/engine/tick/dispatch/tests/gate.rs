@@ -12,7 +12,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::time::timeout;
 
 use super::{
-    ExecutorProbe, QUIET, Script, WAIT, completed, failed, named_item, next_report, pin_data,
+    ExecutorProbe, QUIET, Script, WAIT, completed, failed, named_item, next_report, pin_data_json,
     pinned_settlement, run_step, scripted_kind, started, test_node,
 };
 use crate::engine::ports::{
@@ -27,12 +27,13 @@ use crate::schema::schema_parts;
 
 /// A step the memory gate weighs gets nothing in the dispatch's answer: it enters the gate with
 /// what it runs, a quick step's input measured, reports its hold where the gate holds it, then its
-/// admission, and launches holding its ticket, which is dropped once it settles. A node pinned in
-/// a manual run starts with its pin's hash and settles with its pinned items in the dispatch's
-/// answer, without entering the gate, resolving a secret or running its executor. Mutations: run the executor before the admission;
-/// answer `Admitted` at dispatch for a gate step; launch without the ticket; leave the input
-/// unmeasured or zero; run a pinned node in a manual run, resolve its secrets, send it into the
-/// gate or settle it from a task; start it with `pin_hash: None` on the dispatch's pinned path.
+/// admission, and launches holding its ticket, which is dropped once it settles. A node pinned in a
+/// manual run starts with its pin's hash and settles with its pinned items in the dispatch's
+/// answer, without entering the gate, resolving a secret or running its executor. Mutations: run
+/// the executor before the admission; answer `Admitted` at dispatch for a gate step; launch without
+/// the ticket; leave the input unmeasured or zero; run a pinned node in a manual run, resolve its
+/// secrets, send it into the gate or settle it from a task; start it with `pin_hash: None` on the
+/// dispatch's pinned path.
 #[rstest]
 #[case::quick_code_held(
     StepAdmissionShape::QuickCode { budget_bytes: 1024, output_max_bytes: 2048 },
@@ -64,8 +65,8 @@ async fn a_gate_step_waits_for_its_admission_before_it_launches(
     });
     let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
     if is_pinned {
-        scope.pins =
-            hash_run_pins(Some(pin_data()), WorkflowRunMode::Manual).expect("the test's pins hash");
+        scope.pins = hash_run_pins(Some(&pin_data_json()), WorkflowRunMode::Manual)
+            .expect("the test's pins hash");
     }
     let inputs: Vec<Value> = ["Ada", "Bob"]
         .iter()

@@ -71,9 +71,11 @@ mod tests {
     const PROBE_NAME: &str = "SIDEKICKS_PROBE";
 
     // An entry one byte past the per-value bound never starts, and on Linux one that fills it
-    // exactly does, into an environment holding nothing else. Fails when the bound reads smaller
-    // than the system's (macOS's `read_argument_space`, Linux's `ARGUMENT_PAGES`), or larger on
-    // Linux, such as `ARGUMENT_PAGES` doubled.
+    // exactly does, into an environment holding nothing else, where the total also leaves room for
+    // the program's path and a pointer each for it and the entry (64 KiB pages, or a stack limit of
+    // 512 KiB or less, leave none). Fails when the bound reads smaller than the system's (macOS's
+    // `read_argument_space`, Linux's `ARGUMENT_PAGES`), or larger on Linux, such as
+    // `ARGUMENT_PAGES` doubled.
     #[test]
     fn an_environment_entry_past_the_per_value_bound_does_not_start() {
         let limits = read_environment_value_limits().expect("the limits read");
@@ -87,7 +89,11 @@ mod tests {
             .expect_err("the program does not start");
         assert_eq!(refusal.kind(), ErrorKind::ArgumentListTooLong);
 
-        if cfg!(target_os = "linux") {
+        let start_carries = "/usr/bin/true".len() + 1 + 2 * size_of::<usize>();
+        let is_room_left = limits
+            .total
+            .is_none_or(|total| limits.per_value + start_carries <= total);
+        if cfg!(target_os = "linux") && is_room_left {
             let status = Command::new("/usr/bin/true")
                 .env_clear()
                 .env(PROBE_NAME, value_at_bound)

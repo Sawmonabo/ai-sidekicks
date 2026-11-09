@@ -478,9 +478,9 @@ async fn a_form_or_reply_wait_takes_no_point() {
 /// or due retries not held (the window's asserts); a held answer refused or dropped (the
 /// answer's value); held reports dropped (`N` never runs); held due retries dropped (`F`'s
 /// attempt 2 stays `pending`); a held answer replied before its write (`Q` not yet
-/// `succeeded`); the card raised before the opening turn's write (the order log); the hold
-/// putting the run in its batch on every held turn (the loop never yields on the test's
-/// single-thread runtime, so the test never ends).
+/// `succeeded`); the card raised before the opening turn's write (`Q` still `waiting` at the
+/// card's call); the hold putting the run in its batch on every held turn (the loop never yields
+/// on the test's single-thread runtime, so the test never ends).
 #[tokio::test]
 async fn a_pausing_run_takes_what_reached_it_once_its_point_ends() {
     // F's retry timer starts at its first failure, before `go`, so it outlasts the waits up to
@@ -556,9 +556,20 @@ async fn a_pausing_run_takes_what_reached_it_once_its_point_ends() {
 
     assert_eq!(answered, Ok(Ok(())));
     assert_eq!(harness.status("Q").as_deref(), Some("succeeded"));
-    assert_eq!(
-        harness.ordered_calls(3).await[2],
-        card(harness.wait_id("P"))
+    let p_wait = harness.wait_id("P");
+    assert_eq!(harness.ordered_calls(3).await[2], card(p_wait));
+    let card_call = harness
+        .asks
+        .calls()
+        .into_iter()
+        .find(|call| call.wait_id == p_wait)
+        .expect("P's card is raised");
+    assert!(
+        card_call
+            .run_statuses
+            .contains(&("Q".to_owned(), "succeeded".to_owned())),
+        "the card is raised after the opening turn's write: {:?}",
+        card_call.run_statuses
     );
     harness
         .wait_until(|rows| {
@@ -566,6 +577,55 @@ async fn a_pausing_run_takes_what_reached_it_once_its_point_ends() {
                 && attempt_column(rows, "F", 2, "status").as_deref() == Some("succeeded")
         })
         .await;
+}
+
+/// A pausing run's answer and its deadline both wait for its point, and the turn the point's end
+/// opens takes the answer first: an answer that came before its wait's deadline still wins.
+/// Kills: the deadline's report not held (`P` reads `failed` in the window); held reports
+/// replayed before held answers, so the deadline settles the wait and the answer is refused (the
+/// answer's value and `P`'s status).
+#[tokio::test]
+async fn a_held_answer_wins_over_its_held_deadline() {
+    let mut harness = Harness::new(None).await;
+    harness.points.set_gate(false);
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("G", "test.gated", 1, None),
+                node("P", "test.approve", 2, None),
+            ],
+            &[edge("trigger", "G", 0), edge("G", "P", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "G", "status").as_deref() == Some("running"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    harness.signal.go.notify_one();
+    assert_eq!(harness.ordered_calls(1).await, [pause_point(&harness, 1)]);
+    harness.wait_for_earlier_turns().await;
+    assert_eq!(
+        harness.armed(),
+        Some(wall_instant(&stored_deadline(&harness, "P")))
+    );
+
+    let p_wait = harness.wait_id("P");
+    let (answer, gate) = approval(&harness, 1);
+    let (answered, ()) = tokio::join!(harness.answer(p_wait, answer, gate), async {
+        tokio::time::sleep(QUIET).await;
+        harness
+            .clock
+            .set_now(SystemTime::now() + Duration::from_secs(61));
+        tokio::time::sleep(QUIET).await;
+        assert_eq!(harness.status("P").as_deref(), Some("waiting"));
+        harness.points.set_gate(true);
+    });
+
+    assert_eq!(answered, Ok(Ok(())));
+    assert_eq!(harness.status("P").as_deref(), Some("succeeded"));
 }
 
 /// A park keeps its run's waits, so an answer still settles one, and the parked run starts

@@ -482,7 +482,8 @@ pub struct WorkflowNodeKindSpec {
 }
 
 impl WorkflowNodeKindSpec {
-    /// Whether a run of the kind needs a project's repository; false for a kind with no capabilities.
+    /// Whether a run of the kind needs a project's repository; false for a kind with no
+    /// capabilities.
     pub fn needs_repository(&self) -> bool {
         self.capabilities
             .as_ref()

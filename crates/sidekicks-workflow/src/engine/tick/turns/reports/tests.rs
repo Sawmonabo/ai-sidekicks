@@ -9,6 +9,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::time::timeout;
 
 use crate::engine::ports::AgentStepOutcome;
+use crate::engine::tick::turns::EngineTickInput;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
@@ -544,13 +545,17 @@ async fn park_until_a_minute_from_now(harness: &mut Harness) -> WireInstant {
 }
 
 /// A resumes when its reset passes: its row back to `running` with no resume, the step's and the
-/// run's resume in one write, its kept run taken again once after that write with the clear
-/// recorded, and its next outcome settling it. Kills: the resume never fired; `resume()` before
-/// the write; a second driver; the clear line missing.
+/// run's resume in one write, its kept run taken again once after that write, the row read at
+/// the call, with the clear recorded, and its next outcome settling it. Kills: the resume never
+/// fired; `resume()` before the write; a second driver; the clear line missing.
 #[tokio::test]
 async fn a_parked_step_resumes_once_its_reset_passes() {
     let mut harness = Harness::new(None).await;
     let resets_at = park_until_a_minute_from_now(&mut harness).await;
+    let reader = std::sync::Mutex::new(harness.reader());
+    harness.agents.read_at_resume(move || {
+        step_column(&sidekicks_std::mutex_lock::lock(&reader), "A", "status").unwrap_or_default()
+    });
 
     harness
         .clock
@@ -559,8 +564,8 @@ async fn a_parked_step_resumes_once_its_reset_passes() {
         .await
         .expect("A's kept run is taken again");
     assert_eq!(
-        step_column(&harness.rows, "A", "status").as_deref(),
-        Some("running"),
+        harness.agents.read_at_resumes(),
+        ["running"],
         "the resume is written before the run is taken again"
     );
     assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
@@ -619,4 +624,37 @@ async fn a_cancel_while_the_resume_is_armed_disarms_it() {
     assert_eq!(cleared[0]["at"], json!(resets_at));
     assert_eq!(harness.armed(), None, "the clock is disarmed");
     assert_eq!(harness.agents.resumes(), 0);
+}
+
+/// A change of `Stop a run after` while a run is live moves its cap line and the clock to the new
+/// limit. Kills: the change leaving the record naming the old cap.
+#[tokio::test]
+async fn a_run_limit_change_moves_a_live_runs_cap() {
+    let harness = Harness::new(None).await;
+    harness.limits.set_run_time_limit(half_hour());
+    start_agent_run(&harness).await;
+    harness.wait_for_earlier_turns().await;
+    let first_cap = instant_after(run_started_at(&harness), 30 * 60_000);
+    assert_eq!(harness.armed(), Some(wall_instant(&first_cap)));
+
+    harness
+        .limits
+        .set_run_time_limit(RunTimeLimitMinutes::new(60));
+    harness
+        .inbox
+        .send(EngineTickInput::RunLimitChanged)
+        .await
+        .unwrap_or_else(|_| panic!("the loop takes the change"));
+    // The first answer can share the change's turn; the second lands after its clock read.
+    harness.wait_for_earlier_turns().await;
+    harness.wait_for_earlier_turns().await;
+
+    let later_cap = instant_after(run_started_at(&harness), 60 * 60_000);
+    let cleared = cap_lines(&harness, "deadlineCleared");
+    assert_eq!(cleared.len(), 1, "the old cap is cleared");
+    assert_eq!(cleared[0]["at"], json!(first_cap));
+    let armed = cap_lines(&harness, "deadlineArmed");
+    assert_eq!(armed.len(), 2, "the new cap is armed");
+    assert_eq!(armed[1]["at"], json!(later_cap));
+    assert_eq!(harness.armed(), Some(wall_instant(&later_cap)));
 }

@@ -3,6 +3,7 @@
 //! commits each run's share in one write, walks what committed and dispatches what the walk
 //! readied.
 
+mod dispatching;
 mod ending;
 mod inbox;
 mod readying;
@@ -18,11 +19,9 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rusqlite::Connection;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNode};
+use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -30,10 +29,7 @@ use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRun
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
@@ -46,14 +42,12 @@ use super::dispatch::{StepDispatch, fill_step_failure};
 use super::live_runs::{LiveRun, LiveStep, TurnAsk};
 use super::node_settings::main_inputs;
 use super::walk::WalkReady;
-use super::{ReadyStep, RunSnapshot, StepReport, StepReportKind, StepSettlement};
+use super::{ParkedAgentRun, ReadyStep, StepReport, StepReportKind, StepSettlement};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::chain::KeepGoingIntake;
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{
-    AgentStepRun, PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts,
-};
+use crate::engine::ports::{PortError, RunSnapshotPoints, StepAdmission, StepPayloadArtifacts};
 use crate::engine::start::StartedRun;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::engine::waits::{PersonWaitPorts, PersonWaitRefusal};
@@ -66,9 +60,6 @@ const TURN_REPORT_LIMIT: usize = 256;
 /// held steps and its question, which Keep going reads.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const ENGINE_TICK_STATEMENT_CAPACITY: usize = 3;
-
-// The level every step of the workflow's runs runs at, read again at each turn that dispatches.
-const WORKFLOW_LEVEL_SQL: &str = "SELECT permission_level FROM workflow_definitions WHERE id = ?1";
 
 // Why the kinds table lists every node of a live run.
 const KIND_CHECKED: &str = "the start checked that the table lists every node's kind";
@@ -84,6 +75,9 @@ pub(crate) enum EngineTickInput {
     KeepGoing(KeepGoingIntake),
     /// A person's cancel of a run.
     Cancel(RunCancelIntake),
+    /// `Stop a run after` changed: every live run's cap follows it before the clock is read
+    /// again.
+    RunLimitChanged,
 }
 
 /// What an [`EngineTick`] drives runs through, reads, writes and is woken by.
@@ -130,8 +124,9 @@ pub(crate) struct EngineTick {
     person_waits: PersonWaitPorts,
     deadlines: Arc<EngineDeadlines>,
     snapshot_points: Arc<dyn RunSnapshotPoints>,
-    /// Whether this turn's writes armed or cleared a deadline, took a late answer or dropped a
-    /// run, so the deadline clock is read again at the turn's end.
+    /// Whether this turn's writes armed or cleared a person wait's deadline, a parked step's resume
+    /// or a run's cap, took a late answer, dropped a run or the run limit changed, so the deadline
+    /// clock is read again at the turn's end.
     needs_deadline_read: bool,
     /// The waits of the runs dropped in this daemon life, whose rows keep them until the restart
     /// settles them; an answer to one is not taken.
@@ -175,7 +170,7 @@ struct RunTurn {
     follow_ups: VecDeque<StepReport>,
     /// The steps the turn resumed from a spent account, each with its kept agent run, taken
     /// again once the write commits.
-    resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
+    resumes: Vec<(WorkflowStepKey, ParkedAgentRun)>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
@@ -208,18 +203,6 @@ enum ReadiedNext {
     Fail(Vec<StepReport>),
     /// It was canceled in this turn without running, and keeps no live step.
     Canceled,
-}
-
-/// Why the workflows' levels could not be read.
-#[derive(Debug, thiserror::Error)]
-enum WorkflowLevelReadError {
-    /// SQLite refused the read, or a stored level did not read as one.
-    #[error("a read of a workflow's level failed")]
-    Database(#[from] rusqlite::Error),
-    /// The read pool is closed, a connection did not open, or the read's blocking task did not
-    /// finish.
-    #[error(transparent)]
-    Pool(#[from] DatabaseReadError),
 }
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -352,12 +335,13 @@ impl EngineTick {
         point
     }
 
-    /// One turn: each `Keep going` as its own write while the inputs are routed, then each run's
-    /// share in arrival order, its next batch first, then the answers routed to it, and its
-    /// retries come `due` and its pause points `taken` with it, committed in one write per run;
-    /// then one read of the dispatching runs' levels, their dispatch, one read of the deadline
-    /// clock where a write moved a deadline, and one weigh of the memory gate. A run whose pause
-    /// point is still pending sits the turn out, keeping what reached it.
+    /// One turn: each `Keep going` as its own write while the inputs are routed, each cancel routed
+    /// after every run the batch starts, then each run's share in arrival order, its next batch
+    /// first, then the answers routed to it, and its retries come `due` and its pause points
+    /// `taken` with it, committed in one write per run; then one read of the dispatching runs'
+    /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
+    /// one weigh of the memory gate. A run whose pause point is still pending sits the turn out,
+    /// keeping what reached it.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
@@ -369,6 +353,8 @@ impl EngineTick {
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
         let mut answers: HashMap<WorkflowRunId, Vec<PersonWaitIntake>> = HashMap::new();
         let mut cancels: HashMap<WorkflowRunId, Vec<RunCancelIntake>> = HashMap::new();
+        // A start's row is visible to a cancel before the tick holds its run.
+        let mut cancel_intakes = Vec::new();
         for input in inputs {
             match input {
                 EngineTickInput::Started(run) => dispatching.push(self.start_run(run)),
@@ -376,10 +362,12 @@ impl EngineTick {
                     self.route_answer(intake, &mut order, &mut answers);
                 }
                 EngineTickInput::KeepGoing(intake) => self.keep_going(intake).await,
-                EngineTickInput::Cancel(intake) => {
-                    self.route_cancel(intake, &mut order, &mut cancels);
-                }
+                EngineTickInput::Cancel(intake) => cancel_intakes.push(intake),
+                EngineTickInput::RunLimitChanged => self.follow_run_limit().await,
             }
+        }
+        for intake in cancel_intakes {
+            self.route_cancel(intake, &mut order, &mut cancels);
         }
         let mut arrived = by_run(&mut order, reports, |report| report.step.workflow_run_id);
         let mut due_by_run = by_run(&mut order, due, |step| step.workflow_run_id);
@@ -406,6 +394,20 @@ impl EngineTick {
             Arc::clone(&self.deadlines).rearm().await;
         }
         self.admission.weigh();
+    }
+
+    /// Moves every live run's cap to `Stop a run after` as set now, recording each cap line that
+    /// moved, and queues the clock's read.
+    async fn follow_run_limit(&mut self) {
+        for live in self.runs.values_mut() {
+            live.follow_cap(&self.deadlines, false);
+            for (step, line) in std::mem::take(&mut live.deadline_lines) {
+                live.record.decision(step.as_ref(), line).await;
+            }
+            self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
+        }
+        // The clock reads every unfinished run's cap under the new limit, live or not.
+        self.needs_deadline_read = true;
     }
 
     /// Takes `run` into the live set and answers its trigger step, readied by the start's own
@@ -566,10 +568,10 @@ impl EngineTick {
                         .fault(None, EngineFault::TurnPayloadLeftBehind, &*removal)
                         .await;
                 }
-                let ending_sequence = committed.ending_sequence;
+                let ending_event_id = committed.ending_event_id;
                 live.counts = committed.counts;
                 live.person_wait = committed.person_wait;
-                live.follow_cap(&self.deadlines, ending_sequence.is_some());
+                live.follow_cap(&self.deadlines, ending_event_id.is_some());
                 let mut dispatched: Vec<ReadyStep> = held_dispatches
                     .into_iter()
                     .filter_map(|step| still_ready(&live, step))
@@ -619,10 +621,13 @@ impl EngineTick {
                 self.resume_parked(&live, resumes);
                 self.ask_people(&mut live, asks).await;
                 self.needs_deadline_read |= std::mem::take(&mut live.needs_deadline_read);
-                if let Some(ending_sequence) = ending_sequence {
+                if let Some(ending_event_id) = ending_event_id {
                     for reply in live.cancel_replies.drain(..) {
-                        let _unheard = reply.send(Ok(ending_sequence));
+                        let _unheard = reply.send(Ok(ending_event_id.clone()));
                     }
+                    // A retry's wait for a step the ending stopped ends with its run.
+                    live.scope.cancel.cancel();
+                    self.deadlines.forget_cap(run_id);
                     self.recorder.end_run(run_id);
                     return Some(Vec::new());
                 }
@@ -640,7 +645,7 @@ impl EngineTick {
                 Some(dispatched)
             }
             Err(failure) => {
-                self.drop_failed_run(live, failure).await;
+                self.drop_failed_run(live, failure, resumes).await;
                 None
             }
         }
@@ -653,15 +658,33 @@ impl EngineTick {
         }
     }
 
-    /// Ends the run of `live`, whose turn's write was refused: cancels its steps, deletes every
-    /// artifact the write would have named and records the failure; the restart settles what the
-    /// log holds. Its stored waits stay off the deadline clock, and an answer to one is not taken.
-    async fn drop_failed_run(&mut self, live: LiveRun, failure: RunTurnCommitFailure) {
+    /// Ends the run of `live`, whose turn's write was refused: cancels its steps, stops each agent
+    /// run a spent account parked and each of the turn's `resumes`, which no cancel reaches,
+    /// deletes every artifact the write would have named and records the failure; the restart
+    /// settles what the log holds. Its stored waits stay off the deadline clock, and an answer to
+    /// one is not taken.
+    async fn drop_failed_run(
+        &mut self,
+        mut live: LiveRun,
+        failure: RunTurnCommitFailure,
+        resumes: Vec<(WorkflowStepKey, ParkedAgentRun)>,
+    ) {
         let RunTurnCommitFailure {
             error,
             artifact_ids,
         } = failure;
         live.scope.cancel.cancel();
+        let parked: Vec<(WorkflowStepKey, ParkedAgentRun)> = live
+            .steps
+            .values_mut()
+            .filter_map(|live_step| {
+                let parked = live_step.parked_agent_run.take()?;
+                Some((live_step.step.clone(), parked))
+            })
+            .collect();
+        for (step, parked) in parked.into_iter().chain(resumes) {
+            reports::stop_agent_run(&live, &step, Some(parked.run)).await;
+        }
         self.dropped_waits.extend(
             live.steps
                 .values()
@@ -679,65 +702,6 @@ impl EngineTick {
             .fault(None, EngineFault::TurnWriteFailed, &error)
             .await;
         self.recorder.end_run(live.scope.run_id);
-    }
-
-    /// Reads the levels of the dispatching runs' workflows in one read and dispatches each run's
-    /// `readied` steps on a fresh snapshot, their answered reports opening its next batch. When
-    /// the levels cannot be read, every one of those steps fails at once with that error.
-    async fn dispatch_readied(&mut self, dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)>) {
-        let mut workflow_ids: Vec<WorkflowDefinitionId> = Vec::new();
-        for (run_id, _) in &dispatching {
-            let workflow_id = self.runs[run_id].scope.workflow_id;
-            if !workflow_ids.contains(&workflow_id) {
-                workflow_ids.push(workflow_id);
-            }
-        }
-        let levels = self
-            .pool
-            .read(ReadLength::Short, move |connection| {
-                read_workflow_levels(connection, workflow_ids)
-            })
-            .await;
-        for (run_id, readied) in dispatching {
-            let live = self
-                .runs
-                .get_mut(&run_id)
-                .expect("a dispatching run is live");
-            match &levels {
-                Ok(levels) => {
-                    let snapshot = RunSnapshot {
-                        outputs: Arc::new(live.outputs.clone()),
-                        run_variables: Arc::clone(&live.run_variables),
-                        permission_level: levels[&live.scope.workflow_id],
-                    };
-                    let execution_indices: Vec<u64> = readied
-                        .iter()
-                        .map(|ready| ready.step.execution_index.get())
-                        .collect();
-                    // The dispatch answers each step in the order it was handed.
-                    let answered = self.dispatch.dispatch(&live.scope, &snapshot, readied);
-                    for (execution_index, dispatched) in execution_indices.into_iter().zip(answered)
-                    {
-                        live.steps
-                            .get_mut(&execution_index)
-                            .expect("a dispatched step is live")
-                            .cancel = Some(dispatched.cancel);
-                        live.next_batch.extend(dispatched.reports);
-                    }
-                }
-                Err(error) => {
-                    let message = format!("the workflow's level could not be read: {error}");
-                    for ready in readied {
-                        let failure =
-                            step_failure(live, &ready.step, StepFailure::Failed, message.clone());
-                        live.next_batch.extend(failed_at_once(&ready.step, failure));
-                    }
-                }
-            }
-            if !live.next_batch.is_empty() && !self.batched.contains(&run_id) {
-                self.batched.push(run_id);
-            }
-        }
     }
 
     /// What the tick knows of the live `step` of `live`, which the commit reads.
@@ -841,14 +805,17 @@ fn held_first<T>(held: &mut Vec<T>, own: Vec<T>) -> Vec<T> {
 /// come due or a dispatch a pause held; `None` once it settled, was canceled or was dispatched.
 fn still_ready(live: &LiveRun, step: WorkflowStepKey) -> Option<ReadyStep> {
     let live_step = live.steps.get(&step.execution_index.get())?;
-    (live_step.status == WorkflowStepStatus::Pending && live_step.cancel.is_none()).then(|| {
-        ReadyStep {
-            step,
-            run_index: live_step.run_index,
-            inputs: live_step.inputs.clone(),
-            input_ref: live_step.input_ref.clone(),
-        }
+    is_undispatched(live_step).then(|| ReadyStep {
+        step,
+        run_index: live_step.run_index,
+        inputs: live_step.inputs.clone(),
+        input_ref: live_step.input_ref.clone(),
     })
+}
+
+/// Whether `live_step` is still `pending` and undispatched, so the turn may dispatch it.
+fn is_undispatched(live_step: &LiveStep) -> bool {
+    live_step.status == WorkflowStepStatus::Pending && live_step.cancel.is_none()
 }
 
 /// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A
@@ -858,20 +825,4 @@ fn retry_due(timer: Result<Option<WorkflowStepKey>, JoinError>) -> Option<Workfl
         Ok(due) => due,
         Err(error) => std::panic::resume_unwind(error.into_panic()),
     }
-}
-
-/// The level of each workflow of `workflow_ids`, one indexed query each.
-fn read_workflow_levels(
-    connection: &Connection,
-    workflow_ids: Vec<WorkflowDefinitionId>,
-) -> Result<HashMap<WorkflowDefinitionId, PermissionLevel>, WorkflowLevelReadError> {
-    let mut statement = connection.prepare_cached(WORKFLOW_LEVEL_SQL)?;
-    let mut levels = HashMap::with_capacity(workflow_ids.len());
-    for workflow_id in workflow_ids {
-        let level = statement.query_row([workflow_id.text().as_str()], |row| {
-            text_column(row, 0, closed_word)
-        })?;
-        levels.insert(workflow_id, level);
-    }
-    Ok(levels)
 }

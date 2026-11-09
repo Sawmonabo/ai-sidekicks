@@ -83,7 +83,8 @@ pub enum ApprovalCategory {
 }
 
 /// Where an ask stands. There is no expired state: an ask waits until it is answered, and the only
-/// ends besides an answer cancel it with its run.
+/// ends besides an answer cancel it with its run, its session or its provider process, or a
+/// workflow wait's card with its wait.
 #[derive(
     Clone,
     Copy,

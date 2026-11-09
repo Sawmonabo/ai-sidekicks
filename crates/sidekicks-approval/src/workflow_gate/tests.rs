@@ -1,12 +1,14 @@
 //! A workflow gate's card over the approval and workflow tables: raised once per wait, refused for
-//! an ended workflow run, answered through the registered waits, left standing by its session's
-//! close and canceled at a restart once no step holds its wait.
+//! an ended workflow run, a chain whose question no longer waits or another session, answered
+//! through the registered waits, left standing by its session's close and canceled at a restart
+//! once no step holds its wait or its chain's question stopped waiting.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::approval::{
     ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest, ApprovalState,
@@ -19,14 +21,18 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::test_session_id;
 use sidekicks_workflow::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
 use super::{ApprovalWaitAnswer, ApprovalWaitOutcome, ApprovalWaits, WorkflowGateCardAsk};
 use crate::service::tests::{ApprovalFixture, from_json, held_by_a_live_call, refusal};
+use crate::store::ApprovalRequestReader;
 
 const VERSION_ID: &str = "00000000-0000-7000-8000-0000000000a1";
 const RUN_ID: &str = "00000000-0000-7000-8000-0000000000b1";
 const ENDED_RUN_ID: &str = "00000000-0000-7000-8000-0000000000b2";
+const CHAIN_RUN_ID: &str = "00000000-0000-7000-8000-0000000000b3";
 
 /// The waits a test registers: each answer it took, answered settled while `is_waiting` holds and
 /// not waiting after.
@@ -56,8 +62,9 @@ impl ApprovalWaits for RecordingWaits {
     }
 }
 
-/// The fixture over the workflow tables too, with a going workflow run whose step at execution
-/// index 1 waits on an approval, and an ended one.
+/// The fixture over the workflow tables too, all in the fixture's session: a going workflow run
+/// whose step at execution index 1 waits on an approval, and an ended one, the first run of a
+/// chain whose later run's step at execution index 4 is held by the chain's question.
 async fn gate_fixture() -> ApprovalFixture {
     let fixture = ApprovalFixture::with_workflow_tables().await;
     let reader = fixture.database.reader();
@@ -94,6 +101,38 @@ async fn gate_fixture() -> ApprovalFixture {
         "2026-10-02T00:00:00Z",
         Some("2026-10-02T00:01:00Z"),
     );
+    insert_run(
+        &reader,
+        CHAIN_RUN_ID,
+        VERSION_ID,
+        WorkflowRunStatus::Waiting,
+        "2026-10-02T00:02:00Z",
+        None,
+    );
+    insert_step(
+        &reader,
+        CHAIN_RUN_ID,
+        &TestStep {
+            execution_index: 4,
+            status: WorkflowStepStatus::Waiting,
+            wait_cause: Some(WorkflowWaitCause::Chain),
+            wait_account_id: None,
+            resume_at: None,
+        },
+    );
+    reader
+        .execute(
+            "UPDATE workflow_runs SET chain_root_run_id = ?1, chain_run_count = NULL,
+               chain_kept_going = NULL WHERE id = ?2",
+            [ENDED_RUN_ID, CHAIN_RUN_ID],
+        )
+        .expect("the test joins the later run to the chain");
+    reader
+        .execute(
+            "UPDATE workflow_runs SET session_id = ?1",
+            [fixture.session_id.text().as_str()],
+        )
+        .expect("the test puts the runs in the fixture's session");
     fixture
 }
 
@@ -117,6 +156,18 @@ fn step_card(
         node_id: Some(WorkflowNodeId::new("approve".to_owned()).expect("the test's node id")),
         workflow_name: from_json(json!("Release notes")),
         prompt: from_json(json!("Publish the release notes?")),
+    }
+}
+
+/// The card the question of the chain whose first run is `root` asks, which names no node.
+fn chain_card(fixture: &ApprovalFixture, root: &str) -> WorkflowGateCardAsk {
+    WorkflowGateCardAsk {
+        session_id: fixture.session_id,
+        workflow_run_id: WorkflowRunId::new(root).expect("the test's run id"),
+        wait_id: UuidTextForm::new(root).expect("a run id is a UUID"),
+        node_id: None,
+        workflow_name: from_json(json!("Release notes")),
+        prompt: from_json(json!("Keep going?")),
     }
 }
 
@@ -189,16 +240,49 @@ async fn a_wait_raises_one_card() {
     );
 }
 
-// A raise for a workflow run that has ended raises no card and names the run's end. Killed by
-// dropping the workflow run's guard, or reading its refusal as the session's.
+/// Which raise a refusal case makes.
+enum RefusedRaise {
+    /// A step's card on a workflow run that has ended.
+    EndedRun,
+    /// A chain's card on a chain no step of which waits on its question.
+    ChainNotWaiting,
+    /// A step's card on a going run, named in another session.
+    OtherSession,
+}
+
+// A raise whose holder no longer stands raises no card and names the run's end: a step's card on
+// an ended run, a chain's card whose question no longer waits, and a card naming another session
+// than its run's. Killed by dropping the holder's guard, guarding a chain's card on its first
+// run's status, dropping the guard's session, or reading its refusal as the session's.
+#[rstest]
+#[case::ended_run(RefusedRaise::EndedRun)]
+#[case::chain_not_waiting(RefusedRaise::ChainNotWaiting)]
+#[case::other_session(RefusedRaise::OtherSession)]
 #[tokio::test]
-async fn a_raise_for_an_ended_workflow_run_is_refused() {
+async fn a_raise_whose_holder_no_longer_stands_is_refused(#[case] raise: RefusedRaise) {
     let fixture = gate_fixture().await;
+    let ask = match raise {
+        RefusedRaise::EndedRun => step_card(&fixture, ENDED_RUN_ID, wait_id(3)),
+        RefusedRaise::ChainNotWaiting => chain_card(&fixture, RUN_ID),
+        RefusedRaise::OtherSession => {
+            let other = test_session_id();
+            insert_session_row(
+                &fixture.database.reader(),
+                other.text().as_str(),
+                None,
+                None,
+            );
+            WorkflowGateCardAsk {
+                session_id: other,
+                ..step_card(&fixture, RUN_ID, wait_id(1))
+            }
+        }
+    };
 
     let refused = refusal(
         fixture
             .service
-            .raise_workflow_gate(step_card(&fixture, ENDED_RUN_ID, wait_id(3)))
+            .raise_workflow_gate(ask)
             .await
             .expect_err("the raise is refused"),
     );
@@ -304,6 +388,60 @@ async fn the_restart_settle_cancels_a_card_no_step_holds() {
 
     assert_eq!(card_state(&fixture, held), "pending");
     assert_eq!(card_state(&fixture, unheld), "canceled");
+}
+
+// A chain's card is raised while its question waits though its first run has ended, and the
+// restart's settle leaves it until no step of the chain waits on the question, then cancels it;
+// the restart's list names the card's session once while any unheld card stands. Killed by
+// guarding a chain's card on its first run's status, which refuses the raise and cancels the
+// card at once, and by dropping the chain arm of the unheld read, which leaves it standing.
+#[tokio::test]
+async fn a_chain_s_card_stands_while_its_question_waits() {
+    let fixture = gate_fixture().await;
+    let chain = fixture
+        .service
+        .raise_workflow_gate(chain_card(&fixture, ENDED_RUN_ID))
+        .await
+        .expect("the chain's card is raised");
+    let unheld = fixture
+        .service
+        .raise_workflow_gate(step_card(&fixture, RUN_ID, wait_id(9)))
+        .await
+        .expect("the unheld card is raised");
+    let unheld_sessions = || {
+        ApprovalRequestReader::new(&fixture.database.reader())
+            .list_sessions_with_unheld_wait_requests()
+            .expect("the restart's list reads")
+    };
+
+    assert_eq!(unheld_sessions(), [fixture.session_id]);
+    fixture
+        .service
+        .cancel_unheld_wait_asks(fixture.session_id)
+        .await
+        .expect("the settle's cancels are kept");
+    assert_eq!(card_state(&fixture, chain), "pending");
+    assert_eq!(card_state(&fixture, unheld), "canceled");
+    assert_eq!(unheld_sessions(), []);
+
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE workflow_steps SET status = 'succeeded', wait_cause = NULL,
+               wait_started_at = NULL
+               WHERE workflow_run_id = ?1",
+            [CHAIN_RUN_ID],
+        )
+        .expect("the test settles the held start");
+    assert_eq!(unheld_sessions(), [fixture.session_id]);
+    fixture
+        .service
+        .cancel_unheld_wait_asks(fixture.session_id)
+        .await
+        .expect("the settle's cancels are kept");
+
+    assert_eq!(card_state(&fixture, chain), "canceled");
 }
 
 // A closed session's cancel of its pending asks cancels a run's card and leaves a wait's card to

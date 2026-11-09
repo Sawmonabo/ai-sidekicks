@@ -1,4 +1,5 @@
-//! The run limits the tests set: each reads the value the test last set.
+//! The run limits a test sets: `Ask me after one start leads to` fixed at construction, and
+//! `Stop a run after` read as the test last set it.
 
 use std::sync::Mutex;
 
@@ -6,11 +7,11 @@ use sidekicks_contracts::daemon::config::{RunTimeLimitMinutes, WorkflowChainAskA
 
 use crate::engine::ports::WorkflowRunLimits;
 
-/// Run limits a test sets, both `None` until it sets them.
+/// Run limits a test sets, both `None` unless it sets them.
 #[derive(Default)]
 pub(crate) struct ScriptedRunLimits {
     /// `Ask me after one start leads to`.
-    chain_ask_after_runs: Mutex<Option<WorkflowChainAskAfterRuns>>,
+    chain_ask_after_runs: Option<WorkflowChainAskAfterRuns>,
     /// `Stop a run after`.
     run_time_limit: Mutex<Option<RunTimeLimitMinutes>>,
 }
@@ -21,7 +22,7 @@ impl ScriptedRunLimits {
         chain_ask_after_runs: Option<WorkflowChainAskAfterRuns>,
     ) -> Self {
         Self {
-            chain_ask_after_runs: Mutex::new(chain_ask_after_runs),
+            chain_ask_after_runs,
             run_time_limit: Mutex::new(None),
         }
     }
@@ -34,7 +35,7 @@ impl ScriptedRunLimits {
 
 impl WorkflowRunLimits for ScriptedRunLimits {
     fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns> {
-        *sidekicks_std::mutex_lock::lock(&self.chain_ask_after_runs)
+        self.chain_ask_after_runs
     }
 
     fn run_time_limit(&self) -> Option<RunTimeLimitMinutes> {

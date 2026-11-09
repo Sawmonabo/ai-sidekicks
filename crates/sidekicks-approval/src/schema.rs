@@ -68,7 +68,8 @@ CREATE TABLE approval_requests (
   -- this card; NULL where the input has no canonical form or the card holds no call.
   input_digest          TEXT,
   -- No expired state and no deadline column: a request waits until it is answered, or is
-  -- canceled with its run, its session or its provider process.
+  -- canceled with its run, its session or its provider process; a workflow wait's card is
+  -- canceled only with its wait, which times out, is canceled or ends with its run.
   state                 TEXT NOT NULL DEFAULT '{pending}' CHECK(state IN ({states})),
   created_at            TEXT NOT NULL,
   -- The last state change; a cancellation settles here and writes no resolution row.

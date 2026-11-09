@@ -37,7 +37,8 @@ use crate::engine::tick::RunGraph;
 pub(crate) const PARTIAL_RUN_PLAN_STATEMENT_CAPACITY: usize = 1;
 
 // A node's newest step that stored an output, among the runs of every version of the workflow:
-// newest by its end, then by run, attempt and execution, so the pick is total.
+// newest by its end, then by run, attempt and execution, so the pick is total. A reused step's data
+// was computed by the version its `reusedFrom` names, not by its own run's version.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -47,7 +48,8 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
         [WorkflowStepStatus::Succeeded, WorkflowStepStatus::Skipped].map(<&'static str>::from),
     );
     format!(
-        "SELECT step.workflow_run_id, step.attempt, step.execution_index, run.workflow_version_id,
+        "SELECT step.workflow_run_id, step.attempt, step.execution_index,
+    COALESCE(json_extract(step.reused_from_json, '$.workflowVersionId'), run.workflow_version_id),
     step.source_json, step.output_ref, step.output_item_counts_json
   FROM workflow_versions AS version
   JOIN workflow_runs AS run ON run.workflow_version_id = version.id
@@ -62,7 +64,7 @@ static NEWEST_SETTLED_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// What a partial run does with each node it covers: the nodes it executes, and the nodes whose
 /// settled step it reuses or, for a run of one node, reads as that node's prior input, each list in
-/// graph order, so the executed list is execution order.
+/// the graph's place order, which is the nodes' `(order, id)` rank, not the order they run in.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(
     not(test),
@@ -173,8 +175,8 @@ fn settled_step_from_row(node_id: &WorkflowNodeId, row: &Row<'_>) -> rusqlite::R
 /// always executes; a covered node executes when it has no settled step, when its step was not fed
 /// by the steps the plan keeps for its feeders, when [`executing_places`] says so, or, from a node,
 /// when it is dirty; every other covered node's step is reused from a node, or read as the target's
-/// prior input for one node, where no change dirties it. Reads each covered node's settled step and,
-/// from a node, each version those steps ran, and fails as [`PartialRunPlanError`] says.
+/// prior input for one node, where no change dirties it. Reads each covered node's settled step
+/// and, from a node, each version those steps ran, and fails as [`PartialRunPlanError`] says.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -271,10 +273,10 @@ fn read_dirty_nodes(
     Ok(dirty_nodes(&target_body, graph, &sources))
 }
 
-/// The places a partial run on the node at `target` covers, in either scope, lowest first: the target and its ancestors,
-/// then the body of every covered loop, each node that joins bringing its own ancestors, until
-/// nothing joins. Each node joins once, and no descendant of the target joins, so a target inside a
-/// loop's body leaves the body after it out.
+/// The places a partial run on the node at `target` covers, in either scope, lowest first: the
+/// target and its ancestors, then the body of every covered loop, each node that joins bringing its
+/// own ancestors, until nothing joins. Each node joins once, and no descendant of the target joins,
+/// so a target inside a loop's body leaves the body after it out.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
@@ -464,8 +466,9 @@ fn dirty_nodes(
     dirty
 }
 
-/// The members of a node that decide what it runs, so a change to one dirties it; a rename, a notes edit or an `order` change
-/// leaves them as they were.
+/// The members of a node that decide what it runs, so a change to one dirties it; a rename, a notes
+/// edit or an `order` change leaves them as they were. Each is read as it behaves, so an absent
+/// member and its default compare equal.
 #[derive(PartialEq)]
 #[cfg_attr(
     not(test),
@@ -480,15 +483,15 @@ struct RunMembers<'node> {
     params: &'node JsonRecord,
     /// Whether it is switched off.
     is_disabled: bool,
-    /// What its failure does.
-    on_error: Option<WorkflowNodeOnError>,
-    /// Its retries.
+    /// What its failure does, `stop` where it names none.
+    on_error: WorkflowNodeOnError,
+    /// Its retries; `None` for one try, whether named or not.
     retry: Option<WorkflowNodeRetry>,
     /// Whether it runs once, over its first item only.
     is_executed_once: bool,
     /// Whether it outputs one empty item where it would output none.
     always_outputs_data: bool,
-    /// The inputs a trigger declares; `None` for another node.
+    /// The inputs a trigger declares, empty where it names none; `None` for another node.
     inputs: Option<&'node [WorkflowTriggerInput]>,
 }
 
@@ -504,8 +507,8 @@ fn run_members(node: &WorkflowVersionNode) -> RunMembers<'_> {
                 kind_version: $node.kind_version,
                 params: &$node.params,
                 is_disabled: $node.disabled == Some(true),
-                on_error: $node.on_error,
-                retry: $node.retry,
+                on_error: $node.on_error.unwrap_or(WorkflowNodeOnError::Stop),
+                retry: $node.retry.filter(|retry| retry.max_tries.get() > 1),
                 is_executed_once: $node.execute_once == Some(true),
                 always_outputs_data: $node.always_output_data == Some(true),
                 inputs: $inputs,
@@ -515,7 +518,15 @@ fn run_members(node: &WorkflowVersionNode) -> RunMembers<'_> {
     match node {
         WorkflowVersionNode::Node(node) => run_members_of!(node, None),
         WorkflowVersionNode::Trigger(trigger) => {
-            run_members_of!(trigger, trigger.inputs.as_ref().map(UniqueList::as_slice))
+            run_members_of!(
+                trigger,
+                Some(
+                    trigger
+                        .inputs
+                        .as_ref()
+                        .map_or(&[][..], UniqueList::as_slice)
+                )
+            )
         }
     }
 }

@@ -115,7 +115,7 @@ pub(crate) fn suspended_payload(
     let execution_index = step.execution_index;
     let wait_deadline_at = opened.deadline_at.clone();
     let wait_id = opened.wait_id;
-    let log_ref = Some(log_ref.clone());
+    let log_ref = log_ref.clone();
     match ask {
         PersonAsk::Approval { .. } => WorkflowPhaseSuspendedPayload::Approval {
             session_id,
@@ -170,8 +170,8 @@ pub(crate) struct PersonWaitPorts {
 impl PersonWaitPorts {
     /// Asks the person what `ask` asks for `step` in `scope`'s run, under `opened`'s wait id, after
     /// parking `admission`, the step's place at the memory gate, where it has one. Called once the
-    /// write that stored the wait committed; the question store keeps the wait id, so no question id
-    /// is answered. A failure fails the step uncoded, and the caller reports it.
+    /// write that stored the wait committed; the question store keeps the wait id, so no question
+    /// id is answered. A failure fails the step uncoded, and the caller reports it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn ask_person(
         &self,

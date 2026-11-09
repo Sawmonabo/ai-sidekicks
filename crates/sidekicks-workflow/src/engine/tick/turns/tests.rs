@@ -1,6 +1,8 @@
 use rstest::rstest;
 use rusqlite::params;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use tokio::time::timeout;
 
@@ -49,6 +51,56 @@ async fn a_three_step_run_commits_each_step_with_what_it_readied() {
         let (admitted, ..) = harness.event("workflow.phase.admitted", node_id);
         let (started, ..) = harness.event("workflow.phase.started", node_id);
         assert!(admitted < started, "{node_id} is admitted before it starts");
+    }
+}
+
+/// A step keeping a value above the cap under a name whose value is kept in an artifact deletes
+/// that artifact once its turn commits, and a delete the payload store refuses is recorded as a
+/// fault. Mutations: drop the tick's `remove_dropped` loop (nothing is deleted); drop its fault
+/// record (the refused case records nothing).
+#[rstest]
+#[case::deleted(false)]
+#[case::left_behind(true)]
+#[tokio::test]
+async fn a_replaced_kept_artifact_is_deleted_after_its_turn(#[case] is_refusing_deletes: bool) {
+    let mut harness = Harness::new(None).await;
+    if is_refusing_deletes {
+        harness.payloads.refuse_deletes();
+    }
+    let replaced = ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID");
+    let workflow_id = harness.scope.workflow_id.text();
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("K", "test.keep", 1, None),
+            ],
+            &[edge("trigger", "K", 0)],
+            vec![item(json!({}))],
+            |rows| {
+                rows.execute(
+                    "INSERT INTO workflow_node_state (definition_id, node_id, key, value_json, \
+                     artifact_id, kept_by_run_id, updated_at) \
+                     VALUES (?1, '', 'report', '{}', ?2, ?2, '2026-10-01T00:00:00.000Z')",
+                    params![workflow_id.as_str(), replaced.to_string()],
+                )
+                .expect("the test keeps a value in an artifact");
+            },
+        )
+        .await;
+
+    harness
+        .wait_until(|rows| step_column(rows, "K", "status").as_deref() == Some("succeeded"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    let faults = harness.record_lines("turnPayloadLeftBehind");
+    if is_refusing_deletes {
+        assert_eq!(harness.payloads.deletes(), []);
+        assert_eq!(faults.len(), 1);
+    } else {
+        assert_eq!(harness.payloads.deletes(), [replaced]);
+        assert_eq!(faults, Vec::<Map<String, Value>>::new());
     }
 }
 
@@ -257,8 +309,10 @@ async fn a_failed_turn_drops_its_run_and_deletes_its_payloads() {
 }
 
 /// A's output, its input passed on, is above the inline cap, and the store refuses every write
-/// past A's input; with no error route the failure parks the run. Mutations: the failure swallowed
-/// and the step left running; a re-report with no bound; a retry; a park that writes no run event.
+/// past A's input; with no error route the failure parks the run, and passed on, the input the
+/// failure passes on cannot be stored either, which ends the run. Mutations: the failure swallowed
+/// and the step left running; a re-report with no bound; a retry; a park or an end that writes no
+/// run event.
 #[rstest]
 #[case::no_on_error(None, 1)]
 #[case::continue_passes_on(Some("continue"), 2)]
@@ -313,19 +367,19 @@ async fn a_step_whose_payload_cannot_be_stored_fails_in_its_place(
         failed_events,
         ["workflow.phase.failed", "workflow.step.failed"]
     );
-    // With no error route the failure parks the run; passed on, the run goes on.
+    // With no error route the failure parks the run; passed on, the refused pass-on ends it.
     let run_failures: Vec<Value> = harness
         .events()
         .into_iter()
         .filter(|(_, event_type, _, _)| event_type == "workflow.run.failed")
         .map(|(_, _, _, payload)| payload["outcome"].clone())
         .collect();
-    let parks = if on_error.is_none() {
-        vec![json!("parked")]
+    let outcome = if on_error.is_none() {
+        "parked"
     } else {
-        Vec::new()
+        "ended"
     };
-    assert_eq!(run_failures, parks);
+    assert_eq!(run_failures, [json!(outcome)]);
     assert_eq!(
         harness.record_lines("settlementWriteFailed").len(),
         write_failures

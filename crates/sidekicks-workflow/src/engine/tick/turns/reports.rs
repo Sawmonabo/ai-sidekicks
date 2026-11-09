@@ -24,18 +24,18 @@ use crate::engine::tick::commit::{
 };
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
 use crate::engine::tick::step_failure::{
-    RunSibling, RunStop, SiblingState, SiblingStop, is_run_cap_failure, stop_siblings,
+    RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
 };
-use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+use crate::engine::tick::{ParkedAgentRun, StepReport, StepReportKind, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure};
 
 impl EngineTick {
     /// Offers `report` to the run's waves, then adds it to the turn and follows what a settlement
     /// answers; the run cap's failure goes to the run whichever step reported it, and a spent
-    /// account's reset at or past the run's cap deadline is dropped, so no resume is armed. A wave's
-    /// `branchesCanceled` is written whether or not its deciding step is live; a failed step's own
-    /// settlement after its cancel ends its wind-down, writing nothing; any other report of a step
-    /// that is not live, or is live and failed, is dropped.
+    /// account's reset at or past the run's cap deadline is dropped, so no resume is armed. A
+    /// wave's `branchesCanceled` is written whether or not its deciding step is live; a failed
+    /// step's own settlement after its cancel ends its wind-down, writing nothing; any other report
+    /// of a step that is not live, or is live and failed, is dropped.
     pub(super) async fn apply_report(
         &self,
         live: &mut LiveRun,
@@ -44,11 +44,11 @@ impl EngineTick {
     ) {
         let mut report = match report {
             StepReport {
+                step,
                 at,
-                kind: StepReportKind::Settled(StepSettlement::Failed { failure, log_lines }),
-                ..
-            } if is_run_cap_failure(&failure) => {
-                self.cap_run(live, turn, at, failure, log_lines).await;
+                kind: StepReportKind::RunCapped { limit_ms },
+            } => {
+                self.cap_run(live, turn, &step, at, limit_ms).await;
                 return;
             }
             report => report,
@@ -117,14 +117,16 @@ impl EngineTick {
                 }
                 None
             }
-            StepReportKind::ResumeDue => {
-                self.resume_account_park(live, turn, report.step, report.at)
+            StepReportKind::ResumeDue { resume_at } => {
+                let resume_at = resume_at.clone();
+                self.resume_account_park(live, turn, report.step, report.at, resume_at)
                     .await;
                 return;
             }
             StepReportKind::Started { .. }
             | StepReportKind::Progressed
-            | StepReportKind::BranchesCanceled { .. } => None,
+            | StepReportKind::BranchesCanceled { .. }
+            | StepReportKind::RunCapped { .. } => None,
         };
         let step = report.step.clone();
         turn.commit
@@ -272,7 +274,10 @@ impl EngineTick {
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
             SettlementAnswer::End { error } => {
-                live.ending.get_or_insert(RunEnding::Failed { error });
+                live.ending.get_or_insert(RunEnding::Failed {
+                    step: step.clone(),
+                    error,
+                });
                 self.stop_run(live, turn, step, &at, RunStop::End).await;
             }
             SettlementAnswer::PersonWait {
@@ -289,24 +294,26 @@ impl EngineTick {
                     is_point_taken: false,
                 });
             }
-            SettlementAnswer::AccountSpent { run, resume_at } => {
-                live.wait_on_account(step.execution_index.get(), run, resume_at);
+            SettlementAnswer::AccountSpent { parked, resume_at } => {
+                live.wait_on_account(step.execution_index.get(), parked, resume_at);
             }
         }
     }
 
-    /// Resumes `step` of `live` from its spent account at `at`, as its armed resume coming due
-    /// does, only while it still waits on the account, is not winding down and its run's ending is
-    /// undecided; else nothing is written. A failed park beside it does not hold it back, since
-    /// its attempt is in flight. Its row goes back to `running` in the turn's write, its resume is
-    /// disarmed, it takes a fresh cancel, a child of the run's, and its kept agent run waits on
-    /// the turn, taken again once the write commits.
+    /// Resumes `step` of `live` from its spent account at `at`, as its resume armed at `resume_at`
+    /// coming due does, only while it still waits on the account with that resume armed, is not
+    /// winding down and its run's ending is undecided; else nothing is written, so a second report
+    /// of a resume the step has since parked past is dropped. A failed park beside it does not hold
+    /// it back, since its attempt is in flight. Its row goes back to `running` in the turn's write,
+    /// its resume is disarmed, it takes a fresh cancel, a child of the run's, and its kept agent
+    /// run waits on the turn, taken again once the write commits.
     pub(super) async fn resume_account_park(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
         step: WorkflowStepKey,
         at: WireInstant,
+        resume_at: WireInstant,
     ) {
         let execution_index = step.execution_index.get();
         let is_parked = live.ending.is_none()
@@ -314,6 +321,7 @@ impl EngineTick {
                 live_step.status == WorkflowStepStatus::Waiting
                     && live_step.wait_cause == Some(WorkflowWaitCause::Account)
                     && !live_step.is_winding_down
+                    && live_step.resume_at.as_ref() == Some(&resume_at)
             });
         if !is_parked {
             return;
@@ -321,7 +329,7 @@ impl EngineTick {
         let resumed = StepReport {
             step: step.clone(),
             at,
-            kind: StepReportKind::ResumeDue,
+            kind: StepReportKind::ResumeDue { resume_at },
         };
         turn.commit
             .report(resumed, self.reported(live, &step))
@@ -334,11 +342,11 @@ impl EngineTick {
             .get_mut(&execution_index)
             .expect("a resumed step is live");
         live_step.cancel = Some(cancel);
-        let run = live_step
+        let parked = live_step
             .parked_agent_run
             .take()
             .expect("a step waiting on its spent account keeps its run");
-        turn.resumes.push((step, run));
+        turn.resumes.push((step, parked));
     }
 
     /// Hands each of `resumes`, a step of `live` whose resume the turn's write just committed,
@@ -346,9 +354,9 @@ impl EngineTick {
     pub(super) fn resume_parked(
         &self,
         live: &LiveRun,
-        resumes: Vec<(WorkflowStepKey, Box<dyn AgentStepRun>)>,
+        resumes: Vec<(WorkflowStepKey, ParkedAgentRun)>,
     ) {
-        for (step, run) in resumes {
+        for (step, parked) in resumes {
             let live_step = live
                 .steps
                 .get(&step.execution_index.get())
@@ -358,7 +366,7 @@ impl EngineTick {
                 .clone()
                 .expect("a resumed step holds its cancel");
             self.dispatch
-                .resume_agent_step(&live.scope, step, &live_step.inputs, run, cancel);
+                .resume_agent_step(&live.scope, step, &live_step.inputs, parked, cancel);
         }
     }
 
@@ -600,7 +608,8 @@ pub(super) async fn cancel_now(
     let parked = live
         .steps
         .get_mut(&step.execution_index.get())
-        .and_then(|live_step| live_step.parked_agent_run.take());
+        .and_then(|live_step| live_step.parked_agent_run.take())
+        .map(|parked| parked.run);
     stop_agent_run(live, &step, parked).await;
     turn.follow_ups.push_back(StepReport {
         step,

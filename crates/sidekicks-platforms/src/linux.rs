@@ -2,15 +2,14 @@
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
 //! process's files under `/proc` and the fields of its stat file, a local connection's caller
 //! pinned, the bounds on a program's argument and on its environment's entries and total, a
-//! process's memory and the machine's available
-//! memory, one user's processes and the arguments and environment a process started with, an open
-//! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
-//! waits for input, the daemon's process containment and its shell start's writer check, a session
-//! child's start, whether the machine runs on AC power, the machine's wakes from sleep, a
-//! wall-clock timer, an address's opening in the application registered for it and whether a
-//! browser opened from the process reaches its person, whether the kernel is WSL's, the mark on a
-//! running program's path once its file is replaced, the volume holding a path: its top and its id,
-//! and the shells the live test opens on a folder.
+//! process's memory and the machine's available memory, one user's processes and the arguments and
+//! environment a process started with, an open descriptor's path, the wakes of a folder's and a
+//! file's watch, whether a terminal's program waits for input, the daemon's process containment and
+//! its shell start's writer check, a session child's start, whether the machine runs on AC power,
+//! the machine's wakes from sleep, a wall-clock timer, an address's opening in the application
+//! registered for it and whether a browser opened from the process reaches its person, whether the
+//! kernel is WSL's, the mark on a running program's path once its file is replaced, the volume
+//! holding a path: its top and its id, and the shells the live test opens on a folder.
 
 pub(crate) mod address_opening;
 pub(crate) mod caller_process;
@@ -132,10 +131,11 @@ pub fn read_command_argument_limit() -> io::Result<usize> {
 
 /// The environment bounds on Linux, in bytes: 32 pages for one `NAME=value` entry, its NUL counted
 /// (`MAX_ARG_STRLEN`, past which the kernel refuses the start with `E2BIG`), and
-/// `sysconf(_SC_ARG_MAX)` for the whole start, glibc's `MIN(MAX(128 KiB, RLIMIT_STACK / 4), 6 MiB)`,
-/// from which the kernel also takes a pointer per argument and entry; the caller subtracts what the
-/// start already carries. On 64 KiB pages one entry's bound can pass the total, which the total's
-/// own check catches. Fails as the page-size and argument-space reads do.
+/// `sysconf(_SC_ARG_MAX)` for the whole start, glibc's
+/// `MIN(MAX(128 KiB, RLIMIT_STACK / 4), 6 MiB)`, from which the kernel also takes a pointer per
+/// argument and entry; the caller subtracts what the start already carries. On 64 KiB pages one
+/// entry's bound can pass the total, which the total's own check catches. Fails as the page-size
+/// and argument-space reads do.
 pub fn read_environment_value_limits() -> io::Result<EnvironmentValueLimits> {
     Ok(EnvironmentValueLimits {
         per_value: read_command_argument_limit()?,

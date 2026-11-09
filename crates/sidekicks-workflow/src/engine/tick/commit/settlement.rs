@@ -30,10 +30,10 @@ use super::{
 };
 use crate::definitions::kept_values::kept_value_statements;
 use crate::engine::event_record::StepEnding;
-use crate::engine::tick::StepSettlement;
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::run_status::whole_milliseconds_between;
 use crate::engine::tick::step_failure::{StepFailureRoute, route_step_failure, step_failure_error};
+use crate::engine::tick::{ParkedAgentRun, StepSettlement};
 use crate::engine::waits::{open_person_wait, suspended_payload};
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonAsk, PersonWait, StepFailure};
@@ -135,6 +135,7 @@ impl RunTurnCommit {
                 provider_account_id,
                 resets_at,
                 run,
+                records,
             } => {
                 self.statements.push(wait_step_on_account(
                     &step,
@@ -163,7 +164,7 @@ impl RunTurnCommit {
                     },
                 ));
                 Ok(SettlementAnswer::AccountSpent {
-                    run,
+                    parked: ParkedAgentRun { run, records },
                     resume_at: resets_at,
                 })
             }
@@ -258,13 +259,14 @@ impl RunTurnCommit {
         if let Some(kept_write) = kept_value_statements(
             self.keys.definition_id,
             step.workflow_run_id,
-            kept.iter().map(|(name, variable, reference)| {
-                (*name, reference.as_ref().unwrap_or(&variable.value))
+            kept.iter().map(|(name, variable, kept_in)| match kept_in {
+                Some((reference, artifact_id)) => (*name, reference, Some(*artifact_id)),
+                None => (*name, &variable.value, None),
             }),
             at,
         ) {
-            self.dropped_reads
-                .push(self.statements.len() + kept_write.dropped_read);
+            self.kept_reads
+                .extend_at(self.statements.len(), kept_write.reads);
             self.statements.extend(kept_write.statements);
         }
         let session_id = self.keys.session_id;
@@ -330,10 +332,16 @@ impl RunTurnCommit {
                     error: None,
                 };
                 let reference = self.write_payload(step, &[item], written).await?;
-                Some(
+                let artifact_id = match &reference {
+                    WorkflowPayloadRef::Artifact { artifact_id, .. } => Some(*artifact_id),
+                    WorkflowPayloadRef::Inline { .. } => None,
+                }
+                .expect("a value above the inline cap is written as an artifact");
+                Some((
                     serde_json::to_value(&reference)
                         .expect("a payload ref writes as JSON, its items being JSON values"),
-                )
+                    artifact_id,
+                ))
             };
             kept.push((name.as_str(), variable, reference));
         }
@@ -486,11 +494,15 @@ impl RunTurnCommit {
 }
 
 /// A completed step's output ref, its log ref, and each variable it keeps by name beside the
-/// reference JSON a value above the inline cap is kept as.
+/// reference JSON a value above the inline cap is kept as and the artifact that names.
 type CompletedPayloads<'variables> = (
     WorkflowPayloadRef,
     WorkflowPayloadRef,
-    Vec<(&'variables str, &'variables StepRunVariable, Option<Value>)>,
+    Vec<(
+        &'variables str,
+        &'variables StepRunVariable,
+        Option<(Value, ArtifactId)>,
+    )>,
 );
 
 /// The `workflow.phase.suspended` of `step` waiting on the spent account `provider_account_id`,

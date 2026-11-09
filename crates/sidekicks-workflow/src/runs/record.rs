@@ -140,6 +140,19 @@ pub fn finished_run_condition(alias: &str) -> String {
     )
 }
 
+/// The SQL condition that holds while the question of the chain whose first run's id is the SQL
+/// expression `root` waits: a run of that chain holds a step waiting on the chain.
+pub fn chain_question_waiting_condition(root: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM workflow_runs AS chain_run
+    JOIN workflow_steps AS chain_step ON chain_step.workflow_run_id = chain_run.id
+    WHERE chain_run.chain_root_run_id = {root}
+      AND chain_step.status = '{waiting}' AND chain_step.wait_cause = '{chain}')",
+        waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
+        chain = <&'static str>::from(WorkflowWaitCause::Chain),
+    )
+}
+
 // Ends a run not yet finished: its status, end and error, and its open wait on people closed by
 // adding the whole milliseconds from that wait's start to the end, never fewer than 0. The stored
 // instants carry whole milliseconds, so the rounded difference is exact.

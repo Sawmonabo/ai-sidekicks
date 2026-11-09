@@ -56,8 +56,8 @@ pub(crate) enum StepPayloadWriteError {
 }
 
 /// `items`, a payload of `step` in `session_id`, as the reference its row stores: inline at or
-/// under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, else stored through `payloads` as one
-/// artifact. Fails as [`StepPayloadWriteError`] says, with nothing stored.
+/// under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, else stored through `payloads` as
+/// one artifact. Fails as [`StepPayloadWriteError`] says, with nothing stored.
 pub(crate) async fn write_step_payload(
     payloads: &dyn StepPayloadArtifacts,
     session_id: SessionId,
@@ -102,6 +102,14 @@ pub(crate) enum StepPayloadReadError {
     /// The artifact's bytes do not read as items.
     #[error("the step's stored payload does not read as items")]
     Json(#[source] serde_json::Error),
+    /// The artifact holds another number of items than its reference records.
+    #[error("the step's stored payload records {recorded} items but holds {held}")]
+    ItemCountMismatch {
+        /// The items the reference records.
+        recorded: u64,
+        /// The items the artifact holds.
+        held: usize,
+    },
     /// The output item counts do not add up to the items the payload holds.
     #[error("the step's output counts add up to {counted} items but its payload holds {held}")]
     CountsMismatch {
@@ -113,11 +121,15 @@ pub(crate) enum StepPayloadReadError {
 }
 
 /// The items `payload_ref` holds: an inline payload's own, or an artifact's read through
-/// `payloads` as JSON. Fails as [`StepPayloadReadError::Artifact`] or
-/// [`StepPayloadReadError::Json`] says.
-#[expect(
-    dead_code,
-    reason = "the start of a partial run and the restart's loader"
+/// `payloads` as JSON, which must hold the item count its reference records. Fails as
+/// [`StepPayloadReadError::Artifact`], [`StepPayloadReadError::Json`] or
+/// [`StepPayloadReadError::ItemCountMismatch`] says.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start of a partial run and the restart's loader"
+    )
 )]
 pub(crate) async fn read_step_payload(
     payloads: &dyn StepPayloadArtifacts,
@@ -125,12 +137,24 @@ pub(crate) async fn read_step_payload(
 ) -> Result<Vec<WorkflowItem>, StepPayloadReadError> {
     match payload_ref {
         WorkflowPayloadRef::Inline { items } => Ok(items.clone()),
-        WorkflowPayloadRef::Artifact { artifact_id, .. } => {
+        WorkflowPayloadRef::Artifact {
+            artifact_id,
+            item_count,
+            ..
+        } => {
             let bytes = payloads
                 .read(artifact_id)
                 .await
                 .map_err(StepPayloadReadError::Artifact)?;
-            serde_json::from_slice(&bytes).map_err(StepPayloadReadError::Json)
+            let items: Vec<WorkflowItem> =
+                serde_json::from_slice(&bytes).map_err(StepPayloadReadError::Json)?;
+            if SafeInt::from_usize(items.len()) != *item_count {
+                return Err(StepPayloadReadError::ItemCountMismatch {
+                    recorded: item_count.get(),
+                    held: items.len(),
+                });
+            }
+            Ok(items)
         }
     }
 }
@@ -302,18 +326,28 @@ mod tests {
     use rstest::rstest;
     use rusqlite::params;
     use serde_json::json;
+    use sidekicks_contracts::artifacts::id::ArtifactId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+    use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
     use sidekicks_contracts::workflow::run::step::methods::WorkflowStepReadRequest;
+    use sidekicks_contracts::workflow::run::step::record::{
+        WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP, WorkflowPayloadRef, WorkflowStepKey,
+    };
 
     use super::{
         StepPayloadReadError, WorkflowStepPayloadError, WorkflowStepPayloadReader,
         decode_step_payload_cursor, encode_step_payload_cursor, join_step_outputs,
-        split_step_outputs,
+        read_step_payload, split_step_outputs, write_step_payload,
     };
+    use crate::engine::ports::kept_payloads::KeptPayloads;
     use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
     use crate::test_rows::{
-        TEST_NODE_ID, TestStep, insert_run, insert_step, insert_workflow_version, workflow_tables,
+        TEST_NODE_ID, TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
+        test_node_id, workflow_tables,
     };
 
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
@@ -337,6 +371,60 @@ mod tests {
         let joined = join_step_outputs(&outputs).into_owned();
         let split = split_step_outputs(joined, &[2, 0, 1]).expect("the counts add up");
         assert_eq!(split, outputs);
+    }
+
+    /// A payload over the inline cap is written as an artifact and read back to the same items, and
+    /// an artifact holding another count than its reference records, or one the store does not
+    /// hold, is refused. Mutations: drop the item-count check (the short reference reads back);
+    /// answer an artifact's read refusal as no items (the unknown artifact reads back).
+    #[tokio::test]
+    async fn an_artifact_payload_reads_back_to_the_items_it_records() {
+        let payloads = KeptPayloads::default();
+        let step = WorkflowStepKey {
+            workflow_run_id: WorkflowRunId::new(RUN_ID).expect("the test's run id"),
+            node_id: test_node_id(TEST_NODE_ID),
+            attempt: SafeInt::new(1).expect("a first attempt"),
+            execution_index: SafeInt::ZERO,
+        };
+        let large = "x".repeat(WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP);
+        let written: Vec<WorkflowItem> = (0..2)
+            .map(|_| serde_json::from_value(json!({ "json": large })).expect("the item reads"))
+            .collect();
+        let session_id = SessionId::new(TEST_SESSION_ID).expect("the test's session id");
+        let reference = write_step_payload(&payloads, session_id, &step, &written)
+            .await
+            .expect("the payload is stored");
+        let WorkflowPayloadRef::Artifact {
+            artifact_id,
+            size_bytes,
+            ..
+        } = reference
+        else {
+            panic!("a payload over the cap is stored as an artifact");
+        };
+        let read = read_step_payload(&payloads, &reference).await;
+        assert_eq!(read.expect("the artifact reads back"), written);
+        let short = WorkflowPayloadRef::Artifact {
+            artifact_id,
+            size_bytes,
+            item_count: SafeInt::from_usize(1),
+        };
+        assert!(matches!(
+            read_step_payload(&payloads, &short).await,
+            Err(StepPayloadReadError::ItemCountMismatch {
+                recorded: 1,
+                held: 2
+            })
+        ));
+        let unknown = WorkflowPayloadRef::Artifact {
+            artifact_id: ArtifactId::try_from(mint_uuid_v7()).expect("a minted artifact id"),
+            size_bytes,
+            item_count: SafeInt::from_usize(2),
+        };
+        assert!(matches!(
+            read_step_payload(&payloads, &unknown).await,
+            Err(StepPayloadReadError::Artifact(_))
+        ));
     }
 
     /// Mutation: drop `split_step_outputs`' `counted != held` check, so a stored count that

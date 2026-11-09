@@ -412,6 +412,8 @@ CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
   WHERE wait_id IS NOT NULL;
+-- A partial run's plan reads each node's newest settled step, newest end first.
+CREATE INDEX idx_workflow_steps_node_finished ON workflow_steps(node_id, finished_at);
 
 -- ---------------------------------------------------------------------------
 -- workflow_triggers: one row per armed trigger.
@@ -460,10 +462,14 @@ CREATE TABLE workflow_node_state (
   key               TEXT NOT NULL,                 -- a cursor's key, or a kept value's name
   value_json        TEXT NOT NULL
                     CHECK(json_valid(value_json)),
+  -- The payload artifact a kept value above the inline cap is kept in, whose reference
+  -- value_json then holds; NULL for a value kept inline and for trigger cursor state.
+  artifact_id       TEXT,
   kept_by_run_id    TEXT,                          -- NULL for trigger cursor state
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (definition_id, node_id, key),
-  CHECK(kept_by_run_id IS NULL OR node_id = '')
+  CHECK(kept_by_run_id IS NULL OR node_id = ''),
+  CHECK(artifact_id IS NULL OR kept_by_run_id IS NOT NULL)
 ) STRICT;
 
 -- ---------------------------------------------------------------------------

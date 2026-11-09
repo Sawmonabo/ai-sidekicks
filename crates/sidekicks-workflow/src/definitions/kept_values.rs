@@ -1,14 +1,14 @@
 //! The values a `Keep for later runs` step keeps for its workflow, one per name, which later runs
 //! read as `$vars`. They belong to the workflow, not to a version, and sit in `workflow_node_state`
 //! under the empty node id. A value above the inline cap is kept as the reference to a one-item
-//! payload artifact, which the read resolves back to the value.
+//! payload artifact, whose id its row's `artifact_id` names and which the read resolves back to
+//! the value.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, named_params};
-use serde::Deserialize as _;
 use serde_json::Value;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -17,7 +17,6 @@ use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::kept_values::WorkflowKeptValueClearResponse;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -25,7 +24,9 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, json_list_binding, text_binding,
 };
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::stored_column::{
+    optional_text_column, returned_parsed, text_column,
+};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::definitions::library::created_definition_statement;
@@ -35,31 +36,32 @@ use crate::not_found::WorkflowNotFound;
 /// The statements the store's reads run: a workflow's kept values.
 pub const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
 
-const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, kept_by_run_id, updated_at
+const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, artifact_id, kept_by_run_id,
+    updated_at
   FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = '' ORDER BY key";
 
 // A kept value replaces the one its name held, whichever run kept that. A deleted workflow keeps
 // nothing and refuses nothing, so a late step of its run still commits its turn; the WHERE also
 // keeps SQLite from reading the conflict clause as a join's.
 const UPSERT_KEPT_VALUE_SQL: &str = "INSERT INTO workflow_node_state
-    (definition_id, node_id, key, value_json, kept_by_run_id, updated_at)
-  SELECT @definition_id, '', @key, @value_json, @kept_by_run_id, @updated_at
+    (definition_id, node_id, key, value_json, artifact_id, kept_by_run_id, updated_at)
+  SELECT @definition_id, '', @key, @value_json, @artifact_id, @kept_by_run_id, @updated_at
   WHERE EXISTS (
     SELECT 1 FROM workflow_definitions WHERE id = @definition_id AND deleted_at IS NULL
   )
   ON CONFLICT (definition_id, node_id, key) DO UPDATE SET
     value_json = excluded.value_json,
+    artifact_id = excluded.artifact_id,
     kept_by_run_id = excluded.kept_by_run_id,
     updated_at = excluded.updated_at";
 
 const DELETE_KEPT_VALUES_SQL: &str =
     "DELETE FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = ''";
 
-// The stored value of each kept name `@keys` lists, or of every name when it is NULL, that holds
-// an artifact's reference; a write that drops those values reads it first, inside itself.
-const DROPPED_KEPT_ARTIFACTS_SQL: &str = "SELECT value_json FROM workflow_node_state
-  WHERE definition_id = @definition_id AND node_id = ''
-    AND json_extract(value_json, '$.kind') = 'artifact'
+// The artifact of each kept name `@keys` lists, or of every name when it is NULL, that is kept in
+// one; a write that drops those values reads it first, inside itself.
+const DROPPED_KEPT_ARTIFACTS_SQL: &str = "SELECT artifact_id FROM workflow_node_state
+  WHERE definition_id = @definition_id AND node_id = '' AND artifact_id IS NOT NULL
     AND (@keys IS NULL OR key IN (SELECT value FROM json_each(@keys)))";
 
 /// One value a workflow keeps: its name, the value, the run that kept it and when.
@@ -140,8 +142,46 @@ impl From<WorkflowKeptValueError> for HandlerError {
 pub(crate) struct KeptValueWrite {
     /// The statements, in write order.
     pub(crate) statements: Vec<WriteStatement>,
-    /// The index among `statements` of the read whose result [`dropped_artifact_ids`] decodes.
-    pub(crate) dropped_read: usize,
+    /// Where among `statements` the results name the artifacts no row names once the write commits.
+    pub(crate) reads: KeptArtifactReads,
+}
+
+/// Where a write's statement results name the kept-value artifacts no row names once it commits:
+/// each read of the artifacts its dropped values name, and each keep of a value in a new artifact,
+/// whose row a deleted workflow does not take. Indices count among the write's statements.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct KeptArtifactReads {
+    dropped_reads: Vec<usize>,
+    kept_artifacts: Vec<(usize, ArtifactId)>,
+}
+
+impl KeptArtifactReads {
+    /// Adds `reads`, whose indices count from a statement placed at `offset` in this write.
+    pub(crate) fn extend_at(&mut self, offset: usize, reads: KeptArtifactReads) {
+        self.dropped_reads
+            .extend(reads.dropped_reads.into_iter().map(|read| offset + read));
+        self.kept_artifacts.extend(
+            reads
+                .kept_artifacts
+                .into_iter()
+                .map(|(keep, artifact_id)| (offset + keep, artifact_id)),
+        );
+    }
+
+    /// The artifacts the committed write's `results` leave no row naming: each one a dropped
+    /// value named, and each one a value was written to whose row was not kept.
+    pub(crate) fn unnamed_artifact_ids(&self, results: &[StatementResult]) -> Vec<ArtifactId> {
+        let unkept = self
+            .kept_artifacts
+            .iter()
+            .filter(|(keep, _)| results[*keep].row_count == 0)
+            .map(|(_, artifact_id)| *artifact_id);
+        self.dropped_reads
+            .iter()
+            .flat_map(|&read| dropped_artifact_ids(&results[read]))
+            .chain(unkept)
+            .collect()
+    }
 }
 
 /// The statements that delete every value a workflow keeps, for a clear or a delete to run in
@@ -159,14 +199,16 @@ pub(crate) fn clear_kept_values_statements(definition_id: WorkflowDefinitionId) 
                 expected_row_count: None,
             },
         ],
-        dropped_read: 0,
+        reads: KeptArtifactReads {
+            dropped_reads: vec![0],
+            kept_artifacts: Vec::new(),
+        },
     }
 }
 
-/// The read, run inside a write before it drops kept values, of the stored reference of each value
-/// the workflow `definition_id` keeps under one of `keys`, or under any name for `None`, that names
-/// an artifact.
-pub(crate) fn dropped_kept_artifacts_statement(
+/// The read, run inside a write before it drops kept values, of the artifact of each value the
+/// workflow `definition_id` keeps under one of `keys`, or under any name for `None`, kept in one.
+fn dropped_kept_artifacts_statement(
     definition_id: WorkflowDefinitionId,
     keys: Option<&[&str]>,
 ) -> WriteStatement {
@@ -183,21 +225,14 @@ pub(crate) fn dropped_kept_artifacts_statement(
     }
 }
 
-/// The artifact each row of a committed [`dropped_kept_artifacts_statement`] names; a value that
-/// only looks like a reference is skipped, as a read of the kept values skips it.
-pub(crate) fn dropped_artifact_ids(result: &StatementResult) -> Vec<ArtifactId> {
+// The artifact each row of a committed `dropped_kept_artifacts_statement` names.
+fn dropped_artifact_ids(result: &StatementResult) -> Vec<ArtifactId> {
     result
         .rows
         .iter()
-        .filter_map(|row| {
-            let text = if let Some(SqlValue::Text(text)) = row.first() {
-                Some(text)
-            } else {
-                None
-            }
-            .expect("the read answers each value's stored text");
-            let value = serde_json::from_str(text).expect("a kept value is stored as JSON");
-            kept_artifact_id(&value)
+        .map(|row| {
+            returned_parsed(row, 0, ArtifactId::new)
+                .expect("the read answers each dropped value's artifact id, stored whole")
         })
         .collect()
 }
@@ -221,42 +256,63 @@ pub(crate) async fn remove_dropped(
 /// The write that keeps each of `values`, by name, for the workflow `definition_id` from the run
 /// `run_id` at `kept_at`, each replacing the value its name held, after the read of the artifacts
 /// the replaced values name; a value above the inline cap is passed as the JSON of its payload
-/// reference. `None` for no value. A deleted workflow keeps none of them, and none refuses the
-/// write it rides.
+/// reference beside the artifact it names. `None` for no value. A deleted workflow keeps none of
+/// them, and none refuses the write it rides.
 pub(crate) fn kept_value_statements<'value>(
     definition_id: WorkflowDefinitionId,
     run_id: WorkflowRunId,
-    values: impl IntoIterator<Item = (&'value str, &'value Value)>,
+    values: impl IntoIterator<Item = (&'value str, &'value Value, Option<ArtifactId>)>,
     kept_at: &WireInstant,
 ) -> Option<KeptValueWrite> {
-    let values: Vec<(&str, &Value)> = values.into_iter().collect();
+    let values: Vec<(&str, &Value, Option<ArtifactId>)> = values.into_iter().collect();
     if values.is_empty() {
         return None;
     }
-    let names: Vec<&str> = values.iter().map(|(name, _)| *name).collect();
+    let names: Vec<&str> = values.iter().map(|(name, _, _)| *name).collect();
+    // Each keep follows the read, so the one at `place` is statement `place + 1`.
+    let kept_artifacts = values
+        .iter()
+        .zip(1..)
+        .filter_map(|((_, _, artifact_id), keep)| {
+            artifact_id.map(|artifact_id| (keep, artifact_id))
+        })
+        .collect();
     let definition_text = definition_id.text();
     let run_text = run_id.text();
     let mut statements = vec![dropped_kept_artifacts_statement(
         definition_id,
         Some(&names),
     )];
-    statements.extend(values.into_iter().map(|(name, value)| WriteStatement {
-        sql: Cow::Borrowed(UPSERT_KEPT_VALUE_SQL),
-        bindings: StatementBindings::Named(vec![
-            text_binding("@definition_id", definition_text.as_str()),
-            text_binding("@key", name),
-            (
-                Cow::Borrowed("@value_json"),
-                SqlValue::Text(value.to_string()),
-            ),
-            text_binding("@kept_by_run_id", run_text.as_str()),
-            text_binding("@updated_at", kept_at.as_str()),
-        ]),
-        expected_row_count: None,
-    }));
+    statements.extend(
+        values
+            .into_iter()
+            .map(|(name, value, artifact_id)| WriteStatement {
+                sql: Cow::Borrowed(UPSERT_KEPT_VALUE_SQL),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@definition_id", definition_text.as_str()),
+                    text_binding("@key", name),
+                    (
+                        Cow::Borrowed("@value_json"),
+                        SqlValue::Text(value.to_string()),
+                    ),
+                    (
+                        Cow::Borrowed("@artifact_id"),
+                        artifact_id.map_or(SqlValue::Null, |artifact_id| {
+                            SqlValue::Text(artifact_id.to_string())
+                        }),
+                    ),
+                    text_binding("@kept_by_run_id", run_text.as_str()),
+                    text_binding("@updated_at", kept_at.as_str()),
+                ]),
+                expected_row_count: None,
+            }),
+    );
     Some(KeptValueWrite {
         statements,
-        dropped_read: 0,
+        reads: KeptArtifactReads {
+            dropped_reads: vec![0],
+            kept_artifacts,
+        },
     })
 }
 
@@ -298,21 +354,35 @@ impl WorkflowKeptValueStore {
     }
 
     /// Every value the workflow keeps, by name, each kept as an artifact read back to its value.
-    /// Fails with [`WorkflowKeptValueError::Database`] or [`WorkflowKeptValueError::Pool`] when
-    /// the read does, and with [`WorkflowKeptValueError::Payload`] or
+    /// A run may replace a value and remove its artifact between the read of the rows and the read
+    /// of the artifact, so an artifact that does not read sends the read round once more. Fails
+    /// with [`WorkflowKeptValueError::Database`] or [`WorkflowKeptValueError::Pool`] when the read
+    /// does, and with [`WorkflowKeptValueError::Payload`] or
     /// [`WorkflowKeptValueError::PayloadItem`] when an artifact does not read.
     pub(crate) async fn read(
         &self,
         definition_id: WorkflowDefinitionId,
     ) -> Result<Vec<WorkflowKeptValue>, WorkflowKeptValueError> {
-        let mut kept_values = self
+        match self.read_once(definition_id).await {
+            Err(WorkflowKeptValueError::Payload(_)) => self.read_once(definition_id).await,
+            read => read,
+        }
+    }
+
+    // The workflow's kept values as its rows stand now, each kept as an artifact read back.
+    async fn read_once(
+        &self,
+        definition_id: WorkflowDefinitionId,
+    ) -> Result<Vec<WorkflowKeptValue>, WorkflowKeptValueError> {
+        let rows = self
             .pool
             .read(ReadLength::Short, move |connection| {
                 Ok::<_, WorkflowKeptValueError>(read_kept_values(connection, definition_id)?)
             })
             .await?;
-        for kept_value in &mut kept_values {
-            if let Some(artifact_id) = kept_artifact_id(&kept_value.value) {
+        let mut kept_values = Vec::with_capacity(rows.len());
+        for (mut kept_value, artifact_id) in rows {
+            if let Some(artifact_id) = artifact_id {
                 let bytes = self
                     .payloads
                     .read(&artifact_id)
@@ -322,6 +392,7 @@ impl WorkflowKeptValueStore {
                     .map_err(WorkflowKeptValueError::PayloadItem)?;
                 kept_value.value = item.json.0;
             }
+            kept_values.push(kept_value);
         }
         Ok(kept_values)
     }
@@ -335,8 +406,10 @@ impl WorkflowKeptValueStore {
         definition_id: WorkflowDefinitionId,
     ) -> Result<WorkflowKeptValueClearResponse, WorkflowKeptValueError> {
         let clear = clear_kept_values_statements(definition_id);
-        // The clear's statements follow the check that the workflow was created.
-        let dropped_read = 1 + clear.dropped_read;
+        // The clear's statements follow the check that the workflow was created: its read, then
+        // its delete.
+        let mut reads = KeptArtifactReads::default();
+        reads.extend_at(1, clear.reads);
         let mut statements = vec![created_definition_statement(definition_id)];
         statements.extend(clear.statements);
         let results = match self.writer.write(statements).await {
@@ -346,20 +419,15 @@ impl WorkflowKeptValueStore {
             }
             Err(error) => return Err(error.into()),
         };
-        // A committed write answers each of its statements, the clear right after its read.
         let cleared = WorkflowKeptValueClearResponse {
             definition_id,
             cleared_count: SafeInt::new(
-                u64::try_from(results[dropped_read + 1].row_count)
-                    .expect("a row count fits in 64 bits"),
+                u64::try_from(results[2].row_count).expect("a row count fits in 64 bits"),
             )
             .expect("a row count is a safe integer"),
         };
-        let left_behind = remove_dropped(
-            &*self.payloads,
-            &dropped_artifact_ids(&results[dropped_read]),
-        )
-        .await;
+        let left_behind =
+            remove_dropped(&*self.payloads, &reads.unnamed_artifact_ids(&results)).await;
         if left_behind.is_empty() {
             Ok(cleared)
         } else {
@@ -371,32 +439,25 @@ impl WorkflowKeptValueStore {
     }
 }
 
-// The artifact a stored value names when it was kept as a payload reference, told apart by the
-// reference's shape.
-fn kept_artifact_id(value: &Value) -> Option<ArtifactId> {
-    if value.get("kind").and_then(Value::as_str) != Some("artifact") {
-        return None;
-    }
-    match WorkflowPayloadRef::deserialize(value) {
-        Ok(WorkflowPayloadRef::Artifact { artifact_id, .. }) => Some(artifact_id),
-        Ok(WorkflowPayloadRef::Inline { .. }) | Err(_) => None,
-    }
-}
-
+// Each value the workflow keeps as its row stores it, beside the artifact it is kept in, if any.
 fn read_kept_values(
     connection: &Connection,
     definition_id: WorkflowDefinitionId,
-) -> rusqlite::Result<Vec<WorkflowKeptValue>> {
+) -> rusqlite::Result<Vec<(WorkflowKeptValue, Option<ArtifactId>)>> {
     let mut statement = connection.prepare_cached(SELECT_KEPT_VALUES_SQL)?;
     let rows = statement.query_map(
         named_params! { "@definition_id": definition_id.text().as_str() },
         |row| {
-            Ok(WorkflowKeptValue {
-                name: row.get(0)?,
-                value: text_column(row, 1, |text| serde_json::from_str(&text))?,
-                kept_by_run_id: text_column(row, 2, |text| WorkflowRunId::new(&text))?,
-                kept_at: text_column(row, 3, WireInstant::try_from)?,
-            })
+            let artifact_id = optional_text_column(row, 2, |text| ArtifactId::new(&text))?;
+            Ok((
+                WorkflowKeptValue {
+                    name: row.get(0)?,
+                    value: text_column(row, 1, |text| serde_json::from_str(&text))?,
+                    kept_by_run_id: text_column(row, 3, |text| WorkflowRunId::new(&text))?,
+                    kept_at: text_column(row, 4, WireInstant::try_from)?,
+                },
+                artifact_id,
+            ))
         },
     )?;
     rows.collect()
@@ -421,7 +482,7 @@ mod tests {
 
     use super::{
         WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueError,
-        WorkflowKeptValueStore, dropped_artifact_ids, kept_value_statements, remove_dropped,
+        WorkflowKeptValueStore, kept_value_statements, remove_dropped,
     };
     use crate::engine::ports::StepPayloadArtifacts;
     use crate::engine::ports::kept_payloads::KeptPayloads;
@@ -444,12 +505,12 @@ mod tests {
     impl KeptHarness {
         async fn new() -> Self {
             let database = TestDatabase::new(schema_parts());
-            insert_workflow_version(&database.reader(), DEFINITION_ID, VERSION_ID, "Nightly");
             let writer = Arc::new(
                 DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                     .await
                     .expect("the writer opens the test database"),
             );
+            insert_workflow_version(&database.reader(), DEFINITION_ID, VERSION_ID, "Nightly");
             let payloads = Arc::new(KeptPayloads::default());
             let store = WorkflowKeptValueStore::new(
                 Arc::new(DatabaseReadPool::new(
@@ -468,28 +529,31 @@ mod tests {
         }
 
         /// Keeps a fresh artifact's reference under each of `names` in one write, as a step's
-        /// settlement keeps a value above the inline cap, then deletes what the write's own read
-        /// returned, and answers the artifacts kept, in the order of `names`.
+        /// settlement keeps a value above the inline cap, then deletes the artifacts the write
+        /// left unnamed, and answers the artifacts kept, in the order of `names`.
         async fn keep(&self, names: &[&str]) -> Vec<ArtifactId> {
-            let artifact_ids: Vec<ArtifactId> = names
+            let kept: Vec<(&str, Value, Option<ArtifactId>)> = names
                 .iter()
-                .map(|_| ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID"))
-                .collect();
-            let references: Vec<Value> = artifact_ids
-                .iter()
-                .map(|&artifact_id| {
-                    serde_json::to_value(WorkflowPayloadRef::Artifact {
-                        artifact_id,
-                        size_bytes: SafeInt::new(70_000).expect("a size"),
-                        item_count: SafeInt::new(1).expect("a count"),
-                    })
-                    .expect("a payload ref writes as JSON")
+                .map(|&name| {
+                    let artifact_id = ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID");
+                    (name, artifact_reference(artifact_id), Some(artifact_id))
                 })
                 .collect();
+            self.write(&kept).await;
+            kept.into_iter()
+                .filter_map(|(_, _, artifact_id)| artifact_id)
+                .collect()
+        }
+
+        /// Keeps each of `values` in one write, each beside the artifact it is kept in, if any,
+        /// then deletes the artifacts the write left unnamed.
+        async fn write(&self, values: &[(&str, Value, Option<ArtifactId>)]) {
             let write = kept_value_statements(
                 definition_id(),
                 WorkflowRunId::new(RUN_ID).expect("the test's run id"),
-                names.iter().copied().zip(&references),
+                values
+                    .iter()
+                    .map(|(name, value, artifact_id)| (*name, value, *artifact_id)),
                 &WireInstant::now(),
             )
             .expect("a kept value writes");
@@ -498,23 +562,16 @@ mod tests {
                 .write(write.statements)
                 .await
                 .expect("the kept values commit");
-            let left_behind = remove_dropped(
-                &*self.payloads,
-                &dropped_artifact_ids(&results[write.dropped_read]),
-            )
-            .await;
+            let left_behind =
+                remove_dropped(&*self.payloads, &write.reads.unnamed_artifact_ids(&results)).await;
             assert!(left_behind.is_empty());
-            artifact_ids
         }
 
-        /// The artifact each kept value's stored reference names, by name.
-        fn kept_artifacts(&self) -> Vec<(String, String)> {
+        /// The artifact each kept value is kept in, by name.
+        fn kept_artifacts(&self) -> Vec<(String, Option<String>)> {
             let rows = self.database.reader();
             let mut statement = rows
-                .prepare(
-                    "SELECT key, json_extract(value_json, '$.artifactId') FROM workflow_node_state
-                     ORDER BY key",
-                )
+                .prepare("SELECT key, artifact_id FROM workflow_node_state ORDER BY key")
                 .expect("the test reads the kept values");
             statement
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -526,6 +583,61 @@ mod tests {
 
     fn definition_id() -> WorkflowDefinitionId {
         WorkflowDefinitionId::new(DEFINITION_ID).expect("the test's definition id")
+    }
+
+    /// The JSON of a payload reference to the one-item artifact `artifact_id`.
+    fn artifact_reference(artifact_id: ArtifactId) -> Value {
+        serde_json::to_value(WorkflowPayloadRef::Artifact {
+            artifact_id,
+            size_bytes: SafeInt::new(70_000).expect("a size"),
+            item_count: SafeInt::new(1).expect("a count"),
+        })
+        .expect("a payload ref writes as JSON")
+    }
+
+    /// A value kept inline that has a payload reference's shape is workflow data: replacing it
+    /// deletes no artifact, and the read answers it as it was kept. Mutation: tell a kept artifact
+    /// by the value's shape (the replace deletes the artifact the data names, and the read tries
+    /// to resolve it).
+    #[tokio::test]
+    async fn an_inline_value_shaped_like_a_reference_names_no_artifact() {
+        let harness = KeptHarness::new().await;
+        let named = ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID");
+        let data = artifact_reference(named);
+        harness.write(&[("body", data.clone(), None)]).await;
+
+        let read = harness
+            .store
+            .read(definition_id())
+            .await
+            .expect("the values read");
+        assert_eq!(
+            read.into_iter().map(|kept| kept.value).collect::<Vec<_>>(),
+            [data]
+        );
+        harness.write(&[("body", Value::Null, None)]).await;
+        assert_eq!(harness.payloads.deletes(), []);
+    }
+
+    /// A value a step of a deleted workflow keeps in an artifact keeps no row, so its artifact is
+    /// deleted once the write commits. Mutation: read only the replaced values' artifacts (the new
+    /// artifact is left behind).
+    #[tokio::test]
+    async fn a_deleted_workflows_kept_artifact_is_deleted() {
+        let harness = KeptHarness::new().await;
+        harness
+            .database
+            .reader()
+            .execute(
+                "UPDATE workflow_definitions SET deleted_at = '2026-10-01T00:00:00.000Z'",
+                [],
+            )
+            .expect("the test deletes the workflow");
+
+        let kept = harness.keep(&["report"]).await;
+
+        assert_eq!(harness.kept_artifacts(), []);
+        assert_eq!(harness.payloads.deletes(), kept);
     }
 
     /// A value above the cap kept twice under one name leaves only the second artifact kept, and
@@ -540,7 +652,7 @@ mod tests {
         assert_eq!(harness.payloads.deletes(), [first]);
         assert_eq!(
             harness.kept_artifacts(),
-            [("report".to_owned(), second.text().as_str().to_owned())]
+            [("report".to_owned(), Some(second.text().as_str().to_owned()))]
         );
     }
 

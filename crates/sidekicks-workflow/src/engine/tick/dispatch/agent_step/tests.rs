@@ -19,12 +19,14 @@ use super::super::tests::{
 use super::super::{StepDispatch, test_dispatch, test_ready_step, test_run_snapshot};
 use super::WITHDRAWN_RUN_COMPLETED;
 use crate::engine::event_record::EngineRecorder;
+use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::ports::{
     AgentStepOutcome, AgentStepRequest, AgentStepRunner, EngineRecordSink, KeptEngineRecords,
-    ScriptedAgentRunner, ScriptedGate, StepAdmission, StepAdmissionOutcome, WorkflowNodeKey,
+    ScriptedGate, StepAdmission, StepAdmissionOutcome, WorkflowNodeKey,
 };
-use crate::engine::tick::{RunSnapshot, StepReport, test_run_scope};
+use crate::engine::tick::{ParkedAgentRun, RunSnapshot, StepReport, test_run_scope};
 use crate::expressions::lineage::StepOutputs;
+use crate::kinds::step_context::StepRecords;
 use crate::kinds::{NodeKind, StepAdmissionNeed, StepAdmissionShape, uncoded_step_error};
 use crate::schema::schema_parts;
 use crate::secrets::redaction::RunRedaction;
@@ -120,7 +122,9 @@ fn started_at(permission_level: &Value) -> Value {
     Value::Null,
     false,
     spent_run(),
-    json!({ "accountSpent": { "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT } })
+    json!({ "accountSpent": {
+        "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT, "logLines": [],
+    } })
 )]
 #[tokio::test]
 async fn an_agent_steps_run_joins_the_gate_once_and_the_step_starts_when_the_run_does(
@@ -236,7 +240,9 @@ async fn a_withdrawn_agent_run_never_settles_completed(
             "logLines": [],
         } })
     } else {
-        json!({ "accountSpent": { "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT } })
+        json!({ "accountSpent": {
+            "providerAccountId": ACCOUNT, "resetsAt": RESETS_AT, "logLines": [],
+        } })
     };
     assert_eq!(settled, expected);
     assert_eq!(next_report(&mut received, &step).await, None);
@@ -565,8 +571,9 @@ async fn a_failed_stop_of_an_agent_steps_run_goes_to_the_record() {
     assert_eq!(fault["nodeId"], json!(node.id));
 }
 
-/// A kept run whose `resume()` cannot be sent settles its step failed with the port's error, as
-/// a run that could not be created does. Kills: the step left `running` with no driver.
+/// A kept run whose `resume()` cannot be sent settles its step failed with the port's error and
+/// its params' log lines, as a run that could not be created does. Kills: the step left `running`
+/// with no driver; the params' records dropped at the park.
 #[tokio::test]
 async fn a_resume_that_cannot_be_sent_fails_its_step() {
     let database = TestDatabase::new(schema_parts());
@@ -585,7 +592,13 @@ async fn a_resume_that_cannot_be_sent_fails_its_step() {
         &scope,
         step.clone(),
         &ready.inputs,
-        runner.made_run(),
+        ParkedAgentRun {
+            run: runner.made_run(),
+            records: StepRecords {
+                log_lines: vec!["asked".to_owned()],
+                ..StepRecords::default()
+            },
+        },
         tokio_util::sync::CancellationToken::new(),
     );
     drop(dispatch);
@@ -598,9 +611,61 @@ async fn a_resume_that_cannot_be_sent_fails_its_step() {
                     the run's provider did not take the turn",
                 "nodeId": "step",
             },
-            "logLines": [],
+            "logLines": ["asked"],
         } }))
     );
     assert_eq!(next_report(&mut received, &step).await, None);
     assert_eq!(runner.resumes(), 1);
+}
+
+/// A resumed run enters the memory gate again: held, its step reports the hold before any
+/// progress, then its admission, and its completion settles with the log lines its params kept.
+/// Kills: the resume followed without the gate; the params' records dropped at the park.
+#[tokio::test]
+async fn a_resumed_run_waits_at_the_gate_and_settles_with_its_params_records() {
+    let database = TestDatabase::new(schema_parts());
+    let runner = Arc::new(ScriptedAgentRunner::new(None, false));
+    let (dispatch, mut received) = agent_dispatch(&database, &runner);
+    let node = agent_node();
+    let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
+    let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
+    let step = ready.step.clone();
+
+    dispatch.resume_agent_step(
+        &scope,
+        step.clone(),
+        &ready.inputs,
+        ParkedAgentRun {
+            run: runner.made_run(),
+            records: StepRecords {
+                log_lines: vec!["asked".to_owned()],
+                ..StepRecords::default()
+            },
+        },
+        tokio_util::sync::CancellationToken::new(),
+    );
+    drop(dispatch);
+
+    let first = next_report(&mut received, &step)
+        .await
+        .expect("the resumed run's place is reported");
+    let hold = first["waitingOnPool"].clone();
+    assert!(hold.is_string(), "the first report is not a hold: {first}");
+    runner.progress();
+    tokio::time::sleep(QUIET).await;
+    assert!(
+        received.try_recv().is_err(),
+        "the step reported progress while the gate held it"
+    );
+    runner.admit();
+    assert_eq!(
+        next_report(&mut received, &step).await,
+        Some(json!({ "admitted": hold }))
+    );
+    runner.end(completed_run());
+    let settled = next_report(&mut received, &step)
+        .await
+        .expect("the resumed run settles its step");
+    assert_eq!(settled["completed"]["logLines"], json!(["asked"]));
+    assert_eq!(next_report(&mut received, &step).await, None);
 }

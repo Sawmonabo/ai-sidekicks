@@ -8,9 +8,8 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
-use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
@@ -274,7 +273,8 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
         StepReportKind::Progressed => json!("progressed"),
         StepReportKind::Canceling
         | StepReportKind::BranchesCanceled { .. }
-        | StepReportKind::ResumeDue => {
+        | StepReportKind::ResumeDue { .. }
+        | StepReportKind::RunCapped { .. } => {
             panic!("no dispatched step winds a branch down or comes due")
         }
         StepReportKind::Settled(settlement) => settlement_json(settlement),
@@ -326,8 +326,10 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
             provider_account_id,
             resets_at,
             run: _,
+            records,
         } => json!({ "accountSpent": {
             "providerAccountId": provider_account_id, "resetsAt": resets_at,
+            "logLines": records.log_lines,
         } }),
         StepSettlement::Canceled {
             hold_started_at,
@@ -409,19 +411,22 @@ fn completed(outputs: &Value, run_variables: &Value) -> Value {
     } })
 }
 
-/// The pin every pinned test node carries.
-fn pin_data() -> Record<String, Vec<WorkflowPinnedItem>> {
-    serde_json::from_value(json!({ "step": [{ "json": { "pinned": true } }] }))
-        .expect("the test's pins read")
+/// The items pinned onto every pinned test node.
+fn pinned_items() -> Value {
+    json!([{ "json": { "pinned": true } }])
+}
+
+/// The stored pins of the test's workflow: the test node's pinned items.
+fn pin_data_json() -> String {
+    json!({ "step": pinned_items() }).to_string()
 }
 
 /// What the dispatch answers for a node pinned in a manual run: admitted, started with the hash of
 /// its pinned item list and completed with the pinned item.
 fn pinned_settlement() -> Vec<Value> {
-    let pinned_items = serde_json::to_value(&pin_data().as_map()["step"]).expect("pins write");
-    let pin_hash = hash_canonical_json(&pinned_items).expect("the test's pins hash");
+    let pin_hash = hash_canonical_json(&pinned_items()).expect("the test's pins hash");
     let mut started = started();
-    started["started"]["pinHash"] = json!(pin_hash.content_hash);
+    started["started"]["pinHash"] = json!(pin_hash);
     vec![
         json!({ "admitted": null }),
         started,
@@ -455,7 +460,7 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     let node = test_node(&settings);
     let mut scope = test_run_scope(mode, vec![node.clone()]);
     if is_pinned {
-        scope.pins = hash_run_pins(Some(pin_data()), mode).expect("the test's pins hash");
+        scope.pins = hash_run_pins(Some(&pin_data_json()), mode).expect("the test's pins hash");
     }
     let names = ["Ada", "Bob", "Cy"];
     let inputs = names[..input_count]

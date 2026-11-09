@@ -91,11 +91,12 @@ fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<Write
 }
 
 // One ask's events: its request and what became of it, under what holds it: an agent run, whose
-// rule's record names it, or a workflow wait.
+// rule's record names it, or a workflow wait, whose card is a gate scoped to its session.
 struct Ask {
     id: String,
     run_id: String,
     holder: serde_json::Value,
+    is_gate: bool,
 }
 
 impl Ask {
@@ -105,6 +106,7 @@ impl Ask {
             id: mint_uuid_v7().to_string(),
             holder: json!({ "kind": "run", "runId": run_id }),
             run_id,
+            is_gate: false,
         }
     }
 
@@ -116,6 +118,7 @@ impl Ask {
                 "waitId": mint_uuid_v7().to_string(),
                 "nodeId": "approve",
             }),
+            is_gate: true,
             ..Self::new()
         }
     }
@@ -126,11 +129,16 @@ impl Ask {
         event_type: &str,
         extra: &serde_json::Value,
     ) -> SessionEvent {
+        let (category, scope) = if self.is_gate {
+            ("gate", json!(session_id))
+        } else {
+            ("toolExecution", json!("npm run build"))
+        };
         let mut payload = json!({
             "sessionId": session_id,
             "approvalRequestId": self.id,
-            "category": "toolExecution",
-            "scope": "npm run build",
+            "category": category,
+            "scope": scope,
         });
         let members = payload.as_object_mut().expect("the payload is an object");
         if event_type == "approval.rule.remembered" {

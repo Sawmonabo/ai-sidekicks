@@ -24,8 +24,10 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
-use sidekicks_workflow::runs::record::finished_run_condition;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventDraft, SessionEventLinkage,
+};
+use sidekicks_workflow::runs::record::{chain_question_waiting_condition, finished_run_condition};
 
 use crate::events::resolved_event;
 use crate::refusals::{approval_late_create, approval_request_canceled};
@@ -45,31 +47,58 @@ use crate::store::{
 static INSERT_WAIT_REQUEST_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{}\n  ON CONFLICT DO NOTHING", *INSERT_REQUEST_SQL));
 
-// A guard's read of a workflow run not yet finished: going, or parked on its failed step.
-static WORKFLOW_RUN_GOING_SQL: LazyLock<String> = LazyLock::new(|| {
+// A guard's read of a step card's workflow run in the card's session, not yet finished: going,
+// or parked on its failed step.
+static STEP_CARD_RUN_GOING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM workflow_runs AS run
-  WHERE run.id = @workflow_run_id
+  WHERE run.id = @workflow_run_id AND run.session_id = @session_id
     AND NOT {}",
         finished_run_condition("run")
     )
 });
 
+// A guard's read of a chain card's first run in the card's session, while the chain's question
+// still waits; the first run itself has usually ended by then.
+static CHAIN_CARD_QUESTION_WAITING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM workflow_runs AS run
+  WHERE run.id = @workflow_run_id AND run.session_id = @session_id
+    AND {}",
+        chain_question_waiting_condition("run.id")
+    )
+});
+
 // The positions of a raise's guards and its insert among its statements.
 const GATE_SESSION_OPEN_GUARD_INDEX: usize = 0;
-const GATE_RUN_GOING_GUARD_INDEX: usize = 1;
+const GATE_HOLDER_GUARD_INDEX: usize = 1;
 const GATE_INSERT_INDEX: usize = 2;
 
-// A guard that refuses its write once the workflow run has finished or is gone.
-fn workflow_run_going_statement(workflow_run_id: &WorkflowRunId) -> WriteStatement {
+// A guard that refuses its write once the card's holder no longer stands in `session_id`: a step
+// card's run has finished or is gone, or a chain card's question no longer waits.
+fn wait_holder_statement(
+    session_id: &SessionId,
+    workflow_run_id: &WorkflowRunId,
+    node_id: Option<&WorkflowNodeId>,
+) -> WriteStatement {
+    let sql = match node_id {
+        Some(_) => STEP_CARD_RUN_GOING_SQL.as_str(),
+        None => CHAIN_CARD_QUESTION_WAITING_SQL.as_str(),
+    };
     WriteStatement {
-        sql: Cow::Borrowed(WORKFLOW_RUN_GOING_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![text_binding(
-            "@workflow_run_id",
-            workflow_run_id.text().as_str(),
-        )]),
+        sql: Cow::Borrowed(sql),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+            text_binding("@session_id", session_id.text().as_str()),
+        ]),
         expected_row_count: Some(1),
     }
+}
+
+/// How one write of a raise ended: its card raised, or its insert lost to another raise's card.
+enum GateWrite {
+    Raised(ApprovalRequestId),
+    LostInsert(SessionEventAppendError),
 }
 
 // The statement that records a workflow wait's new pending card, refused by changing no row
@@ -190,14 +219,40 @@ pub trait ApprovalWaits: Send + Sync {
 impl ApprovalService {
     /// Raises the card `ask` names and answers its id, or answers the id of the card its wait
     /// already holds open, a second raise for one wait raising none. Its answer goes through the
-    /// registered [`ApprovalWaits`], so no in-process wait is armed. Refuses
-    /// `approval.requestCanceled` with its `reason` when the session has closed or the workflow run
-    /// has finished, the session's own refusal of the write, and `approval.persistenceUnavailable`
-    /// when the record could not be kept.
+    /// registered [`ApprovalWaits`], so no in-process wait is armed. A raise whose insert lost to
+    /// another raise's card, settled before it was read back, raises once more. Refuses
+    /// `approval.requestCanceled` with its `reason` when the session has closed, or when a step
+    /// card's workflow run has finished or a chain card's question no longer waits in the session,
+    /// the session's own refusal of the write, and `approval.persistenceUnavailable` when the
+    /// record could not be kept.
     pub async fn raise_workflow_gate(
         &self,
         ask: WorkflowGateCardAsk,
     ) -> Result<ApprovalRequestId, ApprovalServiceError> {
+        let mut is_retry = false;
+        loop {
+            if let Some(open) = self
+                .read_open_wait_card(ask.session_id, ask.wait_id)
+                .await?
+            {
+                return Ok(open.approval_request_id);
+            }
+            match self.write_workflow_gate(ask.clone()).await? {
+                GateWrite::Raised(approval_request_id) => return Ok(approval_request_id),
+                GateWrite::LostInsert(_) if !is_retry => is_retry = true,
+                GateWrite::LostInsert(failure) => {
+                    return Err(refusal_of_failed_write(failure).into());
+                }
+            }
+        }
+    }
+
+    // One write of the card `ask` names, refused as [`ApprovalService::raise_workflow_gate`]
+    // says but for an insert that lost to another raise's card.
+    async fn write_workflow_gate(
+        &self,
+        ask: WorkflowGateCardAsk,
+    ) -> Result<GateWrite, ApprovalServiceError> {
         let WorkflowGateCardAsk {
             session_id,
             workflow_run_id,
@@ -206,9 +261,8 @@ impl ApprovalService {
             workflow_name,
             prompt,
         } = ask;
-        if let Some(open) = self.read_open_wait_card(session_id, wait_id).await? {
-            return Ok(open.approval_request_id);
-        }
+        let holder_statement =
+            wait_holder_statement(&session_id, &workflow_run_id, node_id.as_ref());
         let approval_request_id =
             ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
         let created_at = WireInstant::now();
@@ -261,26 +315,23 @@ impl ApprovalService {
             occurred_at: Some(created_at),
             transactional_prelude: vec![
                 session_open_statement(&session_id),
-                workflow_run_going_statement(&workflow_run_id),
+                holder_statement,
                 insert_wait_request_statement(&inserted),
             ],
             ..SessionEventLinkage::default()
         };
         let Err(failure) = self.events.append(draft, linkage).await else {
-            return Ok(approval_request_id);
+            return Ok(GateWrite::Raised(approval_request_id));
         };
         let refusal = match failure.refused_statement_index() {
             Some(GATE_SESSION_OPEN_GUARD_INDEX) => {
                 approval_late_create(session_id, &holder, ApprovalLateCreateReason::SessionClosed)
             }
-            Some(GATE_RUN_GOING_GUARD_INDEX) => {
+            Some(GATE_HOLDER_GUARD_INDEX) => {
                 approval_late_create(session_id, &holder, ApprovalLateCreateReason::RunEnded)
             }
             // Another raise for the wait wrote its card between the read and this write.
-            Some(GATE_INSERT_INDEX) => match self.read_open_wait_card(session_id, wait_id).await? {
-                Some(open) => return Ok(open.approval_request_id),
-                None => refusal_of_failed_write(failure),
-            },
+            Some(GATE_INSERT_INDEX) => return Ok(GateWrite::LostInsert(failure)),
             Some(_) | None => refusal_of_failed_write(failure),
         };
         Err(refusal.into())

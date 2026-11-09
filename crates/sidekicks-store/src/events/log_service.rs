@@ -123,12 +123,14 @@ pub struct EventLogAppendOptions {
     pub preceding_events: Vec<(UnsequencedEventEnvelope, Option<String>)>,
 }
 
-/// An appended event once it committed: its id, the sequence the writer gave it and what its
-/// append's prelude did.
+/// An appended event once it committed: its id, its preceding events' ids, the sequence the
+/// writer gave it and what its append's prelude did.
 #[derive(Clone, Debug)]
 pub struct EventLogAppendReceipt {
     /// The event's id, as given.
     pub id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The id of each of the append's preceding events, as given, in their order.
+    pub preceding_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The event's sequence in its session's log.
     pub sequence: SafeInt<0>,
     /// What each statement of the append's `transactional_prelude` did, in order; the projection's
@@ -355,10 +357,11 @@ struct ComposedWrite {
     receipts: Vec<ReceiptPlace>,
 }
 
-/// Where one append's receipt sits in its write: its event's id, its own row among the write's
-/// rows, and its prelude's statements among the write's statements.
+/// Where one append's receipt sits in its write: its event's and its preceding events' ids, its
+/// own row among the write's rows, and its prelude's statements among the write's statements.
 struct ReceiptPlace {
     id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    preceding_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     row_index: usize,
     prelude: Range<usize>,
 }
@@ -442,6 +445,7 @@ impl EventLogService {
                 .receipts
                 .extend(receipts.into_iter().map(|place| ReceiptPlace {
                     id: place.id,
+                    preceding_ids: place.preceding_ids,
                     row_index: row_offset + place.row_index,
                     prelude: statement_offset + place.prelude.start
                         ..statement_offset + place.prelude.end,
@@ -698,6 +702,7 @@ impl EventLogService {
         // One clock reading for every event of the write.
         let monotonic_ns = monotonic_ns_now();
         let mut rows = Vec::with_capacity(preceding_events.len() + 1);
+        let mut preceding_ids = Vec::with_capacity(preceding_events.len());
         for (preceding, preceding_body) in preceding_events {
             if preceding.session_id() != envelope.session_id() {
                 return Err(EventAppendError::PrecedingEventOfAnotherSession {
@@ -706,7 +711,9 @@ impl EventLogService {
                     session_id: envelope.session_id(),
                 });
             }
-            rows.extend(compose_rows(preceding, preceding_body, monotonic_ns)?);
+            let preceding_rows = compose_rows(preceding, preceding_body, monotonic_ns)?;
+            preceding_ids.push(preceding_rows[0].envelope.id.clone());
+            rows.extend(preceding_rows);
         }
         // The event's receipt names its own row, which any stored parts of its files follow.
         let row_index = rows.len();
@@ -733,6 +740,7 @@ impl EventLogService {
             },
             receipts: vec![ReceiptPlace {
                 id,
+                preceding_ids,
                 row_index,
                 prelude,
             }],
@@ -769,6 +777,7 @@ async fn committed(queued: QueuedAppend) -> Result<Vec<EventLogAppendReceipt>, E
         .into_iter()
         .map(|place| EventLogAppendReceipt {
             id: place.id,
+            preceding_ids: place.preceding_ids,
             sequence: *committed
                 .sequences
                 .get(place.row_index)

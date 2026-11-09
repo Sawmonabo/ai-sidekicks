@@ -2,8 +2,8 @@
 //! that answer them, the asks the daemon answers itself, the approval seam of the app's own tools,
 //! the check a workflow start passes, reviewer denials, the runs an ask blocks, the answers kept
 //! while no live call held their card, the approval service with its store and projection, and a
-//! workflow gate's card, held by its workflow wait. It sits over std, store, ipc, workspace, policy,
-//! workflow, provider and session and is taken by recovery and the program.
+//! workflow gate's card, held by its workflow wait. It sits over std, store, ipc, workspace,
+//! policy, workflow, provider and session and is taken by recovery and the program.
 
 pub(crate) mod ask_description;
 pub(crate) mod callback_tool_approvals;

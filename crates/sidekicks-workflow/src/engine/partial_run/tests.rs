@@ -21,7 +21,7 @@ use crate::engine::tick::RunGraph;
 use crate::kinds::{NodeKindTable, PassThroughExecutor, loop_test_kind, main_test_kind};
 use crate::test_rows::{
     TestSettledStep, insert_later_workflow_version, insert_run, insert_settled_step,
-    insert_workflow_version_body, test_step_sources, workflow_tables,
+    insert_workflow_version_body, test_node_id, test_step_sources, workflow_tables,
 };
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e01";
@@ -169,7 +169,7 @@ fn settled(
     SettledStep {
         step: WorkflowStepKey {
             workflow_run_id: WorkflowRunId::new(run_id).expect("the test's run id"),
-            node_id: node_id_of(node_id),
+            node_id: test_node_id(node_id),
             attempt: SafeInt::new(1).expect("an attempt"),
             execution_index: SafeInt::new(execution_index).expect("an execution index"),
         },
@@ -178,10 +178,6 @@ fn settled(
         output_ref: WorkflowPayloadRef::Inline { items: Vec::new() },
         output_item_counts: vec![SafeInt::new(0).expect("a count")],
     }
-}
-
-fn node_id_of(id: &str) -> WorkflowNodeId {
-    WorkflowNodeId::new(id.to_owned()).expect("the test's node id")
 }
 
 /// A node's newest settled step is read across the runs of every version, past a newer failed
@@ -226,13 +222,13 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
     let read = read_settled_steps(
         &connection,
         definition_id,
-        &[node_id_of("A"), node_id_of("B")],
+        &[test_node_id("A"), test_node_id("B")],
     )
     .expect("the steps read");
     assert_eq!(
         read.into_iter().collect::<Vec<_>>(),
         vec![(
-            node_id_of("A"),
+            test_node_id("A"),
             settled(SECOND_RUN_ID, "A", 1, SECOND_VERSION_ID, &[("T", 0)])
         )]
     );
@@ -240,12 +236,14 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
 
 /// Each marking rule, applied to the chain's version 1 against version 2 with every node's step
 /// from version 1, dirties exactly the nodes it names: a params, kind version or run-once edit the
-/// node; a rename, a notes edit or an `order` change nothing; an insert or a delete the node after
-/// it; an added or a removed connection its destination; switching a node off or on the node and the
-/// node after it. Mutations: mark a node whose switch alone changed only through the nodes it feeds (the switch
-/// cases fail); mark every changed node (`rename`, `notes` and `order` fail); leave `kindVersion`
-/// or `executeOnce` out of the members compared (`kind_version` or `execute_once` fails); skip the
-/// removed connections (`removed_connection` fails).
+/// node; a rename, a notes edit, an `order` change, naming the default `onError` or a one-try retry
+/// nothing; an insert or a delete the node after it; an added or a removed connection its
+/// destination; switching a node off or on the node and the node after it. Mutations: mark a node
+/// whose switch alone changed only through the nodes it feeds (the switch cases fail); mark every
+/// changed node (`rename`, `notes` and `order` fail); leave `kindVersion` or `executeOnce` out of
+/// the members compared (`kind_version` or `execute_once` fails); compare `onError` or `retry` as
+/// written (`on_error_stop_named` or `one_try_retry` fails); skip the removed connections
+/// (`removed_connection` fails).
 #[rstest]
 #[case::params_edit(
     chain(), CHAIN,
@@ -275,6 +273,16 @@ fn the_newest_settled_step_is_read_across_versions_past_a_newer_failed_one() {
 #[case::order(
     chain(), CHAIN,
     chain_nodes("B", &json!({ "order": 9 })), CHAIN,
+    &[],
+)]
+#[case::on_error_stop_named(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "onError": "stop" })), CHAIN,
+    &[],
+)]
+#[case::one_try_retry(
+    chain(), CHAIN,
+    chain_nodes("B", &json!({ "retry": { "maxTries": 1, "waitMs": 0 } })), CHAIN,
     &[],
 )]
 #[case::insert(
@@ -318,27 +326,45 @@ fn each_rule_dirties_exactly_the_nodes_it_names(
     #[case] target_edges: &[Edge],
     #[case] expected: &[&str],
 ) {
-    let source = parsed(&body(&source_nodes, source_edges));
-    let target = parsed(&body(&target_nodes, target_edges));
+    assert_eq!(
+        dirty_of(
+            &body(&source_nodes, source_edges),
+            &body(&target_nodes, target_edges)
+        ),
+        expected
+            .iter()
+            .copied()
+            .map(test_node_id)
+            .collect::<BTreeSet<_>>()
+    );
+}
+
+/// A trigger whose `inputs` go from absent to `[]` declares the same inputs, so nothing is dirty.
+/// Mutation: compare the trigger's `inputs` as written (the trigger is marked).
+#[test]
+fn a_trigger_whose_inputs_go_from_absent_to_empty_is_clean() {
+    let source = body(&chain(), CHAIN);
+    let mut target = source.clone();
+    target["trigger"]["inputs"] = json!([]);
+    assert_eq!(dirty_of(&source, &target), BTreeSet::new());
+}
+
+/// The nodes `dirty_nodes` marks in `target_body` against `source_body`, every node of the source
+/// holding its step.
+fn dirty_of(source_body: &Value, target_body: &Value) -> BTreeSet<WorkflowNodeId> {
+    let source = parsed(source_body);
+    let target = parsed(target_body);
     let node_ids = std::iter::once(source.trigger.id.clone())
         .chain(source.nodes.iter().map(|node| node.id.clone()))
         .collect();
-    let dirty = dirty_nodes(
+    dirty_nodes(
         &target,
         &graph_of(&target),
         &[SourceVersion {
             body: source,
             node_ids,
         }],
-    );
-    assert_eq!(
-        dirty,
-        expected
-            .iter()
-            .copied()
-            .map(node_id_of)
-            .collect::<BTreeSet<_>>()
-    );
+    )
 }
 
 /// Stores run `run_id` of `version_id` with one succeeded step per `(node, sources)` of `steps`,
@@ -393,7 +419,7 @@ fn plan(
         executed,
         reused,
         inputs,
-    } = plan_partial_run(connection, &version, &graph, &node_id_of(target), scope)
+    } = plan_partial_run(connection, &version, &graph, &test_node_id(target), scope)
         .expect("the plan reads");
     let kept = |steps: Vec<(WorkflowNodeId, SettledStep)>| -> Vec<KeptStep> {
         steps
@@ -436,6 +462,58 @@ fn a_covered_node_with_no_settled_step_executes() {
         (
             names(&["B", "C"]),
             reused_from(FIRST_RUN_ID, &["T", "A"]),
+            Vec::new()
+        )
+    );
+}
+
+/// A reused step is checked against the version that computed its data, not its own run's: a run
+/// of version 2 reused `T`, `A` and `B` from a run of version 1, and `A`'s params changed between
+/// the two, so a later run from `C` finds `A` dirty though its newest row is version 2's. Mutation:
+/// read a reused row's version from its own run (`A` and `B` are reused).
+#[test]
+fn a_reused_step_is_checked_against_the_version_that_computed_it() {
+    let connection = workflow_tables();
+    let first = body(&chain(), CHAIN);
+    let second = body(
+        &chain_nodes("A", &json!({ "params": { "note": "x" } })),
+        CHAIN,
+    );
+    store_versions(&connection, &first, &second);
+    store_run_steps(&connection, FIRST_RUN_ID, FIRST_VERSION_ID, 1, CHAIN_STEPS);
+    store_run_steps(
+        &connection,
+        SECOND_RUN_ID,
+        SECOND_VERSION_ID,
+        2,
+        CHAIN_STEPS,
+    );
+    for node_id in ["T", "A", "B"] {
+        let reused_from = json!({
+            "step": {
+                "workflowRunId": FIRST_RUN_ID, "nodeId": node_id, "attempt": 1,
+                "executionIndex": 0,
+            },
+            "workflowVersionId": FIRST_VERSION_ID,
+        });
+        connection
+            .execute(
+                "UPDATE workflow_steps SET status = 'skipped', reused_from_json = ?1
+                   WHERE workflow_run_id = ?2 AND node_id = ?3",
+                rusqlite::params![reused_from.to_string(), SECOND_RUN_ID, node_id],
+            )
+            .expect("the test marks the step reused");
+    }
+    assert_eq!(
+        plan(
+            &connection,
+            &second,
+            "C",
+            WorkflowNodeExecuteScope::FromHere
+        ),
+        (
+            names(&["A", "B", "C"]),
+            reused_from(SECOND_RUN_ID, &["T"]),
             Vec::new()
         )
     );

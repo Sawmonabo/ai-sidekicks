@@ -16,7 +16,7 @@ use sidekicks_store::database::writer::WriteError;
 use super::{WorkflowDefinitionStore, WorkflowDefinitionStoreError};
 use crate::definitions::drafts::clear_workflow_draft_statement;
 use crate::definitions::kept_values::{
-    KeptArtifactsLeftBehind, clear_kept_values_statements, dropped_artifact_ids, remove_dropped,
+    KeptArtifactReads, KeptArtifactsLeftBehind, clear_kept_values_statements, remove_dropped,
 };
 use crate::not_found::WorkflowNotFound;
 
@@ -32,9 +32,9 @@ const COUNT_PINNED_RUNS_SQL: &str = "SELECT COUNT(*) FROM workflow_runs
     SELECT id FROM workflow_versions WHERE definition_id = @definition_id
   )";
 
-// The position of the kept values' clear, and of the pinned runs' count, among a delete's
-// statements.
-const KEPT_VALUES_CLEAR_INDEX: usize = 2;
+// Where the kept values' statements start, and the position of the pinned runs' count, among a
+// delete's statements.
+const KEPT_VALUES_WRITE_INDEX: usize = 2;
 const PINNED_RUN_COUNT_INDEX: usize = 5;
 
 impl WorkflowDefinitionStore {
@@ -79,7 +79,8 @@ impl WorkflowDefinitionStore {
             },
         ];
         let clear = clear_kept_values_statements(definition_id);
-        let dropped_read = KEPT_VALUES_CLEAR_INDEX + clear.dropped_read;
+        let mut kept_reads = KeptArtifactReads::default();
+        kept_reads.extend_at(KEPT_VALUES_WRITE_INDEX, clear.reads);
         statements.extend(clear.statements);
         statements.extend([
             clear_workflow_draft_statement(Some(definition_id)),
@@ -110,11 +111,8 @@ impl WorkflowDefinitionStore {
             deleted: True::default(),
             retained_run_count,
         };
-        let left_behind = remove_dropped(
-            &*self.payloads,
-            &dropped_artifact_ids(&results[dropped_read]),
-        )
-        .await;
+        let left_behind =
+            remove_dropped(&*self.payloads, &kept_reads.unnamed_artifact_ids(&results)).await;
         if left_behind.is_empty() {
             Ok(deleted)
         } else {
@@ -162,11 +160,12 @@ mod tests {
         };
         rows.execute(
             "INSERT INTO workflow_node_state
-               (definition_id, node_id, key, value_json, kept_by_run_id, updated_at)
-             VALUES (?1, '', 'report', ?2, ?3, '2026-10-02T00:00:00.000Z')",
+               (definition_id, node_id, key, value_json, artifact_id, kept_by_run_id, updated_at)
+             VALUES (?1, '', 'report', ?2, ?3, ?4, '2026-10-02T00:00:00.000Z')",
             params![
                 DEFINITION_ID,
                 serde_json::to_string(&reference).expect("a payload ref writes as JSON"),
+                artifact_id.to_string(),
                 RUN_ID,
             ],
         )

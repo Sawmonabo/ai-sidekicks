@@ -11,8 +11,8 @@ use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunFailedOutcome, WorkflowRunFailedPayload,
-    WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
+    WorkflowRunCompletedPayload, WorkflowRunEndingStep, WorkflowRunFailedOutcome,
+    WorkflowRunFailedPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
 };
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
@@ -162,14 +162,20 @@ impl RunTurnCommit {
                     self.run_id,
                 )),
             ),
-            RunEnding::Failed { error } => (
+            RunEnding::Failed { step, error } => (
                 WorkflowRunStatus::Failed,
-                Some(error),
+                Some(error.clone()),
                 SessionEvent::WorkflowRunFailed(run_payload!(
                     WorkflowRunFailedPayload,
                     self.keys,
                     self.run_id,
                     outcome: WorkflowRunFailedOutcome::Ended,
+                    ending_step: Some(WorkflowRunEndingStep {
+                        node_id: step.node_id,
+                        attempt: step.attempt,
+                        execution_index: step.execution_index,
+                    }),
+                    error: Some(error),
                 )),
             ),
             RunEnding::Canceled { reason, error } => (
@@ -187,7 +193,7 @@ impl RunTurnCommit {
         self.push(&at, event);
         let ending_event = self.events.len() - 1;
         if self.posts_results {
-            // The run's own live state holds no summary line: no step kind the tick runs writes one.
+            // The tick's live run keeps no summary line to post.
             let posted = results_posted_event(self.keys.session_id, self.run_id, None);
             self.push(&at, posted);
         }
@@ -223,6 +229,8 @@ impl RunTurnCommit {
                 self.keys,
                 self.run_id,
                 outcome: WorkflowRunFailedOutcome::Parked,
+                ending_step: None,
+                error: None,
             )),
         }
     }

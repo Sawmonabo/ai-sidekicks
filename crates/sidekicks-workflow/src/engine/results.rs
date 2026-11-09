@@ -1,18 +1,20 @@
 //! A run's results posted into the session that asks for them: `workflow.results.posted`,
 //! naming that session, the run and the run's summary line, whichever session the run lives in.
 //! The ending of a run a chat or an agent asked for posts it in the ending's own write; the results
-//! post handler posts it for `/workflow results` and the agent's tool, refused for a run that has
-//! not finished.
+//! post handler posts it for `/workflow results` and the agent's tool, refused for a run there is
+//! none of and for one that has not finished.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::run::events::WorkflowResultsPostedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::log_service::EventLogService;
@@ -25,12 +27,19 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use crate::not_found::WorkflowNotFound;
 use crate::runs::record::finished_run_condition;
 
-/// The position in a post's write of the statement that refuses the write unless the run has
-/// finished.
-pub(crate) const RESULTS_FINISHED_CHECK_STATEMENT_INDEX: usize = 0;
+// The position in a post's write of the statement that refuses the write when no row has the run.
+const RESULTS_RUN_CHECK_STATEMENT_INDEX: usize = 0;
 
-// Matches the run only while it has finished, so a post's write refuses a run still going, parked
-// on its failed step or deleted: a finished run never goes back to going.
+// The position in a post's write of the statement that refuses the write unless the run has
+// finished.
+const RESULTS_FINISHED_CHECK_STATEMENT_INDEX: usize = 1;
+
+// Matches the run while a row has it, so a post's write refuses a run there is none of, deleted
+// ones included.
+const RUN_ROW_SQL: &str = "SELECT id FROM workflow_runs WHERE id = @workflow_run_id";
+
+// Matches the run only while it has finished, so a post's write refuses a run still going or
+// parked on its failed step: a finished run never goes back to going.
 static FINISHED_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT run.id FROM workflow_runs AS run WHERE run.id = @workflow_run_id AND {}",
@@ -73,9 +82,15 @@ pub(crate) fn results_posted_event(
 /// Why a run's results were not posted; nothing was appended.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowResultsPostError {
-    /// No finished run has the id (`workflow.run.notFound`).
+    /// No run has the id (`workflow.run.notFound`).
     #[error(transparent)]
     NotFound(#[from] WorkflowNotFound),
+    /// The run is still going or parked on its failed step (`workflow.invalidTransition`).
+    #[error("Workflow run {workflow_run_id} has not finished, so it has no results to post.")]
+    Unfinished {
+        /// The run asked for.
+        workflow_run_id: WorkflowRunId,
+    },
     /// The results event broke one of its type's checks.
     #[error("the run's results event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -85,10 +100,17 @@ pub(crate) enum WorkflowResultsPostError {
 }
 
 impl From<WorkflowResultsPostError> for HandlerError {
-    /// A run not found answers its refusal; any other failure is a fault in the daemon.
+    /// A run not found or unfinished answers its refusal; any other failure is a fault in the
+    /// daemon.
     fn from(error: WorkflowResultsPostError) -> Self {
         match error {
             WorkflowResultsPostError::NotFound(not_found) => Self::Refused(not_found.into()),
+            unfinished @ WorkflowResultsPostError::Unfinished { .. } => {
+                Self::Refused(DomainError::new(
+                    unfinished.to_string(),
+                    RefusalCode::WorkflowInvalidTransition,
+                ))
+            }
             fault @ (WorkflowResultsPostError::Draft(_) | WorkflowResultsPostError::Append(_)) => {
                 Self::Internal(Box::new(fault))
             }
@@ -124,9 +146,10 @@ impl WorkflowResultsPoster {
     }
 
     /// Appends `workflow.results.posted` for run `workflow_run_id` with `summary` to
-    /// `session_id`'s log, the session that asked, in a write that first checks the run has
-    /// finished. Fails with [`WorkflowResultsPostError::NotFound`] for a run there is none of,
-    /// deleted ones included, or one still going or parked on its failed step, appending nothing.
+    /// `session_id`'s log, the session that asked, in a write that first checks a row has the run
+    /// and the run has finished. Fails with [`WorkflowResultsPostError::NotFound`] for a run there
+    /// is none of, deleted ones included, and [`WorkflowResultsPostError::Unfinished`] for one
+    /// still going or parked on its failed step, appending nothing.
     #[cfg_attr(
         not(test),
         expect(
@@ -144,8 +167,8 @@ impl WorkflowResultsPoster {
             session_id,
             &results_posted_event(session_id, workflow_run_id, summary),
         )?;
-        let finished_check = WriteStatement {
-            sql: Cow::Borrowed(FINISHED_RUN_SQL.as_str()),
+        let run_check = |sql: &'static str| WriteStatement {
+            sql: Cow::Borrowed(sql),
             bindings: StatementBindings::Named(vec![text_binding(
                 "@workflow_run_id",
                 workflow_run_id.text().as_str(),
@@ -153,18 +176,23 @@ impl WorkflowResultsPoster {
             expected_row_count: Some(1),
         };
         let linkage = SessionEventLinkage {
-            transactional_prelude: vec![finished_check],
+            transactional_prelude: vec![
+                run_check(RUN_ROW_SQL),
+                run_check(FINISHED_RUN_SQL.as_str()),
+            ],
             ..SessionEventLinkage::default()
         };
         match self.appender.append(draft, linkage).await {
             Ok(_) => Ok(()),
-            Err(append)
-                if append.refused_statement_index()
-                    == Some(RESULTS_FINISHED_CHECK_STATEMENT_INDEX) =>
-            {
-                Err(WorkflowNotFound::Run { workflow_run_id }.into())
-            }
-            Err(append) => Err(append.into()),
+            Err(append) => match append.refused_statement_index() {
+                Some(RESULTS_RUN_CHECK_STATEMENT_INDEX) => {
+                    Err(WorkflowNotFound::Run { workflow_run_id }.into())
+                }
+                Some(RESULTS_FINISHED_CHECK_STATEMENT_INDEX) => {
+                    Err(WorkflowResultsPostError::Unfinished { workflow_run_id })
+                }
+                _ => Err(append.into()),
+            },
         }
     }
 }
@@ -292,17 +320,30 @@ mod tests {
         );
     }
 
-    /// The post's own write refuses a run still going, one parked on its failed step and one no row
-    /// answers to, `workflow.run.notFound`, appending nothing. Mutations: drop the finished check
-    /// from the write; leave its expected row count unset; drop the parked condition.
+    /// The post's own write refuses a run still going and one parked on its failed step
+    /// `workflow.invalidTransition`, and one no row answers to `workflow.run.notFound`, appending
+    /// nothing. Mutations: drop the finished check from the write; leave its expected row count
+    /// unset; drop the parked condition; answer every refusal by one code.
     #[rstest]
-    #[case::new(Some(WorkflowRunStatus::New))]
-    #[case::running(Some(WorkflowRunStatus::Running))]
-    #[case::waiting(Some(WorkflowRunStatus::Waiting))]
-    #[case::parked(Some(WorkflowRunStatus::Failed))]
-    #[case::missing(None)]
+    #[case::new(Some(WorkflowRunStatus::New), RefusalCode::WorkflowInvalidTransition)]
+    #[case::running(
+        Some(WorkflowRunStatus::Running),
+        RefusalCode::WorkflowInvalidTransition
+    )]
+    #[case::waiting(
+        Some(WorkflowRunStatus::Waiting),
+        RefusalCode::WorkflowInvalidTransition
+    )]
+    #[case::parked(
+        Some(WorkflowRunStatus::Failed),
+        RefusalCode::WorkflowInvalidTransition
+    )]
+    #[case::missing(None, RefusalCode::WorkflowRunNotFound)]
     #[tokio::test]
-    async fn an_unfinished_or_missing_run_posts_nothing(#[case] status: Option<WorkflowRunStatus>) {
+    async fn an_unfinished_or_missing_run_posts_nothing(
+        #[case] status: Option<WorkflowRunStatus>,
+        #[case] code: RefusalCode,
+    ) {
         let database = TestDatabase::new(crate::schema::schema_parts());
         let (poster, rows) = open_poster(&database).await;
         if let Some(status) = status {
@@ -316,7 +357,7 @@ mod tests {
 
         match HandlerError::from(error) {
             HandlerError::Refused(refusal) => {
-                assert_eq!(refusal.code, RefusalCode::WorkflowRunNotFound);
+                assert_eq!(refusal.code, code);
             }
             other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
                 panic!("expected a refusal, got {other:?}")

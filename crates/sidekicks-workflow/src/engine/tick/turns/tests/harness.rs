@@ -10,10 +10,10 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
@@ -43,13 +43,14 @@ use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlin
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
+use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
 use crate::engine::ports::{
     AgentStepRequest, AgentStepRunner, ApprovalCardRaiser, EnginePorts, EngineRecordSink,
-    KeptEngineRecords, PersonWaitQuestions, RunSnapshotPoints, ScriptedAgentRunner, ScriptedGate,
-    StepAdmission, StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits,
-    refusing_engine_ports,
+    KeptEngineRecords, PersonWaitQuestions, RunSnapshotPoints, ScriptedGate, StepAdmission,
+    StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits, refusing_engine_ports,
 };
 use crate::engine::start::StartedRun;
+use crate::engine::tick::commit::SessionEventId;
 use crate::engine::tick::dispatch::test_dispatch_recording;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
 use crate::engine::tick::turns::tests::harness::ports::{
@@ -115,6 +116,9 @@ enum Script {
     Form,
     /// Asks for an agent run, which the harness's runner makes.
     Agent,
+    /// Keeps the run variable `report`, above the inline cap, for later runs, then passes its
+    /// inputs on.
+    Keep,
 }
 
 /// An executor that runs `script`, waking `signal` where the script waits or is canceled.
@@ -177,6 +181,14 @@ impl NodeExecutor for ScriptedExecutor {
                     ))));
                 }
                 Script::Empty => vec![Vec::new()],
+                Script::Keep => {
+                    let report = json!("y".repeat(70 * 1024));
+                    context.set_run_variables(
+                        serde_json::Map::from_iter([("report".to_owned(), report)]),
+                        true,
+                    );
+                    inputs
+                }
                 Script::Large => {
                     self.signal.release.notified().await;
                     vec![large_items()]
@@ -274,7 +286,9 @@ fn kind(
         .map(|index| json!({ "type": "main", "id": format!("inputs/main/{index}"), "label": "In" }))
         .collect();
     let outputs: Vec<Value> = (0..output_count)
-        .map(|index| json!({ "type": "main", "id": format!("outputs/main/{index}"), "label": "Out" }))
+        .map(|index| {
+            json!({ "type": "main", "id": format!("outputs/main/{index}"), "label": "Out" })
+        })
         .collect();
     test_kind(
         json!({
@@ -341,6 +355,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.ask", 1, Script::Ask),
             scripted("test.form", 1, Script::Form),
             scripted("test.agent", 1, Script::Agent),
+            scripted("test.keep", 1, Script::Keep),
         ])
         .expect("the test's kinds build a table"),
     )
@@ -387,6 +402,10 @@ pub(in crate::engine::tick::turns) fn edge(
     .expect("the test's edge reads")
 }
 
+/// The receiving end of the loop's reply to a person's cancel.
+pub(in crate::engine::tick::turns) type CancelReplied =
+    oneshot::Receiver<Result<SessionEventId, RunCancelRefusal>>;
+
 /// The loop over a test database, its payload store and record kept for the test, with the
 /// inbox runs start through.
 pub(in crate::engine::tick::turns) struct Harness {
@@ -400,7 +419,8 @@ pub(in crate::engine::tick::turns) struct Harness {
     kinds: Arc<NodeKindTable>,
     pub(in crate::engine::tick::turns) signal: Arc<Signals>,
     changes: watch::Receiver<u64>,
-    inbox: mpsc::Sender<EngineTickInput>,
+    /// The loop's inbox, which a test sends on ahead of a start as a racing caller would.
+    pub(in crate::engine::tick::turns) inbox: mpsc::Sender<EngineTickInput>,
     pub(in crate::engine::tick::turns) scope: RunScope,
     /// The asks the loop's waits go through.
     pub(in crate::engine::tick::turns) asks: Arc<RecordingAsks>,
@@ -557,13 +577,27 @@ impl Harness {
         )
         .await
         .expect("the trigger's input is stored");
+        let started_by = match base.mode {
+            WorkflowRunMode::Manual => WorkflowStartedBy::User {
+                device_id: DeviceId::new("device-1".to_owned()).expect("a device id"),
+            },
+            WorkflowRunMode::Chat => WorkflowStartedBy::Chat {
+                session_id: base.session_id,
+                message_anchor_cursor: None,
+            },
+            WorkflowRunMode::Trigger
+            | WorkflowRunMode::Webhook
+            | WorkflowRunMode::Agent
+            | WorkflowRunMode::Retry
+            | WorkflowRunMode::SubWorkflow => panic!("the harness starts manual and chat runs"),
+        };
         let creation = WorkflowRunCreation {
             workflow_run_id: base.run_id,
             workflow_version_id: base.workflow_version_id,
             session_id: base.session_id,
             mode: base.mode,
             trigger: trigger.clone(),
-            started_by: WorkflowStartedBy::Schedule {},
+            started_by: started_by.clone(),
             chain: WorkflowRunChainPlace::Starts {},
             execution_context: None,
             provider: None,
@@ -578,7 +612,7 @@ impl Harness {
                 definition_id: base.workflow_id,
                 workflow_version_id: base.workflow_version_id,
                 mode: base.mode,
-                started_by: WorkflowStartedBy::Schedule {},
+                started_by,
                 trigger: trigger.clone(),
                 chain: WorkflowRunChainPlace::Starts {},
                 provider: None,
@@ -734,21 +768,33 @@ impl Harness {
             .expect("the loop replies in time")
     }
 
-    /// Sends a person's cancel of the scope's run for `reason`, its error carrying the reason, and
-    /// answers the receiving end of the loop's reply.
-    pub(in crate::engine::tick::turns) async fn cancel(
+    /// Sends a person's cancel of the scope's run for `reason`, as [`Harness::cancel_input`]
+    /// makes it, and answers the receiving end of the loop's reply.
+    pub(in crate::engine::tick::turns) async fn cancel(&self, reason: &str) -> CancelReplied {
+        let (input, replied) = self.cancel_input(reason);
+        self.send(input).await;
+        replied
+    }
+
+    /// A person's cancel of the scope's run for `reason`, its error carrying the reason, beside
+    /// the receiving end of the loop's reply.
+    pub(in crate::engine::tick::turns) fn cancel_input(
         &self,
         reason: &str,
-    ) -> oneshot::Receiver<Result<SafeInt<0>, RunCancelRefusal>> {
+    ) -> (EngineTickInput, CancelReplied) {
         let (reply, replied) = oneshot::channel();
-        self.send(EngineTickInput::Cancel(RunCancelIntake {
+        let input = EngineTickInput::Cancel(RunCancelIntake {
             run_id: self.scope.run_id,
             reason: Some(WorkflowCancelReason::new(reason.to_owned()).expect("a reason")),
             error: Some(uncoded_step_error(reason.to_owned())),
             reply,
-        }))
-        .await;
-        replied
+        });
+        (input, replied)
+    }
+
+    /// A connection of its own on the test database, for a read made off the test's task.
+    pub(in crate::engine::tick::turns) fn reader(&self) -> Connection {
+        self.database.reader()
     }
 
     /// Waits until every turn whose write the test has seen has ended, its clock read included:

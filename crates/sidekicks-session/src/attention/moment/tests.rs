@@ -361,15 +361,21 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting", json!({})), AttentionChange::Nothing)]
 #[case::step_waits_on_an_approval(
-    step_event("workflow.phase.suspended", json!({"waitCause": "approval", "waitId": WAIT})),
+    step_event("workflow.phase.suspended", json!({
+        "waitCause": "approval", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+    })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_form(
-    step_event("workflow.phase.suspended", json!({"waitCause": "form", "waitId": WAIT})),
+    step_event("workflow.phase.suspended", json!({
+        "waitCause": "form", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+    })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_reply(
-    step_event("workflow.phase.suspended", json!({"waitCause": "reply", "waitId": WAIT})),
+    step_event("workflow.phase.suspended", json!({
+        "waitCause": "reply", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+    })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_its_chain(
@@ -422,7 +428,14 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     workflow_run_end(RunCompleted)
 )]
 #[case::workflow_run_failed(
-    workflow_run_event("workflow.run.failed", json!({"outcome": "ended"})),
+    workflow_run_event(
+        "workflow.run.failed",
+        json!({
+            "outcome": "ended",
+            "endingStep": {"nodeId": "ask", "attempt": 1, "executionIndex": 0},
+            "error": {"message": "the step failed", "nodeId": "ask"},
+        }),
+    ),
     workflow_run_end(RunFailed)
 )]
 #[case::workflow_run_parked(

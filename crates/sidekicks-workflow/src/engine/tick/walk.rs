@@ -24,9 +24,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::events::{
-    WorkflowReusedStep, WorkflowStepSkipReason,
-};
+use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -73,17 +71,31 @@ pub(crate) struct WalkSkip {
     pub(crate) step: WorkflowStepKey,
     /// The node's run index, `$runIndex`.
     pub(crate) run_index: u64,
-    /// Why it was skipped.
-    pub(crate) reason: WorkflowStepSkipReason,
+    /// Why it was skipped, with the step a reused skip carries the data of.
+    pub(crate) reason: WalkSkipReason,
     /// The feed of each main input slot in slot order, `None` for a slot nothing fed.
     pub(crate) sources: Vec<Option<WorkflowStepSource>>,
     /// How many items each main output carries on, in output order.
     pub(crate) output_lengths: Vec<usize>,
-    /// The earlier step whose data the skip carries; `Some` exactly when `reason` is `Reused`.
-    pub(crate) reused: Option<ReusedStepRecord>,
+}
+
+/// Why the walk skipped a step.
+#[derive(Debug)]
+pub(crate) enum WalkSkipReason {
+    /// No main input carried items.
+    NoItems,
+    /// Its node is disabled, so its input passes on.
+    Disabled,
+    /// An earlier step's data stands in for it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the walk's seed of reused steps")
+    )]
+    Reused(ReusedStepRecord),
 }
 
 /// The earlier step a reused skip carries the data of, as its row and event record it.
+#[derive(Debug)]
 pub(crate) struct ReusedStepRecord {
     /// The step and the version its run executed.
     pub(crate) from: WorkflowReusedStep,
@@ -323,13 +335,12 @@ impl RunWalk {
             step,
             run_index,
             reason: if node.is_disabled {
-                WorkflowStepSkipReason::Disabled
+                WalkSkipReason::Disabled
             } else {
-                WorkflowStepSkipReason::NoItems
+                WalkSkipReason::NoItems
             },
             sources: round.sources(),
             output_lengths: vec![0; node.outputs.len()],
-            reused: None,
         });
     }
 
@@ -706,10 +717,9 @@ impl RunWalk {
         turn.skipped.push(WalkSkip {
             step,
             run_index,
-            reason: WorkflowStepSkipReason::Disabled,
+            reason: WalkSkipReason::Disabled,
             sources,
             output_lengths: output_lengths.clone(),
-            reused: None,
         });
         if carries_items {
             let fed = self.feed(

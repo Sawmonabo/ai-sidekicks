@@ -4,7 +4,6 @@
 
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, failed_at_once, reports, step_failure};
@@ -13,7 +12,7 @@ use crate::engine::tick::branch_cancellation::{BranchCancelReason, BranchLoser, 
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::step_failure::{RunSibling, SiblingState};
-use crate::engine::tick::walk::{WalkSkip, WalkTurn};
+use crate::engine::tick::walk::{WalkSkip, WalkSkipReason, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput};
 use crate::kinds::StepFailure;
 use crate::runs::step_payload::write_step_payload;
@@ -87,20 +86,16 @@ impl EngineTick {
         } = walked;
         let mut skip_events: Vec<(u64, usize)> = Vec::with_capacity(skipped.len());
         for skip in &skipped {
-            let (input_ref, output_ref) = match skip.reason {
-                WorkflowStepSkipReason::Disabled => {
+            let (input_ref, output_ref) = match &skip.reason {
+                WalkSkipReason::Disabled => {
                     let payload = self.store_skipped_input(live, skip).await;
                     (payload.clone(), payload)
                 }
-                WorkflowStepSkipReason::Reused => {
-                    let reused = skip
-                        .reused
-                        .as_ref()
-                        .expect("a reused skip names the step it reused");
+                WalkSkipReason::Reused(reused) => {
                     let input_ref = self.store_skipped_input(live, skip).await;
                     (input_ref, reused.output_ref.clone())
                 }
-                WorkflowStepSkipReason::NoItems => (
+                WalkSkipReason::NoItems => (
                     WorkflowPayloadRef::Inline { items: Vec::new() },
                     WorkflowPayloadRef::Inline { items: Vec::new() },
                 ),

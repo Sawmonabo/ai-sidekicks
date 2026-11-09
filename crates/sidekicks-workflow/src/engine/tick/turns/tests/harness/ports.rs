@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -35,8 +36,8 @@ pub(in crate::engine::tick::turns) enum OrderedCall {
     },
 }
 
-/// One call the test's asks took: what it raised or opened, for which step and wait, and the
-/// step's row, its status and wait id, as the call read it.
+/// One call the test's asks took: what it raised or opened, for which step and wait, the step's
+/// row, its status and wait id, and the status of each step of its run, as the call read them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::engine::tick::turns) struct RecordedAsk {
     /// `approval`, `form` or `reply`.
@@ -49,6 +50,8 @@ pub(in crate::engine::tick::turns) struct RecordedAsk {
     pub(in crate::engine::tick::turns) row_status: Option<String>,
     /// The step row's wait id at the call.
     pub(in crate::engine::tick::turns) row_wait_id: Option<String>,
+    /// Each step row of the step's run at the call, its node id and status, in execution order.
+    pub(in crate::engine::tick::turns) run_statuses: Vec<(String, String)>,
 }
 
 /// The approval cards and questions of a test, over their own connection to its database: each
@@ -88,7 +91,8 @@ impl RecordingAsks {
         step: WorkflowStepKey,
         wait_id: UuidTextForm,
     ) -> Result<(), PortError> {
-        let (row_status, row_wait_id) = lock(&self.rows)
+        let rows = lock(&self.rows);
+        let (row_status, row_wait_id) = rows
             .query_row(
                 "SELECT status, wait_id FROM workflow_steps \
                  WHERE workflow_run_id = ?1 AND execution_index = ?2",
@@ -99,6 +103,20 @@ impl RecordingAsks {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_or((None, None), |(status, wait_id)| (Some(status), wait_id));
+        let run_statuses = rows
+            .prepare(
+                "SELECT node_id, status FROM workflow_steps \
+                 WHERE workflow_run_id = ?1 ORDER BY execution_index",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([step.workflow_run_id.text().as_str()], |row| {
+                        Ok((row.get(0)?, row.get(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("the run's step rows read");
+        drop(rows);
         self.order
             .send_modify(|calls| calls.push(OrderedCall::Ask { kind, wait_id }));
         lock(&self.calls).push(RecordedAsk {
@@ -107,6 +125,7 @@ impl RecordingAsks {
             wait_id,
             row_status,
             row_wait_id,
+            run_statuses,
         });
         if self.is_refusing.load(Ordering::SeqCst) {
             return Err("the test's asks refuse every call".into());
@@ -153,11 +172,18 @@ fn fresh_question_id() -> QuestionId {
 }
 
 /// The snapshot points of a test, each logged in the order log as it is taken: a capture ends
-/// once the test's gate is open, which it is until the test shuts it, and fails while told to.
+/// once the test's gate is open, which it is until the test shuts it, or once the test ends that
+/// pause's capture alone, and fails while told to.
 pub(in crate::engine::tick::turns) struct RecordingSnapshotPoints {
     order: Arc<OrderLog>,
-    gate: watch::Sender<bool>,
+    gate: watch::Sender<CaptureGate>,
     is_refusing: AtomicBool,
+}
+
+/// Whether every capture may end, and the pause numbers whose capture may end while it is shut.
+struct CaptureGate {
+    is_open: bool,
+    ended_pauses: Vec<u64>,
 }
 
 impl RecordingSnapshotPoints {
@@ -165,14 +191,23 @@ impl RecordingSnapshotPoints {
     pub(in crate::engine::tick::turns) fn new(order: Arc<OrderLog>) -> Self {
         Self {
             order,
-            gate: watch::Sender::new(true),
+            gate: watch::Sender::new(CaptureGate {
+                is_open: true,
+                ended_pauses: Vec::new(),
+            }),
             is_refusing: AtomicBool::new(false),
         }
     }
 
     /// Opens the gate when `is_open`, ending every capture held at it, or shuts it.
     pub(in crate::engine::tick::turns) fn set_gate(&self, is_open: bool) {
-        self.gate.send_replace(is_open);
+        self.gate.send_modify(|gate| gate.is_open = is_open);
+    }
+
+    /// Ends the capture of pause `pause_number` of the run's execution, held at the shut gate.
+    pub(in crate::engine::tick::turns) fn end_capture(&self, pause_number: u64) {
+        self.gate
+            .send_modify(|gate| gate.ended_pauses.push(pause_number));
     }
 
     /// Makes every later capture fail, as a checkout that cannot be recorded.
@@ -186,12 +221,22 @@ impl RunSnapshotPoints for RecordingSnapshotPoints {
         &self,
         request: WorkflowRunSnapshotPointRequest,
     ) -> BoxFuture<'static, Result<(), PortError>> {
+        let pause_number = match &request.point {
+            WorkflowRunSnapshotPoint::Pause { pause_number, .. } => Some(pause_number.0.get()),
+            WorkflowRunSnapshotPoint::Start { .. } | WorkflowRunSnapshotPoint::End { .. } => None,
+        };
         self.order
             .send_modify(|calls| calls.push(OrderedCall::Point(request)));
         let mut gate = self.gate.subscribe();
         let is_refusing = self.is_refusing.load(Ordering::SeqCst);
         Box::pin(async move {
-            let is_open = gate.wait_for(|is_open| *is_open).await.is_ok();
+            let is_open = gate
+                .wait_for(|gate| {
+                    gate.is_open
+                        || pause_number.is_some_and(|number| gate.ended_pauses.contains(&number))
+                })
+                .await
+                .is_ok();
             if is_refusing || !is_open {
                 return Err("the test's capture fails".into());
             }

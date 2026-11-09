@@ -768,6 +768,7 @@ methods! {
                 SessionNotFound,
                 ProjectNotFound,
                 WorkflowVersionNotFound,
+                WorkflowRunStartDenied,
                 WorkflowRunProjectOnProjectSession,
                 WorkflowRunRepositoryRequired,
                 WorkflowRunProviderRequired,

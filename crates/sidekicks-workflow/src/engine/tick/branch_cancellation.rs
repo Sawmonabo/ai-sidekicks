@@ -168,8 +168,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{BranchCancelReason, BranchLoser, WaveSettle, cancel_branches};
-    use crate::engine::ports::ScriptedAgentRunner;
+    use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
+    use crate::kinds::step_context::StepRecords;
 
     /// The first execution of node `node_id`.
     fn step(node_id: &str) -> WorkflowStepKey {
@@ -197,7 +198,8 @@ mod tests {
             StepReportKind::WaitingOnPool { .. }
             | StepReportKind::Admitted { .. }
             | StepReportKind::Started { .. }
-            | StepReportKind::ResumeDue
+            | StepReportKind::ResumeDue { .. }
+            | StepReportKind::RunCapped { .. }
             | StepReportKind::Settled(
                 StepSettlement::Completed { .. }
                 | StepSettlement::Failed { .. }
@@ -352,6 +354,7 @@ mod tests {
                         .expect("the test's account id reads"),
                     run: runner.made_run(),
                     resets_at: None,
+                    records: StepRecords::default(),
                 }),
             )
         };

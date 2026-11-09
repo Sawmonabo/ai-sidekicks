@@ -25,10 +25,10 @@ use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::turns::{RunCancelIntake, RunCancelReply};
 use super::walk::{RunGraph, RunWalk, WalkReady};
-use super::{RunScope, StepReport};
+use super::{ParkedAgentRun, RunScope, StepReport};
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
-use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
+use crate::engine::ports::StepAdmissionTicket;
 use crate::engine::waits::OpenedPersonWait;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::expressions::lineage::StepOutputs;
@@ -72,16 +72,16 @@ pub(crate) struct LiveRun {
     pub(crate) ending: Option<RunEnding>,
     /// The replies to the person's cancels of the run, sent once the write of its ending commits.
     pub(crate) cancel_replies: Vec<RunCancelReply>,
-    /// Whether the run's turn armed or cleared a wait's deadline, or took a late answer, so the
-    /// deadline clock is read again once the turn's write commits.
+    /// Whether the run's turn armed or cleared a person wait's deadline, a parked step's resume or
+    /// the run's cap, or took a late answer, so the deadline clock is read again once the turn's
+    /// write commits.
     pub(crate) needs_deadline_read: bool,
     /// The deadline arm and clear lines of the run's turn, each on its step or, for the run's
     /// cap, on none, recorded once its write commits.
     pub(crate) deadline_lines: Vec<(Option<WorkflowStepKey>, EngineDecision<'static>)>,
     /// The run's cap deadline as its last line armed it, `None` while none is armed.
     pub(crate) cap_at: Option<WireInstant>,
-    /// The run's current execution, 0 for its first; a re-execution moves it to the next and
-    /// starts its pause count again.
+    /// The run's current execution, 0 for its first.
     pub(crate) epoch: WorkflowRunEpoch,
     /// The approval pauses the run's current execution has taken, so its next pause is this count
     /// and 1.
@@ -155,7 +155,7 @@ pub(crate) struct LiveStep {
     pub(crate) is_winding_down: bool,
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
-    pub(crate) parked_agent_run: Option<Box<dyn AgentStepRun>>,
+    pub(crate) parked_agent_run: Option<ParkedAgentRun>,
     /// When it resumes itself from its spent account's wait, where a resume is armed.
     pub(crate) resume_at: Option<WireInstant>,
 }
@@ -315,7 +315,7 @@ impl LiveRun {
     pub(crate) fn wait_on_account(
         &mut self,
         execution_index: u64,
-        run: Box<dyn AgentStepRun>,
+        parked: ParkedAgentRun,
         resume_at: Option<WireInstant>,
     ) {
         self.move_step(
@@ -327,7 +327,7 @@ impl LiveRun {
             .steps
             .get_mut(&execution_index)
             .expect("a step the turn moved is live");
-        live_step.parked_agent_run = Some(run);
+        live_step.parked_agent_run = Some(parked);
         live_step.resume_at.clone_from(&resume_at);
         if let Some(at) = resume_at {
             let armed = EngineDecision::DeadlineArmed {

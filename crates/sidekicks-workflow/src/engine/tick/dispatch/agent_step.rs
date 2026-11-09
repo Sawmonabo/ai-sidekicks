@@ -2,8 +2,9 @@
 //! created in the step's turn in the entry line, taken once the evaluation has finished and every
 //! sibling readied before it has taken its own, which is the step's one entry to the memory gate,
 //! and the run is followed through its admission, its start and its progress to its outcome. A
-//! run kept while its account was spent is taken again once its resume is written and followed
-//! the same way from its progress.
+//! run kept while its account was spent is taken again once its resume is written, enters the
+//! memory gate again as a creation does, and is followed from its admission through its progress,
+//! settling with the records its params kept.
 
 use std::sync::Arc;
 
@@ -22,7 +23,9 @@ use crate::engine::tick::admission::{GateWaitEnd, SiblingEntry, wait_at_gate};
 use crate::engine::tick::node_settings::{
     main_input_lengths, main_output_count, place_on_first_output, shape_outputs,
 };
-use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot, StepReportKind, StepSettlement};
+use crate::engine::tick::{
+    ParkedAgentRun, ReadyStep, RunScope, RunSnapshot, StepReportKind, StepSettlement,
+};
 use crate::kinds::step_context::StepRecords;
 use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
@@ -48,6 +51,16 @@ enum AgentRunWatch {
     Progress,
     /// Nothing more, for a run that left the gate unadmitted or was canceled there.
     Outcome,
+}
+
+/// Where an agent run's wait at the memory gate left its step.
+struct GateLeave {
+    /// Whether the gate admitted the run, so its start or progress is watched.
+    is_admitted: bool,
+    /// Whether the run left the gate's line unadmitted, so a completion reads as a failure.
+    is_withdrawn: bool,
+    /// When the hold a cancel at the gate ended began.
+    hold_started_at: Option<WireInstant>,
 }
 
 /// What an agent run's settlement is shaped from besides its outcome.
@@ -169,22 +182,8 @@ impl StepDispatch {
                 return;
             }
         };
-        let end = wait_at_gate(step.clone(), run.admission(), &cancel, &self.reports).await;
-        let is_withdrawn = matches!(end, GateWaitEnd::Withdrawn { .. });
-        let (is_start_watched, hold_started_at) = match end {
-            GateWaitEnd::Admitted => (true, None),
-            // The run's place closed before it was admitted; its outcome says how it ended.
-            GateWaitEnd::Withdrawn { .. } => (false, None),
-            // The step's cancel is set, so the loop below stops the run first.
-            GateWaitEnd::Canceled { hold_started_at } => (false, hold_started_at),
-            // Nothing is left to tell, but the run must still stop: the cancel stops it below, and
-            // the settlement's send then fails, which ends the driver.
-            GateWaitEnd::ReportsClosed => {
-                cancel.cancel();
-                (false, None)
-            }
-        };
-        let watched = if is_start_watched {
+        let gate = self.leave_gate(&step, run.as_ref(), &cancel).await;
+        let watched = if gate.is_admitted {
             AgentRunWatch::Start {
                 input_ref: ready.input_ref,
                 permission_level: snapshot.permission_level,
@@ -193,8 +192,8 @@ impl StepDispatch {
             AgentRunWatch::Outcome
         };
         let end = AgentRunEnd {
-            is_withdrawn,
-            hold_started_at,
+            is_withdrawn: gate.is_withdrawn,
+            hold_started_at: gate.hold_started_at,
             main_input_lengths,
             records,
         };
@@ -205,18 +204,19 @@ impl StepDispatch {
             .await;
     }
 
-    /// Takes `run`, the kept agent run of `step` of the run of `scope`, whose resume from its
+    /// Takes `parked`, the kept agent run of `step` of the run of `scope`, whose resume from its
     /// spent account the tick has written, on its own task: the intent recorded, the run's turn
-    /// taken again on its account and the outcome recorded, then the run followed to its
-    /// settlement under `cancel`, as a started run is. A resume that cannot be sent fails the
-    /// step with the port's error; a step canceled first stops its run and settles canceled.
+    /// taken again on its account and the outcome recorded, then the run's wait at the memory
+    /// gate reported as a creation's is, and the run followed to its settlement under `cancel`
+    /// with the records its params kept. A resume that cannot be sent fails the step with the
+    /// port's error; a step canceled first stops its run and settles canceled.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn resume_agent_step(
         &self,
         scope: &Arc<RunScope>,
         step: WorkflowStepKey,
         inputs: &[Vec<WorkflowItem>],
-        run: Box<dyn AgentStepRun>,
+        parked: ParkedAgentRun,
         cancel: CancellationToken,
     ) {
         let (_, kind) = self.look_up_step(scope, &step);
@@ -225,7 +225,7 @@ impl StepDispatch {
             Arc::clone(scope),
             step,
             main_input_lengths,
-            run,
+            parked,
             cancel,
         ));
     }
@@ -236,9 +236,10 @@ impl StepDispatch {
         scope: Arc<RunScope>,
         step: WorkflowStepKey,
         main_input_lengths: Vec<usize>,
-        run: Box<dyn AgentStepRun>,
+        parked: ParkedAgentRun,
         cancel: CancellationToken,
     ) {
+        let ParkedAgentRun { run, records } = parked;
         let settlement = if cancel.is_cancelled() {
             if let Err(error) = run.cancel().await {
                 self.record_fault(
@@ -264,13 +265,20 @@ impl StepDispatch {
             match run.resume().await {
                 Ok(()) => {
                     record.outcome(pending, EngineOutcome::Done).await;
-                    let end = AgentRunEnd {
-                        is_withdrawn: false,
-                        hold_started_at: None,
-                        main_input_lengths,
-                        records: StepRecords::default(),
+                    let gate = self.leave_gate(&step, run.as_ref(), &cancel).await;
+                    // A resumed run started before it parked, so only its progress is watched.
+                    let watched = if gate.is_admitted {
+                        AgentRunWatch::Progress
+                    } else {
+                        AgentRunWatch::Outcome
                     };
-                    self.follow_agent_run(&scope, &step, run, &cancel, AgentRunWatch::Progress, end)
+                    let end = AgentRunEnd {
+                        is_withdrawn: gate.is_withdrawn,
+                        hold_started_at: gate.hold_started_at,
+                        main_input_lengths,
+                        records,
+                    };
+                    self.follow_agent_run(&scope, &step, run, &cancel, watched, end)
                         .await
                 }
                 Err(error) => {
@@ -282,13 +290,41 @@ impl StepDispatch {
                     ))));
                     StepSettlement::Failed {
                         failure: fill_step_failure(failure, &step.node_id, &scope.redaction),
-                        log_lines: Vec::new(),
+                        log_lines: records.log_lines,
                     }
                 }
             }
         };
         self.report(&step, &cancel, StepReportKind::Settled(settlement))
             .await;
+    }
+
+    /// Waits at the memory gate for `run`, the agent run of `step`, under `cancel`, reporting its
+    /// hold and admission. A wait given up because the tick stopped taking reports cancels
+    /// `cancel`, so following the run stops it and the settlement's failed send ends the driver.
+    async fn leave_gate(
+        &self,
+        step: &WorkflowStepKey,
+        run: &dyn AgentStepRun,
+        cancel: &CancellationToken,
+    ) -> GateLeave {
+        let end = wait_at_gate(step.clone(), run.admission(), cancel, &self.reports).await;
+        let (is_admitted, is_withdrawn, hold_started_at) = match end {
+            GateWaitEnd::Admitted => (true, false, None),
+            // The run's place closed before it was admitted; its outcome says how it ended.
+            GateWaitEnd::Withdrawn { .. } => (false, true, None),
+            // The step's cancel is set, so following the run stops it first.
+            GateWaitEnd::Canceled { hold_started_at } => (false, false, hold_started_at),
+            GateWaitEnd::ReportsClosed => {
+                cancel.cancel();
+                (false, false, None)
+            }
+        };
+        GateLeave {
+            is_admitted,
+            is_withdrawn,
+            hold_started_at,
+        }
     }
 
     /// Follows `run`, the agent run of `step` of the run of `scope`, watching what `watched` names,
@@ -423,6 +459,7 @@ impl StepDispatch {
                     provider_account_id,
                     resets_at,
                     run,
+                    records,
                 },
                 Ok(AgentStepOutcome::Failed { error }) => StepSettlement::Failed {
                     failure: fill(StepFailure::Failed(Box::new(error))),

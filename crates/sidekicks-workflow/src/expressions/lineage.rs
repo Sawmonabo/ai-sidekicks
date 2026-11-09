@@ -263,19 +263,15 @@ pub(crate) fn walk_paired_item<'steps>(
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
-    use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
     use sidekicks_contracts::workflow::definition::item::WorkflowItem;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepSource;
 
     use super::{LineageError, StepKey, StepOutput, StepOutputs, walk_paired_item};
-
-    fn node_id(id: &str) -> WorkflowNodeId {
-        WorkflowNodeId::new(id.to_owned()).expect("a node id")
-    }
+    use crate::test_rows::test_node_id;
 
     fn key(id: &str) -> StepKey {
         StepKey {
-            node_id: node_id(id),
+            node_id: test_node_id(id),
             execution_index: 0,
         }
     }
@@ -305,7 +301,7 @@ mod tests {
         let mut step_outputs = StepOutputs::new(
             steps
                 .iter()
-                .map(|(id, _, _)| (node_id(id), (*id).to_owned())),
+                .map(|(id, _, _)| (test_node_id(id), (*id).to_owned())),
         );
         for (id, sources, items) in steps {
             step_outputs.record(

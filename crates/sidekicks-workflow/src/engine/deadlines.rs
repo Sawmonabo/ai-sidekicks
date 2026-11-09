@@ -1,7 +1,8 @@
 //! The engine's one deadline clock. The deadline on a step's row is the truth: one armed instant
 //! holds the earliest, read again from the rows at start, after each write that moves one, and by
-//! the scheduler across sleep, so it fires even while no turn runs. A fire reports each step whose
-//! deadline passed to the tick, which commits its failure.
+//! the scheduler across sleep, so it fires even while no turn runs. A fire reports what came due
+//! to the tick: a person wait past its deadline fails timed out, a run past its cap fails with the
+//! cap's failure, and a parked step whose resume passed resumes.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -32,7 +33,6 @@ use tokio::sync::mpsc;
 
 use crate::engine::ports::WorkflowRunLimits;
 use crate::engine::tick::run_status::RunPersonWait;
-use crate::engine::tick::step_failure::run_cap_failure;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 use crate::engine::waits::step_key;
 use crate::kinds::{StepFailure, coded_step_error};
@@ -64,8 +64,8 @@ const EARLIEST_RESUME_SQL: &str = "SELECT workflow_run_id, resume_at FROM workfl
 
 // A resume is set only while a spent account holds the step, so no status test is needed.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-const DUE_RESUMES_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index \
-     FROM workflow_steps WHERE resume_at IS NOT NULL AND resume_at <= @instant \
+const DUE_RESUMES_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index, \
+     resume_at FROM workflow_steps WHERE resume_at IS NOT NULL AND resume_at <= @instant \
      ORDER BY resume_at, execution_index";
 
 // A deadline is set only while a person wait holds the step, so no status test is needed.
@@ -127,20 +127,20 @@ fn earliest_step_instant(
     Ok(None)
 }
 
-// The cap of each unfinished run not in `skipped` and with no person wait open, under `limit`;
-// a run whose cap lies past the last instant a timestamp holds has none.
+// The cap of each unfinished run in neither `skipped` nor `capped` and with no person wait open,
+// under `limit`; a run whose cap lies past the last instant a timestamp holds has none.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn unfinished_run_caps(
     connection: &Connection,
     limit: RunTimeLimitMinutes,
-    skipped: &HashSet<WorkflowRunId>,
+    (skipped, capped): RunsOffClock<'_>,
 ) -> Result<Vec<(WorkflowRunId, Timestamp)>, EngineDeadlineError> {
     let mut statement = connection.prepare_cached(UNFINISHED_RUNS_SQL)?;
     let mut rows = statement.query([])?;
     let mut caps = Vec::new();
     while let Some(row) = rows.next()? {
         let run_id = text_column(row, 0, |text| WorkflowRunId::new(&text))?;
-        if skipped.contains(&run_id) {
+        if skipped.contains(&run_id) || capped.contains(&run_id) {
             continue;
         }
         let person_wait_ms: SafeInt<0> = safe_int_column(row, 2)?;
@@ -151,18 +151,19 @@ fn unfinished_run_caps(
     Ok(caps)
 }
 
-// The earliest deadline of a run not in `skipped`: a person wait's, a parked step's resume, or a
-// run's cap under `limit` where one is set; `None` when there is none.
+// The earliest deadline of a run not in `skipped`: a person wait's, a parked step's resume, or,
+// for a run not in `capped` either, its cap under `limit` where one is set; `None` when there is
+// none.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn earliest_deadline(
     connection: &Connection,
-    skipped: &HashSet<WorkflowRunId>,
+    (skipped, capped): RunsOffClock<'_>,
     limit: Option<RunTimeLimitMinutes>,
 ) -> Result<Option<SystemTime>, EngineDeadlineError> {
     let wait = earliest_step_instant(connection, EARLIEST_DEADLINE_SQL, skipped)?;
     let resume = earliest_step_instant(connection, EARLIEST_RESUME_SQL, skipped)?;
     let cap = match limit {
-        Some(limit) => unfinished_run_caps(connection, limit, skipped)?
+        Some(limit) => unfinished_run_caps(connection, limit, (skipped, capped))?
             .into_iter()
             .map(|(_, cap)| SystemTime::from(cap))
             .min(),
@@ -172,14 +173,14 @@ fn earliest_deadline(
 }
 
 // Every report due at `instant` of a run not in `skipped`: each person wait past its deadline
-// fails timed out, earliest first, each parked step whose resume passed comes due, earliest
-// first, then each run past its cap under `limit` fails on its lowest-index step with the cap's
-// failure.
+// fails timed out, earliest first; each run past its cap under `limit` but a run in `capped`
+// fails on its lowest-index step with the cap's failure; then each parked step whose resume
+// passed comes due, earliest first, so a run past its cap ends before its resume is taken.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn due_reports(
     connection: &Connection,
     instant: &WireInstant,
-    skipped: &HashSet<WorkflowRunId>,
+    (skipped, capped): RunsOffClock<'_>,
     limit: Option<RunTimeLimitMinutes>,
 ) -> Result<Vec<(WorkflowStepKey, StepReportKind)>, EngineDeadlineError> {
     let failed = |failure| {
@@ -196,36 +197,37 @@ fn due_reports(
             (step, failed(failure))
         })
         .collect();
+    if let Some(limit) = limit {
+        let now = instant
+            .timestamp()
+            .expect("an instant made from a timestamp reads as one");
+        let limit_ms = SafeInt::new(u64::from(limit.get()) * 60_000)
+            .expect("a run time limit's milliseconds are a safe integer");
+        let mut lowest_step = connection.prepare_cached(LOWEST_STEP_SQL)?;
+        for (run_id, cap) in unfinished_run_caps(connection, limit, (skipped, capped))? {
+            if cap > now {
+                continue;
+            }
+            if let Some(step) = lowest_step
+                .query_row([run_id.text().as_str()], step_key)
+                .optional()?
+            {
+                due.push((step, StepReportKind::RunCapped { limit_ms }));
+            }
+        }
+    }
     let resumes = connection
         .prepare_cached(DUE_RESUMES_SQL)?
-        .query_map(named_params! { "@instant": instant.as_str() }, step_key)?
+        .query_map(named_params! { "@instant": instant.as_str() }, |row| {
+            let resume_at = text_column(row, 4, WireInstant::try_from)?;
+            Ok((step_key(row)?, StepReportKind::ResumeDue { resume_at }))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     due.extend(
         resumes
             .into_iter()
-            .filter(|step| !skipped.contains(&step.workflow_run_id))
-            .map(|step| (step, StepReportKind::ResumeDue)),
+            .filter(|(step, _)| !skipped.contains(&step.workflow_run_id)),
     );
-    let Some(limit) = limit else {
-        return Ok(due);
-    };
-    let now = instant
-        .timestamp()
-        .expect("an instant made from a timestamp reads as one");
-    let limit_ms = SafeInt::new(u64::from(limit.get()) * 60_000)
-        .expect("a run time limit's milliseconds are a safe integer");
-    let mut lowest_step = connection.prepare_cached(LOWEST_STEP_SQL)?;
-    for (run_id, cap) in unfinished_run_caps(connection, limit, skipped)? {
-        if cap > now {
-            continue;
-        }
-        if let Some(step) = lowest_step
-            .query_row([run_id.text().as_str()], step_key)
-            .optional()?
-        {
-            due.push((step, failed(run_cap_failure(limit_ms))));
-        }
-    }
     Ok(due)
 }
 
@@ -308,7 +310,17 @@ pub(crate) struct EngineDeadlines {
     /// The runs the tick dropped in this daemon life, whose stored waits stay off the clock until
     /// the restart settles them; one id per failed write, and the restart starts with none.
     skipped: Mutex<HashSet<WorkflowRunId>>,
+    /// The runs whose cap the tick took and which are still winding down, whose cap stays off the
+    /// clock until their ending commits.
+    capped: Mutex<HashSet<WorkflowRunId>>,
 }
+
+// The runs the clock leaves out: the dropped ones, whose every deadline it skips, then the capped
+// ones, whose cap alone it skips.
+type RunsOffClock<'clock> = (
+    &'clock HashSet<WorkflowRunId>,
+    &'clock HashSet<WorkflowRunId>,
+);
 
 impl EngineDeadlines {
     /// The clock on `scheduler`, reading on `reads`, reporting to `reports` and holding each run to
@@ -327,6 +339,7 @@ impl EngineDeadlines {
             reports,
             limits,
             skipped: Mutex::new(HashSet::new()),
+            capped: Mutex::new(HashSet::new()),
         })
     }
 
@@ -355,6 +368,20 @@ impl EngineDeadlines {
     pub(crate) fn skip_run(&self, run_id: WorkflowRunId) {
         lock(&self.skipped).insert(run_id);
     }
+
+    /// Keeps the cap of run `run_id`, which the tick took, off the clock from its next read on,
+    /// so the cap is not reported again while the run winds down.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn skip_cap(&self, run_id: WorkflowRunId) {
+        lock(&self.capped).insert(run_id);
+    }
+
+    /// Forgets the skipped cap of run `run_id`, whose ending committed, so its row no longer
+    /// counts.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn forget_cap(&self, run_id: WorkflowRunId) {
+        lock(&self.capped).remove(&run_id);
+    }
 }
 
 impl InstantJob for EngineDeadlines {
@@ -362,9 +389,10 @@ impl InstantJob for EngineDeadlines {
         &self.armed
     }
 
-    /// Reports every step whose deadline is at or before `instant` failed, every parked step whose
-    /// resume came due, and every run past its cap, once, but a dropped run's: it arms nothing again, so a deadline is not reported twice
-    /// before the commit clears it, and the tick calls [`InstantJob::rearm`] after that write.
+    /// Reports what came due at or before `instant`, except a dropped run's: each person wait
+    /// failed, each run past its cap, then each parked step's resume. It arms nothing again, so a
+    /// deadline is not reported twice before the commit clears it, and the tick calls
+    /// [`InstantJob::rearm`] after that write.
     fn fire(
         self: Arc<Self>,
         instant: SystemTime,
@@ -373,11 +401,12 @@ impl InstantJob for EngineDeadlines {
             let instant = WireInstant::from_timestamp(Timestamp::try_from(instant)?)
                 .expect("an instant armed from a stored deadline is after year 0000");
             let skipped = lock(&self.skipped).clone();
+            let capped = lock(&self.capped).clone();
             let limit = self.limits.run_time_limit();
             let due = self
                 .reads
                 .read(ReadLength::Short, move |connection| {
-                    due_reports(connection, &instant, &skipped, limit)
+                    due_reports(connection, &instant, (&skipped, &capped), limit)
                 })
                 .await?;
             for (step, kind) in due {
@@ -401,11 +430,12 @@ impl InstantJob for EngineDeadlines {
     fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
         async move {
             let skipped = lock(&self.skipped).clone();
+            let capped = lock(&self.capped).clone();
             let limit = self.limits.run_time_limit();
             match self
                 .reads
                 .read(ReadLength::Short, move |connection| {
-                    earliest_deadline(connection, &skipped, limit)
+                    earliest_deadline(connection, (&skipped, &capped), limit)
                 })
                 .await
             {

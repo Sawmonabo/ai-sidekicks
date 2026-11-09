@@ -304,6 +304,7 @@ CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;             -- one attention entry per spent account
 CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
   WHERE wait_id IS NOT NULL;                     -- an answer finds its waiting step by its waitId
+CREATE INDEX idx_workflow_steps_node_finished ON workflow_steps(node_id, finished_at);  -- a partial run's plan reads each node's newest settled step
 
 -- ========================================================================
 -- 7. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
@@ -351,19 +352,25 @@ CREATE TABLE workflow_webhook_tokens (
 -- would change the content hash on every fire and mint a version for nothing. It also holds the values a
 -- `Keep for later runs` step keeps: one entry per (workflow, name), with the value, the run that kept it and
 -- when. A value over 64 KiB is kept as a file and read back the same way, by the rule a step's payload over
--- the inline bound follows. Kept values belong to the workflow, not to a version: saving, restoring or
--- duplicating a version leaves them, a duplicate starts with none, and `workflow.keptValue.clear` or deleting
--- the workflow removes them.
+-- the inline bound follows; artifact_id names that file, so a value is never told apart by its shape. Kept
+-- values belong to the workflow, not to a version: saving, restoring or duplicating a version leaves them, a
+-- duplicate starts with none, and `workflow.keptValue.clear` or deleting the workflow removes them. The write
+-- that replaces, clears or deletes a value reads its artifact_id first, inside itself, and the artifact is
+-- removed right after that write commits, as is the file of a value a step of a deleted workflow kept, which
+-- keeps no row; a removal that fails is recorded beside the run's turn or answered beside the clear or delete,
+-- and no sweep follows.
 CREATE TABLE workflow_node_state (
   definition_id     TEXT NOT NULL REFERENCES workflow_definitions(id),
   node_id           TEXT NOT NULL,               -- '' for a kept value, which belongs to the workflow rather than to one node
   key               TEXT NOT NULL,               -- a cursor's key, or a kept value's name
   value_json        TEXT NOT NULL
                     CHECK(json_valid(value_json)),
+  artifact_id       TEXT,                        -- the payload artifact a kept value above the inline cap is kept in, whose reference value_json then holds; NULL for a value kept inline and for trigger cursor state
   kept_by_run_id    TEXT,                        -- the run that kept the value; NULL for trigger cursor state
   updated_at        TEXT NOT NULL,               -- when the value was written or kept
   PRIMARY KEY (definition_id, node_id, key),
-  CHECK(kept_by_run_id IS NULL OR node_id = '')
+  CHECK(kept_by_run_id IS NULL OR node_id = ''),
+  CHECK(artifact_id IS NULL OR kept_by_run_id IS NOT NULL)
 ) STRICT;
 
 -- ========================================================================

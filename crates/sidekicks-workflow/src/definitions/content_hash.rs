@@ -12,11 +12,11 @@ use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicali
 /// What every content hash starts with: the hash function's name.
 const CONTENT_HASH_PREFIX: &str = "b3:";
 
-/// A value's canonical JSON as stored, such as a document's hashed body, and the content hash over
+/// A document's hashed body as the canonical JSON a version row stores, and the content hash over
 /// exactly those bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowDocumentHash {
-    /// The RFC 8785 canonical JSON of the value, for a hashed body the text a version row stores.
+    /// The RFC 8785 canonical JSON of the hashed body, the text a version row stores.
     pub(crate) canonical_body: String,
     /// `b3:` and the 64 lowercase hex digits of BLAKE3 over the canonical body's UTF-8 bytes.
     pub(crate) content_hash: WorkflowContentHash,
@@ -27,27 +27,33 @@ pub(crate) struct WorkflowDocumentHash {
 pub(crate) fn hash_workflow_body(
     hashed_body: &WorkflowDocumentHashedBody,
 ) -> Result<WorkflowDocumentHash, CanonicalizationRefusal> {
-    hash_canonical_json(&serde_json::to_value(hashed_body)?)
-}
-
-/// Canonicalizes `value` and hashes it, so key order never changes the hash and array order does;
-/// refuses what the canonicalizer refuses, such as a value nesting deeper than its ceiling.
-pub(crate) fn hash_canonical_json(
-    value: &Value,
-) -> Result<WorkflowDocumentHash, CanonicalizationRefusal> {
-    let canonical_bytes = canonicalize_json(value)?;
-    let content_hash = format!(
-        "{CONTENT_HASH_PREFIX}{}",
-        blake3::hash(canonical_bytes.as_bytes()).to_hex()
-    );
+    let canonical_bytes = canonicalize_json(&serde_json::to_value(hashed_body)?)?;
     Ok(WorkflowDocumentHash {
         canonical_body: std::str::from_utf8(canonical_bytes.as_bytes())
             .expect("RFC 8785 writes UTF-8")
             .to_owned(),
-        content_hash: WorkflowContentHash(
-            NonEmptyText::new(content_hash).expect("a content hash starts with its prefix"),
-        ),
+        content_hash: content_hash_of(canonical_bytes.as_bytes()),
     })
+}
+
+/// Canonicalizes `value` and answers its content hash, so key order never changes the hash and
+/// array order does; refuses what the canonicalizer refuses, such as a value nesting deeper than
+/// its ceiling.
+pub(crate) fn hash_canonical_json(
+    value: &Value,
+) -> Result<WorkflowContentHash, CanonicalizationRefusal> {
+    Ok(content_hash_of(canonicalize_json(value)?.as_bytes()))
+}
+
+// `b3:` and the 64 lowercase hex digits of BLAKE3 over `canonical_bytes`.
+fn content_hash_of(canonical_bytes: &[u8]) -> WorkflowContentHash {
+    let content_hash = format!(
+        "{CONTENT_HASH_PREFIX}{}",
+        blake3::hash(canonical_bytes).to_hex()
+    );
+    WorkflowContentHash(
+        NonEmptyText::new(content_hash).expect("a content hash starts with its prefix"),
+    )
 }
 
 #[cfg(test)]
@@ -139,6 +145,6 @@ mod tests {
             let items: serde_json::Value = serde_json::from_str(text).expect("the text reads");
             hash_canonical_json(&items).expect("the items hash")
         });
-        assert_eq!(forward.content_hash, reversed.content_hash);
+        assert_eq!(forward, reversed);
     }
 }

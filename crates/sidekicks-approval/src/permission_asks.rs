@@ -523,10 +523,9 @@ impl PermissionAsks {
     }
 
     // Hands the stored answer of `card`, which `run_id` holds, to the ask held under its `ask_id`
-    // where one is and no hand
-    // of it is under way or reached its provider, then records the rule it made once the provider
-    // kept it. Fails with `approval.rule.notKept` when the provider could not keep the rule, and as
-    // reaching the provider or recording the rule fails.
+    // where one is and no hand of it is under way or reached its provider, then records the rule
+    // it made once the provider kept it. Fails with `approval.rule.notKept` when the provider could
+    // not keep the rule, and as reaching the provider or recording the rule fails.
     async fn hand_card_answer(
         &self,
         card: &StoredApprovalRequest,

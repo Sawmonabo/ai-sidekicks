@@ -9,8 +9,10 @@ use std::time::Duration;
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
@@ -21,7 +23,7 @@ use sidekicks_contracts::workflow::run::step::events::{
     WorkflowParallelJoinBranchesCanceledPayload, WorkflowPhaseAdmittedPayload,
     WorkflowPhaseCancelingPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseRetriedPayload,
     WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnPoolPayload, WorkflowReadiedStep,
-    WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
+    WorkflowStepSkipReason, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::statement::WriteStatement;
@@ -30,10 +32,11 @@ use sidekicks_store::events::session::appender::SessionEventEmitError;
 use super::run_status::{
     GoingRunStatus, RunPersonWait, RunStepCounts, going_run_status, whole_milliseconds_between,
 };
-use super::walk::{WalkReady, WalkSkip};
-use super::{BranchCancelReason, StepReport, StepReportKind};
+use super::walk::{WalkReady, WalkSkip, WalkSkipReason};
+use super::{BranchCancelReason, ParkedAgentRun, StepReport, StepReportKind};
+use crate::definitions::kept_values::KeptArtifactReads;
 use crate::engine::event_record::{EngineDecision, StepEnding, StepTransition};
-use crate::engine::ports::{AgentStepRun, StepAdmissionTicket, StepPayloadArtifacts};
+use crate::engine::ports::{StepAdmissionTicket, StepPayloadArtifacts};
 use crate::engine::waits::OpenedPersonWait;
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonAsk, StepFailure};
@@ -102,9 +105,9 @@ pub(crate) struct RunTurnCommit {
     pending: Vec<(WorkflowStepKey, usize)>,
     /// Each artifact a payload ref this turn stores names, which a failed write leaves unnamed.
     artifact_ids: Vec<ArtifactId>,
-    /// The index among `statements` of each read of the artifacts the kept values this turn
-    /// replaces name, which the committed write answers.
-    dropped_reads: Vec<usize>,
+    /// Where among `statements` the committed write names the kept-value artifacts no row names
+    /// once it commits.
+    kept_reads: KeptArtifactReads,
     /// Each applied report that moved its step, recorded once the write commits.
     moves: Vec<(WorkflowStepKey, StepMove)>,
     /// Each gate answer the turn writes, its outcome beside its approval step, recorded once the
@@ -123,7 +126,9 @@ pub(crate) enum RunEnding {
     Completed,
     /// A step's failure ended the run: `failed`, with the run's error.
     Failed {
-        /// The run's error, the ending step's own.
+        /// The step the ending sits on.
+        step: WorkflowStepKey,
+        /// The run's error: the ending step's own, or the run cap's.
         error: WorkflowStepError,
     },
     /// A person canceled the run: `canceled`.
@@ -249,8 +254,8 @@ pub(crate) enum SettlementAnswer {
     },
     /// The step waits on its agent run's spent account.
     AccountSpent {
-        /// The step's agent run, kept to resume when the account is back.
-        run: Box<dyn AgentStepRun>,
+        /// The step's agent run with its params' records, kept to resume when the account is back.
+        parked: ParkedAgentRun,
         /// When the step resumes itself, where a resume is armed.
         resume_at: Option<WireInstant>,
     },
@@ -276,8 +281,8 @@ pub(crate) struct SettlementWriteFailure {
 /// What a committed turn answers: each event's sequence, in write order, the readying sequence of
 /// each step whose `pending` row the write stored, the run's step counts and person-wait columns
 /// after the turn, which the tick keeps for the run's next turn, the artifacts of the kept values
-/// the write replaced, which the tick deletes, and the run's ending event, where the write ended
-/// the run.
+/// the write replaced, which the tick deletes, and the id of the run's ending event, where the
+/// write ended the run.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunTurnCommitted {
@@ -293,9 +298,12 @@ pub(crate) struct RunTurnCommitted {
     /// Each artifact a kept value the write replaced named, which no record names now, for the
     /// tick to delete through the payload store.
     pub(crate) dropped_kept_artifact_ids: Vec<ArtifactId>,
-    /// The sequence of the run's ending event, where the write ended the run.
-    pub(crate) ending_sequence: Option<SafeInt<0>>,
+    /// The id of the run's ending event, where the write ended the run.
+    pub(crate) ending_event_id: Option<SessionEventId>,
 }
+
+/// A session event's id, as the event log gives it.
+pub(crate) type SessionEventId = FreeFormText<EVENT_FIELD_MAX_LEN>;
 
 /// Why a turn's write was not kept; none of it is stored.
 #[derive(Debug)]
@@ -331,7 +339,7 @@ impl RunTurnCommit {
             statements: Vec::new(),
             pending: Vec::new(),
             artifact_ids: Vec::new(),
-            dropped_reads: Vec::new(),
+            kept_reads: KeptArtifactReads::default(),
             moves: Vec::new(),
             gates: Vec::new(),
             ending: None,
@@ -470,9 +478,11 @@ impl RunTurnCommit {
             StepReportKind::BranchesCanceled { reason, count } => {
                 self.branches_canceled(step, &at, reason, count);
             }
-            StepReportKind::ResumeDue => {
+            StepReportKind::ResumeDue { .. } => {
                 self.resume_step(&step, None, WorkflowWaitCause::Account, &at);
             }
+            // The tick ends a capped run on the step it picks, as that step's failure.
+            StepReportKind::RunCapped { .. } => {}
             StepReportKind::Settled(settlement) => {
                 return self
                     .settle(step, &at, settlement, &reported)
@@ -528,7 +538,11 @@ impl RunTurnCommit {
         output_ref: &WorkflowPayloadRef,
         at: WireInstant,
     ) -> usize {
-        let reused = skip.reused.as_ref();
+        let (skip_reason, reused) = match &skip.reason {
+            WalkSkipReason::NoItems => (WorkflowStepSkipReason::NoItems, None),
+            WalkSkipReason::Disabled => (WorkflowStepSkipReason::Disabled, None),
+            WalkSkipReason::Reused(reused) => (WorkflowStepSkipReason::Reused, Some(reused)),
+        };
         let pin_hash = reused.and_then(|reused| reused.pin_hash.as_ref());
         self.statements.push(insert_skipped_step(
             &skip.step,
@@ -553,7 +567,7 @@ impl RunTurnCommit {
                 WorkflowStepSkippedPayload,
                 session_id,
                 step,
-                reason: skip.reason,
+                reason: skip_reason,
                 sources: skip.sources.clone(),
                 input_ref: input_ref.clone(),
                 output_ref: output_ref.clone(),
