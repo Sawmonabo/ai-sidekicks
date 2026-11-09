@@ -13,7 +13,6 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::task::TaskTracker;
 
 use super::{CodexTerminalExchangeError, require_terminal_session};
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{
     ThreadUnsubscribeParams, TurnSteerParams, UserInput,
 };
@@ -33,14 +32,13 @@ use crate::driver::codex::session::establishment::adoption::request_bare_thread_
 use crate::driver::codex::session::history::read_codex_resumed_newest_turn;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::side_questions::copy_turn::{
-    CopyFrameReading, CopyTurn, read_copy_frame,
+    CopyFrameReading, CopyTurn, CopyTurnMeter,
 };
 use crate::driver::codex::session::slots::{CODEX_LET_GO_TIMEOUT, THREAD_UNSUBSCRIBE_METHOD};
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_steered_turn_id, read_turn_id};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
-use crate::usage_delta_accountant::UsageDeltaAccountant;
 
 /// An agent's message to a Codex session typed in a terminal.
 pub(crate) struct CodexTerminalMessage {
@@ -213,8 +211,8 @@ fn compose_message_input(message: &CodexTerminalMessage, moment: CodexArrivalMom
 // Reads the seat's frames until the turn `turn_id` ended, its last reply kept; `None` once the
 // seat's connection dropped first.
 async fn read_turn_end(seat: &mut TerminalSeat, turn_id: &str) -> Option<CodexTerminalTurnEnd> {
-    // The terminal's turns are the person's, never metered here.
-    let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
+    // The terminal's turns are the person's, never metered here, so the meter knows no model.
+    let mut meter = CopyTurnMeter::new(seat.thread_id.clone(), None, None);
     let mut reply = None;
     while let Some((method, params)) = seat.next_frame().await {
         if method == CODEX_TURN_COMPLETED_METHOD
@@ -222,7 +220,7 @@ async fn read_turn_end(seat: &mut TerminalSeat, turn_id: &str) -> Option<CodexTe
         {
             continue;
         }
-        match read_copy_frame(&method, &params, &mut accountant) {
+        match meter.read_frame(&method, &params) {
             CopyFrameReading::Reply(text) => reply = Some(text),
             CopyFrameReading::Ended(turn) => {
                 return Some(CodexTerminalTurnEnd {
