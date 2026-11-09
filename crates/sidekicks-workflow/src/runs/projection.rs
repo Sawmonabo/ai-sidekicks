@@ -43,6 +43,7 @@ use crate::runs::creation::{
 use crate::runs::deletion::keep::keep_statement;
 use crate::runs::deletion::workflow_run_deletion_statements;
 use crate::runs::record::end_run_row_statement;
+use crate::runs::step_payload::stored_output_lengths;
 use crate::runs::step_rows::{
     FailedStepRow, add_step_pool_wait, admit_step, cancel_step, fail_step, hold_step,
     insert_pending_step, insert_skipped_step, record_step_start, resume_step, succeed_step,
@@ -64,7 +65,7 @@ const CLEAR_RUNS_SQL: &str = "DELETE FROM workflow_runs WHERE session_id = ?
 // Every type that moves a row; the others (a phase started, progressed, canceling, completed or
 // failed, a join's branches canceled, a gate reached, results posted, a version, a trigger or a
 // schedule) write no run or step row.
-const WORKFLOW_RUN_EVENT_TYPES: [SessionEventType; 20] = [
+const WORKFLOW_RUN_EVENT_TYPES: [SessionEventType; 21] = [
     SessionEventType::WorkflowRunStarted,
     SessionEventType::WorkflowChainRunJoined,
     SessionEventType::WorkflowRunKeepChanged,
@@ -74,6 +75,7 @@ const WORKFLOW_RUN_EVENT_TYPES: [SessionEventType; 20] = [
     SessionEventType::WorkflowRunFailed,
     SessionEventType::WorkflowRunCompleted,
     SessionEventType::WorkflowRunCanceled,
+    SessionEventType::WorkflowRunCrashed,
     SessionEventType::WorkflowGateResolved,
     SessionEventType::WorkflowPhaseWaitingOnPool,
     SessionEventType::WorkflowPhaseAdmitted,
@@ -132,16 +134,17 @@ struct RunFold {
     person_wait: RunPersonWait,
 }
 
-// A step's open wait, its id where a person answers it, and its memory hold's last report while
-// the gate holds it.
+// A step's open wait, its id where a person answers it, its memory hold's last report while the
+// gate holds it, and the sequence its last hold's reports name, which tells a new hold apart.
 #[derive(Default)]
 struct StepFold {
     wait_cause: Option<WorkflowWaitCause>,
     wait_id: Option<UuidTextForm>,
     last_hold_report_at: Option<WireInstant>,
+    hold_since_seq: Option<SafeInt<0>>,
 }
 
-// The key of the step a step event's members name.
+/// The key of the step a step event's members name.
 macro_rules! step_key {
     ($payload:expr) => {
         WorkflowStepKey {
@@ -152,6 +155,7 @@ macro_rules! step_key {
         }
     };
 }
+pub(crate) use step_key;
 
 impl SessionProjectionFold for WorkflowRunsFold {
     #[expect(
@@ -218,6 +222,16 @@ impl SessionProjectionFold for WorkflowRunsFold {
                 ));
                 statements.push(cancel_steps_statement(run_id, &at));
             }
+            SessionEvent::WorkflowRunCrashed(crashed) => {
+                self.end_run(crashed.workflow_run_id);
+                statements.push(end_run_row_statement(
+                    crashed.workflow_run_id,
+                    WorkflowRunStatus::Crashed,
+                    &at,
+                    crashed.error.as_ref(),
+                ));
+                statements.push(cancel_steps_statement(crashed.workflow_run_id, &at));
+            }
             SessionEvent::WorkflowGateResolved(resolved) => {
                 // A chain's question answered Keep going; a node's answer moves no run or step row.
                 if resolved.node_id.is_none()
@@ -229,11 +243,16 @@ impl SessionProjectionFold for WorkflowRunsFold {
             SessionEvent::WorkflowPhaseWaitingOnPool(waiting) => {
                 let step = step_key!(waiting);
                 let held = self.step(&step);
+                // A report naming another sequence than the open hold's starts a new hold, as a
+                // restart's sweep does for a step the daemon's stop held, so no stopped time is
+                // counted.
+                let is_new_hold = held.hold_since_seq.replace(waiting.waiting_since_seq)
+                    != Some(waiting.waiting_since_seq);
                 statements.push(match held.last_hold_report_at.replace(at.clone()) {
-                    None => hold_step(&step),
-                    Some(since) => {
+                    Some(since) if !is_new_hold => {
                         add_step_pool_wait(&step, whole_milliseconds_between(&since, &at))
                     }
+                    _ => hold_step(&step),
                 });
             }
             SessionEvent::WorkflowPhaseAdmitted(admitted) => {
@@ -277,7 +296,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
                     &step,
                     &at,
                     &completed.output_ref,
-                    &output_lengths(&completed.output_item_counts),
+                    &stored_output_lengths(&completed.output_item_counts),
                     &completed.log_ref,
                     completed.cost.as_ref(),
                 ));
@@ -290,7 +309,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
                 let passed_on = failed.passed_on.as_ref().map(|passed_on| {
                     (
                         &passed_on.output_ref,
-                        output_lengths(&passed_on.output_item_counts),
+                        stored_output_lengths(&passed_on.output_item_counts),
                     )
                 });
                 statements.push(fail_step(
@@ -322,7 +341,7 @@ impl SessionProjectionFold for WorkflowRunsFold {
                     &skipped.sources,
                     &skipped.input_ref,
                     &skipped.output_ref,
-                    &output_lengths(&skipped.output_item_counts),
+                    &stored_output_lengths(&skipped.output_item_counts),
                     &at,
                     (skipped.reused_from.as_ref(), skipped.pin_hash.as_ref()),
                 ));
@@ -557,8 +576,8 @@ impl WorkflowRunsFold {
     }
 }
 
-// The step a suspension names, whatever it waits on.
-fn suspended_step(suspended: &WorkflowPhaseSuspendedPayload) -> WorkflowStepKey {
+/// The step a suspension names, whatever it waits on.
+pub(crate) fn suspended_step(suspended: &WorkflowPhaseSuspendedPayload) -> WorkflowStepKey {
     let (WorkflowPhaseSuspendedPayload::Account {
         workflow_run_id,
         node_id,
@@ -624,11 +643,4 @@ fn ready(
 // Execution indexes are unique within a run, so they key its steps.
 fn fold_key(step: &WorkflowStepKey) -> (WorkflowRunId, u64) {
     (step.workflow_run_id, step.execution_index.get())
-}
-
-fn output_lengths(counts: &[SafeInt<0>]) -> Vec<usize> {
-    counts
-        .iter()
-        .map(|count| usize::try_from(count.get()).expect("a safe integer fits in a usize"))
-        .collect()
 }

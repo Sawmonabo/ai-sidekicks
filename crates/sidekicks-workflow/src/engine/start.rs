@@ -11,6 +11,7 @@ mod check;
 mod errors;
 mod folder;
 mod node_run;
+pub(crate) mod reload;
 mod retry;
 #[cfg(test)]
 mod tests;
@@ -85,6 +86,7 @@ pub(crate) use self::check::check_run_graph;
 pub(crate) use self::errors::WorkflowRunStartError;
 use self::folder::{PreparedStart, RunFolder};
 pub(crate) use self::node_run::{StartedNodeRun, StartedReusedStep};
+pub(crate) use self::reload::{ReloadedRun, ReloadedScope, ReloadedStep, ReplayedEvent};
 use self::retry::RetriedRun;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the

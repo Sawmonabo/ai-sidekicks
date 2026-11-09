@@ -217,7 +217,7 @@ pub(crate) enum AttentionChange {
 
 /// Every event type whose change is not [`AttentionChange::Nothing`]: the live statements read no
 /// event of another type, and a rebuild folds only these.
-pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 28] = [
+pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
     SessionEventType::AgentRunWaitingForApproval,
     SessionEventType::AgentRunWaitingForInput,
     SessionEventType::AgentRunQueued,
@@ -240,6 +240,7 @@ pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 28] = [
     SessionEventType::WorkflowStepCanceled,
     SessionEventType::WorkflowRunResumed,
     SessionEventType::WorkflowRunCanceled,
+    SessionEventType::WorkflowRunCrashed,
     SessionEventType::WorkflowRunCompleted,
     SessionEventType::WorkflowRunFailed,
     SessionEventType::WorkflowRunDeleted,
@@ -441,6 +442,9 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
             resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
         }
         SessionEvent::WorkflowRunCanceled(payload) => {
+            resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
+        }
+        SessionEvent::WorkflowRunCrashed(payload) => {
             resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
         }
         SessionEvent::WorkflowRunCompleted(payload) => workflow_run_end(

@@ -187,6 +187,14 @@ pub(crate) fn split_step_outputs(
         .collect())
 }
 
+/// How many items each output of a stored step holds, in output order, from its stored counts.
+pub(crate) fn stored_output_lengths(counts: &[SafeInt<0>]) -> Vec<usize> {
+    counts
+        .iter()
+        .map(|count| usize::try_from(count.get()).expect("a safe integer fits in a usize"))
+        .collect()
+}
+
 /// Why a step payload read failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowStepPayloadError {

@@ -98,9 +98,9 @@ use crate::workflow::definition::events::{
 };
 use crate::workflow::run::events::{
     WorkflowChainRunJoinedPayload, WorkflowGateReachedPayload, WorkflowResultsPostedPayload,
-    WorkflowRunCanceledPayload, WorkflowRunCompletedPayload, WorkflowRunDeletedPayload,
-    WorkflowRunFailedPayload, WorkflowRunKeepChangedPayload, WorkflowRunResumedPayload,
-    WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
+    WorkflowRunCanceledPayload, WorkflowRunCompletedPayload, WorkflowRunCrashedPayload,
+    WorkflowRunDeletedPayload, WorkflowRunFailedPayload, WorkflowRunKeepChangedPayload,
+    WorkflowRunResumedPayload, WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
 use crate::workflow::run::step::events::{
     WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
@@ -533,6 +533,9 @@ session_events! {
     WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
     /// Emitted when a workflow run is canceled.
     WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
+    /// Emitted when the next start's sweep ends a run the daemon's stop left with nothing to go
+    /// on with.
+    WorkflowRunCrashed(#[garde(dive)] WorkflowRunCrashedPayload) = "workflow.run.crashed",
     /// Emitted when the person deletes a workflow run.
     WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted",
     /// Emitted when the person sets or clears a workflow run's Keep mark.

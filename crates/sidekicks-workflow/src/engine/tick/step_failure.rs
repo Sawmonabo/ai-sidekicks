@@ -93,8 +93,10 @@ pub(crate) fn route_step_failure(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> StepFailureRoute {
-    if matches!(failure, StepFailure::EndsRun(_)) {
-        return StepFailureRoute::End;
+    match failure {
+        StepFailure::EndsRun(_) => return StepFailureRoute::End,
+        StepFailure::Crashed(_) => return StepFailureRoute::Park,
+        StepFailure::Failed(_) | StepFailure::Declined { .. } => {}
     }
     let retry = step_retry(node);
     if matches!(failure, StepFailure::Failed(_)) && step.attempt.get() < retry.max_tries {
@@ -179,7 +181,9 @@ pub(crate) fn step_failure_error(
     failure: &StepFailure,
 ) -> WorkflowStepError {
     let mut error = match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error) => {
+            (**error).clone()
+        }
         StepFailure::Declined { words, .. } => uncoded_step_error(match words {
             Some(words) => format!("The step was declined: {}", words.as_str()),
             None => "The step was declined".to_owned(),
@@ -204,6 +208,17 @@ pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
         "The run passed its time cap".to_owned(),
         serde_json::to_value(details).expect("the timed-out details write as JSON"),
         None,
+    )))
+}
+
+/// The failure the restart's sweep gives `step`, which was running when the daemon stopped:
+/// `workflow.step.crashed`, a failure that parks its run.
+pub(crate) fn crashed_step_failure(step: &WorkflowStepKey) -> StepFailure {
+    StepFailure::Crashed(Box::new(coded_step_error(
+        RefusalCode::WorkflowStepCrashed,
+        "The daemon stopped while the step ran".to_owned(),
+        serde_json::json!({}),
+        Some(step.node_id.clone()),
     )))
 }
 

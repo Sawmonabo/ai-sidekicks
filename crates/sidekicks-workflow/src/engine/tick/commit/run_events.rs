@@ -11,8 +11,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::events::{
     WorkflowResumedStep, WorkflowResumptionPoint, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunEndingStep, WorkflowRunFailedOutcome,
-    WorkflowRunFailedPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
+    WorkflowRunCompletedPayload, WorkflowRunCrashedPayload, WorkflowRunEndingStep,
+    WorkflowRunFailedOutcome, WorkflowRunFailedPayload, WorkflowRunResumedPayload,
+    WorkflowRunWaitingPayload,
 };
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
@@ -28,6 +29,7 @@ use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
     run_status_statement, run_version_statement,
 };
+use crate::runs::cancellation::cancel_steps_statement;
 use crate::runs::gate_resolution::{ApprovalCardAnswer, WorkflowGateAnswer, gate_resolved_payload};
 use crate::runs::record::end_run_statements;
 use crate::runs::step_rows;
@@ -261,6 +263,16 @@ impl RunTurnCommit {
                     error: Some(error),
                 )),
             ),
+            RunEnding::Crashed { error } => (
+                WorkflowRunStatus::Crashed,
+                error.clone(),
+                SessionEvent::WorkflowRunCrashed(run_payload!(
+                    WorkflowRunCrashedPayload,
+                    self.keys,
+                    self.run_id,
+                    error: error,
+                )),
+            ),
             RunEnding::Canceled { reason, error } => (
                 WorkflowRunStatus::Canceled,
                 error.clone(),
@@ -282,6 +294,11 @@ impl RunTurnCommit {
         }
         self.statements
             .extend(end_run_statements(self.run_id, status, &at, error.as_ref()));
+        // A crashed run's steps left unsettled end with it, as a canceled run's do.
+        if status == WorkflowRunStatus::Crashed {
+            self.statements
+                .push(cancel_steps_statement(self.run_id, &at));
+        }
         (status, ending_event)
     }
 

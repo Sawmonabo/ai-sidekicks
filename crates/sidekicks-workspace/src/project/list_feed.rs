@@ -522,6 +522,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::WorkflowRunCompleted
         | SessionEventType::WorkflowRunResumed
         | SessionEventType::WorkflowRunCanceled
+        | SessionEventType::WorkflowRunCrashed
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
         | SessionEventType::WorkflowRunKeepChanged

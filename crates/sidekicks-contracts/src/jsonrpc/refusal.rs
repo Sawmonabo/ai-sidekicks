@@ -825,6 +825,9 @@ refusal_codes! {
     /// A `Run a command` step whose shell is none the engine writes a filled value's reference
     /// for; nothing runs.
     WorkflowStepShellUnknown = "workflow.step.shellUnknown" (FailedPrecondition, 422);
+    /// A step that was running when the daemon stopped, failed by the next start's sweep, which
+    /// parks its run for a Resume whatever its node's `onError` says.
+    WorkflowStepCrashed = "workflow.step.crashed" (Unavailable, 503);
     /// A quick step's engine that could not be started: its thread, `rquickjs` runtime or context
     /// could not be created.
     WorkflowStepThreadFailed = "workflow.step.threadFailed" (Internal, 500);

@@ -38,7 +38,8 @@ pub enum WorkflowRunStatus {
     Failed,
     /// Ended by a cancel.
     Canceled,
-    /// Ended because the daemon stopped while it ran.
+    /// Ended at the restart after the daemon stopped with no step waiting, parked, held or running:
+    /// a run not yet admitted, one whose only unsettled steps were pending, or one undecidable.
     Crashed,
 }
 

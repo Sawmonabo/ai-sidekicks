@@ -176,6 +176,28 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
+    /// `workflow.run.crashed`: the daemon stopped while the run went on, and its next start's sweep
+    /// found nothing for it to go on with: a `new` run with no held step, a run whose only
+    /// unsettled steps are `pending`, a run whose version holds a kind this daemon lacks, or a
+    /// state the restart cannot decide. Written with the status in one step, so a rebuild ends it
+    /// too. `error` says why, where the sweep knows.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunCrashedPayload {
+        /// Why the sweep ended it, where it knows.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
+    }
+}
+
+workflow_run_event! {
     /// `workflow.run.deleted`, written with the delete of the run's rows in one step, so rebuilding
     /// the runs from the log leaves out a run the person deleted, whose earlier events the log
     /// keeps.
@@ -395,6 +417,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowNodeRun>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
+        Definition::read::<WorkflowRunCrashedPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
         Definition::read::<WorkflowRunKeepChangedPayload>().checked(),
         Definition::read::<WorkflowChainRunJoinedPayload>().checked(),

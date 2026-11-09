@@ -2,6 +2,7 @@
 //! what the tests read back.
 
 pub(in crate::engine::tick::turns) mod ports;
+mod restart;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -23,52 +24,44 @@ use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
     WorkflowTriggerKind,
 };
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{Notify, mpsc, oneshot, watch};
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::deadlines::{ENGINE_DEADLINE_STATEMENT_CAPACITY, EngineDeadlines};
+use self::restart::{DaemonLife, LifeParts};
+use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::EngineRecorder;
 use crate::engine::partial_run::PartialRunPlan;
 use crate::engine::ports::kept_payloads::KeptPayloads;
 use crate::engine::ports::noticed_sessions::NoticedSessions;
 use crate::engine::ports::run_limits::ScriptedRunLimits;
 use crate::engine::ports::scripted_agent_runs::ScriptedAgentRunner;
-use crate::engine::ports::{
-    AgentStepRequest, AgentStepRunner, ApprovalCardRaiser, EnginePorts, EngineRecordSink,
-    KeptEngineRecords, PersonWaitQuestions, RunSnapshotPoints, ScriptedGate, StepAdmission,
-    StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits, refusing_engine_ports,
-};
+use crate::engine::ports::{AgentStepRequest, EngineRecordSink, KeptEngineRecords};
 use crate::engine::start::{StartedNodeRun, StartedRun, StartedTrigger};
 use crate::engine::tick::commit::SessionEventId;
-use crate::engine::tick::dispatch::test_dispatch_recording;
 use crate::engine::tick::turns::ending::RunCancelRefusal;
 use crate::engine::tick::turns::tests::harness::ports::{
     OrderLog, OrderedCall, RecordingAsks, RecordingSnapshotPoints,
 };
-use crate::engine::tick::turns::{
-    ENGINE_TICK_STATEMENT_CAPACITY, EngineTick, EngineTickDependencies, EngineTickInput,
-    RunCancelIntake,
-};
+use crate::engine::tick::turns::{EngineTickInput, RunCancelIntake};
 use crate::engine::tick::{RunGraph, RunScope, StepReport, test_run_scope};
 use crate::engine::waits::answers::PersonWaitIntake;
-use crate::engine::waits::{PersonWaitAnswer, PersonWaitPorts, PersonWaitRefusal};
+use crate::engine::waits::{PersonWaitAnswer, PersonWaitRefusal};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
-    NodeExecutor, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait, StepAdmissionNeed,
-    StepFailure, StepOutcome, loop_test_kind, main_test_kind, uncoded_step_error,
+    NodeExecutor, NodeKind, NodeKindTable, PassThroughExecutor, PersonAsk, PersonWait,
+    StepAdmissionNeed, StepFailure, StepOutcome, loop_test_kind, main_test_kind,
+    uncoded_step_error,
 };
 use crate::runs::creation::{
     WorkflowRunCreation, trigger_step_key, workflow_run_creation_statements,
@@ -109,10 +102,16 @@ enum Script {
     Large,
     /// Waits for its cancel, then passes its inputs on.
     AwaitCancel,
+    /// On the first try of an input whose first item is marked `hang`, waits for its cancel as a
+    /// step the daemon's stop cuts off; any other try passes its inputs on.
+    HangsFirst,
     /// Outputs the level it runs at; the node `A` first waits for the test's release.
     Level,
     /// Asks an approval that times out after 60 s.
     Approve,
+    /// A loop: pass `n` puts batch `n` of the `batches` its first item carries on its loop
+    /// output, each batch carrying the list on, and once none is left passes its inputs on done.
+    Batches,
     /// Asks for a chat reply that times out after 120 s.
     Ask,
     /// Asks for a form that times out after 120 s.
@@ -167,6 +166,21 @@ impl NodeExecutor for ScriptedExecutor {
                     inputs
                 }
                 Script::First => inputs,
+                Script::Batches => {
+                    let carried = inputs
+                        .first()
+                        .and_then(|items| items.first())
+                        .map_or(Value::Null, |first| first.json.0.clone());
+                    let pass = usize::try_from(context.run_index).expect("a pass fits a usize");
+                    match carried["batches"].get(pass) {
+                        Some(batch) => {
+                            let mut next = batch.clone();
+                            next["batches"] = carried["batches"].clone();
+                            vec![Vec::new(), vec![item(next)]]
+                        }
+                        None => vec![inputs.into_iter().next().unwrap_or_default(), Vec::new()],
+                    }
+                }
                 Script::Gated => {
                     self.signal.go.notified().await;
                     inputs
@@ -195,6 +209,16 @@ impl NodeExecutor for ScriptedExecutor {
                 Script::Large => {
                     self.signal.release.notified().await;
                     vec![large_items()]
+                }
+                Script::HangsFirst => {
+                    let is_marked = inputs
+                        .first()
+                        .and_then(|items| items.first())
+                        .is_some_and(|first| first.json.0.get("hang").is_some());
+                    if is_marked && context.step.attempt.get() == 1 {
+                        context.cancel.cancelled().await;
+                    }
+                    inputs
                 }
                 Script::AwaitCancel => {
                     context.cancel.cancelled().await;
@@ -281,7 +305,7 @@ pub(in crate::engine::tick::turns) fn large_items() -> Vec<WorkflowItem> {
 /// per script; an approval has two outputs, which its answer fills.
 fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
     let scripted = |name: &str, inputs: usize, script: Script| {
-        let outputs = if matches!(script, Script::Approve) {
+        let outputs = if matches!(script, Script::Approve | Script::Batches) {
             2
         } else {
             1
@@ -307,6 +331,7 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.empty", 1, Script::Empty),
             scripted("test.large", 1, Script::Large),
             scripted("test.wait", 1, Script::AwaitCancel),
+            scripted("test.hangsFirst", 1, Script::HangsFirst),
             scripted("test.level", 1, Script::Level),
             scripted("test.flaky", 1, Script::Flaky),
             scripted("test.linger", 1, Script::Linger),
@@ -320,6 +345,10 @@ fn kinds(signal: &Arc<Signals>) -> Arc<NodeKindTable> {
             scripted("test.agent", 1, Script::Agent),
             scripted("test.keep", 1, Script::Keep),
             loop_test_kind(),
+            NodeKind {
+                loop_output: Some(1),
+                ..scripted("test.batches", 1, Script::Batches)
+            },
         ])
         .expect("the test's kinds build a table"),
     )
@@ -374,6 +403,10 @@ pub(in crate::engine::tick::turns) type CancelReplied =
 /// inbox runs start through.
 pub(in crate::engine::tick::turns) struct Harness {
     database: TestDatabase,
+    /// The event log every daemon life of the test appends through.
+    log: TestLog,
+    /// The running loop of the current daemon life, which ends once its inbox closes.
+    tick_task: JoinHandle<()>,
     pub(in crate::engine::tick::turns) rows: Connection,
     appender: SessionEventAppender,
     pub(in crate::engine::tick::turns) payloads: Arc<KeptPayloads>,
@@ -410,11 +443,9 @@ impl Harness {
     /// The loop running, its payload store keeping `write_limit` writes where one is given.
     pub(in crate::engine::tick::turns) async fn new(write_limit: Option<usize>) -> Self {
         let database = TestDatabase::new(schema_parts());
-        let TestLog {
-            service, followers, ..
-        } = open_log(&database, None).await;
+        let log = open_log(&database, None).await;
         let scope = test_run_scope(WorkflowRunMode::Manual, Vec::new());
-        let changes = followers.change_count(&scope.session_id);
+        let changes = log.followers.change_count(&scope.session_id);
         let payloads = Arc::new(KeptPayloads::default());
         if let Some(write_limit) = write_limit {
             payloads.refuse_writes_past(write_limit);
@@ -425,65 +456,42 @@ impl Harness {
         ));
         let signal = Arc::new(Signals::default());
         let kinds = kinds(&signal);
-        let gate = Arc::new(ScriptedGate::new(None));
-        let agents = Arc::new(ScriptedAgentRunner::new(
-            Some(StepAdmissionOutcome::Admitted),
-            false,
-        ));
-        let ports = EnginePorts {
-            admission: Arc::clone(&gate) as Arc<dyn StepAdmission>,
-            agent_steps: Arc::clone(&agents) as Arc<dyn AgentStepRunner>,
-            payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
-            ..refusing_engine_ports()
-        };
         let limits = Arc::new(ScriptedRunLimits::default());
-        let (dispatch, received_reports, reports) =
-            test_dispatch_recording(&database, ports, Arc::clone(&kinds), Arc::clone(&recorder));
         // The stored deadlines are real instants, so the test clock starts at the real clock.
         let clock = Arc::new(TestWallClock::default());
         clock.set_now(SystemTime::now());
-        let wall_clock: Arc<TestWallClock> = Arc::clone(&clock);
-        let scheduler = Arc::new(Scheduler::start(wall_clock, None, watch::channel(0).1));
-        let deadlines = EngineDeadlines::new(
-            scheduler,
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                ENGINE_DEADLINE_STATEMENT_CAPACITY,
-            )),
-            reports.clone(),
-            Arc::clone(&limits) as Arc<dyn WorkflowRunLimits>,
-        );
         let order = Arc::new(OrderLog::new(Vec::new()));
         let asks = Arc::new(RecordingAsks::new(database.reader(), Arc::clone(&order)));
         let points = Arc::new(RecordingSnapshotPoints::new(Arc::clone(&order)));
-        let (inbox, received) = mpsc::channel(4);
         let notices = Arc::new(NoticedSessions::default());
-        let tick = EngineTick::new(EngineTickDependencies {
-            dispatch,
-            event_log: Arc::clone(&service),
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                ENGINE_TICK_STATEMENT_CAPACITY,
-            )),
-            kinds: Arc::clone(&kinds),
-            recorder: Arc::clone(&recorder),
-            payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
-            admission: gate,
-            reports: received_reports,
-            inbox: received,
-            person_waits: PersonWaitPorts {
-                cards: Arc::clone(&asks) as Arc<dyn ApprovalCardRaiser>,
-                questions: Arc::clone(&asks) as Arc<dyn PersonWaitQuestions>,
-            },
-            deadlines: Arc::clone(&deadlines),
-            snapshot_points: Arc::clone(&points) as Arc<dyn RunSnapshotPoints>,
-            binder: Arc::clone(&notices) as Arc<dyn SessionRunBinder>,
+        let DaemonLife {
+            tick,
+            inbox,
+            reports,
+            deadlines,
+            agents,
+        } = DaemonLife::start(&LifeParts {
+            database: &database,
+            log: &log,
+            kinds: &kinds,
+            recorder: &recorder,
+            payloads: &payloads,
+            asks: &asks,
+            points: &points,
+            notices: &notices,
+            clock: &clock,
+            limits: &limits,
         });
-        tokio::spawn(tick.run());
+        let tick_task = tokio::spawn(tick.run());
         Self {
+            tick_task,
             rows: database.reader(),
             database,
-            appender: SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone()),
+            appender: SessionEventAppender::new(
+                Arc::clone(&log.service),
+                SESSION_EVENT_VERSION.clone(),
+            ),
+            log,
             payloads,
             records,
             recorder,
@@ -561,7 +569,9 @@ impl Harness {
                 &self.rows,
                 base.workflow_id.text().as_str(),
                 base.workflow_version_id.text().as_str(),
-                &json!({ "name": "Loop", "nodes": nodes, "edges": edges }),
+                &json!({
+                    "name": "Loop", "trigger": nodes[0], "nodes": nodes[1..], "edges": edges,
+                }),
             );
         }
         let trigger = WorkflowRunTrigger {

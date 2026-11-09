@@ -703,7 +703,7 @@ fn ended_person_wait(live: &LiveRun, report: &StepReport) -> Option<EndedPersonW
     let outcome = if matches!(
         &report.kind,
         StepReportKind::Settled(StepSettlement::Failed {
-            failure: StepFailure::Failed(error) | StepFailure::EndsRun(error),
+            failure: StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error),
             ..
         }) if is_step_timeout(error)
     ) {

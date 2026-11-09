@@ -259,6 +259,7 @@ session_event_types! {
         WorkflowRunCompleted = "workflow.run.completed",
         WorkflowRunResumed = "workflow.run.resumed",
         WorkflowRunCanceled = "workflow.run.canceled",
+        WorkflowRunCrashed = "workflow.run.crashed",
         WorkflowRunWaiting = "workflow.run.waiting",
         WorkflowRunDeleted = "workflow.run.deleted",
         WorkflowRunKeepChanged = "workflow.run.keepChanged",

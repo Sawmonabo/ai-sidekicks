@@ -75,7 +75,7 @@ impl EngineTick {
                 live.cancel_replies.push(reply);
                 return;
             }
-            Some(RunEnding::Completed | RunEnding::Failed { .. }) => {
+            Some(RunEnding::Completed | RunEnding::Failed { .. } | RunEnding::Crashed { .. }) => {
                 let _unheard = reply.send(Err(RunCancelRefusal::Ending));
                 return;
             }

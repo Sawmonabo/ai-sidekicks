@@ -33,23 +33,31 @@ use crate::engine::partial_run::plan_retry;
 use crate::not_found::WorkflowNotFound;
 use crate::runs::step_payload::read_step_payload;
 
-// The source run's version, session, status and trigger, how the first run of its retries that is
-// not a retry was started, followed through each retry's retried run, and the project of the
-// workspace of its own it worked in, if any.
-static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+/// How the first run of the chain of retries `@run_id` heads that is not a retry was started,
+/// followed through each retry's retried run, as one scalar subquery.
+pub(super) static FIRST_MODE_SQL: LazyLock<String> = LazyLock::new(|| {
     let retry = <&'static str>::from(WorkflowRunMode::Retry);
     format!(
-        "SELECT run.workflow_version_id, run.session_id, run.status, run.trigger_json,
-    (WITH RECURSIVE retried(mode, retried_run_id) AS (
+        "(WITH RECURSIVE retried(mode, retried_run_id) AS (
          SELECT mode, retried_run_id FROM workflow_runs WHERE id = @run_id
        UNION ALL
          SELECT earlier.mode, earlier.retried_run_id
            FROM workflow_runs AS earlier JOIN retried ON earlier.id = retried.retried_run_id)
-     SELECT mode FROM retried WHERE mode <> '{retry}' LIMIT 1),
+     SELECT mode FROM retried WHERE mode <> '{retry}' LIMIT 1)"
+    )
+});
+
+// The source run's version, session, status and trigger, how the first run of its retries that is
+// not a retry was started, and the project of the workspace of its own it worked in, if any.
+static SOURCE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT run.workflow_version_id, run.session_id, run.status, run.trigger_json,
+    {first_mode},
     (SELECT mount.project_id FROM workspaces AS workspace
        JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
       WHERE workspace.workflow_run_id = run.id)
-  FROM workflow_runs AS run WHERE run.id = @run_id"
+  FROM workflow_runs AS run WHERE run.id = @run_id",
+        first_mode = *FIRST_MODE_SQL
     )
 });
 

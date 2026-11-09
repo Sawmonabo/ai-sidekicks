@@ -387,7 +387,7 @@ impl RunTurnCommit {
         let run_error = matches!(route, StepFailureRoute::End).then(|| error.clone());
         let decline_reason = match &failure {
             StepFailure::Declined { words, .. } => words.clone(),
-            StepFailure::Failed(_) | StepFailure::EndsRun(_) => None,
+            StepFailure::Failed(_) | StepFailure::EndsRun(_) | StepFailure::Crashed(_) => None,
         };
         self.statements.push(fail_step(
             &step,

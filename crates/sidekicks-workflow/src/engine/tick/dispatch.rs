@@ -35,7 +35,9 @@ use super::node_settings::{
 };
 use super::{ReadyStep, RunScope, RunSnapshot, StepReport, StepReportKind, StepSettlement};
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{EnginePorts, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey};
+use crate::engine::ports::{
+    AgentStepRun, EnginePorts, PortError, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey,
+};
 use crate::expressions::evaluator::ExpressionEvaluator;
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
@@ -133,6 +135,16 @@ impl StepDispatch {
             .zip(entries)
             .map(|(ready, entry)| self.dispatch_step(scope, snapshot, ready, entry))
             .collect()
+    }
+
+    /// The agent run `step` made before the daemon stopped, which a step waiting on its spent
+    /// account takes again at the restart. Fails when no such run is stored.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) async fn reattach_agent_run(
+        &self,
+        step: &WorkflowStepKey,
+    ) -> Result<Box<dyn AgentStepRun>, PortError> {
+        self.ports.agent_steps.reattach(step).await
     }
 
     /// Dispatches `ready` as [`Self::dispatch`] does, its `entry` its place among its siblings,

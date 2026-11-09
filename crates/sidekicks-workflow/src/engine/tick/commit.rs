@@ -144,6 +144,11 @@ pub(crate) enum RunEnding {
         /// The run's error, carrying the reason as its message, where the cancel gave one.
         error: Option<WorkflowStepError>,
     },
+    /// The restart's sweep found nothing for the run to go on with: `crashed`.
+    Crashed {
+        /// Why, where the sweep knows.
+        error: Option<WorkflowStepError>,
+    },
 }
 
 /// An event of the turn, at the instant it records.
@@ -389,17 +394,18 @@ impl RunTurnCommit {
         let last_hold_report_at = reported.last_hold_report_at;
         match kind {
             StepReportKind::WaitingOnPool { hold_started_at } => {
-                if at == hold_started_at {
+                // A hold's first report finds no earlier one; the restart's sweep opens a step's
+                // new hold itself, so the gate's own first report then adds to it.
+                if let Some(since) = last_hold_report_at {
+                    let pool_wait_ms = whole_milliseconds_between(since, &at);
+                    self.statements
+                        .push(add_step_pool_wait(&step, pool_wait_ms));
+                } else {
                     self.statements.push(hold_step(&step));
                     self.counts.moved(
                         Some(reported.standing()),
                         (WorkflowStepStatus::WaitingMemory, None),
                     );
-                } else {
-                    let since = last_hold_report_at.unwrap_or(&hold_started_at);
-                    let pool_wait_ms = whole_milliseconds_between(since, &at);
-                    self.statements
-                        .push(add_step_pool_wait(&step, pool_wait_ms));
                 }
                 self.push(
                     &at,
@@ -735,16 +741,16 @@ impl StepMove {
     }
 }
 
-/// The whole milliseconds a hold that began at `hold_started_at` ran from its last report, at
-/// `last_hold_report_at` or its start, to `at`; 0 for a step the gate was not holding.
+/// The whole milliseconds a hold ran from its last report, at `last_hold_report_at`, or else from
+/// its start at `hold_started_at`, to `at`; 0 for a step the gate was not holding.
 fn held_milliseconds(
     hold_started_at: Option<&WireInstant>,
     last_hold_report_at: Option<&WireInstant>,
     at: &WireInstant,
 ) -> u64 {
-    hold_started_at.map_or(0, |hold_started_at| {
-        whole_milliseconds_between(last_hold_report_at.unwrap_or(hold_started_at), at)
-    })
+    last_hold_report_at
+        .or(hold_started_at)
+        .map_or(0, |since| whole_milliseconds_between(since, at))
 }
 
 #[cfg(test)]

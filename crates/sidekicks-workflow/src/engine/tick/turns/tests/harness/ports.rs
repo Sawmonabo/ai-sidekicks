@@ -16,9 +16,8 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::engine::ports::{
-    ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, REFUSED_PORT_CALL,
-    ReplyQuestionRequest, RunSnapshotPoints, WorkflowApprovalCardRequest,
-    WorkflowRunSnapshotPointRequest,
+    ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
+    RunSnapshotPoints, WorkflowApprovalCardRequest, WorkflowRunSnapshotPointRequest,
 };
 
 /// Every call of the test's asks and snapshot points, in the order the loop made them.
@@ -196,12 +195,14 @@ impl PersonWaitQuestions for RecordingAsks {
         Box::pin(async move { taken.map(|()| fresh_question_id()) })
     }
 
+    // A question asked earlier in the test is still open; any other is not.
     fn reattach(
         &self,
         _session_id: SessionId,
-        _wait_id: UuidTextForm,
+        wait_id: UuidTextForm,
     ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+        let is_asked = lock(&self.calls).iter().any(|call| call.wait_id == wait_id);
+        Box::pin(async move { Ok(is_asked.then(fresh_question_id)) })
     }
 }
 

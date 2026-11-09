@@ -281,6 +281,24 @@ impl RunWalk {
             .expect("a dropped step is one the walk readied and has not settled");
     }
 
+    /// Each step the walk readied and has not settled, in execution order, as it was readied.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn unsettled(&self) -> impl Iterator<Item = WalkReady> + '_ {
+        self.live.values().map(|live_step| WalkReady {
+            step: live_step.step.clone(),
+            run_index: live_step.run_index,
+            sources: live_step.sources.clone(),
+        })
+    }
+
+    /// Whether `step` is one the walk readied and has not settled.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn is_unsettled(&self, step: &WorkflowStepKey) -> bool {
+        self.live
+            .get(&step.execution_index.get())
+            .is_some_and(|live_step| live_step.step == *step)
+    }
+
     /// Decides what waits once no step is live: each open round not won, its unfilled slots read
     /// as settled empty with no source, one at a time, lowest run index first, of the node first
     /// by `(order, id)` among those none of whose ancestors along forward edges still has a round

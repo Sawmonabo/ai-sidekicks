@@ -8,6 +8,7 @@ mod ending;
 mod inbox;
 mod readying;
 mod reports;
+mod restart;
 mod resuming;
 mod starting;
 
@@ -840,8 +841,9 @@ fn held_first<T>(held: &mut Vec<T>, own: Vec<T>) -> Vec<T> {
     taken
 }
 
-/// `step` of `live` to dispatch while it is still live, `pending` and undispatched, as a retry
-/// come due or a dispatch a pause held; `None` once it settled, was canceled or was dispatched.
+/// `step` of `live` to dispatch while it is still live and undispatched, as a retry come due, a
+/// dispatch a pause held or a step the restart takes back; `None` once it settled, was canceled or
+/// was dispatched.
 fn still_ready(live: &LiveRun, step: WorkflowStepKey) -> Option<ReadyStep> {
     let live_step = live.steps.get(&step.execution_index.get())?;
     is_undispatched(live_step).then(|| ReadyStep {
@@ -852,9 +854,13 @@ fn still_ready(live: &LiveRun, step: WorkflowStepKey) -> Option<ReadyStep> {
     })
 }
 
-/// Whether `live_step` is still `pending` and undispatched, so the turn may dispatch it.
+/// Whether `live_step` is still undispatched, `pending` or held by the memory gate of the restart's
+/// sweep, so the turn may dispatch it.
 fn is_undispatched(live_step: &LiveStep) -> bool {
-    live_step.status == WorkflowStepStatus::Pending && live_step.cancel.is_none()
+    matches!(
+        live_step.status,
+        WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory
+    ) && live_step.cancel.is_none()
 }
 
 /// The attempt a retry's `timer` answers come due, `None` when its run was canceled first. A

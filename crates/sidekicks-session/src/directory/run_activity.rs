@@ -179,6 +179,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowRunCompleted
         | SessionEventType::WorkflowRunResumed
         | SessionEventType::WorkflowRunCanceled
+        | SessionEventType::WorkflowRunCrashed
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
         | SessionEventType::WorkflowRunKeepChanged

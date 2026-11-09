@@ -208,7 +208,7 @@ pub(crate) struct StepReport {
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
-    /// so the first is the one whose `at` equals `hold_started_at`.
+    /// which the step makes while no hold report of it stands.
     WaitingOnPool {
         /// When the hold began: the `at` of its first report.
         hold_started_at: WireInstant,

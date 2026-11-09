@@ -14,6 +14,7 @@ use crate::test_rows::{TestStep, assert_rebuild_rewrites_run_rows, insert_step};
 
 pub(super) mod harness;
 mod node_run;
+mod restart;
 mod wait_questions;
 
 use harness::{Harness, QUIET, WAIT, edge, item, large_items, node, step_column};

@@ -36,6 +36,7 @@ use crate::definitions::stored_document::{StoredDocumentError, parse_stored_work
 use crate::definitions::versions::difference::{diff_workflow_bodies, version_node_id};
 use crate::definitions::versions::history::{VersionRow, WorkflowVersions, WorkflowVersionsError};
 use crate::engine::tick::{RunGraph, RunPin};
+use crate::runs::step_payload::stored_output_lengths;
 
 /// The statements a partial run's plan prepares on a read connection beside those of
 /// `WorkflowVersions`: the read of a node's source run and the read of its steps in that run.
@@ -138,14 +139,7 @@ impl PartialRunPlan {
                 continue;
             }
             for settled in steps {
-                let output_lengths: Vec<usize> = settled
-                    .output_item_counts
-                    .iter()
-                    .map(|count| {
-                        usize::try_from(count.get())
-                            .expect("an output's item count fits in a pointer-sized integer")
-                    })
-                    .collect();
+                let output_lengths = stored_output_lengths(&settled.output_item_counts);
                 let is_own_skip =
                     settled.status == WorkflowStepStatus::Skipped && settled.reused_from.is_none();
                 if is_own_skip && output_lengths.iter().all(|&length| length == 0) {
@@ -460,7 +454,7 @@ fn read_dirty_nodes(
     not(test),
     expect(dead_code, reason = "the workflow.node.execute handler")
 )]
-fn covered_places(graph: &RunGraph, target: usize) -> Vec<usize> {
+pub(crate) fn covered_places(graph: &RunGraph, target: usize) -> Vec<usize> {
     let mut covered = FixedBitSet::with_capacity(graph.node_count());
     let mut joining = vec![target];
     while let Some(place) = joining.pop() {

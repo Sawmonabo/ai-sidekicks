@@ -184,6 +184,10 @@ pub(crate) enum EngineFault {
     SettlementWriteFailed,
     /// A `Keep going` could not be read or written; its sender reads it as not taken.
     KeepGoingFailed,
+    /// A step's stored resume did not read at the restart; the step waits on the person's Resume.
+    ResumeUnreadable,
+    /// A wait the restart took back found its question unread or gone, or its agent run gone.
+    WaitNotReattached,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -466,6 +470,16 @@ impl RunEngineRecord {
                 "keepGoingFailed",
                 "A Keep going of the run's chain could not be read or written.",
             ),
+            EngineFault::ResumeUnreadable => says(
+                &mut line,
+                "resumeUnreadable",
+                "The step's stored resume did not read; it waits on the person's Resume.",
+            ),
+            EngineFault::WaitNotReattached => says(
+                &mut line,
+                "waitNotReattached",
+                "The step's wait could not be taken back after the restart.",
+            ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));
         self.write(line).await;
@@ -617,11 +631,13 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn failure_code(failure: &StepFailure) -> Value {
     match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => match error.as_ref() {
-            WorkflowStepError::Uncoded(_) => json!("uncoded"),
-            WorkflowStepError::Coded(coded) => json!(coded.code),
-            WorkflowStepError::AgentResolution(resolution) => json!(resolution.code),
-        },
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error) => {
+            match error.as_ref() {
+                WorkflowStepError::Uncoded(_) => json!("uncoded"),
+                WorkflowStepError::Coded(coded) => json!(coded.code),
+                WorkflowStepError::AgentResolution(resolution) => json!(resolution.code),
+            }
+        }
         StepFailure::Declined { .. } => json!("declined"),
     }
 }

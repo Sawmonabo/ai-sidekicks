@@ -303,7 +303,7 @@ pub(super) fn fill_start_items(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
 )]
-fn read_definition_scope(
+pub(super) fn read_definition_scope(
     connection: &Connection,
     definition_id: WorkflowDefinitionId,
 ) -> rusqlite::Result<(Option<String>, Option<ProviderId>)> {

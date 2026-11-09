@@ -616,6 +616,11 @@ interface WorkflowRunCanceledPayload extends WorkflowRunEventPayload {
   reason?: string;
   error?: WorkflowStepError;
 }
+// workflow.run.crashed — the restart's crash sweep ended the run with nothing left for it to go on
+// with. `error` is present only where the run could not be taken back, naming why.
+interface WorkflowRunCrashedPayload extends WorkflowRunEventPayload {
+  error?: WorkflowStepError;
+}
 // workflow.run.failed — the run failed on a step. `parked`: a step failed under `onError: stop` or
 // the crash sweep failed it, the step's own event carries the cause, and the run holds with no
 // `finished_at` until it is resumed, canceled or deleted. `ended`: the run ended on its failure,
