@@ -1,5 +1,5 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
-//! message-target, helper-limit, helper-wake and background-work hooks are answered here, and
+//! message-target, helper-limit, helper-wake, send and background-work hooks are answered here, and
 //! every other request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the
 //! event side, which answers it or leaves it pending at the provider.
 
@@ -95,6 +95,16 @@ pub(crate) enum ClaudeRequestRoute {
         agent_id: Option<String>,
         /// The message call's id, which the woken helper's start names as its parent.
         tool_use_id: String,
+        /// The recipient the call names.
+        to: String,
+    },
+    /// Answer it through [`answer_peer_send`], which reads whether the recipient a message call
+    /// names is another session: a message call that names a recipient, seen by the send hook.
+    ///
+    /// [`answer_peer_send`]: crate::driver::claude::hooks::peer_send::answer_peer_send
+    CheckPeerSend {
+        /// The request's id.
+        request_id: String,
         /// The recipient the call names.
         to: String,
     },
@@ -244,10 +254,11 @@ lenient_object!(HookInput, HookToolInput);
 /// names a recipient to the message-target check, before the pause decides; a pause callback, and a
 /// helper-limit callback on the helper tool, is answered or held here, while one on the message
 /// tool that names a recipient goes to the helper-wake check and any other passes; a failed helper
-/// call's callback forgets what the call asked for; a helper's post-tool and stop callbacks carry
-/// its waiting words; the background-work callback is checked; the question hook goes on only at
-/// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
-/// process can move, and pass with no decision off them; anything else goes on.
+/// call's callback forgets what the call asked for; the send hook's callback on a message call that
+/// names a recipient goes to the send check, and any other passes; a helper's post-tool and stop
+/// callbacks carry its waiting words; the background-work callback is checked; the question hook
+/// goes on only at Sandboxed and the denial hook only at Reviewed, both registered at every level
+/// since a live process can move, and pass with no decision off them; anything else goes on.
 pub(crate) fn route_claude_request(
     event: ClaudeInboundRequestEvent,
     session_id: &SessionId,
@@ -364,6 +375,16 @@ pub(crate) fn route_claude_request(
         RegisteredHook::HelperSteerAtStop => ClaudeRequestRoute::Answer {
             answer: helper_steers.answer_at_stop(*session_id, agent_id.as_deref()),
             request_id: request.request_id,
+        },
+        RegisteredHook::PeerSend => match message_to {
+            Some(to) => ClaudeRequestRoute::CheckPeerSend {
+                request_id: request.request_id,
+                to,
+            },
+            None => ClaudeRequestRoute::Answer {
+                request_id: request.request_id,
+                answer: ClaudeHookAnswer::Pass,
+            },
         },
         RegisteredHook::HelperCallFailed => ClaudeRequestRoute::ForgetHelperCall {
             call_id,

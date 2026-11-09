@@ -34,6 +34,7 @@ use crate::driver::claude::delivery::streamed_blocks::{
 use crate::driver::claude::delivery::turn_end::ClaudeTurnEnd;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::hooks::callbacks::ClaudeHelperCall;
+use crate::driver::claude::hooks::peer_send::ClaudeTurnSenders;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::state::CLAUDE_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::reorder_buffer::{NormalizedEventReorderBuffer, ReorderBufferedEvent};
@@ -226,6 +227,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) turn_readings: ClaudeTurnReadings,
     /// Whether the open turn already took a message.
     pub(crate) has_turn_message: bool,
+    /// Who sent the open turn's messages from other sessions, which the send hook reads.
+    pub(crate) turn_senders: ClaudeTurnSenders,
     /// The helpers' newest own runs and the `SendMessage` calls read, which a resume goes by.
     pub(crate) helper_resumes: ClaudeHelperResumes,
     /// Each helper call that names a model or an effort, by call id, from its pre-tool hook until
@@ -279,6 +282,7 @@ impl ClaudeStreamSession {
             restored_calls: ClaudeRestoredCalls::default(),
             turn_readings: ClaudeTurnReadings::default(),
             has_turn_message: false,
+            turn_senders: ClaudeTurnSenders::default(),
             helper_resumes: ClaudeHelperResumes::default(),
             helper_calls: HashMap::new(),
         }

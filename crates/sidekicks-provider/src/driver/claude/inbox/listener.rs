@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
     UnixDomainStream, bind_socket_listener, connect_unix_domain_socket,
@@ -165,6 +166,11 @@ impl ClaudeSessionInboxes {
         }
     }
 
+    /// The daemon's own inbox, the address every message it delivers names as its `from`.
+    pub(crate) fn daemon_inbox_address(&self) -> FilesystemPath {
+        self.addresser.daemon_inbox_address(None)
+    }
+
     /// The reply waits of messages sent to terminal sessions, for a send to await its reply.
     #[expect(
         dead_code,
@@ -197,7 +203,7 @@ impl ClaudeSessionInboxes {
     async fn bind_daemon_inbox(&self) -> io::Result<()> {
         self.daemon_inbox
             .get_or_try_init(|| async {
-                let address = self.addresser.daemon_inbox_address(None);
+                let address = self.daemon_inbox_address();
                 let path = Path::new(address.as_str());
                 if let Some(folder) = path.parent()
                     && let Err(error) = remove_left_sockets(folder).await

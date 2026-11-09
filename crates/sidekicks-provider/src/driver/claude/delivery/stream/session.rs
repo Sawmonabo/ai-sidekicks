@@ -21,6 +21,7 @@ use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStream
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::file::ClaudeProcessGoal;
+use crate::driver::claude::hooks::peer_send::ClaudeTurnSenders;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -171,6 +172,11 @@ impl ClaudeSessionStream {
     // turn number, so no two such turns share one.
     pub(super) fn unnumbered_turn_version(&self) -> u64 {
         MAX_SAFE_INTEGER + 1 + self.unnumbered_turns.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Who sent the open turn's messages from other sessions.
+    pub(crate) fn turn_senders(&self) -> ClaudeTurnSenders {
+        self.lock().turn_senders.clone()
     }
 
     /// The session.

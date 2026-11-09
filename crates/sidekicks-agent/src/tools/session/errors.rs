@@ -1,6 +1,8 @@
 //! The errors every session tool shares, each written with its values filled. When the person
 //! refuses an approval, the tool returns the provider's own refusal unchanged, so it has no text
-//! here.
+//! here. A name no session has reads as
+//! `sidekicks_provider::driver::session_messages::no_session_named`, which a driver's send
+//! hook also answers with.
 
 /// One of the sessions a shared name names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,11 +27,6 @@ pub fn shared_name(name: &str, holders: &[SharedNameHolder<'_>]) -> String {
         holders.len(),
         listed.join(", ")
     )
-}
-
-/// A name no session has.
-pub fn no_session_named(name: &str) -> String {
-    format!("No session named \"{name}\". Call session_list to see the sessions.")
 }
 
 /// A file the calling session named that it cannot read; nothing was sent.

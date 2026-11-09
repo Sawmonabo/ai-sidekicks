@@ -4,6 +4,7 @@
 //! the turn; a request goes through the daemon's hooks or on to the requests; the exit forgets
 //! everything the process held.
 
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
@@ -18,6 +19,7 @@ use sidekicks_std::scheduler::Scheduler;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
+use crate::account::registry::ProviderAccountRegistry;
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
@@ -37,8 +39,10 @@ use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
+use crate::driver::claude::hooks::peer_send::{ClaudePeerSendCheck, answer_peer_send};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
+use crate::driver::claude::live_sessions::read_claude_registry_folders;
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::rewind::ClaudeConversationCuts;
@@ -56,6 +60,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::session_directory_lookup::SessionDirectoryLookup;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -101,8 +106,16 @@ pub(crate) struct ClaudeSessionTaskServices {
     /// The in-process tool servers, once registered.
     pub(crate) tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// The session's agent tree, once registered, which the message-target check reads a
-    /// helper's stored stop from and the helper-wake check whether it has ended.
+    /// helper's stored stop from, the helper-wake check whether it has ended and the send hook
+    /// whether a recipient is a helper.
     pub(crate) agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The daemon's session directory, once registered, which the send hook looks another session
+    /// up in.
+    pub(crate) session_directory_lookup: Arc<PortRegistration<Arc<dyn SessionDirectoryLookup>>>,
+    /// The provider accounts, whose homes hold the live-session registries the send hook reads.
+    pub(crate) provider_account_registry: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
+    /// The environment the daemon started with, which names the person's own config folder.
+    pub(crate) base_environment: Arc<[(String, String)]>,
     /// Which process runs each session, each removed at its exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// The restarts of a process that ended on its own, and the build moves a turn held back.
@@ -240,7 +253,8 @@ impl ClaudeSessionTask {
     }
 
     // Answers, holds or hands on one request as its route says; a helper start's, a message
-    // target's or a helper wake's check settles into an answer or a hold, taken in its turn.
+    // target's or a helper wake's check settles into an answer or a hold, taken in its turn, and a
+    // send check into an answer.
     async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
         let services = Arc::clone(&self.services);
         let live = &self.live;
@@ -311,6 +325,28 @@ impl ClaudeSessionTask {
                 )
                 .await;
                 Box::pin(self.take_route(settled, level)).await;
+            }
+            ClaudeRequestRoute::CheckPeerSend { request_id, to } => {
+                let daemon_inbox = services.inboxes.daemon_inbox_address();
+                let registry_folders = async {
+                    let accounts = services.provider_account_registry.require_port()?;
+                    let folders =
+                        read_claude_registry_folders(&services.base_environment, accounts).await?;
+                    Ok::<_, Box<dyn Error + Send + Sync>>(folders)
+                }
+                .boxed();
+                let answer = answer_peer_send(ClaudePeerSendCheck {
+                    session_id,
+                    to: &to,
+                    senders: self.stream.turn_senders(),
+                    daemon_inbox: daemon_inbox.as_str(),
+                    agent_tree: services.agent_tree_lookup.port().cloned(),
+                    directory: services.session_directory_lookup.port().cloned(),
+                    registry_folders,
+                })
+                .await;
+                answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
+                    .await;
             }
             ClaudeRequestRoute::ForgetHelperCall {
                 request_id,

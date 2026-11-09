@@ -7,7 +7,7 @@
     not(test),
     expect(
         dead_code,
-        reason = "the send hook, the target resolver and the send states read the running sessions"
+        reason = "the send states read a status, and a terminal session's reply its folder"
     )
 )]
 
@@ -72,13 +72,6 @@ struct RegistryFile {
 /// The config folders whose registries name the Claude Code sessions on this machine: the
 /// person's own, from `base_environment`, then each Claude account's home, a folder already listed
 /// skipped. Fails when the accounts cannot be read.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the send hook and the target resolver read the running sessions"
-    )
-)]
 pub(crate) async fn read_claude_registry_folders(
     base_environment: &[(String, String)],
     accounts: &ProviderAccountRegistry,
@@ -163,6 +156,20 @@ pub(crate) async fn by_socket<'a>(
         }
     }
     Ok(None)
+}
+
+/// Whether `address`, a leading `uds:` dropped, names the socket at `socket`: the same text, or the
+/// same file once the links in both folders are resolved. A folder that cannot be resolved holds
+/// no socket the other names.
+pub(crate) async fn names_socket(address: &str, socket: &str) -> bool {
+    let address = address.strip_prefix("uds:").unwrap_or(address);
+    if address == socket {
+        return true;
+    }
+    let mut resolved_folders = HashMap::new();
+    let wanted = resolve_socket(Path::new(address), &mut resolved_folders).await;
+    let held = resolve_socket(Path::new(socket), &mut resolved_folders).await;
+    matches!((wanted, held), (Ok(Some(wanted)), Ok(Some(held))) if wanted == held)
 }
 
 // `socket` with its folder's links resolved, each folder once through `resolved_folders`; `None`

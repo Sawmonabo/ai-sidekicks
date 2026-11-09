@@ -241,6 +241,9 @@ impl ClaudeDeliveryStream {
                 && let Some(message) = &message
             {
                 let arrival = read_peer_arrival(message, session.session_id, None, true);
+                if let Some(arrival) = &arrival {
+                    session.lock().turn_senders.observe(arrival);
+                }
                 publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
             }
             record_unmapped(
@@ -646,6 +649,9 @@ impl ClaudeDeliveryStream {
             let is_turn_start = !readings.has_turn_message;
             let arrival =
                 read_peer_arrival(frame, session.session_id, Some(lead.run_id), is_turn_start);
+            if let Some(arrival) = &arrival {
+                readings.turn_senders.observe(arrival);
+            }
             // Whatever the frame, a message after it joins the turn it started or joined.
             readings.has_turn_message = true;
             let reading = read_claude_user_rows(

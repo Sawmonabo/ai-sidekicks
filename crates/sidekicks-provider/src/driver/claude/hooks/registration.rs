@@ -55,11 +55,13 @@ pub(crate) enum ClaudeHookCallback {
     HelperSteerAtStop,
     /// Forgets what a helper call asked for once the call fails, so no start will take it.
     HelperCallFailed,
+    /// Refuses a message call aimed at another session, pointing the model at `session_send`.
+    PeerSend,
 }
 
 impl ClaudeHookCallback {
     /// Every hook, so a callback id is read back against each.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::PauseBeforeTool,
         Self::PauseAfterBatch,
         Self::HelperLimit,
@@ -69,6 +71,7 @@ impl ClaudeHookCallback {
         Self::HelperSteerAfterTool,
         Self::HelperSteerAtStop,
         Self::HelperCallFailed,
+        Self::PeerSend,
     ];
 
     /// The callback id the hook is registered under.
@@ -83,6 +86,7 @@ impl ClaudeHookCallback {
             Self::HelperSteerAfterTool => "sidekicks-helper-steer-after-tool",
             Self::HelperSteerAtStop => "sidekicks-helper-steer-at-stop",
             Self::HelperCallFailed => "sidekicks-helper-call-failed",
+            Self::PeerSend => "sidekicks-peer-send",
         }
     }
 
@@ -116,7 +120,8 @@ impl ClaudeDialogKind {
 }
 
 /// The `initialize` request a session's process is brought up with: the daemon's hooks (a failed
-/// helper call's among them, which forgets what the call asked for), the session's helper
+/// helper call's among them, which forgets what the call asked for, and the send hook on the
+/// message tool, which refuses a message to another session), the session's helper
 /// definitions, the two dialogs the console draws, and the per-task stop the console offers, and
 /// the tool servers the daemon hosts in-process, by name. The helper hold, on the helper and
 /// message tools, is registered only where the policy limits helpers at once.
@@ -147,6 +152,10 @@ pub(crate) fn compose_claude_initialize_request(
         unheld(
             Some(CLAUDE_SHELL_TOOL_MATCHER.to_owned()),
             ClaudeHookCallback::BackgroundWork,
+        ),
+        held(
+            Some(format!("^{CLAUDE_MESSAGE_TOOL_NAME}$")),
+            ClaudeHookCallback::PeerSend,
         ),
     ];
     let mut agents = None;

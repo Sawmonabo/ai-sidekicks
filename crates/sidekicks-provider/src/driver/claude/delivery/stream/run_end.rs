@@ -21,6 +21,7 @@ use crate::driver::claude::delivery::run_readings::{
 };
 use crate::driver::claude::delivery::turn_end::{ClaudeTurnEndMarks, compose_claude_turn_end};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::hooks::peer_send::ClaudeTurnSenders;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -155,6 +156,8 @@ impl ClaudeDeliveryStream {
             };
             // A block the turn left unfinished keeps what streamed of it.
             let pieces = readings.streamed_blocks.end_turn(lead.run_id);
+            // A message replayed before the next turn's start belongs to that turn.
+            readings.turn_senders = ClaudeTurnSenders::default();
             let released = readings.buffer.flush_all(Instant::now());
             (
                 turn_number,

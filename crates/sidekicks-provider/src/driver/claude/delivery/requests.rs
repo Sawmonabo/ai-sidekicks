@@ -541,7 +541,8 @@ impl ClaudeInboundRequests {
                 | RegisteredHook::BackgroundWork
                 | RegisteredHook::HelperSteerAfterTool
                 | RegisteredHook::HelperSteerAtStop
-                | RegisteredHook::HelperCallFailed,
+                | RegisteredHook::HelperCallFailed
+                | RegisteredHook::PeerSend,
             )
             | None => record_unattributed(session, "hook_callback", &request_id),
         }

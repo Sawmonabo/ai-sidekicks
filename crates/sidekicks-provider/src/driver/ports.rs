@@ -44,6 +44,7 @@ use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::server_prompts::ServerPromptPort;
 use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_directory_lookup::SessionDirectoryLookup;
 use crate::port::session_level_follower::SessionLevelFollower;
 use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::session_resume_reader::SessionResumeReader;
@@ -287,6 +288,8 @@ pub struct DriverPorts {
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
     /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
     pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The daemon's session directory, which a send hook looks another session up in.
+    pub session_directory_lookup: Arc<PortRegistration<Arc<dyn SessionDirectoryLookup>>>,
     /// The raw-message bucket, which each driver's reader hands every message the provider sends;
     /// a message read before it is registered is not recorded.
     pub raw_provider_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
@@ -349,6 +352,7 @@ impl DriverPorts {
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
             agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
+            session_directory_lookup: Arc::new(PortRegistration::new("session directory lookup")),
             raw_provider_messages: Arc::new(PortRegistration::new("raw provider messages")),
             tool_traces: Arc::new(PortRegistration::new("tool traces")),
         }
