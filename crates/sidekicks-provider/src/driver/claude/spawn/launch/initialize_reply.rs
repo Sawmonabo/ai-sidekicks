@@ -11,8 +11,9 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 
 use crate::driver::claude::session::transport::declarations::{
-    ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeListedAgent, ClaudeOfferedModel,
+    ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
+use crate::driver::contract::known_names::ProviderAgent;
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 use crate::record_readers::filter_non_empty;
 
@@ -169,14 +170,15 @@ pub(crate) fn read_claude_initialize_declaration(
     }
 }
 
-// The agents a reply's `agents` member offers, in its order, a row naming no agent skipped.
-fn read_listed_agents(agents: Option<LenientList<AgentRow>>) -> Vec<ClaudeListedAgent> {
+// The agents a reply's `agents` member offers, in its order, a row naming no agent skipped and an
+// empty description read as none.
+fn read_listed_agents(agents: Option<LenientList<AgentRow>>) -> Vec<ProviderAgent> {
     agents
         .map(|agents| agents.0)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|agent| {
-            Some(ClaudeListedAgent {
+            Some(ProviderAgent {
                 name: filter_non_empty(agent.name)?,
                 description: filter_non_empty(agent.description),
             })

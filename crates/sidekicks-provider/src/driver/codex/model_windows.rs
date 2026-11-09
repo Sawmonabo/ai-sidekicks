@@ -388,11 +388,50 @@ fn report_window_read_failed(service: &CodexService, detail: &str, slug: Option<
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io;
 
-    use super::read_codex_service_model_windows;
+    use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+
+    use super::{CodexModelWindow, join_codex_model_windows, read_codex_service_model_windows};
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::registry::test_token;
+
+    // The catalog's default mark stays on the model's default-window row, so a catalog marks at
+    // most one row. Killed by the larger-window row copying the mark from the row it is cloned from.
+    #[test]
+    fn the_codex_window_join_keeps_the_default_mark_off_the_larger_window_row() {
+        let model = ProviderModel {
+            id: test_token("gpt-test"),
+            name: test_token("GPT test"),
+            capabilities: Vec::new(),
+            effort_levels: None,
+            output_speed_levels: None,
+            fast: false,
+            larger_window: false,
+            is_default: true,
+            context_window: None,
+        };
+        let windows = HashMap::from([(
+            "gpt-test".to_owned(),
+            CodexModelWindow {
+                context_window: Some(272_000),
+                max_context_window: Some(1_000_000),
+                usable_percent: 95,
+                auto_compact_token_limit: None,
+            },
+        )]);
+
+        let rows = join_codex_model_windows(vec![model], &windows);
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.larger_window, row.is_default))
+                .collect::<Vec<_>>(),
+            [(false, true), (true, false)]
+        );
+    }
 
     // A catalog read that failed is reported with no field naming the service's home, whose path
     // is an account's credential home. Killed by the home's path put back among the details.

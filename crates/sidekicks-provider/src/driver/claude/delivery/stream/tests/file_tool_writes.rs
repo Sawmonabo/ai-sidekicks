@@ -1,7 +1,7 @@
 //! What a Claude Code session hands the chat versions' intake: each `Write`, `Edit` and
 //! `NotebookEdit` call, the lead's or a helper's, opened on its path and settled by its result, and
 //! every call still open settled unread at the turn's end, the interrupt's answer and the
-//! process's end.
+//! process's end, each settle recorded off the session's task.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -13,6 +13,7 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Semaphore;
 
 use super::result;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
@@ -29,6 +30,8 @@ use crate::port::file_tool_write::{
 struct KeptFileToolWrites {
     opened: Mutex<Vec<(String, PathBuf)>>,
     settled: Mutex<Vec<(String, FileToolWriteOutcome)>>,
+    // Where set, each settle waits for one of its permits, as an intake still recording would.
+    settle_gate: Option<Semaphore>,
 }
 
 impl FileToolWritePort for KeptFileToolWrites {
@@ -44,14 +47,23 @@ impl FileToolWritePort for KeptFileToolWrites {
         &self,
         settled: FileToolWriteSettled,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.settled).push((settled.call_id, settled.outcome));
-        async { Ok(()) }.boxed()
+        async move {
+            if let Some(gate) = &self.settle_gate {
+                gate.acquire()
+                    .await
+                    .expect("the gate is never closed")
+                    .forget();
+            }
+            lock(&self.settled).push((settled.call_id, settled.outcome));
+            Ok(())
+        }
+        .boxed()
     }
 }
 
-// The intake registered on `session`'s driver, as the daemon's start registers the chat versions.
-fn register_intake(session: &ScriptedSession) -> Arc<KeptFileToolWrites> {
-    let kept = Arc::new(KeptFileToolWrites::default());
+// `kept` registered on `session`'s driver, as the daemon's start registers the chat versions.
+fn register_intake(session: &ScriptedSession, kept: KeptFileToolWrites) -> Arc<KeptFileToolWrites> {
+    let kept = Arc::new(kept);
     session
         .driver
         .sources
@@ -62,15 +74,15 @@ fn register_intake(session: &ScriptedSession) -> Arc<KeptFileToolWrites> {
     kept
 }
 
-// Waits until `count` calls have settled.
-async fn wait_for_settles(kept: &KeptFileToolWrites, count: usize) {
+// Waits until `is_reached` holds of what reached the intake.
+async fn wait_until(is_reached: impl Fn() -> bool) {
     tokio::time::timeout(Duration::from_secs(10), async {
-        while lock(&kept.settled).len() < count {
+        while !is_reached() {
             settle().await;
         }
     })
     .await
-    .expect("the calls settle");
+    .expect("the intake is reached");
 }
 
 // An assistant frame calling `tool_name` under `call_id` with `input`, the helper `agent_id`'s or,
@@ -136,7 +148,7 @@ fn claimed(text: &str) -> FileToolWriteOutcome {
 async fn each_file_tool_call_opens_on_its_path_and_settles_by_its_result() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
-    let kept = register_intake(&session);
+    let kept = register_intake(&session, KeptFileToolWrites::default());
     let edit_result = |original: Value, replace_all: bool, staged: bool| {
         json!({
             "filePath": "/chat/b.md",
@@ -240,7 +252,7 @@ async fn each_file_tool_call_opens_on_its_path_and_settles_by_its_result() {
         Some(edit_result(json!("two\n"), false, false)),
         Some("helper"),
     ));
-    wait_for_settles(&kept, 12).await;
+    wait_until(|| lock(&kept.settled).len() == 12).await;
 
     let path = |path: &str| PathBuf::from(path);
     assert_eq!(
@@ -301,7 +313,7 @@ async fn every_open_file_tool_call_settles_unread_when_no_result_can_come(
 ) {
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
-    let kept = register_intake(&session);
+    let kept = register_intake(&session, KeptFileToolWrites::default());
     if let OpenCallEnd::Interrupt = end {
         session.stream.hold_turn_end_for_interrupt(run_id);
     }
@@ -320,10 +332,71 @@ async fn every_open_file_tool_call_settles_unread_when_no_result_can_come(
         OpenCallEnd::Interrupt => session.stream.interrupt_daemon_end(run_id),
         OpenCallEnd::ProcessGone => session.exit(),
     }
-    wait_for_settles(&kept, 1).await;
+    wait_until(|| lock(&kept.settled).len() == 1).await;
 
     assert_eq!(
         *lock(&kept.settled),
         [("e1".to_owned(), FileToolWriteOutcome::Unread)]
+    );
+}
+
+// A settle is recorded off the session's task: while the intake is still recording the first, the
+// frames after it are read and their calls opened, and the settles then land after their opens in
+// the order they were handed. Killed by the settle awaited on the session's task (the later calls
+// never open while the first settle is held).
+#[tokio::test(start_paused = true)]
+async fn a_settle_is_recorded_off_the_sessions_task_after_its_open_in_order() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let kept = register_intake(
+        &session,
+        KeptFileToolWrites {
+            settle_gate: Some(Semaphore::new(0)),
+            ..KeptFileToolWrites::default()
+        },
+    );
+    let write = |call_id: &str, path: &str| {
+        call(
+            call_id,
+            "Write",
+            &json!({"file_path": path, "content": "one\n"}),
+            None,
+        )
+    };
+    let written = |call_id: &str, path: &str| {
+        answer(
+            &[call_id],
+            false,
+            Some(
+                json!({"type": "create", "filePath": path, "content": "one\n",
+                        "structuredPatch": [], "originalFile": null}),
+            ),
+            None,
+        )
+    };
+
+    session.frame(&init());
+    session.frame(&write("w1", "/chat/a.md"));
+    session.frame(&written("w1", "/chat/a.md"));
+    session.frame(&write("w2", "/chat/b.md"));
+    session.frame(&written("w2", "/chat/b.md"));
+    session.frame(&write("w3", "/chat/c.md"));
+    wait_until(|| lock(&kept.opened).len() == 3).await;
+    assert!(
+        lock(&kept.settled).is_empty(),
+        "the intake still records the first settle"
+    );
+    kept.settle_gate
+        .as_ref()
+        .expect("the intake is gated")
+        .add_permits(2);
+    wait_until(|| lock(&kept.settled).len() == 2).await;
+
+    assert_eq!(
+        *lock(&kept.settled),
+        [
+            ("w1".to_owned(), claimed("one\n")),
+            ("w2".to_owned(), claimed("one\n")),
+        ]
     );
 }

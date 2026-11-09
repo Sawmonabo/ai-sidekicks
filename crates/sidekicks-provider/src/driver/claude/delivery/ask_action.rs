@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use url::Url;
 
-use crate::driver::claude::delivery::patches::is_claude_file_changing_tool;
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileTool;
 use crate::port::permission_ask::ProviderAskAction;
 use crate::record_readers::read_non_empty_string;
 
@@ -56,7 +56,7 @@ fn read_action(tool_name: &str, input: &Map<String, Value>) -> ProviderAskAction
             command: command.to_owned(),
         };
     }
-    if is_claude_file_changing_tool(tool_name)
+    if ClaudeFileTool::of(tool_name).is_some()
         && let Some(path) = read_non_empty_string(input, "file_path")
             .or_else(|| read_non_empty_string(input, "notebook_path"))
     {

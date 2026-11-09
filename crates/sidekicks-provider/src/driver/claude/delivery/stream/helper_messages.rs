@@ -6,9 +6,7 @@
 
 use super::body::ClaudeFrameBody;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
-use crate::driver::claude::delivery::file_tool_writes::{
-    open_file_tool_writes, settle_file_tool_writes,
-};
+use crate::driver::claude::delivery::file_tool_writes::open_file_tool_writes;
 use crate::driver::claude::delivery::messages::record_claude_traces;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::goals::endings::GoalEndingInput;
@@ -63,7 +61,7 @@ impl ClaudeDeliveryStream {
                     .settle_results(&message, session.session_id);
                 (traces, settled_writes)
             };
-            settle_file_tool_writes(&self.dependencies.file_tool_writes, settled_writes).await;
+            session.file_tool_settles.hand(settled_writes).await;
             record_claude_traces(&self.dependencies.tool_traces, traces).await;
         }
     }

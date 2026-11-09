@@ -12,7 +12,6 @@ use std::sync::LazyLock;
 use rusqlite::types::Value;
 use rusqlite::{Connection, named_params};
 use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
-use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::run::queue::PlanMessageKind;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -36,6 +35,7 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::folder::usage::earliest_live_holder_sql;
 use sidekicks_workspace::repo::mount::service::held_folders::{
     HeldManagedFolder, held_managed_folder_guard, held_managed_folder_release_statements,
     read_held_managed_folders,
@@ -161,28 +161,14 @@ const PAYLOAD_HASHES_SQL: &str = "
     JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifest.id";
 
 // The versions of a chat folder the session recorded, handed to the folder's earliest surviving
-// holder: of the other chats holding it, those not marked for purge first, then the one bound to
-// it first, then the first by id, as a chat folder's origin is read.
+// holder, of the other chats holding it, as a chat folder's origin is read.
 static REHOME_FOLDER_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE artifact_manifests
-    SET session_id = (
-      SELECT hold.session_id
-        FROM managed_folder_holds AS hold
-        LEFT JOIN sessions AS holder ON holder.id = hold.session_id
-        LEFT JOIN workspaces AS workspace
-          ON workspace.repo_mount_id = hold.repo_mount_id
-         AND workspace.session_id = hold.session_id AND workspace.state <> '{archived}'
-       WHERE hold.repo_mount_id = @repoMountId AND hold.session_id <> @sessionId
-       GROUP BY hold.session_id
-       ORDER BY MAX(coalesce(holder.state = '{purge_requested}', 1)) ASC,
-                MIN(workspace.created_at) IS NULL ASC, MIN(workspace.created_at) ASC,
-                hold.session_id ASC
-       LIMIT 1)
+    SET session_id = {}
   WHERE repo_mount_id = @repoMountId AND workspace_path IS NOT NULL
     AND session_id = @sessionId",
-        archived = <&'static str>::from(WorkspaceState::Archived),
-        purge_requested = <&'static str>::from(SessionState::PurgeRequested),
+        earliest_live_holder_sql("@repoMountId", Some("@sessionId"))
     )
 });
 

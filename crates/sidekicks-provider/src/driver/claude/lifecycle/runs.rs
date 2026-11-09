@@ -13,7 +13,6 @@ use sidekicks_std::mutex_lock::lock;
 use super::ClaudeDriver;
 use crate::driver::claude::compaction::compact_claude_context;
 use crate::driver::claude::handshake_register::compose_resting_command_entries;
-use crate::driver::claude::session::transport::declarations::ClaudeListedAgent;
 use crate::driver::claude::session::ultracode::{
     apply_claude_ultracode, requested_claude_ultracode,
 };
@@ -235,13 +234,7 @@ impl ClaudeDriver {
             .await?;
         Ok(ProviderKnownNames {
             entries: group.entries,
-            agents: agents
-                .into_iter()
-                .map(|agent| ProviderAgent {
-                    name: agent.name,
-                    description: agent.description,
-                })
-                .collect(),
+            agents,
         })
     }
 
@@ -255,7 +248,7 @@ impl ClaudeDriver {
         binding: ProviderCommandBinding,
         run_id: Option<RunId>,
         offered: &[SubagentDefinition],
-    ) -> Result<(ProviderCommandBindingGroup, Vec<ClaudeListedAgent>), DriverError> {
+    ) -> Result<(ProviderCommandBindingGroup, Vec<ProviderAgent>), DriverError> {
         let parts = self.parts()?;
         let handshakes = &parts.run_start.handshakes;
         if let Some(live) = parts.slots().live_after_transitions(session_id).await {

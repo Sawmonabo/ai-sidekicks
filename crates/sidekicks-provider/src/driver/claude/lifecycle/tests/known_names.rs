@@ -15,7 +15,7 @@ use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::session::transport::declarations::{
-    ClaudeInitializeDeclaration, ClaudeListedAgent, ClaudeOfferedModel,
+    ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
 use crate::driver::claude::spawn::launch::control_only::compose_claude_short_initialize_request;
 use crate::driver::claude::spawn::launch::initialize_reply::{
@@ -51,13 +51,6 @@ fn command(name: &str, description: Option<&str>) -> ProviderCommandEntry {
     }
 }
 
-fn listed_agent(name: &str, description: Option<&str>) -> ClaudeListedAgent {
-    ClaudeListedAgent {
-        name: name.to_owned(),
-        description: description.map(str::to_owned),
-    }
-}
-
 fn agent(name: &str, description: Option<&str>) -> ProviderAgent {
     ProviderAgent {
         name: name.to_owned(),
@@ -79,7 +72,8 @@ fn planner() -> SubagentDefinition {
 
 // Killed by the agents dropped live or at rest, by a description dropped, by the live session
 // read again at rest, by a second process started for the agents, by the helpers not handed to the
-// resting read or not put in its `initialize`, and by an empty `agents` map sent for none.
+// resting read, and by an empty `agents` map composed for none; that the read's process is sent
+// that `initialize` is the resting read's own test.
 #[rstest]
 #[case::live(true, Vec::new())]
 #[case::at_rest(false, Vec::new())]
@@ -102,8 +96,8 @@ async fn a_session_knows_its_commands_and_agents_live_and_at_rest(
                 }],
                 commands: vec!["review".to_owned()],
                 agents: vec![
-                    listed_agent("Explore", Some("Fast codebase search")),
-                    listed_agent("reviewer", None),
+                    agent("Explore", Some("Fast codebase search")),
+                    agent("reviewer", None),
                 ],
                 ..ClaudeInitializeDeclaration::default()
             });
@@ -117,7 +111,7 @@ async fn a_session_knows_its_commands_and_agents_live_and_at_rest(
             description: Some("Review the diff".to_owned()),
             argument_hint: None,
         }],
-        agents: vec![listed_agent("reviewer", Some("Reviews code"))],
+        agents: vec![agent("reviewer", Some("Reviews code"))],
     });
 
     let known = fixture
@@ -169,7 +163,7 @@ async fn a_session_knows_its_commands_and_agents_live_and_at_rest(
 
 // Killed by a row naming no agent kept, and by an empty description kept as one.
 #[test]
-fn the_reply_s_agent_rows_keep_each_named_agent_and_its_description() {
+fn the_reply_agent_rows_keep_each_named_agent_and_its_description() {
     let reply = json!({"agents": [
         {"name": "Explore", "description": "Fast search"},
         {"description": "no name"},
@@ -179,9 +173,6 @@ fn the_reply_s_agent_rows_keep_each_named_agent_and_its_description() {
 
     assert_eq!(
         read_claude_initialize_declaration(Some(&reply)).agents,
-        vec![
-            listed_agent("Explore", Some("Fast search")),
-            listed_agent("x", None),
-        ]
+        vec![agent("Explore", Some("Fast search")), agent("x", None),]
     );
 }

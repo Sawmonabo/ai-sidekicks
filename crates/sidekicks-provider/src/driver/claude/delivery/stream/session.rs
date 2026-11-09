@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
+use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolSettles;
 use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
@@ -77,6 +78,8 @@ pub(crate) struct ClaudeSessionStream {
     kept_calls: ClaudeKeptCallsSource,
     // The arguments of the process's calls awaiting their results, kept for their traces.
     pub(super) tool_call_arguments: ToolCallArgumentStore,
+    // Where the process's settled file-tool calls go to the chat versions, off the session's task.
+    pub(super) file_tool_settles: ClaudeFileToolSettles,
 }
 
 impl ClaudeSessionStream {
@@ -84,7 +87,8 @@ impl ClaudeSessionStream {
     /// steps against `step_bound`, queuing onto `arrivals`, taking the mode reports into
     /// `permission_mode`, the process's record the live session shares, reading the goal of
     /// `goal`'s lead from its conversation file, reading its background calls' kept files from
-    /// `kept_calls`, and keeping its calls' arguments for their traces in `tool_call_arguments`.
+    /// `kept_calls`, keeping its calls' arguments for their traces in `tool_call_arguments`, and
+    /// handing its settled file-tool calls to `file_tool_settles`.
     #[expect(
         clippy::too_many_arguments,
         reason = "the account, the bound and each part of the process the stream reads and shares"
@@ -99,6 +103,7 @@ impl ClaudeSessionStream {
         permission_mode: Arc<ClaudePermissionModeRecord>,
         kept_calls: ClaudeKeptCallsSource,
         tool_call_arguments: ToolCallArgumentStore,
+        file_tool_settles: ClaudeFileToolSettles,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -116,6 +121,7 @@ impl ClaudeSessionStream {
             first_request: Mutex::new(None),
             kept_calls,
             tool_call_arguments,
+            file_tool_settles,
         }
     }
 

@@ -2,7 +2,9 @@
 //! versions' intake takes it: a `Write`, `Edit` or `NotebookEdit` call opens at its `tool_use` once
 //! it names a path, and settles at its result with the text the result says the file now holds,
 //! with no write, or unread. A call still open when its turn ends, an interrupt is answered or the
-//! process ends settles unread, so no call holds its path's watch reports for good.
+//! process ends settles unread, so no call holds its path's watch reports for good. An open is
+//! handed to the intake on the session's task, ahead of the frames after it; a settle is recorded
+//! on a task of the session's own, so no frame waits on a version's disk read or writes.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -14,6 +16,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::mpsc;
 
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::lenient_json::read_lenient;
@@ -22,16 +25,21 @@ use crate::port::file_tool_write::{
     FileToolWriteSettled,
 };
 
-/// A Claude Code tool that writes one file and says in its result what the file then holds.
+/// A Claude Code tool that writes one file and says in its result what the file then holds, and
+/// whose result is read for that file's patch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ClaudeFileTool {
+pub(crate) enum ClaudeFileTool {
+    /// Writes a whole file.
     Write,
+    /// Replaces a string in a file.
     Edit,
+    /// Changes one cell of a notebook.
     NotebookEdit,
 }
 
 impl ClaudeFileTool {
-    fn of(tool_name: &str) -> Option<Self> {
+    /// The file tool Claude Code names `tool_name`; `None` for any other tool.
+    pub(crate) fn of(tool_name: &str) -> Option<Self> {
         match tool_name {
             "Write" => Some(Self::Write),
             "Edit" => Some(Self::Edit),
@@ -94,9 +102,8 @@ impl ClaudeFileTool {
                 }))
             }
             Self::NotebookEdit => {
-                // A successful edit carries an empty `error`; a failed one names it and leaves both
-                // files empty.
-                if text("error").is_some_and(|error| !error.is_empty()) {
+                // A failed edit leaves both files empty.
+                if is_failed_notebook_edit(result) {
                     return Some(FileToolWriteOutcome::NotWritten);
                 }
                 // A result passed on from another process empties the updated file.
@@ -107,6 +114,15 @@ impl ClaudeFileTool {
             }
         }
     }
+}
+
+/// Whether a `NotebookEdit` result says the edit failed: a successful edit carries an empty
+/// `error`, a failed one names it.
+pub(crate) fn is_failed_notebook_edit(result: &Map<String, Value>) -> bool {
+    result
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|error| !error.is_empty())
 }
 
 // The members of a file tool's input a call opens on.
@@ -273,19 +289,45 @@ pub(crate) async fn open_file_tool_writes(
     }
 }
 
-/// Hands each of `settled` to the intake `file_tool_writes`, in order; dropped while it is
-/// unregistered, and a settle it could not record logged.
-pub(crate) async fn settle_file_tool_writes(
-    file_tool_writes: &PortRegistration<Arc<dyn FileToolWritePort>>,
-    settled: Vec<FileToolWriteSettled>,
-) {
-    let Some(port) = file_tool_writes.port() else {
-        return;
-    };
-    for settled in settled {
-        let (session_id, call_id) = (settled.session_id, settled.call_id.clone());
-        if let Err(error) = port.settle_file_tool_write(settled).await {
-            report_intake_failure(session_id, &call_id, "settle", &*error);
+/// How many settles one session's sender holds before a further hand-off waits for the intake.
+const FILE_TOOL_SETTLE_CAPACITY: usize = 64;
+
+/// One session's settled file-tool calls on their way to the chat versions' intake, recorded in
+/// the order they were handed on a task of their own, which ends once the sender is dropped with
+/// the session's stream.
+pub(crate) struct ClaudeFileToolSettles {
+    sender: mpsc::Sender<FileToolWriteSettled>,
+}
+
+impl ClaudeFileToolSettles {
+    /// Starts the task handing each settle to the intake `file_tool_writes`: dropped while it is
+    /// unregistered, and a settle it could not record logged.
+    pub(crate) fn start(
+        file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
+    ) -> Self {
+        let (sender, mut receiver) =
+            mpsc::channel::<FileToolWriteSettled>(FILE_TOOL_SETTLE_CAPACITY);
+        tokio::spawn(async move {
+            while let Some(settled) = receiver.recv().await {
+                let Some(port) = file_tool_writes.port() else {
+                    continue;
+                };
+                let (session_id, call_id) = (settled.session_id, settled.call_id.clone());
+                if let Err(error) = port.settle_file_tool_write(settled).await {
+                    report_intake_failure(session_id, &call_id, "settle", &*error);
+                }
+            }
+        });
+        Self { sender }
+    }
+
+    /// Hands each of `settled` to the task, in order; waits only while the task's queue is full.
+    pub(crate) async fn hand(&self, settled: Vec<FileToolWriteSettled>) {
+        for settled in settled {
+            if let Err(error) = self.sender.send(settled).await {
+                let settled = &error.0;
+                report_intake_failure(settled.session_id, &settled.call_id, "settle", &error);
+            }
         }
     }
 }

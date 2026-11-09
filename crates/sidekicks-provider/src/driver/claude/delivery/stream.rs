@@ -44,9 +44,7 @@ use self::session::CLAUDE_LOGIN_REFUSAL;
 pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use self::tasks::ClaudeExitHolds;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::file_tool_writes::{
-    open_file_tool_writes, settle_file_tool_writes,
-};
+use crate::driver::claude::delivery::file_tool_writes::open_file_tool_writes;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows, record_claude_traces,
@@ -527,7 +525,7 @@ impl ClaudeDeliveryStream {
             .lock()
             .file_tool_writes
             .settle_all_unread(session.session_id);
-        settle_file_tool_writes(&self.dependencies.file_tool_writes, settled).await;
+        session.file_tool_settles.hand(settled).await;
     }
 
     async fn mark_initialized(
@@ -694,7 +692,7 @@ impl ClaudeDeliveryStream {
                 reading.file_tool_writes,
             )
         };
-        settle_file_tool_writes(&self.dependencies.file_tool_writes, settled_writes).await;
+        session.file_tool_settles.hand(settled_writes).await;
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }

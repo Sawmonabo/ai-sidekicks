@@ -64,7 +64,7 @@ type ClaudeRestingReadKey = (SessionId, ProviderAccountId);
 // One resting listing read in flight and the helpers its process was offered, which its agents
 // answer, so only a read offering the same helpers joins it.
 struct ClaudeRestingListingFlight {
-    offered: Vec<SubagentDefinition>,
+    offered_helpers: Vec<SubagentDefinition>,
     read: ClaudeRestingListingRead,
 }
 
@@ -304,7 +304,10 @@ impl ClaudeHandshakeRegister {
         let key = (session_id, provider_account_id);
         let mut reads = lock(&self.resting_reads);
         let flights = reads.entry(key.clone()).or_default();
-        let read = if let Some(flight) = flights.iter().find(|flight| flight.offered == offered) {
+        let read = if let Some(flight) = flights
+            .iter()
+            .find(|flight| flight.offered_helpers == offered)
+        {
             flight.read.clone()
         } else {
             let held = Arc::clone(&self.resting_reads);
@@ -315,7 +318,7 @@ impl ClaudeHandshakeRegister {
                     // begun only where none is held.
                     let mut reads = lock(&held);
                     if let Some(flights) = reads.get_mut(&key) {
-                        flights.retain(|flight| flight.offered != held_offered);
+                        flights.retain(|flight| flight.offered_helpers != held_offered);
                         if flights.is_empty() {
                             reads.remove(&key);
                         }
@@ -325,7 +328,7 @@ impl ClaudeHandshakeRegister {
                 .boxed()
                 .shared();
             flights.push(ClaudeRestingListingFlight {
-                offered: offered.to_vec(),
+                offered_helpers: offered.to_vec(),
                 read: read.clone(),
             });
             drop(tokio::spawn(read.clone()));

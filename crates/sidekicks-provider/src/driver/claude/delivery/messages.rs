@@ -30,11 +30,9 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::transcript::whole_patch::{WholePatchFile, omitted_patches_of};
 
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::file_tool_writes::ClaudeFileToolWrites;
+use crate::driver::claude::delivery::file_tool_writes::{ClaudeFileTool, ClaudeFileToolWrites};
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
-use crate::driver::claude::delivery::patches::{
-    is_claude_file_changing_tool, read_claude_patch_file,
-};
+use crate::driver::claude::delivery::patches::read_claude_patch_file;
 use crate::driver::claude::delivery::peer_arrival::{ClaudeMessageOrigin, read_boxed_origin};
 use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -638,11 +636,12 @@ pub(crate) fn read_claude_user_rows(
         let opened = open_tool_calls.remove(call_id);
         let is_file_change = opened
             .as_ref()
-            .is_some_and(|opened| is_claude_file_changing_tool(opened.tool_name.as_str()));
+            .is_some_and(|opened| ClaudeFileTool::of(opened.tool_name.as_str()).is_some());
         // Claude Code's structured result rides the frame beside a lone tool result, read once
         // for the patch and the file tool's write.
-        let is_read = is_file_change || file_tool_writes.is_open(call_id);
-        let tool_use_result: Option<serde_json::Value> = if !is_error && is_lone_result && is_read {
+        let reads_structured_result =
+            !is_error && is_lone_result && (is_file_change || file_tool_writes.is_open(call_id));
+        let tool_use_result: Option<serde_json::Value> = if reads_structured_result {
             frame
                 .tool_use_result
                 .as_deref()

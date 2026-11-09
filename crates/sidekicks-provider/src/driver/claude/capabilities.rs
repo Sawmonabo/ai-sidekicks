@@ -30,8 +30,8 @@ const CLAUDE_CAPABILITY_CONTRACT_VERSION: &str = "4.0.0";
 /// The reply the catalog is read from, as Claude Code's wire names it.
 const CLAUDE_CATALOG_REPLY_NAME: &str = "Claude initialize";
 
-/// The reserved `value` that points at whichever model is currently the default.
-const CLAUDE_DEFAULT_MODEL_POINTER: &str = "default";
+/// The reserved model `value` that points at whichever model is currently the default.
+pub(crate) const CLAUDE_DEFAULT_MODEL_POINTER: &str = "default";
 
 /// The suffix Claude Code puts on a model id for that model's 1M-token window.
 const CLAUDE_LARGER_WINDOW_MARK: &str = "[1m]";
@@ -150,8 +150,8 @@ struct CatalogRow {
 
 /// Reads the `models` of one `initialize` reply's JSON text into the picker's models, in the
 /// provider's order, one per resolved model, a row naming the model beating the `default` pointer;
-/// the named row the pointer resolves to is marked default, and a pointer no named row matches
-/// marks none. Fails with [`DriverError::ModelCatalogUnreadable`] for anything but
+/// the row of the model the pointer resolves to is marked default, the pointer's own row where no
+/// named row lists that model. Fails with [`DriverError::ModelCatalogUnreadable`] for anything but
 /// `{ models: [...] }` whose rows are objects that each name a `resolvedModel` and a
 /// `displayName` and carry a boolean `supportsFastMode` where they carry one, so a dropped model
 /// is never a parser failure.
@@ -190,8 +190,8 @@ pub(crate) fn normalize_claude_model_catalog(
     }
     Ok(by_resolved_model
         .into_iter()
-        .map(|(model, from_pointer)| ProviderModel {
-            is_default: !from_pointer && default_model.as_ref() == Some(&model.id),
+        .map(|(model, _)| ProviderModel {
+            is_default: default_model.as_ref() == Some(&model.id),
             ..model
         })
         .collect())
@@ -312,10 +312,10 @@ mod tests {
         ));
     }
 
-    // Killed by marking the first row, or by marking the `default` pointer's own row where no
-    // named row lists its model.
+    // Killed by marking the first row, or by leaving the `default` pointer's own row unmarked where
+    // no named row lists its model.
     #[test]
-    fn the_claude_catalog_marks_the_named_row_its_default_pointer_resolves_to() {
+    fn the_claude_catalog_marks_the_row_its_default_pointer_resolves_to() {
         let marks = |models: serde_json::Value| -> Vec<(String, bool)> {
             normalize_claude_model_catalog(Some(&json!({ "models": models }).to_string()))
                 .expect("the catalog reads")
@@ -337,13 +337,17 @@ mod tests {
             ]
         );
 
+        // No named row lists the pointer's model, so the pointer's own row is kept and marked.
         let unlisted = marks(json!([
             { "value": "opus", "resolvedModel": "claude-opus-5", "displayName": "Opus" },
             { "value": "default", "resolvedModel": "claude-haiku-5", "displayName": "Default" },
         ]));
-        assert!(
-            unlisted.iter().all(|(_, is_default)| !is_default),
-            "{unlisted:?}"
+        assert_eq!(
+            unlisted,
+            [
+                ("claude-opus-5".to_owned(), false),
+                ("claude-haiku-5".to_owned(), true)
+            ]
         );
     }
 }

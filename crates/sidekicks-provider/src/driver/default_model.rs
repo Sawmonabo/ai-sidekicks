@@ -9,7 +9,8 @@ use sidekicks_ipc::domain_error::DomainError;
 use crate::driver::contract::error::DriverError;
 
 /// The row of `provider`'s catalog `rows` that the catalog marks as the model a new session starts
-/// on. Fails with a `provider.unavailable` refusal naming the provider when no row is marked.
+/// on. Fails with a `provider.capability.unsupported` refusal naming the provider when no row is
+/// marked, since the provider then offers no default model.
 pub fn read_default_model<'rows>(
     provider: &ProviderId,
     rows: &'rows [ProviderModel],
@@ -17,7 +18,7 @@ pub fn read_default_model<'rows>(
     rows.iter().find(|row| row.is_default).ok_or_else(|| {
         DomainError::new(
             "The provider's model catalog marks no default model",
-            RefusalCode::ProviderUnavailable,
+            RefusalCode::ProviderCapabilityUnsupported,
         )
         .with_detail(json!({ "providerId": provider.as_str() }))
         .into()
@@ -64,6 +65,6 @@ mod tests {
         let Err(DriverError::Refused(refusal)) = read_default_model(&provider, &unmarked) else {
             panic!("a catalog that marks no row must be refused");
         };
-        assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+        assert_eq!(refusal.code, RefusalCode::ProviderCapabilityUnsupported);
     }
 }

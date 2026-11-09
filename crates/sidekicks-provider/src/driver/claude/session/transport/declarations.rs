@@ -11,6 +11,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
+use crate::driver::contract::known_names::ProviderAgent;
 use crate::driver::mcp_server::status::McpServerStatusIngestResult;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -55,16 +56,6 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// One agent the `initialize` reply offers, by name, with its description where the reply gives a
-/// non-empty one.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClaudeListedAgent {
-    /// The name the lead hands work to it by.
-    pub(crate) name: String,
-    /// When the lead should hand work to it.
-    pub(crate) description: Option<String>,
-}
-
 /// What the `initialize` reply declared about the session's models, styles, commands, agents and
 /// memory: the models it offers, in its order, which of them run in auto mode, the output styles
 /// the process offers, the commands it lists, the agents it offers, and the folders of its memory
@@ -85,7 +76,7 @@ pub(crate) struct ClaudeInitializeDeclaration {
     /// The commands it lists, by name without the `/`, in its order.
     pub(crate) commands: Vec<String>,
     /// The agents the process offers, in its order, each with its description.
-    pub(crate) agents: Vec<ClaudeListedAgent>,
+    pub(crate) agents: Vec<ProviderAgent>,
     /// The folders of Claude Code's auto-memory and team-memory stores, each kept where the reply
     /// names it as an absolute path a filesystem path carries, the auto-memory store first when it
     /// is kept.

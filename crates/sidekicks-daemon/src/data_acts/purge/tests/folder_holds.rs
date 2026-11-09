@@ -228,8 +228,11 @@ async fn two_holders_purged_together_leave_the_folder_to_the_one_refused() {
     assert_eq!(rows_on_mount(&reader, &shared.mount_id), [0, 0, 0]);
 }
 
-// Kills: the guard that no other chat holds the folder left off the last holder's write (the
-// mount and the new hold are deleted).
+// The last holder's files stage removed the folder, so the late hold is left on a mount whose folder
+// is gone: this write's guard keeps the rows whole (the mount, the hold and the workspace stay),
+// while the hand-off's own guard that the planning chat is not being purged keeps such a hold from
+// being taken at all. Kills: the guard that no other chat holds the folder left off the last
+// holder's write (the mount and the new hold are deleted).
 #[tokio::test]
 async fn a_hold_taken_after_the_last_holders_files_stage_refuses_its_write() {
     let fixture = purge_fixture().await;
@@ -258,6 +261,10 @@ async fn a_hold_taken_after_the_last_holders_files_stage_refuses_its_write() {
             SessionPurgeOutcome::Refused(SessionPurgeError::FolderHoldersMoved)
         ),
         "the write is refused once another chat holds the folder, got {outcome:?}"
+    );
+    assert!(
+        !shared.folder.exists(),
+        "the files stage removed the folder before the late hold"
     );
     assert_eq!(rows_on_mount(&reader, &shared.mount_id), [1, 2, 1]);
     assert_eq!(count(&reader, HOLDS_OF_SESSION, late), 1);

@@ -3,7 +3,6 @@
 //! row on it once the last holder goes.
 
 use std::borrow::Cow;
-use std::sync::LazyLock;
 
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::repo::mount::RepoMountId;
@@ -14,14 +13,18 @@ use sidekicks_store::database::stored_column::text_column;
 use super::managed_mount_deletion_statements;
 
 // Another chat than `@session_id` holds the managed folder; a probe on the holds' key.
-const OTHER_FOLDER_HOLD_SQL: &str = "SELECT 1 FROM managed_folder_holds
-    WHERE repo_mount_id = @repo_mount_id AND session_id <> @session_id LIMIT 1";
+macro_rules! other_folder_hold {
+    () => {
+        "SELECT 1 FROM managed_folder_holds
+          WHERE repo_mount_id = @repo_mount_id AND session_id <> @session_id LIMIT 1"
+    };
+}
 
 // One row while another chat holds the managed folder, and one while none does.
-static OTHER_FOLDER_HOLD_GUARD_SQL: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT 1 WHERE EXISTS ({OTHER_FOLDER_HOLD_SQL})"));
-static NO_OTHER_FOLDER_HOLD_GUARD_SQL: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT 1 WHERE NOT EXISTS ({OTHER_FOLDER_HOLD_SQL})"));
+const OTHER_FOLDER_HOLD_GUARD_SQL: &str =
+    concat!("SELECT 1 WHERE EXISTS (", other_folder_hold!(), ")");
+const NO_OTHER_FOLDER_HOLD_GUARD_SQL: &str =
+    concat!("SELECT 1 WHERE NOT EXISTS (", other_folder_hold!(), ")");
 
 const DELETE_FOLDER_HOLD_SQL: &str = "DELETE FROM managed_folder_holds
     WHERE repo_mount_id = @repo_mount_id AND session_id = @session_id";
@@ -78,12 +81,12 @@ pub fn held_managed_folder_guard(
     session_id: SessionId,
 ) -> WriteStatement {
     let sql = if folder.is_held_by_another {
-        &OTHER_FOLDER_HOLD_GUARD_SQL
+        OTHER_FOLDER_HOLD_GUARD_SQL
     } else {
-        &NO_OTHER_FOLDER_HOLD_GUARD_SQL
+        NO_OTHER_FOLDER_HOLD_GUARD_SQL
     };
     WriteStatement {
-        sql: Cow::Borrowed(sql.as_str()),
+        sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![
             text_binding("@repo_mount_id", folder.repo_mount_id.text().as_str()),
             text_binding("@session_id", session_id.text().as_str()),
