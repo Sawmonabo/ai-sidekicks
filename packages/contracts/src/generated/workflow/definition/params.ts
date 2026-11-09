@@ -1,7 +1,7 @@
 // Generated from the Rust contracts by `pnpm --filter @ai-sidekicks/contracts generate`.
 // Change the Rust source and regenerate; never edit this file.
 
-// The parameter check's arguments and the values it refuses.
+// The parameter check's arguments and the values it refuses, and the condition check's arguments.
 
 import type { IssuePathSegment } from "../../jsonrpc/issue.js";
 import type { WorkflowParamSpec } from "../kind.js";
@@ -42,6 +42,29 @@ export interface WorkflowNodeParamsCheckInput {
   };
   /**
    * The kind's parameter list.
+   */
+  specs: WorkflowParamSpec[];
+}
+/**
+ * The condition check's arguments as the builder sends them: a condition read as a param's
+ * `showWhen` and a kind's sandbox are, the values it is read against, and the parameter list
+ * whose defaults stand in for a value left out.
+ */
+export interface WorkflowConditionCheckInput {
+  /**
+   * Each named param's listed values.
+   */
+  condition: {
+    [k: string]: unknown[] | undefined;
+  };
+  /**
+   * The values by param id.
+   */
+  params: {
+    [k: string]: unknown | undefined;
+  };
+  /**
+   * The parameter list the named params belong to.
    */
   specs: WorkflowParamSpec[];
 }

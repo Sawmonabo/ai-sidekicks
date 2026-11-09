@@ -64,6 +64,22 @@ pub struct WorkflowNodeParamsCheckInput {
     pub specs: Vec<WorkflowParamSpec>,
 }
 
+/// The condition check's arguments as the builder sends them: a condition read as a param's
+/// `showWhen` and a kind's sandbox are, the values it is read against, and the parameter list
+/// whose defaults stand in for a value left out.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowConditionCheckInput {
+    /// Each named param's listed values.
+    pub condition: Record<String, Vec<AnyValue>>,
+    /// The values by param id.
+    #[serde(deserialize_with = "crate::wire::record::prototype_free")]
+    #[schemars(extend("propertyNames" = crate::wire::record::prototype_free_names()))]
+    pub params: Map<String, Value>,
+    /// The parameter list the named params belong to.
+    pub specs: Vec<WorkflowParamSpec>,
+}
+
 /// Checks one node's parameters against its kind's parameter list, walking into collections, and
 /// returns every value refused: a reference that is not one (a secret outside the `secret://`
 /// form, an id that is not one, a tool binding carrying a nested node or a policy), a collection
@@ -437,10 +453,12 @@ fn not_a_record_issue(path: Vec<IssuePathSegment>) -> WorkflowParamIssue {
 /// The TypeScript module of the parameter check's arguments and the values it refuses.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/definition/params",
-    doc: "The parameter check's arguments and the values it refuses.",
+    doc: "The parameter check's arguments and the values it refuses, and the condition check's \
+          arguments.",
     definitions: &[
         Definition::read::<WorkflowParamIssue>(),
         Definition::read::<WorkflowNodeParamsCheckInput>(),
+        Definition::read::<WorkflowConditionCheckInput>(),
     ],
     constants: &[],
     method_tables: &[],

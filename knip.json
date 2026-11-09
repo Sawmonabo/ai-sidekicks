@@ -227,7 +227,10 @@
       "ignoreIssues": { "src/generated/**": ["exports", "types"] },
       // A same-file consumer counts as a consumer: a schema, closed set or type that only its own
       // module's exported shapes reference is still part of the contract those shapes describe.
-      "ignoreExportsUsedInFile": true
+      "ignoreExportsUsedInFile": true,
+      // The build links the workflow checks' module with `wasm-bindgen`, which Cargo's binary
+      // installer puts on the path at the release `Cargo.lock` names; no npm package ships it.
+      "ignoreBinaries": ["wasm-bindgen"]
     },
     // The command line declares no `entry`: knip's rolldown plugin reads `src/main.ts` from
     // `rolldown.config.ts`, and its Vitest plugin reads the tests beside their subjects.

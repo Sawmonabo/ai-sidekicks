@@ -1,6 +1,9 @@
 // The writes to the one workflow library: create, duplicate, save a new version, soft delete, and
 // the settings kept beside a version (layout, pinned data, tags, permission level), which mint
 // none. Each change is one write, so a refused write leaves nothing behind.
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
 import type { Statement } from "better-sqlite3";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
@@ -18,6 +21,7 @@ import type {
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
+  WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
   WorkflowDefinitionCreateRequest,
@@ -27,9 +31,12 @@ import type {
   WorkflowDefinitionUpdateResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import {
-  checkWorkflowGraph,
-  type WorkflowDefinitionFinding,
-  type WorkflowNodeHandlesResolver,
+  checkWorkflowDefinitionGraph,
+  provideWorkflowCheckModule,
+} from "@ai-sidekicks/contracts/workflow/definition/check";
+import type {
+  WorkflowDefinitionFinding,
+  WorkflowNodeHandles,
 } from "@ai-sidekicks/contracts/workflow/definition/refusals";
 
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
@@ -123,6 +130,15 @@ const SET_PIN_DATA_SQL = `UPDATE workflow_definitions SET pin_data_json = NULLIF
 // The positions of the name check and the read of the saved version among a save's statements.
 const NAME_CHECK_INDEX = 0;
 const SAVED_VERSION_INDEX = 3;
+// Node's `WebAssembly`, which `@types/node` leaves to the DOM library the daemon does not load.
+const NodeWebAssembly = (
+  globalThis as unknown as {
+    WebAssembly: {
+      Module: new (bytes: Uint8Array) => Parameters<typeof provideWorkflowCheckModule>[0];
+    };
+  }
+).WebAssembly;
+
 const NAME_TAKEN_FINDING: WorkflowDefinitionFinding = { rule: "name_taken", nodeIds: [] };
 
 /** Who saved a version: the device the save came from, and the agent that saved it, if one did. */
@@ -155,19 +171,29 @@ interface LatestVersionRow {
 export class WorkflowDefinitionStore {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #library: WorkflowLibrary;
-  readonly #resolveNodeHandles: WorkflowNodeHandlesResolver;
+  readonly #nodeHandlesOf: (node: WorkflowNode) => WorkflowNodeHandles | undefined;
   readonly #now: () => Date;
   readonly #selectLatestVersion: Statement<[{ id: string }], LatestVersionRow>;
 
   constructor(
     database: DatabaseConnections,
     library: WorkflowLibrary,
-    resolveNodeHandles: WorkflowNodeHandlesResolver,
+    nodeHandlesOf: (node: WorkflowNode) => WorkflowNodeHandles | undefined,
     now: () => Date = () => new Date(),
   ) {
     this.#writer = database.writer;
     this.#library = library;
-    this.#resolveNodeHandles = resolveNodeHandles;
+    this.#nodeHandlesOf = nodeHandlesOf;
+    // Node compiles the workflow checks' module itself, from the file its package builds.
+    provideWorkflowCheckModule(
+      new NodeWebAssembly.Module(
+        readFileSync(
+          createRequire(import.meta.url).resolve(
+            "@ai-sidekicks/contracts/workflow/definition/check.wasm",
+          ),
+        ),
+      ),
+    );
     this.#now = now;
     this.#selectLatestVersion = database.reader.prepare(LATEST_VERSION_SQL);
   }
@@ -446,7 +472,14 @@ export class WorkflowDefinitionStore {
 
   // Every graph finding and a held name are refused together, so the author sees them all at once.
   #refuseFindings(document: WorkflowDocument, savedDefinitionId?: WorkflowDefinitionId): void {
-    const findings = checkWorkflowGraph(document, this.#resolveNodeHandles);
+    const nodes =
+      document.trigger === undefined ? document.nodes : [document.trigger, ...document.nodes];
+    const findings = checkWorkflowDefinitionGraph({
+      trigger: document.trigger,
+      nodes: document.nodes,
+      edges: document.edges,
+      nodeHandles: Object.fromEntries(nodes.map((node) => [node.id, this.#nodeHandlesOf(node)])),
+    });
     if (this.#library.isNameHeld(document.name, savedDefinitionId)) {
       findings.push(NAME_TAKEN_FINDING);
     }

@@ -1,7 +1,8 @@
 // The markdown worker: loads the parser, compiling it from the renderer's own origin when the page
 // hands it none and sending the compiled module back for later workers, and compiles the
-// compression module and the fuzzy matcher on their own for the page, which compiles nothing
-// itself, whenever the page's codec or matcher still wants its module, sending what that came to;
+// compression module, the fuzzy matcher and the workflow checks on their own for the page, which
+// compiles nothing itself, whenever the page's codec, matcher or checks still want their module,
+// sending what that came to;
 // and then, off the page's thread, parses
 // each text the page sends into the parser's binary tree, cuts each body's text the page sends into
 // blocks, makes each reply's markdown into HTML under the screen's policy, and reads each drawn
@@ -15,6 +16,7 @@
 import parserModuleUrl from "@ai-sidekicks/markdown-parser/satteri.wasm?url";
 import textCompressionModuleUrl from "@ai-sidekicks/compression/lz4.wasm?url";
 import fuzzyMatcherModuleUrl from "@ai-sidekicks/search-ranking/matcher.wasm?url";
+import workflowCheckModuleUrl from "@ai-sidekicks/contracts/workflow/definition/check.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS, StalledBlockCutError } from "../parse/block-cut.js";
@@ -153,6 +155,11 @@ const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
     if (event.data.shouldCompileFuzzyMatcher) {
       void compilePageModule(fuzzyMatcherModuleUrl).then((fuzzyMatcher) => {
         workerScope.postMessage({ status: "fuzzy-matcher", fuzzyMatcher }, []);
+      });
+    }
+    if (event.data.shouldCompileWorkflowChecks) {
+      void compilePageModule(workflowCheckModuleUrl).then((workflowChecks) => {
+        workerScope.postMessage({ status: "workflow-checks", workflowChecks }, []);
       });
     }
     resolve(

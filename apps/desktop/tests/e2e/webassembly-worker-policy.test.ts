@@ -251,6 +251,7 @@ describe.skipIf(!bundleIsBuilt)(
                     parser,
                     shouldCompileTextCompression: false,
                     shouldCompileFuzzyMatcher: false,
+                    shouldCompileWorkflowChecks: false,
                   },
                   { kind: "parse", requestId: 1, source },
                 ];
@@ -353,6 +354,7 @@ describe.skipIf(!bundleIsBuilt)(
                   parser: undefined,
                   shouldCompileTextCompression: true,
                   shouldCompileFuzzyMatcher: false,
+                  shouldCompileWorkflowChecks: false,
                 };
                 worker.postMessage(load);
               });

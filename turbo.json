@@ -78,6 +78,7 @@
     // the crate's hash.
     "sidekicks-client-addon#build": { "command": null },
     "sidekicks-compression#build": { "command": null },
+    "sidekicks-contracts#build": { "command": null },
     "sidekicks-search#build": { "command": null }
   }
 }

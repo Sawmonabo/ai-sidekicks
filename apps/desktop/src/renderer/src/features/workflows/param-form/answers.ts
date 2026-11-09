@@ -2,6 +2,7 @@
 // whether they may be sent. The form keeps what the person typed (a number field holds its
 // text, a JSON field its source), so the check is where text becomes the value that is sent.
 
+import { isWorkflowConditionMet } from "@ai-sidekicks/contracts/workflow/definition/check";
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import { parse as parseWithErrors, type ParseError } from "jsonc-parser";
@@ -51,9 +52,11 @@ export function seedParamAnswers(
 }
 
 /**
- * Whether a field is drawn: always, unless its `showWhen` names siblings, in which case each
- * named sibling's answer, read as it would be sent (a number field's text as its number), must
- * be one of the values listed for it. `siblings` is the field list `field` belongs to.
+ * Whether a field is drawn: always, unless its `showWhen` names siblings, in which case the
+ * contracts' condition check, the one the daemon's save runs, reads each named sibling's answer as
+ * it would be sent (a number field's text as its number), its default where it has none.
+ * `siblings` is the field list `field` belongs to. Throws before the workflow checks' module
+ * arrives.
  */
 export function isParamFieldShown(
   field: WorkflowParamSpec,
@@ -63,12 +66,20 @@ export function isParamFieldShown(
   if (field.type === "collection" || field.showWhen === undefined) {
     return true;
   }
-  return Object.entries(field.showWhen).every(([siblingId, listedValues]) => {
+  const sentAnswers: Record<string, unknown> = {};
+  for (const siblingId of Object.keys(field.showWhen)) {
     const sentAnswer = sentValueOf(
       siblings.find((sibling) => sibling.id === siblingId),
       answers[siblingId],
     );
-    return listedValues.some((listedValue) => Object.is(listedValue, sentAnswer));
+    if (sentAnswer !== undefined) {
+      sentAnswers[siblingId] = sentAnswer;
+    }
+  }
+  return isWorkflowConditionMet({
+    condition: field.showWhen,
+    params: sentAnswers,
+    specs: [...siblings],
   });
 }
 

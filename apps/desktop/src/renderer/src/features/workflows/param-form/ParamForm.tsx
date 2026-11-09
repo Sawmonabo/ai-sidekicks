@@ -1,11 +1,13 @@
 // The form drawn from a kind's parameter list, as a step waiting on a person shows it. It holds
 // no state; the answers and the last check's issues come from the caller, which seeds them and
-// checks them with `answers.ts`.
+// checks them with `answers.ts`. Which fields are drawn is the workflow checks' to say, so the
+// fields wait for their module, which the app compiles as it starts.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { PickedFolder } from "#shared/preload-api.js";
 import { isParamFieldShown, seedParamAnswers } from "./answers.js";
+import { useAreWorkflowChecksReady } from "./hooks/useAreWorkflowChecksReady.js";
 import type { ParamAnswers, ParamIssues } from "./answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";
 import "./ParamForm.css";
@@ -30,18 +32,21 @@ export interface ParamFormProps {
  * be what `seedParamAnswers` built for these fields, since a collection reads its nested shape.
  */
 export function ParamForm(props: ParamFormProps): React.JSX.Element {
+  const areWorkflowChecksReady = useAreWorkflowChecksReady();
   return (
     <div className="meridian-workflow-param-form">
-      <ParamFieldList
-        fields={props.fields}
-        answers={props.answers}
-        onAnswersChange={props.onAnswersChange}
-        issues={props.issues}
-        isDisabled={props.isDisabled === true}
-        idPrefix={props.idPrefix}
-        pathPrefix=""
-        pickFolder={props.pickFolder}
-      />
+      {areWorkflowChecksReady && (
+        <ParamFieldList
+          fields={props.fields}
+          answers={props.answers}
+          onAnswersChange={props.onAnswersChange}
+          issues={props.issues}
+          isDisabled={props.isDisabled === true}
+          idPrefix={props.idPrefix}
+          pathPrefix=""
+          pickFolder={props.pickFolder}
+        />
+      )}
     </div>
   );
 }

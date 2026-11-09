@@ -99,6 +99,12 @@
       "types": "./dist/web-address/rule.d.ts",
       "import": "./dist/web-address/rule.js"
     },
+    "./workflow/definition/check": {
+      "@ai-sidekicks/source": "./src/workflow/definition/check.ts",
+      "types": "./dist/workflow/definition/check.d.ts",
+      "import": "./dist/workflow/definition/check.js"
+    },
+    "./workflow/definition/check.wasm": "./dist/workflow-check.wasm",
     "./workflow/definition/handle-parsing": {
       "@ai-sidekicks/source": "./src/workflow/definition/handle-parsing.ts",
       "types": "./dist/workflow/definition/handle-parsing.d.ts",
@@ -116,10 +122,10 @@
     "!src/**/__tests__"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "cargo rustc -p sidekicks-contracts --lib --crate-type cdylib --profile wasm-release --target wasm32-unknown-unknown --features workflow-check-wasm --message-format=json-render-diagnostics | node --experimental-strip-types write-dist.ts && tsc -b --force",
     "generate": "node --experimental-strip-types generator/generate.ts",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p generator/tsconfig.json",
-    "lint": "eslint src generator",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p generator/tsconfig.json && tsc -p tsconfig.write-dist.json",
+    "lint": "eslint src generator write-dist.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

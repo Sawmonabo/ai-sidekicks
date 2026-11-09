@@ -1,6 +1,7 @@
 // Stand-ins for the markdown worker, for suites that run where no worker can. Each answers on the
 // test's own thread as the worker answers: a load with the app's compiled parser, and with no
-// codec or matcher module, since the tier's setup hands the app's matcher its module itself; a text to parse
+// codec, matcher or workflow-check module, since the tier's setup hands the app's matcher and
+// workflow checks their modules itself; a text to parse
 // through the worker's own serializer, which Sätteri's Node build backs here with that parser,
 // before `postMessage` returns unless a test holds those answers to release them in an order of its
 // choosing; a text to cut through the worker's own cut, every window at once, before `postMessage`
@@ -57,6 +58,9 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
       }
       if (message.shouldCompileFuzzyMatcher) {
         this.#say({ status: "fuzzy-matcher", fuzzyMatcher: IN_THREAD_FUZZY_MATCHER });
+      }
+      if (message.shouldCompileWorkflowChecks) {
+        this.#say({ status: "workflow-checks", workflowChecks: IN_THREAD_WORKFLOW_CHECKS });
       }
       return;
     }
@@ -205,6 +209,12 @@ const IN_THREAD_TEXT_COMPRESSION: CompiledPageModule = {
 const IN_THREAD_FUZZY_MATCHER: CompiledPageModule = {
   status: "absent",
   reason: "The in-thread markdown worker compiles no fuzzy matcher",
+};
+
+/** The workflow checks a stand-in worker hands the page: none, since the tier's setup provides them. */
+const IN_THREAD_WORKFLOW_CHECKS: CompiledPageModule = {
+  status: "absent",
+  reason: "The in-thread markdown worker compiles no workflow checks",
 };
 
 /**

@@ -6,6 +6,9 @@
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
+    // The workflow checks' loader runs on the page, and the DOM library declares the `WebAssembly`
+    // API it and its glue call.
+    "lib": ["es2024", "dom"],
     "rootDir": "./src",
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.

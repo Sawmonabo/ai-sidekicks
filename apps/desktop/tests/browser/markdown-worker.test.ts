@@ -127,6 +127,7 @@ it("compiles the parser, and moves a tree to the page as a plain buffer", async 
     parser: undefined,
     shouldCompileTextCompression: false,
     shouldCompileFuzzyMatcher: false,
+    shouldCompileWorkflowChecks: false,
   });
   worker.postMessage({
     kind: "parse",
@@ -285,7 +286,7 @@ it("packs a held tree too long for the page, and reads it back as the same tree"
   expect(new Uint8Array(kept.read())).toStrictEqual(noise);
 });
 
-it("compiles the compression and matcher modules apart from a parser that fails to load", async () => {
+it("compiles the compression, matcher and workflow-check modules apart from a parser that fails to load", async () => {
   const worker = endWorkersWithTest(startMarkdownWorker)();
   const replies = repliesOf(worker);
   // A module with nothing in it, which the parser's loader cannot run.
@@ -297,18 +298,27 @@ it("compiles the compression and matcher modules apart from a parser that fails 
     parser: emptyModule,
     shouldCompileTextCompression: true,
     shouldCompileFuzzyMatcher: true,
+    shouldCompileWorkflowChecks: true,
   });
 
-  const heard = [await replies.next(), await replies.next(), await replies.next()];
+  const heard = [
+    await replies.next(),
+    await replies.next(),
+    await replies.next(),
+    await replies.next(),
+  ];
   expect(heard.map((reply) => reply.status).sort()).toStrictEqual([
     "fuzzy-matcher",
     "load-failed",
     "text-compression",
+    "workflow-checks",
   ]);
   const codec = heard.find((reply) => reply.status === "text-compression");
   expect(codec?.status === "text-compression" && codec.textCompression.status).toBe("compiled");
   const matcher = heard.find((reply) => reply.status === "fuzzy-matcher");
   expect(matcher?.status === "fuzzy-matcher" && matcher.fuzzyMatcher.status).toBe("compiled");
+  const checks = heard.find((reply) => reply.status === "workflow-checks");
+  expect(checks?.status === "workflow-checks" && checks.workflowChecks.status).toBe("compiled");
 });
 
 it("cuts a body into the top-level blocks one parse of the whole body reads", async () => {

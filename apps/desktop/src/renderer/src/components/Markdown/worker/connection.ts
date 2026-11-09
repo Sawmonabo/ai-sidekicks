@@ -2,8 +2,8 @@
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
 // first worker compiled and sent back, which every later worker only instantiates. That module is
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
-// and the compression module and the fuzzy matcher a worker compiles while the page's text codec
-// or matcher wants one go to them; the worker parses what the page does not: a streaming tail, a block too long to parse
+// and the compression module, the fuzzy matcher and the workflow checks a worker compiles while the
+// page's text codec, matcher or checks want one go to them; the worker parses what the page does not: a streaming tail, a block too long to parse
 // on the page, a long table's pieces, and every block while the page's parser could not start. It
 // sends each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
 // bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what
@@ -27,6 +27,10 @@ import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { FuzzyMatcher } from "@ai-sidekicks/search-ranking";
+import {
+  isWorkflowCheckModuleProvided,
+  provideWorkflowCheckModule,
+} from "@ai-sidekicks/contracts/workflow/definition/check";
 import {
   decodePiecesInSlices,
   encodePiecesInSlices,
@@ -334,6 +338,7 @@ export class MarkdownWorkerConnection {
       parser: this.#parser,
       shouldCompileTextCompression: this.textCompression.isModuleWanted,
       shouldCompileFuzzyMatcher: !this.fuzzyMatcher.isReady,
+      shouldCompileWorkflowChecks: !isWorkflowCheckModuleProvided(),
     });
     return port;
   }
@@ -352,6 +357,9 @@ export class MarkdownWorkerConnection {
         return;
       case "fuzzy-matcher":
         this.#handToFuzzyMatcher(reply.fuzzyMatcher);
+        return;
+      case "workflow-checks":
+        handToWorkflowChecks(reply.workflowChecks);
         return;
       case "load-failed":
         // Compiled again by the next worker, since what failed may have been the module handed.
@@ -731,6 +739,27 @@ function undrawnRowsJson(table: Table, firstIndex: number, lastIndex: number): s
 /** A JSON replacer leaving out each node's `position`. */
 function withoutPosition(key: string, value: unknown): unknown {
   return key === "position" ? undefined : value;
+}
+
+/**
+ * Hands the page's workflow checks the module a worker compiled. A module that was not compiled, or
+ * does not start, is recorded, and the checks answer nothing until a later worker's does.
+ */
+function handToWorkflowChecks(workflowChecks: CompiledPageModule): void {
+  if (workflowChecks.status === "absent") {
+    recordWorkflowChecksFailure(new Error(workflowChecks.reason));
+    return;
+  }
+  try {
+    provideWorkflowCheckModule(workflowChecks.module);
+  } catch (error: unknown) {
+    recordWorkflowChecksFailure(error);
+  }
+}
+
+/** Records why the page's workflow checks did not get a running module from this worker. */
+function recordWorkflowChecksFailure(failure: unknown): void {
+  recordRejectedRequest("components/Markdown/worker", "workflow-checks-not-started", failure);
 }
 
 /** Records why the page's fuzzy matcher did not get a running module from this worker. */

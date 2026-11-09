@@ -1,0 +1,31 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The build compiles `crates/sidekicks-contracts`' workflow checks to WebAssembly, links them
+    // with `wasm-bindgen` and lays out `dist/` through the repository's `tools/wasm-dist.ts`, then
+    // emits the TypeScript beside them. The crate's own build task carries the crate, the
+    // workspace's Cargo files and the toolchain file in its hash.
+    "build": {
+      "dependsOn": ["^build", "sidekicks-contracts#build"],
+      "inputs": ["$TURBO_EXTENDS$", "write-dist.ts", "$TURBO_ROOT$/tools/wasm-dist.ts"],
+      "outputs": ["dist/**", ".tsbuildinfo"],
+      // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
+      // which Turborepo's strict environment mode would otherwise withhold from this package's
+      // own Cargo run.
+      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
+    },
+    // The loader imports the glue the build writes into `dist/`, so the checks and the tests run
+    // after it.
+    "typecheck": {
+      "dependsOn": ["^build", "build"],
+      "inputs": ["$TURBO_EXTENDS$", "write-dist.ts", "$TURBO_ROOT$/tools/wasm-dist.ts"]
+    },
+    "lint": {
+      "dependsOn": ["build"]
+    },
+    "test": {
+      "dependsOn": ["^build", "build"]
+    }
+  }
+}

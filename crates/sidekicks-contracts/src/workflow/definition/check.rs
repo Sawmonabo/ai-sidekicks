@@ -1,8 +1,9 @@
 //! The workflow checks as WebAssembly exports for the builder, which runs them in the page while a
-//! connection is dragged and before a save. The daemon's save runs the same graph and parameter
-//! checks, the latter with each node's kind's parameter list. Each takes its arguments as one JSON
-//! text, each node's handles among them as data, and answers JSON text; a text that does not read
-//! throws.
+//! connection is dragged and before a save, and the condition a param's `showWhen` and a kind's
+//! sandbox are read by. The daemon's save runs the same graph and parameter checks, the latter with
+//! each node's kind's parameter list. Each takes its arguments as one JSON text, each node's
+//! handles among them as data, and answers JSON text; a text that does not read throws. The exports
+//! keep their Rust names: the page calls them only through its loader, which reads their JSON.
 
 use std::collections::HashMap;
 
@@ -11,7 +12,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::workflow::definition::document::WorkflowNode;
 use crate::workflow::definition::params::{
-    WorkflowNodeParamsCheckInput, check_workflow_node_params,
+    WorkflowConditionCheckInput, WorkflowNodeParamsCheckInput, check_workflow_node_params,
+    is_condition_met,
 };
 use crate::workflow::definition::refusals::{
     WorkflowConnectionCheckInput, WorkflowGraphCheckInput, check_workflow_connection,
@@ -20,7 +22,7 @@ use crate::workflow::definition::refusals::{
 
 /// Runs the graph check over `{trigger?, nodes, edges, nodeHandles}` and answers its findings as a
 /// JSON array, empty when the graph is accepted; throws when the input does not read.
-#[wasm_bindgen(js_name = checkWorkflowGraph)]
+#[wasm_bindgen]
 pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowGraphCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
@@ -34,7 +36,7 @@ pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
 /// findings the connection adds to the document as a JSON array, empty when it is accepted; throws
 /// when the input does not read. `edge` carries the id the page will store it under; on a
 /// reconnect, `edges` are the document's edges without the edge being moved.
-#[wasm_bindgen(js_name = checkWorkflowConnection)]
+#[wasm_bindgen]
 pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowConnectionCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
@@ -52,11 +54,24 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
 /// Runs the parameter check over `{params, specs}` and answers the refused values as a JSON array
 /// of `{path, message, rule?}`, empty when every value is accepted; throws when the input does not
 /// read.
-#[wasm_bindgen(js_name = checkWorkflowNodeParams)]
+#[wasm_bindgen]
 pub fn check_workflow_node_params_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowNodeParamsCheckInput = serde_json::from_str(input)?;
     let issues = check_workflow_node_params(&input.params, &input.specs);
     Ok(serde_json::to_string(&issues)?)
+}
+
+/// Reads the condition over `{condition, params, specs}`: whether each param it names holds one of
+/// its listed values, a param's default in `specs` standing in for a value `params` leaves out;
+/// throws when the input does not read.
+#[wasm_bindgen]
+pub fn is_workflow_condition_met_json(input: &str) -> Result<bool, JsError> {
+    let input: WorkflowConditionCheckInput = serde_json::from_str(input)?;
+    Ok(is_condition_met(
+        &input.condition,
+        |param_id| input.params.get(param_id),
+        &input.specs,
+    ))
 }
 
 #[cfg(test)]
@@ -66,6 +81,7 @@ mod tests {
 
     use super::{
         check_workflow_connection_json, check_workflow_graph_json, check_workflow_node_params_json,
+        is_workflow_condition_met_json,
     };
     use crate::workflow::definition::document::node;
 
@@ -144,5 +160,30 @@ mod tests {
         let answer = export(&input.to_string()).expect("the input reads");
         let answer: Value = serde_json::from_str(&answer).expect("the answer is JSON");
         assert_eq!(answer, findings);
+    }
+
+    // The condition export reads the values the page sends, and a param's default where the page
+    // sends none, so a form's field shows and a kind's sandbox reads alike.
+    #[rstest]
+    #[case::a_listed_value(json!({ "mode": "full" }), true)]
+    #[case::an_unlisted_value(json!({ "mode": "quick" }), false)]
+    #[case::the_default_standing_in(json!({}), true)]
+    fn the_condition_export_reads_values_and_defaults(#[case] params: Value, #[case] is_met: bool) {
+        let input = json!({
+            "condition": { "mode": ["full"] },
+            "params": params,
+            "specs": [{
+                "id": "mode",
+                "label": "Mode",
+                "type": "select",
+                "options": [
+                    { "value": "full", "label": "Full" },
+                    { "value": "quick", "label": "Quick" },
+                ],
+                "default": "full",
+            }],
+        });
+        let answer = is_workflow_condition_met_json(&input.to_string()).expect("the input reads");
+        assert_eq!(answer, is_met);
     }
 }

@@ -1,5 +1,6 @@
-// Lays out a package's `dist/` from a Cargo build of a WebAssembly module: the module, and the
-// license files and notices of every crate compiled into it, plus those of any npm package whose
+// Lays out a package's `dist/` from a Cargo build of a WebAssembly module: the module, its
+// JavaScript glue when a tool wrote one, and the license files and notices of every crate compiled
+// into it, plus those of any npm package whose
 // compiled code the build linked in. A crate's license files come from the folder Cargo unpacked it
 // to, or, when it publishes none, from its repository at the commit it was published from. The
 // crates come from Cargo's own JSON build messages, so a package's build target and profile are
@@ -67,12 +68,14 @@ export interface WasmDistSource {
   readonly moduleFile: string;
   /** The module to copy when a step after Cargo rewrote it; Cargo's own output otherwise. */
   readonly builtModulePath?: string;
+  /** The JavaScript glue a step after Cargo wrote for the module, copied into `dist/` by name. */
+  readonly glueFiles?: readonly string[];
   /** The folders of npm packages whose compiled code the build linked into the module. */
   readonly linkedPackageDirectories?: readonly string[];
 }
 
 /** The fields read from one of Cargo's JSON build messages. */
-interface BuildMessage {
+export interface BuildMessage {
   readonly reason: string;
   readonly package_id?: string;
   readonly target?: { readonly name: string; readonly kind: readonly string[] };
@@ -132,25 +135,8 @@ interface CarriedProject {
  * that declares MIT.
  */
 export function writeWasmDist(source: WasmDistSource): void {
-  const messages = source.buildMessages
-    .split("\n")
-    .filter((line) => line.startsWith("{"))
-    .map((line) => JSON.parse(line) as BuildMessage);
-  if (
-    !messages.some((message) => message.reason === "build-finished" && message.success === true)
-  ) {
-    throw new Error("Cargo did not finish building the crate; its errors are printed above");
-  }
-  const artifacts = messages.filter((message) => message.reason === "compiler-artifact");
-  const moduleArtifact = artifacts.find(
-    (artifact) =>
-      artifact.target?.name === source.crateLibraryName && artifact.target.kind.includes("cdylib"),
-  );
-  const modulePath =
-    source.builtModulePath ?? moduleArtifact?.filenames?.find((file) => file.endsWith(".wasm"));
-  if (moduleArtifact?.package_id === undefined || modulePath === undefined) {
-    throw new Error("Cargo's build wrote no WebAssembly module for the crate");
-  }
+  const built = builtModuleOf(source.buildMessages, source.crateLibraryName);
+  const modulePath = source.builtModulePath ?? built.modulePath;
 
   const metadata = JSON.parse(
     // Cargo describes every crate the workspace resolves, which passes Node's 1 MiB default.
@@ -166,9 +152,9 @@ export function writeWasmDist(source: WasmDistSource): void {
   try {
     const carried = [
       ...linkedCratesOf(
-        moduleArtifact.package_id,
+        built.packageId,
         source.isCrateThirdParty,
-        artifacts,
+        built.artifacts,
         metadata,
         scratchDirectory,
       ),
@@ -179,6 +165,9 @@ export function writeWasmDist(source: WasmDistSource): void {
     rmSync(distDirectory, { recursive: true, force: true });
     mkdirSync(distDirectory);
     copyFileSync(modulePath, path.join(distDirectory, source.moduleFile));
+    for (const glueFile of source.glueFiles ?? []) {
+      copyFileSync(glueFile, path.join(distDirectory, path.basename(glueFile)));
+    }
     writeFileSync(
       path.join(distDirectory, "THIRD_PARTY_NOTICES.md"),
       [
@@ -191,6 +180,42 @@ export function writeWasmDist(source: WasmDistSource): void {
   } finally {
     rmSync(scratchDirectory, { recursive: true, force: true });
   }
+}
+
+/** A crate's WebAssembly module as Cargo built it, and what the build compiled. */
+export interface BuiltModule {
+  /** The crate's package id in `cargo metadata`. */
+  readonly packageId: string;
+  /** The module Cargo wrote. */
+  readonly modulePath: string;
+  /** Cargo's message for each crate it compiled. */
+  readonly artifacts: readonly BuildMessage[];
+}
+
+/**
+ * The module Cargo's JSON build messages say it wrote for the `cdylib` crate `crateLibraryName`.
+ * Throws when the build failed or wrote no module for the crate.
+ */
+export function builtModuleOf(buildMessages: string, crateLibraryName: string): BuiltModule {
+  const messages = buildMessages
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line) as BuildMessage);
+  if (
+    !messages.some((message) => message.reason === "build-finished" && message.success === true)
+  ) {
+    throw new Error("Cargo did not finish building the crate; its errors are printed above");
+  }
+  const artifacts = messages.filter((message) => message.reason === "compiler-artifact");
+  const moduleArtifact = artifacts.find(
+    (artifact) =>
+      artifact.target?.name === crateLibraryName && artifact.target.kind.includes("cdylib"),
+  );
+  const modulePath = moduleArtifact?.filenames?.find((file) => file.endsWith(".wasm"));
+  if (moduleArtifact?.package_id === undefined || modulePath === undefined) {
+    throw new Error("Cargo's build wrote no WebAssembly module for the crate");
+  }
+  return { packageId: moduleArtifact.package_id, modulePath, artifacts };
 }
 
 /**
