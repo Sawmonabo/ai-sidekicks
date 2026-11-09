@@ -1,18 +1,23 @@
 // The parts of a run-stream projection that every arm shares: the outcome type, the
-// envelope-against-payload session cross-check, the single registered-shape parse, and the refusal
+// envelope-against-payload session cross-check, the single registered-shape check, and the refusal
 // constructors. `projection.fixture.ts` decides which arm a beat travels on; this file
 // changes only when the shape of a refusal does. The types live here, not beside the arms, because
 // every helper returns one and declaring them in the arms module would close an import cycle.
 
+import type {
+  AgentRunRolledBackEvent,
+  RunStateChangeEvent,
+} from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
-import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
-import type { ZodType } from "zod";
+import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
+
+import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One registered payload a narrowed run stream delivers inside a frame's change. */
-export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
+export type RunStreamDelivery = RunStateChangeEvent | AgentRunRolledBackEvent | QueueItemSummary;
 
 /** A beat its stream cannot deliver, and why in words a scenario author can act on. */
 export interface RunStreamUnprojectable {
@@ -63,23 +68,28 @@ export function refuseSessionDisagreement(
 }
 
 /**
- * Parses one composed candidate through the shape the corpus registers for it. This is the single
- * delivery gate, and a failure names every failing member by path.
+ * Checks one composed candidate with the generated check of the shape it is delivered as. This is
+ * the single delivery gate, and a failure names the failing member by path and the rule it broke.
  */
 export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery>(
-  registeredShape: ZodType<Delivery>,
+  registeredCheck: SchemaCheck<Delivery>,
   event: ProjectedSessionEvent,
   candidate: Readonly<Record<string, unknown>>,
 ): RunStreamProjection<Delivery> {
-  const parsed = registeredShape.safeParse(candidate);
-  if (!parsed.success) {
+  if (!registeredCheck(candidate)) {
+    const [fault] = registeredCheck.errors ?? [];
+    const [faultPath] = checkFaultPaths(registeredCheck, candidate);
+    const member =
+      faultPath === undefined || faultPath.path.length === 0
+        ? "the payload"
+        : faultPath.path.map(String).join(".");
     return unprojectableFor(
       event,
-      `does not satisfy its registered shape — ` +
-        `${parsed.error.issues.map(describeIssue).join("; ")}`,
+      `does not satisfy its registered shape — ${member} breaks the schema's ` +
+        `"${fault?.keyword ?? "unknown"}" rule`,
     );
   }
-  return { status: "projected", delivery: parsed.data };
+  return { status: "projected", delivery: candidate };
 }
 
 /** Every carried optional member the payload actually supplies, wire-verbatim. */
@@ -113,13 +123,4 @@ export function unprojectableFor(
 /** The refusal arm, spelled once. */
 export function unprojectable(detail: string): RunStreamUnprojectable {
   return { status: "unprojectable", detail };
-}
-
-/** One parse issue as a sentence fragment: which member, and what is wrong with it. */
-function describeIssue(issue: {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}): string {
-  const member = issue.path.length === 0 ? "the payload" : issue.path.map(String).join(".");
-  return `${member}: ${issue.message}`;
 }

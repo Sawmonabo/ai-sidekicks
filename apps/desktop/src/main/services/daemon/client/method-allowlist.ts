@@ -11,11 +11,7 @@ import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon
 import { GIT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/git/methods";
 import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import {
-  ISSUE_PATH_SEGMENTS_MAX,
-  type Issue,
-  type IssuePathSegment,
-} from "@ai-sidekicks/contracts/jsonrpc/issue";
+import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
@@ -42,6 +38,8 @@ import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts
 import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
 import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
+
+import { issuePathOf } from "#shared/daemon/fault-path.js";
 
 /** What the allowlist reads of a method's generated descriptor. */
 interface AllowedMethod {
@@ -145,20 +143,4 @@ function refusal(
         ? { type, category: "invalidArgument" }
         : { type, category: "invalidArgument", fields: { ...fields } },
   };
-}
-
-/**
- * The issue path of a check's JSON-pointer `instancePath` into `params`: an array's index as a
- * number, a member's name as text, at most the issue path's step limit.
- */
-function issuePathOf(instancePath: string, params: unknown): IssuePathSegment[] {
-  const path: IssuePathSegment[] = [];
-  let value = params;
-  for (const step of instancePath.split("/").slice(1, ISSUE_PATH_SEGMENTS_MAX + 1)) {
-    const key = step.replaceAll("~1", "/").replaceAll("~0", "~");
-    const segment: IssuePathSegment = Array.isArray(value) ? Number(key) : key;
-    path.push(segment);
-    value = value !== null && typeof value === "object" ? Reflect.get(value, segment) : undefined;
-  }
-  return path;
 }

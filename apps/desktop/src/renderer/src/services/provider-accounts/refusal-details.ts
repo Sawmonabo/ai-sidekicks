@@ -1,32 +1,33 @@
-// The named members two account-plane refusals carry, parsed at the wire boundary against each
-// method's details schema: the remedy a refused default move names, and why the keychain would
-// not seal a pasted token. A refusal whose members do not parse carries neither, and still renders
-// its code and sentence.
+// The named members two account-plane refusals carry, checked at the wire boundary with each
+// method's generated details check: the remedy a refused default move names, and why the keychain
+// would not seal a pasted token. A refusal whose members fail the check carries neither, and still
+// renders its code and sentence.
 
-import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderSignInExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
-  ProviderAccountNotAuthenticatedDetailsSchema,
+  validateProviderAccountNotAuthenticatedDetails,
 } from "@ai-sidekicks/contracts/provider/account/methods";
 import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
 import {
   PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
-  ProviderAccountCredentialSealRefusedDetailsSchema,
+  validateProviderAccountCredentialSealRefusedDetails,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
-/** The remedy a refused `providerAccount.setCurrent` names for its account, where it names one. */
+/**
+ * The remedy a refused `provider.account.current.update` names for its account, where it names
+ * one.
+ */
 export function readCarriedLoginRemedy(
   refusal: ExtendedRefusal,
-): ProviderLoginExpiredRemedy | undefined {
+): ProviderSignInExpiredRemedy | undefined {
   if (refusal.code !== PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE) {
     return undefined;
   }
-  const details = ProviderAccountNotAuthenticatedDetailsSchema.safeParse({
-    remedy: refusal.remedy,
-  });
-  return details.success ? details.data.remedy : undefined;
+  const details = { remedy: refusal.remedy };
+  return validateProviderAccountNotAuthenticatedDetails(details) ? details.remedy : undefined;
 }
 
 /** Why the keychain refused to seal a pasted token, where the refusal says so. */
@@ -36,8 +37,6 @@ export function readKeychainRefusalCause(
   if (refusal.code !== PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE) {
     return undefined;
   }
-  const details = ProviderAccountCredentialSealRefusedDetailsSchema.safeParse({
-    cause: refusal.cause,
-  });
-  return details.success ? details.data.cause : undefined;
+  const details = { cause: refusal.cause };
+  return validateProviderAccountCredentialSealRefusedDetails(details) ? details.cause : undefined;
 }

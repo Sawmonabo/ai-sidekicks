@@ -6,14 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 import { readSessionStreamFrame, type SessionStreamFrameReading } from "./payload.js";
 
-/** A session id the branded schema accepts. */
+/** A session id the branded check accepts. */
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
 /** The daemon's opaque row id for the event under test. */
@@ -31,10 +31,10 @@ const USER_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 const OCCURRED_AT = "2026-01-01T14:20:00.500Z";
 
 /** The census-known type every envelope below carries unless a case says otherwise. */
-const REGISTERED_TYPE = "run.running";
+const REGISTERED_TYPE = "agent.run.running";
 
 /** A type spelled like a real one that the census does not register. */
-const UNREGISTERED_TYPE = "run.teleported";
+const UNREGISTERED_TYPE = "agent.run.teleported";
 
 /** The one category the census pairs {@link REGISTERED_TYPE} with, read rather than written. */
 const REGISTERED_CATEGORY = registeredCategoryOf(REGISTERED_TYPE);
@@ -84,7 +84,7 @@ function registeredEnvelope(
 
 /** One frame carrying one change, the given envelope at the change's cursor. */
 function frameCarrying(envelope: unknown): Readonly<Record<string, unknown>> {
-  return { changes: [{ cursor: CHANGE_CURSOR, event: envelope }] };
+  return { kind: "changes", changes: [{ cursor: CHANGE_CURSOR, event: envelope }] };
 }
 
 /** The frame carrying one envelope, read. */
@@ -108,14 +108,14 @@ describe("readSessionStreamFrame — the registered envelope", () => {
           sessionId: SESSION_ID,
           sequence: 7,
           cursor: CHANGE_CURSOR,
-          kind: "run.running",
+          kind: "agent.run.running",
           occurredAt: OCCURRED_AT,
           actorId: USER_ID,
           payload: { runId: SESSION_ID, newState: "running" },
         },
       ],
       unreadableEventCount: 0,
-      dropped: false,
+      isBehind: false,
       resumeCursor: CHANGE_CURSOR,
     });
   });
@@ -126,15 +126,14 @@ describe("readSessionStreamFrame — the registered envelope", () => {
     const decoded = readOneEvent(registeredEnvelope({ actor: null }));
 
     expect(decoded?.actorId).toBeUndefined();
-    expect(decoded?.kind).toBe("run.running");
+    expect(decoded?.kind).toBe("agent.run.running");
   });
 });
 
 describe("readSessionStreamFrame — the census pairing of type and category", () => {
   it("refuses a census-known type carrying a category the registry does not pair it with", () => {
-    // The case the tolerant carrier cannot make: it admits any registered category beside any
-    // type, and the strict layer that rejects a mismatch does not run here. Without this check the
-    // run partition would be mutated off a pairing the strict layer refuses.
+    // The case the envelope check cannot make: it admits any registered category beside any type.
+    // Without this check the run partition would be mutated off a pairing the registry refuses.
     const reading = readFrameOf(
       registeredEnvelope({ category: categoryOtherThan(REGISTERED_CATEGORY) }),
     );
@@ -148,8 +147,7 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
   });
 
   it("admits a type the census does not register, whatever category it names", () => {
-    // A higher-minor producer may send a type this app has no entry for, and the app keeps
-    // it. Every category is swept so a check that refused one would be caught.
+    // A newer daemon may send a type this app has no entry for, and the app keeps it. Every category is swept so a check that refused one would be caught.
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(UNREGISTERED_TYPE as never)).toBe(false);
 
     for (const category of new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())) {
@@ -160,14 +158,14 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
   });
 });
 
-describe("readSessionStreamFrame — the drop mark", () => {
-  it("reads the caught-up frame: no events, and the daemon's mark that it dropped some", () => {
+describe("readSessionStreamFrame — the far-behind frame", () => {
+  it("reads the behind frame: no events, the daemon's mark, and its head cursor", () => {
     // The one frame with no changes the contract admits. Read as an empty batch, it would leave the
     // session short of rows with nothing saying so.
-    expect(readSessionStreamFrame({ changes: [], dropped: true, cursor: EVENT_ID })).toStrictEqual({
+    expect(readSessionStreamFrame({ kind: "behind", headCursor: EVENT_ID })).toStrictEqual({
       events: [],
       unreadableEventCount: 0,
-      dropped: true,
+      isBehind: true,
       resumeCursor: EVENT_ID,
     });
   });
@@ -181,7 +179,7 @@ describe("readSessionStreamFrame — what it refuses", () => {
       id: EVENT_ID,
       sessionId: SESSION_ID,
       sequence: 7,
-      kind: "run.running",
+      kind: "agent.run.running",
       occurredAt: OCCURRED_AT,
       actorId: USER_ID,
       payload: {},

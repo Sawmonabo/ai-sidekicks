@@ -3,7 +3,7 @@
 // says what reaches it.
 //
 // The two `run.*` streams deliver frames of changes, each a registered projection
-// (`RunStateChangeEvent`, `RunRolledBackEvent`, `QueueItemSummary`) at its beat's cursor, not the
+// (`RunStateChangeEvent`, `AgentRunRolledBackEvent`, `QueueItemSummary`) at its beat's cursor, not the
 // session envelope: a projection has a top-level `newState`, not `payload.newState`, and no `kind`
 // or `sequence`. A fixture that handed over the envelope would make every end-to-end result about
 // a frame no daemon produces. Codex's safety hold is a live frame with no session row, so no beat
@@ -16,22 +16,22 @@
 // queue payload (`{sessionId, queueItemId, state}`) does not carry, so `position`, `content` and
 // `createdAt` come from the caller's row lookup.
 //
-// Every composed candidate is parsed through the registered schema before delivery and a failure
-// is a refusal with the failing member's path. Hand-checking required members and casting would
+// Every composed candidate is checked with its shape's generated check before delivery and a
+// failure is a refusal with the failing member's path. Hand-checking required members and casting would
 // leave optionals such as `intendedClose` unchecked; the run-lifecycle kinds register no payload
-// variant for the scenario contract check to read, so nothing else catches it. Parsing also removes
-// the branded-identifier casts. The value import of the schemas costs the release bundle nothing:
+// variant for the scenario contract check to read, so nothing else catches it. The check also removes
+// the branded-identifier casts. The value import of the checks costs the release bundle nothing:
 // this module is reached only from the fixture bridge, and the fixture composition sits behind
 // the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `projection.ts` holds what all
 // arms share, and `lib/wire/strings.ts` the string reader every wire reader uses.
 
-import { QueueItemSummarySchema } from "@ai-sidekicks/contracts/run/queue";
 import {
-  RunRolledBackEventSchema,
-  RunStateChangeEventSchema,
+  validateAgentRunRolledBackEvent,
+  validateRunStateChangeEvent,
+  type AgentRunRolledBackEvent,
+  type RunStateChangeEvent,
 } from "@ai-sidekicks/contracts/run/control";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
-import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
+import { validateQueueItemSummary, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -51,7 +51,7 @@ import {
 } from "../daemon/session/event/stream-kinds.js";
 
 /** What the `run.subscribeState` stream delivers: a state change, or the forward rollback row. */
-export type RunStateStreamDelivery = RunStateChangeEvent | RunRolledBackEvent;
+export type RunStateStreamDelivery = RunStateChangeEvent | AgentRunRolledBackEvent;
 
 /**
  * One change of a narrowed run stream's frame as the fixture composes it, carrying the beat's
@@ -66,16 +66,19 @@ export type ScenarioRunStreamChangeProjection =
   | { readonly status: "projected"; readonly change: ScenarioRunStreamChange }
   | RunStreamUnprojectable;
 
+/** Every member any arm of the union `Shape` declares, not only the members all arms share. */
+type MemberOfAnyArm<Shape> = Shape extends unknown ? keyof Shape : never;
+
 /**
  * The optional `RunStateChangeEvent` members this projection carries through, wire-verbatim, so a
- * scenario's `completionKind` or `trigger` is not flattened away. Keyed by the derived member union
- * so a member added to the registered shape fails to compile; the parse decides whether a value is
+ * scenario's `trigger` or `processExit` is not flattened away. Keyed by the derived member union
+ * so a member added to the registered shape fails to compile; the check decides whether a value is
  * accepted.
  */
 const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
     Exclude<
-      keyof RunStateChangeEvent,
+      MemberOfAnyArm<RunStateChangeEvent>,
       "runId" | "runVersion" | "previousState" | "newState" | "timestamp"
     >,
     true
@@ -86,21 +89,21 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   recoveryCondition: true,
   providerFailureDetail: true,
   processExit: true,
-  completionKind: true,
   intendedClose: true,
   executionPosture: true,
   trigger: true,
 };
 
 /**
- * The optional `QueueItemSummary` members carried through from the queue row where it names them:
- * the message's files, the child whose queue holds it, and the reason its delivery failed. Keyed
- * by the derived member union like the table above.
+ * The `QueueItemSummary` members, beyond the row's own columns, carried through from the queue row
+ * where it names them: the message's files, the child whose queue holds it, whether it is sent now,
+ * what kind of item it is and where it goes, its plan message, and why its delivery failed. Keyed by
+ * the derived member union like the table above.
  */
 const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
     Exclude<
-      keyof QueueItemSummary,
+      MemberOfAnyArm<QueueItemSummary>,
       "id" | "state" | "position" | "content" | "createdAt" | "updatedAt"
     >,
     true
@@ -108,6 +111,10 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
 > = {
   attachments: true,
   childHandle: true,
+  isSentNow: true,
+  kind: true,
+  target: true,
+  planMessage: true,
   notDeliveredReason: true,
 };
 
@@ -176,7 +183,7 @@ function projectStateChange(
     return sessionDisagreement;
   }
   // The kind and the payload each name the state the run is now in, and they must agree. Checked
-  // before the parse because a `run.running` frame reporting `paused` passes the registered
+  // before the check because a `run.running` frame reporting `paused` passes the registered
   // vocabulary and then routes by one key and renders by the other.
   const announcedState = runStateForTransitionKind(event.kind);
   const statedState = payload["newState"];
@@ -190,7 +197,7 @@ function projectStateChange(
         `in its payload; one beat cannot report two current states`,
     );
   }
-  return projectThroughRegisteredShape(RunStateChangeEventSchema, event, {
+  return projectThroughRegisteredShape(validateRunStateChangeEvent, event, {
     // Optionals are spread first so a payload cannot displace a required member by spelling it
     // under an optional's name.
     ...carriedOptionalMembers(payload, RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS),
@@ -202,8 +209,10 @@ function projectStateChange(
   });
 }
 
-/** `RunRolledBackEvent` — the forward, non-state arm of the same stream. */
-function projectRollback(event: ProjectedSessionEvent): RunStreamProjection<RunRolledBackEvent> {
+/** `AgentRunRolledBackEvent` — the forward, non-state arm of the same stream. */
+function projectRollback(
+  event: ProjectedSessionEvent,
+): RunStreamProjection<AgentRunRolledBackEvent> {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -212,7 +221,7 @@ function projectRollback(event: ProjectedSessionEvent): RunStreamProjection<RunR
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
+  return projectThroughRegisteredShape(validateAgentRunRolledBackEvent, event, {
     // The payload's own session, already checked equal to the envelope's. Copying the envelope's
     // here would make that check vacuous.
     sessionId: payload["sessionId"],
@@ -273,7 +282,7 @@ function projectRunQueueStreamBeat(
         `— and the row is where \`position\`, \`content\` and \`createdAt\` live`,
     );
   }
-  return projectThroughRegisteredShape(QueueItemSummarySchema, event, {
+  return projectThroughRegisteredShape(validateQueueItemSummary, event, {
     ...carriedOptionalMembers(queueRow, QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS),
     id: queueItemId,
     state: announcedState,

@@ -1,4 +1,4 @@
-// The fold itself: what one event does to the board. Payloads are ones the kind's schema
+// The fold itself: what one event does to the board. Payloads are ones the kind's generated check
 // accepts, except where a case's subject is a refused payload.
 
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-suppo
 const RUN_ID = "019b7a33-3300-740e-8110-d1a4c1150511";
 const APPROVAL_ID = "019b7a33-3300-7f01-8110-d1a4c1150591";
 const AGENT_ID = "019b7a33-3300-7a6e-8110-d1a4c1150501";
-const NODE_ID = "019b7a33-3300-7d01-8110-d1a4c1150571";
+const MACHINE_ID = "019b7a33-3300-7d01-8110-d1a4c1150571";
 const RULE_ID = "019b7a33-3300-7e01-8110-d1a4c1150581";
 const CLIENT_RESOLUTION_ID = "019b7a33-3300-7c01-8110-d1a4c1150531";
 const DEVICE_ID = "019b7a33-3300-7d02-8110-d1a4c1150541";
@@ -17,9 +17,9 @@ const DEVICE_ID = "019b7a33-3300-7d02-8110-d1a4c1150541";
 /** The members every ask payload of these cases shares. */
 const ASK = {
   sessionId: SESSION_ID,
-  runId: RUN_ID,
+  holder: { kind: "run", runId: RUN_ID },
   approvalRequestId: APPROVAL_ID,
-  category: "tool_execution",
+  category: "toolExecution",
   scope: "session",
 };
 
@@ -57,8 +57,8 @@ describe("one event, folded", () => {
           touchedAt: "2026-01-01T13:30:00.000Z",
           attributedTo: AGENT_ID,
           body: {
-            runId: RUN_ID,
-            category: "tool_execution",
+            holder: { kind: "run", runId: RUN_ID },
+            category: "toolExecution",
             scope: "session",
             requestedBy: AGENT_ID,
             resourceDescriptor: { command: "git push --force" },
@@ -86,9 +86,13 @@ describe("one event, folded", () => {
 
   it("writes no state for a remembered rule, and carries the rule whole", () => {
     // A state written here would erase the approval in the store's merge.
-    const [mutation] = fold("approval.remembered", {
-      ...ASK,
-      nodeId: NODE_ID,
+    const [mutation] = fold("approval.rule.remembered", {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_ID,
+      category: "toolExecution",
+      scope: "session",
+      machineId: MACHINE_ID,
       ruleId: RULE_ID,
       rememberedScope: { kind: "project", pattern: "git push", sense: "allow" },
     });
@@ -99,7 +103,7 @@ describe("one event, folded", () => {
     });
   });
 
-  it("folds nothing for a payload its kind's schema refuses", () => {
+  it("folds nothing for a payload its kind's generated check refuses", () => {
     // `effectiveScope` belongs to an answer, so a request carrying it is not one the contract
     // registers.
     expect(

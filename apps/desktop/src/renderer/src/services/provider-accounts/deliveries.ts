@@ -5,19 +5,21 @@
 // A frame arriving across the opening read is buffered and released rather than overwritten by the
 // snapshot, and an overflowing hold degrades to a fresh read rather than a drop. A same-window
 // reading below the high-water mark is recorded as a diagnostic, not rendered as a regression.
-// `login_completed` is carried without moving the fold: it reports that a brokered sign-in attempt
+// `signInCompleted` is carried without moving the fold: it reports that a brokered sign-in attempt
 // is over, which the view that started it cannot learn otherwise (a refused cancellation
-// establishes nothing), and the daemon publishes `account_changed` next for the account itself.
+// establishes nothing), and the daemon publishes `accountChanged` next for the account itself.
 // The newest one is held, correlated by the caller on `attemptId`, never taken as an account
 // verdict. Unreadable deliveries are counted in `unreadable-deliveries.ts`; this stream never
 // clears the count, because the registry read answers for an instant the tail has moved past and
 // an unreadable payload is a build-level fact, not a transient one.
 
-import type {
-  ProviderAccountNotification,
-  ProviderAccountUsageWindow,
+import {
+  validateProviderAccountNotification,
+  type ProviderAccountNotification,
+  type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts/provider/account/record";
+
+import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -37,7 +39,7 @@ import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold
  */
 export type ProviderLoginCompletion = Extract<
   ProviderAccountNotification,
-  { kind: "login_completed" }
+  { kind: "signInCompleted" }
 >;
 
 /** What the reading hands over so a frame can reach a view without this module publishing. */
@@ -106,19 +108,18 @@ export class ProviderAccountDeliveries {
    * current. A readable one either moves the fold now or is held until the opening read lands.
    */
   public deliver(payload: unknown): void {
-    const parsed = ProviderAccountNotificationSchema.safeParse(payload);
-    if (!parsed.success) {
+    if (!validateProviderAccountNotification(payload)) {
       // Every delivery publishes: an unreadable one moves nothing but changes what the chips
       // mean, and a count that never reached a render could not say so.
-      this.#unreadable.record(parsed.error.issues);
+      this.#unreadable.record(checkFaultPaths(validateProviderAccountNotification, payload));
       this.#sink.onChanged();
       return;
     }
     if (this.#hold.isHolding) {
-      this.#holdAcrossSeedRead(parsed.data);
+      this.#holdAcrossSeedRead(payload);
       return;
     }
-    if (this.#applyNotification(parsed.data)) {
+    if (this.#applyNotification(payload)) {
       this.#sink.onChanged();
     }
   }
@@ -163,16 +164,19 @@ export class ProviderAccountDeliveries {
    */
   #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
-      case "account_changed":
+      case "accountChanged":
         this.#fold.putAccount(notification.account);
         return true;
-      case "account_removed":
+      case "accountRemoved":
         this.#fold.forgetAccount(notification.accountId);
         return true;
-      case "usage_window_updated":
+      case "usageWindowUpdated":
         this.mergeUsageWindow(notification.window);
         return true;
-      case "login_completed":
+      case "signInCodeRequested":
+        // A code asked of the person is no reading of an account, and the sign-in is not over.
+        return false;
+      case "signInCompleted":
         // The fold is untouched: a finished login flow is not a reading of the account, and the
         // daemon publishes `account_changed` next for that. It records that the attempt is over and
         // publishes, so a card does not stay up over a flow the service reported finished.

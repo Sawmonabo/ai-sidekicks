@@ -1,27 +1,25 @@
 // The app's one reading of a wire identifier. The store holds ids as plain strings while
-// requests take branded ids, so the registered schema is read here once instead of being cast per
-// call site. A contracts `*Schema` is importable only in `services/`, so features consume these
+// requests take branded ids, so the generated check is run here once instead of a cast per call
+// site. A generated contracts check is importable only in `services/`, so features consume these
 // `read*` functions, which return the value or `undefined`. They mint no refusal: whether an
 // unreadable id is a refusal, a dropped row or a skipped chip is the caller's decision.
 //
-// Where a held id meets a request, `heldIdAsWireId` widens it instead: `callDaemon` parses the
-// whole request through the schema that owns the brand, so a malformed id is refused there.
+// Where a held id meets a request, `heldIdAsWireId` widens it instead: `callDaemon` checks the
+// whole request with the check that owns the brand, so a malformed id is refused there.
 
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
-import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts/run/state";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
-import { WorkspaceIdSchema, type WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
+import { validateRunId, type RunId } from "@ai-sidekicks/contracts/run/id";
+import { validateRunState, type RunState } from "@ai-sidekicks/contracts/run/state";
+import { validateSessionId, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { validateWorkspaceId, type WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
 
 /** The session identifier the wire admits, or `undefined` where it admits none. */
 export function readSessionId(value: string): SessionId | undefined {
-  const parsed = SessionIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return validateSessionId(value) ? value : undefined;
 }
 
 /** The run identifier the wire admits, or `undefined` where it admits none. */
 export function readRunId(value: string): RunId | undefined {
-  const parsed = RunIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return validateRunId(value) ? value : undefined;
 }
 
 /**
@@ -30,8 +28,7 @@ export function readRunId(value: string): RunId | undefined {
  * @consumedBy preparing an execution root on the session's own workspace
  */
 export function readWorkspaceId(value: string): WorkspaceId | undefined {
-  const parsed = WorkspaceIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return validateWorkspaceId(value) ? value : undefined;
 }
 
 /**
@@ -40,8 +37,7 @@ export function readWorkspaceId(value: string): WorkspaceId | undefined {
  * closed union.
  */
 export function readRunState(value: string): RunState | undefined {
-  const parsed = RunStateSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return validateRunState(value) ? value : undefined;
 }
 
 /**
@@ -53,8 +49,8 @@ const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
   "queued",
   "starting",
   "running",
-  "waiting_for_approval",
-  "waiting_for_input",
+  "waitingForApproval",
+  "waitingForInput",
   "pausing",
   "paused",
 ]);
@@ -70,7 +66,7 @@ export function isLiveRunState(state: RunState): boolean {
 
 // Widens an app-held id string to the branded id a registered request declares. Held ids are
 // plain strings (route params, scenario data, rendered rows), so a caller widens where a held id
-// meets a request. `callDaemon` parses the whole request through the contracts schema that owns the
+// meets a request. `callDaemon` checks the whole request with the generated check that owns the
 // brand, so a malformed id is refused as `request-unsendable`; a cast anywhere else would carry no
 // such check. Branding a row's id for a callback is deliberately not served, because nothing
 // checks it.

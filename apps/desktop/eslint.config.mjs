@@ -179,55 +179,54 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
 ];
 
-/** The `zod` library, which a surface never needs to parse a wire value. */
+/** The `zod` library, which the renderer never needs: every wire value has a generated check. */
 const ZOD_IMPORT = {
   // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one group, since the rule treats
   // them as distinct.
   group: ["zod", "zod/**"],
   message:
-    "A surface never parses a wire value itself. Reach the daemon through " +
-    "`callDaemon` from `services/daemon/reply.ts`, which parses the reply " +
-    "against the method's registered schema and answers `served` or `refused`; a " +
-    "value that needs a shape needs a registry row, not a local validator.",
+    "The renderer checks a wire value only with its generated contracts check, in " +
+    "`services/`. Reach the daemon through `callDaemon` from `services/daemon/reply.ts`, " +
+    "which checks the reply with the method's generated check and answers `served` or " +
+    "`refused`; a value that needs a shape needs a contract, not a local validator.",
 };
 
-/** A contracts schema, which is a parser; types and non-schema values stay importable. */
-const CONTRACTS_SCHEMA_IMPORT = {
-  // The same claim as the `zod` group, on the schemas the contracts package already built. It is a
-  // `patterns` entry because that is where the rule's schema puts `importNamePattern` (`paths`
-  // items admit only `importNames`, measured on the installed engine), and an exhaustive
-  // `importNames` list would go stale with the package's next schema.
-  group: ["@ai-sidekicks/contracts"],
-  // Every schema the reply registry composes, and every other schema the package exports, ends this
-  // way: the suffix is how this repository spells a parser.
-  importNamePattern: "Schema$",
+/** A generated contracts check; types and other values stay importable. */
+const CONTRACTS_CHECK_IMPORT = {
+  // It is a `patterns` entry because that is where the rule's schema puts `importNamePattern`
+  // (`paths` items admit only `importNames`, measured on the installed engine), and an exhaustive
+  // `importNames` list would go stale with the package's next generation.
+  group: ["@ai-sidekicks/contracts/**"],
+  // The generator names every check it writes this way.
+  importNamePattern: "^validate[A-Z]",
   message:
-    "A surface never parses a wire value itself, and a contracts schema is a parser. " +
-    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`, " +
-    "which parses the reply against the method's registered schema and answers `served` " +
-    "or `refused`; a value that needs a shape needs a registry row, not a second " +
-    "reading of one. Types and non-schema values from this package are untouched.",
+    "A surface never checks a wire value itself. Reach the daemon through `callDaemon` from " +
+    "`services/daemon/reply.ts`, which checks the reply with the method's generated check " +
+    "and answers `served` or `refused`; a value that needs a shape needs a `services/` " +
+    "reader, not a second reading of one. Types and other values from this package are " +
+    "untouched.",
 };
 
-/** The daemon method table, which hands out each method's schemas: the same claim again. */
+/** The daemon method table, which hands out each method's checks: the same claim again. */
 const DAEMON_METHOD_BINDINGS_IMPORT = {
   // A regex, because `group` takes gitignore syntax, where a leading `#` starts a comment.
   regex: "^#shared/daemon/method-bindings\\.js$",
   message:
-    "The daemon method table binds each method to its schemas, which are parsers. " +
+    "The daemon method table binds each method to its generated checks. " +
     "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`.",
 };
 
+/** The groups every renderer module may not import: the renderer's, plus `zod`. */
+const RENDERER_CODE_RESTRICTED_PATTERNS = [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT];
+
 /**
- * The groups a renderer module outside `services/` may not import: the renderer's, plus
- * the three that keep wire parsing out of a surface. Flat config replaces a rule's options
- * at the last matching block, so each narrower block below spreads these instead of
- * copying them.
+ * The groups a renderer module outside `services/` may not import: every renderer module's, plus
+ * the two that keep wire checks out of a surface. Flat config replaces a rule's options at the last
+ * matching block, so each narrower block below spreads these instead of copying them.
  */
 const RENDERER_WIRE_RESTRICTED_PATTERNS = [
-  ...RENDERER_RESTRICTED_PATTERNS,
-  ZOD_IMPORT,
-  CONTRACTS_SCHEMA_IMPORT,
+  ...RENDERER_CODE_RESTRICTED_PATTERNS,
+  CONTRACTS_CHECK_IMPORT,
   DAEMON_METHOD_BINDINGS_IMPORT,
 ];
 
@@ -450,43 +449,34 @@ const desktopConfig = defineConfig(
       ],
     },
   },
+  // Every renderer module: the renderer ban plus `zod`, since every wire value the renderer reads
+  // has its generated check and the renderer owns no other data that crosses in.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
-        { paths: RENDERER_RESTRICTED_PATHS, patterns: RENDERER_RESTRICTED_PATTERNS },
+        { paths: RENDERER_RESTRICTED_PATHS, patterns: RENDERER_CODE_RESTRICTED_PATTERNS },
       ],
     },
   },
-  // The renderer outside `services/`: the renderer ban plus `zod` and the schemas
-  // `@ai-sidekicks/contracts` already ships.
+  // The renderer outside `services/`: also the generated checks `@ai-sidekicks/contracts` ships.
   //
-  // Every daemon reply the renderer reads is parsed in one module,
-  // `services/daemon/reply.ts`, against the schemas
-  // `src/shared/daemon/method-bindings.ts` binds to each method. A surface that could reach
-  // the validator directly could parse a second time, differently, or skip the parse and keep the
-  // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
+  // Every daemon reply the renderer reads is checked in one module, `services/daemon/reply.ts`,
+  // with the checks `src/shared/daemon/method-bindings.ts` binds to each method. A surface that
+  // could reach a check directly could check a second time, differently, or skip the check and keep
+  // the fulfilled `unknown`. A surface needing a shape asks for the method, not for a check.
   //
-  // Banning `zod` alone left the second parser one import away: the contracts package publicly
-  // exports the schema objects the registry composes, so a surface could call `.safeParse()` on a
-  // reply it obtained directly. The ban is therefore on the name as well as the package: a renderer
-  // module outside `services/**` may import types and non-schema values from contracts
-  // (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`, `ARTIFACT_CHUNK_MAX_BYTES`) and no
-  // binding whose name ends in `Schema`.
-  //
-  // The import is banned, not the call: `.parse(` is not a zod name
-  // (`registries/commands/when-clause/parser.ts` calls `.parse()` on its own parser and
-  // two time suites call `Date.parse`), so a call selector's findings would be mostly false.
-  // `.safeParse(` needs no ban once the import is banned, because a schema can only arrive by
-  // importing `zod`, importing this package, or through a renderer barrel that re-exported one, and
-  // both import spellings refuse here.
+  // The ban is on the name as well as the package: a renderer module outside `services/**` may
+  // import types and other values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`,
+  // `ARTIFACT_CHUNK_MAX_BYTES`) and no binding whose name starts `validate`. The import is banned,
+  // not the call, because a check can only arrive by importing this package or through a renderer
+  // module that re-exported one, and both spellings refuse here.
   //
   // `services/**` is exempt as a layer, not the chokepoint file alone: `callDaemon` reads the
-  // daemon method table, the run-stream projector decodes a subscription payload, and the scenario
-  // contract checks assert against the wire's own shapes, three modules in one layer below every
-  // surface. The table itself sits in `src/shared/`, because main's relay parses against it too,
-  // so it is banned here by its module name.
+  // daemon method table, the stream readers check each delivery, and the scenario contract checks
+  // assert against the wire's own shapes, all in one layer below every surface. The table itself
+  // sits in `src/shared/`, because main reads it too, so it is banned here by its module name.
   //
   // It restates the renderer ban because flat config replaces a rule's options at the last matching
   // object, and spreads the hoisted arrays so the two cannot drift.
@@ -503,34 +493,28 @@ const desktopConfig = defineConfig(
       ],
     },
   },
-  // A test may parse through a contracts schema to build or check contract-shaped data;
-  // it still takes no `zod` of its own.
+  // A test may run a generated contracts check to build or check contract-shaped data; it still
+  // takes no `zod`.
   {
     files: rendererFiles("**", RENDERER_TEST_FILES),
     ignores: ["src/renderer/src/services/**"],
     rules: {
       "no-restricted-imports": [
         "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT],
-        },
+        { paths: RENDERER_RESTRICTED_PATHS, patterns: RENDERER_CODE_RESTRICTED_PATTERNS },
       ],
     },
   },
-  // A contracts schema and no `zod` of its own: the approval fold reads each approval
-  // event's payload through that event's contract schema, because the stream decoder
-  // passes payloads through unexamined and a half-read ask would draw a card for an
-  // action nobody can see. The store may not import `services/`, so the read sits here.
+  // Generated contracts checks and no `zod`: the approval fold checks each approval event's
+  // payload with that event's generated check, because the stream decoder checks only the
+  // envelope and a half-read ask would draw a card for an action nobody can see. The store may
+  // not import `services/`, so the check sits here.
   {
     files: ["src/renderer/src/store/session/events/approval-flow-projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT],
-        },
+        { paths: RENDERER_RESTRICTED_PATHS, patterns: RENDERER_CODE_RESTRICTED_PATTERNS },
       ],
     },
   },

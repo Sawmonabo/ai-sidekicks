@@ -25,6 +25,7 @@ import {
 
 import {
   readRefusalExtensions,
+  wireCategoryExtension,
   wireDetailsExtension,
   wireRetryExtension,
   withRefusalExtensions,
@@ -129,8 +130,8 @@ function rebuiltRefusal(members: RefusalMembers): ExtendedRefusal | undefined {
  *   2. A value carrying a refusal (`RefusalError` or any error built around one) is unwrapped.
  *      The check is structural, not `instanceof`, which fails silently on a value that crossed
  *      a realm or a structured clone.
- *   3. The JSON-RPC `data` envelope: the dotted code at `data.type`, extensions from
- *      `data.fields`.
+ *   3. The JSON-RPC `data` envelope: the dotted code at `data.type`, its category at
+ *      `data.category`, extensions from `data.fields`.
  *   4. A flat `{ code, message }` wire envelope keeps its code verbatim, extensions from
  *      `details`.
  *
@@ -155,9 +156,11 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    // The retry bound and the named members both ride on `data.fields` in this envelope.
+    // The retry bound and the named members both ride on `data.fields` in this envelope, the
+    // category beside the code.
     const fields = readGuardedProperty(data, "fields");
     return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
+      ...wireCategoryExtension(data),
       ...wireRetryExtension(fields),
       ...wireDetailsExtension(fields),
     });

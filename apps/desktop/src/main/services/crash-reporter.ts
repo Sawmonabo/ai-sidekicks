@@ -10,8 +10,8 @@ import path from "node:path";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
-  parseMachineSettingsFile,
-} from "@ai-sidekicks/contracts/machine-settings";
+  validateMachineSettings,
+} from "@ai-sidekicks/contracts/machine/settings";
 import type { CrashReporter } from "electron";
 
 import type { MainDiagnosticLog } from "./diagnostic-log.js";
@@ -92,12 +92,43 @@ function readKeepCrashReports(dependencies: CrashReporterDependencies): boolean 
     );
     return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
   }
-  const parsed = parseMachineSettingsFile(fileJson);
-  if (!parsed.success) {
+  // Read as the service reads it: what the file holds laid over the defaults, then checked whole.
+  const settings = laidOverDefaults(MACHINE_SETTINGS_DEFAULTS, fileJson);
+  if (!validateMachineSettings(settings)) {
     dependencies.reportUnreadableSettings(
       "The machine's settings file does not match its schema, so crash reports are kept.",
     );
     return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
   }
-  return parsed.data.keepCrashReports;
+  return settings.keepCrashReports;
+}
+
+/**
+ * `stored` laid over `defaults` member by member and group by group, so a key the file lacks reads
+ * as its default; a key the defaults lack is kept, so the check refuses it. A file that is not an
+ * object is answered as it is.
+ */
+function laidOverDefaults(defaults: unknown, stored: unknown): unknown {
+  if (!isJsonObject(stored)) {
+    return stored;
+  }
+  const laid: Record<string, unknown> = isJsonObject(defaults) ? { ...defaults } : {};
+  for (const [key, storedValue] of Object.entries(stored)) {
+    const defaultValue = Object.hasOwn(laid, key) ? laid[key] : undefined;
+    // Defined, not assigned, so a stored `__proto__` stays a key the check refuses.
+    Object.defineProperty(laid, key, {
+      value:
+        isJsonObject(defaultValue) && isJsonObject(storedValue)
+          ? laidOverDefaults(defaultValue, storedValue)
+          : storedValue,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return laid;
+}
+
+function isJsonObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

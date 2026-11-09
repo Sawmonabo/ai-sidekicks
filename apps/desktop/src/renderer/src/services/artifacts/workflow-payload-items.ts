@@ -1,13 +1,11 @@
 // A step payload kept as an artifact: its whole bytes read back into the items an inline payload
 // carries.
 
-import { z } from "zod";
-
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import {
-  WorkflowItemSchema,
+  validateWorkflowItem,
   type WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
+} from "@ai-sidekicks/contracts/workflow/definition/item";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
@@ -44,12 +42,13 @@ export async function readWorkflowPayloadItems(
     }
     return unreadablePayload(`It is not valid JSON: ${parseFailure.message}`);
   }
-  const items = WORKFLOW_ITEMS_SCHEMA.safeParse(stored);
-  return items.success ? { status: "served", value: items.data } : unreadablePayload();
+  // A stored step payload is the items exactly as an inline one carries them, each checked.
+  return isWorkflowItemList(stored) ? { status: "served", value: stored } : unreadablePayload();
 }
 
-/** A stored step payload: the items exactly as an inline one carries them. */
-const WORKFLOW_ITEMS_SCHEMA = z.array(WorkflowItemSchema);
+function isWorkflowItemList(stored: unknown): stored is WorkflowItem[] {
+  return Array.isArray(stored) && stored.every((item) => validateWorkflowItem(item));
+}
 
 // The parser's own words ride after the sentence, so a broken payload says where it broke.
 function unreadablePayload(parseDetail?: string): DaemonReply<never> {

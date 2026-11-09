@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE } from "@ai-sidekicks/contracts/provider/account/methods";
 import { PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
@@ -12,15 +13,16 @@ import { readCarriedLoginRemedy, readKeychainRefusalCause } from "./refusal-deta
 /** A request value a producer put beside the named members, which must never travel. */
 const PLANTED_REQUEST_VALUE = "/Users/someone/private-notes";
 
-const REMEDY = { kind: "paste_token", accountId: "pa-0003" } as const;
+const REMEDY = { kind: "pasteToken", accountId: "pa-0003" } as const;
 
 describe("account-plane refusal details", () => {
   it("reads the named remedy and cause off both envelopes, and nothing beside them", () => {
     const jsonRpc = normalizeWireRejection("providers", {
-      code: -32603,
+      code: JsonRpcErrorCode.DomainRefusal,
       message: "That account is not signed in.",
       data: {
         type: PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+        category: "failedPrecondition",
         fields: { remedy: { ...REMEDY, path: PLANTED_REQUEST_VALUE }, path: PLANTED_REQUEST_VALUE },
       },
     });

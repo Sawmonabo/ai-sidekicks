@@ -1,29 +1,34 @@
-// Readers for the composed requests a caller builds by hand. `callDaemon` parses every request
+// Readers for the composed requests a caller builds by hand. `callDaemon` checks every request
 // before sending it, so most callers need no reader. These are requests whose members come from
 // the view, and only the view can say "the app could not build a request for this control", so
-// it reads the composed value first and `callDaemon` parses it again on the way out. A contracts
-// `*Schema` is importable only in `services/`, so features consume a typed reader. Each returns
-// the value or `undefined`; the caller composes any refusal.
+// it reads the composed value first and `callDaemon` checks it again on the way out. A generated
+// contracts check is importable only in `services/`, so features consume a typed reader. Each
+// returns the value or `undefined`; the caller composes any refusal.
 
-import { InterruptRunParamsSchema } from "@ai-sidekicks/contracts/provider/driver/methods";
 import {
-  QueueItemCreateRequestSchema,
-  type QueueItemCreateRequest,
+  validateAgentQueueItemCreateRequest,
+  type AgentQueueItemCreateRequest,
 } from "@ai-sidekicks/contracts/run/queue";
-import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import {
+  validateAgentRunInterveneRequest,
+  type AgentRunInterveneRequest,
+} from "@ai-sidekicks/contracts/run/intervention";
 
 /** The queue-create the wire admits, or `undefined` where the request did not compose. */
-export function readQueueItemCreateRequest(candidate: unknown): QueueItemCreateRequest | undefined {
-  const parsed = QueueItemCreateRequestSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : undefined;
+export function readQueueItemCreateRequest(
+  candidate: unknown,
+): AgentQueueItemCreateRequest | undefined {
+  return validateAgentQueueItemCreateRequest(candidate) ? candidate : undefined;
 }
 
 /**
- * The interrupt the wire admits, or `undefined` where the request did not compose.
+ * The intervention on a live run the wire admits, or `undefined` where the request did not
+ * compose.
  *
  * @consumedBy the client-facing driver interrupt
  */
-export function readInterruptRunParams(candidate: unknown): InterruptRunParams | undefined {
-  const parsed = InterruptRunParamsSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : undefined;
+export function readAgentRunInterveneRequest(
+  candidate: unknown,
+): AgentRunInterveneRequest | undefined {
+  return validateAgentRunInterveneRequest(candidate) ? candidate : undefined;
 }

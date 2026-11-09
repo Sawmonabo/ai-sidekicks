@@ -1,16 +1,17 @@
 // The service's session list, read off `session.list`: the list as it stands when the stream
-// opens, in pages when it outgrows one message, then each change to it. Every delivery is parsed
-// here against the contract. One that does not match, or a re-open the daemon refuses, is handed
+// opens, in pages when it outgrows one message, then each change to it. Every delivery is checked
+// here with the contract's generated check. One that does not match, or a re-open the daemon refuses, is handed
 // on as the list being lost, so its reader says the list could not be read rather than show a
 // list that may be wrong; the cause goes to the window's diagnostic capture. A stream that ends
 // is opened again and restates the list.
 
 import {
-  SessionListAckSchema,
-  SessionListChangeSchema,
+  validateSessionListChange,
+  validateSessionSubscribeResponse,
 } from "@ai-sidekicks/contracts/session/directory";
 
 import { SESSION_LIST_STREAM } from "#shared/daemon/streams.js";
+import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { SessionDirectoryFeed } from "#renderer/store/session/directory/state.js";
 import type { PlatformBridge } from "../../platform/bridge.js";
@@ -51,26 +52,24 @@ function sessionListFeedOver(bridge: PlatformBridge): SessionDirectoryFeed {
       open: (deliver, onEnded) =>
         bridge.daemon.subscribe(SESSION_LIST_STREAM, {}, deliver, onEnded),
       onFrame: (payload) => {
-        const listed = SessionListAckSchema.safeParse(payload);
-        if (listed.success) {
+        if (validateSessionSubscribeResponse(payload)) {
           onFrame({
             kind: "list",
-            sessions: listed.data.sessions,
-            chatCount: listed.data.chatCount,
-            isComplete: listed.data.isComplete,
+            sessions: payload.sessions,
+            chatCount: payload.chatCount,
+            isComplete: payload.isComplete,
           });
           return;
         }
-        const changed = SessionListChangeSchema.safeParse(payload);
-        if (changed.success) {
-          onFrame({ kind: "change", change: changed.data });
+        if (validateSessionListChange(payload)) {
+          onFrame({ kind: "change", change: payload });
           return;
         }
         recordRefusedMemberPaths({
           source: "services/daemon",
           kind: "notice-unreadable",
           subject: SESSION_LIST_STREAM,
-          issues: changed.error.issues,
+          issues: checkFaultPaths(validateSessionListChange, payload),
         });
         onFrame({ kind: "lost" });
       },

@@ -1,31 +1,31 @@
 // The reply chokepoint: a reply off the contract never reaches a caller, a request off the contract
 // never reaches the wire, a rejection becomes a refusal and never an exception, and a read whose
 // owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
-// real registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the
-// shipped one deleted. The helpers are `reply.test-support.ts` beside this file and the
+// real method table's generated checks and the shipped fixture bridge, so a hand-rolled check
+// cannot pass with the shipped one deleted. The helpers are `reply.test-support.ts` beside this file and the
 // shared `tests/helpers/fixture/bridge.ts`.
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import type { RefusalCategory, RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { vi } from "vitest";
 
 import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { isRefusal } from "#renderer/lib/refusal/contract.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./reply.js";
-import { DAEMON_METHOD_BINDINGS } from "#shared/daemon/method-bindings.js";
 import { refusalOf } from "./reply.test-support.js";
 import { bridgeAnswering, createFixture } from "#test/helpers/fixture/bridge.js";
 
-/** A device id the response schema accepts. */
+/** A device id the response check accepts. */
 const DEVICE_ID = "device-workstation";
 
-/** An `appVisible` the response schema accepts. */
+/** An `appVisible` the response check accepts. */
 const IN_FRONT = true;
 
-/** A value the response schema rejects, shaped like content a refusal detail must never carry. */
+/** A value the response check refuses, shaped like content a refusal detail must never carry. */
 const OFF_CONTRACT = "the person said something private";
 
-/** One served presence reply, in the shape the registered schema admits. */
+/** One served presence reply, in the shape the generated check admits. */
 function servedPresenceReply(appVisible: unknown): unknown {
   return {
     devices: [
@@ -49,7 +49,7 @@ async function diagnosticsDuring(act: () => Promise<unknown>): Promise<string> {
   }
 }
 
-describe("callDaemon — a served reply is a parsed reply", () => {
+describe("callDaemon — a served reply is a checked reply", () => {
   it("serves the registered shape the daemon answered with", async () => {
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
 
@@ -58,7 +58,7 @@ describe("callDaemon — a served reply is a parsed reply", () => {
     expect(calls).toStrictEqual([{ method: "presence.read", params: {} }]);
     expect(reply.status).toBe("served");
     if (reply.status === "served") {
-      // Read through the bound response type, so a row pointing at the wrong schema also
+      // Read through the bound response type, so a row pointing at the wrong check also
       // fails at compile time.
       expect(reply.value.devices[0]?.deviceId).toBe(DEVICE_ID);
     }
@@ -84,8 +84,8 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   });
 
   it("records the failing member path and never the refused value", async () => {
-    // The validator's own message interpolates the rejected member, which can be a user's
-    // words, a path or a credential, so only the path is kept, and only for diagnostics.
+    // A refused member can be a person's words, a path or a credential, so only its path is
+    // kept, and only for diagnostics.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));
 
     let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
@@ -106,7 +106,7 @@ describe("callDaemon — a request the contract does not admit is never sent", (
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
 
     // The branded id is a compile-time marker over a string, so a caller can hand this seam a
-    // value the wire would refuse; the parse stops it becoming a failing round trip.
+    // value the wire would refuse; the check stops it becoming a failing round trip.
     let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
     const diagnostics = await diagnosticsDuring(async () => {
       reply = await callDaemon(bridge, "session.read", {
@@ -124,13 +124,16 @@ describe("callDaemon — a request the contract does not admit is never sent", (
 });
 
 describe("callDaemon — a rejection becomes a refusal and never an exception", () => {
-  it("keeps the daemon's own dotted code off a JSON-RPC rejection", async () => {
-    // `JsonRpcRemoteError` carries the JSON-RPC numeric as `code` and the dotted code at
-    // `data.type`, so a caller guarding on `{ code: string }` would render every daemon
-    // refusal as one generic app code.
+  it("keeps the daemon's own code and category off a JSON-RPC rejection", async () => {
+    // A daemon refusal carries the JSON-RPC numeric as `code`, and the refusal's code and
+    // category at `data.type` and `data.category`, so a caller guarding on `{ code: string }`
+    // would render every daemon refusal as one generic app code.
     const remote = Object.assign(new Error("no such session on this node"), {
-      code: -32603,
-      data: { type: "session.not_found" },
+      code: JsonRpcErrorCode.DomainRefusal,
+      data: {
+        type: "session.notFound" satisfies RefusalCode,
+        category: "notFound" satisfies RefusalCategory,
+      },
     });
     const { bridge } = bridgeAnswering(async () => {
       throw remote;
@@ -138,7 +141,8 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
-    expect(refusal.code).toBe("session.not_found");
+    expect(refusal.code).toBe("session.notFound");
+    expect(refusal.category).toBe("notFound");
     expect(refusal.detail).toBe("no such session on this node");
     // A `{ code: string }` guard would land on the generic app code.
     expect(refusal.code).not.toBe("call-rejected");
@@ -184,20 +188,15 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
 /** The code `callDaemon` raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";
 
-/** A reply the presence schema admits. */
-function emptyPresenceReply(): unknown {
-  return { devices: [] };
-}
-
-/** A reply the presence schema refuses, so a parse that ran shows as `reply-unreadable`. */
+/** A reply the presence check refuses, so a check that ran shows as `reply-unreadable`. */
 function refusedPresenceReply(): unknown {
   return { devices: "not a list" };
 }
 
 /**
  * A promise that never settles, and the release that answers it with `reply`. The body is a
- * parameter: a case whose claim is that nothing was parsed needs a body the parse would reject,
- * or a `callDaemon` that parsed and agreed would pass.
+ * parameter: a case whose claim is that nothing was checked needs a body the check would refuse,
+ * or a `callDaemon` that checked and agreed would pass.
  */
 function heldReply(reply: unknown): {
   readonly promise: Promise<unknown>;
@@ -209,9 +208,6 @@ function heldReply(reply: unknown): {
   });
   return { promise, release };
 }
-
-/** The registered reply schema `callDaemon` resolves, so the spy watches the real parser. */
-const PRESENCE_REPLY_SCHEMA = DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
 
 /**
  * A reply that fulfills and queues the abandonment behind its own fulfillment.
@@ -241,8 +237,8 @@ function replyFulfillingAheadOfTheAbandonment(
 describe("callDaemon — a read whose owner has gone", () => {
   it("reads nothing from a reply that arrives after the abandonment", async () => {
     const line = new AbortController();
-    // A refusable reply: a `callDaemon` that parsed it would answer `reply-unreadable`, so the
-    // code below shows the parse never ran, which a valid body could not.
+    // A refusable reply: a `callDaemon` that checked it would answer `reply-unreadable`, so the
+    // code below shows the check never ran, which a valid body could not.
     const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
@@ -253,30 +249,18 @@ describe("callDaemon — a read whose owner has gone", () => {
     expect(refusalOf(await calling).code).toBe(READ_ABANDONED);
   });
 
-  it("parses nothing when abandonment lands between the settlement and the resume", async () => {
+  it("checks nothing when abandonment lands between the settlement and the resume", async () => {
     const line = new AbortController();
-    const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
-    // A reply the schema admits, on purpose: the answer cannot distinguish a `callDaemon` that
-    // parsed it from one that did not, which is what the spy is for.
+    // A refusable reply, as above: a check that ran would answer `reply-unreadable`.
     const underTest = bridgeAnswering(() =>
-      replyFulfillingAheadOfTheAbandonment(emptyPresenceReply(), line),
+      replyFulfillingAheadOfTheAbandonment(refusedPresenceReply(), line),
     );
 
-    try {
-      const reply = await callDaemon(
-        underTest.bridge,
-        "presence.read",
-        {},
-        { signal: line.signal },
-      );
+    const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
 
-      expect(refusalOf(reply).code).toBe(READ_ABANDONED);
-      expect(replyParse).not.toHaveBeenCalled();
-      // The call was made and the line abandoned after the reply had settled the race.
-      expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
-      expect(line.signal.aborted).toBe(true);
-    } finally {
-      replyParse.mockRestore();
-    }
+    expect(refusalOf(reply).code).toBe(READ_ABANDONED);
+    // The call was made and the line abandoned after the reply had settled the race.
+    expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
+    expect(line.signal.aborted).toBe(true);
   });
 });

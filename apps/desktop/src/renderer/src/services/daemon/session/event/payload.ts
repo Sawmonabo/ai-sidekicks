@@ -1,22 +1,20 @@
 // Decodes one `session.subscribe` frame into app events, each with the run stamp the daemon gave
-// it, the daemon's drop mark and the cursor a re-opened stream resumes after, or refuses it. This
-// is the only place that reads fields off the `unknown` the bridge delivers. The session read's
-// standing events are narrowed into app events by the same projection.
+// it, whether the daemon marked the stream far behind, and the cursor a re-opened stream resumes
+// after, or refuses it. This is the only place that reads fields off the `unknown` the bridge
+// delivers. The session read's standing events are narrowed into app events by the same
+// projection.
 //
-// The frame is parsed once here with the contract's frame builder over the tolerant
-// `EventEnvelope`, so a higher-minor event type still reaches the app. The tolerant layer does
-// not check that an event's category matches its type, and every projector routes on `kind` alone,
-// so `projectSessionEvent` checks the pairing against the contracts census.
+// The frame is checked once here with the contract's generated frame check, whose envelope keeps
+// an event type as written, so a type newer than this build still reaches the app. The envelope
+// does not tie an event's category to its type, and every projector routes on `kind` alone, so
+// `projectSessionEvent` checks the pairing against the contracts census.
 
-import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
-import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import {
-  TranscriptRunStampSchema,
-  type TranscriptRunStamp,
-} from "@ai-sidekicks/contracts/transcript/row";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import { validateSessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
+import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
@@ -27,10 +25,10 @@ export interface SessionStreamFrameReading {
   /** The frame's events whose type the census pairs with another category. */
   readonly unreadableEventCount: number;
   /**
-   * The daemon dropped changes for this connection before this frame, so the
-   * screen is behind and repairs from the daemon's record.
+   * The daemon marked the stream far behind its head and sent no changes, so the screen takes
+   * one read of the daemon's record and carries on from the head cursor.
    */
-  readonly dropped: boolean;
+  readonly isBehind: boolean;
   /**
    * Where this frame leaves the stream: the cursor of its last change, readable or not, or the
    * caught-up frame's newest cursor. A stream opened again after it resumes past this frame.
@@ -39,30 +37,27 @@ export interface SessionStreamFrameReading {
 }
 
 /**
- * The `session.subscribe` frame over the tolerant envelope, so an event type this app does not
- * know yet still parses.
- */
-const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(
-  EventEnvelopeSchema,
-  TranscriptRunStampSchema,
-);
-
-/**
- * Reads one delivered frame, or returns `undefined` when it is not the registered shape.
+ * Reads one delivered frame, or returns `undefined` when its generated check refuses it.
  *
- * A frame is refused whole for a forbidden member, an event the envelope rejects, too many
- * changes, or no changes without being the caught-up drop frame. Each change's cursor rides on
- * its event, where a link to a message finds it; a drop is still repaired by re-reading the
- * session, and the store orders events by `sequence`.
+ * A frame is refused whole for a forbidden member, an event the envelope check refuses, too many
+ * changes, or no changes without being the far-behind frame. Each change's cursor rides on its
+ * event, where a link to a message finds it, and the store orders events by `sequence`.
  */
 export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameReading | undefined {
-  const parsed = SESSION_STREAM_FRAME_SCHEMA.safeParse(delivered);
-  if (!parsed.success) {
+  if (!validateSessionStreamFrame(delivered)) {
     return undefined;
+  }
+  if (delivered.kind === "behind") {
+    return {
+      events: [],
+      unreadableEventCount: 0,
+      isBehind: true,
+      resumeCursor: delivered.headCursor,
+    };
   }
   const events: ProjectedSessionEvent[] = [];
   let unreadableEventCount = 0;
-  for (const change of parsed.data.changes) {
+  for (const change of delivered.changes) {
     const event = projectSessionEvent(change.event, change.cursor, change.runStamp);
     if (event === undefined) {
       unreadableEventCount += 1;
@@ -70,24 +65,19 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
       events.push(event);
     }
   }
-  // The schema admits a frame only with a change or with the newest cursor.
-  const resumeCursor = parsed.data.changes.at(-1)?.cursor ?? (parsed.data.cursor as EventCursor);
-  return {
-    events,
-    unreadableEventCount,
-    dropped: parsed.data.dropped === true,
-    resumeCursor,
-  };
+  // The check admits a changes frame only with at least one change.
+  const lastChange = delivered.changes.at(-1) ?? delivered.changes[0];
+  return { events, unreadableEventCount, isBehind: false, resumeCursor: lastChange.cursor };
 }
 
 /**
- * Narrows one parsed envelope, the cursor it was delivered at and the run stamp it came with into
+ * Narrows one checked envelope, the cursor it was delivered at and the run stamp it came with into
  * the app's event shape, or `undefined` when its category disagrees with the census for its type.
  *
  * `type` becomes `kind` and `actor` becomes `actorId`; a `null` or absent actor is left unset
  * because the wire does not say whether an id is a user or an agent. `category` is checked but not
  * carried, since no reader uses it. A type the census does not know passes unchanged, which keeps
- * higher-minor events readable. The run stamp is carried as the daemon sent it, absent when it
+ * an event type newer than this build readable. The run stamp is carried as the daemon sent it, absent when it
  * sent none.
  */
 export function projectSessionEvent(

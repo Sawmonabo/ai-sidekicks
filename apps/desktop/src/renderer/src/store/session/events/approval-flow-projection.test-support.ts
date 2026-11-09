@@ -1,11 +1,9 @@
-// Wire-shaped approval events the contract's payload schemas accept, for the payload shapes the
-// approval scenario does not play.
+// Wire-shaped approval events the contract's generated payload checks accept, built one by one.
 
-import { APPROVAL_REQUEST_SCENARIO } from "#fixtures/scenarios/approval-request.js";
 import { type ProjectedSessionEvent } from "../entities/vocabulary.js";
 
-/** The session id the scenario's events carry. */
-export const SESSION_ID: string = APPROVAL_REQUEST_SCENARIO.sessionId;
+/** The session id every event here carries. */
+export const SESSION_ID = "019b7a33-3300-75e0-8110-d1a4c1150500";
 
 /** One hand-built beat, for the payload shapes no scenario has a reason to play. */
 export function approvalEvent(options: {

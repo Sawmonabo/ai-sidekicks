@@ -7,12 +7,11 @@ import { setImmediate } from "node:timers/promises";
 import { type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
-  DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
-  environmentNameRefusal,
   MACHINE_SETTINGS_DEFAULTS,
-  type DaemonEnvironmentNameRefusedDetails,
+  PROJECT_ENVIRONMENT_NAME_REFUSED_CODE,
   type MachineSettingsReading,
-} from "@ai-sidekicks/contracts/machine-settings";
+  type ProjectEnvironmentNameRefusedDetails,
+} from "@ai-sidekicks/contracts/machine/settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
@@ -27,18 +26,22 @@ const SUBSCRIPTION_ID = "6f4a0a43-6f1f-4b8f-9d50-2b0e4bb0b001";
 /** A row name the contract's own rule refuses. */
 const REFUSED_NAME = "OPENAI_API_KEY";
 
-/** The details the service sends with the refusal, built from the contract's rule and type. */
-const REFUSED_DETAILS: DaemonEnvironmentNameRefusedDetails = {
+/** The details the service sends with the refusal: the name, refused as credential-shaped. */
+const REFUSED_DETAILS: ProjectEnvironmentNameRefusedDetails = {
   name: REFUSED_NAME,
-  reason: environmentNameRefusal(REFUSED_NAME) ?? expect.fail("the contract takes the name"),
+  reason: "credentialShaped",
 };
 
 /** The service's refusal as its wire sends it: the contract's code, with the details as fields. */
 const REFUSAL: JsonRpcError = {
-  code: JsonRpcErrorCode.InvalidParams,
+  code: JsonRpcErrorCode.DomainRefusal,
   // The service's own words for a credential-shaped name, which no contract carries.
   message: "Credentials are not set here.",
-  data: { type: DAEMON_ENVIRONMENT_NAME_REFUSED_CODE, fields: { ...REFUSED_DETAILS } },
+  data: {
+    type: PROJECT_ENVIRONMENT_NAME_REFUSED_CODE,
+    category: "invalidArgument",
+    fields: { ...REFUSED_DETAILS },
+  },
 };
 
 beforeEach(() => {

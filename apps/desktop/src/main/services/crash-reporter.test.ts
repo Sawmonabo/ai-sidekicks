@@ -6,7 +6,10 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
+import {
+  MACHINE_SETTINGS_DEFAULTS,
+  MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
+} from "@ai-sidekicks/contracts/machine/settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startCrashReporter, type CrashReporterDependencies } from "./crash-reporter.js";
@@ -55,13 +58,32 @@ describe("the crash reporter", () => {
     expect(dependencies.reported).toStrictEqual([]);
   });
 
-  it("starts nothing while `Keep crash reports` is off", async () => {
-    await writeSettingsFile(JSON.stringify({ keepCrashReports: false }));
+  it("starts nothing while `Keep crash reports` is off in a file the service wrote", async () => {
+    await writeSettingsFile(
+      JSON.stringify({
+        ...MACHINE_SETTINGS_DEFAULTS,
+        keepCrashReports: false,
+        providerSettings: { claude: { advisor: "opus", outputStyle: null } },
+        providerCommandPaths: { claude: [{ path: "/usr/local/bin/claude" }] },
+        providerKnobs: { claude: { availableForNewSessions: false } },
+      }),
+    );
     const dependencies = dependenciesOverHome();
 
     startCrashReporter(dependencies);
 
     expect(dependencies.start).not.toHaveBeenCalled();
+    expect(dependencies.reported).toStrictEqual([]);
+  });
+
+  it("reads a member the file lacks as its default, as the service does", async () => {
+    await writeSettingsFile(JSON.stringify({ keepCrashReports: false, voice: { mode: "tap" } }));
+    const dependencies = dependenciesOverHome();
+
+    startCrashReporter(dependencies);
+
+    expect(dependencies.start).not.toHaveBeenCalled();
+    expect(dependencies.reported).toStrictEqual([]);
   });
 
   it("reads a broken file as the defaults, which keep reports, and reports it", async () => {

@@ -1,6 +1,6 @@
 // The one place a daemon reply enters the app. Every call goes through `callDaemon`, so a
-// reply is parsed against the shape registered for its method before a view can act on it, and a
-// caller cannot hold an unparsed value. The request is parsed too, before it is sent.
+// reply is checked with its method's generated check before a view can act on it, and a caller
+// cannot hold an unchecked value. The request is checked too, before it is sent.
 //
 // A caller gets a `DaemonReply`, `served` or `refused`, and nothing is thrown on an ordinary path:
 // a rejected call, an unsendable request and an unreadable reply are all a refusal that carries the
@@ -8,8 +8,7 @@
 //
 // No refused value reaches a refusal's detail, because a rejected value can be a user's message, a
 // path or a credential. The detail is a plain sentence; the method and the failing member paths go
-// to the window's diagnostic capture, and the validator's message, which quotes received values,
-// goes nowhere.
+// to the window's diagnostic capture.
 //
 // A rejection goes to `normalizeWireRejection` (`lib/wire/rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
@@ -17,11 +16,13 @@
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
 // `call-rejected`.
 
-import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
+import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 import {
   DAEMON_METHOD_BINDINGS,
+  type DaemonMethodBindings,
   type RegisteredDaemonMethod,
 } from "#shared/daemon/method-bindings.js";
+import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { REQUEST_UNSENDABLE_CODE, REQUEST_UNSENDABLE_MESSAGE } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
@@ -43,9 +44,9 @@ const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
  * Why the app refused a call on its own side of the wire. None overlaps a daemon code: a
  * typed wire refusal keeps its own code verbatim.
  *
- *   • `request-unsendable`: the request does not satisfy the registered schema, here or in main;
- *     nothing was sent.
- *   • `reply-unreadable`: the call fulfilled with a value that is not the registered shape.
+ *   • `request-unsendable`: the request fails its method's generated check, here or in the client
+ *     helper; nothing was sent.
+ *   • `reply-unreadable`: the call fulfilled with a value its method's generated check refuses.
  *   • `call-rejected`: the call rejected with nothing carrying a machine-readable code.
  *   • `read-abandoned`: the view that asked for this read is gone or a newer read replaced it;
  *     nothing is read from the reply. It is a refusal, not a silent resolution, so the call's
@@ -71,7 +72,7 @@ export const CALL_REJECTED_FALLBACK: RejectionFallback = {
 };
 
 /**
- * A parsed reply, or the refusal standing in its place. Never both, never neither. A served reply
+ * A checked reply, or the refusal standing in its place. Never both, never neither. A served reply
  * that offers paths to open carries main's token for each, keyed by the path, so `Open` hands
  * `native.openInEditor` the token and never the path.
  *
@@ -114,13 +115,13 @@ export function abandonedReadRefusal(): Refusal {
 }
 
 /**
- * Call one daemon method and answer with a parsed reply or a refusal; never throws. `method`
+ * Call one daemon method and answer with a checked reply or a refusal; never throws. `method`
  * is a member of the closed call set, and `request` and the served value take their types from
  * the method map. `async` so a synchronous bridge throw becomes a rejection.
  *
- * An abandoned read is checked at four points and parsed at none: before the send, racing the
- * call, after the race and before the parse, and on the rejection arm. That saves the
- * `safeParse` and the caller's projection, the most expensive main-thread work for a large diff.
+ * Whether the read was abandoned is asked at four points: before the send, racing the call, after
+ * the race and before the reply's check, and on the rejection arm. That saves the reply's check
+ * and the caller's projection, the most expensive main-thread work for a large diff.
  * Abandonment cancels the app's interest and not the daemon's work: the wire has no
  * per-request cancellation, so the pending promise is dropped.
  */
@@ -130,20 +131,19 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   request: DaemonParams<MethodName>,
   options: DaemonCallOptions = {},
 ): Promise<DaemonReply<DaemonResult<MethodName>>> {
-  const binding = DAEMON_METHOD_BINDINGS[method];
+  const { requestCheck, responseCheck }: MethodChecks<MethodName> = DAEMON_METHOD_BINDINGS[method];
   const { signal } = options;
 
   if (isReadAbandoned(signal)) {
     return abandonedRead();
   }
 
-  const sendable = binding.requestSchema.safeParse(request);
-  if (!sendable.success) {
+  if (!requestCheck(request)) {
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: "request-unsendable",
       subject: method,
-      issues: sendable.error.issues,
+      issues: checkFaultPaths(requestCheck, request),
     });
     return {
       status: "refused",
@@ -157,10 +157,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   let reply: ServedDaemonCall<unknown>;
   try {
-    const settlement = await settleUnlessAbandoned(
-      bridge.daemon.call(method, sendable.data),
-      signal,
-    );
+    const settlement = await settleUnlessAbandoned(bridge.daemon.call(method, request), signal);
     if (settlement.status === "abandoned") {
       return abandonedRead();
     }
@@ -189,18 +186,18 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   if (isReadAbandoned(signal)) {
     // `settleUnlessAbandoned` resolves the instant the reply does and retires its abort
     // listener, so an abort landing before this frame resumes says `settled` while nobody is
-    // waiting. Reading the signal again, next to the parse, makes "an abandoned reply is never
-    // parsed" independent of microtask order.
+    // waiting. Reading the signal again, next to the check, makes "an abandoned reply is never
+    // checked" independent of microtask order.
     return abandonedRead();
   }
 
-  const readable = binding.responseSchema.safeParse(reply.value);
-  if (!readable.success) {
+  const served = reply.value;
+  if (!responseCheck(served)) {
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: "reply-unreadable",
       subject: method,
-      issues: readable.error.issues,
+      issues: checkFaultPaths(responseCheck, served),
     });
     return {
       status: "refused",
@@ -211,11 +208,11 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       ),
     };
   }
-  // The parsed value, not the raw reply, so a member the contract does not carry cannot reach a
-  // component.
+  // A generated check refuses a member its contract does not carry, so the checked value is the
+  // reply whole.
   return reply.fileRefs === undefined
-    ? { status: "served", value: readable.data }
-    : { status: "served", value: readable.data, fileRefs: reply.fileRefs };
+    ? { status: "served", value: served }
+    : { status: "served", value: served, fileRefs: reply.fileRefs };
 }
 
 /**
@@ -236,3 +233,22 @@ export function unwrapDaemonReply<TValue>(reply: DaemonReply<TValue>): TValue {
 function abandonedRead(): DaemonReply<never> {
   return { status: "refused", refusal: abandonedReadRefusal() };
 }
+
+/** The request one daemon method takes, as its generated request check states it. */
+type DaemonParams<MethodName extends RegisteredDaemonMethod> = CheckedValue<
+  DaemonMethodBindings[MethodName]["requestCheck"]
+>;
+
+/** The reply one daemon method serves, as its generated response check states it. */
+type DaemonResult<MethodName extends RegisteredDaemonMethod> = CheckedValue<
+  DaemonMethodBindings[MethodName]["responseCheck"]
+>;
+
+/** One method's two generated checks, typed for that method so a passed check narrows. */
+interface MethodChecks<MethodName extends RegisteredDaemonMethod> {
+  readonly requestCheck: SchemaCheck<DaemonParams<MethodName>>;
+  readonly responseCheck: SchemaCheck<DaemonResult<MethodName>>;
+}
+
+/** The value a generated check admits. */
+type CheckedValue<Check> = Check extends SchemaCheck<infer Value> ? Value : never;

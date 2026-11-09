@@ -3,8 +3,8 @@
 // prompt. It sits beside the run fold because it reads wire member names, which the session
 // store's entities do not.
 //
-// Each event is parsed with the strict payload schema of its type; the stream decoder only
-// applies the tolerant envelope. A payload the schema refuses folds nothing, since a half-read
+// Each event is checked with the generated payload check of its type; the stream decoder checks
+// only the envelope. A payload its check refuses folds nothing, since a half-read
 // ask would draw a card for an action nobody can see. A beat naming another session, and a rule
 // revocation that names no ask, also fold nothing; the transcript still records that they arrived.
 //
@@ -12,17 +12,17 @@
 // leaves the row.
 
 import {
-  ApprovalCanceledPayloadSchema,
-  ApprovalRememberedPayloadSchema,
-  ApprovalRequestedPayloadSchema,
-  ApprovalResolvedPayloadSchema,
-  ApprovalRuleRevokedPayloadSchema,
+  validateApprovalCanceledPayload,
+  validateApprovalRequestedPayload,
+  validateApprovalResolvedPayload,
+  validateApprovalRuleRememberedPayload,
+  validateApprovalRuleRevokedPayload,
   type ApprovalRequestId,
   type ApprovalState,
 } from "@ai-sidekicks/contracts/approval";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { payloadNamesSession } from "#renderer/lib/wire/session-attribution.js";
 import type {
@@ -39,12 +39,7 @@ import type {
  */
 type NonRequestApprovalCategoryKind = Extract<
   SessionEventType,
-  | "moderation.review_flagged"
-  | "plan.proposed"
-  | "plan.accepted"
-  | "plan.handed_off"
-  | "approval.reviewer_denied"
-  | "approval.denial_overridden"
+  "approval.reviewer.flagged" | "approval.reviewer.denied" | "approval.denial.overridden"
 >;
 
 /** The ask's `approval.*` kinds; a new one fails the `satisfies` below until classified. */
@@ -59,27 +54,27 @@ type ApprovalEventPayload = {
   readonly approvalRequestId?: ApprovalRequestId | undefined;
 };
 
-/** How one kind is read: the schema its payload parses with, and the state it announces. */
+/** How one kind is read: the check its payload passes, and the state it announces. */
 interface ApprovalEventReading {
-  readonly schema: ZodType<ApprovalEventPayload>;
+  readonly check: SchemaCheck<ApprovalEventPayload>;
   readonly state: ApprovalState | undefined;
 }
 
 /**
  * Each kind's reading, total over the ask's kinds by `satisfies`.
  *
- * `approval.remembered` and `approval.rule_revoked` announce no state: one records the rule a
+ * `approval.rule.remembered` and `approval.rule.revoked` announce no state: one records the rule a
  * resolution minted after approval, the other is about the rule. The upsert then omits `state`
  * entirely, because the store's spread merge would read a present `undefined` as erasing the
  * last transition.
  */
 const APPROVAL_EVENT_READINGS = {
-  "approval.requested": { schema: ApprovalRequestedPayloadSchema, state: "pending" },
-  "approval.approved": { schema: ApprovalResolvedPayloadSchema, state: "approved" },
-  "approval.rejected": { schema: ApprovalResolvedPayloadSchema, state: "rejected" },
-  "approval.canceled": { schema: ApprovalCanceledPayloadSchema, state: "canceled" },
-  "approval.remembered": { schema: ApprovalRememberedPayloadSchema, state: undefined },
-  "approval.rule_revoked": { schema: ApprovalRuleRevokedPayloadSchema, state: undefined },
+  "approval.requested": { check: validateApprovalRequestedPayload, state: "pending" },
+  "approval.approved": { check: validateApprovalResolvedPayload, state: "approved" },
+  "approval.rejected": { check: validateApprovalResolvedPayload, state: "rejected" },
+  "approval.canceled": { check: validateApprovalCanceledPayload, state: "canceled" },
+  "approval.rule.remembered": { check: validateApprovalRuleRememberedPayload, state: undefined },
+  "approval.rule.revoked": { check: validateApprovalRuleRevokedPayload, state: undefined },
 } as const satisfies Readonly<Record<ApprovalEventKind, ApprovalEventReading>>;
 
 /** The projector table the composer feature claims its kinds with, one fold per kind. */
@@ -94,7 +89,7 @@ export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = Object.fromEntries
 export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
 
 /**
- * Fold one kind's events into the ask each names. The body is the parsed payload minus
+ * Fold one kind's events into the ask each names. The body is the checked payload minus
  * `sessionId` (the envelope has it) and `approvalRequestId` (the entity's id).
  */
 function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
@@ -102,11 +97,12 @@ function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
     if (!payloadNamesSession(event.payload, event.sessionId)) {
       return [];
     }
-    const parsed = reading.schema.safeParse(event.payload);
-    if (!parsed.success) {
+    const { check } = reading;
+    const payload = event.payload;
+    if (!check(payload)) {
       return [];
     }
-    const { sessionId: _sessionId, approvalRequestId, ...body } = parsed.data;
+    const { sessionId: _sessionId, approvalRequestId, ...body } = payload;
     if (approvalRequestId === undefined) {
       return [];
     }
