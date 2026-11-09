@@ -20,8 +20,8 @@ use tokio_util::sync::CancellationToken;
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CommittedBatch, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
-    WriteJobOutcome,
+    BatchAnswer, BatchFailure, CommittedBatch, FailedBatch, MeteredWrite, ThreadExit,
+    ThreadRequest, WriteJobOutcome,
 };
 use crate::database::writer::queue::maintenance::{
     CancelableWork, MaintenanceAnswered, MaintenanceSlots,
@@ -99,7 +99,7 @@ struct Waiter {
 }
 
 struct QueuedWrite {
-    job: WriteJob,
+    job: MeteredWrite,
     waiter: Waiter,
 }
 
@@ -278,34 +278,46 @@ impl WriteQueue {
                 self.pending_holds.retain(|hold| hold.id != id);
                 self.active_holds.retain(|held| *held != id);
             }
-            QueueMessage::Checkpoint { mode, reply } => match self.maintenance_refusal() {
+            QueueMessage::Checkpoint { mode, meter, reply } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
                 None if mode == CheckpointMode::Passive
                     && (self.writes_held_until.is_some() || !self.active_holds.is_empty()) =>
                 {
                     send_answer(reply, Err(MaintenanceError::Held));
                 }
-                None => self.maintenance.take_checkpoint(mode, reply),
+                None => self.maintenance.take_checkpoint(mode, meter, reply),
             },
-            QueueMessage::Optimize(reply) => match self.maintenance_refusal() {
+            QueueMessage::Optimize { meter, reply } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
-                None => self.maintenance.take_optimize(reply),
+                None => self.maintenance.take_optimize(meter, reply),
             },
-            QueueMessage::Repack { cancel, reply } => match self.maintenance_refusal() {
+            QueueMessage::Repack {
+                cancel,
+                meter,
+                reply,
+            } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
-                None => self
-                    .maintenance
-                    .take_repack(CancelableWork { cancel, reply }),
+                None => self.maintenance.take_repack(CancelableWork {
+                    cancel,
+                    meter,
+                    reply,
+                }),
             },
             QueueMessage::Backup {
                 destination,
                 cancel,
+                meter,
                 reply,
             } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
-                None => self
-                    .maintenance
-                    .take_backup(destination, CancelableWork { cancel, reply }),
+                None => self.maintenance.take_backup(
+                    destination,
+                    CancelableWork {
+                        cancel,
+                        meter,
+                        reply,
+                    },
+                ),
             },
             QueueMessage::End => self.end_writes(),
             QueueMessage::Close { drain_within } => self.start_close(drain_within),
@@ -330,7 +342,7 @@ impl WriteQueue {
             return;
         }
         self.backpressure
-            .check_admission(self.depth + self.waiting_size, size, &job);
+            .check_admission(self.depth + self.waiting_size, size, &job.job);
         let write = QueuedWrite {
             job,
             waiter: Waiter {
@@ -793,7 +805,7 @@ impl WriteQueue {
                 QueueMessage::Checkpoint { reply, .. } => {
                     send_answer(reply, Err(MaintenanceError::Closed));
                 }
-                QueueMessage::Optimize(reply) => {
+                QueueMessage::Optimize { reply, .. } => {
                     send_answer(reply, Err(MaintenanceError::Closed));
                 }
                 QueueMessage::Repack { reply, .. } => {

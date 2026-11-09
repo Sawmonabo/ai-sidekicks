@@ -61,14 +61,14 @@ fn repack_deps(
     writer: &Arc<DatabaseWriter>,
     live_runs: watch::Receiver<u32>,
 ) -> Arc<RepackJobDeps> {
-    Arc::new(RepackJobDeps {
-        writer: Arc::clone(writer),
-        truncation: Arc::new(WriteAheadLogTruncation::new(Arc::clone(writer))),
-        database_path: database.path(),
-        read_volume_free_bytes: |_| Ok(u64::MAX),
+    Arc::new(RepackJobDeps::new(
+        Arc::clone(writer),
+        Arc::new(WriteAheadLogTruncation::new(Arc::clone(writer))),
+        database.path(),
+        |_| Ok(u64::MAX),
         live_runs,
-        budget: TEST_REPACK_BUDGET,
-    })
+        TEST_REPACK_BUDGET,
+    ))
 }
 
 // A `VACUUM` the store refuses ends the job without failing it and changes nothing, so the next

@@ -18,7 +18,6 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::changes::SessionChangeError;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::writer::test_file::session_event_row;
 
 use super::{
@@ -63,11 +62,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     let refused = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     );
 
@@ -93,11 +88,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     let retried = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     );
 
@@ -153,11 +144,7 @@ async fn a_failed_conversation_delete_keeps_the_mark_and_every_row() {
     let refused = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     );
 
@@ -187,13 +174,9 @@ async fn an_append_queued_before_the_range_read_is_taken_into_the_receipt() {
     append_event(&fixture.log, session_id, "Read").await;
     let before_lock = fixture.purge.rows_lock_pause.arm();
     let before_write = fixture.purge.rows_write_pause.arm();
-
-    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture
-            .purge
-            .purge(&session_ids, PurgeCaller::Retention, &meter),
+        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
         async {
             before_lock
                 .reached
@@ -243,13 +226,9 @@ async fn a_second_refusal_of_the_range_is_a_fault_that_keeps_every_row() {
     append_event(&fixture.log, session_id, "Read").await;
     let first = fixture.purge.rows_write_pause.arm();
     let second = fixture.purge.rows_write_pause.arm();
-
-    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture
-            .purge
-            .purge(&session_ids, PurgeCaller::Retention, &meter),
+        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
         async {
             // A row past the range at each write: only a fault past the append lock can write one.
             for pause in [first, second] {
@@ -291,13 +270,9 @@ async fn a_session_moved_after_its_mark_keeps_every_row() {
     store_session(&reader, session_id, SessionState::Archived);
     append_event(&fixture.log, session_id, "Read").await;
     let before_write = fixture.purge.rows_write_pause.arm();
-
-    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture
-            .purge
-            .purge(&session_ids, PurgeCaller::Retention, &meter),
+        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
         async {
             before_write
                 .reached

@@ -322,7 +322,7 @@ impl CodexDriver {
 
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as the removal fails.
     pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
-        sidekicks_platforms::remove_tree_awaited(&self.registry.mcp_sign_in_folder())
+        sidekicks_std::file::remove_tree_awaited(&self.registry.mcp_sign_in_folder())
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))
     }

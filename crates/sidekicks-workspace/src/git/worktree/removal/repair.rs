@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::worktree::lifecycle::RemovedWorktreeId;
+use sidekicks_std::file::remove_tree_awaited;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -130,7 +131,8 @@ impl InterruptedDiscardRepair {
 impl WorktreeRemoval {
     /// Puts right the work a crash cut short, as the module describes, each step on its own so a
     /// failure stops no other; answers what was put right and the failures, which stay for the
-    /// next pass. Stops between steps once `cancel` fires.
+    /// next pass. Stops between steps once `cancel` fires. The removals of the copies a crash left
+    /// are measured on the meter of the metered run that calls, if any.
     pub async fn finish_interrupted_kept_copies(
         &self,
         cancel: &CancellationToken,
@@ -413,7 +415,7 @@ impl RemovalShared {
         if self.deps.worktrees.is_worktree_folder(folder).await? {
             return Ok(());
         }
-        sidekicks_platforms::remove_tree_awaited(folder)
+        remove_tree_awaited(folder)
             .await
             .map_err(WorktreeRemovalError::Folder)
     }

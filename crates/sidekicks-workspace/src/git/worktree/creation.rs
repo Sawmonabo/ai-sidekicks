@@ -630,7 +630,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
         }
         // Read while the folder exists: git names the record only from inside the tree.
         match read_linked_tree_record(&self.deps.git, place, folder).await {
-            Ok(record_folder) => match sidekicks_platforms::remove_tree_awaited(folder).await {
+            Ok(record_folder) => match sidekicks_std::file::remove_tree_awaited(folder).await {
                 Ok(()) => {
                     if let Err(record_failure) = self
                         .deps
@@ -791,7 +791,7 @@ async fn remove_tree_without_git(
     {
         return Ok(false);
     }
-    sidekicks_platforms::remove_tree_awaited(folder)
+    sidekicks_std::file::remove_tree_awaited(folder)
         .await
         .map_err(|folder_failure| vec![folder_failure.into()])?;
     let record_failures = remove_records_naming(&common_folder, folder).await;

@@ -1,8 +1,9 @@
-//! When a due job may run: at once, or only while the busy count the scheduler was started with is
-//! zero, and then at the latest at an instant on the wall clock, which keeps running while the
-//! machine sleeps. A job whose condition fails is parked beside the queue, never holding the
-//! scheduler's one task, and taken up when the busy count reaches zero or its latest instant
-//! passes, whichever comes first; the count is followed, never polled.
+//! When a due timer or job may run: at once, or only while the busy count the scheduler was started
+//! with is zero, and then at the latest at an instant on the wall clock, which keeps running while
+//! the machine sleeps. A run whose condition fails is parked beside the pending runs, holding
+//! neither the scheduler's task nor the job task, and taken up when the busy count reaches zero or
+//! its latest instant passes, whichever comes first; the count is followed, never polled. A job
+//! queued behind a running one has its condition read once it is taken again.
 
 use std::time::SystemTime;
 
@@ -28,8 +29,8 @@ impl JobCondition {
         }
     }
 
-    // The instant a parked job runs however busy.
-    fn latest(self) -> Option<SystemTime> {
+    /// The instant a due job runs however busy.
+    pub(super) fn latest(self) -> Option<SystemTime> {
         match self {
             Self::Always | Self::WhileIdle => None,
             Self::WhileIdleUntil(latest) => Some(latest),

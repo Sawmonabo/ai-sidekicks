@@ -402,7 +402,7 @@ pub(crate) async fn delete_kept_copy(
         }
     };
     let folder_removed = async {
-        sidekicks_platforms::remove_tree_awaited(kept_folder)
+        sidekicks_std::file::remove_tree_awaited(kept_folder)
             .await
             .map_err(KeptCopyPartError::Folder)
     };

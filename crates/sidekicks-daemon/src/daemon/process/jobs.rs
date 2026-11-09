@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use sidekicks_contracts::release_manifest::ReleaseVersion;
-use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_std::scheduler::{JobCadence, JobCondition, ScheduleError, Scheduler};
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
 use tokio::sync::{Notify, watch};
@@ -56,10 +56,10 @@ pub(crate) enum JobScheduleError {
     DailyBackup(#[source] Box<dyn Error + Send + Sync>),
 }
 
-/// Schedules every background job on `scheduler`, each run whenever it falls due: the passive
-/// checkpoint every five minutes, the optimize a day after the start and daily after, the
-/// diagnostic-log expiry and the crash report pass at once and then hourly, and the daily backup.
-/// Fails with the first job the scheduler refuses.
+/// Schedules every background job on `scheduler`, each run once it falls due and the job before it
+/// ends: the passive checkpoint every five minutes, the optimize a day after the start and daily
+/// after, the diagnostic-log expiry and the crash report pass at once and then hourly, and the
+/// daily backup. Fails with the first job the scheduler refuses.
 pub(crate) async fn schedule_jobs(
     scheduler: &Arc<Scheduler>,
     deps: JobDeps,
@@ -72,36 +72,44 @@ pub(crate) async fn schedule_jobs(
         backups,
         version,
     } = deps;
-    scheduler.schedule_repeating(
+    scheduler.schedule_job(
         "passive checkpoint",
         JobCondition::Always,
-        PASSIVE_CHECKPOINT_INTERVAL,
-        PASSIVE_CHECKPOINT_INTERVAL,
+        JobCadence::Repeating {
+            first_delay: PASSIVE_CHECKPOINT_INTERVAL,
+            interval: PASSIVE_CHECKPOINT_INTERVAL,
+        },
         DatabaseWriter::passive_checkpoint_job(Arc::clone(&writer)),
     )?;
     // The writer's open ran the optimize, so the first scheduled one waits a day.
-    scheduler.schedule_repeating(
+    scheduler.schedule_job(
         "database optimize",
         JobCondition::Always,
-        OPTIMIZE_INTERVAL,
-        OPTIMIZE_INTERVAL,
+        JobCadence::Repeating {
+            first_delay: OPTIMIZE_INTERVAL,
+            interval: OPTIMIZE_INTERVAL,
+        },
         DatabaseWriter::optimize_job(writer),
     )?;
-    scheduler.schedule_repeating(
+    scheduler.schedule_job(
         "diagnostic log expiry",
         JobCondition::Always,
-        DIAGNOSTIC_LOG_EXPIRY_INTERVAL,
-        Duration::ZERO,
+        JobCadence::Repeating {
+            first_delay: Duration::ZERO,
+            interval: DIAGNOSTIC_LOG_EXPIRY_INTERVAL,
+        },
         diagnostic_expiry_job(diagnostic_expiry),
     )?;
     // One release ships the app and the service, so both carry this build's version; a dump that
     // names its own version keeps it.
     let version = version.as_str().to_owned();
-    scheduler.schedule_repeating(
+    scheduler.schedule_job(
         "crash reports",
         JobCondition::Always,
-        CRASH_REPORT_INTERVAL,
-        Duration::ZERO,
+        JobCadence::Repeating {
+            first_delay: Duration::ZERO,
+            interval: CRASH_REPORT_INTERVAL,
+        },
         crash_report_job(Arc::new(CrashReportDeps {
             data_folder,
             settings,

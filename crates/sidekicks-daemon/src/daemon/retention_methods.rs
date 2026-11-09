@@ -32,7 +32,7 @@ use sidekicks_ipc::registry::{
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 use sidekicks_std::scheduler::budget::ProcessorMeter;
-use sidekicks_std::scheduler::{JobCondition, Scheduler};
+use sidekicks_std::scheduler::{JobCadence, JobCondition, Scheduler};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -222,19 +222,18 @@ async fn purge_old_data(
         })
         .await?;
     let meter = ProcessorMeter::default();
-    let report = deps
-        .purge
-        .purge(&session_ids, PurgeCaller::Retention, &meter)
+    let report = meter
+        .scope(deps.purge.purge(&session_ids, PurgeCaller::Retention))
         .await;
     match meter.take_spent() {
         Ok(spent) => tracing::info!(
             spent_ms = spent.time.as_millis(),
             readings = spent.readings,
-            "the processor time of the purge's payload reclaims, their reads and unlinks"
+            "the processor time of the purge's reads, writes and payload unlinks"
         ),
         Err(failure) => tracing::warn!(
             error = &failure as &(dyn Error + 'static),
-            "the processor time of the purge's payload reclaims could not be read"
+            "the processor time of the purge could not be read"
         ),
     }
     let mut deleted = 0_u64;
@@ -258,12 +257,16 @@ async fn purge_old_data(
         }
     }
     if deleted > 0 {
-        if let Err(failure) = deps.scheduler.schedule(
-            "repack",
-            JobCondition::WhileIdle,
-            Duration::ZERO,
-            repack_job(Arc::clone(&deps.repack)),
-        ) {
+        // A repack already waiting to begin also takes this purge's free pages.
+        if deps.repack.mark_requested()
+            && let Err(failure) = deps.scheduler.schedule_job(
+                "repack",
+                JobCondition::WhileIdle,
+                JobCadence::Delay(Duration::ZERO),
+                repack_job(Arc::clone(&deps.repack)),
+            )
+        {
+            deps.repack.clear_request();
             tracing::warn!(
                 error = &failure as &(dyn Error + 'static),
                 "the database's repack could not be scheduled"
@@ -458,7 +461,7 @@ mod tests {
                     &database,
                     &log,
                     home.path().to_path_buf(),
-                    Arc::new(|_meter| async { Ok(Vec::new()) }.boxed()),
+                    Arc::new(|| async { Ok(Vec::new()) }.boxed()),
                 ),
             },
         )
@@ -482,14 +485,14 @@ mod tests {
         read_volume_free_bytes: VolumeFreeBytesReader,
         live_runs: watch::Receiver<u32>,
     ) -> Arc<RepackJobDeps> {
-        Arc::new(RepackJobDeps {
-            writer: Arc::clone(writer),
-            truncation: Arc::clone(truncation),
-            database_path: database_path.to_path_buf(),
+        Arc::new(RepackJobDeps::new(
+            Arc::clone(writer),
+            Arc::clone(truncation),
+            database_path.to_path_buf(),
             read_volume_free_bytes,
             live_runs,
-            budget: BACKUP_BUDGET,
-        })
+            BACKUP_BUDGET,
+        ))
     }
 
     // A count of live runs that stays at none.

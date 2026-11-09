@@ -159,14 +159,14 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
             reads: Arc::clone(&database.pool),
             purge,
             scheduler,
-            repack: Arc::new(RepackJobDeps {
-                writer: Arc::clone(&database.writer),
-                truncation: Arc::clone(&database.truncation),
-                database_path: database.database_path.clone(),
-                read_volume_free_bytes: volume_free_bytes,
-                live_runs: database.live_runs.clone(),
-                budget: BACKUP_BUDGET,
-            }),
+            repack: Arc::new(RepackJobDeps::new(
+                Arc::clone(&database.writer),
+                Arc::clone(&database.truncation),
+                database.database_path.clone(),
+                volume_free_bytes,
+                database.live_runs.clone(),
+                BACKUP_BUDGET,
+            )),
             backups,
         },
         lifecycle: LifecycleMethodsDeps {

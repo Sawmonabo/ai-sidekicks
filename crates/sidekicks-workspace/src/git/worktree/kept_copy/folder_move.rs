@@ -236,7 +236,7 @@ pub(crate) async fn move_folder(
 ) -> Result<(), FolderMoveError> {
     match rename_or_copy_folder(tools, from, to, copy).await? {
         FolderPlacement::Renamed => Ok(()),
-        FolderPlacement::Copied => sidekicks_platforms::remove_tree_awaited(from)
+        FolderPlacement::Copied => sidekicks_std::file::remove_tree_awaited(from)
             .await
             .map_err(FolderMoveError::Incomplete),
     }
@@ -272,7 +272,7 @@ pub(crate) async fn rename_or_copy_folder(
         Err(failure) => Err(failure),
     };
     if let Err(failure) = placed {
-        let cleanup_failures = sidekicks_platforms::remove_tree_awaited(&copy_folder)
+        let cleanup_failures = sidekicks_std::file::remove_tree_awaited(&copy_folder)
             .await
             .err()
             .into_iter()
@@ -295,7 +295,7 @@ pub(crate) async fn remove_folder_as_leftover(
     rename_folder(folder, &leftover)
         .await
         .map_err(LeftoverRemovalError::Rename)?;
-    sidekicks_platforms::remove_tree_awaited(&leftover)
+    sidekicks_std::file::remove_tree_awaited(&leftover)
         .await
         .map_err(LeftoverRemovalError::Remove)
 }

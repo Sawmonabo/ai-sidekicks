@@ -34,7 +34,6 @@ use sidekicks_provider::driver::mcp_server::read::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::service::KeychainService;
@@ -97,7 +96,6 @@ async fn mcp_methods_over(
     let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
         providers: Arc::clone(&providers),
         reads: Arc::clone(&reads),
-        meter: ProcessorMeter::default(),
         projects: Arc::new(ProjectRecords::new(
             Arc::clone(&reads),
             Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),

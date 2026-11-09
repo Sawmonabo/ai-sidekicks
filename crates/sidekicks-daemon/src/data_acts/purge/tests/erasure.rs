@@ -18,7 +18,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::test_fixture;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workflow::test_rows::{
@@ -280,11 +279,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
 
     let report = fixture
         .purge
-        .purge(
-            &[session_id],
-            PurgeCaller::Retention,
-            &ProcessorMeter::default(),
-        )
+        .purge(&[session_id], PurgeCaller::Retention)
         .await;
 
     let outcome = only_outcome(report);
@@ -401,11 +396,7 @@ async fn a_purge_closes_the_sessions_tool_server_connections() {
     let outcome = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     );
 
@@ -490,12 +481,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
     }
     fixture.recovery.mark_session_unreadable(&session_id);
 
-    let outcome = only_outcome(
-        fixture
-            .purge
-            .purge(&[session_id], caller, &ProcessorMeter::default())
-            .await,
-    );
+    let outcome = only_outcome(fixture.purge.purge(&[session_id], caller).await);
 
     if is_removed {
         assert!(

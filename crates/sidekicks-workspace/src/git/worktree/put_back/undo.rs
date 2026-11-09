@@ -204,7 +204,7 @@ async fn remove_own_record(
         .ref_store_payload(common_folder)
         .map(|payload| payload.tree_refs_folder(&record_name.to_string_lossy()));
     for folder in [Some(record.clone()), refs_folder].into_iter().flatten() {
-        sidekicks_platforms::remove_tree_awaited(&folder)
+        sidekicks_std::file::remove_tree_awaited(&folder)
             .await
             .map_err(at(&folder))?;
     }

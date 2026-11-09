@@ -23,7 +23,10 @@ use sidekicks_session::working_folder::{SessionWorkingFolders, SessionWorkingFol
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::{JobCondition, ScheduledJobOutcome, Scheduler, WakeSignal};
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, metered_job,
+};
+use sidekicks_std::scheduler::{JobCadence, JobCondition, Scheduler, WakeSignal};
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
@@ -43,6 +46,7 @@ use sidekicks_workspace::git::worktree::removed_store::{
     RemovedWorktreeStore, RemovedWorktreeStoreDeps,
 };
 use sidekicks_workspace::git::worktree::service::WorktreeService;
+use sidekicks_workspace::git::worktree::service::cleanup::WorktreeCleanupReport;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::git::worktree::status::{WorktreeStatusReader, WorktreeStatusReaderDeps};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
@@ -67,6 +71,47 @@ use crate::daemon::process::stop::{DaemonStopFailure, TaskStopFailure, end_start
 
 // The cleanup job's name in the service log.
 const WORKTREE_CLEANUP_JOB_NAME: &str = "worktree cleanup";
+
+// The units a cleanup pass's processor budget counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorktreeCleanupWorkUnit {
+    // Runs, one each, for the fixed work every pass does.
+    Runs,
+    // Rows the pass acted on: kept copies put right, and trees retired or kept aside.
+    Trees,
+    // Retired trees whose folder the pass removed, for the fixed part of each removal.
+    CleanedTrees,
+    // The entries git's index listed across the removed trees: their tracked files, never their
+    // untracked or ignored ones, which the removal deletes uncounted. A removal resumed after its
+    // record went counts no entries, though it removes the whole tree, so its line may warn.
+    IndexEntries,
+}
+
+// A cleanup pass's processor budget on its own threads: 5 ms for the work every pass does, 2 ms
+// per row it acted on, 50 ms per folder it removed and 120 ms per 1,000 index entries in them,
+// from one pass that removed a tree of 54,011 entries in 4.85 s, about 90 µs an entry.
+const WORKTREE_CLEANUP_BUDGET: JobBudget<WorktreeCleanupWorkUnit> = JobBudget::new(&[
+    BudgetTerm {
+        figure: Duration::from_millis(5),
+        per: 1,
+        unit: WorktreeCleanupWorkUnit::Runs,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(2),
+        per: 1,
+        unit: WorktreeCleanupWorkUnit::Trees,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(50),
+        per: 1,
+        unit: WorktreeCleanupWorkUnit::CleanedTrees,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(120),
+        per: 1_000,
+        unit: WorktreeCleanupWorkUnit::IndexEntries,
+    },
+]);
 
 /// What the execution roots and their run setup gate are built from.
 pub(crate) struct ExecutionRootStart<'start> {
@@ -403,14 +448,17 @@ impl WorktreeCleanupRequests {
             return;
         }
         let cleanup = Arc::clone(shared);
-        let scheduled = shared.scheduler.schedule(
+        let scheduled = shared.scheduler.schedule_job(
             WORKTREE_CLEANUP_JOB_NAME,
             JobCondition::Always,
-            Duration::ZERO,
-            move |cancel| {
-                let cleanup = Arc::clone(&cleanup);
-                async move { cleanup.run_pass(&cancel).await }.boxed()
-            },
+            JobCadence::Delay(Duration::ZERO),
+            metered_job(
+                WORKTREE_CLEANUP_BUDGET,
+                Box::new(move |cancel| {
+                    let cleanup = Arc::clone(&cleanup);
+                    async move { cleanup.run_pass(&cancel).await }.boxed()
+                }),
+            ),
         );
         if let Err(error) = scheduled {
             shared.is_requested.store(false, Ordering::Release);
@@ -460,8 +508,12 @@ impl WorktreeCleanupRequests {
 impl WorktreeCleanup {
     // One pass: puts right what a crash cut short, logging each failure, then sweeps the retired
     // trees, then forgets the setup card of each tree retired, whatever the sweep answered. Stops
-    // between steps once `cancel` fires.
-    async fn run_pass(&self, cancel: &CancellationToken) -> ScheduledJobOutcome {
+    // between steps once `cancel` fires. Its workload is the pass, the rows it acted on, the
+    // folders it removed and the entries their indexes listed.
+    async fn run_pass(
+        &self,
+        cancel: &CancellationToken,
+    ) -> MeteredJobOutcome<WorktreeCleanupWorkUnit> {
         self.is_requested.store(false, Ordering::Release);
         let repair = self.removal.finish_interrupted_kept_copies(cancel).await;
         for failure in &repair.failures {
@@ -472,15 +524,28 @@ impl WorktreeCleanup {
             );
         }
         let swept = if cancel.is_cancelled() {
-            Ok(())
+            Ok(WorktreeCleanupReport::default())
         } else {
             self.worktrees
                 .cleanup_pass(&*self.removal, &self.owners, cancel)
                 .await
-                .map(drop)
         };
         self.setup.forget_retired().await;
-        swept.map_err(Into::into)
+        let swept = swept?;
+        let trees =
+            swept.retired.len() + swept.kept.len() + repair.repaired_removed_worktree_ids.len();
+        let count = |count: usize| u64::try_from(count).unwrap_or(u64::MAX);
+        let mut workload = JobWorkload::of(WorktreeCleanupWorkUnit::Runs, 1);
+        workload.add(WorktreeCleanupWorkUnit::Trees, count(trees));
+        workload.add(
+            WorktreeCleanupWorkUnit::CleanedTrees,
+            count(swept.cleaned.len()),
+        );
+        workload.add(
+            WorktreeCleanupWorkUnit::IndexEntries,
+            swept.cleaned_index_entries,
+        );
+        Ok(Some(workload))
     }
 }
 

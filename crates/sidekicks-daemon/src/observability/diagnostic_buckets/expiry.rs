@@ -32,7 +32,7 @@ use sidekicks_provider::service_log::{
 use sidekicks_std::missing_entry::{MissingEntry, is_gone};
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, metered_job, run_blocking,
 };
 use sidekicks_store::data_folder::service_log_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -132,7 +132,7 @@ pub(crate) fn diagnostic_expiry_job(
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(
         DIAGNOSTIC_EXPIRY_BUDGET,
-        Box::new(move |_stop, meter| run_expiry(Arc::clone(&deps), meter).boxed()),
+        Box::new(move |_stop| run_expiry(Arc::clone(&deps)).boxed()),
     )
 }
 
@@ -140,7 +140,6 @@ pub(crate) fn diagnostic_expiry_job(
 // provider service's log runs after it.
 async fn run_expiry(
     deps: Arc<DiagnosticExpiryDeps>,
-    meter: ProcessorMeter,
 ) -> MeteredJobOutcome<DiagnosticExpiryWorkUnit> {
     let days = deps
         .configuration
@@ -165,7 +164,7 @@ async fn run_expiry(
             .into_iter()
             .map(|switching_home| (switching_home.provider, None, switching_home.home))
             .collect();
-    match read_account_homes(&deps.reads, &meter).await {
+    match read_account_homes(&deps.reads).await {
         Ok(account_homes) => homes.extend(account_homes.into_iter().map(|account_home| {
             (
                 account_home.provider,
@@ -194,40 +193,38 @@ async fn run_expiry(
             driven_homes.push((Arc::clone(driver), account_id, home));
         }
     }
-    let expired = meter
-        .run_blocking(move || {
-            let mut count = ExpiryCount::default();
-            // A pass that cannot name every live log deletes nothing, so no live log is expired.
-            // Compared by name, so the folder may be spelled differently by the caller and the log.
-            let live_file_names: Vec<OsString> = live_files()?
-                .iter()
-                .filter_map(|file| file.file_name().map(ToOwned::to_owned))
-                .collect();
-            let live_logs =
-                expire_diagnostic_logs(&logs_folder, &live_file_names, cutoff, &mut count);
-            for folder in &folders {
-                expire_folder(folder, cutoff, &mut count, |_name| false);
+    let expired = run_blocking(move || {
+        let mut count = ExpiryCount::default();
+        // A pass that cannot name every live log deletes nothing, so no live log is expired.
+        // Compared by name, so the folder may be spelled differently by the caller and the log.
+        let live_file_names: Vec<OsString> = live_files()?
+            .iter()
+            .filter_map(|file| file.file_name().map(ToOwned::to_owned))
+            .collect();
+        let live_logs = expire_diagnostic_logs(&logs_folder, &live_file_names, cutoff, &mut count);
+        for folder in &folders {
+            expire_folder(folder, cutoff, &mut count, |_name| false);
+        }
+        // A partial dump and a write's temporary file are the crash pass's: it removes one no
+        // writer holds, under its lock.
+        for folder in &crash_folders {
+            expire_folder(folder, cutoff, &mut count, |name| {
+                is_partial_dump_name(name) || atomic_write_target_of(name).is_some()
+            });
+        }
+        for (driver, account_id, home) in &driven_homes {
+            match driver.expire_account_home_diagnostics(home, cutoff) {
+                Ok(rows_deleted) => count.rows_deleted += rows_deleted,
+                Err(failure) => tracing::warn!(
+                    provider_account_id = account_id.as_deref(),
+                    error = &*failure as &(dyn Error + 'static),
+                    "a provider's diagnostics in an account home could not be expired"
+                ),
             }
-            // A partial dump and a write's temporary file are the crash pass's: it removes one no
-            // writer holds, under its lock.
-            for folder in &crash_folders {
-                expire_folder(folder, cutoff, &mut count, |name| {
-                    is_partial_dump_name(name) || atomic_write_target_of(name).is_some()
-                });
-            }
-            for (driver, account_id, home) in &driven_homes {
-                match driver.expire_account_home_diagnostics(home, cutoff) {
-                    Ok(rows_deleted) => count.rows_deleted += rows_deleted,
-                    Err(failure) => tracing::warn!(
-                        provider_account_id = account_id.as_deref(),
-                        error = &*failure as &(dyn Error + 'static),
-                        "a provider's diagnostics in an account home could not be expired"
-                    ),
-                }
-            }
-            Ok::<_, io::Error>((count, live_logs))
-        })
-        .await;
+        }
+        Ok::<_, io::Error>((count, live_logs))
+    })
+    .await;
     let (count, live_logs) = match expired {
         Ok(Ok(expired)) => expired,
         Ok(Err(failure)) => {

@@ -16,6 +16,7 @@ use sidekicks_std::missing_entry::is_missing_entry;
 use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
+use crate::git::worktree::tree_records::INDEX_FILE_NAME;
 
 /// The file whose change may change what git ignores in the tree.
 pub(super) const IGNORE_FILE_NAME: &str = ".gitignore";
@@ -24,7 +25,6 @@ pub(super) const IGNORE_FILE_NAME: &str = ".gitignore";
 // config naming each branch's upstream, and the refs, packed, loose or in a reftable, where a
 // branch tip moves without either.
 const HEAD_FILE_NAME: &str = "HEAD";
-const INDEX_FILE_NAME: &str = "index";
 const CONFIG_FILE_NAME: &str = "config";
 const PACKED_REFS_FILE_NAME: &str = "packed-refs";
 const REFTABLE_FOLDER_NAME: &str = "reftable";

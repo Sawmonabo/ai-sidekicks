@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 use rusqlite::backup::{Backup, StepResult};
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 use tokio_util::sync::CancellationToken;
@@ -77,9 +77,8 @@ pub enum BackupCopy {
     Stopped,
 }
 
-/// The thread's answer to one copy: how it ended with the thread's processor time around its
-/// steps, or SQLite's failure.
-pub(crate) type BackupAnswer = Result<Measured<BackupCopy>, CleanupFailures<rusqlite::Error>>;
+/// The thread's answer to one copy: how it ended, or SQLite's failure.
+pub(crate) type BackupAnswer = Result<BackupCopy, CleanupFailures<rusqlite::Error>>;
 
 /// One copy as the thread runs it.
 pub(super) struct CopyOrder<'order> {
@@ -89,6 +88,8 @@ pub(super) struct CopyOrder<'order> {
     pub(super) cancel: &'order CancellationToken,
     /// How long the steps may meet a lock before the copy ends.
     pub(super) lock_bound: Duration,
+    /// The meter of the metered run that asked for the copy, if any, which measures its steps.
+    pub(super) meter: Option<&'order ProcessorMeter>,
 }
 
 /// What the thread serves the copy's waiting requests with.
@@ -116,29 +117,20 @@ pub(super) fn copy_database(
 ) -> (BackupAnswer, bool) {
     let alone =
         |failure: rusqlite::Error| CleanupFailures::new(failure, Vec::new(), BACKUP_OPERATION);
-    let mut processor_time = ThreadProcessorTime::default();
-    let measured = |report, processor_time| {
-        Ok(Measured {
-            report,
-            processor_time,
-        })
-    };
     if order.cancel.is_cancelled() {
-        return (measured(BackupCopy::Stopped, processor_time), false);
+        return (Ok(BackupCopy::Stopped), false);
     }
     let mut copy = match Connection::open(order.destination) {
         Ok(copy) => copy,
         Err(failure) => return (Err(alone(failure)), false),
     };
     let stepped = match copy.busy_timeout(Duration::ZERO) {
-        Ok(()) => step_until_done(order, serving, &mut copy, &mut processor_time),
+        Ok(()) => step_until_done(order, serving, &mut copy),
         Err(failure) => (Err(failure), false),
     };
     let closed = copy.close().map_err(|(_copy, failure)| failure);
     match (stepped, closed) {
-        ((Ok(copy_end), is_queue_gone), Ok(())) => {
-            (measured(copy_end, processor_time), is_queue_gone)
-        }
+        ((Ok(copy_end), is_queue_gone), Ok(())) => (Ok(copy_end), is_queue_gone),
         ((Ok(_copy_end), is_queue_gone), Err(close_failure)) => {
             (Err(alone(close_failure)), is_queue_gone)
         }
@@ -165,12 +157,11 @@ enum LockWait {
 
 // Steps the copy until it is done, serving one waiting request after each step, and after a step
 // that met a lock waiting for the next request, the cancel, the bound's end or the retry's time;
-// each step's processor time is added to `processor_time`.
+// each step is measured on the order's meter.
 fn step_until_done(
     order: &CopyOrder<'_>,
     serving: &mut ThreadServing<'_>,
     copy: &mut Connection,
-    processor_time: &mut ThreadProcessorTime,
 ) -> (rusqlite::Result<BackupCopy>, bool) {
     let backup = match Backup::new(serving.connection, copy) {
         Ok(backup) => backup,
@@ -183,7 +174,7 @@ fn step_until_done(
             return (Ok(BackupCopy::Stopped), false);
         }
         step_count += 1;
-        let held = match processor_time.measure(|| backup.step(PAGES_PER_STEP)) {
+        let held = match ProcessorMeter::measure_on(order.meter, || backup.step(PAGES_PER_STEP)) {
             Ok(StepResult::Done) => {
                 let page_count = i64::from(backup.progress().pagecount);
                 return (

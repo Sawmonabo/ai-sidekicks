@@ -384,7 +384,7 @@ pub(crate) async fn remove_left_claude_sign_ins(
             }
         }
     }
-    sidekicks_platforms::remove_tree_awaited(&parent)
+    sidekicks_std::file::remove_tree_awaited(&parent)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }

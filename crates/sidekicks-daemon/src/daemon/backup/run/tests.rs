@@ -12,7 +12,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{WallClockTimer, check_private_run_folder};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::backup_mirror::MirrorRoot;
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -119,7 +118,7 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
     fs::write(&kept_file, b"learned").expect("written");
     let is_mirror_readable = Arc::new(AtomicBool::new(false));
     let readable = Arc::clone(&is_mirror_readable);
-    let read_mirror_roots: MirrorRootsReader = Arc::new(move |_meter| {
+    let read_mirror_roots: MirrorRootsReader = Arc::new(move || {
         let roots = if readable.load(Ordering::SeqCst) {
             Ok(vec![
                 MirrorRoot::new("agent-memory".to_owned(), Path::new("agent-memory.md"))
@@ -144,10 +143,9 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
     fs::create_dir_all(&own_folder).expect("the person's folder is made");
     let older = backup_folders(&backups_folder);
     let stop = CancellationToken::new();
-    let meter = ProcessorMeter::default();
 
     backups
-        .run(BackupTrigger::Now, &stop, &meter)
+        .run(BackupTrigger::Now, &stop)
         .await
         .expect("the failed run is recorded");
 
@@ -165,7 +163,7 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
         .execute("UPDATE local_machine SET name = 'Studio Mac'", [])
         .expect("the test renames this machine");
     backups
-        .run(BackupTrigger::Now, &stop, &meter)
+        .run(BackupTrigger::Now, &stop)
         .await
         .expect("the run is recorded");
 
@@ -219,7 +217,7 @@ async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
-    let read_mirror_roots: MirrorRootsReader = Arc::new(|_meter| async { Ok(Vec::new()) }.boxed());
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
     let backups = test_backups(
         &database,
         &log,
@@ -239,8 +237,7 @@ async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
     });
     is_held.await.expect("the writer holds its writes");
     let stop = CancellationToken::new();
-    let meter = ProcessorMeter::default();
-    let mut run = Box::pin(backups.run(BackupTrigger::Now, &stop, &meter));
+    let mut run = Box::pin(backups.run(BackupTrigger::Now, &stop));
     assert!(
         tokio::time::timeout(Duration::from_millis(300), &mut run)
             .await
@@ -280,7 +277,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
-    let read_mirror_roots: MirrorRootsReader = Arc::new(|_meter| async { Ok(Vec::new()) }.boxed());
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
     let backups = test_backups(
         &database,
         &log,
@@ -299,11 +296,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
         .expect("the press joins the daily run");
 
     backups
-        .run(
-            BackupTrigger::Daily,
-            &CancellationToken::new(),
-            &ProcessorMeter::default(),
-        )
+        .run(BackupTrigger::Daily, &CancellationToken::new())
         .await
         .expect("the run is recorded");
 

@@ -119,7 +119,8 @@ pub(crate) enum DaemonStopFailure {
     /// account's home one left.
     #[error("sign-ins were still settling when the stop's drain bound ran out")]
     SignInsRunning,
-    /// The scheduler's task ended abnormally, or still ran at the drain bound and was aborted.
+    /// The scheduler's task, its running job or an owner task ended abnormally, or one still ran
+    /// at the drain bound and was aborted.
     #[error("the scheduler did not stop cleanly")]
     Scheduler(#[source] SchedulerStopError),
     /// The session search index did not close cleanly.

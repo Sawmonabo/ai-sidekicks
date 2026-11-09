@@ -75,7 +75,6 @@ use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -263,23 +262,19 @@ impl SessionPurge {
 
     /// Purges each of `session_ids` from the states `caller` purges, one at a time, then scores
     /// again the sessions they were linked to and starts the log's truncation. Never fails: each
-    /// session's failure is its outcome. The payloads a purge unlinks are charged to `meter`, the
-    /// meter of the job or call the purge runs under.
+    /// session's failure is its outcome. The payloads a purge unlinks are measured on the meter of
+    /// the metered run whose task calls, if any.
     pub(crate) async fn purge(
         &self,
         session_ids: &[SessionId],
         caller: PurgeCaller,
-        meter: &ProcessorMeter,
     ) -> SessionPurgeReport {
         let operation_id =
             FreeFormText::new(mint_uuid_v7().to_string()).expect("a UUID is an operation id");
         let mut outcomes = Vec::with_capacity(session_ids.len());
         let mut formerly_linked = HashSet::new();
         for session_id in session_ids {
-            let outcome = match self
-                .purge_session(*session_id, caller, &operation_id, meter)
-                .await
-            {
+            let outcome = match self.purge_session(*session_id, caller, &operation_id).await {
                 Ok(removal) => {
                     formerly_linked.extend(removal.linked_session_ids);
                     SessionPurgeOutcome::Removed {
@@ -305,7 +300,6 @@ impl SessionPurge {
         session_id: SessionId,
         caller: PurgeCaller,
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
-        meter: &ProcessorMeter,
     ) -> Result<SessionRemoval, SessionPurgeError> {
         let deps = &self.deps;
         let _transition = deps.transition_lock.acquire(session_id).await;
@@ -375,7 +369,7 @@ impl SessionPurge {
             );
         }
         deps.payloads
-            .reclaim_unreferenced(&deps.reads, targets.payload_hashes, meter)
+            .reclaim_unreferenced(&deps.reads, targets.payload_hashes)
             .await;
         Ok(SessionRemoval {
             linked_session_ids,
@@ -531,9 +525,7 @@ impl SessionDeletePurge for SessionPurge {
             SessionDeletion::UnfinishedCreate => PurgeCaller::UnfinishedCreate,
         };
         Box::pin(async move {
-            let report = self
-                .purge(&[session_id], caller, &ProcessorMeter::default())
-                .await;
+            let report = self.purge(&[session_id], caller).await;
             let (_, outcome) = report
                 .outcomes
                 .into_iter()

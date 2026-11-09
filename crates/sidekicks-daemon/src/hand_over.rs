@@ -193,7 +193,7 @@ pub(crate) async fn remove_session_storage_folder(
     session_id: SessionId,
 ) -> io::Result<()> {
     let folder = session_storage_folder(data_folder, &session_id);
-    sidekicks_platforms::remove_tree_awaited(&folder).await
+    sidekicks_std::file::remove_tree_awaited(&folder).await
 }
 
 // Renders `source_session_id`'s transcript, past `after_sequence` where given, into a new file

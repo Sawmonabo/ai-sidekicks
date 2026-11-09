@@ -418,7 +418,7 @@ async fn make_holder(holder: &Path, repository_root: &Path) -> io::Result<()> {
 
 // Removes `folder` and everything in it; a folder already gone passes.
 async fn remove_folder(folder: PathBuf) -> Result<(), StagedChangesError> {
-    sidekicks_platforms::remove_tree_awaited(&folder)
+    sidekicks_std::file::remove_tree_awaited(&folder)
         .await
         .map_err(|source| StagedChangesError::Remove {
             path: folder,

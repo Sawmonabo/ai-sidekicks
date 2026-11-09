@@ -510,7 +510,7 @@ impl WorktreeService {
         record_folder: Option<&Path>,
     ) -> io::Result<()> {
         match record_folder {
-            Some(record_folder) => sidekicks_platforms::remove_tree_awaited(record_folder).await,
+            Some(record_folder) => sidekicks_std::file::remove_tree_awaited(record_folder).await,
             None => Ok(()),
         }
     }

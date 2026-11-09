@@ -18,7 +18,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
 use sidekicks_platforms::WallClockTimer;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 
 use super::{ArtifactIngestService, IngestStream};
 use crate::ingest::limits::{
@@ -418,7 +417,7 @@ async fn streams_and_spools_past_their_time_are_reaped() {
         .await
         .expect_err("a stream past its lifetime is refused");
     let examined = service
-        .reap(&ProcessorMeter::default())
+        .reap()
         .await
         .expect("the reaper's pass ends cleanly");
 

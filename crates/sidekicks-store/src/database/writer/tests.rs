@@ -8,7 +8,6 @@ use rstest::rstest;
 use rusqlite::Connection;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -338,6 +337,7 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
     let Some(ThreadRequest::Checkpoint {
         mode: CheckpointMode::Truncate,
         reply,
+        ..
     }) = thread_requests.recv().await
     else {
         panic!("the writer sends the truncating checkpoint once the hold is let go");
@@ -348,13 +348,10 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
         checkpointed_frames: 0,
     };
     reply
-        .send(Ok(Measured {
-            report: CheckpointReport {
-                result,
-                moved_frames: 0,
-                page_size: 4096,
-            },
-            processor_time: ThreadProcessorTime::default(),
+        .send(Ok(CheckpointReport {
+            result,
+            moved_frames: 0,
+            page_size: 4096,
         }))
         .expect("the writer waits on the checkpoint");
     assert_eq!(truncating.await.expect("the checkpoint runs"), result);

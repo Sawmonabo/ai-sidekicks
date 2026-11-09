@@ -48,7 +48,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, metered_job, run_blocking,
 };
 use sidekicks_std::text_cut::cut_to_code_points;
 use tokio_util::sync::CancellationToken;
@@ -159,9 +159,9 @@ pub(crate) fn crash_report_job(
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(
         CRASH_REPORT_BUDGET,
-        Box::new(move |stop, meter| {
+        Box::new(move |stop| {
             let deps = Arc::clone(&deps);
-            async move { run_crash_report_pass(&deps, &stop, &meter).await }.boxed()
+            async move { run_crash_report_pass(&deps, &stop).await }.boxed()
         }),
     )
 }
@@ -170,9 +170,8 @@ pub(crate) fn crash_report_job(
 async fn run_crash_report_pass(
     deps: &CrashReportDeps,
     stop: &CancellationToken,
-    meter: &ProcessorMeter,
 ) -> MeteredJobOutcome<CrashReportWorkUnit> {
-    let pass = build_crash_reports(deps, stop, meter).await?;
+    let pass = build_crash_reports(deps, stop).await?;
     if let Some(failures) = &pass.removal_failures {
         tracing::warn!(
             error = failures as &(dyn Error + 'static),
@@ -193,13 +192,13 @@ async fn run_crash_report_pass(
     )))
 }
 
-/// One pass over the crash dumps folder, as the module's doc says, its blocking work charged to
-/// `meter`; checks `stop` between dumps. Fails when the settings, a folder or the key cannot be
-/// read or written; a leftover that cannot be removed is answered in the pass instead.
+/// One pass over the crash dumps folder, as the module's doc says, its blocking work measured on
+/// the meter of the metered run whose task calls, if any; checks `stop` between dumps. Fails when
+/// the settings, a folder or the key cannot be read or written; a leftover that cannot be removed
+/// is answered in the pass instead.
 pub(crate) async fn build_crash_reports(
     deps: &CrashReportDeps,
     stop: &CancellationToken,
-    meter: &ProcessorMeter,
 ) -> Result<CrashReportPass, Box<dyn Error + Send + Sync>> {
     let is_kept = deps.settings.read().await?.settings.keep_crash_reports;
     let dumps_folder = deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME);
@@ -207,49 +206,45 @@ pub(crate) async fn build_crash_reports(
     let listed_folder = dumps_folder.clone();
     let swept_reports = reports_folder.clone();
     let key_folder = deps.data_folder.clone();
-    let (dumps, mut removal_failures) = meter
-        .run_blocking(move || {
-            let mut failures = remove_monitor_leftovers(&listed_folder);
-            failures.extend(remove_atomic_write_leftovers(&key_folder, |target| {
-                target == REPORT_KEY_FILE_NAME
-            }));
-            // Reports' and the panic hook's records' alike; a live write holds its own locked.
-            failures.extend(remove_atomic_write_leftovers(&swept_reports, |_target| {
-                true
-            }));
-            // A listing that fails still answers the removals that failed before it.
-            match list_finished_dumps(&listed_folder) {
-                Ok(dumps) => Ok((dumps, failures)),
-                Err(listing) => Err(CleanupFailures::new(
-                    listing,
-                    failures,
-                    "the crash pass's removals",
-                )),
-            }
-        })
-        .await??;
+    let (dumps, mut removal_failures) = run_blocking(move || {
+        let mut failures = remove_monitor_leftovers(&listed_folder);
+        failures.extend(remove_atomic_write_leftovers(&key_folder, |target| {
+            target == REPORT_KEY_FILE_NAME
+        }));
+        // Reports' and the panic hook's records' alike; a live write holds its own locked.
+        failures.extend(remove_atomic_write_leftovers(&swept_reports, |_target| {
+            true
+        }));
+        // A listing that fails still answers the removals that failed before it.
+        match list_finished_dumps(&listed_folder) {
+            Ok(dumps) => Ok((dumps, failures)),
+            Err(listing) => Err(CleanupFailures::new(
+                listing,
+                failures,
+                "the crash pass's removals",
+            )),
+        }
+    })
+    .await??;
     let mut pass = CrashReportPass::default();
     if !is_kept {
         let reports = reports_folder.clone();
-        let failures = meter
-            .run_blocking(move || {
-                let mut failures: Vec<io::Error> = dumps
-                    .iter()
-                    .filter_map(|(dump, _bytes)| remove_dump(dump).err())
-                    .collect();
-                failures.extend(remove_reports(&reports));
-                failures
-            })
-            .await?;
+        let failures = run_blocking(move || {
+            let mut failures: Vec<io::Error> = dumps
+                .iter()
+                .filter_map(|(dump, _bytes)| remove_dump(dump).err())
+                .collect();
+            failures.extend(remove_reports(&reports));
+            failures
+        })
+        .await?;
         removal_failures.extend(failures);
         pass.removal_failures = removal_failures_of(removal_failures);
         return Ok(pass);
     }
     if !dumps.is_empty() {
         let key_folder = deps.data_folder.clone();
-        let key = meter
-            .run_blocking(move || read_or_make_key(&key_folder))
-            .await??;
+        let key = run_blocking(move || read_or_make_key(&key_folder)).await??;
         for (dump, bytes) in dumps {
             if stop.is_cancelled() {
                 break;
@@ -265,19 +260,18 @@ pub(crate) async fn build_crash_reports(
                     let report_path = reports_folder.join(name);
                     let reports = reports_folder.clone();
                     let bytes = serde_json::to_vec(&report).expect("a report serializes as JSON");
-                    let removed = meter
-                        .run_blocking(move || {
-                            sidekicks_platforms::create_private_folder(&reports)?;
-                            replace_file_atomically(
-                                &report_path,
-                                &bytes,
-                                REPORT_FILE_MODE,
-                                LeftoverSweep::Swept,
-                            )
-                            .map_err(io::Error::other)?;
-                            Ok::<_, io::Error>(remove_dump(&dump))
-                        })
-                        .await??;
+                    let removed = run_blocking(move || {
+                        sidekicks_platforms::create_private_folder(&reports)?;
+                        replace_file_atomically(
+                            &report_path,
+                            &bytes,
+                            REPORT_FILE_MODE,
+                            LeftoverSweep::Swept,
+                        )
+                        .map_err(io::Error::other)?;
+                        Ok::<_, io::Error>(remove_dump(&dump))
+                    })
+                    .await??;
                     pass.built += 1;
                     removed
                 }
@@ -288,7 +282,7 @@ pub(crate) async fn build_crash_reports(
                         "the crash dump did not build into a report and is deleted"
                     );
                     pass.failed += 1;
-                    meter.run_blocking(move || remove_dump(&dump)).await?
+                    run_blocking(move || remove_dump(&dump)).await?
                 }
             };
             removal_failures.extend(removed.err());

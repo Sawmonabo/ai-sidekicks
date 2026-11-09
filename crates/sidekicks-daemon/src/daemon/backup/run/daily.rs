@@ -11,7 +11,7 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::metered_job;
-use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_std::scheduler::{JobCadence, JobCondition, ScheduleError, Scheduler};
 
 use super::{BACKUP_BUDGET, BackupTrigger, Backups, last_finished_at};
 
@@ -85,7 +85,7 @@ fn schedule_daily_at(
 ) -> Result<(), ScheduleError> {
     let job = metered_job(
         BACKUP_BUDGET,
-        Box::new(move |stop, meter| {
+        Box::new(move |stop| {
             let backups = Arc::clone(&backups);
             let scheduler_handle = scheduler_handle.clone();
             async move {
@@ -101,7 +101,7 @@ fn schedule_daily_at(
                 let ran = if is_queued {
                     Ok(None)
                 } else {
-                    backups.run(BackupTrigger::Daily, &stop, &meter).await
+                    backups.run(BackupTrigger::Daily, &stop).await
                 };
                 let Some(scheduler) = scheduler_handle.upgrade() else {
                     return ran;
@@ -127,10 +127,10 @@ fn schedule_daily_at(
         }),
     );
     scheduler
-        .schedule_at(
+        .schedule_job(
             "daily backup",
             JobCondition::WhileIdleUntil(cadence.latest),
-            cadence.due,
+            JobCadence::WallClockInstant(cadence.due),
             job,
         )
         .map(drop)

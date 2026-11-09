@@ -8,7 +8,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
-use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, JobWorkload, Measured, metered_job};
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, JobWorkload, metered_job};
 use tokio_util::sync::CancellationToken;
 
 use crate::database::checkpoint::CheckpointMode;
@@ -61,22 +61,18 @@ impl DatabaseWriter {
         // hold answers it at once, so the scheduler never waits a hold out.
         metered_job(
             PASSIVE_CHECKPOINT_BUDGET,
-            Box::new(move |stop, meter| {
+            Box::new(move |stop| {
                 let writer = Arc::clone(&writer);
                 async move {
                     let checkpointed = tokio::select! {
                         biased;
                         () = stop.cancelled() => return Ok(None),
-                        checkpointed = writer.checkpoint_measured(CheckpointMode::Passive) => {
+                        checkpointed = writer.checkpoint_report(CheckpointMode::Passive) => {
                             checkpointed
                         }
                     };
                     match checkpointed {
-                        Ok(Measured {
-                            report,
-                            processor_time,
-                        }) => {
-                            meter.add(processor_time);
+                        Ok(report) => {
                             tracing::debug!(
                                 is_busy = report.result.is_busy,
                                 log_frames = report.result.log_frames,
@@ -114,15 +110,14 @@ impl DatabaseWriter {
         // the wait.
         metered_job(
             OPTIMIZE_BUDGET,
-            Box::new(move |stop, meter| {
+            Box::new(move |stop| {
                 let writer = Arc::clone(&writer);
                 async move {
-                    let optimized = tokio::select! {
+                    tokio::select! {
                         biased;
                         () = stop.cancelled() => return Ok(None),
                         optimized = writer.optimize() => optimized?,
                     };
-                    meter.add(optimized.processor_time);
                     Ok(Some(JobWorkload::of(StoreWorkUnit::Runs, 1)))
                 }
                 .boxed()

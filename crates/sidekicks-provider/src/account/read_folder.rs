@@ -5,7 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{remove_tree, remove_tree_awaited};
+use sidekicks_platforms::remove_tree;
+use sidekicks_std::file::remove_tree_awaited;
 
 use crate::driver::contract::error::DriverError;
 

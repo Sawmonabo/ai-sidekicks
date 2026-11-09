@@ -32,7 +32,7 @@ use std::time::Duration;
 use rusqlite::{Connection, ErrorCode, InterruptHandle};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::Measured;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -40,7 +40,8 @@ use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::messages::{
-    BatchFailure, CheckpointReport, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
+    BatchFailure, CheckpointReport, MeteredWrite, ThreadExit, ThreadRequest, WriteJob,
+    WriteJobFailure,
 };
 use crate::database::writer::queue::{ThreadLink, WriteQueue};
 use crate::database::writer::repack::RepackEnd;
@@ -399,8 +400,9 @@ impl DatabaseWriter {
     }
 
     /// Queues `job` and returns at once, with no await before the send, so a caller can queue
-    /// inside a lock and await the write outside it. `on_commit` runs once the write commits.
-    /// Fails at once for an ended writer and for a write larger than the queue.
+    /// inside a lock and await the write outside it. `on_commit` runs once the write commits. The
+    /// writer's thread measures the write's statements on the meter of the metered run whose task
+    /// queues it, if any. Fails at once for an ended writer and for a write larger than the queue.
     pub fn enqueue(
         &self,
         job: WriteJob,
@@ -416,7 +418,10 @@ impl DatabaseWriter {
         let (reply, answer) = oneshot::channel();
         self.messages
             .send(QueueMessage::Write(WriteRequest {
-                job,
+                job: MeteredWrite {
+                    job,
+                    meter: ProcessorMeter::of_current_run(),
+                },
                 size,
                 on_commit,
                 reply,
@@ -527,18 +532,22 @@ impl DatabaseWriter {
         &self,
         mode: CheckpointMode,
     ) -> Result<CheckpointResult, MaintenanceError> {
-        Ok(self.checkpoint_measured(mode).await?.report.result)
+        Ok(self.checkpoint_report(mode).await?.result)
     }
 
-    // A checkpoint as `checkpoint` runs it, with the store's page size and the thread's processor
-    // time around it.
-    async fn checkpoint_measured(
+    // A checkpoint as `checkpoint` runs it, with the frames it moved and the store's page size,
+    // measured on the meter of the metered run whose task calls, if any.
+    async fn checkpoint_report(
         &self,
         mode: CheckpointMode,
-    ) -> Result<Measured<CheckpointReport>, MaintenanceError> {
+    ) -> Result<CheckpointReport, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
-            .send(QueueMessage::Checkpoint { mode, reply })
+            .send(QueueMessage::Checkpoint {
+                mode,
+                meter: ProcessorMeter::of_current_run(),
+                reply,
+            })
             .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
@@ -546,13 +555,16 @@ impl DatabaseWriter {
     }
 
     /// Runs `PRAGMA optimize` on the writer's connection between batches, which analyzes the tables
-    /// whose statistics have gone stale, waiting out a hold as a truncating checkpoint does. The
-    /// answer carries the thread's processor time around it. Fails with SQLite's error, or once
-    /// the writer is ended or closed.
-    pub(crate) async fn optimize(&self) -> Result<Measured<()>, MaintenanceError> {
+    /// whose statistics have gone stale, waiting out a hold as a truncating checkpoint does, and
+    /// measured on the meter of the metered run whose task calls, if any. Fails with SQLite's
+    /// error, or once the writer is ended or closed.
+    pub(crate) async fn optimize(&self) -> Result<(), MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
-            .send(QueueMessage::Optimize(reply))
+            .send(QueueMessage::Optimize {
+                meter: ProcessorMeter::of_current_run(),
+                reply,
+            })
             .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
@@ -562,16 +574,20 @@ impl DatabaseWriter {
     /// Repacks the file on the writer's connection between batches, as
     /// [`repack`](crate::database::writer::repack) describes, waiting out a hold as a truncating
     /// checkpoint does; once `cancel` is canceled a repack not yet begun is not run and one running
-    /// is interrupted, either answering [`RepackEnd::Interrupted`]. The answer carries the
-    /// thread's processor time around the repack. Fails with SQLite's error, or once the writer
-    /// is ended or closed.
+    /// is interrupted, either answering [`RepackEnd::Interrupted`]. The repack is measured on the
+    /// meter of the metered run whose task calls, if any. Fails with SQLite's error, or once the
+    /// writer is ended or closed.
     pub(crate) async fn repack(
         &self,
         cancel: CancellationToken,
-    ) -> Result<Measured<RepackEnd>, MaintenanceError> {
+    ) -> Result<RepackEnd, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
-            .send(QueueMessage::Repack { cancel, reply })
+            .send(QueueMessage::Repack {
+                cancel,
+                meter: ProcessorMeter::of_current_run(),
+                reply,
+            })
             .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
@@ -581,19 +597,20 @@ impl DatabaseWriter {
     /// Copies the database into the new file at `destination` through SQLite's online backup on
     /// the writer's connection, as [`backup`] describes, while
     /// writes go on; it waits out a hold before it starts, and once `cancel` is canceled it stops
-    /// before its next step, answering [`BackupCopy::Stopped`]. The answer carries the thread's
-    /// processor time around the copy's steps. Fails with SQLite's error, or once the writer is
-    /// ended or closed.
+    /// before its next step, answering [`BackupCopy::Stopped`]. The copy's steps are measured on
+    /// the meter of the metered run whose task calls, if any. Fails with SQLite's error, or once
+    /// the writer is ended or closed.
     pub async fn backup(
         &self,
         destination: PathBuf,
         cancel: CancellationToken,
-    ) -> Result<Measured<BackupCopy>, MaintenanceError> {
+    ) -> Result<BackupCopy, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
             .send(QueueMessage::Backup {
                 destination,
                 cancel,
+                meter: ProcessorMeter::of_current_run(),
                 reply,
             })
             .map_err(|_unsent| MaintenanceError::Closed)?;
@@ -668,7 +685,8 @@ impl Drop for HoldGuard {
     }
 }
 
-/// What a writer's handles ask of its write queue, in the order they asked.
+/// What a writer's handles ask of its write queue, in the order they asked; a maintenance request
+/// carries the meter of the metered run that asked for it, if any.
 enum QueueMessage {
     /// A write to queue.
     Write(WriteRequest),
@@ -684,20 +702,26 @@ enum QueueMessage {
     /// Run a checkpoint between batches.
     Checkpoint {
         mode: CheckpointMode,
-        reply: oneshot::Sender<Result<Measured<CheckpointReport>, MaintenanceError>>,
+        meter: Option<ProcessorMeter>,
+        reply: oneshot::Sender<Result<CheckpointReport, MaintenanceError>>,
     },
     /// Run `PRAGMA optimize` between batches.
-    Optimize(oneshot::Sender<Result<Measured<()>, MaintenanceError>>),
+    Optimize {
+        meter: Option<ProcessorMeter>,
+        reply: oneshot::Sender<Result<(), MaintenanceError>>,
+    },
     /// Repack the file between batches, unless `cancel` is canceled first.
     Repack {
         cancel: CancellationToken,
-        reply: oneshot::Sender<Result<Measured<RepackEnd>, MaintenanceError>>,
+        meter: Option<ProcessorMeter>,
+        reply: oneshot::Sender<Result<RepackEnd, MaintenanceError>>,
     },
     /// Copy the database into a new file, beside the writes, until `cancel` is canceled.
     Backup {
         destination: PathBuf,
         cancel: CancellationToken,
-        reply: oneshot::Sender<Result<Measured<BackupCopy>, MaintenanceError>>,
+        meter: Option<ProcessorMeter>,
+        reply: oneshot::Sender<Result<BackupCopy, MaintenanceError>>,
     },
     /// The writer was ended: fail what is queued and let the thread go.
     End,
@@ -707,7 +731,7 @@ enum QueueMessage {
 
 /// A write as its caller sends it.
 struct WriteRequest {
-    job: WriteJob,
+    job: MeteredWrite,
     size: usize,
     on_commit: Option<CommitHook>,
     reply: oneshot::Sender<Result<CommittedWrite, WriteError>>,

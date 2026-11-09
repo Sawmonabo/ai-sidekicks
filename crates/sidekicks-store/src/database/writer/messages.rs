@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::Measured;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -24,6 +24,16 @@ pub struct WriteJob {
     pub statements: Vec<WriteStatement>,
     /// The event rows, each inserted at its session's next sequence.
     pub events: Vec<SessionEventRow>,
+}
+
+/// One write as the thread runs it, with the meter of the metered run that queued it, if any,
+/// which measures the write's own statements; the batch's commit is the writer's own work.
+#[derive(Debug)]
+pub(crate) struct MeteredWrite {
+    /// The write.
+    pub(crate) job: WriteJob,
+    /// The queuing run's meter.
+    pub(crate) meter: Option<ProcessorMeter>,
 }
 
 /// How one write of a committed batch ended. A refused or failed write rolled back alone; the
@@ -154,27 +164,27 @@ impl CheckpointReport {
     }
 }
 
-/// The thread's answer to one requested checkpoint: its report with the thread's processor time
-/// around it, or its failure as [`CheckpointAnswer`]'s.
-pub(crate) type MeasuredCheckpointAnswer =
-    Result<Measured<CheckpointReport>, CleanupFailures<rusqlite::Error>>;
+/// The thread's answer to one requested checkpoint: its report, or its failure as
+/// [`CheckpointAnswer`]'s.
+pub(crate) type RequestedCheckpointAnswer =
+    Result<CheckpointReport, CleanupFailures<rusqlite::Error>>;
 
-/// The thread's answer to one requested `PRAGMA optimize`: the thread's processor time around it,
-/// or SQLite's failure.
-pub(crate) type MeasuredOptimizeAnswer = Result<Measured<()>, CleanupFailures<rusqlite::Error>>;
+/// The thread's answer to one requested `PRAGMA optimize`: done, or SQLite's failure.
+pub(crate) type OptimizeAnswer = Result<(), CleanupFailures<rusqlite::Error>>;
 
 /// The thread's last answer, as it exits: its connection's close, or why that failed, beside the
 /// close's own failure when turning off an ended writer's closing checkpoint failed first.
 pub(crate) type ThreadExit = Result<(), CleanupFailures<rusqlite::Error>>;
 
-/// What the pump asks of the thread, one request at a time. The thread closes its connection and
-/// exits once the pump drops its sender.
+/// What the pump asks of the thread, one request at a time. A maintenance request carries the
+/// meter of the metered run that asked for it, if any, which measures the thread's statements for
+/// it. The thread closes its connection and exits once the pump drops its sender.
 #[derive(Debug)]
 pub(crate) enum ThreadRequest {
     /// Run `jobs` as one transaction, each under a savepoint of its own.
     Batch {
         /// The writes, in the order they were queued.
-        jobs: Vec<WriteJob>,
+        jobs: Vec<MeteredWrite>,
         /// Where the answer goes.
         reply: oneshot::Sender<BatchAnswer>,
     },
@@ -182,19 +192,25 @@ pub(crate) enum ThreadRequest {
     Checkpoint {
         /// The checkpoint's mode.
         mode: CheckpointMode,
+        /// The asking run's meter.
+        meter: Option<ProcessorMeter>,
         /// Where the answer goes.
-        reply: oneshot::Sender<MeasuredCheckpointAnswer>,
+        reply: oneshot::Sender<RequestedCheckpointAnswer>,
     },
     /// Run `PRAGMA optimize`, which analyzes the tables whose statistics have gone stale.
     Optimize {
+        /// The asking run's meter.
+        meter: Option<ProcessorMeter>,
         /// Where the answer goes.
-        reply: oneshot::Sender<MeasuredOptimizeAnswer>,
+        reply: oneshot::Sender<OptimizeAnswer>,
     },
     /// Repack the file: truncate the log, then `VACUUM`; a canceled repack does not start, and
     /// one the queue interrupts once it is canceled rolls back.
     Repack {
         /// Canceled once the repack is to give way.
         cancel: CancellationToken,
+        /// The asking run's meter.
+        meter: Option<ProcessorMeter>,
         /// Where the answer goes.
         reply: oneshot::Sender<RepackAnswer>,
     },
@@ -205,6 +221,8 @@ pub(crate) enum ThreadRequest {
         destination: PathBuf,
         /// Canceled once the run that asked for the copy stops.
         cancel: CancellationToken,
+        /// The asking run's meter.
+        meter: Option<ProcessorMeter>,
         /// Where the answer goes.
         reply: oneshot::Sender<BackupAnswer>,
     },

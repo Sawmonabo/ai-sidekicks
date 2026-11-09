@@ -2,9 +2,14 @@
 //! in place whenever the instant moves, and, when the system refuses the timer, a read of what is
 //! next fails or the job itself fails, tried again a minute later on the monotonic clock and again
 //! each minute while it keeps failing.
+//!
+//! The job and its retry are timers that only hand the owner's work to a task of the scheduler's,
+//! which its stop waits for, so a fire that waits on the database holds no other timer. That task
+//! runs the owner's fires and rearms one at a time in order; while one runs, at most one fire
+//! waits, the latest instant, and one rearm.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
@@ -23,8 +28,9 @@ pub trait InstantJob: Send + Sync + 'static {
     /// The armed instant the owner keeps.
     fn armed_instant(&self) -> &ArmedInstant;
 
-    /// The work run once the wall clock reaches `instant`; a failure is retried a minute later
-    /// through [`InstantJob::rearm`].
+    /// The work run once the wall clock reaches `instant`, which covers every earlier instant, since
+    /// a fire waiting behind a running one gives way to a later one; a failure is retried a minute
+    /// later through [`InstantJob::rearm`].
     fn fire(
         self: Arc<Self>,
         instant: SystemTime,
@@ -41,6 +47,8 @@ pub struct ArmedInstant {
     job_name: &'static str,
     retry_job_name: &'static str,
     state: Mutex<ArmedState>,
+    // The owner's fires and rearms waiting for, or running on, the task that runs them.
+    owner_work: Mutex<OwnerWork>,
 }
 
 #[derive(Default)]
@@ -52,6 +60,25 @@ struct ArmedState {
     retry: Option<ScheduledJobHandle>,
     // Whether the job failed since it was last armed, which logs later failures at debug.
     failure_episode: FailureEpisode,
+}
+
+// The work the owner's task has still to run.
+#[derive(Default)]
+struct OwnerWork {
+    // Set while the task runs, so new work waits for it rather than starting a second.
+    // Cleared when a piece of work panics, so the next hand-over starts a new task and runs
+    // what waits.
+    is_running: bool,
+    // The latest instant whose fire waits.
+    waiting_fire: Option<SystemTime>,
+    is_rearm_waiting: bool,
+}
+
+// One piece of the owner's work.
+#[derive(Clone, Copy)]
+enum OwnerWorkItem {
+    Fire(SystemTime),
+    Rearm,
 }
 
 // The job the scheduler holds, its arm's number and the instant it fires at.
@@ -74,6 +101,7 @@ impl ArmedInstant {
             job_name,
             retry_job_name,
             state: Mutex::default(),
+            owner_work: Mutex::default(),
         }
     }
 
@@ -181,18 +209,11 @@ fn schedule_job<Owner: InstantJob>(
         JobCondition::Always,
         instant,
         move |_| {
-            let firing = firing.clone();
-            async move {
-                let Some(owner) = firing.upgrade() else {
-                    return Ok(());
-                };
+            if let Some(owner) = firing.upgrade() {
                 owner.armed_instant().disarm(arm);
-                if let Err(error) = Arc::clone(&owner).fire(instant).await {
-                    retry_failed_job(&owner, &*error);
-                }
-                Ok(())
+                hand_over(&owner, OwnerWorkItem::Fire(instant));
             }
-            .boxed()
+            async { Ok(()) }.boxed()
         },
     )?;
     let refusal = job.refusal();
@@ -243,14 +264,10 @@ fn schedule_retry<Owner: InstantJob>(owner: &Arc<Owner>, state: &mut ArmedState)
         JobCondition::Always,
         ARM_RETRY_DELAY,
         move |_| {
-            let retrying = retrying.clone();
-            async move {
-                if let Some(owner) = retrying.upgrade() {
-                    owner.rearm().await;
-                }
-                Ok(())
+            if let Some(owner) = retrying.upgrade() {
+                hand_over(&owner, OwnerWorkItem::Rearm);
             }
-            .boxed()
+            async { Ok(()) }.boxed()
         },
     );
     match scheduled {
@@ -261,5 +278,284 @@ fn schedule_retry<Owner: InstantJob>(owner: &Arc<Owner>, state: &mut ArmedState)
             error = &error as &(dyn Error + 'static),
             "a timed job's retry was not scheduled"
         ),
+    }
+}
+
+// Hands `item` to `owner`'s task, starting it when none runs, and returns at once.
+fn hand_over<Owner: InstantJob>(owner: &Arc<Owner>, item: OwnerWorkItem) {
+    let mut work = lock(&owner.armed_instant().owner_work);
+    match item {
+        OwnerWorkItem::Fire(instant) => {
+            work.waiting_fire = Some(
+                work.waiting_fire
+                    .map_or(instant, |waiting| waiting.max(instant)),
+            );
+        }
+        OwnerWorkItem::Rearm => work.is_rearm_waiting = true,
+    }
+    if work.is_running {
+        return;
+    }
+    work.is_running = true;
+    owner
+        .armed_instant()
+        .scheduler
+        .spawn_owner_task(run_owner_work(Arc::downgrade(owner)));
+}
+
+// Runs the owner's waiting work one piece at a time, a waiting fire before a waiting rearm, until
+// none waits or the owner is gone.
+async fn run_owner_work<Owner: InstantJob>(working: Weak<Owner>) {
+    while let Some(owner) = working.upgrade() {
+        let item = {
+            let mut work = lock(&owner.armed_instant().owner_work);
+            if let Some(instant) = work.waiting_fire.take() {
+                OwnerWorkItem::Fire(instant)
+            } else if std::mem::take(&mut work.is_rearm_waiting) {
+                OwnerWorkItem::Rearm
+            } else {
+                work.is_running = false;
+                return;
+            }
+        };
+        let _running = ClearRunningOnPanic(owner.armed_instant());
+        match item {
+            OwnerWorkItem::Fire(instant) => {
+                if let Err(error) = Arc::clone(&owner).fire(instant).await {
+                    retry_failed_job(&owner, &*error);
+                }
+            }
+            OwnerWorkItem::Rearm => Arc::clone(&owner).rearm().await,
+        }
+    }
+}
+
+// Clears the running mark when the piece of work it is held across panics, which ends the task.
+struct ClearRunningOnPanic<'armed>(&'armed ArmedInstant);
+
+impl Drop for ClearRunningOnPanic<'_> {
+    fn drop(&mut self) {
+        // Only on a panic: after a normal end the task itself clears the mark under the lock, and a
+        // new task may already hold it.
+        if std::thread::panicking() {
+            lock(&self.0.owner_work).is_running = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime};
+
+    use futures::FutureExt as _;
+    use futures::future::BoxFuture;
+    use sidekicks_platforms::WallClock as _;
+    use tokio::sync::{mpsc, oneshot, watch};
+    use tokio::time::Instant;
+
+    use super::{ArmedInstant, InstantJob};
+    use crate::mutex_lock::lock;
+    use crate::scheduler::test_wall_clock::TestWallClock;
+    use crate::scheduler::{JobCondition, Scheduler, SchedulerStopError};
+
+    const RUN_BOUND: Duration = Duration::from_secs(5);
+
+    // An owner whose fire tells its start and then waits for the test's release.
+    struct HeldFireOwner {
+        armed: ArmedInstant,
+        started: Mutex<Option<oneshot::Sender<()>>>,
+        release: Mutex<Option<oneshot::Receiver<()>>>,
+    }
+
+    impl InstantJob for HeldFireOwner {
+        fn armed_instant(&self) -> &ArmedInstant {
+            &self.armed
+        }
+
+        fn fire(
+            self: Arc<Self>,
+            _instant: SystemTime,
+        ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
+            let started = lock(&self.started).take();
+            let release = lock(&self.release).take();
+            async move {
+                if let Some(started) = started {
+                    started.send(()).expect("the test waits for the fire");
+                }
+                if let Some(release) = release {
+                    release.await.expect("the test releases the fire");
+                }
+                Ok(())
+            }
+            .boxed()
+        }
+
+        fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
+            async {}.boxed()
+        }
+    }
+
+    // An owner whose first fire panics after telling its instant, and whose later fires only tell
+    // theirs.
+    struct PanickingFireOwner {
+        armed: ArmedInstant,
+        has_fired: AtomicBool,
+        fired: mpsc::UnboundedSender<SystemTime>,
+    }
+
+    impl InstantJob for PanickingFireOwner {
+        fn armed_instant(&self) -> &ArmedInstant {
+            &self.armed
+        }
+
+        fn fire(
+            self: Arc<Self>,
+            instant: SystemTime,
+        ) -> BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>> {
+            let is_first = !self.has_fired.swap(true, Ordering::AcqRel);
+            let fired = self.fired.clone();
+            async move {
+                fired.send(instant).expect("the test reads each fire");
+                assert!(!is_first, "the test's first fire panics");
+                Ok(())
+            }
+            .boxed()
+        }
+
+        fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
+            async {}.boxed()
+        }
+    }
+
+    // A fire that waits, as one waiting on the database's writer, holds no timer: a timer due one
+    // second later runs at its own deadline while the fire still waits. Killed by the fire awaited
+    // on the scheduler's task, which holds the timer until the release.
+    #[tokio::test(start_paused = true)]
+    async fn a_waiting_fire_holds_no_timer() {
+        let wall_clock = Arc::new(TestWallClock::default());
+        let scheduler = Arc::new(Scheduler::start(
+            wall_clock.clone(),
+            None,
+            watch::channel(0).1,
+        ));
+        let (started, fire_started) = oneshot::channel();
+        let (release, released) = oneshot::channel();
+        let owner = Arc::new(HeldFireOwner {
+            armed: ArmedInstant::new(Arc::clone(&scheduler), "held test fire", "test retry"),
+            started: Mutex::new(Some(started)),
+            release: Mutex::new(Some(released)),
+        });
+        let instant = wall_clock.now() + Duration::from_hours(1);
+        ArmedInstant::arm(&owner, Some(instant));
+        wall_clock.set_now(instant);
+        tokio::time::timeout(RUN_BOUND, fire_started)
+            .await
+            .expect("the fire starts")
+            .expect("the fire reports its start");
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let (ran, timer_ran) = oneshot::channel();
+        let mut ran = Some(ran);
+        let _timer = scheduler
+            .schedule(
+                "test timer",
+                JobCondition::Always,
+                Duration::from_secs(1),
+                move |_| {
+                    if let Some(ran) = ran.take() {
+                        ran.send(()).expect("the test waits for the timer");
+                    }
+                    async { Ok(()) }.boxed()
+                },
+            )
+            .expect("the timer is scheduled");
+        tokio::time::timeout(RUN_BOUND, timer_ran)
+            .await
+            .expect("the timer runs while the fire waits")
+            .expect("the timer reports its run");
+        assert_eq!(Instant::now() - deadline, Duration::ZERO);
+
+        release.send(()).expect("the fire waits for its release");
+        scheduler
+            .stop(Instant::now() + RUN_BOUND)
+            .await
+            .expect("the task ends");
+    }
+
+    // The scheduler's stop waits for a fire still running, since the fire may still call into what
+    // the program stops after the scheduler, and ends once the fire does. Killed by the stop
+    // waiting for the scheduler's task alone, which returns while the fire still runs.
+    #[tokio::test(start_paused = true)]
+    async fn the_stop_waits_for_a_running_fire() {
+        let wall_clock = Arc::new(TestWallClock::default());
+        let scheduler = Arc::new(Scheduler::start(
+            wall_clock.clone(),
+            None,
+            watch::channel(0).1,
+        ));
+        let (started, fire_started) = oneshot::channel();
+        let (release, released) = oneshot::channel();
+        let owner = Arc::new(HeldFireOwner {
+            armed: ArmedInstant::new(Arc::clone(&scheduler), "held test fire", "test retry"),
+            started: Mutex::new(Some(started)),
+            release: Mutex::new(Some(released)),
+        });
+        let instant = wall_clock.now() + Duration::from_hours(1);
+        ArmedInstant::arm(&owner, Some(instant));
+        wall_clock.set_now(instant);
+        tokio::time::timeout(RUN_BOUND, fire_started)
+            .await
+            .expect("the fire starts")
+            .expect("the fire reports its start");
+
+        let stopping = tokio::spawn({
+            let scheduler = Arc::clone(&scheduler);
+            async move { scheduler.stop(Instant::now() + RUN_BOUND).await }
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!stopping.is_finished(), "the stop waits for the fire");
+        release.send(()).expect("the fire waits for its release");
+        tokio::time::timeout(RUN_BOUND, stopping)
+            .await
+            .expect("the stop ends once the fire does")
+            .expect("the stop's task ends")
+            .expect("the fire ends cleanly");
+    }
+
+    // A fire that panics leaves its owner firing: the next instant still fires, and the stop
+    // answers the panic. Killed by the running mark left set on the panic, which keeps every
+    // later fire waiting for a task that ended.
+    #[tokio::test(start_paused = true)]
+    async fn a_panicking_fire_leaves_the_owner_firing() {
+        let wall_clock = Arc::new(TestWallClock::default());
+        let scheduler = Arc::new(Scheduler::start(
+            wall_clock.clone(),
+            None,
+            watch::channel(0).1,
+        ));
+        let (fired, mut fires) = mpsc::unbounded_channel();
+        let owner = Arc::new(PanickingFireOwner {
+            armed: ArmedInstant::new(Arc::clone(&scheduler), "panicking test fire", "test retry"),
+            has_fired: AtomicBool::new(false),
+            fired,
+        });
+        for hours in [1, 2] {
+            let instant = wall_clock.now() + Duration::from_hours(hours);
+            ArmedInstant::arm(&owner, Some(instant));
+            wall_clock.set_now(instant);
+            let fired = tokio::time::timeout(RUN_BOUND, fires.recv())
+                .await
+                .expect("the instant fires")
+                .expect("the owner tells its fire");
+            assert_eq!(fired, instant);
+        }
+        let stopped = scheduler.stop(Instant::now() + RUN_BOUND).await;
+        assert!(
+            matches!(stopped, Err(SchedulerStopError::Panicked(_))),
+            "{stopped:?}"
+        );
     }
 }

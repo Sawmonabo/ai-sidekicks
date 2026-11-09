@@ -14,6 +14,7 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -21,7 +22,7 @@ use rusqlite::Connection;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, metered_job,
+    JobBudget, JobWorkload, MeteredJobOutcome, metered_job, run_blocking,
 };
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -79,7 +80,7 @@ pub(crate) struct RepackReport {
 /// The thread's answer to one repack: how it ended with the thread's processor time around its
 /// statements, or the failure of a step, beside the failure of putting the busy timeout back when
 /// that failed too.
-pub(crate) type RepackAnswer = Result<Measured<RepackEnd>, CleanupFailures<rusqlite::Error>>;
+pub(crate) type RepackAnswer = Result<RepackEnd, CleanupFailures<rusqlite::Error>>;
 
 /// Repacks the file on the writer's connection, between batches, unless `cancel` is canceled
 /// already; a `VACUUM` the cancel or SQLite's interrupt stopped reads as
@@ -172,6 +173,42 @@ pub struct RepackJobDeps {
     pub live_runs: watch::Receiver<u32>,
     /// The processor budget each repack is metered against.
     pub budget: JobBudget<StoreWorkUnit>,
+    // Set by a purge's request until its repack begins, so the purges before it share one repack.
+    is_requested: AtomicBool,
+}
+
+impl RepackJobDeps {
+    /// The repack's deps with no repack requested.
+    pub fn new(
+        writer: Arc<DatabaseWriter>,
+        truncation: Arc<WriteAheadLogTruncation>,
+        database_path: PathBuf,
+        read_volume_free_bytes: VolumeFreeBytesReader,
+        live_runs: watch::Receiver<u32>,
+        budget: JobBudget<StoreWorkUnit>,
+    ) -> Self {
+        Self {
+            writer,
+            truncation,
+            database_path,
+            read_volume_free_bytes,
+            live_runs,
+            budget,
+            is_requested: AtomicBool::new(false),
+        }
+    }
+
+    /// Marks a repack requested; answers whether none was, so this caller schedules it and the
+    /// others share it.
+    pub fn mark_requested(&self) -> bool {
+        !self.is_requested.swap(true, Ordering::AcqRel)
+    }
+
+    /// Clears the request this caller marked when its repack could not be scheduled, so the next
+    /// purge schedules one.
+    pub fn clear_request(&self) {
+        self.is_requested.store(false, Ordering::Release);
+    }
 }
 
 /// The repack job a purge schedules, metered against its deps' budget: skipped with one
@@ -183,16 +220,16 @@ pub fn repack_job(
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(
         deps.budget,
-        Box::new(move |stop, meter| run_repack(Arc::clone(&deps), stop, meter).boxed()),
+        Box::new(move |stop| run_repack(Arc::clone(&deps), stop).boxed()),
     )
 }
 
 async fn run_repack(
     deps: Arc<RepackJobDeps>,
     stop: CancellationToken,
-    meter: ProcessorMeter,
 ) -> MeteredJobOutcome<StoreWorkUnit> {
-    if !has_room_to_repack(&deps, &meter).await {
+    deps.is_requested.store(false, Ordering::Release);
+    if !has_room_to_repack(&deps).await {
         return Ok(None);
     }
     let cancel = CancellationToken::new();
@@ -212,9 +249,8 @@ async fn run_repack(
         never = gives_way => match never {},
     };
     match repacked {
-        Ok(measured) => {
-            meter.add(measured.processor_time);
-            let RepackEnd::Repacked(report) = measured.report else {
+        Ok(end) => {
+            let RepackEnd::Repacked(report) = end else {
                 tracing::info!(
                     "the database's repack gave way to a run or the stop; the next purge tries \
                      again"
@@ -245,16 +281,15 @@ async fn run_repack(
 
 // Whether the volume holds at least twice the file free; a figure that cannot be read is written
 // to the service log and skips the repack.
-async fn has_room_to_repack(deps: &RepackJobDeps, meter: &ProcessorMeter) -> bool {
+async fn has_room_to_repack(deps: &RepackJobDeps) -> bool {
     let database_path = deps.database_path.clone();
     let read_volume_free_bytes = deps.read_volume_free_bytes;
-    let figures = meter
-        .run_blocking(move || {
-            let file_bytes = std::fs::metadata(&database_path)?.len();
-            let folder = database_path.parent().unwrap_or(&database_path);
-            Ok::<_, io::Error>((file_bytes, read_volume_free_bytes(folder)?))
-        })
-        .await;
+    let figures = run_blocking(move || {
+        let file_bytes = std::fs::metadata(&database_path)?.len();
+        let folder = database_path.parent().unwrap_or(&database_path);
+        Ok::<_, io::Error>((file_bytes, read_volume_free_bytes(folder)?))
+    })
+    .await;
     match figures {
         Ok(Ok((file_bytes, free_bytes))) if free_bytes >= file_bytes.saturating_mul(2) => true,
         Ok(Ok((file_bytes, free_bytes))) => {

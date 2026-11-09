@@ -7,8 +7,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::{
-    LeftoverSweep, create_private_folder, remove_tree, remove_tree_awaited, replace_file_atomically,
+    LeftoverSweep, create_private_folder, remove_tree, replace_file_atomically,
 };
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::random_hex::random_hex;
 
 /// One sign-in's own folder, removed off the runtime's workers by [`SignInFolder::remove`] when

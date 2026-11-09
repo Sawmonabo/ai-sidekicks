@@ -33,7 +33,6 @@ use sidekicks_provider::driver::mcp_server::read::{
 };
 use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
 
@@ -58,8 +57,6 @@ pub struct McpInventorySources {
     pub providers: Arc<ProviderRegistry>,
     /// The read pool the provider accounts are read on.
     pub reads: Arc<DatabaseReadPool>,
-    /// The meter the accounts read's time is charged to.
-    pub meter: ProcessorMeter,
     /// The attached projects, whose roots each driver reads.
     pub projects: Arc<ProjectRecords>,
     /// The bindings' switches, tool overrides and per-project switches.
@@ -341,7 +338,7 @@ impl McpInventoryService {
     async fn read_context(&self) -> Result<McpInventoryContext, McpInventoryError> {
         let (attached_roots, accounts) = tokio::join!(
             self.read_attached_roots(),
-            read_account_homes(&self.sources.reads, &self.sources.meter)
+            read_account_homes(&self.sources.reads)
         );
         Ok(McpInventoryContext {
             attached_roots: attached_roots?,

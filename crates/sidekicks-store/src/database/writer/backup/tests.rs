@@ -20,7 +20,9 @@ use crate::database::checkpoint::CheckpointMode;
 use crate::database::connection::writer_open::open_database;
 use crate::database::schema::schema_parts;
 use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::database::writer::messages::{MeasuredCheckpointAnswer, ThreadRequest, WriteJob};
+use crate::database::writer::messages::{
+    MeteredWrite, RequestedCheckpointAnswer, ThreadRequest, WriteJob,
+};
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, ThreadStop};
 use crate::events::content::codec::BodyEncoder;
@@ -71,6 +73,7 @@ fn start_copy(
             destination: &destination,
             cancel: &cancel,
             lock_bound,
+            meter: None,
         };
         let stop = ThreadStop::new();
         let mut commits = ThreadCommits::new(Vec::new());
@@ -98,11 +101,12 @@ fn lock_destination(destination: &Path) -> Connection {
     blocker
 }
 
-fn checkpoint_request() -> (ThreadRequest, oneshot::Receiver<MeasuredCheckpointAnswer>) {
+fn checkpoint_request() -> (ThreadRequest, oneshot::Receiver<RequestedCheckpointAnswer>) {
     let (reply, answer) = oneshot::channel();
     (
         ThreadRequest::Checkpoint {
             mode: CheckpointMode::Passive,
+            meter: None,
             reply,
         },
         answer,
@@ -121,12 +125,15 @@ async fn a_write_made_during_the_copy_lands_in_it_without_restarting_it() {
     let (batch_reply, mut batch_answer) = oneshot::channel();
     sender
         .try_send(ThreadRequest::Batch {
-            jobs: vec![WriteJob {
-                statements: vec![
-                    write_statement("UPDATE filler SET body = zeroblob(10) WHERE id = 1"),
-                    write_statement("INSERT INTO filler VALUES (100000, 'during the copy')"),
-                ],
-                events: Vec::new(),
+            jobs: vec![MeteredWrite {
+                job: WriteJob {
+                    statements: vec![
+                        write_statement("UPDATE filler SET body = zeroblob(10) WHERE id = 1"),
+                        write_statement("INSERT INTO filler VALUES (100000, 'during the copy')"),
+                    ],
+                    events: Vec::new(),
+                },
+                meter: None,
             }],
             reply: batch_reply,
         })
@@ -147,7 +154,7 @@ async fn a_write_made_during_the_copy_lands_in_it_without_restarting_it() {
     .recv_timeout(WAIT)
     .expect("the copy answers");
 
-    let copied = answer.expect("the copy succeeds").report;
+    let copied = answer.expect("the copy succeeds");
     let BackupCopy::Copied {
         page_count,
         step_count,
@@ -227,8 +234,7 @@ async fn a_copy_holds_exactly_the_writes_its_commit_count_covers() {
     let copied = writer
         .backup(destination.clone(), CancellationToken::new())
         .await
-        .expect("the copy answers")
-        .report;
+        .expect("the copy answers");
     writing.await.expect("the writes end");
 
     let BackupCopy::Copied { copied_through, .. } = copied else {
@@ -283,7 +289,7 @@ async fn a_copy_meeting_a_lock_steps_again_once_it_clears_and_ends_at_its_bound(
     drop(blocker);
     let (answer, _) = answered.recv_timeout(WAIT).expect("the copy answers");
     assert!(matches!(
-        answer.expect("the copy succeeds").report,
+        answer.expect("the copy succeeds"),
         BackupCopy::Copied { .. }
     ));
 
@@ -300,7 +306,7 @@ async fn a_copy_meeting_a_lock_steps_again_once_it_clears_and_ends_at_its_bound(
     .recv_timeout(WAIT)
     .expect("the copy ends at its bound");
     assert!(matches!(
-        answer.expect("the copy answers how it ended").report,
+        answer.expect("the copy answers how it ended"),
         BackupCopy::HeldByLock(BackupLock::Busy)
     ));
 }
@@ -325,7 +331,7 @@ async fn a_canceled_copy_stops_before_its_next_step() {
     cancel.cancel();
     let (answer, is_queue_gone) = answered.recv_timeout(WAIT).expect("the copy answers");
     assert!(matches!(
-        answer.expect("the copy answers how it ended").report,
+        answer.expect("the copy answers how it ended"),
         BackupCopy::Stopped
     ));
     assert!(!is_queue_gone);

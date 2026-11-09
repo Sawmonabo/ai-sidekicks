@@ -12,7 +12,6 @@ use rusqlite::Connection;
 use sidekicks_contracts::daemon::data::DataEraseAccountListing;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -105,18 +104,11 @@ pub fn switching_homes(providers: &ProviderRegistry, data_folder: &Path) -> Vec<
         .collect()
 }
 
-/// Every account home in the accounts table, the query's time on the pool's thread charged to
-/// `meter`. Fails when the accounts cannot be read.
+/// Every account home in the accounts table. Fails when the accounts cannot be read.
 pub async fn read_account_homes(
     reads: &DatabaseReadPool,
-    meter: &ProcessorMeter,
 ) -> Result<Vec<AccountHome>, AccountHomesReadError> {
-    let meter = meter.clone();
-    reads
-        .read(ReadLength::Short, move |connection| {
-            meter.measure(|| query_account_homes(connection))
-        })
-        .await
+    reads.read(ReadLength::Short, query_account_homes).await
 }
 
 /// Every account home in the accounts table, read on `connection`, for a caller that holds one read

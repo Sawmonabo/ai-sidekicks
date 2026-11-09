@@ -17,7 +17,7 @@ pub(super) const OBSERVATION_INTERVAL: Duration = Duration::from_mins(5);
 const OBSERVATION_JOB: &str = "provider account observation";
 
 /// What a due job calls with its account; it starts the read and returns at once, so a read never
-/// holds the scheduler's one task.
+/// holds the scheduler's task.
 pub(super) type ObservationDue = Arc<dyn Fn(ProviderAccountId) + Send + Sync>;
 
 /// The observed accounts' jobs, one per account.

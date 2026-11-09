@@ -51,7 +51,6 @@ use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
@@ -476,11 +475,7 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
     let outcome = only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::DamagedHistory,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::DamagedHistory)
             .await,
     );
 

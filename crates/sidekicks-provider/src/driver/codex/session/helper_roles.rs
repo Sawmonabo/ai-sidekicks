@@ -148,7 +148,7 @@ pub(crate) async fn remove_codex_helper_roles(
     session_id: SessionId,
 ) -> Result<(), DriverError> {
     let session_folder = roles_folder.join(session_id.to_string());
-    sidekicks_platforms::remove_tree_awaited(&session_folder)
+    sidekicks_std::file::remove_tree_awaited(&session_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }

@@ -54,7 +54,7 @@ pub(crate) fn arm_hold_renewal(
             for call in &calls {
                 job_stream.forget_helper_call_of_request(&call.request_id);
             }
-            // The answers are written off the scheduler's one task, which never waits on a
+            // The answers are written off the scheduler's task, which never waits on a
             // process's write.
             if !calls.is_empty()
                 && let Some(live) = slots.live_session(session_id)

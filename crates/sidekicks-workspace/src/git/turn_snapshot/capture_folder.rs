@@ -11,9 +11,10 @@ use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{
     create_new_private_folder, create_private_folder, os_text_bytes, os_text_stable_bytes,
-    path_from_program_output, remove_tree_awaited, rename_replacing,
+    path_from_program_output, rename_replacing,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::random_hex::random_hex;
 
 use crate::folder::canonical_path::canonical_folder_path;

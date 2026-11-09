@@ -1,9 +1,13 @@
 //! A job's processor budget and its meter. Each job registers a figure per unit of the work a run
 //! reports, in units the job declares, and a run is measured on its own threads only, never the
 //! whole process: each poll of its async work, each blocking closure and read from entry to exit,
-//! and the time of the caller's thread that runs the job's own statements, which comes back in that
-//! thread's answer. A run over its budget is written to the program's log as a warning, one within
-//! it as a line of its own.
+//! and the time the writer's thread spends on the run's own statements. A run over its budget is
+//! written to the program's log as a warning, one within it as a line of its own.
+//!
+//! The run's meter is the task-local of the run's task, so a read on the read pool, a write or a
+//! maintenance request on the writer's thread and a blocking closure started through
+//! [`run_blocking`] are measured into it with no meter passed down; a process the run starts is
+//! not measured.
 
 use std::error::Error;
 use std::fmt::Debug;
@@ -99,18 +103,18 @@ impl<Unit: Copy + Eq> JobWorkload<Unit> {
     }
 }
 
-/// Processor time summed over readings of one thread's clock around pieces of a job's work, with
-/// the count of pieces measured; the first reading that failed is kept, so the run's line says its
-/// time could not be read.
+// Processor time summed over readings of one thread's clock around pieces of a job's work, with
+// the count of pieces measured; the first reading that failed is kept, so the run's line says its
+// time could not be read.
 #[derive(Debug, Default)]
-pub struct ThreadProcessorTime {
+struct ThreadProcessorTime {
     spent: SpentTime,
     unread: Option<io::Error>,
 }
 
 impl ThreadProcessorTime {
-    /// Runs `work` on the calling thread, adding the thread's processor time across it.
-    pub fn measure<Answer>(&mut self, work: impl FnOnce() -> Answer) -> Answer {
+    // Runs `work` on the calling thread, adding the thread's processor time across it.
+    fn measure<Answer>(&mut self, work: impl FnOnce() -> Answer) -> Answer {
         let start = thread_cpu_time();
         let answer = work();
         self.spent.readings += 1;
@@ -134,14 +138,9 @@ pub struct SpentTime {
     pub readings: u64,
 }
 
-/// What the caller's thread answers for the job's work it ran: the work's report, and its own
-/// processor time around the job's statements.
-#[derive(Debug)]
-pub struct Measured<Report> {
-    /// What the work reports.
-    pub report: Report,
-    /// The thread's processor time around the job's own statements.
-    pub processor_time: ThreadProcessorTime,
+tokio::task_local! {
+    // The meter of the metered run whose task this is.
+    static RUN_METER: ProcessorMeter;
 }
 
 /// The processor time one run spent on its own threads, which its parts add as they run.
@@ -151,8 +150,28 @@ pub struct ProcessorMeter {
 }
 
 impl ProcessorMeter {
-    /// Adds a thread's time to the run's.
-    pub fn add(&self, time: ThreadProcessorTime) {
+    /// The meter of the metered run whose task calls, `None` outside one. A task-local reaches no
+    /// other task, so a caller reads it before handing work to a spawned task or the blocking pool.
+    pub fn of_current_run() -> Option<Self> {
+        RUN_METER.try_with(Self::clone).ok()
+    }
+
+    /// Runs `work` with this meter as its task's run meter, so its reads, writes and blocking work
+    /// are measured on it as a metered job's are.
+    pub async fn scope<Answer>(&self, work: impl Future<Output = Answer>) -> Answer {
+        RUN_METER.scope(self.clone(), work).await
+    }
+
+    /// Runs `work` on the calling thread, measured on `meter` when there is one.
+    pub fn measure_on<Answer>(meter: Option<&Self>, work: impl FnOnce() -> Answer) -> Answer {
+        match meter {
+            Some(meter) => meter.measure(work),
+            None => work(),
+        }
+    }
+
+    // Adds a thread's time to the run's.
+    fn add(&self, time: ThreadProcessorTime) {
         let mut total = lock(&self.shared);
         total.spent.time += time.spent.time;
         total.spent.readings += time.spent.readings;
@@ -161,23 +180,12 @@ impl ProcessorMeter {
         }
     }
 
-    /// Runs `work` on the calling thread, adding the thread's time across it; for work that runs on
-    /// a thread the run does not own, such as a read pool's.
-    pub fn measure<Answer>(&self, work: impl FnOnce() -> Answer) -> Answer {
+    // Runs `work` on the calling thread, adding the thread's time across it.
+    fn measure<Answer>(&self, work: impl FnOnce() -> Answer) -> Answer {
         let mut time = ThreadProcessorTime::default();
         let answer = time.measure(work);
         self.add(time);
         answer
-    }
-
-    /// Runs `work` on the blocking pool, adding its thread's time from entry to exit. Fails when
-    /// the task ended before it finished.
-    pub async fn run_blocking<Answer: Send + 'static>(
-        &self,
-        work: impl FnOnce() -> Answer + Send + 'static,
-    ) -> Result<Answer, JoinError> {
-        let meter = self.clone();
-        tokio::task::spawn_blocking(move || meter.measure(work)).await
     }
 
     /// Takes the run's time so far, leaving the meter at zero. Fails with the first reading that
@@ -191,21 +199,28 @@ impl ProcessorMeter {
     }
 }
 
+/// Runs `work` on the blocking pool, measured on the meter of the metered run whose task calls, if
+/// any. Fails when the task ended before it finished.
+pub async fn run_blocking<Answer: Send + 'static>(
+    work: impl FnOnce() -> Answer + Send + 'static,
+) -> Result<Answer, JoinError> {
+    let meter = ProcessorMeter::of_current_run();
+    tokio::task::spawn_blocking(move || ProcessorMeter::measure_on(meter.as_ref(), work)).await
+}
+
 /// What a metered run ends with: the work it did in its budget's units, `None` when it did none,
 /// as a run its condition skipped.
 pub type MeteredJobOutcome<Unit> = Result<Option<JobWorkload<Unit>>, Box<dyn Error + Send + Sync>>;
 
-/// A job's work as a metered job takes it: given the scheduler's stop and the run's meter, which
-/// its blocking work and the answers of the caller's threads add to.
-pub(crate) type MeteredRun<Unit> = Box<
-    dyn FnMut(CancellationToken, ProcessorMeter) -> BoxFuture<'static, MeteredJobOutcome<Unit>>
-        + Send,
->;
+/// A job's work as a metered job takes it: given the scheduler's stop, it runs with the run's
+/// meter as its task's task-local.
+pub(crate) type MeteredRun<Unit> =
+    Box<dyn FnMut(CancellationToken) -> BoxFuture<'static, MeteredJobOutcome<Unit>> + Send>;
 
 /// The job the scheduler runs for `run` under `budget`: each run is metered on its own threads,
-/// each poll of its future measured on the thread that polls it, and its time is written to the
-/// program's log beside its budget, as a warning when it went over; a run over its budget is not
-/// stopped.
+/// each poll of its future measured on the thread that polls it, its meter the task-local of the
+/// run's task, and its time is written to the program's log beside its budget, as a warning when
+/// it went over; a run over its budget is not stopped.
 pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
     budget: JobBudget<Unit>,
     mut run: MeteredRun<Unit>,
@@ -213,7 +228,7 @@ pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
     move |stop| {
         let meter = ProcessorMeter::default();
         let polled = MeteredPolls {
-            future: run(stop, meter.clone()),
+            future: RUN_METER.scope(meter.clone(), run(stop)).boxed(),
             meter: meter.clone(),
         };
         async move {
@@ -279,7 +294,7 @@ mod tests {
     use std::hint::black_box;
     use std::time::Duration;
 
-    use super::{BudgetTerm, JobBudget, JobWorkload, ProcessorMeter};
+    use super::{BudgetTerm, JobBudget, JobWorkload, ProcessorMeter, RUN_METER, run_blocking};
 
     const MIB: u64 = 1024 * 1024;
 
@@ -317,27 +332,31 @@ mod tests {
         );
     }
 
-    // Blocking work is charged to the run from its own thread's clock: busy work counts, and a
-    // sleep of the same span counts almost nothing. Killed by a wall-clock reading.
+    // Blocking work a metered run starts is charged to the run's task-local meter from its own
+    // thread's clock: busy work counts, and a sleep of the same span counts almost nothing. Killed
+    // by a wall-clock reading and by the meter read on the blocking thread, where no run is.
     #[tokio::test]
     async fn blocking_work_is_charged_from_its_own_threads_clock() {
         let meter = ProcessorMeter::default();
-        meter
-            .run_blocking(|| std::thread::sleep(Duration::from_millis(200)))
-            .await
-            .expect("the sleep ends");
-        let slept = meter.take_spent().expect("the clock reads").time;
-        assert!(slept < Duration::from_millis(50), "{slept:?}");
-        meter
-            .run_blocking(|| {
-                let started = std::time::Instant::now();
-                let mut sum = 0_u64;
-                while started.elapsed() < Duration::from_millis(100) {
-                    sum = black_box(sum.wrapping_add(1));
-                }
+        RUN_METER
+            .scope(meter.clone(), async {
+                run_blocking(|| std::thread::sleep(Duration::from_millis(200)))
+                    .await
+                    .expect("the sleep ends");
+                let slept = meter.take_spent().expect("the clock reads");
+                assert_eq!(slept.readings, 1);
+                assert!(slept.time < Duration::from_millis(50), "{slept:?}");
+                run_blocking(|| {
+                    let started = std::time::Instant::now();
+                    let mut sum = 0_u64;
+                    while started.elapsed() < Duration::from_millis(100) {
+                        sum = black_box(sum.wrapping_add(1));
+                    }
+                })
+                .await
+                .expect("the busy work ends");
             })
-            .await
-            .expect("the busy work ends");
+            .await;
         assert!(meter.take_spent().expect("the clock reads").time >= Duration::from_millis(50));
     }
 }

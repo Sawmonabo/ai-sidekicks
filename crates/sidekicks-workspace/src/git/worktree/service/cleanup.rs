@@ -22,6 +22,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{RepoMountState, WorkspaceState};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -44,6 +45,7 @@ use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
+use crate::git::worktree::tree_records::read_index_entry_count;
 
 // The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
 // daemon holds its caller no longer than that.
@@ -137,6 +139,9 @@ pub struct WorktreeCleanupReport {
     pub cleaned: Vec<WorktreeId>,
     /// Retired trees whose folder held something new, kept aside or left where they are.
     pub kept: Vec<WorktreeId>,
+    /// The entries git's index listed across the cleaned trees whose record the pass removed,
+    /// read before each record went: their tracked files, never untracked or ignored ones.
+    pub cleaned_index_entries: u64,
 }
 
 /// Why cleaning one retired tree failed.
@@ -207,7 +212,8 @@ struct RetiredFolderRow {
 
 // What became of one retired folder.
 enum RetiredFolderOutcome {
-    Cleaned,
+    // Removed, with the entries its index listed.
+    Cleaned { index_entries: u64 },
     Kept,
     Deferred,
 }
@@ -270,8 +276,9 @@ impl WorktreeService {
                         break;
                     }
                     match self.clean_retired_folder(&retired, keeper, owners).await {
-                        Ok(RetiredFolderOutcome::Cleaned) => {
+                        Ok(RetiredFolderOutcome::Cleaned { index_entries }) => {
                             report.cleaned.push(retired.row.id);
+                            report.cleaned_index_entries += index_entries;
                         }
                         Ok(RetiredFolderOutcome::Kept) => {
                             report.kept.push(retired.row.id);
@@ -341,19 +348,23 @@ impl WorktreeService {
         } else {
             Vec::new()
         };
-        if record_folder.is_some() {
-            stop_file_watch(&self.deps.git, place, folder)
-                .await
-                .map_err(WorktreeCleanupError::FileWatchStop)?;
-        }
+        let index_entries = match &record_folder {
+            Some(record_folder) => {
+                stop_file_watch(&self.deps.git, place, folder)
+                    .await
+                    .map_err(WorktreeCleanupError::FileWatchStop)?;
+                count_index_entries(record_folder).await
+            }
+            None => 0,
+        };
         self.remove_worktree_record(record_folder.as_deref())
             .await
             .map_err(WorktreeCleanupError::Removal)?;
-        sidekicks_platforms::remove_tree_awaited(folder)
+        remove_tree_awaited(folder)
             .await
             .map_err(WorktreeCleanupError::Removal)?;
         self.stamp_cleaned(&row.id).await?;
-        Ok(RetiredFolderOutcome::Cleaned)
+        Ok(RetiredFolderOutcome::Cleaned { index_entries })
     }
 
     // An agent runs in the tree, or a session stands in its folder.
@@ -449,6 +460,20 @@ fn is_nothing_to_stop(stderr: &str) -> bool {
                     .is_some_and(|folder| !folder.is_empty())
             })
     })
+}
+
+// The entries the tree's index in `record_folder` lists, for the pass's budget; an index that
+// cannot be read is logged and counts none, since the count never decides the removal.
+async fn count_index_entries(record_folder: &Path) -> u64 {
+    read_index_entry_count(record_folder)
+        .await
+        .unwrap_or_else(|failure| {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "a retired tree's index could not be read; its entries are not counted"
+            );
+            0
+        })
 }
 
 fn read_sweepable(connection: &Connection) -> Result<Vec<WorktreeRow>, WorktreeServiceError> {

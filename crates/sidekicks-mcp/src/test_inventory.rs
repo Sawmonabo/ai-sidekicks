@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::project::records::ProjectRecords;
@@ -47,7 +46,6 @@ pub(crate) async fn open_test_inventory(
     let service = Arc::new(McpInventoryService::new(McpInventorySources {
         providers,
         reads: Arc::clone(&reads),
-        meter: ProcessorMeter::default(),
         projects: Arc::new(ProjectRecords::new(reads, Arc::new(NoSessions))),
         store,
         tracker: Arc::clone(&tracker),

@@ -47,11 +47,12 @@ use sidekicks_platforms::{
 use sidekicks_recovery::database_file::check::SOUND_ROW;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush};
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, metered_job, run_blocking,
 };
-use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_std::scheduler::{JobCadence, JobCondition, ScheduleError, Scheduler};
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::backup_mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
@@ -158,10 +159,9 @@ pub(crate) fn backup_manifest_facts(version: ReleaseVersion) -> BackupManifestFa
     }
 }
 
-/// Reads the files and folders the mirror keeps, as they stand at the run, its reads charged to the
-/// run's meter.
+/// Reads the files and folders the mirror keeps, as they stand at the run.
 pub(crate) type MirrorRootsReader =
-    Arc<dyn Fn(ProcessorMeter) -> BoxFuture<'static, io::Result<Vec<MirrorRoot>>> + Send + Sync>;
+    Arc<dyn Fn() -> BoxFuture<'static, io::Result<Vec<MirrorRoot>>> + Send + Sync>;
 
 /// What the runs read and write through.
 pub(crate) struct BackupDeps {
@@ -359,12 +359,13 @@ impl Backups {
         let backups = Arc::clone(self);
         let job = metered_job(
             BACKUP_BUDGET,
-            Box::new(move |stop, meter| {
+            Box::new(move |stop| {
                 let backups = Arc::clone(&backups);
-                async move { backups.run(trigger, &stop, &meter).await }.boxed()
+                async move { backups.run(trigger, &stop).await }.boxed()
             }),
         );
-        let scheduled = scheduler.schedule("backup", condition, Duration::ZERO, job);
+        let scheduled =
+            scheduler.schedule_job("backup", condition, JobCadence::Delay(Duration::ZERO), job);
         if scheduled.is_err() {
             *lock(&self.pending) = None;
         }
@@ -376,16 +377,15 @@ impl Backups {
         self.deps.reads.read(ReadLength::Short, read_last_run).await
     }
 
-    // One run for `trigger`, or a stronger request that joined it, its blocking steps and its copy
-    // charged to `meter`: skipped while the switch is off unless it is `Back up now`, and the daily
-    // one when nothing committed since the last copy. Requests join it until its copy begins, or
-    // until it ends when it never copies. A run that fails records why and keeps every backup; only
-    // a failed record fails the job. Answers the store it copied when it wrote a backup.
+    // One run for `trigger`, or a stronger request that joined it: skipped while the switch is off
+    // unless it is `Back up now`, and the daily one when nothing committed since the last copy.
+    // Requests join it until its copy begins, or until it ends when it never copies. A run that
+    // fails records why and keeps every backup; only a failed record fails the job. Answers the
+    // store it copied when it wrote a backup.
     async fn run(
         &self,
         trigger: BackupTrigger,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
     ) -> MeteredJobOutcome<StoreWorkUnit> {
         let mut joined = JoinedRequests {
             pending: &self.pending,
@@ -408,7 +408,7 @@ impl Backups {
             return Ok(None);
         }
         let folder = backup_folder_of(&settings, &self.deps.home_folder);
-        let written = self.write_backup(&folder, stop, meter, &mut joined).await;
+        let written = self.write_backup(&folder, stop, &mut joined).await;
         let mut copied = None;
         let event = match written {
             Ok(None) => return Ok(None),
@@ -460,36 +460,34 @@ impl Backups {
         &self,
         folder: &Path,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
         joined: &mut JoinedRequests<'_>,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
         let locked_folder = folder.to_path_buf();
-        let _lock = blocking(meter, move || take_folder_lock(&locked_folder)).await??;
+        let _lock = run_blocking(move || take_folder_lock(&locked_folder))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
         let id = mint_uuid_v7().to_string();
         let backup_folder = folder.join(&id);
         let staged = backup_folder.join(format!("{BACKUP_DATABASE_FILE_NAME}.tmp"));
         let made_folder = backup_folder.clone();
-        blocking(meter, move || {
-            create_new_private_folder(&made_folder).map_err(at(&made_folder))
-        })
-        .await??;
+        run_blocking(move || create_new_private_folder(&made_folder).map_err(at(&made_folder)))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
         joined.release();
         let written = self
-            .fill_backup(folder, &backup_folder, &staged, id, stop, meter)
+            .fill_backup(folder, &backup_folder, &staged, id, stop)
             .await;
         if matches!(written, Ok(Some(_))) {
-            if let Err(failure) = prune(folder, meter).await {
+            if let Err(failure) = prune(folder).await {
                 tracing::warn!(
                     error = &failure as &(dyn Error + 'static),
                     "the backups no day or week keeps could not all be pruned"
                 );
             }
         } else {
-            let removed = backup_folder.clone();
-            let removal = match blocking(meter, move || remove_tree(&removed)).await {
-                Ok(removal) => removal.map_err(at(&backup_folder)),
-                Err(interrupted) => Err(interrupted),
-            };
+            let removal = remove_tree_awaited(&backup_folder)
+                .await
+                .map_err(at(&backup_folder));
             if let Err(failure) = removal {
                 tracing::warn!(
                     error = &failure as &(dyn Error + 'static),
@@ -510,7 +508,6 @@ impl Backups {
         staged: &Path,
         id: String,
         stop: &CancellationToken,
-        meter: &ProcessorMeter,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
         // Read before the copy, so a name that cannot label the backup costs no copy.
         let computer_name = self.read_computer_name().await?;
@@ -520,8 +517,7 @@ impl Backups {
             .backup(staged.to_path_buf(), stop.clone())
             .await
             .map_err(BackupRunError::Copy)?;
-        meter.add(copy.processor_time);
-        let copied_through = match copy.report {
+        let copied_through = match copy {
             BackupCopy::Copied { copied_through, .. } => copied_through,
             BackupCopy::HeldByLock(lock) => {
                 return Err(BackupRunError::HeldByLock(lock.describe()));
@@ -531,8 +527,10 @@ impl Backups {
         let checked = staged.to_path_buf();
         let database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
         let placed = database.clone();
-        let total_bytes = blocking(meter, move || check_and_place(&checked, &placed)).await??;
-        let roots = (self.deps.read_mirror_roots)(meter.clone())
+        let total_bytes = run_blocking(move || check_and_place(&checked, &placed))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
+        let roots = (self.deps.read_mirror_roots)()
             .await
             .map_err(BackupRunError::MirrorRoots)?;
         let mirror_folder = folder.join(MIRROR_FOLDER_NAME);
@@ -540,10 +538,11 @@ impl Backups {
         let mirrored_roots = roots.clone();
         let home = self.deps.home_folder.clone();
         let mirror_stop = stop.clone();
-        let mirrored = blocking(meter, move || {
+        let mirrored = run_blocking(move || {
             mirror_roots(&mirrored_folder, &home, &mirrored_roots, &mirror_stop)
         })
-        .await?;
+        .await
+        .map_err(BackupRunError::Interrupted)?;
         let report = match mirrored {
             Ok(report) => report,
             Err(MirrorError::Stopped) => return Ok(None),
@@ -557,10 +556,9 @@ impl Backups {
         );
         let roots_list = serde_json::to_vec(&roots).map_err(BackupRunError::MirrorList)?;
         let roots_file = mirror_folder.join(MIRROR_ROOTS_FILE_NAME);
-        blocking(meter, move || {
-            write_and_flush(&roots_file, &roots_list, BACKUP_FILE_MODE)
-        })
-        .await??;
+        run_blocking(move || write_and_flush(&roots_file, &roots_list, BACKUP_FILE_MODE))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
         let backup_id = BackupId::new(id).expect("a minted id is text within a backup id's cap");
         let facts = &self.deps.manifest_facts;
         let manifest = BackupManifest {
@@ -574,12 +572,13 @@ impl Backups {
         };
         let manifest_bytes = serde_json::to_vec(&manifest).expect("a manifest serializes as JSON");
         let manifest_file = backup_folder.join(BACKUP_MANIFEST_FILE_NAME);
-        blocking(meter, move || {
-            write_and_flush(&manifest_file, &manifest_bytes, BACKUP_FILE_MODE)
-        })
-        .await??;
+        run_blocking(move || write_and_flush(&manifest_file, &manifest_bytes, BACKUP_FILE_MODE))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
         let flushed = folder.to_path_buf();
-        blocking(meter, move || flush_folder(&flushed).map_err(at(&flushed))).await??;
+        run_blocking(move || flush_folder(&flushed).map_err(at(&flushed)))
+            .await
+            .map_err(BackupRunError::Interrupted)??;
         Ok(Some(WrittenBackup {
             backup_id,
             total_bytes,
@@ -651,26 +650,25 @@ pub(crate) fn read_backups(folder: &Path) -> io::Result<Vec<(PathBuf, BackupMani
 // Removes the backups in `folder` that no day or week keeps, and each folder a run a crash cut
 // short left without its manifest: only one named as a run names its backup, so no folder of the
 // person's own goes.
-async fn prune(folder: &Path, meter: &ProcessorMeter) -> io::Result<()> {
+async fn prune(folder: &Path) -> io::Result<()> {
     let listed = folder.to_path_buf();
-    meter
-        .run_blocking(move || {
-            let generations: Vec<BackupGeneration> = read_backups(&listed)?
-                .into_iter()
-                .filter_map(|(folder, manifest)| {
-                    let taken_at = manifest.taken_at.as_str().parse::<jiff::Timestamp>().ok()?;
-                    Some(BackupGeneration { folder, taken_at })
-                })
-                .collect();
-            let mut pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
-            pruned.extend(read_unfinished_backups(&listed)?);
-            for folder in &pruned {
-                remove_tree(folder)?;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(io::Error::other)?
+    run_blocking(move || {
+        let generations: Vec<BackupGeneration> = read_backups(&listed)?
+            .into_iter()
+            .filter_map(|(folder, manifest)| {
+                let taken_at = manifest.taken_at.as_str().parse::<jiff::Timestamp>().ok()?;
+                Some(BackupGeneration { folder, taken_at })
+            })
+            .collect();
+        let mut pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
+        pruned.extend(read_unfinished_backups(&listed)?);
+        for folder in &pruned {
+            remove_tree(folder)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(io::Error::other)?
 }
 
 // The folders in `folder` named as a run names a backup that hold no manifest.
@@ -768,17 +766,6 @@ fn last_finished_at(last_run: &BackupLastRun) -> Option<SystemTime> {
         last_run;
     let finished: jiff::Timestamp = finished_at.as_str().parse().ok()?;
     Some(SystemTime::from(finished))
-}
-
-// Runs `work` on the blocking pool, charged to `meter`.
-async fn blocking<Answer: Send + 'static>(
-    meter: &ProcessorMeter,
-    work: impl FnOnce() -> Answer + Send + 'static,
-) -> Result<Answer, BackupRunError> {
-    meter
-        .run_blocking(work)
-        .await
-        .map_err(BackupRunError::Interrupted)
 }
 
 // The failure at `path`.

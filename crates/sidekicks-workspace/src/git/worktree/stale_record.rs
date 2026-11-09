@@ -112,7 +112,7 @@ pub(crate) async fn remove_stale_tree_record(
         put_record_back(&removing_folder, record_folder).await?;
         return Ok(false);
     }
-    sidekicks_platforms::remove_tree_awaited(&removing_folder)
+    sidekicks_std::file::remove_tree_awaited(&removing_folder)
         .await
         .map_err(at(&removing_folder))?;
     Ok(true)
@@ -158,7 +158,7 @@ pub(crate) async fn remove_stale_record_and_refs(
         .map_err(StaleRecordError::RefStore)?;
     if let Some(payload) = settings.ref_store_payload(common_folder) {
         let refs_folder = payload.tree_refs_folder(record_name);
-        sidekicks_platforms::remove_tree_awaited(&refs_folder)
+        sidekicks_std::file::remove_tree_awaited(&refs_folder)
             .await
             .map_err(at(&refs_folder))?;
     }
@@ -237,7 +237,7 @@ async fn finish_record_removals_cut_short(
         if is_tree_live {
             put_record_back(&leftover, record_folder).await?;
         } else {
-            sidekicks_platforms::remove_tree_awaited(&leftover)
+            sidekicks_std::file::remove_tree_awaited(&leftover)
                 .await
                 .map_err(at(&leftover))?;
         }
@@ -258,7 +258,7 @@ async fn put_record_back(
     let aside_git_file = read_named_git_file(aside_folder).await?;
     let taken_git_file = read_named_git_file(record_folder).await?;
     if is_same_git_file(aside_git_file.as_deref(), taken_git_file.as_deref()).await? {
-        sidekicks_platforms::remove_tree_awaited(aside_folder)
+        sidekicks_std::file::remove_tree_awaited(aside_folder)
             .await
             .map_err(at(aside_folder))?;
         return Ok(());

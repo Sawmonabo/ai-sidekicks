@@ -17,7 +17,6 @@ use sidekicks_recovery::projection_rebuild::{
 use sidekicks_session::directory::projection::SessionDirectoryProjection;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
 use sidekicks_store::database::writer::test_file::test_envelope;
@@ -121,16 +120,7 @@ async fn a_purged_parents_forks_stay_whole_and_name_no_parent() {
     rebuild_directory_row(&fixture, fork).await;
     assert_eq!(parent_of(&reader, fork), parent_text, "a rebuild keeps it");
 
-    let outcome = only_outcome(
-        fixture
-            .purge
-            .purge(
-                &[parent],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
-            .await,
-    );
+    let outcome = only_outcome(fixture.purge.purge(&[parent], PurgeCaller::Retention).await);
 
     assert!(
         matches!(outcome, SessionPurgeOutcome::Removed { .. }),

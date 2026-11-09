@@ -13,6 +13,7 @@ use std::sync::Arc;
 use deadpool::managed::{Manager, Metrics, Object, Pool, PoolError, RecycleResult};
 use rusqlite::Connection;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::sync::{RwLock, Semaphore};
 use tokio::task::JoinError;
 
@@ -138,9 +139,10 @@ impl DatabaseReadPool {
     }
 
     /// Runs `read` on a borrowed connection on the blocking pool, the connection held for the
-    /// whole read; a [`ReadLength::Long`] read first waits for a place among the long ones. A
-    /// caller that leaves once `read` runs leaves it running, its place and connection held until
-    /// it ends. Fails with `read`'s own failure, or with [`DatabaseReadError`] when the pool is
+    /// whole read and the read measured on the meter of the metered run whose task calls, if any;
+    /// a [`ReadLength::Long`] read first waits for a place among the long ones. A caller that
+    /// leaves once `read` runs leaves it running, its place and connection held until it ends.
+    /// Fails with `read`'s own failure, or with [`DatabaseReadError`] when the pool is
     /// closed, a connection does not open or the blocking task does not finish.
     pub async fn read<Output, Failure>(
         &self,
@@ -163,8 +165,9 @@ impl DatabaseReadPool {
         };
         let connection: Object<ReadConnectionManager> =
             self.connections.get().await.map_err(read_error)?;
+        let meter = ProcessorMeter::of_current_run();
         tokio::task::spawn_blocking(move || {
-            let result = read(&connection);
+            let result = ProcessorMeter::measure_on(meter.as_ref(), || read(&connection));
             // The connection is back in the pool before its place and the close's hold go, so the
             // close never meets it out.
             drop(connection);

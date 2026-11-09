@@ -16,6 +16,7 @@
 //! wakes the session once its process exited; triggers while waking join the one resume and are
 //! answered in arrival order, each failed when the resume fails, which leaves the session asleep.
 
+mod check;
 mod holds;
 pub mod kept_schedules;
 pub mod openings;
@@ -32,7 +33,6 @@ use futures::future::BoxFuture;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::command::running_set::RunningCommandSets;
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -46,7 +46,6 @@ use sidekicks_std::scheduler::{JobCondition, ScheduleError, ScheduledJobHandle, 
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::{SetOnce, SetOnceError, oneshot};
@@ -65,14 +64,8 @@ use crate::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 /// waiting messages, its state, its lead's binding, and every session's kept schedules.
 pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 5;
 
-/// How often the one check looks at every awake session.
-const CHECK_INTERVAL: Duration = Duration::from_mins(5);
-
 /// How long a session stays idle, nothing holding it, before its process is stopped.
 const IDLE_LIMIT: Duration = Duration::from_mins(30);
-
-/// The check's name in the program's log.
-const CHECK_JOB: &str = "idle sleep check";
 
 /// A scheduled wake's name in the program's log.
 const SCHEDULED_WAKE_JOB: &str = "idle sleep scheduled wake";
@@ -298,23 +291,7 @@ impl SessionIdleSleep {
                 }
             }
         }
-        let checking = self.this.clone();
-        let job = self.deps.scheduler.schedule_repeating(
-            CHECK_JOB,
-            JobCondition::Always,
-            CHECK_INTERVAL,
-            CHECK_INTERVAL,
-            move |_| {
-                let checking = checking.clone();
-                async move {
-                    if let Some(idle_sleep) = checking.upgrade() {
-                        idle_sleep.check().await;
-                    }
-                    Ok(())
-                }
-                .boxed()
-            },
-        )?;
+        let job = self.schedule_check()?;
         *lock(&self.check_job) = Some(job);
         Ok(())
     }
@@ -462,66 +439,6 @@ impl SessionIdleSleep {
             SessionSleepState::Awake => Ok(()),
             SessionSleepState::Asleep => Err(IdleSleepError::NotWoken { session_id }),
         }
-    }
-
-    /// The check: every followed session closed or deleted since is forgotten, and each awake one
-    /// idle past the limit with nothing holding it is stopped under its lock. A session whose
-    /// check fails is written to the log and checked again next time.
-    pub(crate) async fn check(&self) {
-        let now = Instant::now();
-        let followed: Vec<SessionId> = lock(&self.sessions).keys().copied().collect();
-        for session_id in followed {
-            if let Err(error) = self.check_session(session_id, now).await {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = &error as &(dyn Error + 'static),
-                    "the idle sleep could not check a session; its next check tries again"
-                );
-            }
-        }
-    }
-
-    async fn check_session(
-        &self,
-        session_id: SessionId,
-        now: Instant,
-    ) -> Result<(), IdleSleepError> {
-        match read_session_state_through::<IdleSleepError>(&self.deps.pool, session_id).await? {
-            None | Some(SessionState::Closed | SessionState::PurgeRequested) => {
-                return self.forget(session_id).await;
-            }
-            Some(SessionState::Provisioning | SessionState::Active | SessionState::Archived) => {}
-        }
-        if !self.is_awake_and_unheld(session_id) {
-            return Ok(());
-        }
-        let driver = self.session_driver(session_id).await?;
-        let holds = self.read_holds(driver.as_ref(), session_id).await?;
-        self.keep_schedules(session_id, &holds.schedules).await;
-        let is_due = {
-            let mut sessions = lock(&self.sessions);
-            match sessions.get_mut(&session_id) {
-                Some(SessionSleep {
-                    phase: SleepPhase::Awake { idle_since },
-                    registered_holds: 0,
-                    ..
-                }) => {
-                    if holds.is_held {
-                        *idle_since = None;
-                        false
-                    } else {
-                        now.duration_since(*idle_since.get_or_insert(now)) >= IDLE_LIMIT
-                    }
-                }
-                Some(_) | None => false,
-            }
-        };
-        if is_due {
-            let idle_sleep = self.shared();
-            self.transitions
-                .spawn(async move { idle_sleep.stop_session(session_id).await });
-        }
-        Ok(())
     }
 
     // Stops `session_id`'s process under its transition lock once every hold, read again there,

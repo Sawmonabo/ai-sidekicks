@@ -24,7 +24,6 @@ use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, insert_queue_item_statement,
     leave_queued_statement,
 };
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::data_folder::session_storage_folder;
 
 use super::{PurgeFixture, count, only_outcome, purge_fixture, state_of, store_session};
@@ -157,12 +156,7 @@ async fn a_fresh_sessions_purge_takes_its_storage_folder_and_hand_off_row() {
         .expect("a run takes the seed");
     let file = store_file(&fixture, fresh);
 
-    let outcome = only_outcome(
-        fixture
-            .purge
-            .purge(&[fresh], PurgeCaller::Retention, &ProcessorMeter::default())
-            .await,
-    );
+    let outcome = only_outcome(fixture.purge.purge(&[fresh], PurgeCaller::Retention).await);
 
     assert!(
         matches!(outcome, SessionPurgeOutcome::Removed { .. }),
@@ -201,11 +195,7 @@ async fn a_planning_sessions_purge_waits_for_the_seed_and_takes_only_its_own_row
     let refused = only_outcome(
         fixture
             .purge
-            .purge(
-                &[planning],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[planning], PurgeCaller::Retention)
             .await,
     );
 
@@ -233,11 +223,7 @@ async fn a_planning_sessions_purge_waits_for_the_seed_and_takes_only_its_own_row
     let removed = only_outcome(
         fixture
             .purge
-            .purge(
-                &[planning],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[planning], PurgeCaller::Retention)
             .await,
     );
 

@@ -286,7 +286,7 @@ impl ManagedWorkspaceService {
     /// them in its own write. A session with no managed workspace changes nothing. Fails with the
     /// removal's failure.
     pub async fn delete_folder(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
-        sidekicks_platforms::remove_tree_awaited(&self.workspace_path_of(session_id))
+        sidekicks_std::file::remove_tree_awaited(&self.workspace_path_of(session_id))
             .await
             .map_err(ManagedWorkspaceError::Removal)
     }
@@ -347,7 +347,7 @@ impl ManagedWorkspaceService {
         session_id: SessionId,
         workspace_path: &Path,
     ) -> Result<(), ManagedWorkspaceError> {
-        sidekicks_platforms::remove_tree_awaited(workspace_path)
+        sidekicks_std::file::remove_tree_awaited(workspace_path)
             .await
             .map_err(ManagedWorkspaceError::Removal)?;
         self.repo_mounts.delete_managed(session_id).await?;

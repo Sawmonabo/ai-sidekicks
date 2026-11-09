@@ -11,7 +11,7 @@ use rusqlite::{
     Connection, DropBehavior, ErrorCode, InterruptHandle, Transaction, TransactionBehavior,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
@@ -21,7 +21,7 @@ use crate::database::statement::run_statement;
 use crate::database::writer::backup::{CopyOrder, LOCK_BOUND, ThreadServing, copy_database};
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, CommittedBatch, FailedBatch,
-    MeasuredCheckpointAnswer, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
+    MeteredWrite, RequestedCheckpointAnswer, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
     WriteJobOutcome,
 };
 use crate::database::writer::repack::repack;
@@ -236,9 +236,9 @@ impl UnkeptWrite {
 }
 
 /// Runs one request and answers it; false once the queue is gone, so no request follows. A copy
-/// serves the requests that come while it lives, each through here. A checkpoint's and a repack's
-/// answers carry the thread's processor time around their statements; a batch's and a copy's carry
-/// the count of `commits`, the thread's count of the batches that committed a write.
+/// serves the requests that come while it lives, each through here. A maintenance request's
+/// statements are measured on its asking run's meter; a batch's and a copy's answers carry the
+/// count of `commits`, the thread's count of the batches that committed a write.
 pub(super) fn serve_request(
     connection: &Connection,
     encoder: &mut BodyEncoder,
@@ -252,44 +252,42 @@ pub(super) fn serve_request(
         ThreadRequest::Batch { jobs, reply } => reply
             .send(run_batch(connection, encoder, &jobs, stop, commits))
             .is_ok(),
-        ThreadRequest::Checkpoint { mode, reply } => {
-            reply.send(checkpoint_measured(connection, mode)).is_ok()
+        ThreadRequest::Checkpoint { mode, meter, reply } => {
+            let checkpointed = ProcessorMeter::measure_on(meter.as_ref(), || {
+                requested_checkpoint(connection, mode)
+            });
+            reply.send(checkpointed).is_ok()
         }
-        ThreadRequest::Optimize { reply } => {
-            let mut processor_time = ThreadProcessorTime::default();
-            let optimized = processor_time.measure(|| connection.execute_batch(OPTIMIZE_SQL));
+        ThreadRequest::Optimize { meter, reply } => {
+            let optimized = ProcessorMeter::measure_on(meter.as_ref(), || {
+                connection.execute_batch(OPTIMIZE_SQL)
+            });
             reply
-                .send(
-                    optimized
-                        .map(|()| Measured {
-                            report: (),
-                            processor_time,
-                        })
-                        .map_err(|failure| {
-                            CleanupFailures::new(failure, Vec::new(), OPTIMIZE_OPERATION)
-                        }),
-                )
-                .is_ok()
-        }
-        ThreadRequest::Repack { cancel, reply } => {
-            let mut processor_time = ThreadProcessorTime::default();
-            let repacked = processor_time.measure(|| repack(connection, &cancel));
-            reply
-                .send(repacked.map(|report| Measured {
-                    report,
-                    processor_time,
+                .send(optimized.map_err(|failure| {
+                    CleanupFailures::new(failure, Vec::new(), OPTIMIZE_OPERATION)
                 }))
                 .is_ok()
+        }
+        ThreadRequest::Repack {
+            cancel,
+            meter,
+            reply,
+        } => {
+            let repacked =
+                ProcessorMeter::measure_on(meter.as_ref(), || repack(connection, &cancel));
+            reply.send(repacked).is_ok()
         }
         ThreadRequest::Backup {
             destination,
             cancel,
+            meter,
             reply,
         } => {
             let order = CopyOrder {
                 destination: &destination,
                 cancel: &cancel,
                 lock_bound: LOCK_BOUND,
+                meter: meter.as_ref(),
             };
             let mut serving = ThreadServing {
                 connection,
@@ -306,27 +304,22 @@ pub(super) fn serve_request(
 }
 
 // Runs a requested checkpoint right after a `NOOP` one, whose count of frames already moved
-// leaves the frames this one moved, and reads the store's page size, with the thread's processor
-// time around them.
-fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> MeasuredCheckpointAnswer {
-    let mut processor_time = ThreadProcessorTime::default();
-    let report = processor_time.measure(|| {
-        let before = checkpoint(connection, CheckpointMode::Noop)?;
-        let result = checkpoint(connection, mode)?;
-        let page_size = connection
-            .pragma_query_value(None, "page_size", |row| row.get(0))
-            .map_err(|failure| CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION))?;
-        Ok(CheckpointReport {
-            result,
-            moved_frames: result
-                .checkpointed_frames
-                .saturating_sub(before.checkpointed_frames),
-            page_size,
-        })
-    })?;
-    Ok(Measured {
-        report,
-        processor_time,
+// leaves the frames this one moved, and reads the store's page size.
+fn requested_checkpoint(
+    connection: &Connection,
+    mode: CheckpointMode,
+) -> RequestedCheckpointAnswer {
+    let before = checkpoint(connection, CheckpointMode::Noop)?;
+    let result = checkpoint(connection, mode)?;
+    let page_size = connection
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .map_err(|failure| CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION))?;
+    Ok(CheckpointReport {
+        result,
+        moved_frames: result
+            .checkpointed_frames
+            .saturating_sub(before.checkpointed_frames),
+        page_size,
     })
 }
 
@@ -336,7 +329,7 @@ fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> Measure
 fn run_batch(
     connection: &Connection,
     encoder: &mut BodyEncoder,
-    jobs: &[WriteJob],
+    jobs: &[MeteredWrite],
     stop: &ThreadStop,
     commits: &mut ThreadCommits,
 ) -> BatchAnswer {
@@ -377,7 +370,7 @@ fn run_batch(
 fn run_transaction(
     connection: &Connection,
     encoder: &mut BodyEncoder,
-    jobs: &[WriteJob],
+    jobs: &[MeteredWrite],
     stop: &ThreadStop,
     outcomes: &mut Vec<WriteJobOutcome>,
 ) -> Result<(), Box<CleanupFailures<BatchFailure, rusqlite::Error>>> {
@@ -398,7 +391,7 @@ fn run_transaction(
         })?;
     // Every end below is explicit, so no drop runs SQL whose failure no one sees.
     transaction.set_drop_behavior(DropBehavior::Ignore);
-    for (job_index, job) in jobs.iter().enumerate() {
+    for (job_index, write) in jobs.iter().enumerate() {
         if stop.is_stopped() {
             return Err(Box::new(roll_back(
                 transaction,
@@ -407,7 +400,10 @@ fn run_transaction(
                 stop,
             )));
         }
-        match run_job(&transaction, encoder, job, stop) {
+        let ended = ProcessorMeter::measure_on(write.meter.as_ref(), || {
+            run_job(&transaction, encoder, &write.job, stop)
+        });
+        match ended {
             JobEnd::Settled(outcome) => outcomes.push(outcome),
             JobEnd::Stopped => {
                 return Err(Box::new(roll_back(

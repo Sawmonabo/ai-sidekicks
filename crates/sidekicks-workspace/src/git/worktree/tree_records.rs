@@ -10,10 +10,20 @@ use std::sync::LazyLock;
 
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::missing_entry::is_missing_entry;
+use tokio::io::AsyncReadExt as _;
 
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
 use crate::trust_envelope::is_contained_within;
+
+/// The file in a git folder holding its index, the staging area.
+pub(crate) const INDEX_FILE_NAME: &str = "index";
+
+// Git's index header: the signature, the format's version and the count of entries, each a 32-bit
+// word in network byte order.
+const INDEX_SIGNATURE: &[u8; 4] = b"DIRC";
+const INDEX_HEADER_LENGTH: usize = 12;
 
 // Held on a repository's resolved git common folder, however each caller spells it.
 static RECORD_WRITES: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
@@ -35,6 +45,28 @@ pub(crate) async fn try_hold_records(
 ) -> io::Result<Option<KeyHold<'static, PathBuf>>> {
     let key = resolve_real_location(common_git_folder).await?;
     Ok(RECORD_WRITES.try_acquire(key).ok())
+}
+
+/// The entries git's index in the tree's record folder `record_folder` lists, read from the index's
+/// header: the files git tracks there, never untracked or ignored ones. A record with no index
+/// lists none. Fails when the index cannot be read or its header is not an index's.
+pub(crate) async fn read_index_entry_count(record_folder: &Path) -> io::Result<u64> {
+    let mut index = match tokio::fs::File::open(record_folder.join(INDEX_FILE_NAME)).await {
+        Ok(index) => index,
+        Err(failure) if is_missing_entry(&failure) => return Ok(0),
+        Err(failure) => return Err(failure),
+    };
+    let mut header = [0_u8; INDEX_HEADER_LENGTH];
+    index.read_exact(&mut header).await?;
+    let (signature, words) = header.split_at(INDEX_SIGNATURE.len());
+    if signature != INDEX_SIGNATURE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the tree's index does not start with git's index signature",
+        ));
+    }
+    let entry_count: [u8; 4] = words[4..].try_into().expect("the header holds three words");
+    Ok(u64::from(u32::from_be_bytes(entry_count)))
 }
 
 /// A record, or the folder holding them, that could not be read or removed.
@@ -93,7 +125,7 @@ pub(crate) async fn remove_records_naming(
             }
         };
         if is_tree_record
-            && let Err(source) = sidekicks_platforms::remove_tree_awaited(&record_folder).await
+            && let Err(source) = sidekicks_std::file::remove_tree_awaited(&record_folder).await
         {
             failures.push(TreeRecordRemovalError {
                 path: record_folder,
@@ -137,4 +169,58 @@ fn skip_unreadable_record(record_folder: &Path, source: &io::Error) {
         error = source as &(dyn std::error::Error + 'static),
         "a worktree record whose gitdir cannot be resolved is passed over"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_platforms::real_path;
+
+    use super::{INDEX_FILE_NAME, read_index_entry_count};
+    use crate::git::process::test_git_runner;
+    use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
+
+    // A linked tree's record holds an index whose header counts the files git tracks there, and
+    // not the untracked or ignored ones; a record with no index counts none, and a file that is
+    // not an index is refused. Killed by a word read at the wrong offset or in the wrong byte order,
+    // and by a missing index read as a failure.
+    #[tokio::test]
+    async fn a_record_counts_the_tracked_entries_of_its_tree_index() {
+        let git = test_git_runner();
+        let temporary = tempfile::tempdir().expect("the temporary folder is made");
+        let root = real_path(temporary.path()).expect("the temporary folder resolves");
+        let repository = make_test_repository(&git, &root, "repository").await;
+        for name in ["a.txt", "b.txt", "c.txt", ".gitignore"] {
+            std::fs::write(repository.join(name), "ignored.txt\n").expect("a file is written");
+        }
+        git_in(&git, &repository, &["add", "."]).await;
+        commit_empty(&git, &repository, "files").await;
+        let tree = root.join("linked");
+        let tree_path = tree.to_str().expect("the test's folders are UTF-8");
+        git_in(
+            &git,
+            &repository,
+            &["worktree", "add", "--quiet", "--detach", tree_path],
+        )
+        .await;
+        std::fs::write(tree.join("untracked.txt"), "").expect("an untracked file is written");
+        std::fs::write(tree.join("ignored.txt"), "").expect("an ignored file is written");
+        let record_folder = repository.join(".git").join("worktrees").join("linked");
+
+        assert_eq!(
+            read_index_entry_count(&record_folder)
+                .await
+                .expect("the index reads"),
+            4
+        );
+
+        std::fs::remove_file(record_folder.join(INDEX_FILE_NAME)).expect("the index is removed");
+        assert_eq!(
+            read_index_entry_count(&record_folder)
+                .await
+                .expect("no index reads"),
+            0
+        );
+        std::fs::write(record_folder.join(INDEX_FILE_NAME), [0_u8; 12]).expect("a file is written");
+        assert!(read_index_entry_count(&record_folder).await.is_err());
+    }
 }

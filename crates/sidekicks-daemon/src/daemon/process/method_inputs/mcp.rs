@@ -16,7 +16,6 @@ use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -85,8 +84,6 @@ impl McpStatusServices {
         let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
             providers: Arc::clone(start.providers),
             reads: Arc::clone(start.reads),
-            // The accounts read's time on the pool, over the daemon's life.
-            meter: ProcessorMeter::default(),
             projects: Arc::clone(start.projects),
             store: self.store.clone(),
             tracker: Arc::clone(&self.status),

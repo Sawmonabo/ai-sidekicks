@@ -19,10 +19,9 @@ use std::sync::{Arc, Mutex};
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{
-    create_new_file, create_private_folder, read_exact_at, remove_tree, remove_tree_awaited,
-};
+use sidekicks_platforms::{create_new_file, create_private_folder, read_exact_at, remove_tree};
 use sidekicks_std::failure_episode::FailureEpisode;
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinError;

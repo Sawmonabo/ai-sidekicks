@@ -8,7 +8,6 @@ use std::sync::Arc;
 use rstest::rstest;
 use sidekicks_contracts::machine::settings::MachineSettingsChange;
 use sidekicks_platforms::harness_test_name;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -180,9 +179,8 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
         service_version: "0.1.0".to_owned(),
     };
     let stop = CancellationToken::new();
-    let meter = ProcessorMeter::default();
 
-    let pass = build_crash_reports(&deps, &stop, &meter)
+    let pass = build_crash_reports(&deps, &stop)
         .await
         .expect("the pass runs");
 
@@ -240,7 +238,7 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
         .await
         .expect("the switch is turned off");
     fs::write(dumps.join("late.dmp"), b"a dump").expect("written");
-    let pass = build_crash_reports(&deps, &stop, &meter)
+    let pass = build_crash_reports(&deps, &stop)
         .await
         .expect("the pass runs");
 
@@ -320,7 +318,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         service_version: "0.1.0".to_owned(),
     };
 
-    let pass = build_crash_reports(&deps, &CancellationToken::new(), &ProcessorMeter::default())
+    let pass = build_crash_reports(&deps, &CancellationToken::new())
         .await
         .expect("the pass runs");
 

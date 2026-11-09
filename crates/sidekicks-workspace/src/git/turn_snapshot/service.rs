@@ -24,7 +24,8 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::{create_private_folder, remove_tree_awaited};
+use sidekicks_platforms::create_private_folder;
+use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{

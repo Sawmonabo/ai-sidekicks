@@ -302,7 +302,7 @@ async fn run_export(
         },
         Err(failure) => {
             if let Err(removal_failure) =
-                sidekicks_platforms::remove_tree_awaited(destination).await
+                sidekicks_std::file::remove_tree_awaited(destination).await
             {
                 tracing::warn!(
                     folder = %destination.display(),

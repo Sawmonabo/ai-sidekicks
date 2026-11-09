@@ -723,7 +723,7 @@ impl RemovalShared {
         let ref_store_removed = async {
             match &moved.ref_store_folder {
                 Some(ref_store_folder) => {
-                    sidekicks_platforms::remove_tree_awaited(ref_store_folder).await
+                    sidekicks_std::file::remove_tree_awaited(ref_store_folder).await
                 }
                 None => Ok(()),
             }

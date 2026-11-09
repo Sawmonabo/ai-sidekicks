@@ -47,7 +47,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::scheduler::budget::run_blocking;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::session::appender::SessionEventAppender;
@@ -507,10 +507,10 @@ impl ArtifactIngestService {
 
     /// One pass of the reaper: ends every stream past its lifetime, open or completed, releasing
     /// what it held, and deletes every spool no stream holds that has gone unwritten past its time
-    /// to live, its blocking work charged to `meter`. Answers the artifacts it examined: each
-    /// stream the registry held and each entry of the spool folder. Fails with the one failure, or
-    /// every failure together, once the rest are done.
-    pub async fn reap(&self, meter: &ProcessorMeter) -> Result<u64, SettleFailures<ArtifactError>> {
+    /// to live, its blocking work measured on the meter of the metered run whose task calls, if
+    /// any. Answers the artifacts it examined: each stream the registry held and each entry of the
+    /// spool folder. Fails with the one failure, or every failure together, once the rest are done.
+    pub async fn reap(&self) -> Result<u64, SettleFailures<ArtifactError>> {
         let (streams_examined, expired_ids): (usize, Vec<String>) = {
             let _ledger_hold = self.admission.hold_still().await;
             let now = self.clock.now();
@@ -541,7 +541,7 @@ impl ArtifactIngestService {
                 }
             };
             if let Some(spool_path) = removed.and_then(spool_of) {
-                let deleted = meter.run_blocking(move || remove_spool(&spool_path)).await;
+                let deleted = run_blocking(move || remove_spool(&spool_path)).await;
                 outcomes.push(
                     deleted
                         .map_err(io::Error::other)
@@ -550,7 +550,7 @@ impl ArtifactIngestService {
                 );
             }
         }
-        match self.reap_abandoned_spools(meter).await {
+        match self.reap_abandoned_spools().await {
             Ok((spools_examined, failures)) => {
                 examined = examined.saturating_add(spools_examined);
                 outcomes.extend(failures.into_iter().map(|failure| Err(failure.into())));
@@ -606,20 +606,15 @@ impl ArtifactIngestService {
         failure.with_cleanup_failures(cleanup_failures, "ending the ingest stream")
     }
 
-    // Deletes every spool no stream holds that has gone unwritten past its time to live, on
-    // `meter`, and answers the spool folder's entries it examined and each failure it met.
-    async fn reap_abandoned_spools(
-        &self,
-        meter: &ProcessorMeter,
-    ) -> Result<(u64, Vec<io::Error>), JoinError> {
+    // Deletes every spool no stream holds that has gone unwritten past its time to live, and
+    // answers the spool folder's entries it examined and each failure it met.
+    async fn reap_abandoned_spools(&self) -> Result<(u64, Vec<io::Error>), JoinError> {
         let held_ids: HashSet<String> = self.lock_registry().streams.keys().cloned().collect();
         let spool_folder = self.admission.spool_folder().to_owned();
         let Some(reap_before) = self.clock.now().checked_sub(ABANDONED_SPOOL_TTL) else {
             return Ok((0, Vec::new()));
         };
-        meter
-            .run_blocking(move || remove_abandoned_spools(&spool_folder, &held_ids, reap_before))
-            .await
+        run_blocking(move || remove_abandoned_spools(&spool_folder, &held_ids, reap_before)).await
     }
 
     fn lock_registry(&self) -> MutexGuard<'_, Registry> {

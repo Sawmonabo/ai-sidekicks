@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::Measured;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -36,17 +36,25 @@ struct InFlight<Report> {
 
 struct PendingCheckpoint {
     mode: CheckpointMode,
-    reply: MaintenanceReply<Measured<CheckpointReport>>,
+    meter: Option<ProcessorMeter>,
+    reply: MaintenanceReply<CheckpointReport>,
 }
 
-/// A repack or a copy asked for: the token its caller cancels, and where its answer goes.
+struct PendingOptimize {
+    meter: Option<ProcessorMeter>,
+    reply: MaintenanceReply<()>,
+}
+
+/// A repack or a copy asked for: the token its caller cancels, the meter of the metered run that
+/// asked, if any, and where its answer goes.
 pub(super) struct CancelableWork<Report> {
     pub(super) cancel: CancellationToken,
-    pub(super) reply: MaintenanceReply<Measured<Report>>,
+    pub(super) meter: Option<ProcessorMeter>,
+    pub(super) reply: MaintenanceReply<Report>,
 }
 
 struct InFlightRepack {
-    flight: InFlight<Measured<RepackEnd>>,
+    flight: InFlight<RepackEnd>,
     cancel: CancellationToken,
     is_interrupted: bool,
 }
@@ -54,22 +62,22 @@ struct InFlightRepack {
 /// The maintenance asked for and in flight.
 #[derive(Default)]
 pub(super) struct MaintenanceSlots {
-    checkpoint: Option<InFlight<Measured<CheckpointReport>>>,
-    optimize: Option<InFlight<Measured<()>>>,
+    checkpoint: Option<InFlight<CheckpointReport>>,
+    optimize: Option<InFlight<()>>,
     repack: Option<InFlightRepack>,
-    backup: Option<InFlight<Measured<BackupCopy>>>,
+    backup: Option<InFlight<BackupCopy>>,
     checkpoints: VecDeque<PendingCheckpoint>,
-    optimizes: VecDeque<MaintenanceReply<Measured<()>>>,
+    optimizes: VecDeque<PendingOptimize>,
     repacks: VecDeque<CancelableWork<RepackEnd>>,
     backups: VecDeque<(PathBuf, CancelableWork<BackupCopy>)>,
 }
 
 /// The thread's answer to the maintenance in flight.
 pub(super) enum MaintenanceAnswered {
-    Checkpoint(Result<MaintenanceAnswer<Measured<CheckpointReport>>, RecvError>),
-    Optimize(Result<MaintenanceAnswer<Measured<()>>, RecvError>),
-    Repack(Result<MaintenanceAnswer<Measured<RepackEnd>>, RecvError>),
-    Backup(Result<MaintenanceAnswer<Measured<BackupCopy>>, RecvError>),
+    Checkpoint(Result<MaintenanceAnswer<CheckpointReport>, RecvError>),
+    Optimize(Result<MaintenanceAnswer<()>, RecvError>),
+    Repack(Result<MaintenanceAnswer<RepackEnd>, RecvError>),
+    Backup(Result<MaintenanceAnswer<BackupCopy>, RecvError>),
 }
 
 impl MaintenanceSlots {
@@ -118,19 +126,24 @@ impl MaintenanceSlots {
         })
     }
 
-    /// Queues a checkpoint.
+    /// Queues a checkpoint asked for by the metered run of `meter`, if any.
     pub(super) fn take_checkpoint(
         &mut self,
         mode: CheckpointMode,
-        reply: MaintenanceReply<Measured<CheckpointReport>>,
+        meter: Option<ProcessorMeter>,
+        reply: MaintenanceReply<CheckpointReport>,
     ) {
         self.checkpoints
-            .push_back(PendingCheckpoint { mode, reply });
+            .push_back(PendingCheckpoint { mode, meter, reply });
     }
 
-    /// Queues an optimize.
-    pub(super) fn take_optimize(&mut self, reply: MaintenanceReply<Measured<()>>) {
-        self.optimizes.push_back(reply);
+    /// Queues an optimize asked for by the metered run of `meter`, if any.
+    pub(super) fn take_optimize(
+        &mut self,
+        meter: Option<ProcessorMeter>,
+        reply: MaintenanceReply<()>,
+    ) {
+        self.optimizes.push_back(PendingOptimize { meter, reply });
     }
 
     /// Queues a repack.
@@ -161,7 +174,7 @@ impl MaintenanceSlots {
             send_answer(checkpoint.reply, Err(error()));
         }
         for optimize in self.optimizes.drain(..) {
-            send_answer(optimize, Err(error()));
+            send_answer(optimize.reply, Err(error()));
         }
         for repack in self.repacks.drain(..) {
             send_answer(repack.reply, Err(error()));
@@ -178,6 +191,7 @@ impl MaintenanceSlots {
             let (reply, answer) = oneshot::channel();
             send(ThreadRequest::Checkpoint {
                 mode: checkpoint.mode,
+                meter: checkpoint.meter,
                 reply,
             });
             self.checkpoint = Some(InFlight {
@@ -186,12 +200,16 @@ impl MaintenanceSlots {
             });
             return true;
         }
-        if let Some(reply) = self.optimizes.pop_front() {
+        if let Some(optimize) = self.optimizes.pop_front() {
             let (thread_reply, answer) = oneshot::channel();
             send(ThreadRequest::Optimize {
+                meter: optimize.meter,
                 reply: thread_reply,
             });
-            self.optimize = Some(InFlight { reply, answer });
+            self.optimize = Some(InFlight {
+                reply: optimize.reply,
+                answer,
+            });
             return true;
         }
         if self.backup.is_none()
@@ -200,6 +218,7 @@ impl MaintenanceSlots {
             let (thread_reply, answer) = oneshot::channel();
             send(ThreadRequest::Repack {
                 cancel: repack.cancel.clone(),
+                meter: repack.meter,
                 reply: thread_reply,
             });
             self.repack = Some(InFlightRepack {
@@ -219,6 +238,7 @@ impl MaintenanceSlots {
             send(ThreadRequest::Backup {
                 destination,
                 cancel: copy.cancel,
+                meter: copy.meter,
                 reply: thread_reply,
             });
             self.backup = Some(InFlight {

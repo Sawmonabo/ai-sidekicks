@@ -20,10 +20,10 @@ use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{WallClock, volume_free_bytes};
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, metered_job,
 };
 use sidekicks_std::scheduler::{
-    JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
+    JobCadence, JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
@@ -114,11 +114,13 @@ impl ArtifactMethods {
     /// called once, after the daemon's recovery pass has ended. Canceling the handle ends future
     /// passes. Fails when the scheduler has stopped.
     pub(crate) fn start(&self, scheduler: &Scheduler) -> Result<ScheduledJobHandle, ScheduleError> {
-        scheduler.schedule_repeating(
+        scheduler.schedule_job(
             "ingest reaper",
             JobCondition::Always,
-            INGEST_REAPER_INTERVAL,
-            Duration::ZERO,
+            JobCadence::Repeating {
+                first_delay: Duration::ZERO,
+                interval: INGEST_REAPER_INTERVAL,
+            },
             self.reaper_pass(),
         )
     }
@@ -134,11 +136,11 @@ impl ArtifactMethods {
         let reads = Arc::clone(&self.reads);
         metered_job(
             INGEST_REAPER_BUDGET,
-            Box::new(move |_stop, meter| {
+            Box::new(move |_stop| {
                 let ingest = Arc::clone(&ingest);
                 let payloads = Arc::clone(&payloads);
                 let reads = Arc::clone(&reads);
-                async move { run_reaper_pass(&ingest, &payloads, &reads, &meter).await }.boxed()
+                async move { run_reaper_pass(&ingest, &payloads, &reads).await }.boxed()
             }),
         )
     }
@@ -151,10 +153,9 @@ async fn run_reaper_pass(
     ingest: &ArtifactIngestService,
     payloads: &PayloadStore,
     reads: &DatabaseReadPool,
-    meter: &ProcessorMeter,
 ) -> MeteredJobOutcome<IngestReaperWorkUnit> {
-    let reaped = ingest.reap(meter).await;
-    let swept = payloads.sweep_orphans(reads, meter).await;
+    let reaped = ingest.reap().await;
+    let swept = payloads.sweep_orphans(reads).await;
     let examined = match (reaped, swept) {
         (Ok(reaped), Ok(swept)) => reaped.saturating_add(swept),
         (Ok(_), Err(sweep_failure)) => return Err(sweep_failure.into()),

@@ -254,7 +254,7 @@ pub(crate) async fn delete_claude_conversations(
     removed.extend(find_claude_plan_files(config_folder, &plans).await?);
     removed.extend(conversation_files.into_iter().flatten());
     for path in removed {
-        sidekicks_platforms::remove_tree_awaited(&path).await?;
+        sidekicks_std::file::remove_tree_awaited(&path).await?;
     }
     Ok(())
 }
