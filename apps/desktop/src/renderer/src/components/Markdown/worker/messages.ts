@@ -1,5 +1,5 @@
 // What the page and the markdown worker say to each other: the parser the worker loads, and the
-// compression module it compiles on its own for the page's packed texts; a text to parse and
+// compression module and the fuzzy matcher it compiles on their own for the page; a text to parse and
 // the trees the worker sends back as the parser's own binary buffers; a text to cut into
 // blocks and where each block ends; a reply's markdown asked for as HTML, or a drawn part asked for
 // as the text it copies as; the worker's asks for a long table's undrawn rows and the page's
@@ -16,20 +16,21 @@ import type { CopyFlavor, DrawnTree } from "../drawn-text.js";
 /**
  * What the page sends a worker first: the parser's WebAssembly module, which the app compiles once
  * and every later worker instantiates, or `undefined` when none is compiled yet, and the worker
- * compiles it and sends it back; and whether the page's text codec still wants its module, which
- * the worker then compiles apart from the parser and sends.
+ * compiles it and sends it back; and whether the page's text codec and its fuzzy matcher still
+ * want their modules, which the worker then compiles apart from the parser and sends.
  */
 export interface MarkdownParserLoad {
   readonly kind: "load";
   readonly parser: WebAssembly.Module | undefined;
   readonly shouldCompileTextCompression: boolean;
+  readonly shouldCompileFuzzyMatcher: boolean;
 }
 
 /**
- * The compression module the worker compiled, or why it compiled none: a failure there never
- * fails the parser, and the page holds every text's chunks plain until a later worker compiles it.
+ * A module the worker compiled for the page to run, or why it compiled none: a failure there never
+ * fails the parser, and the page goes without the module until a later worker compiles it.
  */
-export type CompiledTextCompression =
+export type CompiledPageModule =
   | { readonly status: "compiled"; readonly module: WebAssembly.Module }
   | { readonly status: "absent"; readonly reason: string };
 
@@ -136,7 +137,8 @@ export interface MarkdownWorkerMade {
 
 /**
  * What the worker says: the parser it compiled, which the page keeps for later workers; the
- * compression module it compiled, or why it compiled none, which the page's codec takes; the
+ * compression module and the fuzzy matcher it compiled, or why it compiled none, which the page's
+ * codec and matcher take; the
  * trees of the texts it parsed since it last sent trees, and where the blocks of the texts it cut
  * since it last sent cuts end, each sent together so the page lands them in one pass; that a cut
  * failed, which fails that cut alone; that the parser failed to load or failed on a text, after
@@ -148,8 +150,9 @@ export type MarkdownWorkerReply =
   | { readonly status: "compiled"; readonly parser: WebAssembly.Module }
   | {
       readonly status: "text-compression";
-      readonly textCompression: CompiledTextCompression;
+      readonly textCompression: CompiledPageModule;
     }
+  | { readonly status: "fuzzy-matcher"; readonly fuzzyMatcher: CompiledPageModule }
   | { readonly status: "parsed"; readonly trees: readonly SerializedMarkdownTree[] }
   | { readonly status: "cut"; readonly cuts: readonly MarkdownBlockEnds[] }
   | { readonly status: "cut-failed"; readonly requestId: number; readonly reason: string }

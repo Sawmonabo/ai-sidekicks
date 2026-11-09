@@ -19,6 +19,7 @@ import {
   inThreadMarkdownWorker,
 } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { publishedTextOf } from "#renderer/lib/text/published.js";
 import type { BlockRecords } from "../block-records.js";
 import type { MarkdownBodyBlocks } from "./reader.js";
@@ -89,7 +90,13 @@ describe("a body whose cut failed", () => {
     const pageParser = new PageParser(loadMarkdownParserCalls);
     pageParser.fail();
     const trees = new MarkdownTrees(
-      new MarkdownWorkerConnection(startWorker, window, pageParser, appTextCompression),
+      new MarkdownWorkerConnection(
+        startWorker,
+        window,
+        pageParser,
+        appTextCompression,
+        appFuzzyMatcher,
+      ),
     );
     const blocks = bodyBlocksForTest(trees);
     const text = publishedTextOf("first paragraph\n\nsecond paragraph\n");

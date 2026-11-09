@@ -14,12 +14,13 @@ import { parseMarkdownTree } from "./serialized-tree.js";
 import { piecedRowsOf } from "./pieced-table.js";
 import { MarkdownTrees, type MarkdownParseOutcome } from "./trees.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
 /** Trees of their own, parsed by stand-in workers that `start` starts and the app's page parser. */
 function treesOn(start: MarkdownWorkerStart): MarkdownTrees {
   return new MarkdownTrees(
-    new MarkdownWorkerConnection(start, window, appPageParser, appTextCompression),
+    new MarkdownWorkerConnection(start, window, appPageParser, appTextCompression, appFuzzyMatcher),
   );
 }
 
@@ -185,7 +186,13 @@ describe("a long table's piece trees", () => {
     const workers = new InThreadMarkdownWorkers();
     // Room for about two pieces' trees.
     const trees = new MarkdownTrees(
-      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+      new MarkdownWorkerConnection(
+        workers.start,
+        window,
+        appPageParser,
+        appTextCompression,
+        appFuzzyMatcher,
+      ),
       1_000_000,
     );
     const block = longTable("\n");

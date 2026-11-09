@@ -49,8 +49,13 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       environment: "happy-dom",
       include: ["src/renderer/src/**/*.test.{ts,tsx}", ...RENDERER_TESTS_OUTSIDE_SOURCE],
       // No worker runs under happy-dom, so the app's markdown worker answers in this process, with
-      // the app's compiled parser, set where Sätteri's Node build reads it before anything loads it.
-      setupFiles: ["tests/helpers/markdown-parser-module.ts", "tests/helpers/markdown-worker.ts"],
+      // the app's compiled parser, set where Sätteri's Node build reads it before anything loads it,
+      // and the app's fuzzy matcher is handed the module the worker would compile.
+      setupFiles: [
+        "tests/helpers/markdown-parser-module.ts",
+        "tests/helpers/markdown-worker.ts",
+        "tests/helpers/fuzzy-matcher-module.ts",
+      ],
       // Sätteri's Node build loads the native parser the install adds for this machine unless told
       // otherwise; this makes it load its WebAssembly build, which runs the app's own compiled
       // parser, and throw rather than fall back to the native one.

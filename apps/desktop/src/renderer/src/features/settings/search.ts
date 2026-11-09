@@ -1,17 +1,16 @@
 // What the one box above the page list finds, and in what order.
 //
 // Every typed word has to appear in a control's label, the heading it sits under or its hint, as
-// `scoreSubsequence` judges it, the matcher the command palette ranks with, so a word finds the
+// `appFuzzyMatcher` judges it, the matcher the command palette ranks with, so a word finds the
 // same text in both places. A page is found the same way in its name or the words it declares. A
 // hit ranks by the weakest field any of its words needed (label, then heading, then hint; a
 // page's name counts as a label and its words as a hint), equal ranks fall in page order, and a
 // page sits ahead of its own controls at an equal rank.
 
-import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-
 import { SETTINGS_PAGE_LABELS } from "./pages/labels.js";
 import type { SettingsPageDescriptor } from "./pages/registry.js";
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 
 /** One search hit: what it reads, and the page and control it opens. */
 export interface SettingsSearchHit {
@@ -95,7 +94,7 @@ function rankOf(
   let rank = 0;
   for (const word of words) {
     const wordRank = SEARCH_FIELDS.findIndex((field) =>
-      fieldTexts[field].some((text) => scoreSubsequence(text, word) !== undefined),
+      fieldTexts[field].some((text) => appFuzzyMatcher.score(text, word) !== undefined),
     );
     if (wordRank === -1) {
       return undefined;

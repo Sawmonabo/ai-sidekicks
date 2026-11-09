@@ -246,7 +246,12 @@ describe.skipIf(!bundleIsBuilt)(
                   }
                 });
                 const messages: MarkdownWorkerMessage[] = [
-                  { kind: "load", parser, shouldCompileTextCompression: false },
+                  {
+                    kind: "load",
+                    parser,
+                    shouldCompileTextCompression: false,
+                    shouldCompileFuzzyMatcher: false,
+                  },
                   { kind: "parse", requestId: 1, source },
                 ];
                 for (const message of messages) {
@@ -347,6 +352,7 @@ describe.skipIf(!bundleIsBuilt)(
                   kind: "load",
                   parser: undefined,
                   shouldCompileTextCompression: true,
+                  shouldCompileFuzzyMatcher: false,
                 };
                 worker.postMessage(load);
               });

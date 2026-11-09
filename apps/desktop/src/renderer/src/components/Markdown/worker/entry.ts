@@ -1,7 +1,8 @@
 // The markdown worker: loads the parser, compiling it from the renderer's own origin when the page
 // hands it none and sending the compiled module back for later workers, and compiles the
-// compression module on its own for the page, which compiles nothing itself, whenever the
-// page's codec still wants it, sending what that came to; and then, off the page's thread, parses
+// compression module and the fuzzy matcher on their own for the page, which compiles nothing
+// itself, whenever the page's codec or matcher still wants its module, sending what that came to;
+// and then, off the page's thread, parses
 // each text the page sends into the parser's binary tree, cuts each body's text the page sends into
 // blocks, makes each reply's markdown into HTML under the screen's policy, and reads each drawn
 // part back into the text it copies as, with its HTML when it is copied as markdown, asking the
@@ -13,13 +14,14 @@
 
 import parserModuleUrl from "@ai-sidekicks/markdown-parser/satteri.wasm?url";
 import textCompressionModuleUrl from "@ai-sidekicks/compression/lz4.wasm?url";
+import fuzzyMatcherModuleUrl from "@ai-sidekicks/search-ranking/matcher.wasm?url";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { BlockCut, MARKDOWN_SETTLE_LAG_BLOCKS, StalledBlockCutError } from "../parse/block-cut.js";
 import { loadMarkdownParserCalls, type MarkdownParserCalls } from "../parse/parser-calls.js";
 import { MarkdownWorkerAnswers, type MarkdownTreeParser } from "./answer.js";
 import type {
-  CompiledTextCompression,
+  CompiledPageModule,
   MarkdownBlockEnds,
   MarkdownCutRequest,
   MarkdownParserLoad,
@@ -101,12 +103,12 @@ async function loadParser(load: MarkdownParserLoad): Promise<MarkdownParserCalls
   return await loadMarkdownParserCalls();
 }
 
-/** The compression module compiled from the renderer's own origin, or why it was not. */
-async function compileTextCompression(): Promise<CompiledTextCompression> {
+/** The module at `moduleUrl` compiled from the renderer's own origin, or why it was not. */
+async function compilePageModule(moduleUrl: string): Promise<CompiledPageModule> {
   try {
     return {
       status: "compiled",
-      module: await WebAssembly.compileStreaming(fetch(textCompressionModuleUrl)),
+      module: await WebAssembly.compileStreaming(fetch(moduleUrl)),
     };
   } catch (error: unknown) {
     return { status: "absent", reason: describeFailure(error) };
@@ -142,10 +144,15 @@ const parserLoad = new Promise<MarkdownParserCalls | undefined>((resolve) => {
     if (event.data.kind !== "load") {
       return;
     }
-    // Compiled apart from the parser, so a parser that fails to load leaves it to be sent.
+    // Compiled apart from the parser, so a parser that fails to load leaves them to be sent.
     if (event.data.shouldCompileTextCompression) {
-      void compileTextCompression().then((textCompression) => {
+      void compilePageModule(textCompressionModuleUrl).then((textCompression) => {
         workerScope.postMessage({ status: "text-compression", textCompression }, []);
+      });
+    }
+    if (event.data.shouldCompileFuzzyMatcher) {
+      void compilePageModule(fuzzyMatcherModuleUrl).then((fuzzyMatcher) => {
+        workerScope.postMessage({ status: "fuzzy-matcher", fuzzyMatcher }, []);
       });
     }
     resolve(

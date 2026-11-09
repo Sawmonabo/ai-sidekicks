@@ -8,7 +8,8 @@
 // reads a drawn part into the same text as the page, as plain text, and as markdown with its HTML,
 // a table's undrawn rows among it, and a text longer than one piece crosses whole. The page runs
 // the module the worker compiled into the same tree the worker makes, and runs the compression
-// module the worker compiles on its own, even beside a parser that fails to load, to pack a text's
+// module the worker compiles on its own, as it compiles the fuzzy matcher's, even beside a parser
+// that fails to load, to pack a text's
 // chunks and unpack them to the same text, and a held tree too long for the page into chunks,
 // packed or kept plain where packing would not shrink them, that unpack to the same bytes and tree,
 // while a shorter held tree stays as it came. The worker cuts a body into exactly the top-level
@@ -64,6 +65,7 @@ import type {
 } from "#renderer/components/Markdown/worker/messages.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { PACKED_CHUNK_MAX_BYTES, TextCompression } from "#renderer/lib/text/compression.js";
+import { FuzzyMatcher } from "@ai-sidekicks/search-ranking";
 import { PackedText } from "#renderer/lib/text/packed.js";
 import { TEXT_PIECE_LENGTH } from "#renderer/lib/text/pieces.js";
 import { endWorkersWithTest } from "../helpers/worker-start.js";
@@ -120,7 +122,12 @@ it("compiles the parser, and moves a tree to the page as a plain buffer", async 
   expect(globalThis.crossOriginIsolated).toBe(false);
   const worker = endWorkersWithTest(startMarkdownWorker)();
   const replies = repliesOf(worker);
-  worker.postMessage({ kind: "load", parser: undefined, shouldCompileTextCompression: false });
+  worker.postMessage({
+    kind: "load",
+    parser: undefined,
+    shouldCompileTextCompression: false,
+    shouldCompileFuzzyMatcher: false,
+  });
   worker.postMessage({
     kind: "parse",
     requestId: 1,
@@ -206,6 +213,7 @@ it("packs and unpacks a chunk on the page with the worker's compression module",
     window,
     new PageParser(loadMarkdownParserCalls),
     textCompression,
+    new FuzzyMatcher(),
   );
   connection.wake();
   await vi.waitFor(() => {
@@ -277,22 +285,30 @@ it("packs a held tree too long for the page, and reads it back as the same tree"
   expect(new Uint8Array(kept.read())).toStrictEqual(noise);
 });
 
-it("compiles the compression module apart from a parser that fails to load", async () => {
+it("compiles the compression and matcher modules apart from a parser that fails to load", async () => {
   const worker = endWorkersWithTest(startMarkdownWorker)();
   const replies = repliesOf(worker);
   // A module with nothing in it, which the parser's loader cannot run.
   const emptyModule = new WebAssembly.Module(
     new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]),
   );
-  worker.postMessage({ kind: "load", parser: emptyModule, shouldCompileTextCompression: true });
+  worker.postMessage({
+    kind: "load",
+    parser: emptyModule,
+    shouldCompileTextCompression: true,
+    shouldCompileFuzzyMatcher: true,
+  });
 
-  const heard = [await replies.next(), await replies.next()];
+  const heard = [await replies.next(), await replies.next(), await replies.next()];
   expect(heard.map((reply) => reply.status).sort()).toStrictEqual([
+    "fuzzy-matcher",
     "load-failed",
     "text-compression",
   ]);
   const codec = heard.find((reply) => reply.status === "text-compression");
   expect(codec?.status === "text-compression" && codec.textCompression.status).toBe("compiled");
+  const matcher = heard.find((reply) => reply.status === "fuzzy-matcher");
+  expect(matcher?.status === "fuzzy-matcher" && matcher.fuzzyMatcher.status).toBe("compiled");
 });
 
 it("cuts a body into the top-level blocks one parse of the whole body reads", async () => {
@@ -430,6 +446,7 @@ function workerOnly(): { readonly connection: MarkdownWorkerConnection } {
       window,
       new PageParser(loadMarkdownParserCalls),
       new TextCompression(window),
+      new FuzzyMatcher(),
     ),
   };
 }
@@ -461,6 +478,7 @@ async function pageAndWorker(): Promise<{
     window,
     pageParser,
     new TextCompression(window),
+    new FuzzyMatcher(),
   );
   const trees = new MarkdownTrees(connection);
   trees.wakeWorker();

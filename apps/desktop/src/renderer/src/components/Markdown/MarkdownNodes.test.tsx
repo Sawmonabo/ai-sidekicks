@@ -14,6 +14,7 @@ import type { MarkdownTableOffer } from "./table-offer.js";
 import { MarkdownWorkerConnection } from "./worker/connection.js";
 import { InThreadMarkdownWorkers } from "./worker/connection.test-support.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 
 /** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
@@ -150,7 +151,13 @@ describe("a long table offered to a body that draws its rows", () => {
     const workers = new InThreadMarkdownWorkers();
     // Room for about two pieces' trees, so the first pieces are let go as the last land.
     const trees = new MarkdownTrees(
-      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+      new MarkdownWorkerConnection(
+        workers.start,
+        window,
+        appPageParser,
+        appTextCompression,
+        appFuzzyMatcher,
+      ),
       1_000_000,
     );
     const rows = Array.from(

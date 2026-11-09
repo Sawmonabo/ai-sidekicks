@@ -31,6 +31,7 @@ import {
 } from "./WindowedMarkdown.test-support.js";
 import { publishedTextOf } from "#renderer/lib/text/published.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 
 const pageParses = vi.spyOn(appMarkdownTrees, "parseSettledBlockNow");
 const settledBlockHolds = vi.spyOn(appMarkdownTrees, "holdSettledBlock");
@@ -197,7 +198,13 @@ describe("a long body whose page parser is not ready", () => {
   } {
     const workers = new InThreadMarkdownWorkers();
     const trees = new MarkdownTrees(
-      new MarkdownWorkerConnection(workers.start, window, pageParser, appTextCompression),
+      new MarkdownWorkerConnection(
+        workers.start,
+        window,
+        pageParser,
+        appTextCompression,
+        appFuzzyMatcher,
+      ),
     );
     return { bodyBlocks: bodyBlocksForTest(trees), trees };
   }

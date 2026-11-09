@@ -1,5 +1,6 @@
 // Stand-ins for the markdown worker, for suites that run where no worker can. Each answers on the
-// test's own thread as the worker answers: a load with the app's compiled parser; a text to parse
+// test's own thread as the worker answers: a load with the app's compiled parser, and with no
+// codec or matcher module, since the tier's setup hands the app's matcher its module itself; a text to parse
 // through the worker's own serializer, which Sätteri's Node build backs here with that parser,
 // before `postMessage` returns unless a test holds those answers to release them in an order of its
 // choosing; a text to cut through the worker's own cut, every window at once, before `postMessage`
@@ -11,7 +12,7 @@ import { expect } from "vitest";
 import { MarkdownWorkerAnswers } from "./answer.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
 import type {
-  CompiledTextCompression,
+  CompiledPageModule,
   MarkdownParseRequest,
   MarkdownWorkerMessage,
   MarkdownWorkerReply,
@@ -21,6 +22,7 @@ import { appPageParser } from "../parse/page-parser.js";
 import { parseMarkdownTree, serializeMarkdownTree } from "../parse/serialized-tree.js";
 import { readTopLevelChildren } from "../parse/top-level-children.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 
 /** One stand-in worker: the texts it was sent to parse, and the answers a test holds back. */
 export class InThreadMarkdownWorker implements MarkdownWorkerPort {
@@ -52,6 +54,9 @@ export class InThreadMarkdownWorker implements MarkdownWorkerPort {
       }
       if (message.shouldCompileTextCompression) {
         this.#say({ status: "text-compression", textCompression: IN_THREAD_TEXT_COMPRESSION });
+      }
+      if (message.shouldCompileFuzzyMatcher) {
+        this.#say({ status: "fuzzy-matcher", fuzzyMatcher: IN_THREAD_FUZZY_MATCHER });
       }
       return;
     }
@@ -183,6 +188,7 @@ export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
     view,
     appPageParser,
     appTextCompression,
+    appFuzzyMatcher,
   );
 }
 
@@ -190,9 +196,15 @@ export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
  * The codec a stand-in worker hands the page: none, since the tier grants no idle moments to pack
  * in, so every packed text there stays plain.
  */
-const IN_THREAD_TEXT_COMPRESSION: CompiledTextCompression = {
+const IN_THREAD_TEXT_COMPRESSION: CompiledPageModule = {
   status: "absent",
   reason: "The in-thread markdown worker compiles no text codec",
+};
+
+/** The matcher a stand-in worker hands the page: none, since the tier's setup provides it. */
+const IN_THREAD_FUZZY_MATCHER: CompiledPageModule = {
+  status: "absent",
+  reason: "The in-thread markdown worker compiles no fuzzy matcher",
 };
 
 /**

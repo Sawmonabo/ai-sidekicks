@@ -1,10 +1,12 @@
-// How a query becomes ranked rows. `scoreSubsequence` is the matcher shared with settings
+// How a query becomes ranked rows. `appFuzzyMatcher` is the matcher shared with settings
 // search; this module is the policy above it: field weights, recency, and the total order.
-// It is a pure function of a command list, a query and a recents list.
+// It is a pure function of a command list, a query and a recents list, once the matcher holds its
+// module; before then nothing matches.
 
 import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import type { CommandDefinition } from "./definition.js";
-import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
+import type { SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
 /** One ranked palette row. */
 export interface CommandSearchResult {
@@ -61,12 +63,16 @@ export function scoreCommandAgainstQuery(
   command: CommandDefinition,
   query: string,
 ): CommandFieldMatch | undefined {
-  const titleMatch = scoreSubsequence(command.title, query);
+  const keywords = command.keywords ?? [];
+  // One call into the matcher for every field: the title, each keyword, then the group.
+  const [titleMatch, ...otherMatches] = appFuzzyMatcher.scoreList(
+    [command.title, ...keywords, command.group],
+    query,
+  );
   let best: CommandFieldMatch | undefined =
     titleMatch === undefined ? undefined : { score: titleMatch.score, titleMatch };
 
-  for (const keyword of command.keywords ?? []) {
-    const keywordMatch = scoreSubsequence(keyword, query);
+  for (const keywordMatch of otherMatches.slice(0, keywords.length)) {
     if (keywordMatch === undefined) {
       continue;
     }
@@ -76,7 +82,7 @@ export function scoreCommandAgainstQuery(
     }
   }
 
-  const groupMatch = scoreSubsequence(command.group, query);
+  const groupMatch = otherMatches[keywords.length];
   if (groupMatch !== undefined) {
     const score = groupMatch.score - COMMAND_GROUP_FIELD_PENALTY;
     if (best === undefined || score > best.score) {

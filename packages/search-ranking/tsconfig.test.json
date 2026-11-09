@@ -3,6 +3,8 @@
   // Typechecks the whole of `src/`, tests included, without emitting.
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
+    // The loader runs on the page, and the DOM library declares the `WebAssembly` API it calls.
+    "lib": ["es2024", "dom"],
     "noEmit": true,
     "rootDir": "./src",
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of

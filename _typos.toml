@@ -24,6 +24,10 @@ noe = "noe"
 thr = "thr"
 # bash's `declare` option letters, written as one string.
 adin = "adin"
+# A markdown test's `sec**ond**`, emphasis that starts mid-word.
+ond = "ond"
+# `axe-core`, the accessibility engine the accessibility tier runs.
+axe = "axe"
 
 [files]
 extend-exclude = [

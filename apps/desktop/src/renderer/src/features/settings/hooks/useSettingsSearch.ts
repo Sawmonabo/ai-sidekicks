@@ -11,6 +11,7 @@ import {
   movedRowIndex,
   type WindowedRowMove,
 } from "#renderer/hooks/useWindowedRovingIndex.js";
+import { useIsFuzzyMatcherReady } from "#renderer/hooks/useIsFuzzyMatcherReady.js";
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import { findSettings, type SettingsSearchHit } from "../search.js";
 
@@ -33,8 +34,10 @@ export function useSettingsSearch(
 ): SettingsSearch {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<SearchHighlight>({ query: "", index: 0 });
-  // Memoized because the registry is fixed while a window is open.
-  const hits = useMemo(() => findSettings(pages.entries(), query), [pages, query]);
+  const isMatcherReady = useIsFuzzyMatcherReady();
+  // Memoized because the registry is fixed while a window is open; found again once the matcher
+  // starts to score, the one dependency the body does not read.
+  const hits = useMemo(() => findSettings(pages.entries(), query), [pages, query, isMatcherReady]);
   const highlightedIndex =
     hits.length === 0
       ? undefined

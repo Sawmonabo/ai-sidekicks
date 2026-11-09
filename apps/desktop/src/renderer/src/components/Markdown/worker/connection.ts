@@ -2,8 +2,8 @@
 // app will soon draw markdown or on the first request, and hands it the parser: the module the
 // first worker compiled and sent back, which every later worker only instantiates. That module is
 // handed to the page's own parser too, at an idle moment, which parses the blocks a body mounts,
-// and the compression module a worker compiles while the page's text codec wants one goes to
-// that codec; the worker parses what the page does not: a streaming tail, a block too long to parse
+// and the compression module and the fuzzy matcher a worker compiles while the page's text codec
+// or matcher wants one go to them; the worker parses what the page does not: a streaming tail, a block too long to parse
 // on the page, a long table's pieces, and every block while the page's parser could not start. It
 // sends each text to parse and hands back the parser's binary tree; a reply's markdown as the UTF-8
 // bytes of its pieces, moved to the worker, or a drawn part's tree as a copy, to be made into what
@@ -22,9 +22,11 @@ import { queueIdleTaskIn } from "#renderer/lib/idle-task.js";
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { appTextCompression, type TextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
+import type { FuzzyMatcher } from "@ai-sidekicks/search-ranking";
 import {
   decodePiecesInSlices,
   encodePiecesInSlices,
@@ -36,7 +38,7 @@ import { appPageParser, type PageParser } from "../parse/page-parser.js";
 import { piecedRowsOf } from "../parse/pieced-table.js";
 import { holdTableRows, passTableRows } from "../parse/table-rows.js";
 import type {
-  CompiledTextCompression,
+  CompiledPageModule,
   MarkdownCutAnswer,
   MarkdownParseAnswer,
   MarkdownWorkerMade,
@@ -86,6 +88,8 @@ export class MarkdownWorkerConnection {
   public readonly pageParser: PageParser;
   /** The page's text codec, which this connection hands the compression module to. */
   public readonly textCompression: TextCompression;
+  /** The page's fuzzy matcher, which this connection hands the matcher's module to. */
+  public readonly fuzzyMatcher: FuzzyMatcher;
   readonly #startWorker: MarkdownWorkerStart;
   readonly #view: Window;
   /** Each request to make a copy sent and not answered, by its id. */
@@ -120,18 +124,21 @@ export class MarkdownWorkerConnection {
 
   /**
    * `view` is the window whose thread encodes and decodes the texts, a slice at a time, and starts
-   * `pageParser` in an idle moment; `textCompression` takes the codec module the worker compiles.
+   * `pageParser` in an idle moment; `textCompression` takes the codec module the worker compiles,
+   * and `fuzzyMatcher` the matcher's.
    */
   public constructor(
     startWorker: MarkdownWorkerStart,
     view: Window,
     pageParser: PageParser,
     textCompression: TextCompression,
+    fuzzyMatcher: FuzzyMatcher,
   ) {
     this.#startWorker = startWorker;
     this.#view = view;
     this.pageParser = pageParser;
     this.textCompression = textCompression;
+    this.fuzzyMatcher = fuzzyMatcher;
   }
 
   /**
@@ -326,6 +333,7 @@ export class MarkdownWorkerConnection {
       kind: "load",
       parser: this.#parser,
       shouldCompileTextCompression: this.textCompression.isModuleWanted,
+      shouldCompileFuzzyMatcher: !this.fuzzyMatcher.isReady,
     });
     return port;
   }
@@ -341,6 +349,9 @@ export class MarkdownWorkerConnection {
         return;
       case "text-compression":
         this.#handToTextCompression(reply.textCompression);
+        return;
+      case "fuzzy-matcher":
+        this.#handToFuzzyMatcher(reply.fuzzyMatcher);
         return;
       case "load-failed":
         // Compiled again by the next worker, since what failed may have been the module handed.
@@ -395,7 +406,7 @@ export class MarkdownWorkerConnection {
    * compiled none, which is recorded, and after which the page holds every chunk plain until a
    * later worker compiles one.
    */
-  #handToTextCompression(textCompression: CompiledTextCompression): void {
+  #handToTextCompression(textCompression: CompiledPageModule): void {
     if (textCompression.status === "compiled") {
       this.textCompression.provide(textCompression.module);
       return;
@@ -406,6 +417,22 @@ export class MarkdownWorkerConnection {
       new Error(textCompression.reason),
     );
     this.textCompression.provide(undefined);
+  }
+
+  /**
+   * Hands the page's fuzzy matcher the module the worker compiled. A module that was not compiled,
+   * or does not start, is recorded, and the matcher scores nothing until a later worker's does.
+   */
+  #handToFuzzyMatcher(fuzzyMatcher: CompiledPageModule): void {
+    if (fuzzyMatcher.status === "absent") {
+      recordFuzzyMatcherFailure(new Error(fuzzyMatcher.reason));
+      return;
+    }
+    try {
+      this.fuzzyMatcher.provide(fuzzyMatcher.module);
+    } catch (error: unknown) {
+      recordFuzzyMatcherFailure(error);
+    }
   }
 
   #landTrees(
@@ -706,6 +733,11 @@ function withoutPosition(key: string, value: unknown): unknown {
   return key === "position" ? undefined : value;
 }
 
+/** Records why the page's fuzzy matcher did not get a running module from this worker. */
+function recordFuzzyMatcherFailure(failure: unknown): void {
+  recordRejectedRequest("components/Markdown/worker", "fuzzy-matcher-not-started", failure);
+}
+
 /** The deadline of a request `byteLength` bytes long. */
 function answerDeadlineMs(byteLength: number): number {
   return ANSWER_DEADLINE_MS_PER_MEBIBYTE * Math.max(1, Math.ceil(byteLength / 2 ** 20));
@@ -720,4 +752,5 @@ export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnec
   window,
   appPageParser,
   appTextCompression,
+  appFuzzyMatcher,
 );

@@ -24,6 +24,7 @@ import {
   MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { appTextCompression } from "#renderer/lib/text/compression.js";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import { giveEverySliceTime } from "#test/helpers/slice-clock.js";
 import { mendVolatileTail, VolatileTailParser, type VolatileTailView } from "./volatile-tail.js";
 
@@ -44,7 +45,13 @@ function standInTrees(): {
   const workers = new InThreadMarkdownWorkers();
   return {
     trees: new MarkdownTrees(
-      new MarkdownWorkerConnection(workers.start, window, appPageParser, appTextCompression),
+      new MarkdownWorkerConnection(
+        workers.start,
+        window,
+        appPageParser,
+        appTextCompression,
+        appFuzzyMatcher,
+      ),
     ),
     workers,
   };

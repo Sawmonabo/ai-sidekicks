@@ -14,7 +14,7 @@ import { reservedChordReason } from "#renderer/registries/keybindings/audit.js";
 import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { KeyboardMap } from "#shared/preload-api.js";
-import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
+import { appFuzzyMatcher } from "#renderer/lib/fuzzy-matcher.js";
 import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
 import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
@@ -138,21 +138,24 @@ export function matchKeybindingRows(
   if (trimmedQuery === "") {
     return rows;
   }
-  const scored: { readonly row: KeybindingRow; readonly score: number }[] = [];
+  const candidateRows: KeybindingRow[] = [];
+  const candidates: string[] = [];
   for (const row of rows) {
-    let best: number | undefined;
     for (const candidate of matchCandidatesOf(row, convention)) {
-      const match = scoreSubsequence(candidate, trimmedQuery);
-      if (match !== undefined && (best === undefined || match.score > best)) {
-        best = match.score;
-      }
-    }
-    if (best !== undefined) {
-      scored.push({ row, score: best });
+      candidateRows.push(row);
+      candidates.push(candidate);
     }
   }
-  // Stable sort over an ordered input, so equally good rows keep their places between keystrokes.
-  return scored.sort((left, right) => right.score - left.score).map((entry) => entry.row);
+  // Best first with ties in input order, so a row's first candidate seen is its best, and equally
+  // good rows keep their places between keystrokes.
+  const matched = new Set<KeybindingRow>();
+  for (const { index } of appFuzzyMatcher.rank(candidates, trimmedQuery)) {
+    const row = candidateRows[index];
+    if (row !== undefined) {
+      matched.add(row);
+    }
+  }
+  return [...matched];
 }
 
 /** The strings one row offers the scorer; the chord is dropped where the row has none. */
