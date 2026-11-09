@@ -3,12 +3,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tempfile::TempDir;
 
 use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
+use crate::driver::codex::run::routes::CodexRunBinding;
+use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
+use crate::driver::codex::run::start::record::CodexTurnRequest;
+use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::server_requests::CodexTokenRefresher as _;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_switching_service,
@@ -20,7 +26,12 @@ use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, answer_through_login, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::test_registry::new_session_id;
+use crate::driver::codex::session::state::CodexTurnMessage;
+use crate::driver::codex::session::test_fixture::{
+    TEST_THREAD, TestCodexSession, TestCodexTask, turn_completed, turn_reply, turn_started,
+};
+use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The key sealed for the account that signs in with one.
@@ -356,4 +367,268 @@ async fn a_resupplied_key_reaches_the_switching_service_only_while_it_carries_th
 
     assert_eq!(switching.carried_account(), Some(on_another.left.clone()));
     assert_eq!(on_another.unread_requests(), Vec::<Value>::new());
+}
+
+/// The `ChatGPT` workspaces of the two accounts the turn tests switch to, in order.
+const WORKSPACES_TO: [&str; 2] = ["workspace-of-the-first-account", "workspace-of-the-second"];
+
+/// How long a turn test waits to see that nothing is sent.
+const NOTHING_SENT_WAIT: Duration = Duration::from_millis(300);
+
+/// A session on the switching service, which carries the account left, and two more accounts
+/// signed in each in a home of its own, the ones the session is switched to.
+struct TurnFixture {
+    session: TestCodexSession,
+    to: [ProviderAccountId; 2],
+    _folder: TempDir,
+}
+
+impl TurnFixture {
+    async fn new() -> Self {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let left = test_provider_account_id();
+        let to = ["account-2", "account-3"]
+            .map(|id| ProviderAccountId::new(id.to_owned()).expect("a valid id"));
+        let mut homes = HashMap::new();
+        for (account, workspace) in [
+            (&left, WORKSPACE_LEFT),
+            (&to[0], WORKSPACES_TO[0]),
+            (&to[1], WORKSPACES_TO[1]),
+        ] {
+            let home = folder.path().join(workspace);
+            write_sign_in(&home, workspace, &compose_access_token(workspace));
+            homes.insert(account.clone(), home);
+        }
+        let mut scripted = start_scripted_switching_service();
+        AccountHomes {
+            homes,
+            current: left,
+            api_keys: HashMap::new(),
+        }
+        .register_on(&scripted.dependencies.provider_accounts);
+        let service = Arc::clone(&scripted.service);
+        let connection = service.connection().expect("the service is up");
+        let switching = Arc::clone(&scripted.dependencies.switching);
+        let (handed, ()) = tokio::join!(switching.hand_at_start(&service, &connection), async {
+            let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+            scripted
+                .script
+                .answer(&login, &json!({"type": "chatgptAuthTokens"}));
+        });
+        handed.expect("the start's login is answered");
+        Self {
+            session: TestCodexSession::start_on(scripted).await,
+            to,
+            _folder: folder,
+        }
+    }
+
+    // A start of a run's turn on the session, on a binding of its own, which goes once the
+    // session's task takes it.
+    async fn start_a_turn(&self) -> BoxFuture<'static, Result<(), CodexError>> {
+        let binding_id = self.session.record_binding().await;
+        let run_id = new_run_id();
+        self.session.task.run_routes.bind_run_delivery(
+            run_id,
+            CodexRunBinding {
+                session_id: self.session.task.record.session_id,
+                binding_id: binding_id.clone(),
+                agent_id: self.session.daemon_turn_bindings.agent_id,
+                step_bound: None,
+            },
+        );
+        let run_start = Arc::clone(&self.session.run_start);
+        let inbound = self.session.task.record.inbound.clone();
+        let turn = CodexTurnRequest {
+            messages: vec![CodexTurnMessage {
+                text: "Go on.".to_owned(),
+                skills: Vec::new(),
+                attachments: Vec::new(),
+            }],
+            client_message_ids: vec!["message-1".to_owned()],
+            model: None,
+            output_speed: None,
+            output_speed_for_turn: None,
+            output_schema: None,
+            level: None,
+        };
+        async move {
+            let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+            run_start
+                .start_turn(&inbound, run_id, binding_id, turn, None, &deadline)
+                .await
+        }
+        .boxed()
+    }
+
+    // Runs a turn `turn_id` that Codex accepts and starts, until the session holds it running.
+    async fn run_a_turn(&mut self, turn_id: &str) {
+        let start = self.start_a_turn().await;
+        let script = &mut self.session.scripted.script;
+        let flow = async {
+            tokio::join!(start, async {
+                let sent = script.next_sent().await;
+                assert_eq!(sent["method"], "turn/start", "{sent}");
+                script.answer(&sent, &turn_reply(turn_id));
+                script.send(&turn_started(turn_id));
+            })
+        };
+        let (started, ()) = drive(&mut self.session.task, flow).await;
+        started.expect("the turn starts");
+        while self.session.task.record.active_turn_run(turn_id).is_none() {
+            self.session.task.handle_next().await;
+        }
+    }
+}
+
+// Runs `flow` while the session's task takes each item of its queue, within a bound past which
+// a hold counts as a deadlock.
+async fn drive<Output>(task: &mut TestCodexTask, flow: impl Future<Output = Output>) -> Output {
+    tokio::time::timeout(Duration::from_secs(10), task.drive(flow))
+        .await
+        .expect("the switch and the session's turns settle")
+}
+
+// Reads what the service is sent until it has seen a request of each of `methods`, answering
+// each as it comes: a login as handed, an account read as signed in, a turn start as accepted.
+async fn answer_until(script: &mut ScriptedService, methods: &[&str]) -> Vec<Value> {
+    let mut sent: Vec<Value> = Vec::new();
+    while !methods
+        .iter()
+        .all(|method| sent.iter().any(|request| request["method"] == *method))
+    {
+        let request = script.next_sent().await;
+        let answer = match request["method"].as_str() {
+            Some(CODEX_LOGIN_START_METHOD) => json!({"type": "chatgptAuthTokens"}),
+            Some("account/read") => {
+                json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true})
+            }
+            Some("turn/start") => turn_reply("turn-2"),
+            Some(_) | None => panic!("the service is sent no such request: {request}"),
+        };
+        script.answer(&request, &answer);
+        sent.push(request);
+    }
+    sent
+}
+
+// Where `method`'s request is among `sent`.
+fn position_of(sent: &[Value], method: &str) -> Option<usize> {
+    sent.iter().position(|request| request["method"] == method)
+}
+
+// Killed by the switch's login sent while the turn runs (its wait for the session's turns
+// removed), which revokes that turn's requests, by a turn start let through while the switch is
+// held (the turn-start gate removed), which the login would cut or run on the account left, and
+// by the turn starts let go before the login is answered.
+#[tokio::test]
+async fn a_switch_asked_mid_turn_lands_at_the_turns_end_before_the_next_turn() {
+    let mut fixture = TurnFixture::new().await;
+    fixture.run_a_turn("turn-1").await;
+    let next_turn = fixture.start_a_turn().await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    let to = fixture.to[0].clone();
+    let switch = switching.hand_switch(&service, to.clone(), Vec::new(), switching_person());
+    let mut switch = std::pin::pin!(switch);
+    assert!(futures::poll!(switch.as_mut()).is_pending());
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(switch, next_turn, async {
+            let sent_mid_turn = script.next_sent_within(NOTHING_SENT_WAIT).await;
+            script.send(&turn_completed(TEST_THREAD, "turn-1", "completed"));
+            let sent = answer_until(
+                script,
+                &[CODEX_LOGIN_START_METHOD, "account/read", "turn/start"],
+            )
+            .await;
+            (sent_mid_turn, sent)
+        })
+    };
+    let (switched, next_started, (sent_mid_turn, sent)) =
+        drive(&mut fixture.session.task, flow).await;
+
+    assert_eq!(sent_mid_turn, None, "a request went while the turn ran");
+    switched.expect("the switch lands");
+    next_started.expect("the next turn starts");
+    let login_at = position_of(&sent, CODEX_LOGIN_START_METHOD).expect("a login was sent");
+    assert!(
+        Some(login_at) < position_of(&sent, "turn/start"),
+        "the next turn started before the switch's login was answered: {sent:?}"
+    );
+    assert_eq!(
+        sent[login_at]["params"]["accessToken"],
+        compose_access_token(WORKSPACES_TO[0])
+    );
+    assert_eq!(service.provider_account_id(), Some(to.clone()));
+    assert_eq!(fixture.session.task.record.provider_account_id, to);
+}
+
+// Killed by a second switch held beside the first rather than in its place (two logins, the
+// first onto the account the person moved off again), and by the held switch keeping the first
+// account asked.
+#[tokio::test]
+async fn two_switches_asked_mid_turn_land_as_one_login_onto_the_newest() {
+    let mut fixture = TurnFixture::new().await;
+    fixture.run_a_turn("turn-1").await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    let [first, second] = fixture.to.clone();
+    let first_switch = switching.hand_switch(&service, first, Vec::new(), switching_person());
+    let mut first_switch = std::pin::pin!(first_switch);
+    assert!(futures::poll!(first_switch.as_mut()).is_pending());
+    let second_switch =
+        switching.hand_switch(&service, second.clone(), Vec::new(), switching_person());
+    let mut second_switch = std::pin::pin!(second_switch);
+    assert!(futures::poll!(second_switch.as_mut()).is_pending());
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(first_switch, second_switch, async {
+            script.send(&turn_completed(TEST_THREAD, "turn-1", "completed"));
+            let sent = answer_until(script, &[CODEX_LOGIN_START_METHOD, "account/read"]).await;
+            (sent, script.next_sent_within(NOTHING_SENT_WAIT).await)
+        })
+    };
+    let (switched_first, switched_second, (sent, sent_after)) =
+        drive(&mut fixture.session.task, flow).await;
+
+    switched_first.expect("the first switch lands with the one that took its place");
+    switched_second.expect("the newest switch lands");
+    let login_at = position_of(&sent, CODEX_LOGIN_START_METHOD).expect("a login was sent");
+    assert_eq!(
+        sent[login_at]["params"]["accessToken"],
+        compose_access_token(WORKSPACES_TO[1])
+    );
+    assert_eq!(sent_after, None, "a second login followed");
+    assert_eq!(service.provider_account_id(), Some(second));
+}
+
+// Killed by a switch on an idle session waiting for a turn to end anyway, which holds the person's
+// switch until the session's next turn.
+#[tokio::test]
+async fn a_switch_on_an_idle_session_lands_at_once() {
+    let mut fixture = TurnFixture::new().await;
+    let switching = Arc::clone(&fixture.session.scripted.dependencies.switching);
+    let service = Arc::clone(&fixture.session.scripted.service);
+    let to = fixture.to[0].clone();
+    let switch = switching.hand_switch(&service, to.clone(), Vec::new(), switching_person());
+
+    let script = &mut fixture.session.scripted.script;
+    let flow = async {
+        tokio::join!(
+            switch,
+            answer_until(script, &[CODEX_LOGIN_START_METHOD, "account/read"])
+        )
+    };
+    let (switched, sent) = drive(&mut fixture.session.task, flow).await;
+
+    switched.expect("the switch lands");
+    let login_at = position_of(&sent, CODEX_LOGIN_START_METHOD).expect("a login was sent");
+    assert_eq!(
+        sent[login_at]["params"]["accessToken"],
+        compose_access_token(WORKSPACES_TO[0])
+    );
+    assert_eq!(service.provider_account_id(), Some(to));
 }

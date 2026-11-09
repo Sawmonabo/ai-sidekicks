@@ -39,6 +39,7 @@ use crate::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::driver::codex::delivery::rows::CodexRowRun;
+use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
 use crate::driver::codex::lifecycle::intake::observe_codex_session_frame;
 use crate::driver::codex::lifecycle::intake::routed_frames::{
     CodexRoutedFramesIntake, apply_codex_routed_frames,
@@ -490,6 +491,20 @@ impl TestCodexTask {
             CodexSessionInbound::HeldThread { .. }
             | CodexSessionInbound::SideQuestionReleased { .. }
             | CodexSessionInbound::ExportedResponse(_) => {}
+            // The test's task meters no spend, so the bindings move at once.
+            CodexSessionInbound::AccountMoved(account_move) => {
+                let record = &mut self.record;
+                CodexBindingMove::plan(
+                    record.session_id,
+                    Some((&mut record.provider_account_id, record.binding_id.as_ref())),
+                    account_move,
+                )
+                .land(
+                    &*self.calls.runs.bindings,
+                    &self.ports.session_account_moves,
+                )
+                .await;
+            }
             // A let-go is kept and answered; the record stays for the test to read.
             CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
                 self.let_go_exits.push(exit);
@@ -497,8 +512,7 @@ impl TestCodexTask {
             }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
-            | CodexSessionInbound::Lifecycle(_)
-            | CodexSessionInbound::AccountMoved(_) => {
+            | CodexSessionInbound::Lifecycle(_) => {
                 panic!(
                     "the test's service asks nothing and its driver calls nothing else of its own"
                 )

@@ -28,6 +28,7 @@ use crate::driver::codex::output_speed::{
 use crate::driver::codex::permission_level::compose_codex_approvals_reviewer;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::bind_codex_first_run;
@@ -82,6 +83,8 @@ pub(crate) enum CodexTurnBeginAnswer {
     Ready(Box<CodexTurnSend>),
     /// A turn the daemon is stopping, or one Codex started that no run holds, ends first.
     WaitForStoppedTurns,
+    /// The account switch this switching account holds lands first.
+    WaitForAccountSwitch(Arc<CodexSwitchingAccount>),
     /// The conversation owes a fork onto a changed config first.
     ForkOwed,
     /// The session cannot take the turn.
@@ -237,9 +240,10 @@ pub(crate) struct CodexRunCallDependencies {
 /// Takes a turn's start on the record, on the session's task: refuses a turn its run withdrew, any
 /// other once the session's close began, so no turn starts between the close's interrupts and its
 /// let-go, one while a turn Codex started by itself runs as a run's, and a turn the daemon starts
-/// while any turn is in flight, since Codex would fold it in; owes a wait or a fork first where one
-/// is owed; else adopts the run's binding, resolves the turn's output speed against the model's
-/// tier list and puts the run first among the runs whose turn is starting.
+/// while any turn is in flight, since Codex would fold it in; owes a wait for a held account switch
+/// to land, whose login would cut the turn, a wait or a fork first where one is owed; else adopts
+/// the run's binding, resolves the turn's output speed against the model's tier list and puts the
+/// run first among the runs whose turn is starting.
 pub(crate) async fn begin_codex_turn_start(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexRunCallDependencies,
@@ -260,6 +264,10 @@ pub(crate) async fn begin_codex_turn_start(
     }
     if task.routing.gate().is_intended_close_signaled() {
         return CodexTurnBeginAnswer::Refused(closing_session_refusal(session_id));
+    }
+    let switching = &record.service.dependencies().switching;
+    if switching.holds_turns_on(&record.service) {
+        return CodexTurnBeginAnswer::WaitForAccountSwitch(Arc::clone(switching));
     }
     // Codex would fold a turn the daemon starts into one in flight, which the queue holds it for.
     if begin.turn.is_none() && record.is_turn_in_flight(None) {

@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
+use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -222,8 +223,19 @@ impl CodexSessionInboundHandler for SessionQueue {
 
     fn side_question_released(&mut self, _thread_id: String) {}
 
-    fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
-        unreachable!("the driver makes no call")
+    fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
+        let CodexSessionCall::WaitForTurns {
+            wait: CodexTurnWait::Idle,
+            reply,
+        } = call
+        else {
+            unreachable!("the driver only waits for the session's turns to end")
+        };
+        // The test's session runs no turn, so a switch's wait for its turns is answered at once.
+        let (answer, answered) = oneshot::channel();
+        let _unheard = answer.send(Ok(true));
+        let _unheard = reply.send(answered);
+        async {}.boxed()
     }
 
     fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
