@@ -53,9 +53,11 @@ use crate::driver::claude::session::restart::ended_process::claude_process_exit_
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::claude::telemetry::ClaudeExports;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -115,6 +117,9 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) inboxes: Arc<ClaudeSessionInboxes>,
     /// Each session's context reads, asked after the frames that call for one.
     pub(crate) context_readings: Arc<ClaudeContextReadings>,
+    /// Each session process's export, which its streamed usage and lead `result`s feed and its
+    /// end decides.
+    pub(crate) exports: Arc<ClaudeExports>,
 }
 
 /// One live process's task: its session, its stream and its in-process tool-server calls.
@@ -138,6 +143,11 @@ impl ClaudeSessionTask {
             stream,
             tool_server_calls: ClaudeToolServerCalls::default(),
         }
+    }
+
+    // The holder the process's telemetry token was minted for, its spawn sequence.
+    fn export_holder(&self) -> TelemetryHolderId {
+        TelemetryHolderId::new(self.live.process_identity.spawn_sequence)
     }
 
     fn level(&self) -> Option<PermissionLevel> {
@@ -206,6 +216,10 @@ impl ClaudeSessionTask {
         let lead_costs = (observation.subagent_id.is_none())
             .then(|| observation.model_costs.clone())
             .flatten();
+        let holder = self.export_holder();
+        for reading in &routed.routed.metered {
+            services.exports.streamed(holder, &reading.delta);
+        }
         let lead = routed.turn_at_read.lead.clone();
         let is_reviewed = self.level() == Some(PermissionLevel::Reviewed);
         let after = services
@@ -228,6 +242,7 @@ impl ClaudeSessionTask {
         }
         // Claude Code states each model's spend at every lead `result`, a steer's mid-turn one too.
         if let Some(model_costs) = lead_costs {
+            services.exports.result_stated(holder);
             let thread_id = &live.provider_session_id;
             let delivery = &services.delivery;
             delivery
@@ -446,9 +461,14 @@ impl ClaudeSessionTask {
             .process_exit
             .get_or_init(|| claude_process_exit_of(end))
             .clone();
-        if !services.restarts.is_stopped() {
+        let is_stopped = services.restarts.is_stopped();
+        if !is_stopped {
             services.delivery.price_process_end(&self.stream).await;
         }
+        services
+            .exports
+            .process_ended(self.export_holder(), !is_stopped)
+            .await;
         let is_superseded = slots
             .live_session(session_id)
             .is_some_and(|held| !Arc::ptr_eq(&held.channel, &self.live.channel));

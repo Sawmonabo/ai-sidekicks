@@ -61,11 +61,11 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
     CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::driver::codex::telemetry::read_unix_time_ms;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountReader, read_current_account};
+use crate::pricing::receiver::records::read_unix_time_ms;
 
 /// A session a switch names, moved at the switch's acknowledgment with its lead's binding, and
 /// where the switch waits on that move.
@@ -571,9 +571,9 @@ impl CodexSwitchingAccount {
     }
 }
 
-// Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`, keeping the token its home could not
-// renew while the account stays the same on its tokens and forgetting it otherwise. Answers the
-// account carried before, `None` where none was.
+// Carries `provider_account_id` on `sign_in` in `carried`, noting the change in `switches`,
+// keeping the token its home could not renew while the account stays the same on its tokens and
+// forgetting it otherwise. Answers the account carried before, `None` where none was.
 fn carry(
     carried: &Mutex<Option<CarriedAccount>>,
     switches: &AccountSwitches,

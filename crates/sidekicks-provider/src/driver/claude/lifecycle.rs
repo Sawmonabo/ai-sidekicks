@@ -81,6 +81,7 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
 };
+use crate::driver::claude::telemetry::ClaudeExports;
 use crate::driver::contract::error::DriverError;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
@@ -110,6 +111,9 @@ pub(crate) struct ClaudeDriver {
     pub(crate) account_legs: Arc<ClaudeAccountLegs>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,
+    /// Each session process's telemetry export, read for price, and the live pricing every
+    /// request is priced through.
+    pub(crate) exports: Arc<ClaudeExports>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
 }
 
@@ -262,6 +266,15 @@ impl ClaudeDriver {
                 usage_probe_models,
             )),
             capability_read: tokio::sync::Mutex::default(),
+            exports: Arc::new(ClaudeExports::new(
+                Arc::clone(&services.scheduler),
+                Arc::clone(&services.ports.usage),
+                Arc::new(LivePricing::new(
+                    DESCRIPTOR.provider_id(),
+                    Arc::new(ClaudeRequestPricer),
+                    &services.ports,
+                )),
+            )),
             parts: OnceLock::new(),
         }
     }
@@ -374,11 +387,7 @@ impl ClaudeDriver {
             Arc::clone(&inspector_reads),
         ));
         let goal_endings = Arc::new(ClaudeGoalEndings::default());
-        let pricing = Arc::new(LivePricing::new(
-            DESCRIPTOR.provider_id(),
-            Arc::new(ClaudeRequestPricer),
-            ports,
-        ));
+        let pricing = Arc::clone(self.exports.pricing());
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             dispatch: Arc::clone(dispatch),
@@ -511,6 +520,7 @@ impl ClaudeDriver {
                 idle_sleep,
                 inboxes,
                 context_readings,
+                exports: Arc::clone(&self.exports),
             });
             composed = Some((
                 restarts,

@@ -59,6 +59,10 @@ const SPEND_FIGURES: usize = 5;
 // The micro-dollars in a dollar, the unit `costUSD` is reported in.
 const MICRO_DOLLARS_PER_DOLLAR: f64 = 1_000_000.0;
 
+/// The model Claude Code's auto-mode classifier runs on by default, whose requests Claude Code
+/// bills where the server's own checks do not run.
+pub(crate) const CLAUDE_CLASSIFIER_MODEL: &str = "claude-sonnet-5";
+
 /// The region words a Claude message names that the price list's rows carry a multiplier for.
 const CLAUDE_REGION_WORDS: &[&str] = &["us"];
 

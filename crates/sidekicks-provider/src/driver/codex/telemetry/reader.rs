@@ -10,16 +10,17 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::telemetry::completed_response::{
-    RecordRefusal, find_attribute, read_codex_completed_responses,
+    CODEX_EXPORTER, SSE_EVENT_NAME, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::drain::CodexExportItem;
 use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_HAND_OFF_DEPTH, CodexExecResponses, CodexExports, CodexLaunchLookup, CodexTagKind,
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
-use crate::driver::codex::telemetry::read_unix_time_ms;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
+use crate::pricing::receiver::records::{RecordRefusal, find_attribute, read_unix_time_ms};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 use crate::record_readers::is_digits;
 
@@ -40,7 +41,12 @@ impl CodexExports {
                     field: CodexTagKind::Service.key(),
                     reason: "its resource names no launch its token was minted for",
                 }
-                .report(provider_account_id.as_ref());
+                .report(
+                    DESCRIPTOR.provider_id(),
+                    provider_account_id.as_ref(),
+                    CODEX_EXPORTER,
+                    SSE_EVENT_NAME,
+                );
                 return;
             }
             CodexLaunchLookup::Exec(provider_account_id, responses) => {
@@ -52,7 +58,12 @@ impl CodexExports {
                     field: CodexTagKind::Exec.key(),
                     reason: "its resource names no exec its token was minted for",
                 }
-                .report(Some(&provider_account_id));
+                .report(
+                    DESCRIPTOR.provider_id(),
+                    Some(&provider_account_id),
+                    CODEX_EXPORTER,
+                    SSE_EVENT_NAME,
+                );
                 return;
             }
             CodexLaunchLookup::Gone => {

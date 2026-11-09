@@ -63,6 +63,7 @@ use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VAR
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::settings::private_file::ClaudeSpawnSettingsFile;
+use crate::driver::claude::telemetry::{ClaudeExportRegistration, ClaudeExports};
 use crate::port::raw_provider_messages::RawProviderMessages;
 use crate::pricing::receiver::TelemetryTarget;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
@@ -134,12 +135,15 @@ pub(crate) trait ClaudeProcessListener: Send + Sync {
     fn is_turn_ending(&self, frame: &ClaudeStreamFrame) -> bool;
 }
 
-/// The session turn the reader releases when it reads a lead `result` that ends it.
+/// The session turn the reader releases when it reads a lead `result` that ends it, and the
+/// register the process's export is read for price through.
 pub(crate) struct ClaudeTurnHolds {
     /// The routes holding the turn.
     pub(crate) routes: Arc<ClaudeRunRoutes>,
     /// The session whose turn it is.
     pub(crate) session_id: SessionId,
+    /// The driver's register of its session processes' exports.
+    pub(crate) exports: Arc<ClaudeExports>,
 }
 
 /// One live Claude Code process.
@@ -150,6 +154,8 @@ pub(crate) struct ClaudeCodeProcess {
     ends: Arc<ChildEnds>,
     end: watch::Receiver<Option<ClaudeProcessEnd>>,
     startup_hooks: watch::Receiver<usize>,
+    // The process's place in the export register while it exports for a session.
+    _export: Option<ClaudeExportRegistration>,
 }
 
 impl ClaudeCodeProcess {
@@ -194,6 +200,7 @@ impl ClaudeCodeProcess {
             })
             .transpose()
             .map_err(ClaudeLaunchError::TelemetryBearer)?;
+        let is_exporting = telemetry.is_some();
         settings.set_telemetry_switches(
             telemetry
                 .as_ref()
@@ -248,6 +255,15 @@ impl ClaudeCodeProcess {
             })?,
             spawn_sequence,
         };
+        // Registered once it runs, so an export of a process that never started is never held.
+        let export = turn_holds.as_ref().filter(|_| is_exporting).map(|holds| {
+            holds.exports.register(
+                TelemetryHolderId::new(spawn_sequence),
+                holds.session_id,
+                launch.provider_session_id.clone(),
+                Arc::clone(&holds.routes),
+            )
+        });
         let standard_input = child
             .stdin()
             .take()
@@ -300,6 +316,7 @@ impl ClaudeCodeProcess {
             ends: ends_sender,
             end,
             startup_hooks,
+            _export: export,
         })
     }
 

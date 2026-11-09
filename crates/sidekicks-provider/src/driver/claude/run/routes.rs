@@ -6,10 +6,12 @@
 //! hold through that turn's settlement, into the turn Claude Code starts with it. A helper Claude
 //! Code started is a child run, routed by the provider's own agent id, which its frames and hook
 //! callbacks carry. A run apart from the session's process, such as a review of the staged
-//! changes, holds no turn there and is routed only to how it is stopped.
+//! changes, holds no turn there and is routed only to how it is stopped. Each change of a
+//! session's turn holder is kept with its wall-clock time, so a request the export reports later
+//! is joined to the run that held the turn when it began.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -17,6 +19,12 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
+
+use crate::pricing::receiver::records::read_unix_time_ms;
+
+/// How many changes of one session's turn holder the routes keep for the export's time join; past
+/// it the oldest goes, and a request that began before every kept change counts on no run.
+const TURN_HOLDINGS_KEPT: usize = 256;
 
 /// Where a helper's child run lives: its session, the agent id its frames and hook callbacks
 /// carry, the run it was started beneath, the binding the lead's process is attributed on, and
@@ -97,9 +105,17 @@ struct TurnState {
     changes: u64,
 }
 
+// One change of who holds a session's turn: the run that took it with its binding, or none, from
+// the Unix millisecond it changed by the wall clock.
+struct TurnHolding {
+    from_ms: u64,
+    run: Option<ClaudeBoundRun>,
+}
+
 #[derive(Default)]
 struct RouteTables {
     turns: HashMap<SessionId, watch::Sender<TurnState>>,
+    turn_holdings: HashMap<SessionId, VecDeque<TurnHolding>>,
     bindings: HashMap<RunId, (SessionId, RuntimeBindingId)>,
     children: HashMap<RunId, ClaudeChildRunRoute>,
     apart_stops: HashMap<RunId, ClaudeApartRunStop>,
@@ -115,7 +131,7 @@ impl RouteTables {
         session_id: SessionId,
         change: impl FnOnce(&mut TurnState) -> (bool, T),
     ) -> T {
-        match self.turns.entry(session_id) {
+        let outcome = match self.turns.entry(session_id) {
             Entry::Occupied(turn) => {
                 let mut answer = None;
                 turn.get().send_if_modified(|state| {
@@ -137,7 +153,43 @@ impl RouteTables {
                 }
                 outcome
             }
+        };
+        self.note_holder(session_id);
+        outcome
+    }
+
+    // Keeps the session's turn holder from now where it is another run than the last kept one, or
+    // none after one; a holder whose binding is not bound yet reads as none until it is.
+    fn note_holder(&mut self, session_id: SessionId) {
+        let holder = self
+            .turns
+            .get(&session_id)
+            .and_then(|turn| turn.borrow().holder);
+        let run = match holder {
+            Some(TurnHolder::Run { run_id, .. }) => {
+                self.bindings
+                    .get(&run_id)
+                    .map(|(_, binding_id)| ClaudeBoundRun {
+                        run_id,
+                        binding_id: binding_id.clone(),
+                    })
+            }
+            Some(TurnHolder::Command) | None => None,
+        };
+        if run.is_none() && !self.turn_holdings.contains_key(&session_id) {
+            return;
         }
+        let holdings = self.turn_holdings.entry(session_id).or_default();
+        if holdings.back().is_some_and(|last| last.run == run) {
+            return;
+        }
+        if holdings.len() >= TURN_HOLDINGS_KEPT {
+            holdings.pop_front();
+        }
+        holdings.push_back(TurnHolding {
+            from_ms: read_unix_time_ms(),
+            run,
+        });
     }
 
     // Releases the session's turn where `run_id` holds it.
@@ -240,6 +292,7 @@ impl ClaudeRunRoutes {
         {
             tables.release_run(bound_session, run_id);
         }
+        tables.note_holder(session_id);
         Ok(())
     }
 
@@ -339,6 +392,54 @@ impl ClaudeRunRoutes {
             run_id,
             binding_id: binding_id.clone(),
         })
+    }
+
+    /// The run that held the session's turn at `at_ms`, in Unix milliseconds by the wall clock,
+    /// with its binding; `None` when none held it then, or when every kept change is later.
+    pub(crate) fn lead_run_at(&self, session_id: SessionId, at_ms: u64) -> Option<ClaudeBoundRun> {
+        self.lock()
+            .turn_holdings
+            .get(&session_id)?
+            .iter()
+            .rev()
+            .find(|holding| holding.from_ms <= at_ms)?
+            .run
+            .clone()
+    }
+
+    /// The binding of the latest run kept as holding the session's turn, which the session's own
+    /// spend beside its runs is charged through; `None` when no run of it is kept.
+    pub(crate) fn latest_lead_binding(&self, session_id: SessionId) -> Option<RuntimeBindingId> {
+        self.lock()
+            .turn_holdings
+            .get(&session_id)?
+            .iter()
+            .rev()
+            .find_map(|holding| holding.run.as_ref())
+            .map(|run| run.binding_id.clone())
+    }
+
+    /// Forgets the session's turn changes before `at_ms` but the one in force then, and all of them
+    /// where nothing has held the turn since.
+    pub(crate) fn forget_turns_before(&self, session_id: SessionId, at_ms: u64) {
+        let mut tables = self.lock();
+        let Entry::Occupied(mut holdings) = tables.turn_holdings.entry(session_id) else {
+            return;
+        };
+        let in_force = holdings
+            .get()
+            .iter()
+            .rposition(|holding| holding.from_ms <= at_ms)
+            .unwrap_or(0);
+        holdings.get_mut().drain(..in_force);
+        if holdings.get().len() == 1
+            && holdings
+                .get()
+                .front()
+                .is_some_and(|kept| kept.run.is_none())
+        {
+            holdings.remove();
+        }
     }
 
     /// Every lead run bound to the session, with its binding, whether or not it holds the turn.

@@ -589,6 +589,7 @@ impl ClaudeSessionEstablishment {
                 turn_holds: Some(crate::driver::claude::session::process::ClaudeTurnHolds {
                     routes: Arc::clone(&self.routes),
                     session_id,
+                    exports: Arc::clone(&self.task_services.exports),
                 }),
                 permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),

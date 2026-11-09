@@ -27,6 +27,7 @@ use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::pricing::CLAUDE_CLASSIFIER_MODEL;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
@@ -348,6 +349,10 @@ impl ClaudeDriver {
             .starts
             .read_model_catalog(environment.clone(), provider_account_id)
             .await?;
+        self.exports
+            .pricing()
+            .mark_in_use(&[CLAUDE_CLASSIFIER_MODEL])
+            .await;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
     }
 

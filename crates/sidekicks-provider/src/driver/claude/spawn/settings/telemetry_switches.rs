@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Serialize, Serializer};
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::telemetry::CLAUDE_EXPORT_INTERVAL;
 use crate::pricing::receiver::bearers::TelemetryBearer;
 use crate::pricing::receiver::{LOGS_PATH_SUFFIX, TRACES_PATH_SUFFIX, TelemetryTarget};
 
@@ -74,9 +75,6 @@ const COMPRESSIONS: [&str; 3] = [
 
 /// The log and trace batch intervals.
 const EXPORT_INTERVALS: [&str; 2] = ["OTEL_LOGS_EXPORT_INTERVAL", "OTEL_TRACES_EXPORT_INTERVAL"];
-
-/// One batch a second while records wait; the processors arm no timer while none do.
-const EXPORT_INTERVAL_MS: &str = "1000";
 
 /// The switches that put a prompt, a reply, a tool's input or output, a raw request body or the
 /// managed settings into a record, each `0` on every process.
@@ -187,7 +185,9 @@ pub(crate) fn compose_claude_telemetry_switches(
     set(&mut switches, &PROTOCOLS, "http/protobuf");
     set(&mut switches, &HEADERS, &bearer.exporter_headers());
     set(&mut switches, &COMPRESSIONS, "none");
-    set(&mut switches, &EXPORT_INTERVALS, EXPORT_INTERVAL_MS);
+    // One batch an interval while records wait; the processors arm no timer while none do.
+    let interval_ms = CLAUDE_EXPORT_INTERVAL.as_millis().to_string();
+    set(&mut switches, &EXPORT_INTERVALS, &interval_ms);
     set(
         &mut switches,
         &[LOGS_ENDPOINT],

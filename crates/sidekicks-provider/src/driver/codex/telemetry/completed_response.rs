@@ -1,20 +1,15 @@
 //! A completed response, as one resource's records in Codex's log export state it.
 
-use opentelemetry_proto::tonic::common::v1::KeyValue;
-use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs};
-use serde_json::{Map, json};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::pricing::compose_codex_request_facts;
-use crate::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+use crate::pricing::receiver::records::{
+    RecordRefusal, find_attribute, is_text, read_count, read_text,
 };
-use crate::record_readers::is_digits;
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts, meter_from_zero};
 
 #[cfg(test)]
@@ -22,6 +17,9 @@ pub(crate) mod tests;
 
 /// The name every server-sent event Codex logs carries, its completed responses among them.
 pub(crate) const SSE_EVENT_NAME: &str = "codex.sse_event";
+
+/// The name a refusal gives the export it read.
+pub(crate) const CODEX_EXPORTER: &str = "Codex";
 
 /// The event kind of a completed response.
 const RESPONSE_COMPLETED_KIND: &str = "response.completed";
@@ -108,40 +106,16 @@ pub(crate) fn read_codex_completed_responses(
         .filter_map(|record| match read_completed_response(record) {
             Ok(response) => response,
             Err(refusal) => {
-                refusal.report(provider_account_id);
+                refusal.report(
+                    DESCRIPTOR.provider_id(),
+                    provider_account_id,
+                    CODEX_EXPORTER,
+                    SSE_EVENT_NAME,
+                );
                 None
             }
         })
         .collect()
-}
-
-/// Why a record of Codex's export was refused, by the attribute that failed: a completed
-/// response's own, or its resource's launch tag.
-pub(crate) struct RecordRefusal {
-    /// The attribute's name, the one thing the report carries from the record.
-    pub(crate) field: &'static str,
-    /// Why it failed, completing "because".
-    pub(crate) reason: &'static str,
-}
-
-impl RecordRefusal {
-    /// Reports the refusal once under `provider_account_id`, naming the attribute, never its
-    /// value.
-    pub(crate) fn report(&self, provider_account_id: Option<&ProviderAccountId>) {
-        let mut details = Map::new();
-        details.insert("field".to_owned(), json!(self.field));
-        emit_driver_diagnostic(&DriverDiagnosticRecord {
-            provider: DESCRIPTOR.provider_id(),
-            provider_account_id: provider_account_id.cloned(),
-            kind: DriverDiagnosticKind::TelemetryRecordRefused,
-            raw_wire_type: Some(SSE_EVENT_NAME.to_owned()),
-            disposition_reason: format!(
-                "A record in Codex's export was refused whole because {}.",
-                self.reason
-            ),
-            details,
-        });
-    }
 }
 
 // `record` as a completed response; `None` for a record of another kind, the count-free twin or a
@@ -149,27 +123,27 @@ impl RecordRefusal {
 fn read_completed_response(
     record: &LogRecord,
 ) -> Result<Option<CodexCompletedResponse>, RecordRefusal> {
-    let is_completed_response = is_text(record, EVENT_NAME_KEY, SSE_EVENT_NAME)
-        && is_text(record, EVENT_KIND_KEY, RESPONSE_COMPLETED_KIND)
+    let is_completed_response = is_text(&record.attributes, EVENT_NAME_KEY, SSE_EVENT_NAME)
+        && is_text(&record.attributes, EVENT_KIND_KEY, RESPONSE_COMPLETED_KIND)
         && find_attribute(&record.attributes, ERROR_MESSAGE_KEY).is_none()
         && (find_attribute(&record.attributes, INPUT_KEY).is_some()
             || find_attribute(&record.attributes, OUTPUT_KEY).is_some());
     if !is_completed_response {
         return Ok(None);
     }
-    let conversation_id = read_text(record, CONVERSATION_KEY)?
+    let conversation_id = read_text(&record.attributes, CONVERSATION_KEY)?
         .filter(|conversation_id| !conversation_id.is_empty())
         .ok_or(RecordRefusal {
             field: CONVERSATION_KEY,
             reason: "it names no conversation",
         })?;
-    let model_id = read_text(record, MODEL_KEY)?
+    let model_id = read_text(&record.attributes, MODEL_KEY)?
         .and_then(|model| FreeFormText::new(model.to_owned()).ok())
         .ok_or(RecordRefusal {
             field: MODEL_KEY,
             reason: "it names no model the reader can hold",
         })?;
-    let service_tier = read_text(record, SERVICE_TIER_KEY)?
+    let service_tier = read_text(&record.attributes, SERVICE_TIER_KEY)?
         .map(|tier| {
             BoundedText::new(tier.to_owned()).ok_or(RecordRefusal {
                 field: SERVICE_TIER_KEY,
@@ -178,12 +152,12 @@ fn read_completed_response(
         })
         .transpose()?;
     let counts = UsageAxisCounts {
-        input: read_token_count(record, INPUT_KEY)?,
-        cached_input: read_token_count(record, CACHED_INPUT_KEY)?,
-        cache_write_input: read_token_count(record, CACHE_WRITE_INPUT_KEY)?,
-        output: read_token_count(record, OUTPUT_KEY)?,
-        reasoning_output: read_token_count(record, REASONING_OUTPUT_KEY)?,
-        total: read_token_count(record, TOTAL_KEY)?,
+        input: read_count(&record.attributes, INPUT_KEY)?,
+        cached_input: read_count(&record.attributes, CACHED_INPUT_KEY)?,
+        cache_write_input: read_count(&record.attributes, CACHE_WRITE_INPUT_KEY)?,
+        output: read_count(&record.attributes, OUTPUT_KEY)?,
+        reasoning_output: read_count(&record.attributes, REASONING_OUTPUT_KEY)?,
+        total: read_count(&record.attributes, TOTAL_KEY)?,
     };
     let unpaired = match (counts.input, counts.output) {
         (None, _) => Some(INPUT_KEY),
@@ -204,75 +178,4 @@ fn read_completed_response(
         observed_at_ms: record.observed_time_unix_nano / 1_000_000,
         provider_account_id: None,
     }))
-}
-
-/// The value of the attribute `key` among `attributes`, a record's or a resource's; `None` where
-/// it is absent or carries no value.
-pub(super) fn find_attribute<'attributes>(
-    attributes: &'attributes [KeyValue],
-    key: &str,
-) -> Option<&'attributes Value> {
-    attributes
-        .iter()
-        .find(|attribute| attribute.key == key)
-        .and_then(|attribute| attribute.value.as_ref())
-        .and_then(|value| value.value.as_ref())
-}
-
-// Whether `record`'s attribute `key` is the string `expected`.
-fn is_text(record: &LogRecord, key: &str, expected: &str) -> bool {
-    matches!(
-        find_attribute(&record.attributes, key),
-        Some(Value::StringValue(text)) if text == expected
-    )
-}
-
-// `record`'s attribute `key` as a string, `None` where it is absent; refused in any other form.
-fn read_text<'record>(
-    record: &'record LogRecord,
-    key: &'static str,
-) -> Result<Option<&'record str>, RecordRefusal> {
-    match find_attribute(&record.attributes, key) {
-        None => Ok(None),
-        Some(Value::StringValue(text)) => Ok(Some(text)),
-        Some(
-            Value::BoolValue(_)
-            | Value::IntValue(_)
-            | Value::DoubleValue(_)
-            | Value::ArrayValue(_)
-            | Value::KvlistValue(_)
-            | Value::BytesValue(_)
-            | Value::StringValueStrindex(_),
-        ) => Err(RecordRefusal {
-            field: key,
-            reason: "a word it names is not a string",
-        }),
-    }
-}
-
-// `record`'s count `key`, `None` where it is absent: an integer from 0, or a string of ASCII digits
-// alone, at most the wire's integer bound; refused in any other form.
-fn read_token_count(record: &LogRecord, key: &'static str) -> Result<Option<u64>, RecordRefusal> {
-    let count = match find_attribute(&record.attributes, key) {
-        None => return Ok(None),
-        Some(Value::IntValue(count)) => u64::try_from(*count).ok(),
-        Some(Value::StringValue(digits)) => {
-            is_digits(digits).then(|| digits.parse().ok()).flatten()
-        }
-        Some(
-            Value::BoolValue(_)
-            | Value::DoubleValue(_)
-            | Value::ArrayValue(_)
-            | Value::KvlistValue(_)
-            | Value::BytesValue(_)
-            | Value::StringValueStrindex(_),
-        ) => None,
-    };
-    count
-        .filter(|count| *count <= MAX_SAFE_INTEGER)
-        .map(Some)
-        .ok_or(RecordRefusal {
-            field: key,
-            reason: "a count is not a whole number the wire can carry",
-        })
 }

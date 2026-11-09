@@ -3,9 +3,10 @@
 //! before its body is read, read within a cap and a bound on bodies read at once, decoded, kept
 //! whole as OTLP JSON while raw messages are recorded, and handed to the reader of the provider its
 //! path names with the holder its token was minted for. Also the target a provider's exporter is
-//! set to.
+//! set to, and what every reader reads off an export's records.
 
 pub mod bearers;
+pub(crate) mod records;
 
 use std::collections::HashMap;
 use std::error::Error;
