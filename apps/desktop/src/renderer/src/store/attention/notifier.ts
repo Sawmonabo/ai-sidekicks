@@ -18,9 +18,9 @@
 //
 // Switches and quiet hours are not applied here: the daemon decides whether a moment may raise
 // a banner when it writes the entry, and the main process honors the OS do-not-disturb setting.
+// A provider's new build is never announced: no banner or message follows it.
 
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { type AnsweredAttentionReading } from "./summary.js";
+import { type AnsweredAttentionReading, type SessionAttentionItem } from "./summary.js";
 
 /**
  * Attention events the notifier remembers having announced.
@@ -54,10 +54,13 @@ export class AttentionNotifier {
    * not announced. Every live event is remembered whether or not it was announced, and the
    * cap never forgets an event this read returned.
    */
-  public arrivalsToAnnounce(reading: AnsweredAttentionReading): readonly AttentionItem[] {
+  public arrivalsToAnnounce(reading: AnsweredAttentionReading): readonly SessionAttentionItem[] {
     const liveSourceEventIds = new Set<string>();
-    const arrivals: AttentionItem[] = [];
+    const arrivals: SessionAttentionItem[] = [];
     for (const item of reading.summary.liveItems) {
+      if (item.trigger === "providerBuild") {
+        continue;
+      }
       liveSourceEventIds.add(item.sourceEventId);
       if (this.#announcedSourceEventIds.has(item.sourceEventId)) {
         continue;

@@ -7,6 +7,9 @@ import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { unreadableDeliveryReading, type ReadingState } from "#renderer/lib/partial-read.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 
+/** An entry about a session or a run in one: every entry but a provider's new build. */
+export type SessionAttentionItem = Exclude<AttentionItem, { readonly trigger: "providerBuild" }>;
+
 /** One session the projection read could not cover, with the refusal it answered with. */
 export interface RefusedAttentionSession {
   readonly sessionId: string;
@@ -16,8 +19,8 @@ export interface RefusedAttentionSession {
 /** One session's live attention, split on the axis suppression keys on. */
 export interface AttentionSessionGroup {
   readonly sessionId: string;
-  readonly actionable: readonly AttentionItem[];
-  readonly informational: readonly AttentionItem[];
+  readonly actionable: readonly SessionAttentionItem[];
+  readonly informational: readonly SessionAttentionItem[];
 }
 
 /**
@@ -55,14 +58,17 @@ export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phas
  * One value answers every view of the projection, so they cannot disagree about what "live"
  * means. It counts nothing the daemon did not send: the only arithmetic is
  * partitioning and ordering, and severity is read off each item. A resolved item is dropped at
- * construction, since `resolvedAt` is the daemon's word that it has cleared.
+ * construction, since `resolvedAt` is the daemon's word that it has cleared. A provider's new build
+ * belongs to no session, so it is live but in no group, and the count never sees it.
  */
 export class AttentionSummary {
   readonly #liveItems: readonly AttentionItem[];
   readonly #groups: readonly AttentionSessionGroup[];
 
   public constructor(items: readonly AttentionItem[]) {
-    this.#liveItems = oldestFirst(items.filter((item) => item.resolvedAt === undefined));
+    this.#liveItems = oldestFirst(
+      items.filter((item) => item.trigger === "providerBuild" || item.resolvedAt === undefined),
+    );
     this.#groups = groupBySession(this.#liveItems);
   }
 
@@ -76,7 +82,7 @@ export class AttentionSummary {
   }
 
   /**
-   * Live items grouped by session, sessions ordered by their oldest item.
+   * Live session items grouped by session, sessions ordered by their oldest item.
    *
    * Derived from {@link liveItems}: over an oldest-first list, first appearance is the
    * session's oldest item, so no second sort is needed.
@@ -108,9 +114,12 @@ function oldestFirst(items: readonly AttentionItem[]): readonly AttentionItem[] 
 function groupBySession(items: readonly AttentionItem[]): readonly AttentionSessionGroup[] {
   const bySessionId = new Map<
     string,
-    { actionable: AttentionItem[]; informational: AttentionItem[] }
+    { actionable: SessionAttentionItem[]; informational: SessionAttentionItem[] }
   >();
   for (const item of items) {
+    if (item.trigger === "providerBuild") {
+      continue;
+    }
     const existing = bySessionId.get(item.sessionId) ?? { actionable: [], informational: [] };
     if (item.severity === "actionable") {
       existing.actionable.push(item);

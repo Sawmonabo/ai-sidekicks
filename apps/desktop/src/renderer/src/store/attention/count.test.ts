@@ -2,25 +2,34 @@
 // actionable split.
 
 import { describe, expect, it } from "vitest";
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
+import type { AttentionItem, AttentionMomentTrigger } from "@ai-sidekicks/contracts/attention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { providerBuildItem } from "./provider-build.test-support.js";
 import { AttentionSummary } from "./summary.js";
 import { attentionCountOf } from "./count.js";
 
 // The two sessions the items here belong to.
-const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
-const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
+const SESSION_A = "019b7892-1a00-7c31-8110-cca0117a0a01" as SessionId;
+const SESSION_B = "019b7892-1a00-7c31-8110-cca0117a0a02" as SessionId;
 
-function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string }): AttentionItem {
+/** An entry about a run's or a session's own moment. */
+type MomentAttentionItem = Extract<AttentionItem, { readonly trigger: AttentionMomentTrigger }>;
+
+function attentionItem(
+  overrides: Partial<MomentAttentionItem> & { readonly id: string },
+): MomentAttentionItem {
   return {
+    momentId: `moment-${overrides.id}`,
     sessionId: SESSION_A,
-    trigger: "pending_approval",
+    trigger: "pendingApproval",
     severity: "actionable",
-    summary: "waiting",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     sourceEventId: `event-${overrides.id}`,
     createdAt: "2026-01-01T10:00:00.000Z",
+    seen: false,
     ...overrides,
-  } as AttentionItem;
+  };
 }
 
 /** The sessions the fan-out asked about. The rail counts the answer, not the ask. */
@@ -53,6 +62,23 @@ describe("attentionCountOf", () => {
       attentionCountOf({
         phase: "read",
         summary,
+        droppedCount: 0,
+        refusedSessions: [],
+        addressedSessionIds: ADDRESSED_SESSION_IDS,
+      }),
+    ).toBe(1);
+  });
+
+  it("adds nothing for a provider's new build, which belongs to no session", () => {
+    // The build entry is live, so the list draws it, but in no session's group: a grouping that
+    // took it in would hold a group the rail and the sessions list could count.
+    const buildOnly = new AttentionSummary([providerBuildItem()]);
+    expect(buildOnly.liveItems).toHaveLength(1);
+    expect(buildOnly.groups).toStrictEqual([]);
+    expect(
+      attentionCountOf({
+        phase: "read",
+        summary: new AttentionSummary([attentionItem({ id: "1" }), providerBuildItem()]),
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,

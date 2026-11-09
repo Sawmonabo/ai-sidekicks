@@ -1,5 +1,5 @@
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 import { type AttentionReading } from "#renderer/store/attention/summary.js";
 import { NotificationEntryList } from "./NotificationEntryList.js";
 
@@ -10,7 +10,7 @@ import { NotificationEntryList } from "./NotificationEntryList.js";
 export function NotificationsListBody(props: {
   readonly reading: AttentionReading;
   readonly nowMilliseconds: number;
-  readonly onOpen: ((item: AttentionItem) => void) | undefined;
+  readonly onOpen: ((place: AppRoute) => void) | undefined;
 }): React.JSX.Element | null {
   if (props.reading.phase === "reading") {
     return null;

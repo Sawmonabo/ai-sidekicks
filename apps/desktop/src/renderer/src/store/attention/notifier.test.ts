@@ -4,14 +4,21 @@
 import { describe, expect, it } from "vitest";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "./notifier.js";
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
-import { AttentionSummary, type AnsweredAttentionReading } from "./summary.js";
+import type { AttentionItem, AttentionMomentTrigger } from "@ai-sidekicks/contracts/attention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  AttentionSummary,
+  type AnsweredAttentionReading,
+  type SessionAttentionItem,
+} from "./summary.js";
 import { AttentionNotifier } from "./notifier.js";
 
+/** An entry about a run's or a session's own moment. */
+type MomentAttentionItem = Extract<AttentionItem, { readonly trigger: AttentionMomentTrigger }>;
+
 // The two sessions the items here belong to.
-const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
-const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
+const SESSION_A = "019b7892-1a00-7c31-8110-cca0117a0a01" as SessionId;
+const SESSION_B = "019b7892-1a00-7c31-8110-cca0117a0a02" as SessionId;
 
 /**
  * One item, whose canonical event follows its id unless a case says otherwise.
@@ -20,17 +27,16 @@ const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
  * `sourceEventId` would make every item the same news. A case wanting two items over one event
  * passes the event explicitly.
  */
-function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
+function item(overrides: Partial<MomentAttentionItem> = {}): MomentAttentionItem {
   const id = overrides.id ?? "attention-1";
   return {
     id,
     momentId: "moment-1",
     sessionId: SESSION_A,
-    trigger: "pending_approval",
+    trigger: "pendingApproval",
     severity: "actionable",
     displayName: "Fix the login flow",
     stateWord: "Waiting on you",
-    summary: "An approval is waiting.",
     sourceEventId: `event-for-${id}`,
     createdAt: "2026-01-01T10:00:00.000Z",
     bannerState: "pending",
@@ -47,7 +53,7 @@ const ADDRESSED_SESSION_IDS: readonly string[] = [SESSION_A, SESSION_B];
 
 /** One settled read carrying these items, over the sessions this file addresses. */
 function settledRead(
-  items: readonly AttentionItem[],
+  items: readonly SessionAttentionItem[],
   addressedSessionIds: readonly string[] = ADDRESSED_SESSION_IDS,
 ): AnsweredAttentionReading {
   return {
@@ -105,11 +111,11 @@ describe("the attention notifier", () => {
     // beginning to wait announced twice.
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce(settledRead([]));
-    const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });
+    const runScoped = item({ id: "run-1:pendingApproval", sourceEventId: "event-1" });
     const aggregate = item({ id: "session-a:session", sourceEventId: "event-1" });
 
     const arrivals = notifier.arrivalsToAnnounce(settledRead([runScoped, aggregate]));
 
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["run-1:pending_approval"]);
+    expect(arrivals.map((announced) => announced.id)).toStrictEqual(["run-1:pendingApproval"]);
   });
 });

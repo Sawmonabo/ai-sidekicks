@@ -1,10 +1,11 @@
-// The notifications list draws the new answer once an open session's store moves.
+// The notifications list draws the new answer once an open session's store moves, and draws a
+// provider's new build under `Earlier`, uncounted, landing on that provider's settings section.
 
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -17,20 +18,25 @@ import {
   type AttentionProjectionReadCall,
 } from "#renderer/store/attention/hooks/useAttentionProjection.js";
 import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
+import { AttentionSummary } from "#renderer/store/attention/summary.js";
+import {
+  providerBuildItem,
+  RELEASE_NOTES_ADDRESS,
+  UPDATED_PROVIDER_ID,
+} from "#renderer/store/attention/provider-build.test-support.js";
 
 /** The session the items here belong to. */
-const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+const SESSION_A = "019b7892-1a00-7c31-8110-cca0117a0a01" as SessionId;
 
 function item(): AttentionItem {
   return {
     id: "attention-1",
     momentId: "moment-1",
     sessionId: SESSION_A,
-    trigger: "pending_approval",
+    trigger: "pendingApproval",
     severity: "actionable",
     displayName: "Fix the login flow",
     stateWord: "Waiting on you",
-    summary: "An approval is waiting.",
     sourceEventId: "event-1",
     createdAt: "2026-01-01T10:00:00.000Z",
     bannerState: "pending",
@@ -132,5 +138,48 @@ describe("what makes the attention read run again", () => {
 
     expect(read).toHaveBeenCalledTimes(2);
     expect(container.textContent ?? "").toContain("Fix the login flow");
+  });
+});
+
+describe("a provider's new build in the list", () => {
+  it("draws under Earlier, uncounted, and lands on its provider's section", async () => {
+    const clock = new ManualClock(0);
+    const { bridge } = bridgeOnClock("attention", clock);
+    const openExternal = vi.fn<(url: string) => Promise<void>>(() => Promise.resolve());
+    const onOpen = vi.fn();
+    const bridgeOpeningLinks = { ...bridge, native: { ...bridge.native, openExternal } };
+    const view = render(
+      <PlatformBridgeProvider bridge={bridgeOpeningLinks} clock={clock}>
+        <NotificationsList
+          reading={{
+            phase: "read",
+            summary: new AttentionSummary([item(), providerBuildItem()]),
+            droppedCount: 0,
+            refusedSessions: [],
+            addressedSessionIds: [SESSION_A],
+          }}
+          onOpen={onOpen}
+        />
+      </PlatformBridgeProvider>,
+    );
+
+    // The waiting group counts the approval alone; the build sits under Earlier.
+    const waiting = view.getByRole("region", { name: "Waiting on you" });
+    expect(waiting.textContent).toContain("Waiting on you 1");
+    expect(within(waiting).queryByText("Claude Code")).toBeNull();
+    const earlier = view.getByRole("region", { name: "Earlier" });
+    expect(within(earlier).getByText("Claude Code")).toBeTruthy();
+    expect(within(earlier).getByText("updated · 2.1.293 → 2.1.294")).toBeTruthy();
+
+    fireEvent.click(within(earlier).getByRole("button", { name: /Claude Code/u }));
+    expect(onOpen).toHaveBeenCalledWith({
+      kind: "settings",
+      page: "providers",
+      selection: UPDATED_PROVIDER_ID,
+    });
+
+    fireEvent.click(within(earlier).getByRole("button", { name: "What's new" }));
+    await settle();
+    expect(openExternal).toHaveBeenCalledWith(RELEASE_NOTES_ADDRESS);
   });
 });

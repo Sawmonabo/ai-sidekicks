@@ -51,12 +51,16 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
 }
 
 /**
- * The first clause: what the read found. Zero is worded from what else the read carried: with full
- * coverage and nothing dropped there is nothing to say, otherwise it speaks only for what it
- * covered.
+ * The first clause: what the read found waiting on the person. Finished, failed, a Notify step's
+ * and a provider build's entries wait on nobody, so they are not counted. Zero is worded from what
+ * else the read carried: with full coverage and nothing dropped there is nothing to say, otherwise
+ * it speaks only for what it covered.
  */
 function needsYouClause(reading: AnsweredAttentionReading): string | undefined {
-  const liveCount = reading.summary.liveItems.length;
+  const liveCount = reading.summary.groups.reduce(
+    (count, group) => count + group.actionable.length,
+    0,
+  );
   if (liveCount === 1) {
     return "One item needs you.";
   }

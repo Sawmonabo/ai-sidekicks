@@ -1,10 +1,10 @@
-// The notifications list: what needs a person, then what finished or failed. It offers no dismiss
-// (an entry clears when the daemon sets `resolvedAt`, and opening one resolves nothing) and
+// The notifications list: what needs a person, then what finished, failed or changed. It offers no
+// dismiss (an entry clears when the daemon sets `resolvedAt`, and opening one resolves nothing) and
 // re-filters nothing. It performs no read: it is handed the reading, so it and the sessions list
 // use one projection.
 
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { useAgesNow } from "#renderer/hooks/useAgesNow.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type AttentionReading } from "#renderer/store/attention/summary.js";
 import { NotificationsListBody } from "./NotificationsListBody.js";
@@ -15,8 +15,11 @@ import "./NotificationsList.css";
 export interface NotificationsListProps {
   /** The projection read's result; the destination performs it and the session list shares it. */
   readonly reading: AttentionReading;
-  /** Opens the source of one entry. Renderer-local navigation; resolves nothing. */
-  readonly onOpen?: (item: AttentionItem) => void;
+  /**
+   * Opens the place an entry lands on: its session, or its provider's section of Settings ›
+   * Providers. Renderer-local navigation; resolves nothing.
+   */
+  readonly onOpen?: (place: AppRoute) => void;
 }
 
 /**

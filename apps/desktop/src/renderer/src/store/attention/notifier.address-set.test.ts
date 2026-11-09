@@ -14,25 +14,24 @@ import { describe, expect, it } from "vitest";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { AttentionSummary, type AnsweredAttentionReading } from "./summary.js";
 import { AttentionNotifier } from "./notifier.js";
 
 /** The session a window was opened directly on. Known before the directory answers. */
-const OPENED_SESSION_ID = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+const OPENED_SESSION_ID = "019b7892-1a00-7c31-8110-cca0117a0a01" as SessionId;
 /** A session only the node's directory can name, so it joins the read later. */
-const DIRECTORY_SESSION_ID = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
+const DIRECTORY_SESSION_ID = "019b7892-1a00-7c31-8110-cca0117a0a02" as SessionId;
 
 function itemFor(sessionId: SessionId, id: string): AttentionItem {
   return {
     id,
     momentId: "moment-1",
     sessionId,
-    trigger: "pending_approval",
+    trigger: "pendingApproval",
     severity: "actionable",
     displayName: "Fix the login flow",
     stateWord: "Waiting on you",
-    summary: "An approval is waiting.",
     sourceEventId: `event-for-${id}`,
     createdAt: "2026-01-01T10:00:00.000Z",
     bannerState: "pending",
@@ -69,7 +68,7 @@ function settledRead(script: ScriptedRead): AnsweredAttentionReading {
       sessionId,
       refusal: refuse(
         "attention-projection",
-        "session.not_found",
+        "session.notFound",
         "That session is not known to the daemon.",
       ),
     })),

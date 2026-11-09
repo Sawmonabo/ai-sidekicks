@@ -1,18 +1,22 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { attentionEntryPlace } from "./entry-place.js";
+import { ReleaseNotesButton } from "./ReleaseNotesButton.js";
 
 /**
  * One entry, one line: a dot (waiting amber, done a hollow ring, failed a red mark), the name, the
  * daemon's state word verbatim and the age, whose hover label is the time it stands for. A button
  * when the caller supplied a way to open it, plain text otherwise, so the list never offers a
- * press that goes nowhere.
+ * press that goes nowhere. A provider's update ends in `What's new`, which opens the provider's
+ * release notes for the new build.
  */
 export function NotificationEntry(props: {
   readonly item: AttentionItem;
   readonly nowMilliseconds: number;
-  readonly onOpen: ((item: AttentionItem) => void) | undefined;
+  readonly onOpen: ((place: AppRoute) => void) | undefined;
 }): React.JSX.Element {
   const { item, onOpen } = props;
   const clockLocale = useClockLocale();
@@ -30,19 +34,30 @@ export function NotificationEntry(props: {
       />
     </>
   );
-  if (onOpen === undefined) {
-    return <div className="meridian-attention__row">{body}</div>;
+  const row =
+    onOpen === undefined ? (
+      <div className="meridian-attention__row">{body}</div>
+    ) : (
+      <button
+        type="button"
+        className="meridian-attention__row meridian-attention__row--open"
+        onClick={() => {
+          onOpen(attentionEntryPlace(item));
+        }}
+      >
+        {body}
+      </button>
+    );
+  const releaseNotesAddress =
+    item.trigger === "providerBuild" ? item.providerBuild.releaseNotesAddress : undefined;
+  if (releaseNotesAddress === undefined) {
+    return row;
   }
   return (
-    <button
-      type="button"
-      className="meridian-attention__row meridian-attention__row--open"
-      onClick={() => {
-        onOpen(item);
-      }}
-    >
-      {body}
-    </button>
+    <div className="meridian-attention__line">
+      {row}
+      <ReleaseNotesButton address={releaseNotesAddress} />
+    </div>
   );
 }
 
@@ -51,5 +66,5 @@ function entryState(item: AttentionItem): "waiting" | "done" | "failed" {
   if (item.severity === "actionable") {
     return "waiting";
   }
-  return item.trigger === "run_failed" ? "failed" : "done";
+  return item.trigger === "runFailed" ? "failed" : "done";
 }

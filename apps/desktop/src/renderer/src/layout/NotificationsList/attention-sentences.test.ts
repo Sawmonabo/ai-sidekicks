@@ -4,16 +4,17 @@
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import {
   AttentionSummary,
   type RefusedAttentionSession,
 } from "#renderer/store/attention/summary.js";
+import { providerBuildItem } from "#renderer/store/attention/provider-build.test-support.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
 
 /** The session the items here belong to. */
-const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+const SESSION_A = "019b7892-1a00-7c31-8110-cca0117a0a01" as SessionId;
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
@@ -23,11 +24,10 @@ function itemNeeding(id: string): AttentionItem {
     id,
     momentId: "moment-1",
     sessionId: SESSION_A,
-    trigger: "pending_approval",
+    trigger: "pendingApproval",
     severity: "actionable",
     displayName: "Fix the login flow",
     stateWord: "Waiting on you",
-    summary: "An approval is waiting.",
     sourceEventId: `event-${id}`,
     createdAt: CREATED_AT,
     bannerState: "pending",
@@ -41,7 +41,7 @@ function refusedSession(sessionId: string): RefusedAttentionSession {
     sessionId,
     refusal: refuse(
       "attention-projection",
-      "session.not_found",
+      "session.notFound",
       "That session is not known to the daemon.",
     ),
   };
@@ -69,6 +69,8 @@ describe("what one settled attention read says", () => {
     // A read that answered for every session and dropped nothing has nothing to say; anything less
     // must say so, since a listener cannot see the panel.
     expect(describeAttentionSettlement(answered({}))).toBeNull();
+    // A provider's new build waits on nobody, so it is no item that needs the person.
+    expect(describeAttentionSettlement(answered({ items: [providerBuildItem()] }))).toBeNull();
     expect(
       describeAttentionSettlement(answered({ refusedSessions: [refusedSession("s-1")] })),
     ).toBe("Nothing was found in what this read covered. One session could not be checked.");
