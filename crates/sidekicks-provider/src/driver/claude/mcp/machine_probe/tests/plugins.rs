@@ -123,19 +123,15 @@ async fn probe_plugins(
     .await
 }
 
-// What the process's `system/init` frames say of the plugin: nothing (no frame), its row among
-// the loaded plugins by its folder or by the name Claude Code loads it under, its load error by
-// that name or by its folder for one that did not load at all, a frame naming neither, or its
-// row, then a later frame with a `failed` row for its server.
+// What the process's `reload_plugins` answer says of the plugin: nothing (no answer), its row
+// among the loaded plugins by its folder or by the name Claude Code loads it under, or a list
+// naming it neither way.
 #[derive(Clone, Copy, Debug)]
-enum InitFrame {
+enum PluginReload {
     Absent,
     LoadedByFolder,
     LoadedByName,
-    LoadErrorByName,
-    LoadErrorByFolder,
-    Silent,
-    LoadedThenAFailedRow,
+    Unlisted,
 }
 
 // Where the probe runs: in plain mode, under a deployed managed MCP file, which connects no
@@ -147,155 +143,95 @@ enum ProbeMode {
     SafeMode,
 }
 
-const SPAWN_ERROR: &str = "spawn ENOENT";
-
-const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
-
 const SERVER_NAME: &str = "plugin:db-tools:db";
 
 // A plugin's server is probed in the one strict process that loads its plugin from its install
-// root with `--plugin-dir-no-mcp`: where the process's `system/init` frame lists the plugin as
-// loaded, by its folder or by the name Claude Code loads it under (the manifest's `name`, else the
-// install folder's), the server is sent in the set as `plugin:<plugin>:<server>`, its plugin root
-// and data folder filled, and reads as Claude Code reports it; a plugin the frame lists as
-// refused contributes no server, which reads `failed` with Claude Code's load error, by name or by
-// folder, else the plain line where the frame names neither or no frame came; a row a frame
-// written after the set lists for the server stands where no answer names it; safe mode sends the
+// root with `--plugin-dir-no-mcp`, which writes no `system/init` frame since it is sent no
+// message: where the process's `reload_plugins` answer lists the plugin as loaded, by its folder
+// or by the name Claude Code loads it under (the manifest's `name`, else the install folder's),
+// the server is sent in the set as `plugin:<plugin>:<server>`, its plugin root and data folder
+// filled, and reads as Claude Code reports it, with no wait; a plugin the answer leaves out, or
+// no answer, contributes no server, which reads `failed` with the plain line; safe mode sends the
 // server like any other and reads Claude Code's answer; a deployed managed MCP file starts no
 // process and reads `failed` with Claude Code's notice. The set names no server but the plugin's.
-// Killed by a refused plugin's server sent, by an accepted one left out, by its placeholders
-// unfilled, by the strict flag dropped, by `--plugin-dir` in place of `--plugin-dir-no-mcp`, by
-// either form of the load error not matched, by its text dropped, by a later frame's rows unread,
-// by safe mode predicted as a failure, and by a managed MCP file starting a process.
+// Killed by reading the plugins from a `system/init` frame, which the process never writes, so a
+// loaded plugin reads unloaded, by a refused plugin's server sent, by an accepted one left out, by
+// its placeholders unfilled, by the strict flag dropped, by `--plugin-dir` in place of
+// `--plugin-dir-no-mcp`, by safe mode predicted as a failure, and by a managed MCP file starting a
+// process.
 #[rstest]
-#[case::loaded(Some(json!({ "name": "db-tools" })), InitFrame::LoadedByFolder, ProbeMode::Plain,
+#[case::loaded(Some(json!({ "name": "db-tools" })), PluginReload::LoadedByFolder, ProbeMode::Plain,
     McpServerStatus::Connected, None)]
 #[case::loaded_without_a_manifest_by_its_folder_name(
     None,
-    InitFrame::LoadedByName,
+    PluginReload::LoadedByName,
     ProbeMode::Plain,
     McpServerStatus::Connected,
     None
 )]
-#[case::refused_with_no_init_frame(
+#[case::refused_with_no_answer(
     Some(json!({ "name": "db-tools" })),
-    InitFrame::Absent,
+    PluginReload::Absent,
     ProbeMode::Plain,
     McpServerStatus::Failed,
     Some("Claude Code did not load the plugin.")
 )]
-#[case::refused_with_its_load_error_by_name(
+#[case::refused_unlisted(
     Some(json!({ "name": "db-tools" })),
-    InitFrame::LoadErrorByName,
-    ProbeMode::Plain,
-    McpServerStatus::Failed,
-    Some(LOAD_ERROR)
-)]
-#[case::refused_with_its_load_error_by_folder(
-    Some(json!({ "name": "db-tools" })),
-    InitFrame::LoadErrorByFolder,
-    ProbeMode::Plain,
-    McpServerStatus::Failed,
-    Some(LOAD_ERROR)
-)]
-#[case::refused_with_no_word(
-    Some(json!({ "name": "db-tools" })),
-    InitFrame::Silent,
+    PluginReload::Unlisted,
     ProbeMode::Plain,
     McpServerStatus::Failed,
     Some("Claude Code did not load the plugin.")
 )]
-#[case::listed_failed_by_a_later_frame(
-    Some(json!({ "name": "db-tools" })),
-    InitFrame::LoadedThenAFailedRow,
-    ProbeMode::Plain,
-    McpServerStatus::Failed,
-    Some(SPAWN_ERROR)
-)]
-#[case::under_a_managed_mcp_file(Some(json!({ "name": "db-tools" })), InitFrame::Absent,
+#[case::under_a_managed_mcp_file(Some(json!({ "name": "db-tools" })), PluginReload::Absent,
     ProbeMode::ManagedMcpFile, McpServerStatus::Failed, Some(
         "Your organization's managed MCP config has exclusive control over MCP servers in this \
          session."
     ))]
-#[case::under_safe_mode(Some(json!({ "name": "db-tools" })), InitFrame::LoadedByFolder,
+#[case::under_safe_mode(Some(json!({ "name": "db-tools" })), PluginReload::LoadedByFolder,
     ProbeMode::SafeMode, McpServerStatus::Connected, None)]
 #[tokio::test(start_paused = true)]
 async fn a_plugin_server_is_sent_only_where_claude_code_loads_its_plugin(
     #[case] manifest: Option<Value>,
-    #[case] init_frame: InitFrame,
+    #[case] plugin_reload: PluginReload,
     #[case] mode: ProbeMode,
     #[case] status: McpServerStatus,
     #[case] failure_text: Option<&str>,
 ) {
     let is_loaded = matches!(
-        init_frame,
-        InitFrame::LoadedByFolder | InitFrame::LoadedByName | InitFrame::LoadedThenAFailedRow
+        plugin_reload,
+        PluginReload::LoadedByFolder | PluginReload::LoadedByName
     );
     let plugins = install_plugins(&[("db-tools@team.market", "db-tools/1.0.0", manifest)]).await;
     let install = &plugins.installs[0];
     let install_path = install.to_string_lossy().into_owned();
-    let frame = |rows: Value, loaded: Value, errors: Value| {
-        json!({
-            "type": "system",
-            "subtype": "init",
-            "mcp_servers": rows,
-            "plugins": loaded,
-            "plugin_errors": errors,
-        })
-    };
-    let init = |rows: Value, loaded: Value, errors: Value| vec![frame(rows, loaded, errors)];
-    let loaded_by_folder =
-        json!([{ "name": "db-tools", "path": install_path, "source": "db-tools@inline" }]);
-    let frames = match init_frame {
-        InitFrame::Absent => Vec::new(),
-        InitFrame::LoadedByFolder => init(json!([]), loaded_by_folder, json!([])),
-        InitFrame::LoadedByName => init(
-            json!([]),
-            json!([{ "name": "1.0.0", "path": "/elsewhere/1.0.0", "source": "1.0.0@inline" }]),
-            json!([]),
-        ),
-        InitFrame::LoadErrorByName => init(
-            json!([]),
-            json!([]),
-            json!([{
-                "plugin": "db-tools@inline",
-                "type": "manifest-validation-error",
-                "message": LOAD_ERROR,
-            }]),
-        ),
-        InitFrame::LoadErrorByFolder => init(
-            json!([]),
-            json!([]),
-            json!([{
-                "plugin": "inline[0]",
-                "type": "manifest-validation-error",
-                "message": LOAD_ERROR,
-                "path": install_path,
-            }]),
-        ),
-        InitFrame::Silent => init(json!([]), json!([]), json!([])),
-        // The probe reads the second frame only once the set is sent.
-        InitFrame::LoadedThenAFailedRow => vec![
-            frame(json!([]), loaded_by_folder.clone(), json!([])),
-            frame(
-                json!([{ "name": SERVER_NAME, "status": "failed", "error": SPAWN_ERROR }]),
-                loaded_by_folder,
-                json!([]),
-            ),
-        ],
-    };
-    let reported = if matches!(init_frame, InitFrame::LoadedThenAFailedRow) {
-        json!([])
-    } else {
-        json!([{ "name": SERVER_NAME, "status": "connected" }])
+    let loaded = match plugin_reload {
+        PluginReload::Absent => None,
+        PluginReload::LoadedByFolder => {
+            Some(json!([{ "name": "db-tools", "path": install_path, "source": "db-tools@inline" }]))
+        }
+        PluginReload::LoadedByName => {
+            Some(json!([{ "name": "1.0.0", "path": "/elsewhere/1.0.0", "source": "1.0.0@inline" }]))
+        }
+        PluginReload::Unlisted => {
+            Some(json!([{ "name": "other", "path": "/elsewhere/other", "source": "other@inline" }]))
+        }
     };
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
+    if let Some(loaded) = loaded {
+        channel.answer(
+            "reload_plugins",
+            ScriptedAnswer::Reply(json!({ "plugins": loaded, "error_count": 0 })),
+        );
+    }
     channel.answer(
         "mcp_status",
-        ScriptedAnswer::Reply(json!({ "mcpServers": reported })),
+        ScriptedAnswer::Reply(
+            json!({ "mcpServers": [{ "name": SERVER_NAME, "status": "connected" }] }),
+        ),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), frames);
+    starts.script_mcp_probe(Arc::clone(&channel));
     let environment = match mode {
         ProbeMode::Plain | ProbeMode::ManagedMcpFile => Vec::new(),
         ProbeMode::SafeMode => vec![("CLAUDE_CODE_SAFE_MODE".to_owned(), "1".to_owned())],
@@ -414,15 +350,14 @@ async fn plugins_loaded_under_one_name_are_probed_apart() {
                 { "name": format!("plugin:{plugin}:db"), "status": "connected" }
             ] })),
         );
-        starts.script_mcp_probe(
-            channel,
-            vec![json!({
-                "type": "system",
-                "subtype": "init",
+        channel.answer(
+            "reload_plugins",
+            ScriptedAnswer::Reply(json!({
                 "plugins": [{ "name": "1.0.0", "path": install, "source": "1.0.0@inline" }],
-                "plugin_errors": [],
-            })],
+                "error_count": 0,
+            })),
         );
+        starts.script_mcp_probe(channel);
     }
 
     let readings = probe_plugins(&starts, &plugins, Vec::new(), false)

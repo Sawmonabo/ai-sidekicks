@@ -1,9 +1,10 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
-//! conversation, its agent view held off, the session's whole permission rules, its advisor and
-//! output style, and the command sandbox at Sandboxed.
+//! conversation, its agent view held off, its own helper caps lifted, the session's whole
+//! permission rules, its advisor and output style, and the command sandbox at Sandboxed.
 
 use std::path::{Path, PathBuf};
 
+use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -44,6 +45,34 @@ impl Serialize for AgentViewOff {
     }
 }
 
+/// Claude Code's own helper caps, each at its largest value: the daemon applies the person's
+/// limit itself, and nothing bounds how deep helpers nest.
+pub(crate) const CLAUDE_LIFTED_HELPER_CAPS: [(&str, &str); 2] = [
+    (
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+        "9223372036854775807",
+    ),
+    (
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        "9223372036854775807",
+    ),
+];
+
+/// The `--settings` document's `env`: [`CLAUDE_LIFTED_HELPER_CAPS`], which an `env` in the
+/// person's own settings files would otherwise overwrite in the process environment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HelperCapsLifted;
+
+impl Serialize for HelperCapsLifted {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(CLAUDE_LIFTED_HELPER_CAPS.len()))?;
+        for (name, value) in CLAUDE_LIFTED_HELPER_CAPS {
+            map.serialize_entry(name, value)?;
+        }
+        map.end()
+    }
+}
+
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
 /// settings resolve it; `output_style` is absent where the session chose none.
@@ -54,6 +83,8 @@ pub(crate) struct ClaudeSpawnSettings {
     pub(crate) cleanup_period_days: u32,
     /// The agent view, off.
     pub(crate) disable_agent_view: AgentViewOff,
+    /// Claude Code's helper caps, lifted.
+    pub(crate) env: HelperCapsLifted,
     /// The session's whole permission rules.
     pub(crate) permissions: ClaudePermissionsDocument,
     /// The session's advisor model, `""` for none, absent where none was picked.
@@ -224,6 +255,7 @@ pub(crate) fn compose_claude_spawn_settings(
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
+        env: HelperCapsLifted,
         permissions: compose_claude_permissions(request, writable_roots, level)?,
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
@@ -393,6 +425,31 @@ mod tests {
         assert_eq!(
             advisor_setting(ClaudeSessionAdvisor::Model("opus".to_owned())),
             json!("opus")
+        );
+    }
+
+    // Killed by a document whose `env` drops a lifted cap or lowers it, which lets an `env` in the
+    // person's own settings files cap the session's helpers below the person's limit.
+    #[test]
+    fn the_settings_document_lifts_claude_codes_helper_caps() {
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &[],
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+
+        let settings =
+            compose_claude_spawn_settings(&request, None, &ClaudeSessionAdvisor::Off, None, None)
+                .expect("the settings compose");
+
+        assert_eq!(
+            serde_json::to_value(settings).expect("the settings serialize")["env"],
+            json!({
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "9223372036854775807",
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "9223372036854775807",
+            })
         );
     }
 }

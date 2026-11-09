@@ -189,7 +189,7 @@ mod tests {
         ClaudePermissionMode, ClaudePermissionsDocument,
     };
     use crate::driver::claude::spawn::settings::{
-        AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings,
+        AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings, HelperCapsLifted,
     };
     use crate::driver::session_control::SubagentPolicy;
 
@@ -305,6 +305,7 @@ mod tests {
         let settings = ClaudeSpawnSettings {
             cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
             disable_agent_view: AgentViewOff,
+            env: HelperCapsLifted,
             permissions: ClaudePermissionsDocument {
                 allow: Vec::new(),
                 ask: Vec::new(),

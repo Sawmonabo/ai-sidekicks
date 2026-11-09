@@ -112,7 +112,7 @@ async fn the_probe_is_strict_only_where_no_managed_mcp_file_is_deployed(
             json!({ "mcpServers": [{ "name": "notes", "status": "connected" }] }),
         ),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
 
     let readings = probe(
         &starts,
@@ -167,7 +167,7 @@ async fn a_set_error_reads_failed_with_its_credentials_scrubbed() {
             }
         })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
 
     let readings = probe(
         &starts,
@@ -248,7 +248,7 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
             {"name": "builder", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
     let environment = [
         ("TRACKER_HOST", "mcp.example.com"),
         ("TRACKER_TOKEN", "variable-token"),
@@ -325,7 +325,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
             {"name": "org-events", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
     let organization = read_claude_organization_servers(
         &[],
         Some(&json!({ "managedMcpServers": {
@@ -463,7 +463,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
         "mcp_status",
         ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "pending", "status": "connected"}]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
 
     let probed = probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
@@ -545,7 +545,7 @@ async fn a_sent_server_unsettled_at_the_ceiling_reads_starting_or_unreported(
         "mcp_status",
         ScriptedAnswer::Reply(json!({ "mcpServers": rows })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel));
     let environment = mcp_timeout
         .map(|timeout| vec![("MCP_TIMEOUT".to_owned(), timeout.to_owned())])
         .unwrap_or_default();
