@@ -795,6 +795,9 @@ refusal_codes! {
         (FailedPrecondition, 409);
     /// A start, or a node run (`workflow.node.execute`), that names no project's repository.
     WorkflowRunRepositoryRequired = "workflow.run.repositoryRequired" (InvalidArgument, 422);
+    /// `workflow.run.resume` refused because the run is parked on nothing a resume lifts: its
+    /// only waits are on a person's answer or on its chain's question, which the answer lifts.
+    WorkflowRunResumeAwaitsAnswer = "workflow.run.resumeAwaitsAnswer" (FailedPrecondition, 409);
     /// `workflow.run.resume` refused because the target run is not parked.
     WorkflowRunResumeNotParked = "workflow.run.resumeNotParked" (FailedPrecondition, 409);
     /// Workflow run start, or node run, refused by Cedar under `Action::"workflow::start"`, or

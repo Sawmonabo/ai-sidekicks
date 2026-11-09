@@ -8,12 +8,14 @@ use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNode, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use tokio::sync::oneshot;
@@ -459,6 +461,7 @@ async fn keep_going_moves_every_held_step_in_one_write() {
             RunTurnCommit::new(
                 other_keys,
                 other,
+                WorkflowRunEpoch(SafeInt::ZERO),
                 waiting_counts,
                 RunPersonWait::default(),
                 Arc::clone(&harness.payloads) as Arc<dyn StepPayloadArtifacts>,

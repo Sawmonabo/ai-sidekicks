@@ -18,6 +18,7 @@ use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStep
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowParallelJoinBranchesCanceledPayload, WorkflowPhaseAdmittedPayload,
@@ -89,6 +90,11 @@ pub(crate) struct RunTurnCommit {
     keys: RunEventKeys,
     /// The run.
     run_id: WorkflowRunId,
+    /// The run's execution, which its `workflow.run.resumed` carries.
+    epoch: WorkflowRunEpoch,
+    /// The index of the `workflow.run.resumed` a person's Resume wrote, which the steps it runs
+    /// again ride and which takes the turn's status move in place of a second.
+    resumed_event: Option<usize>,
     /// The run's step counts, moved by each change the turn makes to a step.
     counts: RunStepCounts,
     /// The run's status as the turn found it.
@@ -318,12 +324,13 @@ pub(crate) struct RunTurnCommitFailure {
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
-    /// An empty turn of the run `run_id`, whose events name `keys`, with its step counts and
-    /// person-wait columns as the tick keeps them, storing a payload above the inline cap through
-    /// `payloads`.
+    /// An empty turn of the run `run_id`, whose events name `keys`, in its execution `epoch`, with
+    /// its step counts and person-wait columns as the tick keeps them, storing a payload above the
+    /// inline cap through `payloads`.
     pub(crate) fn new(
         keys: RunEventKeys,
         run_id: WorkflowRunId,
+        epoch: WorkflowRunEpoch,
         counts: RunStepCounts,
         person_wait: RunPersonWait,
         payloads: Arc<dyn StepPayloadArtifacts>,
@@ -331,6 +338,8 @@ impl RunTurnCommit {
         Self {
             keys,
             run_id,
+            epoch,
+            resumed_event: None,
             counts,
             status_before: going_run_status(&counts),
             person_wait,
@@ -597,6 +606,18 @@ impl RunTurnCommit {
         self.add_pending(ready, input_ref, readying_event);
     }
 
+    /// Writes the `pending` row of `ready`, the next attempt of a step a failed park stopped, on
+    /// `input_ref`, the earlier attempt's own input, in the readied steps of the event at
+    /// `readying_event`; that input's committed row already names it, so a failed turn keeps it.
+    pub(crate) fn rerun(
+        &mut self,
+        ready: &WalkReady,
+        input_ref: WorkflowPayloadRef,
+        readying_event: usize,
+    ) {
+        self.add_pending(ready, input_ref, readying_event);
+    }
+
     /// Writes `workflow.phase.retried` naming `ready`, the failed step's next attempt the walk's
     /// retry answered, at the failure's instant, and the attempt's `pending` row on `input_ref`,
     /// the failed attempt's own input, in that event's readied steps. Called right after the
@@ -648,6 +669,8 @@ impl RunTurnCommit {
         } else if let SessionEvent::WorkflowPhaseRetried(readying) = event {
             &mut readying.readied
         } else if let SessionEvent::WorkflowStepCanceled(readying) = event {
+            &mut readying.readied
+        } else if let SessionEvent::WorkflowRunResumed(readying) = event {
             &mut readying.readied
         } else {
             unreachable!("a step is readied only by an event that carries its readied steps")

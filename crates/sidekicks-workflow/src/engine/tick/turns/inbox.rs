@@ -8,7 +8,9 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 
@@ -161,6 +163,7 @@ impl EngineTick {
                 (Some(live), _) => RunTurnCommit::new(
                     live.event_keys(),
                     *run_id,
+                    live.epoch,
                     live.counts,
                     live.person_wait.clone(),
                     Arc::clone(&self.payloads),
@@ -169,6 +172,7 @@ impl EngineTick {
                 (None, Some(question)) => RunTurnCommit::new(
                     question.keys,
                     *run_id,
+                    WorkflowRunEpoch(SafeInt::ZERO),
                     RunStepCounts::default(),
                     RunPersonWait::default(),
                     Arc::clone(&self.payloads),

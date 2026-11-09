@@ -14,6 +14,7 @@ use crate::workflow::run::control::{
     WorkflowCancelReason, WorkflowNodeExecuteScope, names_whole_repin,
 };
 use crate::workflow::run::id::WorkflowRunId;
+use crate::workflow::run::snapshot::WorkflowRunEpoch;
 use crate::workflow::run::step::events::WorkflowReadiedStep;
 use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
 use crate::workflow::run::trigger::{
@@ -282,6 +283,9 @@ workflow_run_event! {
         "repinnedToWorkflowVersionId": ["repinnedFromWorkflowVersionId"],
     }))]
     pub struct WorkflowRunResumedPayload {
+        /// The run's execution from this resume on: the next one where the resume runs steps
+        /// again, the one under way otherwise.
+        pub epoch: WorkflowRunEpoch,
         /// Where it picks up.
         pub resumption_point: WorkflowResumptionPoint,
         /// The version the run left, on an accepted re-pin.

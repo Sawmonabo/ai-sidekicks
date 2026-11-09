@@ -8,11 +8,13 @@ mod ending;
 mod inbox;
 mod readying;
 mod reports;
+mod resuming;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use ending::{RunCancelIntake, RunCancelReply};
+pub(crate) use ending::{RunCancelIntake, RunCancelRefusal, RunCancelReply};
+pub(crate) use resuming::{RunResumeIntake, RunResumeRefusal};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
@@ -76,6 +78,8 @@ pub(crate) enum EngineTickInput {
     KeepGoing(KeepGoingIntake),
     /// A person's cancel of a run.
     Cancel(RunCancelIntake),
+    /// A person's Resume of a run.
+    Resume(RunResumeIntake),
     /// `Stop a run after` changed: every live run's cap follows it before the clock is read
     /// again.
     RunLimitChanged,
@@ -175,17 +179,20 @@ struct RunTurn {
     /// The steps the turn resumed from a spent account, each with its kept agent run, taken
     /// again once the write commits.
     resumes: Vec<(WorkflowStepKey, ParkedAgentRun)>,
+    /// The replies to the person's Resumes the turn took, sent once its write commits.
+    resume_replies: Vec<resuming::RunResumeReply>,
     /// The index and instant of the turn's last event that carries readied steps.
     last_readying_event: Option<(usize, WireInstant)>,
 }
 
 /// What reached one run for a turn: the answers routed to it, its steps' reports, its retries come
-/// due, its pause points ended and the person's cancels.
+/// due, its pause points ended and the person's Resumes and cancels.
 struct RunArrivals {
     answers: Vec<PersonWaitIntake>,
     reports: Vec<StepReport>,
     due: Vec<WorkflowStepKey>,
     taken: Vec<PausePoint>,
+    resumes: Vec<RunResumeIntake>,
     cancels: Vec<RunCancelIntake>,
 }
 
@@ -341,13 +348,13 @@ impl EngineTick {
         point
     }
 
-    /// One turn: each `Keep going` as its own write while the inputs are routed, each cancel routed
-    /// after every run the batch starts, then each run's share in arrival order, its next batch
-    /// first, then the answers routed to it, and its retries come `due` and its pause points
-    /// `taken` with it, committed in one write per run; then one read of the dispatching runs'
-    /// levels, their dispatch, one read of the deadline clock where a write moved a deadline, and
-    /// one weigh of the memory gate. A run whose pause point is still pending sits the turn out,
-    /// keeping what reached it.
+    /// One turn: each `Keep going` as its own write while the inputs are routed, each Resume routed
+    /// as it arrives and each cancel after every run the batch starts, then each run's share in
+    /// arrival order, its next batch first, then the answers routed to it, and its retries come
+    /// `due` and its pause points `taken` with it, committed in one write per run; then one read of
+    /// the dispatching runs' levels, their dispatch, one read of the deadline clock where a write
+    /// moved a deadline, and one weigh of the memory gate. A run whose pause point is still pending
+    /// sits the turn out, keeping what reached it.
     async fn turn(
         &mut self,
         inputs: Vec<EngineTickInput>,
@@ -359,6 +366,7 @@ impl EngineTick {
         let mut dispatching: Vec<(WorkflowRunId, Vec<ReadyStep>)> = Vec::new();
         let mut answers: HashMap<WorkflowRunId, Vec<PersonWaitIntake>> = HashMap::new();
         let mut cancels: HashMap<WorkflowRunId, Vec<RunCancelIntake>> = HashMap::new();
+        let mut resumes: HashMap<WorkflowRunId, Vec<RunResumeIntake>> = HashMap::new();
         // A start's row is visible to a cancel before the tick holds its run.
         let mut cancel_intakes = Vec::new();
         for input in inputs {
@@ -369,11 +377,22 @@ impl EngineTick {
                 }
                 EngineTickInput::KeepGoing(intake) => self.keep_going(intake).await,
                 EngineTickInput::Cancel(intake) => cancel_intakes.push(intake),
+                EngineTickInput::Resume(intake) => {
+                    if let Some(unheld) =
+                        self.route_control(intake.run_id, intake, &mut order, &mut resumes)
+                    {
+                        let _unheard = unheld.reply.send(Err(RunResumeRefusal::NotHeld));
+                    }
+                }
                 EngineTickInput::RunLimitChanged => self.follow_run_limit().await,
             }
         }
         for intake in cancel_intakes {
-            self.route_cancel(intake, &mut order, &mut cancels);
+            if let Some(unheld) =
+                self.route_control(intake.run_id, intake, &mut order, &mut cancels)
+            {
+                let _unheard = unheld.reply.send(Err(RunCancelRefusal::NotHeld));
+            }
         }
         let mut arrived = by_run(&mut order, reports, |report| report.step.workflow_run_id);
         let mut due_by_run = by_run(&mut order, due, |step| step.workflow_run_id);
@@ -384,6 +403,7 @@ impl EngineTick {
                 reports: arrived.remove(&run_id).unwrap_or_default(),
                 due: due_by_run.remove(&run_id).unwrap_or_default(),
                 taken: taken_by_run.remove(&run_id).unwrap_or_default(),
+                resumes: resumes.remove(&run_id).unwrap_or_default(),
                 cancels: cancels.remove(&run_id).unwrap_or_default(),
             };
             if let Some(readied) = self.run_turn(run_id, arrived).await
@@ -400,6 +420,26 @@ impl EngineTick {
             Arc::clone(&self.deadlines).rearm().await;
         }
         self.admission.weigh();
+    }
+
+    /// Routes `intake`, a person's control of the run `run_id`, to that run's share of the turn,
+    /// the run added to `order` where it is not there yet; hands `intake` back where the tick does
+    /// not hold the run.
+    fn route_control<Intake>(
+        &self,
+        run_id: WorkflowRunId,
+        intake: Intake,
+        order: &mut Vec<WorkflowRunId>,
+        routed: &mut HashMap<WorkflowRunId, Vec<Intake>>,
+    ) -> Option<Intake> {
+        if !self.runs.contains_key(&run_id) {
+            return Some(intake);
+        }
+        if !order.contains(&run_id) {
+            order.push(run_id);
+        }
+        routed.entry(run_id).or_default().push(intake);
+        None
     }
 
     /// Moves every live run's cap to `Stop a run after` as set now, recording each cap line that
@@ -463,21 +503,22 @@ impl EngineTick {
 
     /// The share of the run `run_id` in this turn of what `arrived`: its next batch, whose reports
     /// an earlier turn answered, so what that turn decided stands, then the answers, then the
-    /// reports, then the person's cancels, each through the run's commit, the walk's answers
-    /// added, a quiet run flushed, its ending added where it is over, all in one write; each
-    /// settled answer is replied to once the write commits, a cancel once the write of the run's
-    /// ending does, and each approval whose point is taken is asked after it. Answers the steps to
-    /// dispatch, the retry attempts come due among them while they are still live, `pending` and
-    /// undispatched, or `None` when the run is not live. A run whose write ends it leaves the live
-    /// set; a run whose write fails leaves it with its steps canceled.
+    /// reports, then the person's Resumes, then their cancels, each through the run's commit, the
+    /// walk's answers added, a quiet run flushed, its ending added where it is over, all in one
+    /// write; each settled answer and each Resume taken is replied to once the write commits, a
+    /// cancel once the write of the run's ending does, and each approval whose point is taken is
+    /// asked after it. Answers the steps to dispatch, the retry attempts come due among them while
+    /// they are still live, `pending` and undispatched, or `None` when the run is not live. A run
+    /// whose write ends it leaves the live set; a run whose write fails leaves it with its steps
+    /// canceled.
     ///
     /// While a point of the run's pause is pending, the run is held: its answers, reports, due
-    /// retries and cancels are kept unwritten and unreplied, and it is never batched. The turn in
-    /// which its last point ends, or any point once a cancel waits, takes its next batch, the held
-    /// answers then its own, the held reports then its own, the held cancels then its own, and
-    /// after the write the held dispatches, then what it readied, then its own due retries, then
-    /// the pause's cards in the order they were opened, which a cancel leaves unraised. A pause
-    /// this turn begins keeps the steps it readied for that turn.
+    /// retries, Resumes and cancels are kept unwritten and unreplied, and it is never batched. The
+    /// turn in which its last point ends, or any point once a cancel waits, takes its next batch,
+    /// the held answers then its own, the held reports then its own, the held Resumes and cancels
+    /// each then its own, and after the write the held dispatches, then what it readied, then its
+    /// own due retries, then the pause's cards in the order they were opened, which a cancel leaves
+    /// unraised. A pause this turn begins keeps the steps it readied for that turn.
     async fn run_turn(
         &mut self,
         run_id: WorkflowRunId,
@@ -488,6 +529,7 @@ impl EngineTick {
             reports,
             due,
             taken,
+            resumes,
             cancels,
         } = arrived;
         let mut live = self.runs.remove(&run_id)?;
@@ -508,12 +550,14 @@ impl EngineTick {
             live.held.answers.extend(answers);
             live.held.reports.extend(reports);
             live.held.dispatches.extend(due);
+            live.held.resumes.extend(resumes);
             live.held.cancels.extend(cancels);
             self.runs.insert(run_id, live);
             return Some(Vec::new());
         }
         let answers = held_first(&mut live.held.answers, answers);
         let reports = held_first(&mut live.held.reports, reports);
+        let resumes = held_first(&mut live.held.resumes, resumes);
         let cancels = held_first(&mut live.held.cancels, cancels);
         let held_dispatches = std::mem::take(&mut live.held.dispatches);
         let asks = std::mem::take(&mut live.pausing);
@@ -521,6 +565,7 @@ impl EngineTick {
             commit: RunTurnCommit::new(
                 live.event_keys(),
                 run_id,
+                live.epoch,
                 live.counts,
                 std::mem::take(&mut live.person_wait),
                 Arc::clone(&self.payloads),
@@ -530,6 +575,7 @@ impl EngineTick {
             replies: Vec::new(),
             follow_ups: VecDeque::new(),
             resumes: Vec::new(),
+            resume_replies: Vec::new(),
             last_readying_event: None,
         };
         for report in std::mem::take(&mut live.next_batch) {
@@ -542,6 +588,10 @@ impl EngineTick {
         }
         for report in reports {
             self.apply_report(&mut live, &mut turn, report).await;
+            self.apply_follow_ups(&mut live, &mut turn).await;
+        }
+        for intake in resumes {
+            resuming::apply_resume(&mut live, &mut turn, intake);
             self.apply_follow_ups(&mut live, &mut turn).await;
         }
         for intake in cancels {
@@ -558,6 +608,7 @@ impl EngineTick {
             asks,
             replies,
             resumes,
+            resume_replies,
             ..
         } = turn;
         match commit
@@ -619,6 +670,9 @@ impl EngineTick {
                 }
                 dispatched.extend(due.into_iter().filter_map(|step| still_ready(&live, step)));
                 for reply in replies {
+                    let _unheard = reply.send(Ok(()));
+                }
+                for reply in resume_replies {
                     let _unheard = reply.send(Ok(()));
                 }
                 for (step, line) in std::mem::take(&mut live.deadline_lines) {

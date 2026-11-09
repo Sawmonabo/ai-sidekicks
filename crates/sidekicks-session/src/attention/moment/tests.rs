@@ -414,7 +414,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 #[case::workflow_run_resumed(
     json!({"type": "workflow.run.resumed", "payload": {
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
-        "workflowVersionId": VERSION,
+        "workflowVersionId": VERSION, "epoch": 0,
         "resumptionPoint": {"activeSteps": [], "pendingGates": []}, "readied": [],
     }}),
     resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))

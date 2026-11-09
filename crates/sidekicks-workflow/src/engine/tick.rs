@@ -13,6 +13,9 @@ mod turns;
 mod walk;
 
 pub(crate) use self::branch_cancellation::BranchCancelReason;
+pub(crate) use self::turns::{
+    EngineTickInput, RunCancelIntake, RunCancelRefusal, RunResumeIntake, RunResumeRefusal,
+};
 pub(crate) use self::walk::{RunGraph, RunGraphError};
 
 use std::collections::{BTreeMap, HashMap};

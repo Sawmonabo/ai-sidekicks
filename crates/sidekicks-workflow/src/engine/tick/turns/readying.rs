@@ -149,7 +149,7 @@ impl EngineTick {
             if is_canceled {
                 turn.commit.canceled_unrun(&ready.step, &at);
                 if is_walk_live {
-                    live.walk.drop_step(&ready.step);
+                    live.leave_walk(&ready.step, &inputs, &input_ref);
                 }
             }
             turn.readied.push(TurnReadied {

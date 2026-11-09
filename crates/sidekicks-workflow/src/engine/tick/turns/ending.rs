@@ -3,8 +3,6 @@
 //! over writing its ending, a run a stop ended once none of its steps runs, is held, pending or
 //! waiting, and a run no stop touched once every step settled.
 
-use std::collections::HashMap;
-
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
@@ -44,7 +42,7 @@ pub(crate) struct RunCancelIntake {
 }
 
 /// Why the tick did not take a person's cancel.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunCancelRefusal {
     /// The tick does not hold the run, so its cancel writes the run's rows itself.
     NotHeld,
@@ -55,24 +53,6 @@ pub(crate) enum RunCancelRefusal {
 }
 
 impl EngineTick {
-    /// Routes `intake` to the live run it names, the run added to `order` where it is not there
-    /// yet; a run the tick does not hold is answered [`RunCancelRefusal::NotHeld`] at once.
-    pub(super) fn route_cancel(
-        &self,
-        intake: RunCancelIntake,
-        order: &mut Vec<WorkflowRunId>,
-        cancels: &mut HashMap<WorkflowRunId, Vec<RunCancelIntake>>,
-    ) {
-        if self.runs.contains_key(&intake.run_id) {
-            if !order.contains(&intake.run_id) {
-                order.push(intake.run_id);
-            }
-            cancels.entry(intake.run_id).or_default().push(intake);
-        } else {
-            let _unheard = intake.reply.send(Err(RunCancelRefusal::NotHeld));
-        }
-    }
-
     /// Takes the person's cancel `intake` of the run of `live` in `turn`: the run's ending becomes
     /// `canceled` with the cancel's reason and error, and every step stops as an end's, the
     /// earliest running one carrying the wave; the reply waits for the ending's write. A second

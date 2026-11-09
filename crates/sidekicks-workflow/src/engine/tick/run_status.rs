@@ -58,6 +58,11 @@ impl RunStepCounts {
         self.parking_failures += 1;
     }
 
+    /// Records that a person's Resume lifted a failed step's park, which runs it again.
+    pub(crate) fn unparked(&mut self) {
+        shift(&mut self.parking_failures, false);
+    }
+
     // Counts one step in, or out of, the counts of `status`, and of its account wait.
     fn count(
         &mut self,

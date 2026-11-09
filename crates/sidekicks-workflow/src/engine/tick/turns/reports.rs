@@ -8,11 +8,11 @@ use std::sync::Arc;
 use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunPauseNumber;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
-use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::definitions::kept_values::remove_dropped;
@@ -118,9 +118,7 @@ impl EngineTick {
                 None
             }
             StepReportKind::ResumeDue { resume_at } => {
-                let resume_at = resume_at.clone();
-                self.resume_account_park(live, turn, report.step, report.at, resume_at)
-                    .await;
+                Self::resume_account_park(live, turn, report.step, &report.at, resume_at);
                 return;
             }
             StepReportKind::Started { .. }
@@ -253,7 +251,7 @@ impl EngineTick {
                 // A stopped run starts nothing new; with no wait, the attempt goes out this turn.
                 let follows = if live.stop.is_some() {
                     turn.commit.canceled_unrun(&next.step, &at);
-                    live.walk.drop_step(&next.step);
+                    live.leave_walk(&next.step, &failed.inputs, &failed.input_ref);
                     ReadiedNext::Canceled
                 } else if wait.is_zero() {
                     ReadiedNext::Dispatch
@@ -268,8 +266,20 @@ impl EngineTick {
                 });
             }
             SettlementAnswer::Canceled { readying_event } => {
-                live.walk.drop_step(step);
-                live.remove_step(step.execution_index.get());
+                let canceled = live
+                    .remove_step(step.execution_index.get())
+                    .expect("a canceled step is live");
+                if !canceled.is_park_canceled {
+                    live.walk.drop_step(step);
+                } else if live.stop.is_some() {
+                    live.leave_walk(step, &canceled.inputs, &canceled.input_ref);
+                } else {
+                    // A Resume lifted the park before this cancel settled, so it runs again now.
+                    let LiveStep {
+                        inputs, input_ref, ..
+                    } = canceled;
+                    run_again(live, turn, step, (inputs, input_ref), readying_event);
+                }
                 turn.last_readying_event = Some((readying_event, at));
             }
             SettlementAnswer::Park => self.stop_run(live, turn, step, &at, RunStop::Park).await,
@@ -304,16 +314,14 @@ impl EngineTick {
     /// coming due does, only while it still waits on the account with that resume armed, is not
     /// winding down and its run's ending is undecided; else nothing is written, so a second report
     /// of a resume the step has since parked past is dropped. A failed park beside it does not hold
-    /// it back, since its attempt is in flight. Its row goes back to `running` in the turn's write,
-    /// its resume is disarmed, it takes a fresh cancel, a child of the run's, and its kept agent
-    /// run waits on the turn, taken again once the write commits.
-    pub(super) async fn resume_account_park(
-        &self,
+    /// it back, since its attempt is in flight. The step leaves its wait as [`lift_account_wait`]
+    /// says.
+    pub(super) fn resume_account_park(
         live: &mut LiveRun,
         turn: &mut RunTurn,
         step: WorkflowStepKey,
-        at: WireInstant,
-        resume_at: WireInstant,
+        at: &WireInstant,
+        resume_at: &WireInstant,
     ) {
         let execution_index = step.execution_index.get();
         let is_parked = live.ending.is_none()
@@ -321,32 +329,11 @@ impl EngineTick {
                 live_step.status == WorkflowStepStatus::Waiting
                     && live_step.wait_cause == Some(WorkflowWaitCause::Account)
                     && !live_step.is_winding_down
-                    && live_step.resume_at.as_ref() == Some(&resume_at)
+                    && live_step.resume_at.as_ref() == Some(resume_at)
             });
-        if !is_parked {
-            return;
+        if is_parked {
+            lift_account_wait(live, turn, step, at);
         }
-        let resumed = StepReport {
-            step: step.clone(),
-            at,
-            kind: StepReportKind::ResumeDue { resume_at },
-        };
-        turn.commit
-            .report(resumed, self.reported(live, &step))
-            .await
-            .expect("only a settlement stores a payload");
-        live.move_step(execution_index, WorkflowStepStatus::Running, None);
-        let cancel = live.scope.cancel.child_token();
-        let live_step = live
-            .steps
-            .get_mut(&execution_index)
-            .expect("a resumed step is live");
-        live_step.cancel = Some(cancel);
-        let parked = live_step
-            .parked_agent_run
-            .take()
-            .expect("a step waiting on its spent account keeps its run");
-        turn.resumes.push((step, parked));
     }
 
     /// Hands each of `resumes`, a step of `live` whose resume the turn's write just committed,
@@ -473,6 +460,52 @@ impl EngineTick {
     }
 }
 
+/// Takes `step` of `live`, waiting on its spent account, out of its wait at `at`: its row back to
+/// `running` in the turn's write, its resume disarmed, a fresh cancel, a child of the run's, and
+/// its kept agent run waiting on the turn, taken again once the write commits.
+pub(super) fn lift_account_wait(
+    live: &mut LiveRun,
+    turn: &mut RunTurn,
+    step: WorkflowStepKey,
+    at: &WireInstant,
+) {
+    let execution_index = step.execution_index.get();
+    turn.commit
+        .resume_step(&step, None, WorkflowWaitCause::Account, at);
+    live.move_step(execution_index, WorkflowStepStatus::Running, None);
+    let cancel = live.scope.cancel.child_token();
+    let live_step = live
+        .steps
+        .get_mut(&execution_index)
+        .expect("a resumed step is live");
+    live_step.cancel = Some(cancel);
+    let parked = live_step
+        .parked_agent_run
+        .take()
+        .expect("a step waiting on its spent account keeps its run");
+    turn.resumes.push((step, parked));
+}
+
+/// Readies the next attempt of `step`, a step of `live` a failed park stopped, on its earlier
+/// attempt's `(inputs, input_ref)`, its `pending` row riding the turn's event at `readying_event`,
+/// to dispatch once the turn's write commits.
+pub(super) fn run_again(
+    live: &mut LiveRun,
+    turn: &mut RunTurn,
+    step: &WorkflowStepKey,
+    (inputs, input_ref): (Vec<Vec<WorkflowItem>>, WorkflowPayloadRef),
+    readying_event: usize,
+) {
+    let next = live.walk.retry(step);
+    turn.commit.rerun(&next, input_ref.clone(), readying_event);
+    turn.readied.push(TurnReadied {
+        ready: next,
+        inputs,
+        input_ref,
+        next: ReadiedNext::Dispatch,
+    });
+}
+
 /// Stops the run of `live` as `stop` at `at`, an end replacing a park: every live step but
 /// `deciding` and every step this turn readied stops as its sibling, the running ones winding
 /// down as one wave and an end's waits canceled now. The wave's event sits on `deciding`, or with
@@ -548,6 +581,8 @@ pub(super) async fn sort_losers(
     steps: Vec<WorkflowStepKey>,
     at: &WireInstant,
 ) -> Vec<RunSibling> {
+    // A failed park's cancels are run again by the person's Resume.
+    let is_parked = live.is_parked_on_failure();
     let mut siblings = Vec::new();
     for step in steps {
         if let Some(readied) = turn
@@ -558,7 +593,7 @@ pub(super) async fn sort_losers(
             if !matches!(readied.next, ReadiedNext::Canceled) {
                 readied.next = ReadiedNext::Canceled;
                 turn.commit.canceled_unrun(&step, at);
-                live.walk.drop_step(&step);
+                live.leave_walk(&step, &readied.inputs, &readied.input_ref);
             }
             continue;
         }
@@ -572,12 +607,16 @@ pub(super) async fn sort_losers(
             (WorkflowStepStatus::Running, Some(cancel)) => {
                 // Marked now, so a second cancel in this turn never puts it in a second wave.
                 live_step.is_winding_down = true;
+                live_step.is_park_canceled = is_parked;
                 SiblingState::Running(cancel.clone())
             }
             (WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory, Some(cancel)) => {
+                // A held loser of an earlier race is already canceled and is not run again.
+                live_step.is_park_canceled = is_parked && !cancel.is_cancelled();
                 SiblingState::Held(cancel.clone())
             }
             (WorkflowStepStatus::Pending, None) => {
+                live_step.is_park_canceled = is_parked;
                 cancel_now(live, turn, step, at).await;
                 continue;
             }

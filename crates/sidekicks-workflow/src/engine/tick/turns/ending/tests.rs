@@ -701,3 +701,73 @@ async fn the_run_cap_with_no_live_step_cancels_what_the_turn_readied() {
         (&json!("workflow.step.timedOut"), &json!("runCap"))
     );
 }
+
+/// A cancel of a run waiting only on W's reply ends it `canceled` in the cancel's own write,
+/// asking no one again, and tells the session's binder. Mutations: hold the cancel for a turn W
+/// never reports; ask W's question again; drop the binder's notice after the cancel.
+#[tokio::test]
+async fn a_cancel_of_a_run_waiting_on_a_person_ends_it_asking_no_one() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("W", "test.ask", 1, None),
+            ],
+            &[edge("trigger", "W", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "W", "status").as_deref() == Some("waiting"))
+        .await;
+    let asked = harness.ordered_calls(1).await.len();
+
+    let replied = harness.cancel("Not needed any more").await;
+    timeout(WAIT, replied)
+        .await
+        .expect("the loop replies in time")
+        .expect("the loop keeps the reply")
+        .expect("the cancel is taken");
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(run_row(&harness.rows).0, "canceled");
+    assert_eq!(harness.status("W").as_deref(), Some("canceled"));
+    assert_eq!(harness.ordered_calls(asked).await.len(), asked);
+    assert_eq!(harness.notices.sessions().len(), 1);
+}
+
+/// A cancel of a run parked on F's failure with nothing waiting beside it, its row `failed` and
+/// unfinished, ends it `canceled` with F's failed row kept. Mutations: refuse a parked run as
+/// ended; write the cancel over F's row.
+#[tokio::test]
+async fn a_cancel_ends_a_run_parked_on_its_failure_alone() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("F", "test.gatedFailure", 1, None),
+            ],
+            &[edge("trigger", "F", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness.signal.go.notify_one();
+    harness
+        .wait_until(|rows| run_row(rows) == ("failed".to_owned(), None, None))
+        .await;
+
+    let replied = harness.cancel("Not needed any more").await;
+    timeout(WAIT, replied)
+        .await
+        .expect("the loop replies in time")
+        .expect("the loop keeps the reply")
+        .expect("the cancel is taken");
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(run_row(&harness.rows).0, "canceled");
+    assert_eq!(harness.status("F").as_deref(), Some("failed"));
+}

@@ -15,6 +15,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
@@ -126,6 +127,7 @@ impl TurnHarness {
                     .expect("the test's version id"),
             },
             run_id(),
+            WorkflowRunEpoch(SafeInt::ZERO),
             counts,
             person_wait,
             Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,

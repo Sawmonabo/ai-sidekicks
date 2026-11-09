@@ -9,10 +9,11 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::time::timeout;
 
 use crate::engine::ports::AgentStepOutcome;
-use crate::engine::tick::turns::EngineTickInput;
+use crate::engine::tick::turns::resuming::tests::resume;
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
+use crate::engine::tick::turns::{EngineTickInput, RunResumeRefusal};
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
@@ -472,8 +473,9 @@ fn cap_lines(harness: &Harness, record: &str) -> Vec<Map<String, Value>> {
 
 /// The run cap passing while A waits on its spent account fails A `timedOut` `runCap`, stops its
 /// kept run, ends the run `failed` with the cap's error, records the cap's clear, and leaves
-/// nothing of the run armed. Kills: caps read only for running runs; the ending leaving the cap
-/// armed.
+/// nothing of the run armed; a Resume after it is not taken, so A's run is never taken again.
+/// Kills: caps read only for running runs; the ending leaving the cap armed; the ended run kept
+/// live, its account wait lifted by the Resume.
 #[tokio::test]
 async fn the_cap_passing_during_an_account_park_ends_the_run() {
     let mut harness = Harness::new(None).await;
@@ -528,6 +530,8 @@ async fn the_cap_passing_during_an_account_park_ends_the_run() {
     let cleared = cap_lines(&harness, "deadlineCleared");
     assert_eq!(cleared.len(), 1, "the ending clears the cap");
     assert_eq!(cleared[0]["at"], json!(cap_at));
+    assert_eq!(resume(&harness).await, Err(RunResumeRefusal::NotHeld));
+    assert_eq!(harness.agents.resumes(), 0);
     assert_eq!(harness.armed(), None, "nothing of the run stays armed");
 }
 
@@ -597,6 +601,51 @@ async fn a_parked_step_resumes_once_its_reset_passes() {
         1,
         "one driver takes the run again"
     );
+}
+
+/// A person's Resume while A waits on its spent account, its reset a minute away, and W waits on
+/// a reply lifts A's wait now: its row back to `running` with its resume cleared, its kept run
+/// taken again, while W keeps waiting. Kills: the Resume refused until the reset passes; W's wait
+/// lifted with A's; the kept run never taken again.
+#[tokio::test]
+async fn a_resume_lifts_an_account_park_ahead_of_its_reset_and_leaves_a_person_wait() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("A", "test.agent", 1, None),
+                node("W", "test.ask", 2, None),
+            ],
+            &[edge("trigger", "A", 0), edge("trigger", "W", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    timeout(WAIT, harness.agents.wait_for_request())
+        .await
+        .expect("A asks for its run");
+    harness
+        .agents
+        .end(spent(Some(instant_after(Timestamp::now(), 60_000))));
+    harness
+        .wait_until(|rows| {
+            step_column(rows, "A", "status").as_deref() == Some("waiting")
+                && step_column(rows, "W", "status").as_deref() == Some("waiting")
+        })
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(resume(&harness).await, Ok(()));
+    timeout(WAIT, harness.agents.wait_for_resume())
+        .await
+        .expect("A's kept run is taken again");
+
+    assert_eq!(harness.status("A").as_deref(), Some("running"));
+    assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
+    assert_eq!(harness.status("W").as_deref(), Some("waiting"));
+    assert_eq!(resume_lines(&harness, "deadlineCleared").len(), 1);
+    assert_eq!(harness.agents.resumes(), 1);
 }
 
 /// A person's cancel of the run while A's resume is armed cancels A, stops its kept run, empties

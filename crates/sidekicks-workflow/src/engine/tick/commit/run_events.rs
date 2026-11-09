@@ -14,6 +14,7 @@ use sidekicks_contracts::workflow::run::events::{
     WorkflowRunCompletedPayload, WorkflowRunEndingStep, WorkflowRunFailedOutcome,
     WorkflowRunFailedPayload, WorkflowRunResumedPayload, WorkflowRunWaitingPayload,
 };
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
@@ -92,6 +93,40 @@ impl RunTurnCommit {
         );
     }
 
+    /// Writes a person's Resume at `at` as `workflow.run.resumed` opening the run's execution
+    /// `epoch`, lifting `lifted_parks` failed parks; the steps it runs again ride it, and the
+    /// turn's status move fills in where the run picks up. Answers the event's index.
+    pub(crate) fn resume_run(
+        &mut self,
+        at: &WireInstant,
+        epoch: WorkflowRunEpoch,
+        lifted_parks: usize,
+    ) -> usize {
+        for _ in 0..lifted_parks {
+            self.counts.unparked();
+        }
+        self.epoch = epoch;
+        self.push(
+            at,
+            SessionEvent::WorkflowRunResumed(run_payload!(
+                WorkflowRunResumedPayload,
+                self.keys,
+                self.run_id,
+                epoch: epoch,
+                resumption_point: WorkflowResumptionPoint {
+                    active_steps: Vec::new(),
+                    pending_gates: Vec::new(),
+                },
+                repinned_from_workflow_version_id: None,
+                repinned_to_workflow_version_id: None,
+                readied: Vec::new(),
+            )),
+        );
+        let resumed = self.events.len() - 1;
+        self.resumed_event = Some(resumed);
+        resumed
+    }
+
     /// Adds the run's status move to the turn, at the instant of its last event: the run event
     /// the move implies as the turn's last event, and the statement that stores the status and
     /// the person-wait columns after every other, written only where either changes. A run whose
@@ -128,9 +163,19 @@ impl RunTurnCommit {
         {
             return None;
         }
-        if let Some(change) = change {
-            let event = self.run_event(change, live_steps);
-            self.push(&at, event);
+        match (change, self.resumed_event) {
+            // A person's Resume already wrote the event; only where the run picks up is new.
+            (Some(RunStatusChange::Resumed), Some(resumed)) => {
+                let point = self.resumption_point(live_steps);
+                if let SessionEvent::WorkflowRunResumed(payload) = &mut self.events[resumed].event {
+                    payload.resumption_point = point;
+                }
+            }
+            (Some(change), _) => {
+                let event = self.run_event(change, live_steps);
+                self.push(&at, event);
+            }
+            (None, _) => {}
         }
         self.statements.push(self.run_status_statement(stored));
         is_status_moved.then_some(stored)
@@ -219,6 +264,7 @@ impl RunTurnCommit {
                 WorkflowRunResumedPayload,
                 self.keys,
                 self.run_id,
+                epoch: self.epoch,
                 resumption_point: self.resumption_point(live_steps),
                 repinned_from_workflow_version_id: None,
                 repinned_to_workflow_version_id: None,

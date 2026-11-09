@@ -23,7 +23,7 @@ use super::branch_cancellation::BranchWave;
 use super::commit::{RunEnding, RunLiveStep};
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
-use super::turns::{RunCancelIntake, RunCancelReply};
+use super::turns::{RunCancelIntake, RunCancelReply, RunResumeIntake};
 use super::walk::{RunGraph, RunWalk, WalkReady};
 use super::{ParkedAgentRun, RunScope, StepReport};
 use crate::engine::deadlines::EngineDeadlines;
@@ -70,6 +70,9 @@ pub(crate) struct LiveRun {
     /// The ending a stop decided, written once none of the run's steps runs, is held, pending or
     /// waiting.
     pub(crate) ending: Option<RunEnding>,
+    /// The steps a failed park canceled before they settled, in the order they were canceled,
+    /// each kept in the walk for the Resume that runs it again.
+    pub(crate) park_canceled: Vec<ParkCanceledStep>,
     /// The replies to the person's cancels of the run, sent once the write of its ending commits.
     pub(crate) cancel_replies: Vec<RunCancelReply>,
     /// Whether the run's turn armed or cleared a person wait's deadline, a parked step's resume or
@@ -104,6 +107,18 @@ pub(crate) struct HeldTurn {
     pub(crate) dispatches: Vec<WorkflowStepKey>,
     /// The person's cancels of the run, taken once the capture under way ends.
     pub(crate) cancels: Vec<RunCancelIntake>,
+    /// The person's Resumes of the run, taken once the capture under way ends.
+    pub(crate) resumes: Vec<RunResumeIntake>,
+}
+
+/// A step a failed park of its run canceled before it settled: what its next attempt reads.
+pub(crate) struct ParkCanceledStep {
+    /// The step canceled.
+    pub(crate) step: WorkflowStepKey,
+    /// Its input lists, which its next attempt reads again.
+    pub(crate) inputs: Vec<Vec<WorkflowItem>>,
+    /// Its input as its row stores it.
+    pub(crate) input_ref: WorkflowPayloadRef,
 }
 
 /// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
@@ -153,6 +168,8 @@ pub(crate) struct LiveStep {
     pub(crate) cancel: Option<CancellationToken>,
     /// Whether it was asked to stop and is winding down.
     pub(crate) is_winding_down: bool,
+    /// Whether a failed park of its run canceled it, so a Resume runs it again.
+    pub(crate) is_park_canceled: bool,
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
     pub(crate) parked_agent_run: Option<ParkedAgentRun>,
@@ -183,6 +200,7 @@ impl LiveStep {
             last_hold_report_at: None,
             cancel: None,
             is_winding_down: false,
+            is_park_canceled: false,
             parked_agent_run: None,
             resume_at: None,
         }
@@ -212,6 +230,7 @@ impl LiveRun {
             waves: Vec::new(),
             stop: None,
             ending: None,
+            park_canceled: Vec::new(),
             cancel_replies: Vec::new(),
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
@@ -224,8 +243,14 @@ impl LiveRun {
                 reports: Vec::new(),
                 dispatches: Vec::new(),
                 cancels: Vec::new(),
+                resumes: Vec::new(),
             },
         }
+    }
+
+    /// Whether a step's failure parked the run, waiting on Resume, with its ending undecided.
+    pub(crate) fn is_parked_on_failure(&self) -> bool {
+        self.stop == Some(RunStop::Park) && self.ending.is_none()
     }
 
     /// Whether any ask of the run's pause still waits on its point: a pausing run takes no turn.
@@ -337,6 +362,26 @@ impl LiveRun {
             self.deadline_lines
                 .push((Some(live_step.step.clone()), armed));
             self.needs_deadline_read = true;
+        }
+    }
+
+    /// Takes `step`, canceled before it settled, out of the walk so it feeds nothing; a run parked
+    /// on a failure keeps it there instead, with its `inputs` stored as `input_ref`, for the Resume
+    /// that runs it again.
+    pub(crate) fn leave_walk(
+        &mut self,
+        step: &WorkflowStepKey,
+        inputs: &[Vec<WorkflowItem>],
+        input_ref: &WorkflowPayloadRef,
+    ) {
+        if self.is_parked_on_failure() {
+            self.park_canceled.push(ParkCanceledStep {
+                step: step.clone(),
+                inputs: inputs.to_vec(),
+                input_ref: input_ref.clone(),
+            });
+        } else {
+            self.walk.drop_step(step);
         }
     }
 

@@ -208,6 +208,8 @@ impl RunTurnCommit {
         let Self {
             keys,
             run_id: _,
+            epoch: _,
+            resumed_event: _,
             counts,
             status_before: _,
             person_wait,

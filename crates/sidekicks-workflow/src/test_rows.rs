@@ -427,3 +427,29 @@ pub(crate) fn execution_context_released_at(
         )
         .expect("the test reads the run's execution context")
 }
+
+/// Every row of the runs and steps tables and every stored event, each column as SQLite holds it,
+/// so a refusal is seen to leave them byte-identical.
+#[cfg(test)]
+pub(crate) fn stored_rows(rows: &Connection) -> Vec<Vec<rusqlite::types::Value>> {
+    let mut stored = Vec::new();
+    for sql in [
+        "SELECT * FROM workflow_runs ORDER BY id",
+        "SELECT * FROM workflow_steps ORDER BY workflow_run_id, execution_index",
+        "SELECT * FROM session_events ORDER BY session_id, sequence",
+    ] {
+        let mut statement = rows.prepare(sql).expect("the test reads the table");
+        let width = statement.column_count();
+        let table = statement
+            .query_map([], |row| {
+                (0..width)
+                    .map(|column| row.get::<_, rusqlite::types::Value>(column))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("the test reads the table")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("each row reads");
+        stored.extend(table);
+    }
+    stored
+}
