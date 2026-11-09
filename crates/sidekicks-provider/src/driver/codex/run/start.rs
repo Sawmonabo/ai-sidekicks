@@ -6,7 +6,8 @@
 //! arrives and folds a turn sent onto a busy conversation into the running one, so no turn starts
 //! before every stopped turn ended, and every wait and the request of one start share the start's
 //! own deadline. A conversation that owes a fork onto a changed config forks before the turn, once
-//! its turns settled.
+//! its turns settled, and no turn starts on the switching service while an account switch waits
+//! there for the running turns to end.
 
 pub(crate) mod record;
 mod review;
@@ -278,7 +279,8 @@ impl CodexRunStart {
 
     // Takes the turn's start on the session's task once nothing holds it back: a turn the daemon
     // is stopping is waited out, and a config fork the conversation owes runs once the session is
-    // idle, each within `deadline`, the start taken again after each.
+    // idle, each within `deadline`, and an account switch held on the service lands with no bound,
+    // since it waits only for the turns running there; the start is taken again after each.
     async fn begin_turn(
         &self,
         _hold: &KeyHold<'_, SessionId>,
@@ -296,6 +298,9 @@ impl CodexRunStart {
                 CodexTurnBeginAnswer::Ready(send) => return Ok(*send),
                 CodexTurnBeginAnswer::WaitForStoppedTurns => {
                     wait_out_stopped_turns(inbound, deadline).await?;
+                }
+                CodexTurnBeginAnswer::WaitForAccountSwitch(switching) => {
+                    switching.wait_for_held_switch().await;
                 }
                 CodexTurnBeginAnswer::ForkOwed => self.fork_before_turn(inbound, deadline).await?,
                 CodexTurnBeginAnswer::Refused(error) => return Err(error),
