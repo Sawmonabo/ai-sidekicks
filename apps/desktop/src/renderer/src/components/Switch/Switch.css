@@ -46,17 +46,24 @@
   background: var(--meridian-accent-ink);
 }
 
-/* The words after the switch, which a press on also flips. */
+/* The switch with its words after it. */
 .meridian-switch__label {
   display: inline-flex;
-  gap: var(--meridian-space-2);
   align-items: center;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
-  cursor: pointer;
 }
 
 .meridian-switch__label[data-disabled] {
-  cursor: default;
   color: var(--meridian-text-faint);
+}
+
+/* The words, which a press on also flips; the space before them is theirs, so it presses too. */
+.meridian-switch__words {
+  padding-inline-start: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-switch__label[data-disabled] .meridian-switch__words {
+  cursor: default;
 }
