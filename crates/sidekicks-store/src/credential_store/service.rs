@@ -21,11 +21,14 @@ pub enum KeychainService {
     DeliverySecrets,
     /// The key every MCP mutation receipt's digests are keyed with, under one account.
     McpReceiptKey,
+    /// The key each provider process's secret for the daemon's tool servers is derived with,
+    /// under one account.
+    ToolServerKey,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::WorkflowSecrets,
         Self::Probe,
         Self::MachineKeys,
@@ -33,6 +36,7 @@ impl KeychainService {
         Self::McpSignIns,
         Self::DeliverySecrets,
         Self::McpReceiptKey,
+        Self::ToolServerKey,
     ];
 
     /// The service's name in the store.
@@ -45,6 +49,7 @@ impl KeychainService {
             Self::McpSignIns => "ai-sidekicks-mcp-sign-ins",
             Self::DeliverySecrets => "ai-sidekicks-delivery-secrets",
             Self::McpReceiptKey => "ai-sidekicks-mcp-receipt-key",
+            Self::ToolServerKey => "ai-sidekicks-tool-server-key",
         }
     }
 
@@ -57,7 +62,8 @@ impl KeychainService {
             | Self::ProviderTokens
             | Self::McpSignIns
             | Self::DeliverySecrets
-            | Self::McpReceiptKey => true,
+            | Self::McpReceiptKey
+            | Self::ToolServerKey => true,
             Self::Probe => false,
         }
     }

@@ -257,8 +257,8 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) project_servers: Vec<ClaudeMcpServer>,
     /// The names of `.mcp.json` servers the root's sessions refuse: `disabledMcpjsonServers`
     /// across the user, project, project-local and managed settings and the root's entry in
-    /// `.claude.json`. Every other `.mcp.json` server loads, approved or not, since every process
-    /// the daemon starts runs non-interactively with the project settings source on.
+    /// `.claude.json`. Every other `.mcp.json` server loads, approved or not, since a session's
+    /// processes run non-interactively with the project settings source on.
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
@@ -354,9 +354,10 @@ pub(crate) async fn read_claude_mcp_config(
         // Claude Code's approval of a `.mcp.json` server rejects one the merged settings'
         // `disabledMcpjsonServers` name, and otherwise approves it by the settings or leaves it
         // pending. A pending one is approved `non_interactive` when the process is not interactive
-        // and the project settings source is on. Every process the daemon starts runs `-p` and
-        // passes no `--setting-sources`, so every source is on: a server loads unless it is
-        // rejected, whatever trust or approval the folder holds.
+        // and the project settings source is on. A session's processes run `-p` with every
+        // settings source on, so a server loads unless it is rejected, whatever trust or approval
+        // the folder holds. A side question's locked-down copy turns every source off and loads
+        // none of the person's MCP files, so this list does not reach it.
         let mut kept_out_server_names = person_wide_kept_out.clone();
         for name in project_settings
             .iter()

@@ -1,6 +1,7 @@
 //! The secret a loopback client the daemon started presents: minted at each start for the exec
-//! relay, and for each provider process or launch that exports telemetry, and checked on every
-//! request or connection, so only the process the daemon handed it to reaches the endpoint.
+//! relay, and for each provider process or launch that exports telemetry, or derived from the
+//! daemon's key for a provider process's tool-server entry, and checked on every request or
+//! connection, so only the process the daemon handed it to reaches the endpoint.
 
 use sidekicks_std::random_hex::random_hex;
 use subtle::ConstantTimeEq as _;
@@ -19,6 +20,12 @@ impl BearerToken {
     /// A new token from the system's random source. Fails when the source cannot be read.
     pub fn mint() -> Result<Self, getrandom::Error> {
         random_hex(TOKEN_BYTES).map(|token| Self(Zeroizing::new(token)))
+    }
+
+    /// A token derived as a keyed hash instead of drawn at random, so whoever holds the key makes
+    /// the same token again: `digest` in lowercase hex.
+    pub fn of_digest(digest: &[u8; TOKEN_BYTES]) -> Self {
+        Self(Zeroizing::new(base16ct::lower::encode_string(digest)))
     }
 
     /// The token a process the daemon handed it to still presents after the daemon restarted,

@@ -20,8 +20,10 @@ doctest = false
 
 [dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
+blake3.workspace = true
 futures.workspace = true
 garde.workspace = true
+getrandom.workspace = true
 http.workspace = true
 jiff.workspace = true
 rmcp.workspace = true
@@ -32,6 +34,7 @@ sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
+sidekicks-store.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -44,6 +47,8 @@ reqwest.workspace = true
 rstest.workspace = true
 # The mock drivers and their registry the tool server's tests answer runs through.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The in-memory keychain the tool-server key's tests keep it in.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 # The data folder the listener's tests keep its port in.
 tempfile.workspace = true
 

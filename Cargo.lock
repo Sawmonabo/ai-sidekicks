@@ -8420,8 +8420,10 @@ name = "sidekicks-agent"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "blake3",
  "futures",
  "garde",
+ "getrandom 0.4.3",
  "http",
  "jiff",
  "jsonschema",
@@ -8435,6 +8437,7 @@ dependencies = [
  "sidekicks-platforms",
  "sidekicks-provider",
  "sidekicks-std",
+ "sidekicks-store",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

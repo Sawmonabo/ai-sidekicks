@@ -1,7 +1,8 @@
 //! The check in front of the tool servers on the daemon's listener: a request reaches rmcp only
 //! when the live spawn entry its path names admits its secret, and an `Mcp-Session-Id` it carries
-//! was minted on that same entry. The secret is checked on every request, so a replaced or dropped
-//! spawn is refused at once, and each MCP session is closed when the spawn it was minted for ends.
+//! was minted on that same entry or is held by no one. The secret is checked on every request, so
+//! a replaced or dropped spawn is refused at once, and each MCP session is closed when the spawn it
+//! was minted for ends.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -36,6 +37,17 @@ impl ToolServerAdmission {
         Self { entries, sessions }
     }
 
+    // Whether rmcp holds no session `mcp_session`, as for one a client kept across a restart of the
+    // daemon.
+    async fn is_unheld_session(&self, mcp_session: &str) -> bool {
+        matches!(
+            self.sessions
+                .has_session(&SessionId::from(mcp_session.to_owned()))
+                .await,
+            Ok(false)
+        )
+    }
+
     // Admits `mcp_session`, which rmcp just minted, for `entry`'s spawn alone, and closes it once
     // that spawn ends; the wait holds no timer.
     fn keep_for_spawn(&self, entry: Arc<ToolServerEntry>, mcp_session: String) {
@@ -55,7 +67,8 @@ impl ToolServerAdmission {
 }
 
 /// Passes `request` on only when the live entry its path names admits its secret and any
-/// `Mcp-Session-Id` it carries; a refusal is 401 with no `WWW-Authenticate`, and a path naming no
+/// `Mcp-Session-Id` it carries is that entry's or held by no one, which rmcp answers 404 so the
+/// client opens a new session; a refusal is 401 with no `WWW-Authenticate`, and a path naming no
 /// tool server is 404. A session rmcp mints on the way back is admitted for that entry alone, and
 /// one its client closes is forgotten.
 pub(super) async fn admit(
@@ -75,12 +88,18 @@ pub(super) async fn admit(
     };
     let mcp_session = match request.headers().get(HEADER_SESSION_ID) {
         None => None,
-        Some(value) => match value.to_str() {
-            Ok(mcp_session) if entry.admits_mcp_session(mcp_session) => {
+        Some(value) => {
+            let Ok(mcp_session) = value.to_str() else {
+                return refusal();
+            };
+            if entry.admits_mcp_session(mcp_session) {
                 Some(mcp_session.to_owned())
+            } else if admission.is_unheld_session(mcp_session).await {
+                None
+            } else {
+                return refusal();
             }
-            Ok(_) | Err(_) => return refusal(),
-        },
+        }
     };
     let is_close = request.method() == Method::DELETE;
     let response = next.run(request).await;

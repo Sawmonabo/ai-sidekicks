@@ -10,5 +10,6 @@ pub mod group;
 pub mod in_process;
 pub mod listener;
 pub mod route;
+pub mod secret_key;
 pub mod server;
 pub mod session;

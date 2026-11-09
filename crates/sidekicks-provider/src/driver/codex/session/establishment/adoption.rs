@@ -1,8 +1,9 @@
 //! A session's conversation adopted in place by its handle on its account's service, under the
 //! binding its resume names. A conversation the service holds loaded is joined as it runs, with no
 //! setting sent, since Codex applies none to a loaded conversation, so its running turns, waiting
-//! asks and helpers go on; one no client holds is loaded again with every setting the session
-//! holds. The resume asks for the conversation's newest turn beside its paged history. The
+//! asks and helpers go on, and its calls to the daemon's tool servers, at the address it kept, are
+//! answered by the adopting spawn; one no client holds is loaded again with every setting the
+//! session holds. The resume asks for the conversation's newest turn beside its paged history. The
 //! session's record is rebuilt from the live runs the resume names: a lead run whose turn the end
 //! of the daemon's own service cut continued in a new turn, a lead whose cut turn Codex continued
 //! itself on a service the daemon only joined held to the turn that newest one shows, every other
@@ -53,6 +54,7 @@ use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
 use crate::driver::codex::thread::settings::memories::compose_codex_bare_thread_resume_with_memory_switch;
+use crate::driver::codex::thread::settings::tool_servers::CodexDaemonToolServers;
 use crate::driver::codex::thread::view::CodexThreadStatus;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::{
@@ -115,10 +117,20 @@ impl CodexSessionEstablishment {
         let loaded = read_codex_loaded_threads(&connection).await?;
         let session_id = params.session_id;
         let thread_id = params.resume_handle.clone();
-        let daemon_tool_servers = self.open_tool_servers(
-            session_id,
-            params.callback_tools.clone().unwrap_or_default(),
-        )?;
+        let is_loaded = loaded.contains(&thread_id);
+        let callback_tools = params.callback_tools.clone().unwrap_or_default();
+        // A loaded conversation takes no new table, so it keeps calling at the address and with
+        // the secret an earlier start of the daemon gave it, which the adopted entries answer.
+        let daemon_tool_servers = if is_loaded {
+            CodexDaemonToolServers::adopt(
+                &self.dependencies.tool_server_route,
+                &self.dependencies.callback_tool_host,
+                session_id,
+                callback_tools,
+            )?
+        } else {
+            self.open_tool_servers(session_id, callback_tools)?
+        };
         let (inbound, receiver) = codex_session_inbound(session_id);
         let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id,
@@ -163,7 +175,6 @@ impl CodexSessionEstablishment {
         for registering in &registered {
             service.register_thread(registering.clone(), session_id);
         }
-        let is_loaded = loaded.contains(&thread_id);
         let reply = match self
             .request_adoption(&record, &service, &connection, is_loaded)
             .await

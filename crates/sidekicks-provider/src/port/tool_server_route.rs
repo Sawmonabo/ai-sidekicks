@@ -103,11 +103,14 @@ impl OpenedToolServerRoute {
 /// The daemon's tool servers at an address, registered through a `PortRegistration`. Until it is
 /// registered, a session starts with no daemon tool server entry.
 pub trait ToolServerRoute: Send + Sync {
-    /// Opens `spawn`'s entry on each of `server_names`, each under a secret minted for it, and
-    /// replaces any earlier spawn's entry of the same conversation there.
-    fn open(
-        &self,
-        spawn: ToolServerSpawn,
-        server_names: &[&str],
-    ) -> Result<OpenedToolServerRoute, ToolServerSecretError>;
+    /// Opens `spawn`'s entry on each of `server_names`, each under a secret derived from the
+    /// daemon's key for its address, so a later start of the daemon makes the same secret again,
+    /// and replaces any earlier spawn's entry of the same conversation there.
+    fn open(&self, spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute;
+
+    /// Opens `spawn`'s entries as [`Self::open`] does, for a conversation the provider already
+    /// runs under an address an earlier start of the daemon gave it: while the hold is kept, a
+    /// request at any other conversation's address of the session with no live entry is answered
+    /// by this spawn when it presents the secret the daemon's key derives for that address.
+    fn adopt(&self, spawn: ToolServerSpawn, server_names: &[&str]) -> OpenedToolServerRoute;
 }

@@ -1,7 +1,6 @@
 //! The entries a Codex conversation's `mcp_servers` table carries for the daemon's own tool
 //! servers, each at its address on the daemon's route with the spawn's secret in its headers.
 
-use std::error::Error;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
@@ -52,7 +51,8 @@ const CODEX_DAEMON_TOOL_SCHEMA_MAX_BYTES: usize = 64 * 1024;
 const DEFERRED_SURFACE: &str = "deferred";
 
 /// One spawn's hold on the daemon's tool servers: its own callback-tool installation and the
-/// entries opened on the route under secrets minted for it, admitted while this is kept.
+/// entries opened on the route under the secrets derived for their addresses, admitted while
+/// this is kept.
 pub(crate) struct CodexDaemonToolServers {
     /// The callback tools the session asked for, which every later spawn installs again.
     callback_tools: Vec<SessionCallbackTool>,
@@ -66,22 +66,47 @@ impl CodexDaemonToolServers {
     /// Opens the daemon's entries for a new spawn of `session_id`'s conversation and installs
     /// `callback_tools` for it, replacing the earlier spawn's installation; the earlier spawn's
     /// entries stay admitted until its hold is let go. None until the route's owner registered
-    /// it. Fails when the callback-tool host is not registered beside the route or a secret
-    /// cannot be minted.
+    /// it. Fails when the callback-tool host is not registered beside the route.
     pub(crate) fn open(
         route: &PortRegistration<Arc<dyn ToolServerRoute>>,
         host: &PortRegistration<Arc<CallbackToolHost>>,
         session_id: SessionId,
         callback_tools: Vec<SessionCallbackTool>,
     ) -> Result<Option<Self>, CodexError> {
+        Self::open_on(route, host, session_id, callback_tools, |route, spawn| {
+            route.open(spawn, CODEX_OPENED_TOOL_SERVER_NAMES)
+        })
+    }
+
+    /// Opens the daemon's entries as [`Self::open`] does for a conversation Codex still holds
+    /// loaded from an earlier start of the daemon, which keeps the address and secret that start
+    /// gave it: while this is kept, its calls there are answered by this spawn.
+    pub(crate) fn adopt(
+        route: &PortRegistration<Arc<dyn ToolServerRoute>>,
+        host: &PortRegistration<Arc<CallbackToolHost>>,
+        session_id: SessionId,
+        callback_tools: Vec<SessionCallbackTool>,
+    ) -> Result<Option<Self>, CodexError> {
+        Self::open_on(route, host, session_id, callback_tools, |route, spawn| {
+            route.adopt(spawn, CODEX_OPENED_TOOL_SERVER_NAMES)
+        })
+    }
+
+    // Installs `callback_tools` for a new spawn and opens its entries on the route through
+    // `open_entries`.
+    fn open_on(
+        route: &PortRegistration<Arc<dyn ToolServerRoute>>,
+        host: &PortRegistration<Arc<CallbackToolHost>>,
+        session_id: SessionId,
+        callback_tools: Vec<SessionCallbackTool>,
+        open_entries: impl FnOnce(&dyn ToolServerRoute, ToolServerSpawn) -> OpenedToolServerRoute,
+    ) -> Result<Option<Self>, CodexError> {
         let Some(route) = route.port() else {
             return Ok(None);
         };
-        let internal =
-            |error: Box<dyn Error + Send + Sync>| CodexError::Driver(DriverError::Internal(error));
         let host = host
             .require_port()
-            .map_err(|error| internal(Box::new(error)))?;
+            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?;
         let binding = bind_callback_tools_for_spawn(
             host,
             CallbackToolSpawnRequest {
@@ -91,7 +116,8 @@ impl CodexDaemonToolServers {
                 provider_registration_unavailable: None,
             },
         );
-        let opened = route.open(
+        let route = open_entries(
+            route.as_ref(),
             ToolServerSpawn {
                 session_id,
                 // A key of the spawn's own, so a spawn that never establishes leaves the one it
@@ -100,19 +126,12 @@ impl CodexDaemonToolServers {
                 provider: DESCRIPTOR.provider_id(),
                 dispatcher: Arc::clone(binding.dispatcher()),
             },
-            CODEX_OPENED_TOOL_SERVER_NAMES,
         );
-        match opened {
-            Ok(route) => Ok(Some(Self {
-                callback_tools,
-                route,
-                binding,
-            })),
-            Err(error) => {
-                binding.rollback();
-                Err(internal(Box::new(error)))
-            }
-        }
+        Ok(Some(Self {
+            callback_tools,
+            route,
+            binding,
+        }))
     }
 
     /// The callback tools the session asked for.
