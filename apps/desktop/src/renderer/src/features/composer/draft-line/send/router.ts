@@ -7,7 +7,7 @@
 // only decides blankness; the wire gets the user's bytes, and slash rules read the raw text, so
 // indented text starting with `/` is prose.
 
-import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
+import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 
 import { readQueueItemCreateRequest } from "#renderer/services/daemon/wire/requests.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
@@ -21,7 +21,7 @@ import type {
   ComposerSendOutcome,
   ComposerSendResolution,
 } from "./resolutions.js";
-import { composerRefusal, unparseableIdentifier, type ComposerRefusalCode } from "./refusals.js";
+import { composerRefusal, unparsableIdentifier, type ComposerRefusalCode } from "./refusals.js";
 import { dispatchQueuedMessage, type ComposerSendCalls } from "./dispatch.js";
 
 /** Options for the router; only `calls` is required. */
@@ -101,15 +101,15 @@ export class ComposerSendRouter {
   #resolveMessage(body: string, target: ComposerTarget): ComposerMessageResolution {
     const sessionId = readSessionId(target.sessionId);
     if (sessionId === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier() };
+      return { outcome: "refused", refusal: unparsableIdentifier() };
     }
     const request = readQueueItemCreateRequest({
       sessionId,
       clientIdempotencyKey: this.#mintIdempotencyKey(),
       content: body,
-    } satisfies QueueItemCreateRequest);
+    } satisfies AgentQueueItemCreateRequest);
     if (request === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier() };
+      return { outcome: "refused", refusal: unparsableIdentifier() };
     }
     return { outcome: "queue", request };
   }

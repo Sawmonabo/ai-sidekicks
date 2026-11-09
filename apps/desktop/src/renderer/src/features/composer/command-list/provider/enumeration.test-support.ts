@@ -1,6 +1,7 @@
 // Shared scaffolding for the enumeration suites: a fixture bridge that records every daemon call,
 // and a composer target addressed at one agent.
 
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
@@ -31,7 +32,7 @@ export function targetForAgent(agentId: string): ComposerTarget {
     kind: "run",
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     agentId,
-    driverName: "claude",
+    providerName: "claude" as ProviderId,
     targetRunId: "019b7a11-1100-740e-8110-d1a4c1150311",
   };
 }

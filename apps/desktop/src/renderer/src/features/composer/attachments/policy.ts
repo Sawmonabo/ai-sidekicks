@@ -3,14 +3,13 @@
 // lives here beside the disposition so a code's classification and its explanation cannot drift
 // apart. Imports nothing from the other attachment modules.
 
-import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts/artifacts/operations";
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 /**
  * What a refusal means for the next act. Every ingest call is retry-safe (a resent chunk or
- * completion is answered without re-appending), so a lost response, or a type check that could
- * not run (`artifact.type_check_unavailable`), is retried in place. Some codes differ:
- * `artifact.ingest_stream_invalid` (409) ends the stream, so begin again;
- * `artifact.ingest_capacity_exhausted` (429) is transient with no stream state, so wait and retry.
+ * completion is answered without re-appending), so a lost response is retried in place. Some
+ * codes differ: `artifact.ingest.streamInvalid` (409) ends the stream, so begin again;
+ * `artifact.ingest.capacityExhausted` (429) is transient with no stream state, so wait and retry.
  * Collapsing them would tell a user to re-upload a hundred megabytes because the daemon was busy.
  * A refusal of the file itself is final: the same bytes get the same answer, so nothing is resent.
  */
@@ -25,17 +24,14 @@ export const INGEST_REFUSAL_DISPOSITIONS = [
 export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[number];
 
 /** The daemon code for an invalid ingest stream, which takes restart. */
-export const INGEST_STREAM_INVALID_CODE: ArtifactRefusalCode = "artifact.ingest_stream_invalid";
+const INGEST_STREAM_INVALID_CODE = "artifact.ingest.streamInvalid" satisfies RefusalCode;
 /** The daemon code for a full ingest capacity, which takes wait-and-retry. */
-export const INGEST_CAPACITY_EXHAUSTED_CODE: ArtifactRefusalCode =
-  "artifact.ingest_capacity_exhausted";
+const INGEST_CAPACITY_EXHAUSTED_CODE = "artifact.ingest.capacityExhausted" satisfies RefusalCode;
 /**
  * The daemon code for a payload larger than the disk has room for or than its declared size,
  * which takes attach-another.
  */
-export const ARTIFACT_TOO_LARGE_CODE: ArtifactRefusalCode = "artifact.too_large";
-/** The daemon code for bytes the type detector refused, which takes attach-another. */
-export const ARTIFACT_TYPE_UNREADABLE_CODE: ArtifactRefusalCode = "artifact.type_unreadable";
+const ARTIFACT_TOO_LARGE_CODE = "artifact.tooLarge" satisfies RefusalCode;
 
 /** What a user should do next about this refusal. An unrecognized code takes retry-in-place. */
 export function ingestRefusalDisposition(code: string): IngestRefusalDisposition {
@@ -45,7 +41,7 @@ export function ingestRefusalDisposition(code: string): IngestRefusalDisposition
   if (code === INGEST_CAPACITY_EXHAUSTED_CODE) {
     return "wait-and-retry";
   }
-  if (code === ARTIFACT_TOO_LARGE_CODE || code === ARTIFACT_TYPE_UNREADABLE_CODE) {
+  if (code === ARTIFACT_TOO_LARGE_CODE) {
     return "attach-another";
   }
   return "retry-in-place";

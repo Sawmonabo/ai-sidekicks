@@ -2,6 +2,7 @@
 // lead's live run whenever there is one, wherever focus is, and never a child's: a child is steered
 // in its own view, never from the composer.
 
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { describe, expect, it } from "vitest";
 
 import type { ScenarioAgent } from "#fixtures/data/opening-entries.js";
@@ -43,7 +44,7 @@ const LEAD_RUN_TARGET = {
   kind: "run",
   sessionId: SESSION_ID,
   agentId: LEAD.agentId,
-  driverName: "claude",
+  providerName: "claude" as ProviderId,
   targetRunId: RUN.id,
 } as const;
 

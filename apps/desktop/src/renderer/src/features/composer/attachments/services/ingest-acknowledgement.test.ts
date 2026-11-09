@@ -1,7 +1,6 @@
 // What one chunk acknowledgement establishes, driven directly rather than through the protocol:
-// the next offset is the daemon's spooled total, never the count this client sent, and a base64
-// length is never charted as progress: 300 decoded bytes encode to 400 characters, so a total
-// charted from the encoded string passes the declared bound and fires the wire-figure tripwire.
+// the next offset is the daemon's spooled total, never the count this client sent, and a total past
+// the declared size is never charted as progress: it fires the wire-figure tripwire and clamps.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -58,9 +57,7 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
     expect(windowTripwires.totalFiringCount).toBe(0);
   });
 
-  it("fires the wire-figure tripwire when an encoded length is acknowledged as progress", () => {
-    // 300 decoded bytes encode to 400 characters; a total charted from the encoded string
-    // passes the declared figure.
+  it("fires the wire-figure tripwire when a total past the declared size is acknowledged", () => {
     const reading = readChunkAcknowledgement(entryDeclaring(300), INGEST_ID, {
       ingestId: INGEST_ID,
       receivedBytes: 400,

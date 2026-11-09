@@ -2,11 +2,17 @@
 //
 // Answers are offered only once every question has one. A marked row and typed text exclude
 // each other; a secret is delivered but never stored by the daemon, so its value lives only in
-// this state and is never logged. Drafts clear only when the daemon takes the answers.
+// this state and is never logged. A number question's typed text answers only when it reads as a
+// number: the daemon takes it as typed text, so the check is the field's own. Drafts clear only
+// when the daemon takes the answers.
 
 import { useEffect, useState } from "react";
 
-import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
+import type {
+  QuestionAnswer,
+  QuestionPrompt,
+  QuestionResolveRequest,
+} from "@ai-sidekicks/contracts/question";
 import { type AnswerDelivery } from "#renderer/store/session/events/question-reading.js";
 
 /** What the person has given one question so far. */
@@ -23,7 +29,7 @@ export interface QuestionDraftsHandle {
   /** One draft per question, in the record's order. */
   readonly drafts: readonly QuestionDraft[];
   /** One answer per question in the record's order, or `undefined` while any has none. */
-  readonly answers: QuestionAnswer[] | undefined;
+  readonly answers: QuestionResolveRequest["answers"] | undefined;
   /** Mark an option row as the question's answer. */
   readonly pickOption: (questionIndex: number, label: string) => void;
   /** Make typed text the question's answer, unmarking any row. */
@@ -69,7 +75,7 @@ export function useQuestionDrafts(
   );
   return {
     drafts,
-    answers: partialAnswers.every((answer) => answer !== undefined) ? partialAnswers : undefined,
+    answers: everyAnswered(partialAnswers),
     pickOption: (questionIndex, label) => {
       updateDraft(questionIndex, { pickedLabel: label });
     },
@@ -94,12 +100,46 @@ const EMPTY_DRAFT: QuestionDraft = Object.freeze({
   secretValue: "",
 });
 
+/**
+ * Whether a question asks for a number: it bounds, steps, units or defaults to one. The wire
+ * carries no other mark of a number question.
+ */
+export function isNumberQuestion(prompt: QuestionPrompt): boolean {
+  return (
+    prompt.minimum !== undefined ||
+    prompt.maximum !== undefined ||
+    prompt.step !== undefined ||
+    prompt.unit !== undefined ||
+    typeof prompt.default === "number"
+  );
+}
+
+/** Whether typed text is refused in place: a number question's words that are not a number. */
+export function isNotANumber(prompt: QuestionPrompt, typedText: string): boolean {
+  if (!isNumberQuestion(prompt)) {
+    return false;
+  }
+  const trimmed = typedText.trim();
+  return trimmed.length > 0 && !Number.isFinite(Number(trimmed));
+}
+
 function emptyDrafts(questions: readonly QuestionPrompt[]): readonly QuestionDraft[] {
   return questions.map(() => EMPTY_DRAFT);
 }
 
 function emptyHeldDrafts(questionId: string, questions: readonly QuestionPrompt[]): HeldDrafts {
   return { questionId, drafts: emptyDrafts(questions) };
+}
+
+/** The answers, once there is at least one and every question has one. */
+function everyAnswered(
+  answers: readonly (QuestionAnswer | undefined)[],
+): QuestionResolveRequest["answers"] | undefined {
+  const [first, ...rest] = answers;
+  if (first === undefined || !rest.every((answer) => answer !== undefined)) {
+    return undefined;
+  }
+  return [first, ...rest];
 }
 
 /** The answer a draft gives its question, or `undefined` while it gives none. */
@@ -110,7 +150,7 @@ function answerOf(draft: QuestionDraft, prompt: QuestionPrompt): QuestionAnswer 
   if (draft.pickedLabel !== undefined) {
     return { kind: "picked", labels: [draft.pickedLabel] };
   }
-  if (draft.typedText.length > 0) {
+  if (draft.typedText.length > 0 && !isNotANumber(prompt, draft.typedText)) {
     return { kind: "typed", text: draft.typedText };
   }
   return undefined;

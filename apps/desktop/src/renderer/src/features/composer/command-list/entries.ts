@@ -3,10 +3,12 @@
 // entry type is a union and a render cannot forget to ask whether one can be acted on. Provider
 // `description`, `scope` and `enabled` are wire-verbatim or absent, never defaulted. Only one
 // binding's group reaches the list, because a command enumerated under one binding is never
-// offered under another.
+// offered under another. A skill is never a provider row: the daemon's skill list is the one
+// inventory of skills, so a row the provider marks as a skill is dropped by that mark.
 
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
 import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { ComposerTarget } from "../target.js";
@@ -22,19 +24,18 @@ export interface ConsoleCommandEntry {
   readonly commandId: string;
 }
 
-/** One command or skill the bound provider published, for discovery only. */
+/** One command or tool server prompt the bound provider published, for discovery only. */
 export interface ProviderCommandEntry {
   readonly source: "provider";
   readonly key: string;
   readonly name: string;
   readonly description: string | undefined;
-  readonly kind: ProviderCommandBindingGroup["entries"][number]["kind"];
+  readonly kind: Exclude<ProviderCommandBindingGroup["entries"][number]["kind"], "skill">;
   readonly scope: string | undefined;
   readonly enabled: boolean | undefined;
   /** The binding this entry was read under, carried with the entry rather than beside it. */
-  readonly driverName: ProviderName;
-  /** `null` is the wire's positive statement that no account was bound. */
-  readonly providerAccountId: string | null;
+  readonly providerName: ProviderId;
+  readonly providerAccountId: ProviderAccountId;
 }
 
 /** One row of the command list: a console act or a provider discovery entry. */
@@ -47,15 +48,15 @@ export type CommandListEntry = ConsoleCommandEntry | ProviderCommandEntry;
  */
 export interface AddressedProviderBinding {
   readonly runId: string | undefined;
-  readonly driverName: string | undefined;
+  readonly providerName: ProviderId | undefined;
 }
 
 /** What this composer's target says about the binding a reply must be routed to. */
 export function addressedProviderBinding(target: ComposerTarget): AddressedProviderBinding {
   if (target.kind !== "run") {
-    return { runId: undefined, driverName: undefined };
+    return { runId: undefined, providerName: undefined };
   }
-  return { runId: target.targetRunId, driverName: target.driverName };
+  return { runId: target.targetRunId, providerName: target.providerName };
 }
 
 /**
@@ -78,13 +79,13 @@ export function selectAddressedBindingGroup(
     return undefined;
   }
   const onThisDriver =
-    addressed.driverName === undefined
+    addressed.providerName === undefined
       ? []
-      : groups.filter((group) => group.binding.driverName === addressed.driverName);
+      : groups.filter((group) => group.binding.providerName === addressed.providerName);
   return onThisDriver.length === 1 ? onThisDriver[0] : undefined;
 }
 
-/** Compose the two sources into one list, console acts first. */
+/** Compose the two sources into one list, console acts first, with no provider-marked skill. */
 export function composeCommandList(input: {
   readonly runnableCommands: readonly CommandDefinition[];
   readonly providerGroups: readonly ProviderCommandBindingGroup[];
@@ -99,19 +100,22 @@ export function composeCommandList(input: {
   const providerEntries: CommandListEntry[] = [];
   for (const group of input.providerGroups) {
     for (const entry of group.entries) {
+      if (entry.kind === "skill") {
+        continue;
+      }
       providerEntries.push({
         source: "provider",
         // Keyed by the binding as well as the name: two bindings can each publish `review`, and
         // a name-only key would collapse them into one row whose provenance depended on order.
         key:
-          `provider:${group.binding.driverName}:` +
-          `${group.binding.providerAccountId ?? ""}:${entry.name}`,
+          `provider:${group.binding.providerName}:` +
+          `${group.binding.providerAccountId}:${entry.name}`,
         name: entry.name,
         description: entry.description,
         kind: entry.kind,
         scope: entry.scope,
         enabled: entry.enabled,
-        driverName: group.binding.driverName,
+        providerName: group.binding.providerName,
         providerAccountId: group.binding.providerAccountId,
       });
     }

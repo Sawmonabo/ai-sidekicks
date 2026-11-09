@@ -15,7 +15,7 @@ export const DAEMON_REFUSAL_ORIGIN = "daemon";
  */
 export const COMPOSER_REFUSAL_CODES = [
   "empty-message",
-  "identifier-unparseable",
+  "identifier-unparsable",
   "command-unexecutable",
 ] as const;
 
@@ -28,6 +28,6 @@ export function composerRefusal(code: ComposerRefusalCode, detail: string): Refu
 }
 
 /** The refusal for an identifier the registered wire schema would not accept. */
-export function unparseableIdentifier(): Refusal {
-  return composerRefusal("identifier-unparseable", "Send failed");
+export function unparsableIdentifier(): Refusal {
+  return composerRefusal("identifier-unparsable", "Send failed");
 }

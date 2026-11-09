@@ -4,7 +4,7 @@
 // A reply for another stream, or a total that did not advance, is unusable and stops the
 // stream: a standing total would make the loop re-send the same chunk forever.
 
-import type { AttachmentIngestChunkResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
+import type { ArtifactIngestWriteResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
 
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import type { AttachmentIngestEntry } from "../shapes.js";
@@ -26,14 +26,14 @@ export type ChunkAcknowledgementReading =
   | { readonly status: "unusable"; readonly detail: string };
 
 /**
- * Read one chunk acknowledgement against the stream it was for. A decoded total past the
- * declared size means a base64 length was charted, so it fires the `wire-figure-formatting`
+ * Read one chunk acknowledgement against the stream it was for. A received total past the
+ * declared size is a figure the file cannot have, so it fires the `wire-figure-formatting`
  * tripwire and clamps the figure to the declared size. Pure, so every arm is testable directly.
  */
 export function readChunkAcknowledgement(
   entry: AttachmentIngestEntry,
   sentIngestId: string,
-  acknowledgement: AttachmentIngestChunkResponse,
+  acknowledgement: ArtifactIngestWriteResponse,
 ): ChunkAcknowledgementReading {
   if (acknowledgement.ingestId !== sentIngestId) {
     return {

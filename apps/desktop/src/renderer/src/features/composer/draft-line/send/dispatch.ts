@@ -2,15 +2,15 @@
 // the caller, so this module reaches no bridge and a rejected call propagates.
 
 import type {
-  QueueItemCreateRequest,
-  QueueItemCreateResponse,
+  AgentQueueItemCreateRequest,
+  AgentQueueItemCreateResponse,
 } from "@ai-sidekicks/contracts/run/queue";
 
 import type { ComposerMessageOutcome } from "./resolutions.js";
 
 /** The daemon call a send makes, supplied by whoever holds the wire. */
 export interface ComposerSendCalls {
-  queueCreate(request: QueueItemCreateRequest): Promise<QueueItemCreateResponse>;
+  queueCreate(request: AgentQueueItemCreateRequest): Promise<AgentQueueItemCreateResponse>;
 }
 
 /**
@@ -19,7 +19,7 @@ export interface ComposerSendCalls {
  */
 export async function dispatchQueuedMessage(
   calls: ComposerSendCalls,
-  request: QueueItemCreateRequest,
+  request: AgentQueueItemCreateRequest,
 ): Promise<ComposerMessageOutcome> {
   await calls.queueCreate(request);
   return { status: "sent" };

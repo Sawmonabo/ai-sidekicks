@@ -12,7 +12,7 @@ describe("the send attachment reference", () => {
       sendingEntry("ingesting", { localId: "local-1" }),
       settledEntry("refused", {
         localId: "local-2",
-        refusal: { code: "artifact.too_large", detail: "Larger than the disk has room for." },
+        refusal: { code: "artifact.tooLarge", detail: "Larger than the disk has room for." },
         disposition: "attach-another",
       }),
       settledEntry("abandoned", { localId: "local-3" }),

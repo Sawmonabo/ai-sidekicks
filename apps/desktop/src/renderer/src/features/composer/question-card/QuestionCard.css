@@ -95,3 +95,11 @@
   cursor: default;
   opacity: 0.5;
 }
+
+/* Typed text a number question refuses, under its field. */
+.meridian-input-ask__issue {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+}

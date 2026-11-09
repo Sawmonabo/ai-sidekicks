@@ -6,7 +6,7 @@
 // per-case seam. Each bridge is minted once and held, because the hook keys its state on the
 // bridge; only the last describe changes it deliberately.
 
-import type { RunControlAck } from "@ai-sidekicks/contracts/run/control";
+import type { AgentRunControlResponse } from "@ai-sidekicks/contracts/run/control";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -30,7 +30,7 @@ const UNUSED_CALLS: RunControlCalls = {
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",
-  ack: STUB_ACK satisfies RunControlAck,
+  ack: STUB_ACK satisfies AgentRunControlResponse,
 };
 
 describe("one control per run or child is in flight at a time", () => {

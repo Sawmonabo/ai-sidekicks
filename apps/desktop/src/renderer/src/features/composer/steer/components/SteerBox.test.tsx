@@ -22,7 +22,7 @@ import {
   typeInto,
 } from "./SteerBox.test-support.js";
 import { inertBridge } from "../../Composer.test-support.js";
-import { RUN_ID, SECOND_RUN_ID } from "../../run/controls/commands.test-support.js";
+import { RUN_ID, SECOND_RUN_ID, SESSION_ID } from "../../run/controls/commands.test-support.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
@@ -271,7 +271,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
 describe("the composer outlives its dispatch", () => {
   it("keeps the text and says why when the message is refused", async () => {
     const refusal = {
-      code: "run.child_control_refused",
+      code: "agent.childRun.controlRefused",
       message: "The child has ended.",
     };
     const { container, dismissCount } = renderSteerBox(vi.fn().mockRejectedValue(refusal));
@@ -292,7 +292,11 @@ describe("a steer the background service could not deliver", () => {
     const undeliveredThenQueued: ScriptedAnswer = () => {
       answers += 1;
       return answers === 1
-        ? { ...QUEUED_STEER_RESPONSE, state: "not_delivered", notDeliveredReason: "failed" }
+        ? {
+            ...QUEUED_STEER_RESPONSE,
+            state: "notDelivered",
+            notDeliveredReason: { kind: "failed" },
+          }
         : QUEUED_STEER_RESPONSE;
     };
     const { container, calls, dismissCount } = renderSteerBox(undeliveredThenQueued);
@@ -302,7 +306,7 @@ describe("a steer the background service could not deliver", () => {
     expect(bodyValue(container)).toBe("stop editing that file");
     const line = container.querySelector(".meridian-composer__not-delivered");
     expect(line?.textContent).toBe("Not delivered · Retry");
-    // The line carries the daemon's reason, not the answer's state.
+    // The line carries the kind of the daemon's reason, not the answer's state.
     expect(line?.getAttribute("data-refusal-code")).toBe("failed");
 
     // Words typed after the failure are a new steer, not the one Retry sends again.
@@ -324,7 +328,7 @@ describe("a steer the background service could not deliver", () => {
 });
 
 describe("what reaches the wire", () => {
-  it("sends a typed steer to the child byte-identical, at the run's version", async () => {
+  it("sends a typed steer to the child byte-identical, in the run's session", async () => {
     // A trim before the wire would cost a pasted block the shape that was the reason for
     // pasting it.
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
@@ -332,11 +336,10 @@ describe("what reaches the wire", () => {
     typeInto(steerField(container), indented);
     await submit(container);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.method).toBe("run.childSteer");
+    expect(calls[0]?.method).toBe("agent.childRun.steer");
     expect(calls[0]?.params).toMatchObject({
-      targetRunId: RUN_ID,
+      sessionId: SESSION_ID,
       childHandle: STEERED_CHILD_HANDLE,
-      expectedRunVersion: 8,
       content: indented,
     });
   });

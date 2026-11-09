@@ -1,12 +1,11 @@
 // The chunk loop: one bounded slice of the user's `Blob` at a time, from the offset the daemon
 // last acknowledged. The offset is the daemon's: the record advances to the reply's spooled
-// decoded total, never by the slice sent. Each chunk carries the slice's base64, at most
-// `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A resent chunk (same
+// total, never by the slice sent. Each chunk carries the slice's bytes, at most
+// `ARTIFACT_CHUNK_MAX_BYTES`, so memory stays bounded. A resent chunk (same
 // sequence number, same bytes) is acknowledged without re-appending, so retry resumes.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
 
-import { encodeBase64 } from "../base64.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import {
   CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
@@ -91,7 +90,7 @@ export class AttachmentChunkStream {
       const acknowledged = await this.#port.writeChunk({
         ingestId,
         sequenceNumber: Math.floor(offset / ARTIFACT_CHUNK_MAX_BYTES),
-        chunk: encodeBase64(bytes),
+        chunk: bytes,
       });
       const settled = this.#entries.currentIfUnchanged(localId, stamp);
       if (settled === undefined) {

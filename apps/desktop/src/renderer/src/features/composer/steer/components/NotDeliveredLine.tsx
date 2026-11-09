@@ -12,7 +12,7 @@ import "./NotDeliveredLine.css";
 
 /** Props for `NotDeliveredLine`. */
 export interface NotDeliveredLineProps {
-  /** Why the delivery failed, in the daemon's own word, carried on the root for diagnostics. */
+  /** Why the delivery failed, the kind of the daemon's reason, carried on the root for diagnostics. */
   readonly failureReason: string;
   /** Sends the steer that was not delivered again, in its place. */
   readonly onRetry: () => void;

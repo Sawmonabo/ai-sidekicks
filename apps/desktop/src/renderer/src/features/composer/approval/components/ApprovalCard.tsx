@@ -279,7 +279,7 @@ function declineArrowFor(
   record: ApprovalProjectionRow,
   answer: ApprovalAnswerPress,
 ): ScopedAnswerArrow | undefined {
-  if (record.category !== "network_access") {
+  if (record.category !== "networkAccess") {
     return undefined;
   }
   return {

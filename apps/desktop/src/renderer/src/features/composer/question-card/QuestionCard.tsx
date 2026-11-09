@@ -5,11 +5,14 @@
 // `Answer` stays closed until every question has an answer, then sends one per question in
 // one call. The card never settles the question itself.
 
-import type { QuestionAnswer, QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
+import type {
+  QuestionAskedPayload,
+  QuestionResolveRequest,
+} from "@ai-sidekicks/contracts/question";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
-import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
+import { isNotANumber, useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
 import { SecretAnswerField } from "./SecretAnswerField.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
@@ -27,7 +30,7 @@ export interface QuestionCardProps {
   /** Where the last dispatched answer has got to; held by the mount, which owns the wire call. */
   readonly delivery: AnswerDelivery;
   /** Deliver one answer per question, in the record's order. */
-  readonly onAnswer: (answers: QuestionAnswer[]) => void;
+  readonly onAnswer: (answers: QuestionResolveRequest["answers"]) => void;
 }
 
 /** The question card: every question with its fields, and `Answer`. */
@@ -102,6 +105,11 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
               <TypedAnswerField
                 draft={drafts[index]?.typedText ?? ""}
                 isClosed={isSettling}
+                issue={
+                  isNotANumber(prompt, drafts[index]?.typedText ?? "")
+                    ? NOT_A_NUMBER_SENTENCE
+                    : undefined
+                }
                 onDraftChange={(text) => {
                   questionDrafts.typeAnswer(index, text);
                 }}
@@ -155,6 +163,9 @@ function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
       return <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />;
   }
 }
+
+/** What a number question's field says under typed text that is not a number. */
+const NOT_A_NUMBER_SENTENCE = "That is not a number.";
 
 /** What the card says once the background service took the answer. */
 const ANSWER_DELIVERED_SENTENCE = "The answer was delivered.";

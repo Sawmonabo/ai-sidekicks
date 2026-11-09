@@ -25,7 +25,7 @@ describe("an approval's arrival, announced", () => {
     rerender({
       pending: [
         pendingRecord(),
-        pendingRecord({ id: SECOND_APPROVAL_ID, category: "network_access" }),
+        pendingRecord({ id: SECOND_APPROVAL_ID, category: "networkAccess" }),
         pendingRecord({ id: THIRD_APPROVAL_ID }),
       ],
     });

@@ -1,4 +1,5 @@
-// The chokepoint: both guards on every run call, a steer on a child's queue, the comparand
+// The chokepoint: both guards on every run call, a steer on a child's queue under a UUID key, the
+// comparand
 // read back off each answer and merged with the stream's reading, and a rejection handed to the
 // caller untouched. A stale comparand is refused by the daemon, and a refusal carries no version
 // to recover with, so every later control would be refused too. The real dispatcher runs over
@@ -7,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { RunControlDispatcher } from "./dispatch.js";
-import { RUN_ID, STUB_ACK, appliedInterrupt } from "../commands.test-support.js";
+import { RUN_ID, SESSION_ID, STUB_ACK, appliedInterrupt } from "../commands.test-support.js";
 
 /**
  * A pinned mint, so a case asserts the guard rather than a random value. Named without the
@@ -20,7 +21,11 @@ const PINNED_IDEMPOTENCY = "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41";
 const CHILD_HANDLE = "agent-builder-1";
 
 interface RecordedCall {
-  readonly method: "run.pause" | "run.resume" | "run.intervene" | "run.childSteer";
+  readonly method:
+    | "agent.run.pause"
+    | "agent.run.resume"
+    | "agent.run.intervene"
+    | "agent.childRun.steer";
   readonly params: unknown;
 }
 
@@ -40,10 +45,10 @@ function dispatcherOver(answer: (call: RecordedCall) => Promise<unknown>): {
   return {
     dispatcher: new RunControlDispatcher(
       {
-        pause: record("run.pause"),
-        resume: record("run.resume"),
-        intervene: record("run.intervene"),
-        childSteer: record("run.childSteer"),
+        pause: record("agent.run.pause"),
+        resume: record("agent.run.resume"),
+        intervene: record("agent.run.intervene"),
+        childSteer: record("agent.childRun.steer"),
       },
       () => PINNED_IDEMPOTENCY,
     ),
@@ -56,7 +61,7 @@ describe("both guards, on every call", () => {
     const { dispatcher, calls } = dispatcherOver(async () => STUB_ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: 7 });
-    expect(calls.map((call) => call.method)).toStrictEqual(["run.pause", "run.resume"]);
+    expect(calls.map((call) => call.method)).toStrictEqual(["agent.run.pause", "agent.run.resume"]);
     expect(calls.map((call) => call.params)).toMatchObject([
       { expectedRunVersion: 6 },
       { expectedRunVersion: 7 },
@@ -67,7 +72,7 @@ describe("both guards, on every call", () => {
     const { dispatcher, calls } = dispatcherOver(async () => appliedInterrupt(8));
     await dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 7 });
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.method).toBe("run.intervene");
+    expect(calls[0]?.method).toBe("agent.run.intervene");
     expect(calls[0]?.params).toMatchObject({
       expectedRunVersion: 7,
       clientIdempotencyKey: PINNED_IDEMPOTENCY,
@@ -75,22 +80,22 @@ describe("both guards, on every call", () => {
     });
   });
 
-  it("sends both guards on a steer, to the child's queue", async () => {
+  it("sends a steer to the child's queue in its session, under a fresh key", async () => {
     const { dispatcher, calls } = dispatcherOver(async () => ({
       queueItemId: "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
       state: "queued",
       createdAt: "2026-09-02T09:00:00.000Z",
     }));
-    await dispatcher.steer(
-      { runId: RUN_ID, expectedRunVersion: 7 },
-      { childHandle: CHILD_HANDLE, content: "narrower" },
-    );
+    await dispatcher.steer({
+      sessionId: SESSION_ID,
+      childHandle: CHILD_HANDLE,
+      content: "narrower",
+    });
     expect(calls).toStrictEqual([
       {
-        method: "run.childSteer",
+        method: "agent.childRun.steer",
         params: {
-          targetRunId: RUN_ID,
-          expectedRunVersion: 7,
+          sessionId: SESSION_ID,
           clientIdempotencyKey: PINNED_IDEMPOTENCY,
           childHandle: CHILD_HANDLE,
           content: "narrower",

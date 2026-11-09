@@ -1,7 +1,7 @@
 // Shared scaffolding for the command list suites: one real composer over the real store, fed
 // the composer scenario's beats through the registered run projectors.
 
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -16,6 +16,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { MessageComposer } from "../../Composer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
 
 /** The id of the console command the suites register so the list has an act to offer. */
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
@@ -55,15 +56,17 @@ export async function mountComposer(options: {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
-      <LiveAnnouncerProvider>
-        <MessageComposer
-          sessionStore={sessionStore}
-          bridge={options.bridge}
-          draftStore={draftStore}
-          frameStore={frameStore}
-          route={route}
-        />
-      </LiveAnnouncerProvider>,
+      <ServedProviderSections>
+        <LiveAnnouncerProvider>
+          <MessageComposer
+            sessionStore={sessionStore}
+            bridge={options.bridge}
+            draftStore={draftStore}
+            frameStore={frameStore}
+            route={route}
+          />
+        </LiveAnnouncerProvider>
+      </ServedProviderSections>,
     );
     await crossMacrotaskBoundary();
   });

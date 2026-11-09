@@ -4,9 +4,9 @@
 // cause.
 
 import type {
-  SessionRestoreFinished,
+  SessionRestoredScope,
+  SessionRestoreOutcome,
   SessionRestorePart,
-  SessionRestoreResult,
   SessionRestoreScope,
 } from "@ai-sidekicks/contracts/session/restore";
 
@@ -19,17 +19,17 @@ export type RestoreTarget =
  * The flow row for a finished undo, or for an edit and resend whose send failed after its
  * undo applied.
  */
-export function readRestoreResult(result: SessionRestoreResult, target: RestoreTarget): string {
-  if (result.outcome === "resend-unapplied") {
+export function readRestoreResult(result: SessionRestoreOutcome, target: RestoreTarget): string {
+  if (result.outcome === "resendUnapplied") {
     return (
       `Resend failed · ${result.reason} ` +
-      `· ${midSentence(restoredWords(target, "conversation-and-files"))}`
+      `· ${midSentence(restoredWords(target, "conversationAndFiles"))}`
     );
   }
   switch (result.restored) {
     case "nothing":
       return ["Undo failed", ...distinctReasons(result, partsOf(result.requested))].join(" · ");
-    case "conversation-and-files":
+    case "conversationAndFiles":
       return restoredWords(target, result.restored);
     case "conversation":
     case "files": {
@@ -44,8 +44,14 @@ export function readRestoreResult(result: SessionRestoreResult, target: RestoreT
   }
 }
 
+/** A finished undo's report: what was asked, what went back, and why any part did not. */
+type FinishedRestore = Extract<SessionRestoreOutcome, { readonly outcome: "restoreFinished" }>;
+
 /** The words for what went back: `Files restored` for files alone, else `Restored`. */
-function restoredWords(target: RestoreTarget, restored: SessionRestoreScope): string {
+function restoredWords(
+  target: RestoreTarget,
+  restored: Exclude<SessionRestoredScope, "nothing">,
+): string {
   const verb = restored === "files" ? "Files restored to" : "Restored to";
   if (target.kind === "message") {
     return `${verb} before ${target.firstWords}`;
@@ -72,14 +78,11 @@ function opensOnPronounI(first: string, second: string): boolean {
 }
 
 function partsOf(scope: SessionRestoreScope): readonly SessionRestorePart[] {
-  return scope === "conversation-and-files" ? ["conversation", "files"] : [scope];
+  return scope === "conversationAndFiles" ? ["conversation", "files"] : [scope];
 }
 
 /** Each failed part's reason once: two parts refused for one cause name it once. */
-function distinctReasons(
-  result: SessionRestoreFinished,
-  parts: readonly SessionRestorePart[],
-): string[] {
+function distinctReasons(result: FinishedRestore, parts: readonly SessionRestorePart[]): string[] {
   return [...new Set(parts.map((part) => reasonFor(result, part)))];
 }
 
@@ -87,6 +90,6 @@ function distinctReasons(
  * The daemon's reason for one asked-for part that did not go back. The result's schema refuses a
  * result that leaves such a part without one, so it is always there.
  */
-function reasonFor(result: SessionRestoreFinished, part: SessionRestorePart): string {
+function reasonFor(result: FinishedRestore, part: SessionRestorePart): string {
   return result.failures![part]!.reason;
 }

@@ -9,7 +9,6 @@ import { useCallback, useState } from "react";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type {
-  QuestionAnswer,
   QuestionResolveRequest,
   QuestionResolveResponse,
 } from "@ai-sidekicks/contracts/question";
@@ -27,7 +26,7 @@ export type ResolveQuestionCall = (
 export interface QuestionAnswerHandle {
   readonly delivery: AnswerDelivery;
   /** Deliver one answer per question, or do nothing while one is out or already taken. */
-  readonly answer: (answers: QuestionAnswer[]) => void;
+  readonly answer: (answers: QuestionResolveRequest["answers"]) => void;
 }
 
 /**
@@ -41,7 +40,7 @@ export function useQuestionAnswer(
 ): QuestionAnswerHandle {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   const answer = useCallback(
-    (answers: QuestionAnswer[]) => {
+    (answers: QuestionResolveRequest["answers"]) => {
       if (delivery.status === "delivering" || delivery.status === "accepted") {
         return;
       }

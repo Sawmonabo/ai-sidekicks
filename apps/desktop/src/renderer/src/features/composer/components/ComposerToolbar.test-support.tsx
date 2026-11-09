@@ -104,7 +104,7 @@ export function contextWindowEvent(sequence: number): ProjectedSessionEvent {
       runId: RUN_ID,
       windowUsedTokens: 168_000,
       windowMaxTokens: 200_000,
-      windowSource: "provider_reported",
+      windowSource: "providerReported",
       exceeded: false,
     },
   };

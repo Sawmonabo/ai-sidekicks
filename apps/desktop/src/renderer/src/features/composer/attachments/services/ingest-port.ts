@@ -2,12 +2,12 @@
 // both call through it. A rejected call becomes the entry's refusal in the stream driver.
 
 import type {
-  AttachmentIngestChunkRequest,
-  AttachmentIngestChunkResponse,
-  AttachmentIngestCompleteRequest,
-  AttachmentIngestCompleteResponse,
-  AttachmentIngestInitRequest,
-  AttachmentIngestInitResponse,
+  ArtifactIngestCompleteRequest,
+  ArtifactIngestCompleteResponse,
+  ArtifactIngestStartRequest,
+  ArtifactIngestStartResponse,
+  ArtifactIngestWriteRequest,
+  ArtifactIngestWriteResponse,
 } from "@ai-sidekicks/contracts/artifacts/ingest";
 
 /**
@@ -16,11 +16,11 @@ import type {
  * bytes it spooled.
  */
 export interface AttachmentIngestPort {
-  readonly begin: (request: AttachmentIngestInitRequest) => Promise<AttachmentIngestInitResponse>;
+  readonly begin: (request: ArtifactIngestStartRequest) => Promise<ArtifactIngestStartResponse>;
   readonly writeChunk: (
-    request: AttachmentIngestChunkRequest,
-  ) => Promise<AttachmentIngestChunkResponse>;
+    request: ArtifactIngestWriteRequest,
+  ) => Promise<ArtifactIngestWriteResponse>;
   readonly complete: (
-    request: AttachmentIngestCompleteRequest,
-  ) => Promise<AttachmentIngestCompleteResponse>;
+    request: ArtifactIngestCompleteRequest,
+  ) => Promise<ArtifactIngestCompleteResponse>;
 }

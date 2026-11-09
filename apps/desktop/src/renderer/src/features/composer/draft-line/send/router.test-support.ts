@@ -1,7 +1,8 @@
 // Shared scaffolding for the send-router suites: one router builder, stub calls, and the wire
 // shapes and ids every case is written against, so the suites cannot drift apart.
 
-import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { AgentQueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 import type { Mock } from "vitest";
 import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { ComposerSessionTarget, ComposerRunTarget } from "../../target.js";
@@ -31,7 +32,7 @@ export const RUN_TARGET: ComposerRunTarget = {
   kind: "run",
   sessionId: SESSION_ID,
   agentId: "agent-implementer",
-  driverName: "claude",
+  providerName: "claude" as ProviderId,
   targetRunId: "2b3c4d5e-6f7a-4b1c-9d2e-4f5a6b7c8d9e",
 };
 
@@ -41,7 +42,10 @@ export function sendCallsAnswering(
 ): ComposerSendCalls {
   return {
     queueCreate: async (request) =>
-      (await answer({ method: "run.queueCreate", params: request })) as QueueItemCreateResponse,
+      (await answer({
+        method: "run.queueCreate",
+        params: request,
+      })) as AgentQueueItemCreateResponse,
   };
 }
 

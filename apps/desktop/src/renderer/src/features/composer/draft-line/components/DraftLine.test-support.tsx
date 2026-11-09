@@ -2,7 +2,7 @@
 // The suites mount the same pair because the line renders a draft it does not own and Send
 // sends it; no product host mounts both.
 
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render, type RenderResult } from "@testing-library/react";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
@@ -134,13 +134,15 @@ const LEAD_SESSION_BEATS = composeScriptBeats({
     {
       atMs: 0,
       kind: "session.created",
-      payload: composeSessionCreatedPayload({
-        sessionId: SESSION_ID,
-        shape: "project",
-        openedBy: "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f",
-        lead: LEAD,
-        createdAt: new Date(OPENED_AT_MS).toISOString(),
-      }),
+      payload: {
+        ...composeSessionCreatedPayload({
+          sessionId: SESSION_ID,
+          shape: "project",
+          openedBy: "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f",
+          lead: LEAD,
+          createdAt: new Date(OPENED_AT_MS).toISOString(),
+        }),
+      },
     },
     run.transition(LEAD_RUN_ID, {
       atMs: 100,

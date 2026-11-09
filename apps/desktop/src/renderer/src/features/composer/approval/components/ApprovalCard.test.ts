@@ -112,7 +112,7 @@ describe("Decline's why not line", () => {
 
   it("rides a host block pressed while the line is open, and never an approval", () => {
     const requests = renderCard(
-      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+      pendingRecord({ category: "networkAccess", subject: "api.example.com" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
     typeWhyNot("an unknown host");
@@ -148,7 +148,7 @@ describe("Decline's why not line", () => {
 
 describe("a press while the answer is in flight", () => {
   it("disables every answer and every arrow while this record's call is in flight", () => {
-    renderCard(pendingRecord({ category: "network_access", subject: "api.example.com" }), true);
+    renderCard(pendingRecord({ category: "networkAccess", subject: "api.example.com" }), true);
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
     const buttons = [...actions.querySelectorAll("button")];
     // Three faces and the two arrows.
@@ -224,7 +224,7 @@ describe("the standing allow makes the rule its label names", () => {
 describe("a network ask's Decline can block the host", () => {
   it("blocks the host for this session from Decline's arrow", () => {
     const requests = renderCard(
-      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+      pendingRecord({ category: "networkAccess", subject: "api.example.com" }),
     );
     pressArrowRow("Other ways to decline", "Block api.example.com this session");
     expect(requests).toHaveLength(1);
@@ -239,7 +239,7 @@ describe("a network ask's Decline can block the host", () => {
 
   it("blocks the host for the whole project from the arrow's second row, only where offered", () => {
     const requests = renderCard(
-      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+      pendingRecord({ category: "networkAccess", subject: "api.example.com" }),
     );
     pressArrowRow("Other ways to decline", "Block api.example.com in this project");
     expect(requests[0]?.decision).toBe("rejected");
@@ -254,7 +254,7 @@ describe("a network ask's Decline can block the host", () => {
   it("offers no project block where no project rule may be written", () => {
     renderCard(
       pendingRecord({
-        category: "network_access",
+        category: "networkAccess",
         subject: "api.example.com",
         projectScopeOffered: false,
       }),

@@ -82,7 +82,6 @@ const EMPTY_FORM: ComposedForm = Object.freeze({
 /** The box that sends a steer to one run. */
 export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   const { bridge, run, childHandle, agentName, dispatchState, onDismiss } = props;
-  const comparand = dispatchState.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = run.runId;
   const { value: form, publish: publishForm } = useSubjectScopedState<ComposedForm>(
     bridge,
@@ -119,14 +118,14 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   // Send and Retry both go out here, through one latch: Send with the box's text, Retry with the
   // words of the steer that was not delivered, in its place.
   const sendSteer = useCallback(
-    (request: SteerRequest) => {
+    (request: Omit<SteerRequest, "sessionId">) => {
       if (isSending) {
         // A latched confirm is still reachable by Enter in a field; a second dispatch of one body
         // would queue it twice.
         return;
       }
       const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
-        dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, request);
+        dispatcher.steer({ sessionId: run.sessionId, ...request });
       // Nothing is recorded unless the dispatch state admitted the call.
       const admission = dispatchState.dispatch({ runId: run.runId, childHandle }, "steer", steer);
       if (!admission.admitted) {
@@ -152,7 +151,15 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         );
       });
     },
-    [dispatchState, run.runId, comparand, childHandle, isSending, composedIdentity, publishForm],
+    [
+      dispatchState,
+      run.sessionId,
+      run.runId,
+      childHandle,
+      isSending,
+      composedIdentity,
+      publishForm,
+    ],
   );
 
   const onSubmit = useCallback(
@@ -235,5 +242,5 @@ function readUndeliveredSteer(outcome: RunControlOutcome):
   const { notDeliveredReason, queueItemId } = outcome.response;
   return notDeliveredReason === undefined
     ? undefined
-    : { failureReason: notDeliveredReason, sent: outcome.sent, queueItemId };
+    : { failureReason: notDeliveredReason.kind, sent: outcome.sent, queueItemId };
 }

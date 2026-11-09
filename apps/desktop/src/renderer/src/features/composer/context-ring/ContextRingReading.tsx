@@ -9,12 +9,12 @@ import type { ContextWindowReading } from "#renderer/store/session/events/contex
 
 /**
  * What each provenance grade means for a person reading the bar. Total over the closed set, so a
- * new grade fails to compile. `provider_reported` has no note: it is the expected grade, and a note
+ * new grade fails to compile. `providerReported` has no note: it is the expected grade, and a note
  * on every reading would hide the one that matters.
  */
 const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefined>> = {
-  provider_reported: undefined,
-  model_default:
+  providerReported: undefined,
+  modelDefault:
     "The window size is the model's default rather than a figure the provider reported.",
 };
 

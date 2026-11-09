@@ -41,6 +41,11 @@ export class AttachmentIngestStreamDriver {
   readonly #entries: AttachmentIngestEntries;
   readonly #chunks: AttachmentChunkStream;
   readonly #runningLocalIds = new Set<string>();
+  /**
+   * Each unopened stream's opening key, kept until its open is answered, so an open resent after
+   * a lost answer gets the first opening's stream; a restart opens under a fresh key.
+   */
+  readonly #openingKeys = new Map<string, string>();
 
   public constructor(options: AttachmentIngestStreamDriverOptions) {
     const port = marked(options.port);
@@ -63,6 +68,7 @@ export class AttachmentIngestStreamDriver {
   /** Terminal. Nothing new is driven; the continuations still awaiting find a disposed record. */
   public forget(): void {
     this.#runningLocalIds.clear();
+    this.#openingKeys.clear();
   }
 
   /**
@@ -133,6 +139,8 @@ export class AttachmentIngestStreamDriver {
     // it; that is reported the same way as a source that declared nothing, as an absent member.
     const declared = entry.declared.declaredMediaType;
     const declaredMediaType = declared === undefined || declared === "" ? undefined : declared;
+    const openingKey = this.#openingKeys.get(localId) ?? crypto.randomUUID();
+    this.#openingKeys.set(localId, openingKey);
     const opened = await this.#port.begin({
       sessionId: this.#sessionId,
       fileName: entry.declared.declaredName,
@@ -140,7 +148,9 @@ export class AttachmentIngestStreamDriver {
       // reads presence, and `undefined` or an empty string would declare a type nobody gave.
       ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
       declaredSizeBytes: entry.declared.byteLength,
+      clientIdempotencyKey: openingKey,
     });
+    this.#openingKeys.delete(localId);
     const settled = this.#entries.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
       // Abandoned, removed, or disposed while Init was in flight; the daemon's reaper claims the

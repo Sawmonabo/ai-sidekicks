@@ -1,6 +1,9 @@
 // One pair of stub calls (paged enumeration and run start) shared by the workflow suites.
 
-import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type {
+  WorkflowDefinitionId,
+  WorkflowVersionId,
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { ReadWorkflowDefinitionPage } from "./definition/enumeration.js";
 import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-from-line.js";
@@ -48,7 +51,8 @@ export function workflowDefinition(seed: WorkflowDefinitionSeed): WorkflowDefini
     id: `definition-${seed.name}` as WorkflowDefinitionId,
     name: seed.name,
     latestVersionNumber: 1,
-    latestWorkflowVersionId: seed.latestWorkflowVersionId ?? `version-${seed.name}`,
+    latestWorkflowVersionId: (seed.latestWorkflowVersionId ??
+      `version-${seed.name}`) as WorkflowVersionId,
     contentHash: `hash-${seed.name}`,
     triggerKind: "trigger.manual",
     enabled: true,

@@ -3,10 +3,11 @@
 // inside it, since an option may hold no control. An entry the provider declared disabled cannot
 // act: it is drawn disabled, ignores a press and is never explained, since it has no reason member.
 
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { useProviderName } from "#renderer/store/providers/hooks/useProviderName.js";
 import { isDeclaredUnavailable, type CommandListEntry } from "../entries.js";
 
 /** The entry one row shows, with the handlers for selecting it and acting on it. */
@@ -41,11 +42,7 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       <span className="meridian-command-discovery__name">
         <WireFigure value={entry.name} />
       </span>
-      {entry.source === "provider" ? (
-        <span className="meridian-command-discovery__origin">
-          {PROVIDER_LABELS[entry.driverName]}
-        </span>
-      ) : null}
+      {entry.source === "provider" ? <ProviderOrigin providerName={entry.providerName} /> : null}
       {isUnavailable ? (
         <span className="meridian-command-discovery__unavailable">{UNAVAILABLE_LABEL}</span>
       ) : null}
@@ -74,4 +71,12 @@ function rowClassName(isActive: boolean, isUnavailable: boolean): string {
     classes.push("meridian-command-discovery__row--unavailable");
   }
   return classes.join(" ");
+}
+
+function ProviderOrigin(props: { readonly providerName: ProviderId }): React.JSX.Element {
+  return (
+    <span className="meridian-command-discovery__origin">
+      {useProviderName(props.providerName)}
+    </span>
+  );
 }

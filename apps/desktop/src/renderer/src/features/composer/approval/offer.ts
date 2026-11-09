@@ -39,12 +39,14 @@ export function approvalAnswer(
   rememberedScope: RememberedScope | undefined,
   declineReason?: string,
 ): ApprovalResolveRequest {
-  const reason = declineReason?.trim() ?? "";
-  return {
+  const common = {
     approvalRequestId: record.id,
-    decision,
     clientResolutionId: crypto.randomUUID(),
     ...(rememberedScope === undefined ? {} : { rememberedScope }),
-    ...(reason === "" ? {} : { declineReason: reason }),
   };
+  if (decision === "approved") {
+    return { decision, ...common };
+  }
+  const reason = declineReason?.trim() ?? "";
+  return { decision, ...common, ...(reason === "" ? {} : { declineReason: reason }) };
 }

@@ -1,10 +1,8 @@
 // What the run-control suites are handed: a run to contribute for, and one recording dispatch
 // state, so every suite driving the palette hook answers "what did it dispatch" the same way.
 
-import type {
-  InterventionRequestResponse,
-  RunControlAck,
-} from "@ai-sidekicks/contracts/run/control";
+import type { AgentRunControlResponse } from "@ai-sidekicks/contracts/run/control";
+import type { AgentRunInterveneResponse } from "@ai-sidekicks/contracts/run/intervention";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { type RunChild, type RunControlCommandRun } from "./contributions/commands.js";
@@ -14,6 +12,9 @@ import {
   type RunControlOutcome,
 } from "./services/dispatch.js";
 import { type RunControlDispatchState } from "./hooks/useRunControlDispatch.js";
+
+/** The session the suites' runs are in. */
+export const SESSION_ID = "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b";
 
 /** A run identifier the wire's own reader accepts, shared by the suites in this folder. */
 export const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -29,7 +30,7 @@ export const STUB_ACK = {
   runId: RUN_ID,
   newState: "paused",
   runVersion: 7,
-} as RunControlAck;
+} as AgentRunControlResponse;
 
 /** One dispatch a row made, as the stub dispatcher saw it. */
 export interface RecordedRunControlCall {
@@ -39,13 +40,13 @@ export interface RecordedRunControlCall {
 }
 
 /** An applied interrupt at the given run version, as a stub call answers it. */
-export function appliedInterrupt(runVersion: number): InterventionRequestResponse {
+export function appliedInterrupt(runVersion: number): AgentRunInterveneResponse {
   return {
     interventionId: "c4e1b2d3-5f60-4071-9b82-0d3e4f506172",
     interventionType: "interrupt",
     state: "applied",
     runVersion,
-  } as InterventionRequestResponse;
+  } as AgentRunInterveneResponse;
 }
 
 /**
@@ -57,7 +58,7 @@ export function commandRun(
   state: RunState = "running",
   children: readonly RunChild[] = [],
 ): RunControlCommandRun {
-  return { runId, runVersion: 7, state, children };
+  return { sessionId: SESSION_ID, runId, runVersion: 7, state, children };
 }
 
 /** A dispatch state whose dispatcher records the verb and target it was asked for. */

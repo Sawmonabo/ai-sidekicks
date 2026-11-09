@@ -2,7 +2,7 @@
 // router, not in it, so the controller, the command zone and the Send button read one
 // declaration.
 
-import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
+import type { AgentQueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -12,7 +12,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
  */
 export interface ComposerQueueResolution {
   readonly outcome: "queue";
-  readonly request: QueueItemCreateRequest;
+  readonly request: AgentQueueItemCreateRequest;
 }
 
 /**

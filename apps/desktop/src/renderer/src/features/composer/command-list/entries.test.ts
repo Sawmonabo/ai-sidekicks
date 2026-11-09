@@ -1,33 +1,44 @@
 // Only the addressed run's binding reaches the command list: one binding's commands are never
-// listed under another binding's address, and where the binding cannot be named nothing is.
+// listed under another binding's address, and where the binding cannot be named nothing is. A
+// skill is listed once, from the daemon's own skill list, never again as a provider row.
 import { describe, expect, it } from "vitest";
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import type {
+  ProviderCommandBinding,
+  ProviderCommandBindingGroup,
+} from "@ai-sidekicks/contracts/provider/driver/commands";
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
-import { selectAddressedBindingGroup } from "./entries.js";
+import { composeCommandList, selectAddressedBindingGroup } from "./entries.js";
+
+const CLAUDE = "claude" as ProviderId;
+const CODEX = "codex" as ProviderId;
+
+/** One binding on `providerName`, on an account of its own. */
+function bindingOn(providerName: ProviderId, accountId: string): ProviderCommandBinding {
+  return { providerName, providerAccountId: accountId as ProviderAccountId };
+}
+
+const CLAUDE_BINDING = bindingOn(CLAUDE, "account-claude");
+const CODEX_BINDING = bindingOn(CODEX, "account-codex");
 
 const GROUPS: readonly ProviderCommandBindingGroup[] = [
   {
     runId: null,
-    binding: { driverName: "claude", providerAccountId: null },
+    binding: CLAUDE_BINDING,
     entries: [
       {
         name: "compact",
         kind: "command",
         description: "Compact the conversation context.",
-        binding: { driverName: "claude", providerAccountId: null },
+        binding: CLAUDE_BINDING,
       },
     ],
   },
   {
     runId: null,
-    binding: { driverName: "codex", providerAccountId: "account-1" },
-    entries: [
-      {
-        name: "compact",
-        kind: "command",
-        binding: { driverName: "codex", providerAccountId: "account-1" },
-      },
-    ],
+    binding: CODEX_BINDING,
+    entries: [{ name: "compact", kind: "command", binding: CODEX_BINDING }],
   },
 ];
 
@@ -46,38 +57,60 @@ describe("selectAddressedBindingGroup", () => {
     // the list.
     const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
       runId: CODEX_RUN,
-      driverName: "codex",
+      providerName: CODEX,
     });
 
-    expect(selected?.binding.driverName).toBe("codex");
+    expect(selected?.binding.providerName).toBe(CODEX);
   });
 
-  it("falls back to the addressed driver where no group names the run", () => {
+  it("falls back to the addressed provider where no group names the run", () => {
     // `runId` is `null` both when no run is live and when several are; the composer's address
-    // still names its driver.
+    // still names its provider.
     const selected = selectAddressedBindingGroup(GROUPS, {
       runId: CLAUDE_RUN,
-      driverName: "claude",
+      providerName: CLAUDE,
     });
 
-    expect(selected?.binding.driverName).toBe("claude");
+    expect(selected?.binding.providerName).toBe(CLAUDE);
   });
 
-  it("selects nothing where two groups share the addressed driver and name no run", () => {
+  it("selects nothing where two groups share the addressed provider and name no run", () => {
     // A coin flip presented as routing is worse than an absence.
-    const sameDriver: readonly ProviderCommandBindingGroup[] = [
+    const sameProvider: readonly ProviderCommandBindingGroup[] = [
       GROUPS[0]!,
-      { ...GROUPS[1]!, binding: { driverName: "claude", providerAccountId: "account-1" } },
+      { ...GROUPS[1]!, binding: bindingOn(CLAUDE, "account-other") },
     ];
 
     expect(
-      selectAddressedBindingGroup(sameDriver, { runId: CLAUDE_RUN, driverName: "claude" }),
+      selectAddressedBindingGroup(sameProvider, { runId: CLAUDE_RUN, providerName: CLAUDE }),
     ).toBeUndefined();
   });
 
-  it("selects nothing where the composer names neither a run nor a driver", () => {
+  it("selects nothing where the composer names neither a run nor a provider", () => {
     expect(
-      selectAddressedBindingGroup(GROUPS, { runId: undefined, driverName: undefined }),
+      selectAddressedBindingGroup(GROUPS, { runId: undefined, providerName: undefined }),
     ).toBeUndefined();
+  });
+});
+
+describe("composeCommandList", () => {
+  // Mutation: keeping a provider row the provider marks as a skill lists that skill twice once
+  // the daemon's skill list is beside it.
+  it("drops a provider row marked as a skill and keeps its commands and prompts", () => {
+    const group: ProviderCommandBindingGroup = {
+      runId: null,
+      binding: CLAUDE_BINDING,
+      entries: [
+        { name: "review", kind: "command", binding: CLAUDE_BINDING },
+        { name: "deploy", kind: "skill", binding: CLAUDE_BINDING },
+        { name: "list_prs", kind: "prompt", server: "github", binding: CLAUDE_BINDING },
+      ],
+    };
+
+    const names = composeCommandList({ runnableCommands: [], providerGroups: [group] }).map(
+      (entry) => entry.name,
+    );
+
+    expect(names).toStrictEqual(["review", "list_prs"]);
   });
 });

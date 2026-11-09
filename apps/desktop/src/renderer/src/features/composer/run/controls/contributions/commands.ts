@@ -42,6 +42,8 @@ export interface RunChild {
 
 /** One run as the commands need it: its identity, its guard, its state and its children. */
 export interface RunControlCommandRun {
+  /** The session the run is in, which a steer names. */
+  readonly sessionId: string;
   readonly runId: string;
   /** The comparand every guarded mutation threads back. Wire-supplied, never guessed. */
   readonly runVersion: number;

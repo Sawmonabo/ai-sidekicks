@@ -8,7 +8,7 @@
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
-import type { AttachmentIngestChunkResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
+import type { ArtifactIngestWriteResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";
@@ -22,10 +22,10 @@ import {
 /** The session every case attaches into. */
 export const INGEST_SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
 
-/** One recorded `AttachmentIngestInit`, exactly as the port declares it. */
+/** One recorded `artifact.ingest.start`, exactly as the port declares it. */
 export type RecordedInit = Parameters<AttachmentIngestPort["begin"]>[0];
 
-/** One recorded `AttachmentIngestChunk`, exactly as the port declares it. */
+/** One recorded `artifact.ingest.write`, exactly as the port declares it. */
 export type RecordedChunk = Parameters<AttachmentIngestPort["writeChunk"]>[0];
 
 /**
@@ -44,16 +44,15 @@ export class ScriptedIngestPort {
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
   /**
-   * The decoded bytes this port has appended, per stream and per sequence number.
+   * The bytes this port has appended, per stream and per sequence number.
    *
-   * A real running total, because the registered `AttachmentIngestChunkResponse` carries it and the
+   * A real running total, because the registered `ArtifactIngestWriteResponse` carries it and the
    * client advances its own running total from it; a constant would let a client that ignored the
-   * reply pass. The length comes from the platform's base64 decoder rather than arithmetic over the
-   * encoded string. Keyed by sequence number so the total is idempotent under the resend the
-   * contract makes safe: a chunk resent after a lost response is not appended twice.
+   * reply pass. Keyed by sequence number so the total is idempotent under the resend the contract
+   * makes safe: a chunk resent after a lost response is not appended twice.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
-  #chunkAcknowledgementOverride: AttachmentIngestChunkResponse | undefined;
+  #chunkAcknowledgementOverride: ArtifactIngestWriteResponse | undefined;
   #completionRefusal: { readonly code: string; readonly message: string } | undefined;
 
   /**
@@ -63,7 +62,7 @@ export class ScriptedIngestPort {
    * never sends, so a case must script one to exercise the client's check. `undefined` restores
    * the truthful answer.
    */
-  public acknowledgeChunksWith(acknowledgement: AttachmentIngestChunkResponse | undefined): void {
+  public acknowledgeChunksWith(acknowledgement: ArtifactIngestWriteResponse | undefined): void {
     this.#chunkAcknowledgementOverride = acknowledgement;
   }
 
@@ -124,11 +123,11 @@ export class ScriptedIngestPort {
     };
   }
 
-  /** Append one chunk's decoded bytes and answer the stream's running total. */
+  /** Append one chunk's bytes and answer the stream's running total. */
   #append(request: RecordedChunk): number {
     const appendedBySequenceNumber =
       this.#spooledBytesByIngestId.get(request.ingestId) ?? new Map<number, number>();
-    appendedBySequenceNumber.set(request.sequenceNumber, globalThis.atob(request.chunk).length);
+    appendedBySequenceNumber.set(request.sequenceNumber, request.chunk.length);
     this.#spooledBytesByIngestId.set(request.ingestId, appendedBySequenceNumber);
     let spooledBytes = 0;
     for (const appended of appendedBySequenceNumber.values()) {

@@ -3,14 +3,14 @@
 
 import { useState } from "react";
 import { act, render, within } from "@testing-library/react";
-import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
+import type { AgentQueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { SteerBox } from "./SteerBox.js";
 import { inertBridge } from "../../Composer.test-support.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type { RunControlCalls } from "../../run/controls/services/dispatch.js";
-import { RUN_ID } from "../../run/controls/commands.test-support.js";
+import { RUN_ID, SESSION_ID } from "../../run/controls/commands.test-support.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
@@ -28,7 +28,7 @@ export const QUEUED_STEER_RESPONSE = {
   queueItemId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
   state: "queued",
   createdAt: "2026-09-02T09:00:00.000Z",
-} as QueueItemCreateResponse;
+} as AgentQueueItemCreateResponse;
 
 /** The queued settlement every case that is not about settlement rides on. */
 export const QUEUED_STEER: ScriptedAnswer = () => QUEUED_STEER_RESPONSE;
@@ -45,8 +45,8 @@ export function steerCalls(calls: RecordedDaemonCall[], answer: ScriptedAnswer):
     resume: unused,
     intervene: unused,
     childSteer: async (request) => {
-      calls.push({ method: "run.childSteer", params: request });
-      return answer() as QueueItemCreateResponse;
+      calls.push({ method: "agent.childRun.steer", params: request });
+      return answer() as AgentQueueItemCreateResponse;
     },
   };
 }
@@ -58,6 +58,7 @@ export function runAt(
   runId: string = RUN_ID,
 ): RunControlCommandRun {
   return {
+    sessionId: SESSION_ID,
     runId,
     runVersion,
     state,

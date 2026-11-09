@@ -1,7 +1,5 @@
 // Which of the lead's runs the composer is addressed at: the newest live run, one that has not
-// settled, else none, and the composer addresses the session. A run apart from the session's
-// process, such as a review of the staged set, takes no message, so it is never addressed. A send
-// goes onto the session's queue either way; the address names the run the composer reads, which
+// settled, else none, and the composer addresses the session. A send goes onto the session's queue either way; the address names the run the composer reads, which
 // "the newest row touched" gets wrong once a run settles.
 
 import { isLiveRunState, readRunState } from "#renderer/services/daemon/wire/identifiers.js";
@@ -12,8 +10,7 @@ import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.j
 const NEWER_THAN_NOTHING = -1;
 
 /**
- * The newest live run (by `touchedAt`) bound to `agentId` and not apart from the session's
- * process, or `undefined`.
+ * The newest live run (by `touchedAt`) bound to `agentId`, or `undefined`.
  * Ties keep the first seen; a run without `touchedAt` sorts below one that has it.
  */
 export function resolveAddressedRun(
@@ -26,12 +23,7 @@ export function resolveAddressedRun(
     const boundAgentId: unknown = run.body?.["agentId"];
     // A state the console cannot read, or an absent one, is no live run.
     const state = run.state === undefined ? undefined : readRunState(run.state);
-    if (
-      boundAgentId !== agentId ||
-      run.body?.["isApart"] === true ||
-      state === undefined ||
-      !isLiveRunState(state)
-    ) {
+    if (boundAgentId !== agentId || state === undefined || !isLiveRunState(state)) {
       continue;
     }
     const rankAgainstAddressed =

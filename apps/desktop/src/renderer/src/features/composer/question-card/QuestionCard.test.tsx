@@ -1,11 +1,16 @@
-// The question card: the answers it hands its mount, a secret only ever as a secret, drafts that
-// never cross to another record, and answers kept on screen when a delivery is refused.
+// The question card: the answers it hands its mount, a secret only ever as a secret, a number
+// question that refuses words that are not a number, drafts that never cross to another record,
+// and answers kept on screen when a delivery is refused.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
+import type {
+  QuestionAnswer,
+  QuestionAskedPayload,
+  QuestionPrompt,
+} from "@ai-sidekicks/contracts/question";
 
 import {
   UNSENT_ANSWER_DELIVERY,
@@ -37,7 +42,17 @@ const NOTES_QUESTION: QuestionPrompt = {
   secret: false,
 };
 
-const QUESTIONS = [BRANCH_QUESTION, NOTES_QUESTION];
+const QUESTIONS: QuestionAskedPayload["questions"] = [BRANCH_QUESTION, NOTES_QUESTION];
+
+const SLIDES_QUESTION: QuestionPrompt = {
+  text: "How many slides?",
+  options: [],
+  severalAnswers: false,
+  secret: false,
+  minimum: 1,
+  maximum: 20,
+  unit: "slides",
+};
 
 const TOKEN_QUESTION: QuestionPrompt = {
   header: "Deploy",
@@ -179,6 +194,32 @@ describe("a secret question", () => {
     fireEvent.click(answerButton(container));
 
     expect(sent).toStrictEqual([[{ kind: "secret", value: "tok-8f2c" }]]);
+  });
+});
+
+describe("a number question", () => {
+  // Mutation: sending typed text that is not a number hands the daemon words it takes as typed
+  // text, and the agent gets "about ten" for a count.
+  it("refuses words that are not a number in place and sends nothing", () => {
+    const sent: QuestionAnswer[][] = [];
+    const { container } = render(
+      <QuestionCard
+        question={OPEN_QUESTION}
+        questions={[SLIDES_QUESTION]}
+        delivery={UNSENT_ANSWER_DELIVERY}
+        onAnswer={(answers) => sent.push(answers)}
+      />,
+    );
+
+    type(container, 0, "about ten");
+    fireEvent.click(answerButton(container));
+    expect(container.textContent).toContain("That is not a number.");
+    expect(sent).toStrictEqual([]);
+
+    type(container, 0, "12");
+    fireEvent.click(answerButton(container));
+    expect(container.textContent).not.toContain("That is not a number.");
+    expect(sent).toStrictEqual([[{ kind: "typed", text: "12" }]]);
   });
 });
 

@@ -3,11 +3,8 @@
 // resumes or restarts, that an abandonment stops the bytes, and when the user's payload is let go.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
-import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { describe, expect, it } from "vitest";
 
-import { encodeBase64 } from "./base64.js";
-import { readWireString } from "#renderer/lib/wire/strings.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./services/ingest-acknowledgement.js";
 import { PAYLOAD_READ_REFUSAL_CODE } from "./services/ingest-chunks.js";
 import type { AttachmentIngestEntry } from "./shapes.js";
@@ -22,9 +19,13 @@ import {
 } from "#test/helpers/scripted-ingest-port.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
-/** Whether one recorded request carried bytes rather than describing them. */
-function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
-  return readWireString(request["chunk"]) !== undefined;
+/** Whether two byte runs hold the same bytes; a deep equality over half a megabyte is slow. */
+function isSameBytes(left: Uint8Array, right: Uint8Array | undefined): boolean {
+  return (
+    right !== undefined &&
+    left.length === right.length &&
+    left.every((byte, index) => byte === right[index])
+  );
 }
 
 /**
@@ -51,6 +52,7 @@ describe("ingest client — what Init declares", () => {
         fileName: "notes.md",
         mediaType: "text/markdown",
         declaredSizeBytes: 300,
+        clientIdempotencyKey: expect.any(String),
       },
     ]);
   });
@@ -70,7 +72,7 @@ describe("ingest client — what Init declares", () => {
 });
 
 describe("ingest client — the payload reaches the daemon", () => {
-  it("sends the file as cap-sized slices, in order, inside the frame ceiling", async () => {
+  it("sends the file as cap-sized slices, in order", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const byteLength = ARTIFACT_CHUNK_MAX_BYTES * 2 + 7;
@@ -78,20 +80,18 @@ describe("ingest client — the payload reaches the daemon", () => {
     client.attach(sourceOver("attachment-three", "capture.bin", byteLength));
     await crossMacrotaskBoundary();
 
-    // Three consecutively numbered requests, each carrying the slice at its own offset. The
-    // expectation is built with the encoder because what is under test is which bytes went;
-    // the encoding itself is checked in `base64.test.ts`.
+    // Three consecutively numbered requests, each carrying the slice at its own offset.
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1, 2]);
-    expect(port.chunkCalls.every((call) => carriesAPayload({ ...call }))).toBe(true);
-    expect(port.chunkCalls.map((call) => call.chunk)).toStrictEqual([
-      encodeBase64(payload.subarray(0, ARTIFACT_CHUNK_MAX_BYTES)),
-      encodeBase64(payload.subarray(ARTIFACT_CHUNK_MAX_BYTES, ARTIFACT_CHUNK_MAX_BYTES * 2)),
-      encodeBase64(payload.subarray(ARTIFACT_CHUNK_MAX_BYTES * 2)),
+    const slices = [
+      payload.subarray(0, ARTIFACT_CHUNK_MAX_BYTES),
+      payload.subarray(ARTIFACT_CHUNK_MAX_BYTES, ARTIFACT_CHUNK_MAX_BYTES * 2),
+      payload.subarray(ARTIFACT_CHUNK_MAX_BYTES * 2),
+    ];
+    expect(port.chunkCalls.map((call, index) => isSameBytes(call.chunk, slices[index]))).toEqual([
+      true,
+      true,
+      true,
     ]);
-    for (const call of port.chunkCalls) {
-      // The cap binds the decoded bytes and the ceiling binds what is written.
-      expect(call.chunk.length).toBeLessThan(MAX_MESSAGE_BYTES);
-    }
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
@@ -206,13 +206,13 @@ describe("ingest client — retry resumes or begins again", () => {
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
-  it("sends the completion again after a type check that could not run", async () => {
+  it("sends the completion again after the ingest was busy", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseCompletionsWith({ code: "artifact.type_check_unavailable", message: "busy" });
+    port.refuseCompletionsWith({ code: "artifact.ingest.capacityExhausted", message: "busy" });
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
-    expect(client.snapshot[0]?.disposition).toBe("retry-in-place");
+    expect(client.snapshot[0]?.disposition).toBe("wait-and-retry");
 
     port.refuseCompletionsWith(undefined);
     client.retry("attachment-1");
@@ -225,7 +225,7 @@ describe("ingest client — retry resumes or begins again", () => {
   it("sends nothing again for a file the daemon refused outright", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    port.refuseCompletionsWith({ code: "artifact.type_unreadable", message: "unreadable" });
+    port.refuseCompletionsWith({ code: "artifact.tooLarge", message: "too large" });
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
     expect(client.snapshot[0]?.state).toBe("refused");

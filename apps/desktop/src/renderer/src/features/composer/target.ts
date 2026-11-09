@@ -3,8 +3,10 @@
 // address picks the `/` list's provider commands and the run the context ring reads; a send goes
 // onto the session's queue either way. It is a projection of what the daemon has said, kept out of
 // components so it can be driven from a test.
-// The lead and its driver are read off the session's standing events, which the store keeps
+// The lead and its provider are read off the session's standing events, which the store keeps
 // whatever rows its window holds; where they do not say, the target says nothing rather than guess.
+
+import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 
 import {
   readAgentDriverNames,
@@ -33,10 +35,10 @@ export interface ComposerRunTarget {
   /** The session's lead. */
   readonly agentId: string;
   /**
-   * The lead's current driver, wire-verbatim, `undefined` when the log has not said.
-   * Provider commands are filtered to this driver.
+   * The lead's current provider, wire-verbatim, `undefined` when the log has not said.
+   * Provider commands are filtered to this provider.
    */
-  readonly driverName: string | undefined;
+  readonly providerName: ProviderId | undefined;
   readonly targetRunId: string;
 }
 
@@ -64,7 +66,7 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       kind: "run",
       sessionId: input.sessionId,
       agentId: leadAgentId,
-      driverName: readAgentDriverNames(input.standingEvents).get(leadAgentId),
+      providerName: readAgentDriverNames(input.standingEvents).get(leadAgentId),
       targetRunId: run.id,
     };
   }

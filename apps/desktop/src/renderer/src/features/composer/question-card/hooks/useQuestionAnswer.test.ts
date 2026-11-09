@@ -4,14 +4,14 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { QuestionAnswer, QuestionResolveRequest } from "@ai-sidekicks/contracts/question";
+import type { QuestionResolveRequest } from "@ai-sidekicks/contracts/question";
 
 import { settle } from "#test/helpers/settle.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./useQuestionAnswer.js";
 
 const SAMPLE_QUESTION_ID = "019b793b-7b60-7a21-9f14-6b0c2a7d0e11";
 
-const SAMPLE_ANSWERS: QuestionAnswer[] = [
+const SAMPLE_ANSWERS: QuestionResolveRequest["answers"] = [
   { kind: "picked", labels: ["develop"] },
   { kind: "typed", text: "the flaky test is known" },
 ];
