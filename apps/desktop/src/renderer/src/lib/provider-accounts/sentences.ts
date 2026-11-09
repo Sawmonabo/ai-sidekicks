@@ -34,8 +34,8 @@ export const PROVIDER_READINESS_STATE_WORDS: Readonly<
  * page and on every account picker, which lists accounts as that page does.
  */
 export const ACCOUNT_LIST_READ_WORDS = {
-  reading: "Reading the account list…",
-  refused: "The account list could not be read.",
+  reading: "Loading your accounts…",
+  refused: "Couldn't load your accounts",
 } as const;
 
 /** What each billing mode reads as on an account's billing chip. */

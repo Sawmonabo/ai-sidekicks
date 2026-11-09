@@ -41,6 +41,8 @@ const UPDATER_CONTROL_FAILED = "updater-control-failed";
 export interface UpdatesBlockProps {
   /** The window's one reading of the updater, which the read-out draws. */
   readonly reading: UpdateReading;
+  /** Reads the updater's state again after a failed read. */
+  readonly onReadAgain: () => void;
   /** The updater's controls the block's presses call. */
   readonly updater: UpdaterCalls;
   /** The machine settings the automatic-check switch reads and writes. */
@@ -97,6 +99,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       <UpdateReadOut
         reading={reading}
         clock={clock}
+        onReadAgain={props.onReadAgain}
         onTryAgain={() => {
           press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
         }}
@@ -161,11 +164,11 @@ function renderAutomaticCheck(
   const { reading, readRefusal } = preferences.snapshot;
   if (reading === undefined) {
     return readRefusal === undefined ? (
-      <LoadingNotice clock={clock} placement="inline" title="Reading settings…" />
+      <LoadingNotice clock={clock} placement="inline" title="Loading your settings…" />
     ) : (
       <InlineRefusal
         code={readRefusal.code}
-        detail="The settings could not be read."
+        detail="Couldn't load your settings"
         onTryAgain={readAgainPress.readAgain}
         attempt={readAgainPress.readAgainCount}
       />

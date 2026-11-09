@@ -17,13 +17,7 @@ export function SavedDefinitions(props: {
     reading.kind === "rows" ? reading.rows.flatMap(instantReadings) : [],
   );
   if (reading.kind === "not-loaded") {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="block"
-        title="Reading the sidekicks saved on this node."
-      />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading your sidekicks…" />;
   }
   if (reading.kind === "empty") {
     return <Nothing kind="empty" placement="block" title={NO_SAVED_DEFINITIONS} />;

@@ -61,6 +61,7 @@ import {
   type SessionStoreState,
 } from "../state.js";
 import { SessionStore } from "../store.js";
+import { DismissedSessionNotices } from "./dismissed-notices.js";
 
 /**
  * What a read does with the window, never opening the stream at a position it refused. A union,
@@ -138,6 +139,8 @@ export class OpenSessionEntry {
   public readonly store: SessionStore;
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
+  /** The notice banners the person put away, kept while the session stays open. */
+  public readonly dismissedNotices: DismissedSessionNotices = new DismissedSessionNotices();
   /** The positions the stream refused, oldest first, so no read opens the stream at one again. */
   readonly #refusedCursors = new Set<EventCursor>();
   /** Whether the stream was marked far behind its head, so the next read is a snapshot. */

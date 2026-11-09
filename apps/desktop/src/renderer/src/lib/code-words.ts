@@ -4,12 +4,13 @@
 // of its own reading as that word.
 //
 // Only a code the other side registered reads as words above a refusal's message. Registered
-// codes take the `<root>.<noun>_<condition>` form; the app's own codes are kebab-case, and a
+// codes are wire names, two to four lowerCamelCase segments joined by dots (`mcp.server.notFound`),
+// a segment's words sometimes joined by `_`; the app's own codes are kebab-case, and a
 // refusal the app wrote reads as its sentence alone, never as the name of what failed.
 
-import { TRANSPORT_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { CONNECTION_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE } from "@ai-sidekicks/contracts/provider/account/methods";
-import { REPO_CLONE_REFUSED_CODE } from "@ai-sidekicks/contracts/repo/clone";
+import { PROJECT_CLONE_REFUSED_CODE } from "@ai-sidekicks/contracts/repo/clone";
 import {
   WORKFLOW_SANDBOX_UNAVAILABLE_CODE,
   WORKFLOW_STEP_THREAD_FAILED_CODE,
@@ -23,13 +24,7 @@ const ROOT_WORDS: Readonly<Record<string, string>> = {
   agent: "Sidekick",
   attention: "Notification",
   daemon: "Background service",
-  driver: "Provider",
   mcp: "MCP",
-  provideraccount: "Account",
-  pty: "Shell",
-  repo: "Project",
-  runtimenode: "Computer",
-  transport: "Connection",
 };
 
 /** The codes that read as their own label rather than as their words. */
@@ -37,20 +32,20 @@ const CODE_LABELS: Readonly<Record<string, string>> = {
   [WORKFLOW_STEP_TIMED_OUT_CODE]: "Step timed out",
   [WORKFLOW_SANDBOX_UNAVAILABLE_CODE]: "Sandbox unavailable",
   [WORKFLOW_STEP_THREAD_FAILED_CODE]: "Step thread failed",
-  [TRANSPORT_UNAVAILABLE_CODE]: "Connection lost",
+  [CONNECTION_UNAVAILABLE_CODE]: "Connection lost",
   [PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE]: "Login expired",
   // Cloning and resolving a folder's root are about the git repository, not the project.
-  [REPO_CLONE_REFUSED_CODE]: "Repository clone refused",
-  "repo.root_resolution_failed": "Repository root resolution failed",
+  [PROJECT_CLONE_REFUSED_CODE]: "Repository clone refused",
+  "repoMount.rootResolutionFailed": "Repository root resolution failed",
 };
 
-/** The form the error contract registers every code in. */
-const REGISTERED_CODE_FORM = /^[a-z]+\.[a-z0-9]+(?:_[a-z0-9]+)*$/;
+/** The form the error contract registers a code in: a wire name, words joined by case or `_`. */
+const REGISTERED_CODE_FORM = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*(?:_[a-z0-9]+)*){1,3}$/;
 
 /**
  * A code, status or kind and its listed reason as one line of words, the code first and the
- * reason after a middle dot: `agent.resolution_refused` with `account_unavailable` reads
- * `Sidekick resolution refused · Account unavailable`, and `retired` reads `Retired`.
+ * reason after a middle dot: `agent.childRun.controlRefused` with `childEnded` reads
+ * `Sidekick child run control refused · Child ended`, and `retired` reads `Retired`.
  */
 export function codeWords(code: string, reason?: string): string {
   const words = wordsOf(code);
@@ -74,8 +69,10 @@ export function refusalSentence(code: string, reason: string | undefined, messag
   return words === undefined ? message : `${words}. ${message}`;
 }
 
-// Its label, or its words split at `.`, `_` and `-`: a root before a `.` reads as its screen word,
-// cased as written, and every other word in lower case, the line's first letter capitalized.
+// Its label, or its words split at `.`, `_` and `-` and where a lowercase letter or digit meets a
+// capital (`startFailed` reads `Start failed`, and a run of capitals stays one word): a root before
+// a `.` reads as its screen word, cased as written, and every other word in lower case, the line's
+// first letter capitalized.
 function wordsOf(code: string): string {
   const label = readFrozenRecord(CODE_LABELS, code);
   if (label !== undefined) {
@@ -87,7 +84,7 @@ function wordsOf(code: string): string {
   const words = [
     ...(rootWord === undefined ? [] : [rootWord]),
     ...rest
-      .split(/[._-]/)
+      .split(/[._-]|(?<=[a-z0-9])(?=[A-Z])/)
       .filter((word) => word.length > 0)
       .map((word) => word.toLowerCase()),
   ].join(" ");

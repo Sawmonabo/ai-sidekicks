@@ -6,5 +6,5 @@ import { useUpdateReading } from "./useUpdateReading.js";
  * updater; called once per window, as `useUpdateReading` is.
  */
 export function useIsUpdateStaged(updater: UpdaterCalls): boolean {
-  return isUpdateStaged(useUpdateReading(updater));
+  return isUpdateStaged(useUpdateReading(updater).reading);
 }

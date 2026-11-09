@@ -1,7 +1,7 @@
 // The notice banners as the session screen draws them from its store: a notice the stream admitted
 // stands after the transcript window lets its row go, `Restart` asks the daemon once however often
-// it is pressed while out, and × puts a banner away without a daemon call, for good when the
-// person comes back to the session.
+// it is pressed while out, and × puts a banner away without a daemon call, held on the open
+// session's entry so it stays away when the screen is mounted again.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -11,9 +11,8 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import type { ServedDaemonCall } from "#shared/preload-api.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { ServedProviderSections } from "#renderer/store/providers/ServedProviderSections.test-support.js";
-import { SessionStore } from "#renderer/store/session/store.js";
+import { OpenSessionEntry } from "#renderer/store/session/open/entry.js";
 
-import { DismissedSessionNotices } from "../dismissed-notices.js";
 import { SessionNoticeBanners } from "./SessionNoticeBanners.js";
 
 const SESSION_ID = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
@@ -22,12 +21,13 @@ const CONFIG_FILE = "/Users/me/.codex/config.toml";
 interface BannersUnderTest {
   readonly daemonCalls: string[];
   readonly answerRestart: () => void;
-  readonly redraw: () => void;
+  /** Unmounts the banners and mounts them again on the same open session. */
+  readonly remount: () => void;
 }
 
 // The store holds the notices as the stream admitted them, then lets every row but the newest go,
 // so a banner can stand only on what the store keeps standing.
-function renderBanners(dismissed = new DismissedSessionNotices()): BannersUnderTest {
+function renderBanners(): BannersUnderTest {
   const daemonCalls: string[] = [];
   let answerRestart = (): void => undefined;
   // The banners reach only the daemon's calls.
@@ -43,7 +43,12 @@ function renderBanners(dismissed = new DismissedSessionNotices()): BannersUnderT
       },
     },
   } as unknown as PlatformBridge;
-  const store = new SessionStore({ sessionId: SESSION_ID });
+  const entry = new OpenSessionEntry(SESSION_ID, {
+    read: () => Promise.resolve(undefined),
+    openingPageLimit: () => 50,
+    offScreenRowLimit: () => 50,
+  });
+  const store = entry.store;
   store.initialize({ shape: "project", cursor: 0, entities: [] });
   store.applyBatch([
     eventOfKind(SESSION_ID, "session.notice.posted", 1, {
@@ -69,7 +74,7 @@ function renderBanners(dismissed = new DismissedSessionNotices()): BannersUnderT
           bridge={bridge}
           sessionId={SESSION_ID}
           sessionStore={store}
-          dismissed={dismissed}
+          dismissed={entry.dismissedNotices}
           onFolderReadRefused={() => undefined}
         />
       </ServedProviderSections>
@@ -81,7 +86,7 @@ function renderBanners(dismissed = new DismissedSessionNotices()): BannersUnderT
     answerRestart: () => {
       answerRestart();
     },
-    redraw: () => {
+    remount: () => {
       rendered.unmount();
       render(tree());
     },
@@ -109,7 +114,7 @@ describe("the session's notice banners", () => {
 
     const [firstDismiss] = screen.getAllByRole("button", { name: "Dismiss this notice" });
     fireEvent.click(firstDismiss as HTMLElement);
-    banners.redraw();
+    banners.remount();
 
     expect(screen.queryByText("Codex ended unexpectedly")).toBeNull();
     expect(screen.getByText("Codex ignored its config file")).toBeTruthy();

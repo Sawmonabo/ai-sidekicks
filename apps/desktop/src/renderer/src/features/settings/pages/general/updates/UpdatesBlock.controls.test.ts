@@ -20,6 +20,7 @@ import {
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
+import type { UpdaterCalls } from "#renderer/store/update/reading.js";
 import { UPDATE_FAILED_DETAIL } from "./state-words.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
@@ -86,16 +87,21 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     expect(labels).toContain("Check now");
   });
 
-  it("draws a refused read in place of the state, never the message that crossed IPC", async () => {
-    const { block } = await renderSettled({
-      ...updaterReporting({ status: "idle" }),
-      getState: () => Promise.reject(noHandlerFor("update.getState")),
-    });
+  it("draws a refused read in place of the state, and reads again on Try again", async () => {
+    const getState = vi
+      .fn<UpdaterCalls["getState"]>()
+      .mockRejectedValueOnce(noHandlerFor("update.getState"))
+      .mockResolvedValue({ status: "idle" });
+    const { block } = await renderSettled({ ...updaterReporting({ status: "idle" }), getState });
 
-    expect(block.querySelector("[data-refusal-code]")?.textContent).toBe(
-      "Could not read the update status.",
+    expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
+      "Couldn't load the update status",
     );
     expect(block.textContent).not.toContain("update.getState");
+
+    await pressControl(block, "Try again");
+    expect(getState).toHaveBeenCalledTimes(2);
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
   });
 });
 
@@ -201,7 +207,7 @@ describe("the updates block — the switch waits for the settings file", () => {
 
     expect(block.querySelector('[role="switch"]')).toBeNull();
     expect(block.querySelector("[data-refusal-code] .meridian-refusal__message")?.textContent).toBe(
-      "The settings could not be read.",
+      "Couldn't load your settings",
     );
 
     await pressControl(block, "Try again");
@@ -229,7 +235,7 @@ describe("the updates block — the switch waits for the settings file", () => {
     await pressControl(block, "Try again");
     said.push(liveRegionText(container, "assertive"));
 
-    const failure = "The settings could not be read.";
+    const failure = "Couldn't load your settings";
     expect(said).toStrictEqual([failure, "", failure]);
   });
 });

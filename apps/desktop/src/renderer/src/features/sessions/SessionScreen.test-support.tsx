@@ -19,6 +19,7 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStore } from "#renderer/store/session/store.js";
+import { DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { PaneLayoutStore } from "./pane-layout/store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
@@ -189,6 +190,7 @@ export function workspaceFor(
   }),
   paneRegistry: PaneRegistry = testRegistry(),
 ): React.JSX.Element {
+  const dismissedNotices = new DismissedSessionNotices();
   return (
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
@@ -201,6 +203,7 @@ export function workspaceFor(
           route={{ kind: "session", sessionId: session.sessionId }}
           paneRegistry={paneRegistry}
           rereadSession={() => undefined}
+          dismissedNoticesFor={() => dismissedNotices}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>

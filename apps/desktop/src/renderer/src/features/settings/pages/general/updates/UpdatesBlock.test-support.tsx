@@ -174,8 +174,15 @@ function UpdatesBlockOnReading(props: {
   readonly updater: UpdaterCalls;
   readonly preferences: UpdatesBlockProps["preferences"];
 }): React.JSX.Element {
-  const reading = useUpdateReading(props.updater);
-  return <UpdatesBlock reading={reading} updater={props.updater} preferences={props.preferences} />;
+  const { reading, readAgain } = useUpdateReading(props.updater);
+  return (
+    <UpdatesBlock
+      reading={reading}
+      onReadAgain={readAgain}
+      updater={props.updater}
+      preferences={props.preferences}
+    />
+  );
 }
 
 /** A fresh fixture bridge per mount, so one case's machine-settings store is never another's. */

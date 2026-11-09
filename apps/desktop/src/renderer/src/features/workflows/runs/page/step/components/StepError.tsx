@@ -55,6 +55,6 @@ function failureLabel(
 // it was sent, not a count.
 function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
   return processExit.signal === undefined
-    ? `Exit code ${String(processExit.exitCode)}`
+    ? `Exited with code ${String(processExit.exitCode)}`
     : `Ended by ${processExit.signal}`;
 }

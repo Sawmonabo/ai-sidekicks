@@ -47,7 +47,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
       <Nothing
         kind="error"
         placement="block"
-        title="Standing permissions could not be read."
+        title="Couldn't load your standing permissions"
         detail={
           `The background service answered, and all ${formatCount(props.unreadableCount)} of ` +
           "the rows it carried were shaped in a way this build cannot read. Whether any " +

@@ -194,7 +194,7 @@ function renderStatusRegion(
   switch (reading.phase) {
     case "reading":
       return (
-        <LoadingNotice clock={clock} placement="block" title="Reading the background service…" />
+        <LoadingNotice clock={clock} placement="block" title="Loading the background service…" />
       );
     case "read":
       return (

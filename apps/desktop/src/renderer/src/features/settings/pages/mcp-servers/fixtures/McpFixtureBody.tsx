@@ -64,7 +64,7 @@ import {
   type SendMcpToolOverride,
 } from "./mutation.js";
 import { ServerDetail } from "./components/ServerDetail.js";
-import { FailedProviderLine } from "./components/FailedProviderLine.js";
+import { FailedProviderRow } from "./components/FailedProviderRow.js";
 import { ServerListEntry } from "./components/ServerListEntry.js";
 
 /** The subsystem a refused change names as its author. */
@@ -263,25 +263,24 @@ export function McpFixtureBody(props: {
   const observedStamps = observedStampsOf(servers);
   const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Reading the server list…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading the MCP servers…" />;
   }
   if (state.kind === "failed") {
     return (
       <InlineRefusal
         code={state.refusal.code}
-        detail="The server list could not be read."
+        detail="Couldn't load the MCP servers"
         onTryAgain={() => {
           setOpeningOrdinal((held) => held + 1);
         }}
       />
     );
   }
-  // A provider whose list the service could not read says so where its servers would stand, and
-  // `Try again` asks for the whole list again. A provider with no tool servers set up says so in
-  // words, never as an empty list. Both stand in place of the list when no server was read, and at
-  // its foot otherwise.
-  const failedLines = failedProviders.map((failure) => (
-    <FailedProviderLine
+  // A provider whose list the service could not read is a row of the list, and its `Try again` asks
+  // for the whole list again. A provider with no tool servers set up says so in words, never as an
+  // empty list, in place of the list when no server was read and at its foot otherwise.
+  const failedRows = failedProviders.map((failure) => (
+    <FailedProviderRow
       key={failure.provider}
       provider={failure.provider}
       onTryAgain={() => {
@@ -297,7 +296,11 @@ export function McpFixtureBody(props: {
   if (servers.length === 0) {
     return (
       <>
-        {failedLines}
+        {failedRows.length === 0 ? null : (
+          <ul className="meridian-mcp__entries" aria-label="Tool servers">
+            {failedRows}
+          </ul>
+        )}
         {providersWithNone.map((section) => (
           <Nothing
             key={section.provider}
@@ -333,8 +336,8 @@ export function McpFixtureBody(props: {
               />
             );
           })}
+          {failedRows}
         </ul>
-        {failedLines}
         {providersWithNone.map((section) => (
           <p key={section.provider} className="meridian-settings-page__aside">
             {noServersLineFor(section)}

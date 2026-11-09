@@ -201,7 +201,7 @@ describe("AppRouter — the workflows screen across a run's page", () => {
       mount: routedThroughRouter,
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        return call.method === "workflow.runAttentionList"
+        return call.method === "workflow.run.attention.list"
           ? attentionOf(reply, [WORKFLOW_RUN_IDS.waitingApproval])
           : reply;
       },

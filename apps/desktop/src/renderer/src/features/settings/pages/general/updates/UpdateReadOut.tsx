@@ -20,6 +20,8 @@ export function UpdateReadOut(props: {
   readonly clock: Clock;
   /** Starts the path again from a check, offered on the failure line. */
   readonly onTryAgain: () => void;
+  /** Reads the updater's state again, offered on a failed read. */
+  readonly onReadAgain: () => void;
 }): React.JSX.Element {
   const { reading, clock } = props;
   const clockLocale = useClockLocale();
@@ -27,10 +29,16 @@ export function UpdateReadOut(props: {
   // label to the other's bar.
   const progressId = useId();
   if (reading.kind === "not-read") {
-    return <LoadingNotice clock={clock} placement="inline" title="Reading the updater’s state…" />;
+    return <LoadingNotice clock={clock} placement="inline" title="Loading the update status…" />;
   }
   if (reading.kind === "failed") {
-    return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
+    return (
+      <InlineRefusal
+        code={reading.refusal.code}
+        detail={reading.refusal.detail}
+        onTryAgain={props.onReadAgain}
+      />
+    );
   }
   const { state } = reading;
   switch (state.status) {

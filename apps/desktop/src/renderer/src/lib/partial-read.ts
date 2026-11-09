@@ -82,7 +82,7 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
     case "served":
       return COMPLETE_NOTICE;
     case "reading":
-      return { shape: "reading", title: `Reading ${subject}.` };
+      return { shape: "reading", title: `Loading ${subject}…` };
     case "partial":
       return {
         shape: "counted-sentence",

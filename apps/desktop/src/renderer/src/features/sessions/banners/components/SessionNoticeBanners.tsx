@@ -1,7 +1,8 @@
 // The banners a session's standing notices raise, under its header: a crash loop's with `Restart`,
 // which asks the daemon to start the provider again, an ignored-settings banner with `Open the
 // file` where main gave a token for its file, and a lost folder's, which goes when the folder is
-// back. A × puts a crash loop's or a settings banner away for the notice that raised it.
+// back. A × puts a crash loop's or a settings banner away for the notice that raised it, for as
+// long as the session stays open.
 
 import { useMemo, useReducer } from "react";
 
@@ -17,13 +18,12 @@ import { providerNameOf } from "#renderer/store/providers/name.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { selectStandingEvents } from "#renderer/store/session/selectors.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
+import type { DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 
-import type { DismissedSessionNotices } from "../dismissed-notices.js";
 import { useLostFolderPaths } from "../hooks/useLostFolderPaths.js";
 import {
   foldSessionNoticeBanners,
   sessionNoticeBannerWords,
-  type NoticeFileRefReader,
   type SessionNoticeBanner,
 } from "../notices.js";
 import { SessionBannerRow, type SessionBannerAct } from "./SessionBannerRow.js";
@@ -42,12 +42,12 @@ export function SessionNoticeBanners(props: SessionNoticeBannersProps): React.JS
   const standingEvents = useSessionStore(props.sessionStore, selectStandingEvents);
   // A dismissal moves no store, so the screen draws again on its own word.
   const [, drawAgain] = useReducer((count: number) => count + 1, 0);
-  const { dismissed, sessionId } = props;
-  const dismissedEventIds = dismissed.dismissedIn(sessionId);
+  const { dismissed } = props;
+  const dismissedEventIds = dismissed.eventIds;
   const banners = useMemo(
     () =>
-      foldSessionNoticeBanners(standingEvents, readNoticeFileRef).filter(
-        (banner) => dismissedEventIds?.has(banner.eventId) !== true,
+      foldSessionNoticeBanners(standingEvents).filter(
+        (banner) => !dismissedEventIds.has(banner.eventId),
       ),
     [standingEvents, dismissedEventIds],
   );
@@ -59,7 +59,7 @@ export function SessionNoticeBanners(props: SessionNoticeBannersProps): React.JS
       {...props}
       banners={banners}
       onDismiss={(eventId) => {
-        dismissed.dismiss(sessionId, eventId);
+        dismissed.dismiss(eventId);
         drawAgain();
       }}
     />
@@ -68,10 +68,6 @@ export function SessionNoticeBanners(props: SessionNoticeBannersProps): React.JS
 
 // The origin a refused `Open the file` names.
 const OPEN_THE_FILE_ORIGIN = "session-banner";
-
-// Main's token for a path a notice names: the projected event carries none, so no banner offers
-// `Open the file`.
-const readNoticeFileRef: NoticeFileRefReader = () => undefined;
 
 // The rows, apart from the fold, so the providers' names are read only while a banner stands.
 function NoticeBannerRows(

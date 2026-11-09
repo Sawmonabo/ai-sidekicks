@@ -16,7 +16,7 @@ export function OpenShellButton(props: OpenShellButtonProps): React.JSX.Element 
     <button
       type="button"
       className="meridian-terminal-pane__open-shell"
-      aria-label="Open a shell"
+      aria-label="New terminal"
       // Mounted only where it appears, so the focus moves once, as the last tab goes.
       autoFocus={props.isFocusedOnMount}
       onClick={props.onOpen}

@@ -38,7 +38,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   );
   if (feed.phase === "reading") {
     return (
-      <Nothing kind="not-loaded" placement="block" title="Reading what is waiting in the queue." />
+      <Nothing kind="not-loaded" placement="block" title="Loading what is waiting in the queue…" />
     );
   }
   const readRefusal = findReadRefusal(feed);

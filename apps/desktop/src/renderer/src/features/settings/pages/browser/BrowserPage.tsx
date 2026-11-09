@@ -76,12 +76,12 @@ export function BrowserPage(props: BrowserPageProps): React.JSX.Element {
   if (reading !== undefined) {
     content = BROWSER_SWITCH_ROWS.map((row) => renderSwitchRow(row, preferences));
   } else if (readRefusal === undefined) {
-    content = <LoadingNotice clock={clock} placement="inline" title="Reading settings…" />;
+    content = <LoadingNotice clock={clock} placement="inline" title="Loading your settings…" />;
   } else {
     content = (
       <InlineRefusal
         code={readRefusal.code}
-        detail="The settings could not be read."
+        detail="Couldn't load your settings"
         onTryAgain={() => {
           setReadAgainCount((count) => count + 1);
           preferences.readAgain();

@@ -601,7 +601,7 @@ describe("McpFixtureBody — a server switched per project", () => {
 });
 
 describe("McpFixtureBody — a provider whose list could not be read", () => {
-  it("says so where its servers would stand, and Try again reads the list again", async () => {
+  it("draws it as a row of the list under its provider, with no cause, and Try again reads the list again", async () => {
     const listInventory = vi.fn(
       async () =>
         await Promise.resolve({
@@ -613,14 +613,13 @@ describe("McpFixtureBody — a provider whose list could not be read", () => {
       operationsServing([], { listInventory }),
     );
     const foot = container.querySelector(".meridian-mcp__list");
-    expect(foot?.querySelector(".meridian-refusal__message")?.textContent).toBe(
-      "Codex's server list could not be read.",
-    );
+    const failedRow = foot?.querySelector(".meridian-mcp__entries > .meridian-mcp__failed-entry");
+    expect(failedRow?.textContent).toBe("CodexCouldn't load the serversTry again");
     // The failed provider is not also said to have no servers.
     expect(foot?.textContent).not.toContain("No tool servers are set up for Codex.");
 
     const reads = listInventory.mock.calls.length;
-    const tryAgain = foot?.querySelector(".meridian-refusal__try-again button");
+    const tryAgain = failedRow?.querySelector("button");
     if (!(tryAgain instanceof HTMLElement)) {
       throw new Error("the failed provider's line drew no Try again");
     }

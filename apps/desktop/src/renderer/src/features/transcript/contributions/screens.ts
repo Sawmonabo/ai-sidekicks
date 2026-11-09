@@ -5,6 +5,7 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { routeSessionId } from "#renderer/routing/readers.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
 import { type ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";
@@ -52,6 +53,8 @@ type SessionScreenMountProps = Omit<
 > & {
   /** Reads one session again through the registry, for a person's press. */
   readonly rereadSession: (sessionId: string) => Refusal | undefined;
+  /** The notice banners put away in one open session, `undefined` while it is not open. */
+  readonly dismissedNoticesFor: (sessionId: string) => DismissedSessionNotices | undefined;
 };
 
 /**
@@ -79,6 +82,8 @@ function mountSessionScreen(
       paneRegistry: context.paneRegistry,
       rereadSession: (sessionIdToReread: string) =>
         context.sessionStoreRegistry.requestRefresh(sessionIdToReread, "user-request"),
+      dismissedNoticesFor: (openSessionId: string) =>
+        context.sessionStoreRegistry.dismissedNoticesFor(openSessionId),
     }),
   );
 }

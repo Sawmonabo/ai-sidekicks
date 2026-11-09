@@ -13,12 +13,18 @@ import { foldSessionNoticeBanners, sessionNoticeBannerWords } from "./notices.js
 const SESSION_ID = "session-banners";
 const CONFIG_FILE = "/Users/me/.codex/config.toml";
 const CONFIG_FILE_REF = "file-ref-config" as FilePathRef;
+const SETTINGS_FILE = "/Users/me/project/.claude/settings.json";
 
-function notice(sequence: number, payload: Readonly<Record<string, unknown>>) {
-  return eventOfKind(SESSION_ID, "session.notice.posted", sequence, {
+function notice(
+  sequence: number,
+  payload: Readonly<Record<string, unknown>>,
+  fileRefs?: ProjectedSessionEvent["fileRefs"],
+): ProjectedSessionEvent {
+  const event = eventOfKind(SESSION_ID, "session.notice.posted", sequence, {
     sessionId: SESSION_ID,
     ...payload,
   });
+  return fileRefs === undefined ? event : { ...event, fileRefs };
 }
 
 function mountHealth(sequence: number, health: Readonly<Record<string, unknown>>) {
@@ -31,9 +37,7 @@ function mountHealth(sequence: number, health: Readonly<Record<string, unknown>>
 // Each banner's words as drawn, the provider named from its section and the lost folder's path
 // as its mount read gave it.
 function drawn(events: readonly ProjectedSessionEvent[]): readonly string[] {
-  return foldSessionNoticeBanners(events, (_event, path) =>
-    path === CONFIG_FILE ? CONFIG_FILE_REF : undefined,
-  ).map((banner) =>
+  return foldSessionNoticeBanners(events).map((banner) =>
     sessionNoticeBannerWords(banner, banner.kind === "folderLost" ? "" : "Codex", "/work/app").join(
       " · ",
     ),
@@ -46,10 +50,10 @@ describe("the banners a session's standing notices raise", () => {
       notice(sequence, { kind: "providerCrashLoop", provider: "codex", ...cause });
 
     expect(drawn([loop(1, { exitCode: 137 })])).toStrictEqual([
-      "Codex ended unexpectedly · exit code 137",
+      "Codex ended unexpectedly · exited with code 137",
     ]);
     expect(drawn([loop(1, { signal: "SIGKILL" })])).toStrictEqual([
-      "Codex ended unexpectedly · ended by SIGKILL",
+      "Codex ended unexpectedly · killed by the system",
     ]);
     expect(drawn([loop(1, { startFailure: "spawn codex ENOENT\nat start" })])).toStrictEqual([
       "Codex could not start · spawn codex ENOENT",
@@ -65,7 +69,22 @@ describe("the banners a session's standing notices raise", () => {
     const nextLoop = notice(3, { kind: "providerCrashLoop", provider: "codex", exitCode: 2 });
 
     expect(drawn([loop, restarted])).toStrictEqual([]);
-    expect(drawn([restarted, nextLoop])).toStrictEqual(["Codex ended unexpectedly · exit code 2"]);
+    expect(drawn([restarted, nextLoop])).toStrictEqual([
+      "Codex ended unexpectedly · exited with code 2",
+    ]);
+  });
+
+  it("says a signal in words, never by its name, and an unworded signal as a system signal", () => {
+    const endedBy = (signal: string) =>
+      drawn([notice(1, { kind: "providerCrashLoop", provider: "codex", signal })]);
+
+    expect(endedBy("SIGTERM")).toStrictEqual(["Codex ended unexpectedly · stopped by the system"]);
+    expect(endedBy("SIGSEGV")).toStrictEqual([
+      "Codex ended unexpectedly · crashed on a memory error",
+    ]);
+    expect(endedBy("SIGRTMIN+3")).toStrictEqual([
+      "Codex ended unexpectedly · stopped by a system signal",
+    ]);
   });
 
   it("draws ignored settings by line, by file and key, by file alone, and by the words alone", () => {
@@ -73,26 +92,30 @@ describe("the banners a session's standing notices raise", () => {
       notice(1, { kind: "settingsIgnored", provider: "codex", ...fields });
     const words = "Invalid configuration; using defaults";
 
+    // A bad line names the file by its name; the full path is the token's.
     expect(drawn([ignored({ file: CONFIG_FILE, line: 4, text: words })])).toStrictEqual([
-      `Codex ignored its config file · line 4 of ${CONFIG_FILE}`,
+      "Codex ignored its config file · line 4 of config.toml",
     ]);
-    expect(drawn([ignored({ file: CONFIG_FILE, key: "model" })])).toStrictEqual([
-      `Codex ignored ${CONFIG_FILE} · model`,
-    ]);
-    expect(drawn([ignored({ file: CONFIG_FILE, text: words })])).toStrictEqual([
-      `Codex ignored ${CONFIG_FILE}`,
+    // A dropped key or file names the file as the notice carries it.
+    expect(drawn([ignored({ file: SETTINGS_FILE, key: "permissions.defaultMode" })])).toStrictEqual(
+      [`Codex ignored ${SETTINGS_FILE} · permissions.defaultMode`],
+    );
+    expect(drawn([ignored({ file: SETTINGS_FILE, text: words })])).toStrictEqual([
+      `Codex ignored ${SETTINGS_FILE}`,
     ]);
     expect(drawn([ignored({ text: words })])).toStrictEqual([
       `Codex ignored its settings · ${words}`,
     ]);
-    // The file's token is the one main minted for that path, and a notice naming no file has none.
-    const [byFile] = foldSessionNoticeBanners(
-      [ignored({ file: CONFIG_FILE })],
-      () => CONFIG_FILE_REF,
-    );
-    const [byWords] = foldSessionNoticeBanners([ignored({ text: words })], () => CONFIG_FILE_REF);
+  });
+
+  it("opens the file by the token the frame carried for its full path, and none without one", () => {
+    const ignoredFile = { kind: "settingsIgnored", provider: "codex", file: CONFIG_FILE };
+    const [byFile] = foldSessionNoticeBanners([
+      notice(1, ignoredFile, { [CONFIG_FILE]: CONFIG_FILE_REF }),
+    ]);
+    const [unminted] = foldSessionNoticeBanners([notice(1, ignoredFile)]);
     expect(byFile?.kind === "settingsIgnored" ? byFile.fileRef : "none").toBe(CONFIG_FILE_REF);
-    expect(byWords?.kind === "settingsIgnored" ? byWords.fileRef : "none").toBeUndefined();
+    expect(unminted?.kind === "settingsIgnored" ? unminted.fileRef : "none").toBeUndefined();
   });
 
   it("draws a lost folder while it is lost and nothing once it is healthy", () => {

@@ -3,7 +3,7 @@
 // settings, and a folder the session works in that is lost. Each is read from the newest event of
 // its kind the session store keeps standing, so a banner outlasts the transcript window it arrived
 // in. Pure: the events in, the banners out, and their words from the provider's name and the
-// folder's path the caller read.
+// folder's path the caller read. A signal reads in words; its name stays in the daemon's log.
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { FilePathRef } from "#shared/preload-api.js";
@@ -33,7 +33,10 @@ export type SessionNoticeBanner =
       readonly line: number | undefined;
       readonly key: string | undefined;
       readonly text: string | undefined;
-      /** Main's token for `file`, which `Open the file` hands the editor; absent with no file. */
+      /**
+       * Main's token for `file`, which `Open the file` hands the editor; absent where the notice
+       * names no file or main minted none.
+       */
       readonly fileRef: FilePathRef | undefined;
     }
   | {
@@ -43,19 +46,12 @@ export type SessionNoticeBanner =
       readonly health: LostFolderHealth;
     };
 
-/** Reads main's token for a path a notice names, or `undefined` where main minted none. */
-export type NoticeFileRefReader = (
-  event: ProjectedSessionEvent,
-  path: string,
-) => FilePathRef | undefined;
-
 /**
  * The banners `standingEvents` raise, in the order their events arrived. A crash loop stands until
  * a later `providerRestarted` of its provider; a later crash loop raises its banner again.
  */
 export function foldSessionNoticeBanners(
   standingEvents: readonly ProjectedSessionEvent[],
-  fileRefOf: NoticeFileRefReader,
 ): readonly SessionNoticeBanner[] {
   const restartedAtByProvider = new Map<string, number>();
   for (const event of standingEvents) {
@@ -73,7 +69,7 @@ export function foldSessionNoticeBanners(
   }
   const banners: SessionNoticeBanner[] = [];
   for (const event of standingEvents) {
-    const banner = readNoticeBanner(event, fileRefOf);
+    const banner = readNoticeBanner(event);
     if (
       banner?.kind === "crashLoop" &&
       (restartedAtByProvider.get(banner.provider) ?? -1) > event.sequence
@@ -111,10 +107,7 @@ export function sessionNoticeBannerWords(
   }
 }
 
-function readNoticeBanner(
-  event: ProjectedSessionEvent,
-  fileRefOf: NoticeFileRefReader,
-): SessionNoticeBanner | undefined {
+function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
   const payload = event.payload;
   if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
     const repoMountId = readWireString(payload?.["repoMountId"]);
@@ -146,7 +139,7 @@ function readNoticeBanner(
         line: typeof line === "number" ? line : undefined,
         key: readWireString(payload["key"]),
         text: readWireString(payload["text"]),
-        fileRef: file === undefined ? undefined : fileRefOf(event, file),
+        fileRef: file === undefined ? undefined : event.fileRefs?.[file],
       };
     }
     default:
@@ -176,9 +169,9 @@ function readCrashLoopCause(
 function crashLoopWords(cause: CrashLoopCause, providerName: string): readonly string[] {
   switch (cause.kind) {
     case "exitCode":
-      return [`${providerName} ended unexpectedly`, `exit code ${String(cause.exitCode)}`];
+      return [`${providerName} ended unexpectedly`, `exited with code ${String(cause.exitCode)}`];
     case "signal":
-      return [`${providerName} ended unexpectedly`, `ended by ${cause.signal}`];
+      return [`${providerName} ended unexpectedly`, signalWords(cause.signal)];
     case "startFailure":
       // The start's failure in one line: its first, as the daemon quoted it.
       return [`${providerName} could not start`, cause.startFailure.split("\n", 1)[0] ?? ""];
@@ -194,12 +187,14 @@ function settingsIgnoredWords(
   banner: Extract<SessionNoticeBanner, { readonly kind: "settingsIgnored" }>,
   providerName: string,
 ): readonly string[] {
+  // A bad line names the file by its name; its full path is behind `Open the file`.
   if (banner.file !== undefined && banner.line !== undefined) {
     return [
       `${providerName} ignored its config file`,
-      `line ${String(banner.line)} of ${banner.file}`,
+      `line ${String(banner.line)} of ${fileNameOf(banner.file)}`,
     ];
   }
+  // A dropped key or file names the file as the notice carries it.
   if (banner.file !== undefined) {
     return [
       `${providerName} ignored ${banner.file}`,
@@ -209,6 +204,34 @@ function settingsIgnoredWords(
   // Naming no file, the provider's own words, or the key it named, say what it ignored.
   const named = banner.text ?? banner.key;
   return [`${providerName} ignored its settings`, ...(named === undefined ? [] : [named])];
+}
+
+// How a process a signal ended reads, by the signal's name as the daemon sends it (`SIGKILL`); a
+// signal no entry words reads as a system signal.
+function signalWords(signal: string): string {
+  return SIGNAL_WORDS.get(signal) ?? "stopped by a system signal";
+}
+
+// The signals that end a process unasked, in words. The daemon names any signal the system has.
+const SIGNAL_WORDS: ReadonlyMap<string, string> = new Map([
+  ["SIGKILL", "killed by the system"],
+  ["SIGTERM", "stopped by the system"],
+  ["SIGINT", "interrupted"],
+  ["SIGHUP", "its terminal closed"],
+  ["SIGQUIT", "told to quit"],
+  ["SIGABRT", "stopped on an internal error"],
+  ["SIGSEGV", "crashed on a memory error"],
+  ["SIGBUS", "crashed on a memory error"],
+  ["SIGILL", "crashed on an invalid instruction"],
+  ["SIGFPE", "crashed on an arithmetic error"],
+  ["SIGPIPE", "its output was closed"],
+  ["SIGXCPU", "ran past its processor time limit"],
+  ["SIGXFSZ", "ran past its file size limit"],
+]);
+
+// The last segment of a path, on either separator.
+function fileNameOf(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
 }
 
 // What a crash loop's banner names: exactly one of the four the notice carries.

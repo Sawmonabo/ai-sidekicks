@@ -86,7 +86,7 @@ export function MountedFolderList(props: {
   useAnnounceWhenChanged(mountSettlementSentence(state), "polite", { isReadSettlement: true });
 
   if (state.kind === "not-loaded") {
-    return <LoadingNotice clock={clock} placement="block" title="Reading this session’s mounts…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Loading this session’s mounts…" />;
   }
   if (state.kind === "failed") {
     // The control is the way back. A failed read recovers when the event stream pushes

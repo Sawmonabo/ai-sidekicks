@@ -21,13 +21,7 @@ export interface CallbackToolsProps {
 /** The daemon-hosted tools section: reading, withheld, or exposed, never merged. */
 export function CallbackTools(props: CallbackToolsProps): React.JSX.Element {
   if (props.registry === undefined) {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="block"
-        title="Reading the tools the background service hosts."
-      />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading the callback tools…" />;
   }
   if (props.registry.kind === "withheld") {
     return (

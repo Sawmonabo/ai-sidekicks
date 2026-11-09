@@ -34,19 +34,29 @@
   list-style: none;
 }
 
-.meridian-mcp__entry {
+.meridian-mcp__entry,
+.meridian-mcp__failed-entry {
   display: flex;
-  flex-direction: column;
   gap: var(--meridian-space-1);
-  width: 100%;
   padding: var(--meridian-space-2) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
   color: var(--meridian-text);
+}
+
+.meridian-mcp__entry {
+  flex-direction: column;
+  width: 100%;
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* A provider whose list could not be read: its row's words, and `Try again` at the right end. */
+.meridian-mcp__failed-entry {
+  justify-content: space-between;
+  align-items: baseline;
 }
 
 .meridian-mcp__entry:hover {

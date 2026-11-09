@@ -22,6 +22,7 @@ import {
 import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { isRaisedAgainOnReplay, type SessionDegradedCause } from "./degradation.js";
 import type { SessionStore } from "./store.js";
+import type { DismissedSessionNotices } from "./open/dismissed-notices.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -101,6 +102,11 @@ export class SessionStoreRegistry {
   /** The store for an open session, or `undefined`. Never opens one as a side effect. */
   public peek(sessionId: string): SessionStore | undefined {
     return this.#entriesBySessionId.get(sessionId)?.store;
+  }
+
+  /** The notice banners the person put away in an open session, or `undefined`. */
+  public dismissedNoticesFor(sessionId: string): DismissedSessionNotices | undefined {
+    return this.#entriesBySessionId.get(sessionId)?.dismissedNotices;
   }
 
   /** Whether a session is open. */

@@ -12,15 +12,16 @@ import type {
 
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 
-/** The `provider.list` reply every scenario answers with, Claude Code first, then Codex. */
+/** The two providers' sections, Claude Code first, then Codex, each plan word its driver's own. */
+export const PROVIDER_SECTIONS: readonly ProviderSection[] = [
+  providerSection("claude" as ProviderId, "Claude Code", []),
+  providerSection("codex" as ProviderId, "Codex", [{ plan: "team", word: "Business" }]),
+];
+
+/** The `provider.list` reply every scenario answers with. */
 export const PROVIDER_LIST_REPLY: ScenarioReply = {
   call: "provider.list",
-  result: {
-    providers: [
-      providerSection("claude" as ProviderId, "Claude Code", []),
-      providerSection("codex" as ProviderId, "Codex", [{ plan: "team", word: "Business" }]),
-    ],
-  } satisfies ProviderListResponse,
+  result: { providers: [...PROVIDER_SECTIONS] } satisfies ProviderListResponse,
 };
 
 /** One provider's section, named, with its plan words and otherwise empty. */

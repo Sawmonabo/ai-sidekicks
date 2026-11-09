@@ -20,7 +20,7 @@
 
 import "./SessionScreen.css";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   diagnosticStampAt,
@@ -35,6 +35,7 @@ import { routeSessionId } from "#renderer/routing/readers.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 import { type DraftStore } from "#renderer/store/drafts.js";
 import { isUnreadableRecordRefusal } from "#renderer/store/persistence/durable-view-state.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
@@ -42,7 +43,6 @@ import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js
 import { SessionHeader } from "./header/components/SessionHeader.js";
 import { SessionBannerRow } from "./banners/components/SessionBannerRow.js";
 import { SessionNoticeBanners } from "./banners/components/SessionNoticeBanners.js";
-import { DismissedSessionNotices } from "./banners/dismissed-notices.js";
 import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
 import { PaneBody } from "./pane-layout/components/PaneBody.js";
@@ -83,6 +83,11 @@ export interface SessionScreenProps {
    * session is not open, and this screen sends it to the window's diagnostic capture.
    */
   readonly rereadSession: (sessionId: string) => Refusal | undefined;
+  /**
+   * The notice banners put away in one session, held on its open entry so a dismissal outlives
+   * this screen; `undefined` while the session is not open.
+   */
+  readonly dismissedNoticesFor: (sessionId: string) => DismissedSessionNotices | undefined;
 }
 
 /** The session screen: header, banners, catching-up line, pane layout and composer region. */
@@ -113,9 +118,6 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [clock, settleBanners],
   );
 
-  // Held by the screen, which is not remounted between sessions, so a notice put away stays away
-  // when the person comes back to its session.
-  const [dismissedNotices] = useState(() => new DismissedSessionNotices());
   const folderReadRefused = useCallback(
     (repoMountId: string, refusal: Refusal) => {
       recordRefusal(clock, "lost-folder-not-read", `mount ${repoMountId}`, refusal);
@@ -228,6 +230,8 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     throw new Error("no body is registered for the transcript pane kind");
   }
 
+  const dismissedNotices =
+    sessionId === undefined ? undefined : props.dismissedNoticesFor(sessionId);
   const conversation = (
     <div className="meridian-session-screen__conversation">
       <div className="meridian-session-screen__head">
@@ -241,7 +245,9 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
             }}
           />
         ))}
-        {props.sessionStore === undefined || sessionId === undefined ? null : (
+        {props.sessionStore === undefined ||
+        sessionId === undefined ||
+        dismissedNotices === undefined ? null : (
           <SessionNoticeBanners
             bridge={props.bridge}
             sessionId={sessionId}

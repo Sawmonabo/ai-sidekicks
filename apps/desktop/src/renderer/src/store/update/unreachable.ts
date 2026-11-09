@@ -6,7 +6,7 @@
 export const UPDATER_UNREACHABLE_DETAIL: Readonly<
   Record<"read" | "check" | "download" | "restart", string>
 > = {
-  read: "Could not read the update status.",
+  read: "Couldn't load the update status",
   check: "Could not check for updates.",
   download: "Could not download the update.",
   restart: "Could not restart to install the update.",
