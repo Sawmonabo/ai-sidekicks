@@ -9,10 +9,10 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
-import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./node-views.js";
 
 const RUN_ID = "019b7a10-0280-75e5-8510-ada11a5a4999" as WorkflowRunId;
@@ -96,8 +96,8 @@ const FIRST_ATTEMPT_FAILED = step("summary", 1, {
 /** The instant the graph counts days from. */
 const GRAPH_NOW_MS = Date.UTC(2026, 0, 1, 14, 20);
 
-/** The clock locale the fixture bridge carries, which the graph writes its instants in. */
-const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
+/** A Mac set to the United States at its own 12-hour clock, which the graph writes instants in. */
+const CLOCK_LOCALE = clockLocaleFor({ regionLocale: "en-US", hourCycle: "h12" });
 
 function summaryView(steps: readonly WorkflowStep[]) {
   const view = runGraphNodeViews(DOCUMENT, steps, [], GRAPH_NOW_MS, CLOCK_LOCALE).find(
@@ -170,5 +170,51 @@ describe("the run graph names when a parked node resumes", () => {
     expect(summaryView([TRIGGERED, parked]).accessibleName).toContain(
       `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS, CLOCK_LOCALE)}`,
     );
+  });
+});
+
+describe("the run graph follows a step through the memory gate", () => {
+  const HELD = step("summary", 1, { status: "waitingMemory", attempt: 1 });
+
+  it("draws a held step as waiting for memory, never amber, until the next phase moves it", () => {
+    const held = summaryView([TRIGGERED, HELD]);
+
+    expect(held.status).toBe("waitingMemory");
+    expect(held.isWaitingOnPerson, "a memory hold was drawn amber, as a person's blocker").toBe(
+      false,
+    );
+    expect(held.waitCause).toBeUndefined();
+    expect(held.errorLine).toBeUndefined();
+    expect(held.accessibleName).toBe("Summarize · Waiting for memory");
+    expect(liveNodeId([TRIGGERED, HELD])).toBe("summary");
+
+    // The gate admits it: the next read carries the same step running, and the hold is gone.
+    const admitted = summaryView([
+      TRIGGERED,
+      step("summary", 1, { status: "running", attempt: 1 }),
+    ]);
+
+    expect(admitted.status).toBe("running");
+    expect(admitted.accessibleName).toBe("Summarize · Running");
+  });
+
+  it("draws a held step whose phase failed as failed, with the failure it carries", () => {
+    const failed = step("summary", 1, {
+      status: "failed",
+      attempt: 1,
+      finishedAt: "2026-01-01T14:10:00.000Z",
+      error: {
+        code: WORKFLOW_STEP_TIMED_OUT_CODE,
+        details: { cause: "runCap" },
+        message: "The run reached its time cap",
+      },
+    });
+
+    const view = summaryView([TRIGGERED, failed]);
+
+    expect(view.status).toBe("failed");
+    expect(view.isWaitingOnPerson).toBe(false);
+    expect(view.accessibleName).toBe("Summarize · Failed · The run reached its time cap");
+    expect(liveNodeId([TRIGGERED, failed]), "a failed step still reads as live").toBeUndefined();
   });
 });
