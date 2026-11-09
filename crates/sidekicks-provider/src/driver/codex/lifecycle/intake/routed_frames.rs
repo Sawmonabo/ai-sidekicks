@@ -73,6 +73,7 @@ pub(crate) async fn apply_codex_routed_frames(
             record,
             &owner_thread,
             delta,
+            None,
             ran_on,
         ));
     }
@@ -185,13 +186,15 @@ fn publish_turn_usage(
 
 /// The usage record's entry for a metered delta spent on `owner_thread` under
 /// `provider_account_id`, the account its turn ran on: a helper's conversation's on its child
-/// run's binding as that helper's own, any other on the binding of the run its turn belongs to,
-/// else the session's. One with no binding to file on is logged and left unrecorded.
+/// run's binding as that helper's own, any other on the binding of `filing_run` where one is known,
+/// else of the run its turn belongs to, else the session's. One with no binding to file on is
+/// logged and left unrecorded.
 pub(super) fn attribute_codex_usage(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &CodexSessionRecord,
     owner_thread: &str,
     delta: MeteredUsageDelta,
+    filing_run: Option<RunId>,
     provider_account_id: Option<ProviderAccountId>,
 ) -> Option<MeteredUsage> {
     if let Some(child) = record.delivery.child_run_by_thread_id.get(owner_thread) {
@@ -203,8 +206,10 @@ pub(super) fn attribute_codex_usage(
             provider_account_id,
         });
     }
-    let (_run_id, binding_id) =
-        find_filing_binding(intake, record, delta.attributed_turn_id.as_deref());
+    let (_run_id, binding_id) = match filing_run {
+        Some(run_id) => (Some(run_id), find_run_binding(intake, record, run_id)),
+        None => find_filing_binding(intake, record, delta.attributed_turn_id.as_deref()),
+    };
     let Some(binding_id) = binding_id else {
         tracing::warn!("a codex usage reading has no binding to file on");
         return None;
@@ -228,11 +233,24 @@ fn find_filing_binding(
     let run_id = turn_id
         .and_then(|turn_id| find_turn_run_id(record, turn_id))
         .map(|(run_id, _ending)| run_id);
-    let binding_id = run_id
-        .and_then(|run_id| intake.run_routes.binding_for(run_id))
-        .map(|binding| binding.binding_id)
-        .or_else(|| record.binding_id.clone());
+    let binding_id = match run_id {
+        Some(run_id) => find_run_binding(intake, record, run_id),
+        None => record.binding_id.clone(),
+    };
     (run_id, binding_id)
+}
+
+// The binding `run_id`'s usage files on: the run's, else the session's.
+fn find_run_binding(
+    intake: &CodexRoutedFramesIntake<'_>,
+    record: &CodexSessionRecord,
+    run_id: RunId,
+) -> Option<RuntimeBindingId> {
+    intake
+        .run_routes
+        .binding_for(run_id)
+        .map(|binding| binding.binding_id)
+        .or_else(|| record.binding_id.clone())
 }
 
 // Writes the end of a turn that moved no run; a failed write is logged, the turn already gone.

@@ -290,10 +290,18 @@ impl ClaudeDriver {
     }
 
     /// Ends every Claude Code process as the daemon stops, every wait ended by `deadline`, records
-    /// each one-turn process's spend, and leaves each session's runs for the stop's own settle. A
+    /// each one-turn process's spend, files no exported request once the filings running are done,
+    /// and leaves each session's runs for the stop's own settle. A
     /// session still coming up or going down at the deadline is left to the process stop, which
     /// ends its process too.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
+        // No exported request is filed from here on, as no stream prices one either.
+        if timeout_at(deadline, self.exports.stop()).await.is_err() {
+            tracing::warn!(
+                "a Claude Code process's exported requests were still being filed at the stop's \
+                 deadline"
+            );
+        }
         let Some(parts) = self.composed_parts() else {
             self.starts.stop_every_process(deadline).await;
             return;

@@ -117,6 +117,7 @@ pub(super) fn turn_spend() -> WindowTurnSpend {
     let count = |count| SafeInt::new(count);
     WindowTurnSpend {
         model_id: Some(FreeFormText::new("haiku".to_owned()).expect("a model id")),
+        speed: None,
         input_tokens: count(395),
         output_tokens: count(51),
         cache_read_tokens: None,
@@ -150,7 +151,7 @@ impl ProviderWindowTurnLegs for ScriptedTurns {
         _folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
         self.window_starts.fetch_add(1, Ordering::SeqCst);
-        async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
+        async { Ok(WindowTurnAnswer::Spent(vec![turn_spend()])) }.boxed()
     }
 }
 
@@ -298,6 +299,17 @@ impl UsageSink for RecordedQuotaSets {
         _session_id: SessionId,
         _at: sidekicks_contracts::wire::instant::WireInstant,
     ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
+    > {
         async { Ok(None) }.boxed()
     }
 }

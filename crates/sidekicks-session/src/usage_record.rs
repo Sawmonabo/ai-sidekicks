@@ -63,15 +63,16 @@ use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
     MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
-    read_prior_emitted, read_request_recorded, read_stored_windows, read_tally_seed,
+    read_prior_emitted, read_request_recorded, read_run_at, read_stored_windows, read_tally_seed,
     read_thread_speed_at, read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
 /// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
 /// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
-/// and turns before it, and a thread's prior counts.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 11;
+/// and turns before it, a thread's prior counts, whether an account holds a request, and a
+/// session's thread tier and run at an instant.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 14;
 
 // The windows of an account's whole set, as each window's row carries them.
 type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
@@ -532,6 +533,22 @@ impl UsageSink for UsageRecord {
             self.pool
                 .read(ReadLength::Short, move |reader| {
                     read_thread_speed_at(reader, session_id, at.as_str())
+                })
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    fn read_run_at(
+        &self,
+        session_id: SessionId,
+        at: WireInstant,
+    ) -> BoxFuture<'_, Result<Option<RunId>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.pool
+                .read(ReadLength::Short, move |reader| {
+                    read_run_at(reader, session_id, at.as_str())
                 })
                 .await
                 .map_err(Into::into)

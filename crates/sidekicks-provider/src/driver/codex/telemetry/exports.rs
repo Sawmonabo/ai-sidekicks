@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -14,8 +14,9 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -26,10 +27,9 @@ use crate::driver::codex::telemetry::copy_threads::CodexEndedCopy;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
 use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, refuse_unplaced};
-use crate::driver::codex::telemetry::rollouts::CodexLaunchRollouts;
-use crate::pricing::export_status::ExportStatusTracker;
+use crate::driver::codex::telemetry::rollouts::fallback::CodexLaunchRollouts;
+use crate::pricing::export_status::{ExportStatus, ExportStatusTracker};
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::records::read_unix_time_ms;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 #[cfg(test)]
@@ -154,11 +154,13 @@ impl CodexLaunchExport {
 }
 
 /// What the reader reads an export of a registered launch with: its service and placement state,
-/// and the export's number among the launch's.
+/// the export's number among the launch's, and its rollout fallback's handles, which take the
+/// export's record stamps.
 pub(super) struct CodexLaunchRead {
     pub(super) service: Weak<CodexService>,
     pub(super) placement: Weak<Mutex<CodexLaunchPlacement>>,
     pub(super) export_number: u64,
+    pub(super) rollouts: CodexLaunchRollouts,
 }
 
 /// One launch's copies due to be filed, with the launch's service and placement state.
@@ -279,7 +281,15 @@ impl CodexExports {
             CODEX_EXPORT_INTERVAL,
         ));
         let registered = Arc::new(());
-        let rollouts = CodexLaunchRollouts::new(tracker.status(), read_unix_time_ms());
+        let rollouts = CodexLaunchRollouts::new(&tracker, read_unix_time_ms());
+        let placement: Arc<Mutex<CodexLaunchPlacement>> = Arc::default();
+        // The launch's task follows its export status from its start, so its fallback reads as
+        // the status turns stopped.
+        let read_rollouts = CodexExportItem::ReadRollouts {
+            service: Arc::downgrade(service),
+            launch: Arc::downgrade(&placement),
+            rollouts: rollouts.clone(),
+        };
         let (number, resource_tag) = self.with_live(|launches| {
             let number = launches.next_number;
             launches.next_number += 1;
@@ -293,12 +303,13 @@ impl CodexExports {
                     resource_tag,
                     tracker,
                     exports_read: 0,
-                    placement: Arc::default(),
+                    placement,
                     rollouts,
                 },
             );
             (number, resource_tag)
         });
+        self.offer(read_rollouts);
         CodexExportTag {
             number,
             kind: CodexTagKind::Service,
@@ -349,15 +360,15 @@ impl CodexExports {
     ) {
         let launch = self.with_live(|launches| {
             launches.newest_of(service_id).map(|launch| {
-                let settled = CodexExportItem::Settled {
+                let read_rollouts = CodexExportItem::ReadRollouts {
                     service: Weak::clone(&launch.service),
                     launch: Arc::downgrade(&launch.placement),
                     rollouts: launch.rollouts.clone(),
                 };
-                (Arc::clone(&launch.tracker), settled)
+                (Arc::clone(&launch.tracker), read_rollouts)
             })
         });
-        let Some((tracker, settled)) = launch else {
+        let Some((tracker, read_rollouts)) = launch else {
             return;
         };
         if let Err(error) = tracker.turn_settled(made_request, started_at) {
@@ -368,23 +379,10 @@ impl CodexExports {
             );
         }
         // While the status reads stopped, the launch's rollout files hold the turn's requests.
-        if made_request {
-            self.offer(settled);
+        let is_stopped = tracker.status().borrow().status == Some(ExportStatus::Stopped);
+        if made_request && is_stopped {
+            self.offer(read_rollouts);
         }
-    }
-
-    /// The rollout files `service_id`'s newest launch's fallback cannot read; `None` for a service
-    /// with no exporting launch.
-    #[expect(dead_code, reason = "the export status line reads it")]
-    pub(crate) fn unreadable_rollouts(
-        &self,
-        service_id: CodexServiceId,
-    ) -> Option<watch::Receiver<Vec<PathBuf>>> {
-        self.with_live(|launches| {
-            launches
-                .newest_of(service_id)
-                .map(|launch| launch.rollouts.unreadable.subscribe())
-        })
     }
 
     /// Whether `service_id`'s service has an exporting launch, whose responses the session's
@@ -552,12 +550,12 @@ impl CodexExports {
                 }
                 Some(launch) => {
                     launch.exports_read += 1;
-                    launch.rollouts.export_read(read_unix_time_ms());
                     CodexLaunchLookup::Read(
                         CodexLaunchRead {
                             service: Weak::clone(&launch.service),
                             placement: Arc::downgrade(&launch.placement),
                             export_number: launch.exports_read,
+                            rollouts: launch.rollouts.clone(),
                         },
                         Arc::clone(&launch.tracker),
                     )
@@ -593,11 +591,11 @@ impl CodexExports {
                 tracing::debug!("a codex launch's retry of its kept responses was not handed off");
             }
             Err(
-                TrySendError::Full(CodexExportItem::Settled { .. })
-                | TrySendError::Closed(CodexExportItem::Settled { .. }),
+                TrySendError::Full(CodexExportItem::ReadRollouts { .. })
+                | TrySendError::Closed(CodexExportItem::ReadRollouts { .. }),
             ) => {
                 // The launch's next settled request turn reads what this one wrote.
-                tracing::debug!("a codex launch's settled turn was not handed to its fallback");
+                tracing::debug!("a codex launch's read of its rollout files was not handed off");
             }
         }
     }

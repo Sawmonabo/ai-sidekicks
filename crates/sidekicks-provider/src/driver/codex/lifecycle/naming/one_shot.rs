@@ -1,7 +1,7 @@
 //! The one-shot naming pass: one ephemeral `codex exec` of the account's home in an empty folder
 //! of its own, locked down as the title conversation is, its answer read from a file and its
-//! spend filed as the session's own: each response its export to the daemon stated, or, with no
-//! export, its printed turn's counts.
+//! spend filed as the session's own: each response its export to the daemon stated, or, where it
+//! exported none, its printed turn's counts.
 
 use std::sync::Arc;
 
@@ -34,11 +34,11 @@ const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 // title conversation's config with each MCP server the home lists disabled, its answer held to the
 // title's schema, all within `deadline`; its spend filed through `filing` before its answer is
 // read, so a pass that names nothing keeps it: each response its export stated, at the model and
-// tier its record names, whether it ended clean or failed, or with no export the counts of its
-// printed turn. `None` with nothing launched once `deadline` passed or `cancel` fired before the
-// command started; a cancel once it started lets it run to its bounded end, files its spend and
-// answers `None`, since its request may have completed. Fails as the launch cannot be composed,
-// its token minted or the servers listed.
+// tier its record names, whether it ended clean or failed, or where it exported none the counts
+// of its printed turn. `None` with nothing launched once `deadline` passed or `cancel` fired
+// before the command started; a cancel once it started lets it run to its bounded end, files its
+// spend and answers `None`, since its request may have completed. Fails as the launch cannot be
+// composed, its token minted or the servers listed.
 pub(super) async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
@@ -65,8 +65,14 @@ pub(super) async fn name_in_one_shot(
     else {
         return Ok(None);
     };
-    if let Some(export) = export {
-        for response in export.take() {
+    // A clean exit flushed every record that reached the daemon, so with none collected the
+    // printed counts are the only source and count nothing twice.
+    let exported = export
+        .as_ref()
+        .map(CodexExecExport::take)
+        .unwrap_or_default();
+    if !exported.is_empty() {
+        for response in exported {
             filing.file(response.meter(), service, folder.path()).await;
         }
     } else if let Ok(printed) = &ran {
@@ -115,7 +121,7 @@ struct TitleExec {
     model: Option<String>,
     /// What the command printed, or why it failed.
     ran: Result<String, CodexCommandError>,
-    /// Its export to the daemon, `None` for a pass counted from what it prints.
+    /// Its export to the daemon, `None` for a pass that exports nowhere.
     export: Option<CodexExecExport>,
 }
 

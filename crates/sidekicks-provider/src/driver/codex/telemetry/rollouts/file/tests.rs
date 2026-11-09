@@ -119,15 +119,12 @@ fn unix_ms(stamp: &str) -> u64 {
     super::read_unix_ms(stamp).expect("the test's stamp reads")
 }
 
-// What `request` costs on a plan, its tier its own snapshot's or, for a spawned helper, the one
-// `root_tiers` holds at the record's own time, as the session's stored rows answer it.
-fn cost(request: &CodexRolloutRequest, root_tiers: &[(&str, &str)]) -> u64 {
+// What `request` costs on a plan at its own snapshot's tier; a spawned helper's, whose root
+// thread's tier the session's stored rows answer as it is decided, at the standard rates here.
+fn cost(request: &CodexRolloutRequest) -> u64 {
     let tier = match &request.tier {
         CodexRolloutTier::Snapshot(tier) => tier.clone(),
-        CodexRolloutTier::RootThread => root_tiers
-            .iter()
-            .rfind(|(at, _tier)| unix_ms(at) <= request.at_ms)
-            .map(|(_at, tier)| (*tier).to_owned()),
+        CodexRolloutTier::RootThread => None,
     };
     let counts = &request.counts;
     let count = |axis: Option<u64>| axis.expect("a record carries every count");
@@ -150,10 +147,16 @@ fn cost(request: &CodexRolloutRequest, root_tiers: &[(&str, &str)]) -> u64 {
 // nothing else: 6,000 µ$ a request at `gpt-6.1-sol` priority, 3,000 at the standard rates.
 // Killed by pricing a copied record (the parent's 7,000 tokens), by no dedupe by `response_id` (a
 // third request), by pricing from a running total, by the last `turn_context` or the last
-// snapshot of any owner (the parent's lines between), by a spawned helper's own snapshot instead
-// of its root thread's tier, and by reading the root's tier at the helper's start.
+// snapshot of any owner (the parent's lines between), and by a spawned helper's own snapshot
+// taken in place of its root thread's tier.
 #[rstest]
-#[case::copied_history_skipped(false, "priority", Vec::new(), &[], 12_000)]
+#[case::copied_history_skipped(
+    false,
+    "priority",
+    Vec::new(),
+    CodexRolloutTier::Snapshot(Some("priority".to_owned())),
+    12_000
+)]
 #[case::another_owners_lines_between(
     false,
     "priority",
@@ -161,28 +164,21 @@ fn cost(request: &CodexRolloutRequest, root_tiers: &[(&str, &str)]) -> u64 {
         turn_context("2026-11-09T09:59:03.000Z", PARENT_TURN, "gpt-5.3-codex"),
         settings("2026-11-09T09:59:03.000Z", PARENT, "default"),
     ],
-    &[],
+    CodexRolloutTier::Snapshot(Some("priority".to_owned())),
     12_000
 )]
 #[case::spawned_helper_at_the_root_tier(
     true,
-    "default",
+    "priority",
     Vec::new(),
-    &[("2026-11-09T09:00:00.000Z", "priority")],
-    12_000
-)]
-#[case::root_tier_changed_between_records(
-    true,
-    "default",
-    Vec::new(),
-    &[("2026-11-09T09:00:00.000Z", "default"), ("2026-11-09T10:00:30.000Z", "priority")],
-    9_000
+    CodexRolloutTier::RootThread,
+    6_000
 )]
 fn a_child_rollout_prices_its_own_records_once(
     #[case] is_spawned: bool,
     #[case] own_tier: &str,
     #[case] between: Vec<String>,
-    #[case] root_tiers: &[(&str, &str)],
+    #[case] tier: CodexRolloutTier,
     #[case] total_micros: u64,
 ) {
     let stamps = ["2026-11-09T10:00:10.000Z", "2026-11-09T10:00:50.000Z"];
@@ -204,10 +200,8 @@ fn a_child_rollout_prices_its_own_records_once(
             .collect::<Vec<_>>(),
         stamps.map(unix_ms)
     );
-    let total: u64 = requests
-        .iter()
-        .map(|request| cost(request, root_tiers))
-        .sum();
+    assert!(requests.iter().all(|request| request.tier == tier));
+    let total: u64 = requests.iter().map(cost).sum();
     assert_eq!(total, total_micros);
 }
 

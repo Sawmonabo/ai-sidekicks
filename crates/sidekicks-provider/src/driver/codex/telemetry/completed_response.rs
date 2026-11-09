@@ -1,6 +1,7 @@
 //! A completed response, as one resource's records in Codex's log export state it.
 
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs};
+use serde_json::Map;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -19,7 +20,7 @@ pub(crate) mod tests;
 pub(crate) const SSE_EVENT_NAME: &str = "codex.sse_event";
 
 /// The name a refusal gives the export it read.
-pub(crate) const CODEX_EXPORTER: &str = "Codex";
+pub(crate) const CODEX_EXPORT: &str = "Codex's export";
 
 /// The event kind of a completed response.
 const RESPONSE_COMPLETED_KIND: &str = "response.completed";
@@ -109,8 +110,9 @@ pub(crate) fn read_codex_completed_responses(
                 refusal.report(
                     DESCRIPTOR.provider_id(),
                     provider_account_id,
-                    CODEX_EXPORTER,
+                    CODEX_EXPORT,
                     SSE_EVENT_NAME,
+                    Map::new(),
                 );
                 None
             }

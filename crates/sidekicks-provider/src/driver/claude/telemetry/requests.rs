@@ -3,7 +3,9 @@
 //! it is let go; one with only its span is a helper request the figure leaves out, priced once
 //! its turn's `result` and two export intervals after its arrival have passed. At the process's
 //! end every request is decided at once: a record no `result` followed is priced, unless a
-//! message its stream showed after the last `result` is its twin, and a lone span is priced.
+//! message its stream showed after the last `result` is its twin, and a lone span is priced. A
+//! record carries no message id, so its twin is the message on its model with its input and cache
+//! counts, which a message states whole in its first frame and never grows.
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
@@ -18,13 +20,21 @@ use crate::driver::claude::telemetry::records::{
 use crate::pricing::export_status::INTERVALS_WAITED;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// How many requests one process holds undecided; past it the requests of the turns already
+/// How many requests a session's process holds undecided; past it the requests of the turns already
 /// closed are decided at once, else the oldest is dropped unpriced.
 pub(crate) const OPEN_REQUESTS_KEPT: usize = 10_000;
 
 // How many messages the stream showed since the last `result` are kept as twins of records no
 // `result` states; past it the oldest goes, and its record is priced at the process's end.
 const STREAMED_KEPT: usize = 256;
+
+// One message the stream showed: its id, where its frames named one, its model, and its input,
+// cache-read and cache-write counts summed over its frames.
+struct StreamedMessage {
+    message_id: Option<String>,
+    model_id: ModelId,
+    counts: [u64; 3],
+}
 
 // How many interactions' sequences are kept for the cross-check.
 const INTERACTIONS_KEPT: usize = 64;
@@ -79,11 +89,12 @@ struct StatedResult {
 /// showed since its last `result`, and the region its last message named.
 pub(crate) struct ClaudeProcessRequests {
     export_interval: Duration,
+    open_kept: usize,
     open: HashMap<String, OpenRequest>,
     next_order: u64,
     results: VecDeque<StatedResult>,
     results_stated: u64,
-    streamed: VecDeque<(ModelId, [u64; 4])>,
+    streamed: VecDeque<StreamedMessage>,
     region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     interactions: VecDeque<ClaudeInteraction>,
     made_request_since: Option<Instant>,
@@ -91,10 +102,12 @@ pub(crate) struct ClaudeProcessRequests {
 }
 
 impl ClaudeProcessRequests {
-    /// The requests of a process exporting every `export_interval`.
-    pub(crate) fn new(export_interval: Duration) -> Self {
+    /// The requests of a process exporting every `export_interval`, holding at most `open_kept`
+    /// undecided.
+    pub(crate) fn new(export_interval: Duration, open_kept: usize) -> Self {
         Self {
             export_interval,
+            open_kept,
             open: HashMap::new(),
             next_order: 0,
             results: VecDeque::new(),
@@ -107,13 +120,15 @@ impl ClaudeProcessRequests {
         }
     }
 
-    /// The process's stream showed a message on `model_id` with `counts` in `region` at `now`:
-    /// kept as the twin of a record no `result` will state, and its region kept for the helper
-    /// requests priced from here on.
+    /// The process's stream showed a frame of the message `message_id` on `model_id` growing its
+    /// counts by `deltas` in `region` at `now`: the message is kept, its frames summed, as the
+    /// twin of a record no `result` will state, and its region kept for the helper requests
+    /// priced from here on.
     pub(crate) fn streamed(
         &mut self,
+        message_id: Option<&str>,
         model_id: Option<&ModelId>,
-        counts: &UsageAxisCounts,
+        deltas: &UsageAxisCounts,
         region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
         now: Instant,
     ) {
@@ -121,13 +136,30 @@ impl ClaudeProcessRequests {
         if self.made_request_since.is_none() {
             self.made_request_since = Some(now);
         }
-        if let Some(model_id) = model_id {
-            if self.streamed.len() >= STREAMED_KEPT {
-                self.streamed.pop_front();
-            }
+        let Some(model_id) = model_id else {
+            return;
+        };
+        let deltas = twin_counts(deltas);
+        let known = message_id.and_then(|message_id| {
             self.streamed
-                .push_back((model_id.clone(), twin_counts(counts)));
+                .iter_mut()
+                .rev()
+                .find(|message| message.message_id.as_deref() == Some(message_id))
+        });
+        if let Some(message) = known {
+            for (count, delta) in message.counts.iter_mut().zip(deltas) {
+                *count = count.saturating_add(delta);
+            }
+            return;
         }
+        if self.streamed.len() >= STREAMED_KEPT {
+            self.streamed.pop_front();
+        }
+        self.streamed.push_back(StreamedMessage {
+            message_id: message_id.map(str::to_owned),
+            model_id: model_id.clone(),
+            counts: deltas,
+        });
     }
 
     /// The process wrote a lead `result` at `at_ms` by the wall clock and `at` by the runtime's,
@@ -246,7 +278,7 @@ impl ClaudeProcessRequests {
     // closed are decided at once, logged once per process; with none closed, the oldest is
     // dropped unpriced and logged with its request id.
     fn make_room(&mut self) -> Vec<ClaudeHelperRequest> {
-        if self.open.len() < OPEN_REQUESTS_KEPT {
+        if self.open.len() < self.open_kept {
             return Vec::new();
         }
         let results = &self.results;
@@ -325,13 +357,15 @@ impl ClaudeProcessRequests {
         }
     }
 
-    // Takes the oldest message the stream showed on `model_id` with `counts`; answers whether one
-    // was there.
+    // Takes the oldest message the stream showed on `model_id` with the input and cache counts of
+    // `counts`; answers whether one was there.
     fn claim_twin(&mut self, model_id: &ModelId, counts: &UsageAxisCounts) -> bool {
         let counts = twin_counts(counts);
-        let Some(index) = self.streamed.iter().position(|(streamed_model, streamed)| {
-            streamed_model == model_id && *streamed == counts
-        }) else {
+        let Some(index) = self
+            .streamed
+            .iter()
+            .position(|message| message.model_id == *model_id && message.counts == counts)
+        else {
             return false;
         };
         self.streamed.remove(index);
@@ -361,13 +395,8 @@ fn stating_result(results: &VecDeque<StatedResult>, ended_at_ms: u64) -> Option<
     results.iter().find(|result| result.at_ms >= ended_at_ms)
 }
 
-// The four counts a message and its record share, an absent count reading as zero.
-fn twin_counts(counts: &UsageAxisCounts) -> [u64; 4] {
-    [
-        counts.input,
-        counts.cached_input,
-        counts.cache_write_input,
-        counts.output,
-    ]
-    .map(|count| count.unwrap_or(0))
+// The counts a message and its record share and its later frames never grow: input, cache reads
+// and cache writes, an absent count reading as zero.
+fn twin_counts(counts: &UsageAxisCounts) -> [u64; 3] {
+    [counts.input, counts.cached_input, counts.cache_write_input].map(|count| count.unwrap_or(0))
 }

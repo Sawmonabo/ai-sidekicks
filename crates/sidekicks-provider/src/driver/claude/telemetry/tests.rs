@@ -8,29 +8,36 @@ use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::watch;
 
+use super::records::{ClaudeExportedRequest, ClaudeRequestSource};
+use super::requests::{ClaudeHelperRequest, ClaudeProcessRequests};
 use super::{CLAUDE_EXPORT_INTERVAL, ClaudeExportRegistration, ClaudeExports};
 use crate::bounded_poll::poll_until;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::pricing::ClaudeRequestPricer;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::scripted::daemon_services::RecordingUsage;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::ports::DriverPorts;
 use crate::port::usage_sink::MeteredUsageOwner;
 use crate::pricing::live::LivePricing;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::records::read_unix_time_ms;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader as _};
-use crate::usage_delta_accountant::{UsageAxisCounts, UsageRequestFacts, meter_from_zero};
+use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::usage_delta_accountant::{
+    MeteredUsageDelta, UsageAxisCounts, UsageRequestFacts, meter_from_zero,
+};
 
 const PROVIDER_SESSION: &str = "claude-session-a";
 const OTHER_PROVIDER_SESSION: &str = "claude-session-b";
@@ -48,12 +55,14 @@ const IDENTITY: [(&str, &str); 4] = [
     ("organization.id", "identity-organization-value"),
 ];
 
-// One driver's register over a recorded usage sink, its scheduler and its routes.
+// One driver's register over a recorded usage sink, its scheduler, its routes and the account its
+// processes run on.
 struct Register {
     scheduler: Arc<Scheduler>,
     usage: Arc<RecordingUsage>,
     exports: Arc<ClaudeExports>,
     routes: Arc<ClaudeRunRoutes>,
+    account: ClaudeProcessAccount,
 }
 
 impl Register {
@@ -84,6 +93,7 @@ impl Register {
             usage,
             exports,
             routes: Arc::new(ClaudeRunRoutes::default()),
+            account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
         }
     }
 
@@ -99,6 +109,7 @@ impl Register {
             session_id,
             provider_session.to_owned(),
             Arc::clone(&self.routes),
+            self.account.clone(),
         )
     }
 
@@ -108,6 +119,18 @@ impl Register {
             .read_telemetry_export(TelemetryHolderId::new(holder), export)
             .await;
         tokio::task::yield_now().await;
+    }
+
+    // The request keys of every row metered so far, with the account each is charged to.
+    fn metered_accounts(&self) -> Vec<(String, Option<ProviderAccountId>)> {
+        self.usage
+            .metered()
+            .into_iter()
+            .map(|metered| {
+                let key = metered.delta.request.request_key.expect("a request key");
+                (key.as_str().to_owned(), metered.provider_account_id)
+            })
+            .collect()
     }
 
     // The request keys of every row metered so far, with their binding and owner.
@@ -249,8 +272,7 @@ fn wall_after_step() -> u64 {
 // record and span in run 1's turn: after the result, nothing until two intervals past the
 // export, then the lone span once on run 2's binding, and the recorded one never, the process's
 // end included. Killed by deciding at the result or before two intervals, by pricing a request
-// its record puts inside Claude Code's figure, by joining on the sequence, and by pricing a
-// request twice.
+// its record puts inside Claude Code's figure, and by pricing a request twice.
 #[tokio::test(start_paused = true)]
 async fn a_lone_span_is_priced_once_after_two_intervals_on_the_run_live_at_its_start() {
     let register = Register::new();
@@ -312,12 +334,30 @@ async fn a_lone_span_is_priced_once_after_two_intervals_on_the_run_live_at_its_s
     );
 }
 
-// Result 1 states R1; R2's record and span come after it and the process exits with no second
-// result: R2 is priced once at the end and R1 never. Killed by deciding only at a result (R2
-// never priced) and by pricing every request (R1 priced too).
+// A frame of the message `message_id` on Claude Code's stream growing its counts by `deltas`.
+fn streamed_frame(message_id: &str, deltas: UsageAxisCounts) -> MeteredUsageDelta {
+    meter_from_zero(
+        DESCRIPTOR.provider_id(),
+        PROVIDER_SESSION.to_owned(),
+        deltas,
+        UsageRequestFacts {
+            model_id: Some(FreeFormText::new(MODEL.to_owned()).expect("a model id")),
+            request_key: BoundedText::new(message_id.to_owned()),
+            ..UsageRequestFacts::default()
+        },
+    )
+}
+
+// Result 1 states R1; R2's and R3's records and spans come after it, the stream shows R2's
+// message in two frames, 100 in and 5 out then 15 out more, and the process exits with no second
+// result: R3 is priced once at the end, R2 never, as the stream's own row prices it, and R1
+// never. Killed by deciding only at a result (R3 never priced), by pricing every request (R1
+// priced too), by finding no twin, and by matching a record on the output one frame states (R2
+// priced twice).
 #[tokio::test(start_paused = true)]
 async fn a_call_after_the_last_result_is_priced_once_at_the_process_end() {
     let register = Register::new();
+    let holder = TelemetryHolderId::new(1);
     let session_id = session();
     let _registration = register.register(1, session_id, PROVIDER_SESSION);
     register
@@ -326,8 +366,26 @@ async fn a_call_after_the_last_result_is_priced_once_at_the_process_end() {
         .expect("the turn is free");
     let first_at = wall_after_step();
     std::thread::sleep(WALL_STEP);
-    register.exports.result_stated(TelemetryHolderId::new(1));
+    register.exports.result_stated(holder);
     let second_at = wall_after_step();
+    let third_at = wall_after_step();
+    let first_frame = UsageAxisCounts {
+        input: Some(100),
+        cached_input: Some(0),
+        cache_write_input: Some(0),
+        output: Some(5),
+        ..UsageAxisCounts::default()
+    };
+    let second_frame = UsageAxisCounts {
+        output: Some(15),
+        ..UsageAxisCounts::default()
+    };
+    register
+        .exports
+        .streamed(holder, &streamed_frame("msg-2", first_frame));
+    register
+        .exports
+        .streamed(holder, &streamed_frame("msg-2", second_frame));
 
     register
         .export(
@@ -335,6 +393,7 @@ async fn a_call_after_the_last_result_is_priced_once_at_the_process_end() {
             logs(vec![
                 api_record("req-1", first_at),
                 api_record("req-2", second_at),
+                api_record("req-3", third_at),
             ]),
         )
         .await;
@@ -344,25 +403,182 @@ async fn a_call_after_the_last_result_is_priced_once_at_the_process_end() {
             traces(vec![
                 llm_span(PROVIDER_SESSION, "req-1", first_at, 1),
                 llm_span(PROVIDER_SESSION, "req-2", second_at, 1),
+                llm_span(PROVIDER_SESSION, "req-3", third_at, 1),
             ]),
         )
         .await;
     tokio::time::advance(CLAUDE_EXPORT_INTERVAL * 3).await;
     register.export(1, logs(Vec::new())).await;
-    assert!(register.metered().is_empty(), "no result states R2");
+    assert!(register.metered().is_empty(), "no result states R2 or R3");
+
+    register.exports.process_ended(holder, true).await;
+    assert_eq!(
+        register.metered(),
+        [(
+            "req-3".to_owned(),
+            binding("binding-1"),
+            MeteredUsageOwner::Run
+        )]
+    );
+}
+
+// A lone span that ended before the process moved to another account is charged to the account
+// it ran on, though it is filed only at the process's end, after the move; a request read after
+// the move is the new account's. Killed by charging at filing time (both the new account's) and
+// by charging no account.
+#[tokio::test]
+async fn an_exported_request_is_charged_to_the_account_its_process_ran_on_as_it_ended() {
+    let register = Register::new();
+    let session_id = session();
+    let _registration = register.register(1, session_id, PROVIDER_SESSION);
+    register
+        .routes
+        .hold_turn(run(), session_id, binding("binding-1"))
+        .expect("the turn is free");
+    let before_at = wall_after_step();
+    std::thread::sleep(WALL_STEP);
+    let moved_to = ProviderAccountId::new("account-2".to_owned()).expect("an account id");
+    register.account.move_to(moved_to.clone());
+    let after_at = wall_after_step();
+    register
+        .export(
+            1,
+            traces(vec![
+                llm_span(PROVIDER_SESSION, "req-before", before_at, 1),
+                llm_span(PROVIDER_SESSION, "req-after", after_at, 1),
+            ]),
+        )
+        .await;
 
     register
         .exports
         .process_ended(TelemetryHolderId::new(1), true)
         .await;
+
+    assert_eq!(
+        register.metered_accounts(),
+        [
+            ("req-before".to_owned(), Some(test_provider_account_id())),
+            ("req-after".to_owned(), Some(moved_to)),
+        ]
+    );
+}
+
+// A process whose session's task never ended it is decided as its registration drops: its lone
+// span is filed then, with no later process of its session registered. Killed by deciding only
+// at a later registration or at the process's end.
+#[tokio::test]
+async fn a_reaped_process_s_requests_are_decided_as_its_registration_drops() {
+    let register = Register::new();
+    let session_id = session();
+    let registration = register.register(1, session_id, PROVIDER_SESSION);
+    register
+        .routes
+        .hold_turn(run(), session_id, binding("binding-1"))
+        .expect("the turn is free");
+    let at_ms = wall_after_step();
+    register
+        .export(
+            1,
+            traces(vec![llm_span(PROVIDER_SESSION, "req-reaped", at_ms, 1)]),
+        )
+        .await;
+    assert!(register.metered().is_empty(), "nothing is decided at once");
+
+    drop(registration);
+
+    poll_until(|| register.metered().len(), |rows| *rows >= 1).await;
     assert_eq!(
         register.metered(),
         [(
-            "req-2".to_owned(),
+            "req-reaped".to_owned(),
             binding("binding-1"),
             MeteredUsageOwner::Run
         )]
     );
+}
+
+// A request of the process's own, `source`, `request_id`, ended at `ended_at_ms`.
+fn held_request(
+    source: ClaudeRequestSource,
+    request_id: &str,
+    ended_at_ms: u64,
+) -> ClaudeExportedRequest {
+    ClaudeExportedRequest {
+        source,
+        session_id: PROVIDER_SESSION.to_owned(),
+        request_id: request_id.to_owned(),
+        model_id: FreeFormText::new(MODEL.to_owned()).expect("a model id"),
+        speed: None,
+        agent_id: None,
+        is_standalone: false,
+        counts: UsageAxisCounts {
+            input: Some(10),
+            output: Some(2),
+            ..UsageAxisCounts::default()
+        },
+        cache_write_extended_tokens: None,
+        started_at_ms: ended_at_ms,
+        ended_at_ms,
+        trace_id: vec![1; 16],
+    }
+}
+
+// A full hold of two decides its closed turns' requests at once, the lone span priced and the
+// record let go; full with no turn closed, it drops its oldest unpriced. Killed by a hold that
+// grows past its cap, by deciding nothing at a full hold, by dropping where a turn is closed,
+// and by dropping any but the oldest.
+#[test]
+fn a_full_hold_decides_its_closed_turns_else_drops_its_oldest() {
+    let ids = |decided: Vec<ClaudeHelperRequest>| -> Vec<String> {
+        decided
+            .into_iter()
+            .map(|helper| helper.request.request_id)
+            .collect()
+    };
+    let now = tokio::time::Instant::now();
+    let mut requests = ClaudeProcessRequests::new(CLAUDE_EXPORT_INTERVAL, 2);
+    requests.result_stated(1_000, now);
+    assert!(
+        requests
+            .take(
+                held_request(ClaudeRequestSource::Span, "closed-span", 500),
+                now
+            )
+            .is_empty()
+    );
+    assert!(
+        requests
+            .take(
+                held_request(ClaudeRequestSource::Record, "closed-record", 600),
+                now
+            )
+            .is_empty()
+    );
+
+    let decided = requests.take(
+        held_request(ClaudeRequestSource::Span, "open-1", 2_000),
+        now,
+    );
+    assert_eq!(ids(decided), ["closed-span"]);
+    assert!(
+        requests
+            .take(
+                held_request(ClaudeRequestSource::Span, "open-2", 2_100),
+                now
+            )
+            .is_empty()
+    );
+    assert!(
+        requests
+            .take(
+                held_request(ClaudeRequestSource::Span, "open-3", 2_200),
+                now
+            )
+            .is_empty()
+    );
+
+    assert_eq!(ids(requests.take_all()), ["open-2", "open-3"]);
 }
 
 // A priced request's line names its request but carries none of the four identity attributes,

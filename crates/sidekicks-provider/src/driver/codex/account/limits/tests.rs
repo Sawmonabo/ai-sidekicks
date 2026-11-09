@@ -131,6 +131,17 @@ impl UsageSink for RecordedWindows {
     ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
         async { Ok(None) }.boxed()
     }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
+    }
 }
 
 /// A registered Codex account whose home's own service the test scripts, and the legs over a

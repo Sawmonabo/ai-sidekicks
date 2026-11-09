@@ -5,6 +5,7 @@
 use opentelemetry_proto::tonic::common::v1::KeyValue;
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs};
 use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, Span};
+use serde_json::Map;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
@@ -15,7 +16,7 @@ use crate::pricing::receiver::records::{RecordRefusal, is_text, read_count, read
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The name a refusal gives the export it read.
-pub(crate) const CLAUDE_EXPORTER: &str = "Claude Code";
+pub(crate) const CLAUDE_EXPORT: &str = "Claude Code's export";
 
 /// The wire type of a request's log record.
 const API_REQUEST_WIRE_TYPE: &str = "claude_code.api_request";
@@ -193,8 +194,9 @@ fn report(
     refusal.report(
         DESCRIPTOR.provider_id(),
         provider_account_id,
-        CLAUDE_EXPORTER,
+        CLAUDE_EXPORT,
         wire_type,
+        Map::new(),
     );
 }
 

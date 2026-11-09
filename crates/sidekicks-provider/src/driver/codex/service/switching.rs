@@ -42,6 +42,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::oneshot;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -65,7 +66,6 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountReader, read_current_account};
-use crate::pricing::receiver::records::read_unix_time_ms;
 
 /// A session a switch names, moved at the switch's acknowledgment with its lead's binding, and
 /// where the switch waits on that move.

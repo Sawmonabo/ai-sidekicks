@@ -1,7 +1,9 @@
 //! Whether one provider process's telemetry exports are arriving: each export marks them arriving,
 //! and a turn that made a model request with no export from its start to two export intervals
-//! after its settle marks them stopped. One tracker per process, dropped with it.
+//! after its settle marks them stopped. The status published beside it names the files its driver
+//! reads in the exports' place and cannot. One tracker per process, dropped with it.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,13 +27,23 @@ pub(crate) enum ExportStatus {
     Stopped,
 }
 
+/// What one process's export status publishes: whether its exports arrive, and the files its
+/// driver reads in their place but cannot, which the export status line names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PublishedExportStatus {
+    /// `None` until an export arrives or a request turn's check finds none.
+    pub(crate) status: Option<ExportStatus>,
+    /// The files read in the exports' place that cannot be read, by path.
+    pub(crate) unreadable_files: Vec<PathBuf>,
+}
+
 /// One provider process's export status, fed by its driver's telemetry: an export arriving, and a
 /// turn settling. Holds at most one scheduled check, canceled by an export or by the drop.
 pub(crate) struct ExportStatusTracker {
     scheduler: Arc<Scheduler>,
     export_interval: Duration,
     state: Arc<Mutex<TrackerState>>,
-    status: watch::Receiver<Option<ExportStatus>>,
+    status: watch::Receiver<PublishedExportStatus>,
 }
 
 // What the tracker and its scheduled check share.
@@ -39,7 +51,7 @@ struct TrackerState {
     last_export_at: Option<Instant>,
     check: Option<PendingCheck>,
     next_check_id: u64,
-    status: watch::Sender<Option<ExportStatus>>,
+    status: watch::Sender<PublishedExportStatus>,
 }
 
 // The check armed for a request turn that settled unexported, its id telling a run of a check an
@@ -53,7 +65,7 @@ impl ExportStatusTracker {
     /// A tracker for a process exporting every `export_interval`, its checks run on `scheduler`;
     /// its status reads `None` until an export arrives or a check finds none.
     pub(crate) fn new(scheduler: Arc<Scheduler>, export_interval: Duration) -> Self {
-        let (sender, status) = watch::channel(None);
+        let (sender, status) = watch::channel(PublishedExportStatus::default());
         Self {
             scheduler,
             export_interval,
@@ -75,9 +87,9 @@ impl ExportStatusTracker {
         if let Some(check) = state.check.take() {
             check.job.cancel();
         }
-        state.status.send_if_modified(|status| {
-            let was_arriving = *status == Some(ExportStatus::Arriving);
-            *status = Some(ExportStatus::Arriving);
+        state.status.send_if_modified(|published| {
+            let was_arriving = published.status == Some(ExportStatus::Arriving);
+            published.status = Some(ExportStatus::Arriving);
             !was_arriving
         });
     }
@@ -115,9 +127,9 @@ impl ExportStatusTracker {
                         let mut state = lock(&shared);
                         if state.check.as_ref().is_some_and(|check| check.id == id) {
                             state.check = None;
-                            state.status.send_if_modified(|status| {
-                                let was_stopped = *status == Some(ExportStatus::Stopped);
-                                *status = Some(ExportStatus::Stopped);
+                            state.status.send_if_modified(|published| {
+                                let was_stopped = published.status == Some(ExportStatus::Stopped);
+                                published.status = Some(ExportStatus::Stopped);
                                 !was_stopped
                             });
                         }
@@ -131,9 +143,20 @@ impl ExportStatusTracker {
         Ok(())
     }
 
-    /// The process's export status, `None` until an export arrives or a check finds none.
-    pub(crate) fn status(&self) -> watch::Receiver<Option<ExportStatus>> {
+    /// The process's published export status.
+    pub(crate) fn status(&self) -> watch::Receiver<PublishedExportStatus> {
         self.status.clone()
+    }
+
+    /// Publishes `files`, by path, as the files read in the exports' place that cannot be read.
+    pub(crate) fn publish_unreadable_files(&self, files: Vec<PathBuf>) {
+        lock(&self.state).status.send_if_modified(|published| {
+            let is_changed = published.unreadable_files != files;
+            if is_changed {
+                published.unreadable_files = files;
+            }
+            is_changed
+        });
     }
 }
 
@@ -183,19 +206,25 @@ mod tests {
             .turn_settled(true, settled_at)
             .expect("the scheduler runs");
         sleep((INTERVAL * 2).saturating_sub(Duration::from_millis(1))).await;
-        assert_eq!(*status.borrow(), None);
+        assert_eq!(status.borrow().status, None);
         status.changed().await.expect("the tracker is held");
-        assert_eq!(*status.borrow_and_update(), Some(ExportStatus::Stopped));
+        assert_eq!(
+            status.borrow_and_update().status,
+            Some(ExportStatus::Stopped)
+        );
         assert!(settled_at.elapsed() >= INTERVAL * 2);
 
         tracker.export_arrived();
-        assert_eq!(*status.borrow_and_update(), Some(ExportStatus::Arriving));
+        assert_eq!(
+            status.borrow_and_update().status,
+            Some(ExportStatus::Arriving)
+        );
 
         tracker
             .turn_settled(false, Instant::now())
             .expect("the scheduler runs");
         sleep(INTERVAL * 3).await;
-        assert_eq!(*status.borrow(), Some(ExportStatus::Arriving));
+        assert_eq!(status.borrow().status, Some(ExportStatus::Arriving));
     }
 
     // An export the turn's last record left before the turn settled counts for that turn. Killed by
@@ -214,6 +243,6 @@ mod tests {
             .expect("the scheduler runs");
         sleep(INTERVAL * 3).await;
 
-        assert_eq!(*status.borrow(), Some(ExportStatus::Arriving));
+        assert_eq!(status.borrow().status, Some(ExportStatus::Arriving));
     }
 }

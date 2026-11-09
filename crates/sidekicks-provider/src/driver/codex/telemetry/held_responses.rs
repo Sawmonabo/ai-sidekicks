@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::BoundedText;
 use tokio::time::Instant;
 
@@ -29,14 +30,18 @@ pub(crate) struct CodexExportedResponse {
 }
 
 /// What a response read from its rollout file carries beside its counts: the key its rows are
-/// stored under, which an account holding it already passes over, and whether its tier is its
-/// root thread's, read from the session's stored rows as it is decided.
+/// stored under, which an account holding it already passes over, whether its tier is its root
+/// thread's, and the run it is filed on, both read from the session's stored rows at its record's
+/// time as it is decided.
 #[derive(Clone)]
 pub(crate) struct CodexRolloutFacts {
     /// Codex's id of the response.
     pub(crate) request_key: BoundedText<1, EVENT_FIELD_MAX_LEN>,
     /// Whether a spawned helper sent it, at its root thread's tier.
     pub(crate) is_root_tier: bool,
+    /// The run that held the session's turn at its record's time; `None` until it is decided, and
+    /// where no run did, so it is the session's own.
+    pub(crate) filing_run: Option<RunId>,
 }
 
 /// Where the drain placed a response on a thread no session streams.

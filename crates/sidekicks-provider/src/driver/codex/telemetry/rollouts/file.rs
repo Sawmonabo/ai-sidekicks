@@ -3,17 +3,18 @@
 //! of the `turn_context` carrying the record's turn and the tier of the file's own last settings
 //! snapshot before it, a spawned helper's at its root thread's tier; running totals and
 //! `token_count` lines are never read. A turn that settled with no record names the file as one
-//! that cannot be read until the file yields a record.
+//! that cannot be read until the file yields a record. Only the payloads of the four kinds read are
+//! parsed, and only a usage record that does not read is counted as refused.
 
 use std::collections::VecDeque;
 
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
-};
+use crate::pricing::receiver::records::RecordRefusal;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 #[cfg(test)]
@@ -21,6 +22,9 @@ mod tests;
 
 /// The record kind a completed response's usage is written under.
 const TOKEN_USAGE_RECORD_KIND: &str = "token_usage_record";
+
+/// What a refused rollout record was read from, completing "a record in".
+const ROLLOUT_FILE: &str = "a Codex rollout file";
 
 /// How many turns' models, and how many turns that wrote a record, one file remembers; the file's
 /// records name its newest turns, so the oldest is forgotten past it.
@@ -95,13 +99,14 @@ pub(crate) struct CodexRolloutFile {
     is_unreadable: bool,
 }
 
-// The members of a rollout line the reader reads: when it was written, its kind and what it holds.
+// The members of a rollout line the reader reads: when it was written, its kind and what it
+// holds, left unparsed until its kind is one the reader reads.
 #[derive(Deserialize)]
 struct RolloutLine {
     timestamp: Option<String>,
     #[serde(rename = "type")]
     kind: Option<String>,
-    payload: Option<Value>,
+    payload: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -178,32 +183,30 @@ impl CodexRolloutFile {
         line: &[u8],
         window: CodexPricedWindow,
     ) -> Option<CodexRolloutRequest> {
-        let Ok(line) = serde_json::from_slice::<RolloutLine>(line) else {
-            refuse_record(None, None, "its line is not a rollout line");
-            return None;
-        };
+        // A line cut short as Codex writes it is read whole by the next pass.
+        let line = serde_json::from_slice::<RolloutLine>(line).ok()?;
         let at_ms = line.timestamp.as_deref().and_then(read_unix_ms);
         let payload = line.payload?;
         match line.kind.as_deref()? {
             "session_meta" => {
                 if self.thread.is_none() {
-                    self.thread = read_thread(payload);
+                    self.thread = read_payload(&payload).and_then(read_thread);
                 }
                 None
             }
             "turn_context" => {
-                if let Ok(TurnContextPayload {
+                if let Some(TurnContextPayload {
                     turn_id: Some(turn_id),
                     model: Some(model),
-                }) = serde_json::from_value(payload)
+                }) = read_payload(&payload)
                 {
                     remember(&mut self.turn_models, (turn_id, model), TURNS_KEPT);
                 }
                 None
             }
-            TOKEN_USAGE_RECORD_KIND => self.read_record(payload, at_ms, window),
+            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, window),
             "event_msg" => {
-                if let Ok(event) = serde_json::from_value::<EventPayload>(payload) {
+                if let Some(event) = read_payload::<EventPayload>(&payload) {
                     self.read_event(event, at_ms, window);
                 }
                 None
@@ -215,22 +218,25 @@ impl CodexRolloutFile {
     // A record's request, where it is the file's own thread's, read once and within `window`.
     fn read_record(
         &mut self,
-        payload: Value,
+        payload: &RawValue,
         at_ms: Option<u64>,
         window: CodexPricedWindow,
     ) -> Option<CodexRolloutRequest> {
         let thread = self.thread.as_ref()?;
-        let Ok(UsageRecordPayload {
+        let Some(UsageRecordPayload {
             thread_id: Some(thread_id),
             turn_id: Some(turn_id),
             response_id: Some(response_id),
             usage: Some(usage),
-        }) = serde_json::from_value(payload)
+        }) = read_payload(payload)
         else {
             refuse_record(
-                Some(&thread.thread_id),
+                &RecordRefusal {
+                    field: "payload",
+                    reason: "it lacks its thread, turn, response or usage, or a count is bad",
+                },
+                &thread.thread_id,
                 None,
-                "it lacks its thread, turn, response or usage, or a count does not read",
             );
             return None;
         };
@@ -250,9 +256,12 @@ impl CodexRolloutFile {
         );
         let Some(at_ms) = at_ms else {
             refuse_record(
-                Some(&thread_id),
+                &RecordRefusal {
+                    field: "timestamp",
+                    reason: "its line carries no time",
+                },
+                &thread_id,
                 Some(&response_id),
-                "its line carries no time",
             );
             return None;
         };
@@ -267,9 +276,12 @@ impl CodexRolloutFile {
             .map(|(_turn, model)| model.clone())
         else {
             refuse_record(
-                Some(&thread_id),
+                &RecordRefusal {
+                    field: "turn_id",
+                    reason: "no turn context in its file names its turn",
+                },
+                &thread_id,
                 Some(&response_id),
-                "no turn context in its file names its turn",
             );
             return None;
         };
@@ -326,10 +338,14 @@ impl CodexRolloutFile {
     }
 }
 
+// `payload` read as one of the kinds the reader reads; `None` where it does not read so.
+fn read_payload<Payload: DeserializeOwned>(payload: &RawValue) -> Option<Payload> {
+    serde_json::from_str(payload.get()).ok()
+}
+
 // The thread a `session_meta` names, with the thread it came from and whether a spawned helper
 // wrote it; `None` where it names no thread.
-fn read_thread(payload: Value) -> Option<CodexRolloutThread> {
-    let meta = serde_json::from_value::<SessionMetaPayload>(payload).ok()?;
+fn read_thread(meta: SessionMetaPayload) -> Option<CodexRolloutThread> {
     let spawn = meta
         .source
         .as_ref()
@@ -349,7 +365,7 @@ fn read_thread(payload: Value) -> Option<CodexRolloutThread> {
     })
 }
 
-// A rollout line's stamp, `2026-11-09T10:00:00.000Z`, in Unix milliseconds.
+// A rollout line's stamp, `YYYY-MM-DDTHH:MM:SS.sssZ`, in Unix milliseconds.
 fn read_unix_ms(stamp: &str) -> Option<u64> {
     let timestamp = stamp.parse::<jiff::Timestamp>().ok()?;
     u64::try_from(timestamp.as_millisecond()).ok()
@@ -363,22 +379,19 @@ fn remember<T>(kept: &mut VecDeque<T>, entry: T, bound: usize) {
     kept.push_back(entry);
 }
 
-// Reports a rollout record refused, naming its thread and response where read, and `reason`,
-// which completes "because", never a count it carries.
-fn refuse_record(thread_id: Option<&str>, response_id: Option<&str>, reason: &str) {
+// Reports `refusal` of a usage record of `thread_id`, naming its response where read, never a
+// count it carries.
+fn refuse_record(refusal: &RecordRefusal, thread_id: &str, response_id: Option<&str>) {
     let mut details = Map::new();
-    if let Some(thread_id) = thread_id {
-        details.insert("threadId".to_owned(), json!(thread_id));
-    }
+    details.insert("threadId".to_owned(), json!(thread_id));
     if let Some(response_id) = response_id {
         details.insert("responseId".to_owned(), json!(response_id));
     }
-    emit_driver_diagnostic(&DriverDiagnosticRecord {
-        provider: DESCRIPTOR.provider_id(),
-        provider_account_id: None,
-        kind: DriverDiagnosticKind::TelemetryRecordRefused,
-        raw_wire_type: Some(TOKEN_USAGE_RECORD_KIND.to_owned()),
-        disposition_reason: format!("A rollout file's usage record was refused because {reason}."),
+    refusal.report(
+        DESCRIPTOR.provider_id(),
+        None,
+        ROLLOUT_FILE,
+        TOKEN_USAGE_RECORD_KIND,
         details,
-    });
+    );
 }

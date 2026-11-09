@@ -1,8 +1,5 @@
 //! What every provider's reader reads off an export's records and spans: an attribute's value as a
-//! word or a count, why a record was refused by the attribute that failed, and the wall clock the
-//! records are stamped by.
-
-use std::time::{SystemTime, UNIX_EPOCH};
+//! word or a count, and why a record was refused by the attribute that failed.
 
 use opentelemetry_proto::tonic::common::v1::KeyValue;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
@@ -16,16 +13,6 @@ use crate::driver::diagnostics::{
 };
 use crate::record_readers::is_digits;
 
-/// Now in Unix milliseconds by the wall clock, the clock providers stamp their records by; zero for
-/// a clock set before 1970.
-pub(crate) fn read_unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| u64::try_from(since.as_millis()).ok())
-        .unwrap_or(0)
-}
-
 /// Why a record or span of an export was refused, by the attribute that failed.
 pub(crate) struct RecordRefusal {
     /// The attribute's name, the one thing the report carries from the record.
@@ -36,15 +23,16 @@ pub(crate) struct RecordRefusal {
 
 impl RecordRefusal {
     /// Reports the refusal once as `provider`'s, under `provider_account_id`, for a record of
-    /// `wire_type` in the export `exporter` names, naming the attribute, never its value.
+    /// `wire_type` read from `source` (completing "a record in"), naming the attribute, never its
+    /// value, beside `details`, the ids that tell the record apart.
     pub(crate) fn report(
         &self,
         provider: ProviderId,
         provider_account_id: Option<&ProviderAccountId>,
-        exporter: &str,
+        source: &str,
         wire_type: &str,
+        mut details: Map<String, serde_json::Value>,
     ) {
-        let mut details = Map::new();
         details.insert("field".to_owned(), json!(self.field));
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider,
@@ -52,7 +40,7 @@ impl RecordRefusal {
             kind: DriverDiagnosticKind::TelemetryRecordRefused,
             raw_wire_type: Some(wire_type.to_owned()),
             disposition_reason: format!(
-                "A record in {exporter}'s export was refused whole because {}.",
+                "A record in {source} was refused whole because {}.",
                 self.reason
             ),
             details,

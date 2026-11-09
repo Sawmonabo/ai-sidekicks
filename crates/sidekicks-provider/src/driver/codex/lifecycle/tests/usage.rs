@@ -146,6 +146,17 @@ impl UsageSink for GatedUsage {
     ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>> {
         async { Ok(None) }.boxed()
     }
+
+    fn read_run_at(
+        &self,
+        _session_id: SessionId,
+        _at: sidekicks_contracts::wire::instant::WireInstant,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<sidekicks_contracts::run::id::RunId>, Box<dyn Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
+    }
 }
 
 impl RequestHeldListener for GatedUsage {

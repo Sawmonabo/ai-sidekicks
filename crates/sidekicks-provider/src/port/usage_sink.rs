@@ -174,4 +174,13 @@ pub trait UsageSink: Send + Sync {
         session_id: SessionId,
         at: WireInstant,
     ) -> BoxFuture<'_, Result<Option<String>, Box<dyn Error + Send + Sync>>>;
+
+    /// The run of `session_id`'s latest row of its own, a helper's aside, at or before `at`: the
+    /// run that held the session's turn then, which a request read later is filed on; `None`
+    /// where that row has no run or no row is stored by then. Fails when the record is unreadable.
+    fn read_run_at(
+        &self,
+        session_id: SessionId,
+        at: WireInstant,
+    ) -> BoxFuture<'_, Result<Option<RunId>, Box<dyn Error + Send + Sync>>>;
 }

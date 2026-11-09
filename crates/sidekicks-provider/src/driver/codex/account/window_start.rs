@@ -1,8 +1,8 @@
 //! Codex's smallest turn on an account: one ephemeral `codex exec` of the account's own home on
 //! Codex's small model at low effort, in an empty folder of its own, every feature, tool and MCP
 //! server off, as the title pass runs its throwaway conversation. It starts the account's closed
-//! usage windows; its spend is what its export to the daemon stated, or with no export its
-//! printed token count.
+//! usage windows; its spend is each request its export to the daemon stated, at that request's
+//! own model and tier, or, where it exported none, its printed token count.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use futures::future::BoxFuture;
 use serde_json::Value;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::DESCRIPTOR;
@@ -29,9 +29,8 @@ use crate::driver::codex::service::command::run_codex_command;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::exec_export::{CodexExecExport, compose_exec_telemetry};
-use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer};
+use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer, WindowTurnSpend};
 use crate::driver::contract::error::DriverError;
 use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
@@ -65,11 +64,11 @@ impl ProviderWindowTurnLegs for CodexAccountLegs {
 }
 
 // Runs the turn in `folders`' Codex home and no other, and answers its spend, or the refusal of a
-// turn Codex reported failed. With its export to the daemon, any response it exported is its
-// spend whatever its exit, and with none exported its printed end decides, counting no printed
-// token. Fails as the program cannot be resolved, the servers cannot be listed, the folder cannot
-// be made, the token cannot be minted, the command fails having exported nothing, or it reports
-// no turn's end.
+// turn Codex reported failed. Any response its export to the daemon stated is its spend whatever
+// its exit; with none stated, its printed end decides, since a clean exit flushed every record
+// that reached the daemon and nothing it prints is counted twice. Fails as the program cannot be
+// resolved, the servers cannot be listed, the folder cannot be made, the token cannot be minted,
+// the command fails having exported nothing, or it reports no turn's end.
 async fn start_codex_window(
     legs: &CodexAccountLegs,
     provider_account_id: ProviderAccountId,
@@ -118,26 +117,32 @@ async fn start_codex_window(
     launch.working_folder = folder.path().to_owned();
     let export = telemetry.launched(&mut launch.environment);
     let ran = run_codex_command(&dependencies.spawner, launch, CODEX_WINDOW_TURN_DEADLINE).await;
-    let exported = export.as_ref().map(CodexExecExport::take);
-    if let Some(responses) = exported.as_deref()
-        && !responses.is_empty()
-    {
-        return compose_exported_spend(responses);
+    let exported = export
+        .as_ref()
+        .map(CodexExecExport::take)
+        .unwrap_or_default();
+    if !exported.is_empty() {
+        return exported
+            .iter()
+            .map(|response| {
+                compose_spend(
+                    Some(response.model_id.clone()),
+                    response.service_tier.clone(),
+                    response.counts,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(WindowTurnAnswer::Spent);
     }
     let printed = ran.map_err(|error| CodexError::Transport {
         detail: "Codex's window-start turn did not run.".to_owned(),
         cause: Some(Box::new(error)),
     })?;
     match read_exec_turn(&printed) {
+        // No event states the tier, so the turn is at the standard one.
         Some(ExecTurnEnd::Completed { counts, .. }) => {
-            // An exported turn's spend is its export alone, and it exported nothing.
-            let counts = if exported.is_some() {
-                UsageAxisCounts::default()
-            } else {
-                counts
-            };
             let model_id = FreeFormText::new(CODEX_SMALL_MODEL.to_owned()).ok();
-            compose_spend(model_id, counts)
+            compose_spend(model_id, None, counts).map(|spend| WindowTurnAnswer::Spent(vec![spend]))
         }
         Some(ExecTurnEnd::Failed) => Ok(WindowTurnAnswer::Refused),
         None => Err(CodexError::Transport {
@@ -148,26 +153,15 @@ async fn start_codex_window(
     }
 }
 
-// The spend of `responses`, the turn's exported ones, summed at the model the first names.
-fn compose_exported_spend(
-    responses: &[CodexCompletedResponse],
-) -> Result<WindowTurnAnswer, DriverError> {
-    let mut counts = UsageAxisCounts::default();
-    for response in responses {
-        counts = counts.added(response.counts);
-    }
-    let model_id = responses.first().map(|response| response.model_id.clone());
-    compose_spend(model_id, counts)
-}
-
-// The turn's spend of `counts` on `model_id`. Fails where a count is past the wire's range.
+// One request's spend of `counts` on `model_id` at `speed`. Fails where a count is past the
+// wire's range.
 fn compose_spend(
     model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     counts: UsageAxisCounts,
-) -> Result<WindowTurnAnswer, DriverError> {
+) -> Result<WindowTurnSpend, DriverError> {
     let past_range = "Codex's window-start counts are past the wire's range";
-    compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, counts)
-        .map(WindowTurnAnswer::Spent)
+    compose_one_turn_spend(DESCRIPTOR.provider_id(), model_id, speed, counts)
         .ok_or_else(|| DriverError::Internal(past_range.into()))
 }
 

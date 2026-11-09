@@ -552,6 +552,14 @@ mod tests {
         ) -> BoxedAnswer<'_, Option<String>> {
             async { Ok(None) }.boxed()
         }
+
+        fn read_run_at(
+            &self,
+            _session_id: SessionId,
+            _at: sidekicks_contracts::wire::instant::WireInstant,
+        ) -> BoxedAnswer<'_, Option<sidekicks_contracts::run::id::RunId>> {
+            async { Ok(None) }.boxed()
+        }
     }
 
     impl RequestHeldListener for Handed {

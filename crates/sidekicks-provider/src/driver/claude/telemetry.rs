@@ -20,28 +20,33 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, ready};
+use serde_json::Map;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::time::Instant;
+use tokio_util::task::TaskTracker;
 
 use self::records::{
-    CLAUDE_EXPORTER, ClaudeExportedRequest, read_claude_record_requests, read_claude_span_requests,
+    CLAUDE_EXPORT, ClaudeExportedRequest, read_claude_record_requests, read_claude_span_requests,
 };
-use self::requests::{ClaudeHelperRequest, ClaudeProcessRequests};
+use self::requests::{ClaudeHelperRequest, ClaudeProcessRequests, OPEN_REQUESTS_KEPT};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::pricing::{ClaudeResultPricing, price_claude_rows, record_for_price};
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::pricing::export_status::ExportStatusTracker;
 use crate::pricing::live::LivePricing;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::records::{RecordRefusal, read_unix_time_ms};
+use crate::pricing::receiver::records::RecordRefusal;
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageRequestFacts, meter_from_zero};
 
@@ -56,30 +61,34 @@ pub(crate) struct ClaudeExports {
     pricing: Arc<LivePricing>,
     // Held only to look up, add or take out a process, never across an await.
     processes: Mutex<HashMap<TelemetryHolderId, Arc<ClaudeProcessExport>>>,
+    // Each filing run off a read export or a reaped process, waited out at the daemon's stop.
+    filings: TaskTracker,
+    is_stopping: AtomicBool,
 }
 
-/// One session process's export: the session it runs, the routes its turns are held on, its
-/// export status and its undecided requests.
+/// One session process's export: the session it runs, the routes its turns are held on, the
+/// account it runs on, its export status and its undecided requests.
 pub(crate) struct ClaudeProcessExport {
     session_id: SessionId,
     provider_session_id: String,
     routes: Arc<ClaudeRunRoutes>,
+    account: ClaudeProcessAccount,
     tracker: ExportStatusTracker,
     // Held only to read or change the requests, never across an await.
     requests: Mutex<ClaudeProcessRequests>,
-    is_reaped: AtomicBool,
 }
 
-/// A session process's place in the register while it lives; its drop marks the process
-/// reaped, so a later process of its session sweeps it where its session's task never ended it.
+/// A session process's place in the register while it lives; its drop decides what a process
+/// its session's task never ended still holds.
 pub(crate) struct ClaudeExportRegistration {
-    process: Weak<ClaudeProcessExport>,
+    exports: Weak<ClaudeExports>,
+    holder: TelemetryHolderId,
 }
 
 impl Drop for ClaudeExportRegistration {
     fn drop(&mut self) {
-        if let Some(process) = self.process.upgrade() {
-            process.is_reaped.store(true, Ordering::Relaxed);
+        if let Some(exports) = self.exports.upgrade() {
+            exports.reap(self.holder);
         }
     }
 }
@@ -97,6 +106,8 @@ impl ClaudeExports {
             usage,
             pricing,
             processes: Mutex::default(),
+            filings: TaskTracker::new(),
+            is_stopping: AtomicBool::new(false),
         }
     }
 
@@ -105,42 +116,41 @@ impl ClaudeExports {
         &self.pricing
     }
 
-    /// Registers `holder`, the process running `provider_session_id` for `session_id` with its
-    /// turns held on `routes`, with a fresh export status; an earlier process of the session that
-    /// was reaped with its session's task never ending it is decided now.
+    /// Registers `holder`, the process running `provider_session_id` for `session_id` on
+    /// `account` with its turns held on `routes`, with a fresh export status, until the
+    /// registration answered drops.
     pub(crate) fn register(
-        &self,
+        self: &Arc<Self>,
         holder: TelemetryHolderId,
         session_id: SessionId,
         provider_session_id: String,
         routes: Arc<ClaudeRunRoutes>,
+        account: ClaudeProcessAccount,
     ) -> ClaudeExportRegistration {
         let process = Arc::new(ClaudeProcessExport {
             session_id,
             provider_session_id,
             routes,
+            account,
             tracker: ExportStatusTracker::new(Arc::clone(&self.scheduler), CLAUDE_EXPORT_INTERVAL),
-            requests: Mutex::new(ClaudeProcessRequests::new(CLAUDE_EXPORT_INTERVAL)),
-            is_reaped: AtomicBool::new(false),
+            requests: Mutex::new(ClaudeProcessRequests::new(
+                CLAUDE_EXPORT_INTERVAL,
+                OPEN_REQUESTS_KEPT,
+            )),
         });
-        let swept: Vec<Arc<ClaudeProcessExport>> = {
-            let mut processes = lock(&self.processes);
-            let swept = processes
-                .extract_if(|_, kept| {
-                    kept.session_id == session_id && kept.is_reaped.load(Ordering::Relaxed)
-                })
-                .map(|(_, kept)| kept)
-                .collect();
-            processes.insert(holder, Arc::clone(&process));
-            swept
-        };
-        for swept in swept {
-            let decided = lock(&swept.requests).take_all();
-            self.file_later(swept, decided);
-        }
+        lock(&self.processes).insert(holder, process);
         ClaudeExportRegistration {
-            process: Arc::downgrade(&process),
+            exports: Arc::downgrade(self),
+            holder,
         }
+    }
+
+    /// Stops filing as the daemon stops, since its stream prices nothing from then on either, and
+    /// waits out the filings already running.
+    pub(crate) async fn stop(&self) {
+        self.is_stopping.store(true, Ordering::Release);
+        self.filings.close();
+        self.filings.wait().await;
     }
 
     // The registered process of `holder`.
@@ -148,11 +158,13 @@ impl ClaudeExports {
         lock(&self.processes).get(&holder).cloned()
     }
 
-    /// `holder`'s stream showed a message metered as `delta`: its counts are kept as the twin of a
-    /// record no `result` states, and its region for the helper requests priced after it.
+    /// `holder`'s stream showed a frame of a message metered as `delta`: its message is kept as
+    /// the twin of a record no `result` states, and its region for the helper requests priced
+    /// after it.
     pub(crate) fn streamed(&self, holder: TelemetryHolderId, delta: &MeteredUsageDelta) {
         if let Some(process) = self.process(holder) {
             lock(&process.requests).streamed(
+                delta.request.request_key.as_ref().map(BoundedText::as_str),
                 delta.request.model_id.as_ref(),
                 &delta.axis_deltas,
                 delta.request.processing_region.clone(),
@@ -183,8 +195,8 @@ impl ClaudeExports {
     }
 
     /// `holder` ended and its session's task read its last frame: every request it holds is
-    /// decided now and, where `is_filed`, filed; a stopping daemon files none, as its stream
-    /// prices none.
+    /// decided now and, where `is_filed`, filed, then its session's turn holdings are released; a
+    /// stopping daemon files none, as its stream prices none.
     pub(crate) async fn process_ended(&self, holder: TelemetryHolderId, is_filed: bool) {
         let Some(process) = lock(&self.processes).remove(&holder) else {
             return;
@@ -193,9 +205,17 @@ impl ClaudeExports {
         if is_filed {
             file(&self.usage, &self.pricing, &process, decided).await;
         }
-        process
-            .routes
-            .forget_turns_before(process.session_id, read_unix_time_ms());
+        process.routes.release_turn_holdings(process.session_id);
+    }
+
+    // Decides `holder`'s requests where its session's task never ended it: what it holds, by the
+    // exports read so far, is filed and its turn holdings released on a filing of its own.
+    fn reap(&self, holder: TelemetryHolderId) {
+        let Some(process) = lock(&self.processes).remove(&holder) else {
+            return;
+        };
+        let decided = lock(&process.requests).take_all();
+        self.file_later(process, decided, true);
     }
 
     // Reads one export of `holder`'s process: its export status marked arriving, each request it
@@ -211,17 +231,19 @@ impl ClaudeExports {
             return;
         };
         process.tracker.export_arrived();
+        let account = process.account.read();
         let mut exported = Vec::new();
         let mut interactions = Vec::new();
         match export {
             TelemetryExport::Logs(request) => {
                 for resource_logs in &request.resource_logs {
-                    exported.extend(read_claude_record_requests(resource_logs, None));
+                    exported.extend(read_claude_record_requests(resource_logs, account.as_ref()));
                 }
             }
             TelemetryExport::Traces(request) => {
                 for resource_spans in &request.resource_spans {
-                    let (requests, read) = read_claude_span_requests(resource_spans, None);
+                    let (requests, read) =
+                        read_claude_span_requests(resource_spans, account.as_ref());
                     exported.extend(requests);
                     interactions.extend(read);
                 }
@@ -238,21 +260,49 @@ impl ClaudeExports {
                 if request.session_id == process.provider_session_id {
                     decided.extend(requests.take(request, now));
                 } else {
-                    refuse_other_session(&request);
+                    refuse_other_session(&request, account.as_ref());
                 }
             }
             decided.extend(requests.take_due(now));
             decided
         };
         if !decided.is_empty() {
-            self.file_later(process, decided);
+            self.file_later(process, decided, false);
         }
     }
 
-    // Files `decided` on a task of its own, so the receiver's answer waits on no record.
-    fn file_later(&self, process: Arc<ClaudeProcessExport>, decided: Vec<ClaudeHelperRequest>) {
+    // Files `decided` on a filing of its own, so neither the receiver's answer nor a drop waits on
+    // a record, then, where `is_ended`, releases the process's session's turn holdings. Nothing is
+    // filed once the daemon stops, nor with no runtime left to file on.
+    fn file_later(
+        &self,
+        process: Arc<ClaudeProcessExport>,
+        decided: Vec<ClaudeHelperRequest>,
+        is_ended: bool,
+    ) {
+        let runtime = tokio::runtime::Handle::try_current()
+            .ok()
+            .filter(|_| !self.is_stopping.load(Ordering::Acquire));
+        let Some(runtime) = runtime else {
+            tracing::debug!(
+                requests = decided.len(),
+                "a claude code process's decided requests are not filed as the daemon stops"
+            );
+            if is_ended {
+                process.routes.release_turn_holdings(process.session_id);
+            }
+            return;
+        };
         let (usage, pricing) = (Arc::clone(&self.usage), Arc::clone(&self.pricing));
-        tokio::spawn(async move { file(&usage, &pricing, &process, decided).await });
+        self.filings.spawn_on(
+            async move {
+                file(&usage, &pricing, &process, decided).await;
+                if is_ended {
+                    process.routes.release_turn_holdings(process.session_id);
+                }
+            },
+            &runtime,
+        );
     }
 }
 
@@ -288,6 +338,8 @@ impl ClaudeProcessExport {
                 ),
             },
         };
+        // The account the process ran on as the request ended, whenever it is filed.
+        let provider_account_id = self.account.read_at(request.ended_at_ms);
         let Some(binding_id) = binding_id else {
             RecordRefusal {
                 field: "request_id",
@@ -295,9 +347,10 @@ impl ClaudeProcessExport {
             }
             .report(
                 DESCRIPTOR.provider_id(),
-                None,
-                CLAUDE_EXPORTER,
+                provider_account_id.as_ref(),
+                CLAUDE_EXPORT,
                 request.source.wire_type(),
+                Map::new(),
             );
             return None;
         };
@@ -321,7 +374,7 @@ impl ClaudeProcessExport {
             binding_id,
             owner,
             delta,
-            provider_account_id: None,
+            provider_account_id,
         })
     }
 }
@@ -370,18 +423,22 @@ async fn file(
     price_claude_rows(live_pricing, process.session_id, pricing.take_all()).await;
 }
 
-// Refuses and counts `request`, which names a session its process does not run: a process its
-// token was not minted for exported under it.
-fn refuse_other_session(request: &ClaudeExportedRequest) {
+// Refuses and counts `request`, which names a session its process, on `provider_account_id`'s
+// account, does not run: a process its token was not minted for exported under it.
+fn refuse_other_session(
+    request: &ClaudeExportedRequest,
+    provider_account_id: Option<&ProviderAccountId>,
+) {
     RecordRefusal {
         field: "session.id",
         reason: "it names a session the process its token was minted for does not run",
     }
     .report(
         DESCRIPTOR.provider_id(),
-        None,
-        CLAUDE_EXPORTER,
+        provider_account_id,
+        CLAUDE_EXPORT,
         request.source.wire_type(),
+        Map::new(),
     );
     tracing::debug!(
         request_id = request.request_id.as_str(),

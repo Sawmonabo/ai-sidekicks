@@ -1,6 +1,7 @@
 //! A session's completed responses from Codex's log export: each counted once on its session, the
 //! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
-//! turn, and a request turn's settle arming one export check.
+//! turn, a request turn's settle arming one export check, and the session's rollout file read for
+//! what no export carried while the export is stopped.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use opentelemetry_proto::tonic::logs::v1::LogRecord;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::watch;
 
 use super::usage::{GatedUsage, answer_region_read, token_usage_frame};
@@ -472,4 +474,90 @@ async fn a_request_turn_waits_for_its_export_once(#[case] turn: RequestTurn) {
     poll_until(|| export_checks(exports.scheduler()), |checks| *checks >= 1).await;
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert_eq!(export_checks(exports.scheduler()), 1);
+}
+
+// One rollout line of `kind` holding `payload`, stamped at `at_ms`.
+fn rollout_line(at_ms: u64, kind: &str, payload: &Value) -> String {
+    let at = i64::try_from(at_ms)
+        .ok()
+        .and_then(|at_ms| jiff::Timestamp::from_millisecond(at_ms).ok())
+        .expect("the test's stamp is a time");
+    json!({"timestamp": at.to_string(), "type": kind, "payload": payload}).to_string()
+}
+
+// The usage record of `response_id` on the session's thread and turn, stamped at `at_ms`.
+fn rollout_record(at_ms: u64, response_id: &str, input: u64, output: u64) -> String {
+    let usage = json!({
+        "input_tokens": input,
+        "cached_input_tokens": 0,
+        "output_tokens": output,
+        "reasoning_output_tokens": 0,
+        "total_tokens": input + output,
+    });
+    let payload = json!({
+        "thread_id": TEST_THREAD,
+        "turn_id": TEST_TURN,
+        "response_id": response_id,
+        "usage": usage,
+    });
+    rollout_line(at_ms, "token_usage_record", &payload)
+}
+
+// Once a request turn settles with no export, the session's own rollout file is read: the
+// response its stream stated is passed over and the warm-up the stream never stated is counted
+// once. Killed by passing over a streamed thread's file (one row), by counting the stream's twin
+// again (three rows), and by no read as the status turns stopped (one row).
+#[tokio::test]
+async fn a_streamed_thread_s_rollout_counts_what_no_export_carried_once() {
+    let mut session = ExportingSession::start().await;
+    let at_ms = read_unix_time_ms();
+    let today = jiff::Timestamp::now()
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+    let folder = session
+        .live
+        .scripted
+        .service
+        .home()
+        .codex_home
+        .join("sessions")
+        .join(format!("{:04}", today.year()))
+        .join(format!("{:02}", today.month()))
+        .join(format!("{:02}", today.day()));
+    std::fs::create_dir_all(&folder).expect("the day folder is made");
+    let lines = [
+        rollout_line(
+            at_ms,
+            "session_meta",
+            &json!({"id": TEST_THREAD, "source": "cli"}),
+        ),
+        rollout_line(
+            at_ms,
+            "turn_context",
+            &json!({"turn_id": TEST_TURN, "model": "gpt-5"}),
+        ),
+        rollout_record(at_ms, "response-stated", 1_000, 500),
+        rollout_record(at_ms, "response-warm-up", 2, 0),
+    ];
+    std::fs::write(
+        folder.join(format!("rollout-2026-11-09T10-00-00-{TEST_THREAD}.jsonl")),
+        lines.join("\n") + "\n",
+    )
+    .expect("the rollout file is written");
+
+    session.state(&counts(1_000, 500));
+    answer_region_read(&mut session.live.scripted).await;
+    session.complete_turn();
+    // The check finds no export two intervals on; the fallback's pass lists the recent helpers.
+    let listing = session.live.scripted.next_request("thread/list").await;
+    session
+        .live
+        .scripted
+        .script
+        .answer(&listing, &json!({"data": [], "nextCursor": null}));
+
+    assert_eq!(
+        session.settled_rows(2).await,
+        [(Some(1_000), Some(500)), (Some(2), Some(0))]
+    );
 }

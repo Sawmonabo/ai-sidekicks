@@ -21,7 +21,9 @@ use sidekicks_provider::account::registry::credential_generation;
 use sidekicks_provider::port::usage_sink::MeteredUsageOwner;
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
-use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{
+    optional_text_column, safe_int_column, text_column,
+};
 use sidekicks_store::events::session::read::{
     DamagedFromSequenceReader, readable_event_sql, session_read_bound,
 };
@@ -112,9 +114,6 @@ static SELECT_TURN_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The cumulative counts the rows of a thread's own runs carry, the helpers' rows aside, since a
-// helper meters a thread of its own; an axis no row reported is NULL. A row's input is put back to
-// the provider's raw figure by adding the cache reads and writes its containment took out.
 // Whether one account holds a row of one request, found by the account and key index.
 const SELECT_REQUEST_RECORDED_SQL: &str = "SELECT EXISTS (
   SELECT 1 FROM provider_account_usage_turns
@@ -126,6 +125,15 @@ const SELECT_THREAD_SPEED_AT_SQL: &str = "SELECT thread_speed FROM provider_acco
    WHERE session_id = @session_id AND occurred_at <= @at AND thread_speed IS NOT NULL
    ORDER BY occurred_at DESC LIMIT 1";
 
+// The run of a session's latest row of its own, a helper's aside, at or before an instant, found
+// by the session and time index; NULL where that row has no run.
+const SELECT_RUN_AT_SQL: &str = "SELECT run_id FROM provider_account_usage_turns
+   WHERE session_id = @session_id AND occurred_at <= @at AND subagent_id IS NULL
+   ORDER BY occurred_at DESC LIMIT 1";
+
+// The cumulative counts the rows of a thread's own runs carry, the helpers' rows aside, since a
+// helper meters a thread of its own; an axis no row reported is NULL. A row's input is put back to
+// the provider's raw figure by adding the cache reads and writes its containment took out.
 static SELECT_PRIOR_EMITTED_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     let subtracted = serde_json::to_value(UsageContainment::ConfirmedSubtracted)
@@ -441,4 +449,25 @@ pub(super) fn read_thread_speed_at(
         )
         .optional()?;
     Ok(thread_speed)
+}
+
+/// The run of `session_id`'s latest row of its own at or before `at`, a stored instant, a helper's
+/// rows aside: the run that held the session's turn then; `None` where that row has no run, or no
+/// row is stored by then.
+pub(super) fn read_run_at(
+    reader: &Connection,
+    session_id: SessionId,
+    at: &str,
+) -> Result<Option<RunId>, UsageRecordError> {
+    let run_id = reader
+        .prepare_cached(SELECT_RUN_AT_SQL)?
+        .query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@at": at,
+            },
+            |row| optional_text_column(row, 0, |text| RunId::new(&text)),
+        )
+        .optional()?;
+    Ok(run_id.flatten())
 }

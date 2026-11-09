@@ -97,7 +97,7 @@ async fn start_claude_window(
 ) -> Result<WindowTurnAnswer, DriverError> {
     let turn = run_claude_smallest_turn(legs, &provider_account_id, &folders, None).await?;
     match turn.spend()? {
-        Some(spend) => Ok(WindowTurnAnswer::Spent(spend)),
+        Some(spend) => Ok(WindowTurnAnswer::Spent(vec![spend])),
         None => Ok(WindowTurnAnswer::Refused),
     }
 }
@@ -153,9 +153,11 @@ impl SmallestTurn {
             .model_id
             .clone()
             .and_then(|model_id| FreeFormText::new(model_id).ok());
+        // Claude Code's `result` names no tier, so the turn is at the standard rates.
         compose_one_turn_spend(
             DESCRIPTOR.provider_id(),
             model_id,
+            None,
             self.usage.unwrap_or_default(),
         )
         .map(Some)

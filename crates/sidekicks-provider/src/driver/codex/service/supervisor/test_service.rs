@@ -752,11 +752,12 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
         folder,
         "codex",
         &StandInProgram {
-            answers_by_first_argument: Vec::new(),
+            answers_by_argument: Vec::new(),
             otherwise: StandInAnswer {
                 standard_output: String::new(),
                 exit_code: 1,
                 argument_record: None,
+                ..StandInAnswer::default()
             },
         },
     )

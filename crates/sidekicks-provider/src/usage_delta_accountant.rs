@@ -535,13 +535,14 @@ pub(crate) fn meter_from_zero(
         .expect("the thread was just established")
 }
 
-/// What a process that ran one turn and nothing else spent on `provider`: its cumulative `counts`
-/// metered from a zero base, the input normalized as a session's usage rows are, on `model_id` as
-/// the provider names it; a turn that spent nothing composes its counts as they read. Fails with
-/// `None` where a count is past the wire's integer range.
+/// What one request of a process that ran one turn and nothing else spent on `provider`: its
+/// cumulative `counts` metered from a zero base, the input normalized as a session's usage rows
+/// are, on `model_id` at `speed` as the provider names them; a request that spent nothing composes
+/// its counts as they read. Fails with `None` where a count is past the wire's integer range.
 pub(crate) fn compose_one_turn_spend(
     provider: ProviderId,
     model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     counts: UsageAxisCounts,
 ) -> Option<WindowTurnSpend> {
     let delta = meter_from_zero(
@@ -553,6 +554,7 @@ pub(crate) fn compose_one_turn_spend(
     let figures = delta.row_figures()?;
     Some(WindowTurnSpend {
         model_id,
+        speed,
         input_tokens: figures.input,
         output_tokens: figures.output,
         cache_read_tokens: figures.cache_read,

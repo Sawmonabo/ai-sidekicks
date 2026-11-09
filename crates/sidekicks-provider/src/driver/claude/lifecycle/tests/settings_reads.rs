@@ -15,8 +15,11 @@ use sidekicks_contracts::provider::declaration::{
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::wire::record::Record;
+use tokio_util::sync::CancellationToken;
 
+use super::session_controls::FULL_MODEL_ID;
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::pricing::CLAUDE_CLASSIFIER_MODEL;
 use crate::driver::claude::session::rules::CLAUDE_USER_SETTINGS_FILE;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
@@ -24,9 +27,10 @@ use crate::driver::claude::session::transport::declarations::ClaudeInitializeDec
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
-use crate::driver::contract::params_and_results::ListModesParams;
+use crate::driver::contract::params_and_results::{ListModelsParams, ListModesParams};
 use crate::driver::session_control::StartingLevelParams;
 use crate::driver::test_registry::fixed_session_id;
+use crate::pricing::test_fixture::started_list;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A figures read whose build offers the advisors `opus` and `sonnet`.
@@ -316,4 +320,56 @@ async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
         Some("sonnet")
     );
     assert_eq!(advisor_value(&none.expect("the rows read")), None);
+}
+
+// The auto-mode classifier's rates beside the two models the list fixture keeps.
+const CLASSIFIER_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 3e-06},
+    "seed-only": {"input_cost_per_token": 2e-06},
+    "claude-sonnet-5": {"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05}}"#;
+
+// Listing an account's models marks the auto-mode classifier's model in use, so its rates are read
+// before the first check a session's export states is priced. Killed by the mark dropped.
+#[tokio::test]
+async fn listing_the_models_marks_the_classifier_s_model_in_use() {
+    let account_folder = tempfile::tempdir().expect("the test makes an account folder");
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
+        Some(ProviderAccountFolders {
+            configuration_folder: account_folder.path().join("config"),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    let stop = CancellationToken::new();
+    let (price_list, _server) = started_list(
+        &account_folder.path().join("price-list"),
+        r#"W/"classifier""#,
+        CLASSIFIER_COPY,
+        &stop,
+    )
+    .await;
+    fixture
+        .services
+        .ports
+        .price_list
+        .register(Arc::clone(&price_list))
+        .expect("the price list registers once");
+    assert!(price_list.table().row(CLAUDE_CLASSIFIER_MODEL).is_none());
+
+    fixture
+        .driver
+        .list_models(ListModelsParams {
+            session_id: None,
+            provider_account_id: Some(test_provider_account_id()),
+        })
+        .await
+        .expect("the models read");
+
+    assert!(
+        price_list.table().row(CLAUDE_CLASSIFIER_MODEL).is_some(),
+        "the classifier's rates are read once the models are listed"
+    );
+    stop.cancel();
 }

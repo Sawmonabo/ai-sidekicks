@@ -9,22 +9,22 @@ use crate::{LeftoverSweep, replace_file_atomically};
 
 /// Writes `program` as the executable script `name` in `folder` and answers its path; the file is
 /// renamed into place whole, so no writer still holds it open when it runs. Fails as the write
-/// fails, or on a record path that is not UTF-8.
+/// fails, or on a record or hold path that is not UTF-8.
 pub(crate) fn write_stand_in_script(
     folder: &Path,
     name: &str,
     program: &StandInProgram,
 ) -> io::Result<PathBuf> {
     let mut script = String::from("#!/bin/sh\n");
-    for (first_argument, answer) in &program.answers_by_first_argument {
+    for (word, answer) in &program.answers_by_argument {
         writeln!(
             script,
-            "if [ \"$1\" = {} ]; then",
-            quote_single(first_argument)
+            "for word in \"$@\"; do if [ \"$word\" = {} ]; then",
+            quote_single(word)
         )
         .expect("a String takes every write");
         push_answer(&mut script, answer)?;
-        script.push_str("fi\n");
+        script.push_str("fi; done\n");
     }
     push_answer(&mut script, &program.otherwise)?;
     let path = folder.join(name);
@@ -33,13 +33,27 @@ pub(crate) fn write_stand_in_script(
     Ok(path)
 }
 
-// Appends the lines that record the arguments, print the output with nothing added and exit.
+// Appends the lines that record the arguments and variables, hold the call, print the output with
+// nothing added and exit.
 fn push_answer(script: &mut String, answer: &StandInAnswer) -> io::Result<()> {
     if let Some(record) = &answer.argument_record {
+        let record = quote_single(script_path_text(record)?);
         writeln!(
             script,
-            "for argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> {}",
-            quote_single(script_path_text(record)?)
+            "for argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> {record}"
+        )
+        .expect("a String takes every write");
+        for variable in &answer.recorded_environment {
+            writeln!(script, "printf '%s\\n' \"${variable}\" >> {record}")
+                .expect("a String takes every write");
+        }
+    }
+    if let Some(hold) = &answer.hold {
+        writeln!(
+            script,
+            ": > {}\nwhile [ ! -e {} ]; do sleep 0.05; done",
+            quote_single(script_path_text(&hold.waiting)?),
+            quote_single(script_path_text(&hold.release)?)
         )
         .expect("a String takes every write");
     }

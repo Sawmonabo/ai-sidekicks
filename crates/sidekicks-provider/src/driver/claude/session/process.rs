@@ -262,6 +262,7 @@ impl ClaudeCodeProcess {
                 holds.session_id,
                 launch.provider_session_id.clone(),
                 Arc::clone(&holds.routes),
+                launch.account.clone(),
             )
         });
         let standard_input = child

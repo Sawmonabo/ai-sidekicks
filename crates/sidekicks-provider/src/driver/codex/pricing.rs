@@ -50,14 +50,13 @@ const UNKNOWN_HOST_REGION: &str = "unknownHost";
 /// The models Codex's automatic reviewer runs by default, on a plan sign-in and on an API key.
 pub(crate) const CODEX_REVIEWER_MODELS: [&str; 2] = ["codex-auto-review", "gpt-5.6-luna"];
 
-/// The facts a Codex request carries: its `model`, and the `tier` it was sent at as both its own
-/// speed and its thread's; shared by a copy's readings and the export's responses.
+/// The facts a Codex request carries: its `model` and the `tier` it was sent at; shared by a
+/// copy's readings and the export's responses, none of them a root thread's, so none states the
+/// thread tier a helper's request is priced at.
 pub(crate) fn compose_codex_request_facts(model: &str, tier: Option<&str>) -> UsageRequestFacts {
-    let speed = tier.and_then(|tier| BoundedText::new(tier.to_owned()));
     UsageRequestFacts {
         model_id: FreeFormText::new(model.to_owned()).ok(),
-        speed: speed.clone(),
-        thread_speed: speed,
+        speed: tier.and_then(|tier| BoundedText::new(tier.to_owned())),
         ..UsageRequestFacts::default()
     }
 }

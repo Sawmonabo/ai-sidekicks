@@ -4,15 +4,16 @@
 //! the exec's caller.
 
 use futures::future::{BoxFuture, ready};
-use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::logs::v1::ResourceLogs;
+use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::time::Instant;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::telemetry::completed_response::{
-    CODEX_EXPORTER, SSE_EVENT_NAME, read_codex_completed_responses,
+    CODEX_EXPORT, SSE_EVENT_NAME, read_codex_completed_responses,
 };
 use crate::driver::codex::telemetry::drain::CodexExportItem;
 use crate::driver::codex::telemetry::exports::{
@@ -20,9 +21,8 @@ use crate::driver::codex::telemetry::exports::{
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
 use crate::pricing::receiver::bearers::TelemetryHolderId;
-use crate::pricing::receiver::records::{RecordRefusal, find_attribute, read_unix_time_ms};
+use crate::pricing::receiver::records::{RecordRefusal, read_count};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
-use crate::record_readers::is_digits;
 
 impl CodexExports {
     // Hands each completed response `resource_logs` states to the drain, when the resource
@@ -44,8 +44,9 @@ impl CodexExports {
                 .report(
                     DESCRIPTOR.provider_id(),
                     provider_account_id.as_ref(),
-                    CODEX_EXPORTER,
+                    CODEX_EXPORT,
                     SSE_EVENT_NAME,
+                    Map::new(),
                 );
                 return;
             }
@@ -61,8 +62,9 @@ impl CodexExports {
                 .report(
                     DESCRIPTOR.provider_id(),
                     Some(&provider_account_id),
-                    CODEX_EXPORTER,
+                    CODEX_EXPORT,
                     SSE_EVENT_NAME,
+                    Map::new(),
                 );
                 return;
             }
@@ -79,8 +81,15 @@ impl CodexExports {
         let arrived_at = Instant::now();
         let arrived_at_ms = read_unix_time_ms();
         let current_account = service.provider_account_id();
+        let mut stamps: Option<(u64, u64)> = None;
         for mut response in read_codex_completed_responses(resource_logs, current_account.as_ref())
         {
+            if response.observed_at_ms != 0 {
+                let at_ms = response.observed_at_ms;
+                stamps = Some(stamps.map_or((at_ms, at_ms), |(oldest, newest)| {
+                    (oldest.min(at_ms), newest.max(at_ms))
+                }));
+            }
             // The account its turn ran on, read by the time Codex observed it; one carrying no
             // time is read at its export's arrival.
             let ran_at_ms = match response.observed_at_ms {
@@ -96,6 +105,10 @@ impl CodexExports {
                 export_number: read.export_number,
             });
         }
+        // Codex's own stamps bound what the launch's rollout fallback prices.
+        if let Some((oldest_ms, newest_ms)) = stamps {
+            read.rollouts.export_stamped(oldest_ms, newest_ms);
+        }
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,
@@ -110,19 +123,7 @@ fn read_resource_tag(resource_logs: &ResourceLogs) -> Option<(CodexTagKind, u64)
     let attributes = &resource_logs.resource.as_ref()?.attributes;
     [CodexTagKind::Service, CodexTagKind::Exec]
         .into_iter()
-        .find_map(|kind| match find_attribute(attributes, kind.key())? {
-            Value::StringValue(text) if is_digits(text) => {
-                text.parse::<u64>().ok().map(|number| (kind, number))
-            }
-            Value::StringValue(_)
-            | Value::BoolValue(_)
-            | Value::IntValue(_)
-            | Value::DoubleValue(_)
-            | Value::ArrayValue(_)
-            | Value::KvlistValue(_)
-            | Value::BytesValue(_)
-            | Value::StringValueStrindex(_) => None,
-        })
+        .find_map(|kind| Some((kind, read_count(attributes, kind.key()).ok()??)))
 }
 
 // Collects each completed response `resource_logs` states into `responses`, an exec's on

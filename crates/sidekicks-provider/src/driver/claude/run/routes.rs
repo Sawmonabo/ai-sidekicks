@@ -18,9 +18,8 @@ use std::time::Duration;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::watch;
-
-use crate::pricing::receiver::records::read_unix_time_ms;
 
 /// How many changes of one session's turn holder the routes keep for the export's time join; past
 /// it the oldest goes, and a request that began before every kept change counts on no run.
@@ -419,27 +418,12 @@ impl ClaudeRunRoutes {
             .map(|run| run.binding_id.clone())
     }
 
-    /// Forgets the session's turn changes before `at_ms` but the one in force then, and all of them
-    /// where nothing has held the turn since.
-    pub(crate) fn forget_turns_before(&self, session_id: SessionId, at_ms: u64) {
+    /// Releases the session's turn changes once its process ended and its requests were filed,
+    /// keeping only the run that holds the turn now, for the requests of a process after it.
+    pub(crate) fn release_turn_holdings(&self, session_id: SessionId) {
         let mut tables = self.lock();
-        let Entry::Occupied(mut holdings) = tables.turn_holdings.entry(session_id) else {
-            return;
-        };
-        let in_force = holdings
-            .get()
-            .iter()
-            .rposition(|holding| holding.from_ms <= at_ms)
-            .unwrap_or(0);
-        holdings.get_mut().drain(..in_force);
-        if holdings.get().len() == 1
-            && holdings
-                .get()
-                .front()
-                .is_some_and(|kept| kept.run.is_none())
-        {
-            holdings.remove();
-        }
+        tables.turn_holdings.remove(&session_id);
+        tables.note_holder(session_id);
     }
 
     /// Every lead run bound to the session, with its binding, whether or not it holds the turn.

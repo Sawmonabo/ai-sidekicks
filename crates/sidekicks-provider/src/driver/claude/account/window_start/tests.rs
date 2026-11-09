@@ -146,7 +146,12 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
             .await
             .expect("the turn answers")
         {
-            WindowTurnAnswer::Spent(spend) => Some(spend),
+            WindowTurnAnswer::Spent(spends) => {
+                let [spend] = spends.as_slice() else {
+                    panic!("one request spends: {spends:?}");
+                };
+                Some(spend.clone())
+            }
             WindowTurnAnswer::Refused => None,
         }
     };

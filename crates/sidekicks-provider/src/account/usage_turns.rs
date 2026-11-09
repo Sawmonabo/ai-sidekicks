@@ -55,10 +55,10 @@ FROM provider_accounts WHERE account_id = @account_id";
 // daemon start that wrote it, and held, since nothing meters it further.
 const INSERT_SESSIONLESS_USAGE_TURN_SQL: &str = "INSERT INTO provider_account_usage_turns
   (turn_id, account_id, provider, occurred_at, model_id, input_tokens, output_tokens,
-   cache_read_tokens, cache_write_tokens, reasoning_tokens, observed_credential_generation,
-   daemon_started_at, is_held)
+   cache_read_tokens, cache_write_tokens, reasoning_tokens, speed,
+   observed_credential_generation, daemon_started_at, is_held)
 SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @output_tokens,
-  @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, credential_generation,
+  @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, @speed, credential_generation,
   @daemon_started_at, 1
 FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
 
@@ -230,10 +230,10 @@ pub fn mint_sessionless_turn_id() -> FreeFormText<EVENT_FIELD_MAX_LEN> {
     FreeFormText::new(mint_uuid_v7().to_string()).expect("a UUID is a usage row id")
 }
 
-/// The statement that writes the turn `turn_id` no session owns, spent on `provider_account_id`'s
-/// account at `occurred_at` under the daemon start `daemon_started_at`: held from the write, as a
-/// whole request, and charged to the account's generation as its row stands at the write. Refused
-/// by its row count for an account not registered.
+/// The statement that writes the turn `turn_id` no session owns, `spend` at its model and tier on
+/// `provider_account_id`'s account at `occurred_at` under the daemon start `daemon_started_at`:
+/// held from the write, as a whole request, and charged to the account's generation as its row
+/// stands at the write. Refused by its row count for an account not registered.
 pub fn sessionless_usage_turn_statement(
     turn_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     provider_account_id: &ProviderAccountId,
@@ -253,6 +253,7 @@ pub fn sessionless_usage_turn_statement(
             count_binding("@cache_read_tokens", spend.cache_read_tokens),
             count_binding("@cache_write_tokens", spend.cache_write_tokens),
             count_binding("@reasoning_tokens", spend.reasoning_tokens),
+            nullable_text_binding("@speed", spend.speed.as_ref().map(BoundedText::as_str)),
             text_binding("@daemon_started_at", daemon_started_at.as_str()),
         ]),
         expected_row_count: Some(1),

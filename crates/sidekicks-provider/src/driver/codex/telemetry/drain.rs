@@ -30,7 +30,7 @@ use crate::driver::codex::telemetry::held_responses::{
 use crate::driver::codex::telemetry::placement::{
     CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
 };
-use crate::driver::codex::telemetry::rollouts::{
+use crate::driver::codex::telemetry::rollouts::fallback::{
     CodexLaunchRollouts, CodexRolloutFallback, CodexStatusTurn,
 };
 
@@ -39,8 +39,9 @@ const STOPPED: &str = "the daemon stopped before its thread could be placed";
 
 // What the reader hands the drain, each with the service that ran it and its launch's placement
 // state: one completed response of the export numbered `export_number`, or, after that export's
-// responses, a retry of the responses the launch kept before it; or what the register hands it as
-// the launch settles a request turn, with the launch's rollout fallback's handles.
+// responses, a retry of the responses the launch kept before it; or, as the launch registers and
+// as it settles a request turn while its export status reads stopped, a read of its rollout
+// files, with its fallback's handles.
 pub(super) enum CodexExportItem {
     Response {
         service: Weak<CodexService>,
@@ -54,7 +55,7 @@ pub(super) enum CodexExportItem {
         launch: Weak<Mutex<CodexLaunchPlacement>>,
         export_number: u64,
     },
-    Settled {
+    ReadRollouts {
         service: Weak<CodexService>,
         launch: Weak<Mutex<CodexLaunchPlacement>>,
         rollouts: CodexLaunchRollouts,
@@ -72,7 +73,7 @@ enum CodexLaunchWork {
         export_number: u64,
     },
     FileCopies(Vec<CodexEndedCopy>),
-    Settled(CodexLaunchRollouts),
+    ReadRollouts(CodexLaunchRollouts),
 }
 
 impl CodexLaunchWork {
@@ -81,7 +82,7 @@ impl CodexLaunchWork {
     fn refuse(self, reason: &str) {
         match self {
             Self::Place { response, .. } => refuse_response(&response, reason),
-            Self::Retry { .. } | Self::Settled(_) => {}
+            Self::Retry { .. } | Self::ReadRollouts(_) => {}
             Self::FileCopies(copies) => {
                 for response in copies.iter().flat_map(|copy| &copy.unclaimed) {
                     refuse_response(response, reason);
@@ -224,11 +225,11 @@ impl CodexExportDrain {
                 launch,
                 export_number,
             } => Some((service, launch, CodexLaunchWork::Retry { export_number })),
-            CodexExportItem::Settled {
+            CodexExportItem::ReadRollouts {
                 service,
                 launch,
                 rollouts,
-            } => Some((service, launch, CodexLaunchWork::Settled(rollouts))),
+            } => Some((service, launch, CodexLaunchWork::ReadRollouts(rollouts))),
         }
     }
 
@@ -275,8 +276,9 @@ enum CodexLaunchEvent {
 // Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
 // against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
 // naming its thread. Work whose service or launch is gone is refused. From the launch's first
-// settled request turn on, the task also owns its rollout fallback, which reads while the export
-// status reads stopped: once as it turns stopped and at each settled request turn.
+// read of its rollout files on, the task also owns its rollout fallback, which reads while the
+// export status reads stopped: once as it turns stopped and at each settled request turn. A turn
+// of the status is taken before queued work, so no queued read runs past an export's return.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
@@ -294,8 +296,8 @@ async fn run_launch_work(
         let event = tokio::select! {
             biased;
             () = stop.cancelled() => break,
-            next = work.recv() => CodexLaunchEvent::Work(next),
             turn = status_turned => CodexLaunchEvent::Status(turn),
+            next = work.recv() => CodexLaunchEvent::Work(next),
         };
         let next = match event {
             CodexLaunchEvent::Work(next) => next,
@@ -336,7 +338,7 @@ async fn run_launch_work(
             continue;
         };
         match next {
-            CodexLaunchWork::Settled(rollouts) => {
+            CodexLaunchWork::ReadRollouts(rollouts) => {
                 let fallback = fallback.get_or_insert_with(|| CodexRolloutFallback::new(rollouts));
                 if fallback.is_reading() {
                     tokio::select! {

@@ -405,8 +405,8 @@ impl ObserverShared {
         )
         .await
         {
-            Ok(Ok(WindowTurnAnswer::Spent(spend))) => {
-                self.record_window_turn(&account, &spend).await?;
+            Ok(Ok(WindowTurnAnswer::Spent(spends))) => {
+                self.record_window_turn(&account, &spends).await?;
             }
             Ok(Ok(WindowTurnAnswer::Refused)) => {
                 tracing::warn!("the provider refused an account's window-start turn");
@@ -422,57 +422,64 @@ impl ObserverShared {
         Ok(())
     }
 
-    /// Writes a turn that starts `account`'s closed windows: its usage row, held and with no
-    /// session, and its time on the account's row, in one write, then hands the row's request to
-    /// the repricing. Fails with [`ProviderAccountRegistryError::NotFound`] for an account not
-    /// registered, keeping neither; a hand-off that fails leaves the held row to the next start.
+    /// Writes a turn that starts `account`'s closed windows: a usage row for each of its requests'
+    /// `spends`, held and with no session, and its time on the account's row, in one write, then
+    /// hands each row's request to the repricing. Fails with
+    /// [`ProviderAccountRegistryError::NotFound`] for an account not registered, keeping nothing;
+    /// a hand-off that fails leaves its held row to the next start.
     pub(super) async fn record_window_turn(
         &self,
         account: &RegisteredAccount,
-        spend: &WindowTurnSpend,
+        spends: &[WindowTurnSpend],
     ) -> Result<(), ProviderAccountObserverError> {
         let provider_account_id = &account.account_id;
         let sent_at = ladder::wire_instant(self.wall_clock.now());
-        let turn_id = mint_sessionless_turn_id();
-        self.database_writer
-            .write(vec![
+        let mut statements: Vec<WriteStatement> = spends
+            .iter()
+            .map(|spend| {
                 sessionless_usage_turn_statement(
-                    &turn_id,
+                    &mint_sessionless_turn_id(),
                     provider_account_id,
                     &sent_at,
                     &self.daemon_started_at,
                     spend,
-                ),
-                WriteStatement {
-                    sql: std::borrow::Cow::Borrowed(RECORD_WINDOW_START_SQL.as_str()),
-                    bindings: StatementBindings::Named(vec![
-                        text_binding("@account_id", provider_account_id.as_str()),
-                        text_binding("@sent_at", sent_at.as_str()),
-                    ]),
-                    expected_row_count: Some(1),
-                },
-            ])
+                )
+            })
+            .collect();
+        statements.push(WriteStatement {
+            sql: std::borrow::Cow::Borrowed(RECORD_WINDOW_START_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@account_id", provider_account_id.as_str()),
+                text_binding("@sent_at", sent_at.as_str()),
+            ]),
+            expected_row_count: Some(1),
+        });
+        self.database_writer
+            .write(statements)
             .await
             .map_err(refusal_or_failure)?;
         let Some(repricing) = self.request_held.port() else {
             return Ok(());
         };
-        let held = HeldRequest {
-            key: UnpricedUsageKey {
-                provider: account.provider.clone(),
-                account_id: provider_account_id.clone(),
-                model_id: spend.model_id.clone(),
-                speed: None,
-                processing_region: None,
-            },
-            // Written held, so the hand-off has no row to mark.
-            row_ids: Vec::new(),
-        };
-        if let Err(error) = repricing.request_held(held).await {
-            tracing::warn!(
-                error = &*error as &(dyn std::error::Error + 'static),
-                "a window-start turn was not handed over for pricing; it waits for the next start"
-            );
+        for spend in spends {
+            let held = HeldRequest {
+                key: UnpricedUsageKey {
+                    provider: account.provider.clone(),
+                    account_id: provider_account_id.clone(),
+                    model_id: spend.model_id.clone(),
+                    speed: spend.speed.clone(),
+                    processing_region: None,
+                },
+                // Written held, so the hand-off has no row to mark.
+                row_ids: Vec::new(),
+            };
+            if let Err(error) = repricing.request_held(held).await {
+                tracing::warn!(
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a window-start turn's request was not handed over for pricing; it waits for \
+                     the next start"
+                );
+            }
         }
         Ok(())
     }

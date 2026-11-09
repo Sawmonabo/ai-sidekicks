@@ -27,7 +27,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_platforms::KeychainSignIn;
 use tokio::sync::oneshot;
 
@@ -382,12 +382,15 @@ pub trait ProviderMemoryImportLegs: Send + Sync {
     fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>>;
 }
 
-/// What one smallest turn in an account's home spent, as the provider reported it: the model and
-/// the turn's own token counts, each absent where the provider reported none, never zero.
+/// What one request of a smallest turn in an account's home spent, as the provider reported it:
+/// the model and tier it ran at and its own token counts, each absent where the provider reported
+/// none, never zero.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowTurnSpend {
-    /// The model the turn ran on, as the provider names it.
+    /// The model the request ran on, as the provider names it.
     pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    /// The speed tier it ran at, in the provider's word; `None` at the standard rates.
+    pub speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     /// The input tokens, with the cache's read and written tokens taken out.
     pub input_tokens: Option<SafeInt<0>>,
     /// The output tokens.
@@ -404,8 +407,8 @@ pub struct WindowTurnSpend {
 /// any spend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WindowTurnAnswer {
-    /// The turn ran, and this is what it spent.
-    Spent(WindowTurnSpend),
+    /// The turn ran, and this is what each of its requests spent, each at its own model and tier.
+    Spent(Vec<WindowTurnSpend>),
     /// The provider refused the turn, which spent nothing.
     Refused,
 }

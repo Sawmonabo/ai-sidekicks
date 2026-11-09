@@ -373,11 +373,12 @@ mod tests {
             folder.path(),
             "claude",
             &StandInProgram {
-                answers_by_first_argument: Vec::new(),
+                answers_by_argument: Vec::new(),
                 otherwise: StandInAnswer {
                     standard_output: String::new(),
                     exit_code: 0,
                     argument_record: None,
+                    ..StandInAnswer::default()
                 },
             },
         )
