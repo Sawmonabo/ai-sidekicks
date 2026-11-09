@@ -238,6 +238,7 @@ mod tests {
             payloads: Arc::new(
                 PayloadStore::new(data.join("objects")).expect("the payload store opens"),
             ),
+            data_folder: data.clone(),
         }));
         write_record(
             &record_path(&data),

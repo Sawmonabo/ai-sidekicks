@@ -6,8 +6,11 @@
 //! `README.txt` a line for each part. Sessions are read a page of bounded text at a time and
 //! written as they are read, and a body too long for a page is written a frame at a time, so
 //! memory stays bounded whatever the store holds. The export writes one line to the service log,
-//! when it begins, naming its folder, which is how an export a restart cut short is found. A failed
-//! export removes its folder, so trying again into the same folder starts clean.
+//! when it begins, naming its folder. A failed export removes its folder, so trying again into the
+//! same folder starts clean. While it runs, a marker file in its folder and a record in the data
+//! folder naming that folder say it has not ended, and both go when it ends; the next start removes
+//! the folder of an export a restart cut short, but only while the marker is still in it, so a
+//! folder the person moved or reused keeps every file in it.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -19,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
 use sidekicks_artifact::validation::MANIFEST_FILE_NAME_SQL;
@@ -31,6 +34,11 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::{
+    AtomicWriteError, remove_file_durably, write_file_atomically,
+};
+use sidekicks_std::file::remove_tree_awaited;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
@@ -56,6 +64,15 @@ const FILES_FOLDER_NAME: &str = "files";
 const ACCOUNTS_FILE_NAME: &str = "accounts.json";
 
 const README_FILE_NAME: &str = "README.txt";
+
+// The file in a running export's folder that says the export has not ended, holding its job's id.
+const UNFINISHED_MARKER_FILE_NAME: &str = ".sidekicks-export-unfinished";
+
+// The file in the data folder that names the running export's folder.
+const RUNNING_EXPORT_RECORD_FILE_NAME: &str = "running-export.json";
+
+// The marker and the record are the service's own, read by no one else.
+const PRIVATE_FILE_MODE: u32 = 0o600;
 
 // What each part of the folder is, one line each.
 const README_LINES: &[&str] = &[
@@ -98,6 +115,8 @@ pub(crate) struct DataExportDeps {
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// The artifact store, whose payloads `files/` copies.
     pub(crate) payloads: Arc<PayloadStore>,
+    /// The service's data folder, which holds the running export's record.
+    pub(crate) data_folder: PathBuf,
 }
 
 /// Why an export could not start.
@@ -136,6 +155,10 @@ enum ExportError {
     Measure(#[source] io::Error),
     #[error("a write into the export's folder ended before it finished")]
     Interrupted(#[source] JoinError),
+    #[error("the running export could not be recorded")]
+    Record(#[from] AtomicWriteError),
+    #[error("the export's marker could not be removed from its folder")]
+    Marker(#[source] io::Error),
 }
 
 // The running export's hold on the one export slot: dropped, it frees the slot before the export's
@@ -244,7 +267,7 @@ impl DataExports {
             ended: None,
         };
         tokio::spawn(async move {
-            let ended = run_export(&deps, &destination, &progress, &stop).await;
+            let ended = run_export(&deps, &destination, job_id, &progress, &stop).await;
             running.end(ended);
         });
         Ok(job_id)
@@ -276,49 +299,186 @@ pub(crate) fn is_finished(progress: &DataExportProgress) -> bool {
     !matches!(progress, DataExportProgress::Running { .. })
 }
 
-// The export into `destination`, answering how it ended.
+// The export of `job_id` into `destination`, recorded as running until it ends, answering how it
+// ended. A failed export whose folder could not be removed keeps its record, so the next start
+// removes the folder.
 async fn run_export(
     deps: &DataExportDeps,
     destination: &Path,
+    job_id: DataExportJobId,
     progress: &watch::Sender<Option<DataExportProgress>>,
     stop: &CancellationToken,
 ) -> DataExportProgress {
-    let written = match write_export(deps, destination, progress, stop).await {
-        Ok(_) if stop.is_cancelled() => {
-            return DataExportProgress::Canceled {
-                path: folder_path(destination),
-            };
-        }
-        Ok(sessions_exported) => folder_bytes(destination.to_path_buf())
-            .await
-            .map(|total_bytes| (sessions_exported, total_bytes)),
-        Err(failure) => Err(failure),
-    };
-    match written {
-        Ok((sessions_exported, total_bytes)) => DataExportProgress::Completed {
+    let ended = match write_recorded_export(deps, destination, job_id, progress, stop).await {
+        Ok(None) => DataExportProgress::Canceled {
+            path: folder_path(destination),
+        },
+        Ok(Some((sessions_exported, total_bytes))) => DataExportProgress::Completed {
             path: folder_path(destination),
             sessions_exported,
             total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
         },
         Err(failure) => {
-            if let Err(removal_failure) =
-                sidekicks_std::file::remove_tree_awaited(destination).await
-            {
-                tracing::warn!(
-                    folder = %destination.display(),
-                    error = &removal_failure as &(dyn Error + 'static),
-                    "the failed export's folder could not be removed"
-                );
-            }
             let message = describe_error(&failure);
-            DataExportProgress::Failed {
+            let failed = DataExportProgress::Failed {
                 message: FreeFormText::new(
                     cut_to_code_points(&message, ERROR_MESSAGE_MAX_LEN).to_owned(),
                 )
                 .expect("a failure's description is text without NUL"),
+            };
+            if let Err(removal_failure) = remove_tree_awaited(destination).await {
+                tracing::warn!(
+                    folder = %destination.display(),
+                    error = &removal_failure as &(dyn Error + 'static),
+                    "the failed export's folder could not be removed; the next start tries again"
+                );
+                return failed;
+            }
+            failed
+        }
+    };
+    forget_running_export(&deps.data_folder).await;
+    ended
+}
+
+// Records the export as running, writes it and takes its marker out, answering the sessions it
+// holds and its bytes, or `None` when it was canceled.
+async fn write_recorded_export(
+    deps: &DataExportDeps,
+    destination: &Path,
+    job_id: DataExportJobId,
+    progress: &watch::Sender<Option<DataExportProgress>>,
+    stop: &CancellationToken,
+) -> Result<Option<(SafeInt<0>, u64)>, ExportError> {
+    record_running_export(&deps.data_folder, destination, job_id).await?;
+    let sessions_exported = write_export(deps, destination, progress, stop).await?;
+    // Gone before the folder is measured, so a finished export neither counts nor holds it.
+    tokio::fs::remove_file(destination.join(UNFINISHED_MARKER_FILE_NAME))
+        .await
+        .map_err(ExportError::Marker)?;
+    if stop.is_cancelled() {
+        return Ok(None);
+    }
+    let total_bytes = folder_bytes(destination.to_path_buf()).await?;
+    Ok(Some((sessions_exported, total_bytes)))
+}
+
+/// The running export as the data folder's record names it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunningExportRecord {
+    folder: String,
+    job_id: String,
+}
+
+// Records the export of `job_id` into `destination` as running: the marker in its folder, then the
+// record in the data folder, each written whole and flushed.
+async fn record_running_export(
+    data_folder: &Path,
+    destination: &Path,
+    job_id: DataExportJobId,
+) -> Result<(), AtomicWriteError> {
+    let job_text = job_id.to_string();
+    let record = serde_json::to_vec(&RunningExportRecord {
+        folder: destination.to_string_lossy().into_owned(),
+        job_id: job_text.clone(),
+    })
+    .expect("a record of two strings is JSON");
+    write_file_atomically(
+        &destination.join(UNFINISHED_MARKER_FILE_NAME),
+        job_text,
+        PRIVATE_FILE_MODE,
+    )
+    .await?;
+    write_file_atomically(
+        &data_folder.join(RUNNING_EXPORT_RECORD_FILE_NAME),
+        record,
+        PRIVATE_FILE_MODE,
+    )
+    .await
+}
+
+// Removes the running export's record; a record left behind names a folder without its marker,
+// which the next start keeps.
+async fn forget_running_export(data_folder: &Path) {
+    if let Err(failure) =
+        remove_file_durably(&data_folder.join(RUNNING_EXPORT_RECORD_FILE_NAME)).await
+    {
+        tracing::warn!(
+            error = &failure as &(dyn Error + 'static),
+            "the running export's record could not be removed"
+        );
+    }
+}
+
+/// Removes the folder of the export a restart cut short, which the record in `data_folder` names,
+/// while that export's marker is still in it, then the record; a folder whose marker is gone keeps
+/// every file in it. Runs at the start, before any export can begin. A failure is written to the
+/// service log, and a folder that could not be removed keeps its record for the next start.
+pub(crate) async fn remove_cut_short_export(data_folder: &Path) {
+    let record_path = data_folder.join(RUNNING_EXPORT_RECORD_FILE_NAME);
+    let held = match tokio::fs::read(&record_path).await.none_if_missing() {
+        Ok(Some(held)) => held,
+        Ok(None) => return,
+        Err(failure) => {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "the running export's record could not be read"
+            );
+            return;
+        }
+    };
+    match serde_json::from_slice::<RunningExportRecord>(&held) {
+        Ok(record) => {
+            let folder = PathBuf::from(record.folder);
+            match is_marked_unfinished(&folder, &record.job_id).await {
+                Ok(true) => {
+                    if let Err(failure) = remove_tree_awaited(&folder).await {
+                        tracing::warn!(
+                            folder = %folder.display(),
+                            error = &failure as &(dyn Error + 'static),
+                            "the folder of an export a restart cut short could not be removed; \
+                             the next start tries again"
+                        );
+                        return;
+                    }
+                    tracing::info!(
+                        folder = %folder.display(),
+                        "the folder of an export a restart cut short was removed"
+                    );
+                }
+                Ok(false) => {}
+                Err(failure) => tracing::warn!(
+                    folder = %folder.display(),
+                    error = &failure as &(dyn Error + 'static),
+                    "the folder of an export a restart cut short could not be checked, so it is \
+                     kept"
+                ),
             }
         }
+        Err(failure) => tracing::warn!(
+            error = &failure as &(dyn Error + 'static),
+            "the running export's record is not one the service writes"
+        ),
     }
+    forget_running_export(data_folder).await;
+}
+
+// Whether `folder` is a folder, not a link to one, holding the marker of the export `job_id`.
+async fn is_marked_unfinished(folder: &Path, job_id: &str) -> io::Result<bool> {
+    let Some(metadata) = tokio::fs::symlink_metadata(folder)
+        .await
+        .none_if_missing()?
+    else {
+        return Ok(false);
+    };
+    if !metadata.is_dir() {
+        return Ok(false);
+    }
+    let marker = tokio::fs::read(folder.join(UNFINISHED_MARKER_FILE_NAME))
+        .await
+        .none_if_missing()?;
+    Ok(marker.as_deref() == Some(job_id.as_bytes()))
 }
 
 // Writes every session, the accounts and the README into `destination`, answering how many

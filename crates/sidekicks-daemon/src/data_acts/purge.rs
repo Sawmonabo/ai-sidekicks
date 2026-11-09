@@ -6,7 +6,8 @@
 //! - The session is marked `purgeRequested` first, from the states its caller purges, with no
 //!   event, which locks its row against every other change. The mark is refused while a plan the
 //!   session made is being handed to a fresh session whose seed has no queue item yet, so the
-//!   seed's transcript and manifest are always written from a live planning session.
+//!   seed's transcript and manifest are always written from a live planning session. A damaged
+//!   session with no row is deleted without a mark, since nothing runs in it.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, its tool-server connections start closing and no new one opens, every provider
 //!   leg of the session ends, so no provider runs a turn on what is deleted, then the provider's
@@ -16,11 +17,11 @@
 //!   again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
 //!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
-//!   receipt on the daemon's sentinel session, led by two guards: the session is still marked,
-//!   and no event of it lies past the receipt's range. An append the lock let go before its
-//!   commit can land after the range is read; the range is then read again once, since the hold
-//!   keeps any new append out. The writer's connection runs with `secure_delete` on, so a freed
-//!   page is overwritten.
+//!   receipt on the daemon's sentinel session, led by two guards: the session is still marked
+//!   (or still has no row), and no event of it lies past the receipt's range. An append the lock
+//!   let go before its commit can land after the range is read; the range is then read again
+//!   once, since the hold keeps any new append out. The writer's connection runs with
+//!   `secure_delete` on, so a freed page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the stop intent drops its
 //!   name, the session reads let go of its block cuts, the runs' postures forget its level moves,
 //!   the project's other sessions are handed their rules again, the live list loses the session,
@@ -95,7 +96,7 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::data_acts::purge::rows::{
-    HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError,
+    HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, PurgedRow,
     UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements, read_gone_worktree_candidates,
     read_purge_targets, read_range_and_links, session_deletion_statements,
 };
@@ -115,8 +116,9 @@ pub(crate) enum SessionPurgeError {
     /// queued.
     #[error("the session's plan is still being handed to a fresh session")]
     HandOffUnfinished,
-    /// The mark was taken off before the rows were deleted.
-    #[error("the session's purge mark was taken off before its rows were deleted")]
+    /// The mark was taken off before the rows were deleted, or a session deleted with no row came
+    /// to have one.
+    #[error("the session's row changed before its rows were deleted")]
     MarkLost,
     /// Events of the session committed past its range after the range was read again: a fault,
     /// since the session's append lock keeps every new append out.
@@ -163,12 +165,8 @@ pub(crate) enum SessionPurgeError {
 /// What the purge did to one session.
 #[derive(Debug)]
 pub(crate) enum SessionPurgeOutcome {
-    /// Every row naming the session is gone; `hand_out_failure` is why the project's other sessions
-    /// were not handed their rules again, when they were not.
-    Removed {
-        /// The failure of the rules' hand-out after the rows went.
-        hand_out_failure: Option<ApprovalRuleError>,
-    },
+    /// Every row naming the session is gone.
+    Removed,
     /// The session was refused, and why.
     Refused(SessionPurgeError),
 }
@@ -275,18 +273,16 @@ impl SessionPurge {
         let mut formerly_linked = HashSet::new();
         for session_id in session_ids {
             let outcome = match self.purge_session(*session_id, caller, &operation_id).await {
-                Ok(removal) => {
-                    formerly_linked.extend(removal.linked_session_ids);
-                    SessionPurgeOutcome::Removed {
-                        hand_out_failure: removal.hand_out_failure,
-                    }
+                Ok(linked_session_ids) => {
+                    formerly_linked.extend(linked_session_ids);
+                    SessionPurgeOutcome::Removed
                 }
                 Err(error) => SessionPurgeOutcome::Refused(error),
             };
             outcomes.push((*session_id, outcome));
         }
         for (session_id, outcome) in &outcomes {
-            if matches!(outcome, SessionPurgeOutcome::Removed { .. }) {
+            if matches!(outcome, SessionPurgeOutcome::Removed) {
                 formerly_linked.remove(session_id);
             }
         }
@@ -300,10 +296,10 @@ impl SessionPurge {
         session_id: SessionId,
         caller: PurgeCaller,
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
-    ) -> Result<SessionRemoval, SessionPurgeError> {
+    ) -> Result<Vec<SessionId>, SessionPurgeError> {
         let deps = &self.deps;
         let _transition = deps.transition_lock.acquire(session_id).await;
-        self.mark(session_id, caller).await?;
+        let row = self.mark(session_id, caller).await?;
         deps.list_feed.refresh([session_id]);
         deps.project_list_feed.refresh_sessions(&[session_id]);
         let targets = deps
@@ -338,7 +334,7 @@ impl SessionPurge {
             .await?;
 
         let linked_session_ids = self
-            .delete_rows(session_id, &targets.workflow_run_ids, operation_id)
+            .delete_rows(session_id, row, &targets.workflow_run_ids, operation_id)
             .await?;
         deps.recovery.mark_session_deleted(&session_id);
         // A name left behind only makes a later start read it and settle nothing.
@@ -357,39 +353,33 @@ impl SessionPurge {
         deps.questions.forget_purged_session(session_id);
         deps.list_feed.refresh([session_id]);
         deps.project_list_feed.refresh_sessions(&[session_id]);
-        let hand_out_failure = deps
-            .project_rules
-            .hand_out_after_purge(withdrawn)
-            .await
-            .err();
-        if let Some(failure) = &hand_out_failure {
+        if let Err(failure) = deps.project_rules.hand_out_after_purge(withdrawn).await {
             tracing::error!(
-                error = failure as &(dyn Error + 'static),
+                %session_id,
+                error = &failure as &(dyn Error + 'static),
                 "the project's other sessions were not handed their rules again after a purge"
             );
         }
         deps.payloads
             .reclaim_unreferenced(&deps.reads, targets.payload_hashes)
             .await;
-        Ok(SessionRemoval {
-            linked_session_ids,
-            hand_out_failure,
-        })
+        Ok(linked_session_ids)
     }
 
-    // Marks the session, or answers the unfinished hand-off or the state that refused the mark.
+    // Marks the session, or answers the unfinished hand-off or the state that refused the mark. A
+    // damaged session with no row is deleted without one: nothing runs in a session with no row.
     async fn mark(
         &self,
         session_id: SessionId,
         caller: PurgeCaller,
-    ) -> Result<(), SessionPurgeError> {
+    ) -> Result<PurgedRow, SessionPurgeError> {
         match self
             .deps
             .writer
             .write(mark_statements(session_id, caller))
             .await
         {
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(PurgedRow::Marked),
             Err(error) if error.refused_statement_index() == Some(HAND_OFF_GUARD_INDEX) => {
                 Err(SessionPurgeError::HandOffUnfinished)
             }
@@ -403,17 +393,22 @@ impl SessionPurge {
                         })
                     })
                     .await?;
-                Err(SessionPurgeError::NotMarkable { state })
+                match state {
+                    None if caller == PurgeCaller::DamagedHistory => Ok(PurgedRow::Absent),
+                    state => Err(SessionPurgeError::NotMarkable { state }),
+                }
             }
             Err(error) => Err(SessionPurgeError::Write(error)),
         }
     }
 
     // The one write that deletes every row naming the session with its receipt, under the
-    // session's append lock; answers the sessions it was linked to.
+    // session's append lock, while its row is still as `row` says; answers the sessions it was
+    // linked to.
     async fn delete_rows(
         &self,
         session_id: SessionId,
+        row: PurgedRow,
         workflow_run_ids: &[WorkflowRunId],
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     ) -> Result<Vec<SessionId>, SessionPurgeError> {
@@ -442,6 +437,7 @@ impl SessionPurge {
                 .await?;
             let statements = session_deletion_statements(
                 session_id,
+                row,
                 range.map(|(_first, last)| last),
                 workflow_run_ids,
                 &gone_worktree_ids,
@@ -532,7 +528,7 @@ impl SessionDeletePurge for SessionPurge {
                 .next()
                 .expect("a purge answers one outcome for each session id it was given");
             match outcome {
-                SessionPurgeOutcome::Removed { .. } => Ok(()),
+                SessionPurgeOutcome::Removed => Ok(()),
                 SessionPurgeOutcome::Refused(SessionPurgeError::NotMarkable { .. }) => {
                     Err(SessionDeletePurgeError::NotDeletable)
                 }
@@ -542,12 +538,6 @@ impl SessionDeletePurge for SessionPurge {
             }
         })
     }
-}
-
-// A session removed: the sessions it was linked to, and the rules' hand-out failure.
-struct SessionRemoval {
-    linked_session_ids: Vec<SessionId>,
-    hand_out_failure: Option<ApprovalRuleError>,
 }
 
 // A stored sequence, which the log only ever writes within the safe integers.

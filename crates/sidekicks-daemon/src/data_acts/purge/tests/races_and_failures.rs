@@ -93,7 +93,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     );
 
     assert!(
-        matches!(retried, SessionPurgeOutcome::Removed { .. }),
+        matches!(retried, SessionPurgeOutcome::Removed),
         "purging again finishes, got {retried:?}"
     );
     assert_eq!(state_of(&reader, session_id), None);
@@ -209,7 +209,7 @@ async fn an_append_queued_before_the_range_read_is_taken_into_the_receipt() {
 
     let outcome = only_outcome(outcome);
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the purge reads the range again and removes the session, got {outcome:?}"
     );
     assert_eq!(event_count(&reader, session_id), 0);

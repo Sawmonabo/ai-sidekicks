@@ -1,5 +1,6 @@
-//! The repack: a `VACUUM` the store refuses, a repack a run going live cancels, and a cancel that
-//! comes after the repack's first check.
+//! The repack: a `VACUUM` the store refuses, a repack a run going live cancels, a cancel that
+//! comes after the repack's first check, and a repack the temporary folder's volume is too short
+//! for.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +12,7 @@ use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget};
 use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-use super::{RepackEnd, RepackJobDeps, read_pages, repack, repack_job};
+use super::{RepackEnd, RepackJobDeps, VolumeFreeBytesReader, read_pages, repack, repack_job};
 use crate::database::connection::writer_open::open_database;
 use crate::database::schema::schema_parts;
 use crate::database::wal_truncation::WriteAheadLogTruncation;
@@ -60,12 +61,13 @@ fn repack_deps(
     database: &TestDatabase,
     writer: &Arc<DatabaseWriter>,
     live_runs: watch::Receiver<u32>,
+    read_volume_free_bytes: VolumeFreeBytesReader,
 ) -> Arc<RepackJobDeps> {
     Arc::new(RepackJobDeps::new(
         Arc::clone(writer),
         Arc::new(WriteAheadLogTruncation::new(Arc::clone(writer))),
         database.path(),
-        |_| Ok(u64::MAX),
+        read_volume_free_bytes,
         live_runs,
         TEST_REPACK_BUDGET,
     ))
@@ -98,7 +100,12 @@ async fn a_refused_vacuum_ends_the_job_and_changes_nothing() {
     );
     let live_runs = watch::Sender::new(0);
 
-    let mut repack = repack_job(repack_deps(&database, &writer, live_runs.subscribe()));
+    let mut repack = repack_job(repack_deps(
+        &database,
+        &writer,
+        live_runs.subscribe(),
+        |_| Ok(u64::MAX),
+    ));
     tokio::time::timeout(WAIT, repack(CancellationToken::new()))
         .await
         .expect("the job ends")
@@ -131,7 +138,12 @@ async fn a_run_going_live_cancels_a_waiting_repack() {
     });
     is_held.await.expect("the writer holds its writes");
     let live_runs = watch::Sender::new(0);
-    let mut repack = repack_job(repack_deps(&database, &writer, live_runs.subscribe()));
+    let mut repack = repack_job(repack_deps(
+        &database,
+        &writer,
+        live_runs.subscribe(),
+        |_| Ok(u64::MAX),
+    ));
     let mut running = Box::pin(repack(CancellationToken::new()));
     assert!(
         tokio::time::timeout(Duration::from_millis(300), &mut running)
@@ -151,6 +163,53 @@ async fn a_run_going_live_cancels_a_waiting_repack() {
         .expect("a canceled repack does not fail the job");
     hold.await.expect("the hold ends");
     assert_eq!(freelist_count(&database), free_before);
+}
+
+// A repack is skipped while SQLite's temporary folder's volume has less than twice the file free,
+// though the data folder's has room, and the same store repacks once both have room. Killed by a
+// room check that reads only the data folder's volume.
+#[tokio::test]
+async fn a_short_temporary_volume_skips_the_repack() {
+    let database = store_with_free_pages();
+    let free_before = freelist_count(&database);
+    let writer = Arc::new(
+        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens"),
+    );
+    let live_runs = watch::Sender::new(0);
+    // Room only on the volume of the folder that holds the database file.
+    let room_beside_the_file: VolumeFreeBytesReader = |folder| {
+        Ok(if folder.join("daemon.db").is_file() {
+            u64::MAX
+        } else {
+            0
+        })
+    };
+
+    let mut skipped = repack_job(repack_deps(
+        &database,
+        &writer,
+        live_runs.subscribe(),
+        room_beside_the_file,
+    ));
+    tokio::time::timeout(WAIT, skipped(CancellationToken::new()))
+        .await
+        .expect("the job ends")
+        .expect("a skipped repack does not fail the job");
+    assert_eq!(freelist_count(&database), free_before, "no repack ran");
+
+    let mut repack = repack_job(repack_deps(
+        &database,
+        &writer,
+        live_runs.subscribe(),
+        |_| Ok(u64::MAX),
+    ));
+    tokio::time::timeout(WAIT, repack(CancellationToken::new()))
+        .await
+        .expect("the job ends")
+        .expect("the repack ends");
+    assert_eq!(freelist_count(&database), 0);
 }
 
 // The truncation before the `VACUUM`, which runs after the repack's first check.

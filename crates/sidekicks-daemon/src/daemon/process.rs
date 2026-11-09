@@ -124,6 +124,7 @@ use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupt
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
 use crate::daemon::service_status::{StopRecord, record_start_failure, remove_service_status};
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
+use crate::data_acts::export::remove_cut_short_export;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
@@ -353,6 +354,8 @@ impl DaemonProcess {
         let data_folder = data_folder(home_folder);
         prepare_run_folder(run_folder).await?;
         remove_dead_monitor_sockets(&run_folder.folder_path).await;
+        // Under the data folder's lock and before the socket binds, so no export runs meanwhile.
+        remove_cut_short_export(&data_folder).await;
         let session_token = mint_session_token().map_err(DaemonStartError::SessionToken)?;
         self.crash_monitor = Some(CrashMonitor::start(
             &self.spawner,

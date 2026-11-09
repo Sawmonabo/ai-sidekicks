@@ -678,6 +678,7 @@ pub(crate) async fn register_method_inputs(
                     reads: Arc::clone(&reads),
                     read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
                     payloads: Arc::clone(&artifacts.payloads),
+                    data_folder: data_folder.to_path_buf(),
                 })),
                 erase: Arc::new(DataErase::new(DataEraseDeps {
                     data_folder: data_folder.to_path_buf(),

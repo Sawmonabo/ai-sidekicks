@@ -1,6 +1,6 @@
 //! What a purge erases: nothing of a purged session left readable in the file or its log, its
-//! tool-server connections, the states each caller purges from, and the log's truncation tried
-//! until no reader keeps it busy.
+//! tool-server connections, the states each caller purges from, a damaged session with no row,
+//! and the log's truncation tried until no reader keeps it busy.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -16,6 +16,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_recovery::damaged_history::{SessionDeletePurge as _, SessionDeletion};
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::test_fixture;
 use sidekicks_store::data_folder::session_storage_folder;
@@ -284,12 +285,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
 
     let outcome = only_outcome(report);
     assert!(
-        matches!(
-            outcome,
-            SessionPurgeOutcome::Removed {
-                hand_out_failure: None
-            }
-        ),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the session is removed, got {outcome:?}"
     );
     timeout(WAIT, fixture.truncation.settled())
@@ -401,7 +397,7 @@ async fn a_purge_closes_the_sessions_tool_server_connections() {
     );
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the session is removed, got {outcome:?}"
     );
     timeout(WAIT, probe.closed())
@@ -485,7 +481,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
 
     if is_removed {
         assert!(
-            matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+            matches!(outcome, SessionPurgeOutcome::Removed),
             "the session is removed, got {outcome:?}"
         );
         assert_eq!(state_of(&reader, session_id), None);
@@ -513,6 +509,38 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
                 .is_some()
         );
     }
+}
+
+// `Delete session` on a damaged session with no `sessions` row deletes its events without the
+// mark and answers that it was deleted, its damage forgotten. Killed by the mark required of a
+// session with no row, which refuses it as not markable.
+#[tokio::test]
+async fn a_damaged_session_with_no_row_is_deleted() {
+    let fixture = purge_fixture().await;
+    let reader = fixture.database.reader();
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+    append_event(&fixture.log, session_id, "Read").await;
+    fixture.recovery.mark_session_unreadable(&session_id);
+
+    fixture
+        .purge
+        .purge_deleted_session(session_id, SessionDeletion::DamagedHistory)
+        .await
+        .expect("the session is deleted");
+
+    assert_eq!(event_count(&reader, session_id), 0);
+    assert!(
+        receipts(&reader)
+            .iter()
+            .any(|(removed, _, _)| *removed == session_id.to_string()),
+        "the receipt names the session"
+    );
+    assert!(
+        fixture
+            .recovery
+            .read_session_write_refusal(&session_id)
+            .is_none()
+    );
 }
 
 // Kills: a busy truncation taken as done, and a truncation given up after its first busy answer.

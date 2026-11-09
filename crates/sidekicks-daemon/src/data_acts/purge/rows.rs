@@ -45,7 +45,8 @@ pub(super) const HAND_OFF_GUARD_INDEX: usize = 0;
 /// The position of the mark itself, in the mark's write.
 pub(super) const MARK_INDEX: usize = 1;
 
-/// The position of the guard that the session is still marked for purging, in the delete's write.
+/// The position of the guard that the session is still marked for purging, or still has no row, in
+/// the delete's write.
 pub(super) const MARKED_GUARD_INDEX: usize = 0;
 
 /// The position of the guard that no event of the session lies past the receipt's range.
@@ -95,6 +96,15 @@ impl PurgeCaller {
             Self::Retention | Self::DamagedHistory => None,
         }
     }
+}
+
+/// The session's row as the purge found it, which its delete's write holds to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PurgedRow {
+    /// Marked `purgeRequested`.
+    Marked,
+    /// No row: a damaged session whose row was never written or is gone.
+    Absent,
 }
 
 /// What the purge reads before it deletes a file: the session's workflow runs and the payloads its
@@ -176,6 +186,9 @@ static MARKED_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(SessionState::PurgeRequested)
     )
 });
+
+const ABSENT_GUARD_SQL: &str =
+    "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM sessions WHERE id = @sessionId)";
 
 const UPPER_BOUND_GUARD_SQL: &str = "
   SELECT 1 FROM session_events WHERE session_id = @sessionId AND sequence > @lastSequence LIMIT 1";
@@ -439,14 +452,15 @@ pub(super) async fn gone_worktree_ids(
     Ok(gone)
 }
 
-/// The one write that deletes every row naming the session, led by its two guards: the session is
-/// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
-/// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then its questions and the queued answers paired with them,
-/// then the session's own, its plans and its hand-off row among them, the chat's managed mount
-/// last.
+/// The one write that deletes every row naming the session, led by its two guards: the session's
+/// row is still as `row` says, and no event of it lies past `last_sequence` (its receipt's range,
+/// `None` for a session with no event). The workflow runs go first with every row hanging off them,
+/// then the rows keyed by the session's runs, then its questions and the queued answers paired with
+/// them, then the session's own, its plans and its hand-off row among them, the chat's managed
+/// mount last.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
+    row: PurgedRow,
     last_sequence: Option<i64>,
     workflow_run_ids: &[WorkflowRunId],
     gone_worktree_ids: &[String],
@@ -459,7 +473,10 @@ pub(super) fn session_deletion_statements(
     };
     let mut statements = vec![
         WriteStatement {
-            sql: Cow::Borrowed(MARKED_GUARD_SQL.as_str()),
+            sql: Cow::Borrowed(match row {
+                PurgedRow::Marked => MARKED_GUARD_SQL.as_str(),
+                PurgedRow::Absent => ABSENT_GUARD_SQL,
+            }),
             bindings: StatementBindings::Named(vec![session_binding()]),
             expected_row_count: Some(1),
         },

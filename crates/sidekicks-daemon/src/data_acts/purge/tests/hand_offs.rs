@@ -159,7 +159,7 @@ async fn a_fresh_sessions_purge_takes_its_storage_folder_and_hand_off_row() {
     let outcome = only_outcome(fixture.purge.purge(&[fresh], PurgeCaller::Retention).await);
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the fresh session is removed, got {outcome:?}"
     );
     assert!(
@@ -228,7 +228,7 @@ async fn a_planning_sessions_purge_waits_for_the_seed_and_takes_only_its_own_row
     );
 
     assert!(
-        matches!(removed, SessionPurgeOutcome::Removed { .. }),
+        matches!(removed, SessionPurgeOutcome::Removed),
         "the planning session is removed once the seed is queued, got {removed:?}"
     );
     assert_eq!(count(&reader, PLANS_OF_SESSION, planning), 0);

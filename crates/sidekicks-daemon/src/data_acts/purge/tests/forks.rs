@@ -123,7 +123,7 @@ async fn a_purged_parents_forks_stay_whole_and_name_no_parent() {
     let outcome = only_outcome(fixture.purge.purge(&[parent], PurgeCaller::Retention).await);
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the parent is purged, got {outcome:?}"
     );
     assert_eq!(state_of(&reader, parent), None);

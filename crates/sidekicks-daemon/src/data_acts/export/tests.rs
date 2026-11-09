@@ -3,6 +3,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use rstest::rstest;
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
 use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
@@ -20,7 +21,9 @@ use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
 use tokio::sync::watch;
 
 use super::{
-    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
+    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs,
+    RUNNING_EXPORT_RECORD_FILE_NAME, RunningExport, UNFINISHED_MARKER_FILE_NAME, is_finished,
+    record_running_export, remove_cut_short_export,
 };
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
@@ -145,9 +148,11 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 // A seeded store's export holds the session's events with a compressed body decoded, its queue
 // item and intervention, its file, the account with no home path and the README, and no byte of
 // a credential, pasted token, workflow secret or key; a second start while one runs and a start
-// into an existing folder are refused, and the end counts the one session. Killed by a compressed
-// body exported raw, by every account column read or the account's home copied, by a second
-// export let start, and by an end that counts no session.
+// into an existing folder are refused, the end counts the one session, and neither the marker nor
+// the record outlives it. Killed by a compressed body exported raw, by every account column read
+// or the account's home copied, by a second export let start, by an end that counts no session,
+// and by a marker or record left after the end, which would have the next start remove the
+// finished export.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
     let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
@@ -175,6 +180,7 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
         )),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
         payloads,
+        data_folder: store_folder.path().to_path_buf(),
     });
     let outside = tempfile::tempdir().expect("the person's folder is made");
     let destination = outside.path().join("sidekicks-export");
@@ -237,6 +243,13 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
         serde_json::json!([{ "provider": "claude", "name": "Work", "plan": "max" }])
     );
     assert!(destination.join("README.txt").is_file());
+    assert!(!destination.join(UNFINISHED_MARKER_FILE_NAME).exists());
+    assert!(
+        !store_folder
+            .path()
+            .join(RUNNING_EXPORT_RECORD_FILE_NAME)
+            .exists()
+    );
     for entry in walkdir::WalkDir::new(&destination) {
         let entry = entry.expect("the export lists");
         if entry.file_type().is_file() {
@@ -265,6 +278,7 @@ fn exports_of(log: &TranscriptTestLog, store_folder: &Path) -> DataExports {
         payloads: Arc::new(
             PayloadStore::new(store_folder.join("objects")).expect("the payload store opens"),
         ),
+        data_folder: store_folder.to_path_buf(),
     })
 }
 
@@ -468,4 +482,51 @@ async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
         .start(destination.clone())
         .expect("the same folder starts again");
     wait_until_finished(&exports, again).await;
+}
+
+// At the start, the folder of an export a restart cut short is removed while its marker is still
+// in it, and kept with every file in it once the marker is gone, as when the person reused the
+// folder; the record goes either way. Killed by a removal that does not look for the marker, by
+// one that never removes, and by a record left behind.
+#[rstest]
+#[case::marked(true)]
+#[case::reused(false)]
+#[tokio::test]
+async fn a_start_removes_a_cut_short_export_only_while_its_marker_is_in_it(
+    #[case] is_marked: bool,
+) {
+    let data_folder = tempfile::tempdir().expect("the data folder is made");
+    let outside = tempfile::tempdir().expect("the person's folder is made");
+    let destination = outside.path().join("sidekicks-export");
+    fs::create_dir(&destination).expect("the export's folder is made");
+    fs::write(destination.join("notes.txt"), "the person's own words")
+        .expect("a file is written in the folder");
+    let job_id = DataExportJobId::try_from(mint_uuid_v7()).expect("a minted UUID is a job id");
+    record_running_export(data_folder.path(), &destination, job_id)
+        .await
+        .expect("the export is recorded");
+    if !is_marked {
+        fs::remove_file(destination.join(UNFINISHED_MARKER_FILE_NAME))
+            .expect("the marker is removed");
+    }
+
+    remove_cut_short_export(data_folder.path()).await;
+
+    if is_marked {
+        assert!(
+            !destination.exists(),
+            "the cut-short export's folder is gone"
+        );
+    } else {
+        assert_eq!(
+            fs::read_to_string(destination.join("notes.txt")).expect("the file is kept"),
+            "the person's own words"
+        );
+    }
+    assert!(
+        !data_folder
+            .path()
+            .join(RUNNING_EXPORT_RECORD_FILE_NAME)
+            .exists()
+    );
 }

@@ -482,7 +482,7 @@ async fn a_purge_ends_its_sessions_legs_and_drops_its_stop_intent_name(#[case] d
     let closed = DriverCall::CloseSession(SessionCloseCause::Person);
     if does_leg_end {
         assert!(
-            matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+            matches!(outcome, SessionPurgeOutcome::Removed),
             "the purge finishes, got {outcome:?}"
         );
         assert_eq!(*lock(&calls), [closed, DriverCall::PurgeSession]);

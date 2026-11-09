@@ -239,16 +239,7 @@ async fn purge_old_data(
     let mut deleted = 0_u64;
     for (session_id, outcome) in &report.outcomes {
         match outcome {
-            SessionPurgeOutcome::Removed { hand_out_failure } => {
-                deleted += 1;
-                if let Some(failure) = hand_out_failure {
-                    tracing::warn!(
-                        %session_id,
-                        error = failure as &(dyn Error + 'static),
-                        "a purged session's project rules were not handed out again"
-                    );
-                }
-            }
+            SessionPurgeOutcome::Removed => deleted += 1,
             SessionPurgeOutcome::Refused(failure) => tracing::warn!(
                 %session_id,
                 error = failure as &(dyn Error + 'static),

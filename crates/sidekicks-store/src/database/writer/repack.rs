@@ -1,8 +1,9 @@
 //! The repack after `Delete old data`: on the writer's thread, between batches so no statement of
 //! the connection is stepping, it reads the file's page figures, truncates the write-ahead log,
 //! runs `VACUUM` and reads the figures again; the job then truncates the log the `VACUUM` wrote,
-//! retried until it succeeds, which is when the file shrinks. The job runs only while the data
-//! folder's volume has free room of at least twice the file, since a `VACUUM` can need that much;
+//! retried until it succeeds, which is when the file shrinks. A `VACUUM` writes its copy of the
+//! file to SQLite's temporary folder and then back through the log, so the job runs only while the
+//! data folder's volume and the temporary folder's each have free room of at least twice the file;
 //! otherwise it is skipped with one service-log line, and the next purge's repack tries again, as
 //! it does after a refused `VACUUM`. A run going live while it repacks cancels it: the `VACUUM`
 //! checks the cancel every thousand instructions and the queue interrupts it, so it rolls back
@@ -167,7 +168,7 @@ pub struct RepackJobDeps {
     pub truncation: Arc<WriteAheadLogTruncation>,
     /// The database file.
     pub database_path: PathBuf,
-    /// Reads the free room on the volume holding the database.
+    /// Reads the free room on the volume holding the database and on SQLite's temporary folder's.
     pub read_volume_free_bytes: VolumeFreeBytesReader,
     /// The count of live runs; one going live cancels the repack.
     pub live_runs: watch::Receiver<u32>,
@@ -212,9 +213,10 @@ impl RepackJobDeps {
 }
 
 /// The repack job a purge schedules, metered against its deps' budget: skipped with one
-/// service-log line unless the volume has free room of at least twice the file; a refused
-/// `VACUUM`, and one a run going live or the scheduler's stop interrupted, is written to the
-/// service log and tried after the next purge. Fails only when the writer has ended or closed.
+/// service-log line unless the data folder's volume and SQLite's temporary folder's each have free
+/// room of at least twice the file; a refused `VACUUM`, and one a run going live or the scheduler's
+/// stop interrupted, is written to the service log and tried after the next purge. Fails only when
+/// the writer has ended or closed.
 pub fn repack_job(
     deps: Arc<RepackJobDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
@@ -279,25 +281,37 @@ async fn run_repack(
     }
 }
 
-// Whether the volume holds at least twice the file free; a figure that cannot be read is written
-// to the service log and skips the repack.
+// Whether the data folder's volume and SQLite's temporary folder's each hold at least twice the
+// file free; a figure that cannot be read is written to the service log and skips the repack.
 async fn has_room_to_repack(deps: &RepackJobDeps) -> bool {
     let database_path = deps.database_path.clone();
     let read_volume_free_bytes = deps.read_volume_free_bytes;
     let figures = run_blocking(move || {
         let file_bytes = std::fs::metadata(&database_path)?.len();
-        let folder = database_path.parent().unwrap_or(&database_path);
-        Ok::<_, io::Error>((file_bytes, read_volume_free_bytes(folder)?))
+        let data_folder = database_path.parent().unwrap_or(&database_path);
+        let temporary_folder = sqlite_temporary_folder();
+        Ok::<_, io::Error>((
+            file_bytes,
+            read_volume_free_bytes(data_folder)?,
+            read_volume_free_bytes(&temporary_folder)?,
+            temporary_folder,
+        ))
     })
     .await;
     match figures {
-        Ok(Ok((file_bytes, free_bytes))) if free_bytes >= file_bytes.saturating_mul(2) => true,
-        Ok(Ok((file_bytes, free_bytes))) => {
+        Ok(Ok((file_bytes, free_bytes, temporary_free_bytes, _)))
+            if free_bytes.min(temporary_free_bytes) >= file_bytes.saturating_mul(2) =>
+        {
+            true
+        }
+        Ok(Ok((file_bytes, free_bytes, temporary_free_bytes, temporary_folder))) => {
             tracing::info!(
                 file_bytes,
                 free_bytes,
-                "the database's repack was skipped: the volume has less than twice the file free; \
-                 the next purge tries again"
+                temporary_free_bytes,
+                temporary_folder = %temporary_folder.display(),
+                "the database's repack was skipped: the data folder's volume or SQLite's temporary \
+                 folder's has less than twice the file free; the next purge tries again"
             );
             false
         }
@@ -316,6 +330,34 @@ async fn has_room_to_repack(deps: &RepackJobDeps) -> bool {
             false
         }
     }
+}
+
+// The folder SQLite writes a `VACUUM`'s temporary copy to, picked as SQLite picks it on Unix: the
+// first of `SQLITE_TMPDIR`, `TMPDIR`, `/var/tmp`, `/usr/tmp` and `/tmp` that is a folder whose mode
+// lets it be written, else the working folder. SQLite asks the system whether it can write there;
+// the mode bits stand in for that ask.
+#[cfg(unix)]
+fn sqlite_temporary_folder() -> PathBuf {
+    let named = ["SQLITE_TMPDIR", "TMPDIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from);
+    let fixed = ["/var/tmp", "/usr/tmp", "/tmp"]
+        .into_iter()
+        .map(PathBuf::from);
+    named
+        .chain(fixed)
+        .find(|folder| {
+            std::fs::metadata(folder)
+                .is_ok_and(|metadata| metadata.is_dir() && !metadata.permissions().readonly())
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+// The folder SQLite writes a `VACUUM`'s temporary copy to elsewhere: the system's temporary folder.
+#[cfg(not(unix))]
+fn sqlite_temporary_folder() -> PathBuf {
+    std::env::temp_dir()
 }
 
 #[cfg(test)]
