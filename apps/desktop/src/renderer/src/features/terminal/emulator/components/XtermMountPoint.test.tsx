@@ -1,7 +1,7 @@
 // The mount point's life and its write gate: one emulator per terminal id, kept across callback
-// and lease changes so scrollback survives, disposed on unmount or a failed setup, keystrokes
-// sent to the newest handler, and a keyboard that stays shut for a device that does not hold
-// the shell. The readers are in `XtermMountPoint.test-support.ts`.
+// and lease changes so scrollback survives, disposed on unmount or a failed setup, the shell's
+// output fed only while it is on screen, keystrokes sent to the newest handler, and a keyboard
+// that stays shut for a device that does not hold the shell. The readers are in `XtermMountPoint.test-support.ts`.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,34 @@ describe("the mount point — one adapter per mount", () => {
     // The adapter tore its own DOM down; nothing of the emulator is left behind in
     // a box React is about to drop.
     expect(mountElement.childElementCount).toBe(0);
+  });
+
+  it("opens the shell's output once on screen and closes it with the pane, before the emulator goes", async () => {
+    const outputOpens: XtermTerminalAdapter[] = [];
+    const emulatorChildrenAtClose: number[] = [];
+    // Read through the element itself: React takes the box out of the container before cleanup.
+    const shown: { mountElement?: HTMLElement } = {};
+    const { unmount, container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
+        isWriteEnabled={false}
+        label="Shell output"
+        openOutput={(adapter) => {
+          outputOpens.push(adapter);
+          return () => {
+            emulatorChildrenAtClose.push(shown.mountElement?.childElementCount ?? 0);
+          };
+        }}
+      />,
+    );
+    shown.mountElement = emulatorElementOf(container);
+    expect(outputOpens).toHaveLength(1);
+    expect(outputOpens[0]?.isEmulatorLive).toBe(true);
+    expect(emulatorChildrenAtClose).toStrictEqual([]);
+
+    unmount();
+    expect(emulatorChildrenAtClose).toHaveLength(1);
+    expect(emulatorChildrenAtClose[0]).toBeGreaterThan(0);
   });
 });
 

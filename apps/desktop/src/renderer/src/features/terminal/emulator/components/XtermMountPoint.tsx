@@ -14,7 +14,9 @@ import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import type { TerminalRendererMode } from "../xterm/addons.js";
+import type { XtermTerminalAdapter } from "../xterm/adapter.js";
 
 /** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {
@@ -33,6 +35,12 @@ export interface XtermMountPointProps {
    * context falls the instance back to the DOM renderer for good.
    */
   readonly onRendererMode?: ((mode: TerminalRendererMode) => void) | undefined;
+  /**
+   * Starts feeding the shell's output into the emulator once it is on screen, and returns what
+   * stops it before the emulator goes. A new function opens the feed again on a new emulator, so
+   * the parent keeps it stable for one shell.
+   */
+  readonly openOutput?: ((adapter: XtermTerminalAdapter) => Unsubscribe) | undefined;
 }
 
 /** The emulator's box for one terminal, with a region name that carries the write gate. */
@@ -46,7 +54,8 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     attempt: emulatorAttempt,
   } = useChunkLoad(terminalEmulatorLoader, "terminal-emulator-chunk");
 
-  const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
+  const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode, openOutput } =
+    props;
   const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
   // Callbacks live in `callbacksRef`, so a parent's fresh function identities do not rebuild
   // the emulator and drop its scrollback. What the terminal can do is what rebuilds it: gaining
@@ -83,6 +92,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     });
     adapterRef.current = adapter;
     let unsubscribeFromRendererMode: (() => void) | undefined;
+    let closeOutput: Unsubscribe | undefined;
     // One guard around every step that can leave an emulator behind: React pairs a disposal
     // only with the cleanup this effect returns. `subscribeToRendererMode` delivers the mode
     // synchronously, so a throwing `onRendererMode` would escape before the cleanup existed
@@ -95,6 +105,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
         setRendererMode(mode);
         callbacksRef.current.onRendererMode?.(mode);
       });
+      closeOutput = openOutput?.(adapter);
     } catch (setupFailure: unknown) {
       adapterRef.current = undefined;
       adapter.dispose();
@@ -104,10 +115,20 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       adapterRef.current = undefined;
       // Before the disposal, so its mode reset is not delivered into a tree React is dropping.
       unsubscribeFromRendererMode?.();
+      // Before the disposal, so no frame is written into an emulator that is gone.
+      closeOutput?.();
       // Final, not `detach()`: the pane is going away, so the renderer hold must go back.
       adapter.dispose();
     };
-  }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef, isWritableRef]);
+  }, [
+    emulator,
+    terminalId,
+    canWriteToWire,
+    canActivateLinks,
+    callbacksRef,
+    isWritableRef,
+    openOutput,
+  ]);
 
   // A text size step moves the type step the stylesheet sets the grid in, which the emulator
   // reads only on attach and when told.

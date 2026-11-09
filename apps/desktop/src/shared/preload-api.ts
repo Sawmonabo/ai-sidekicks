@@ -26,6 +26,7 @@ import type {
   MachineSettingsReading,
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine/settings";
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { Place } from "@ai-sidekicks/contracts/place";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
@@ -409,7 +410,8 @@ export interface DaemonWire {
    * that ends, because the daemon completed or refused it or the link or the helper under it
    * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
    * Each value comes with the bytes its `{"$bytes": n}` members name, and the token main minted
-   * for each path it offers to open, keyed by the path, where it offers one.
+   * for each path it offers to open, keyed by the path, where it offers one. `onOpened` is told
+   * the subscription's id once the daemon acknowledges a subscribe answered with the id alone.
    */
   subscribe<E extends DaemonWireTopic>(
     event: E,
@@ -420,6 +422,7 @@ export interface DaemonWire {
       fileRefs?: Readonly<Record<string, FilePathRef>>,
     ) => void,
     onEnded?: (end: DaemonSubscriptionEnd) => void,
+    onOpened?: (subscriptionId: SubscriptionId) => void,
   ): Unsubscribe;
   /**
    * Start the background service again with a full set of attempts: the boot card's `Retry`.

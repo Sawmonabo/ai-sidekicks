@@ -1,7 +1,8 @@
 // The page's daemon wire over its port to the client helper, with the helper's end played by the
 // test: a helper that exits mid-call fails that call once and the next call rides the new port, and
 // a stream the page held ends as failed and reopens on the new port from the cursor its owner kept,
-// with nothing drawn while no port is held.
+// with nothing drawn while no port is held; a subscribe acknowledged with its id alone hands the
+// id to its owner and delivers nothing.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -138,5 +139,38 @@ describe("the page's port to the client helper", () => {
       params: { sessionId: "s", afterCursor: "c-7" },
     });
     expect(drawn).toStrictEqual([{ cursor: "c-7" }]);
+  });
+
+  it("hands an acknowledgment's subscription id to its owner and delivers nothing for it", async () => {
+    const { client, helperEnds } = pageWithHelper();
+    const drawn: unknown[] = [];
+    const openedIds: string[] = [];
+    client.subscribe(
+      "terminal.output.subscribe",
+      { sessionId: "s", terminalId: "t" },
+      (value) => {
+        drawn.push(value);
+      },
+      undefined,
+      (subscriptionId) => {
+        openedIds.push(subscriptionId);
+      },
+    );
+    await vi.waitFor(() => {
+      expect(helperEnds[0]?.received).toHaveLength(1);
+    });
+    const opened = helperEnds[0]?.received[0];
+    if (opened?.kind !== "stream.open") {
+      throw new Error("expected the stream on the port");
+    }
+    const subscriptionId = "019b7b30-0280-79a4-8110-cca0117a0134";
+    helperEnds[0]?.answer({
+      kind: "stream.opened",
+      streamId: opened.streamId,
+      json: JSON.stringify({ subscriptionId }),
+      attachments: [],
+    });
+    expect(openedIds).toStrictEqual([subscriptionId]);
+    expect(drawn).toStrictEqual([]);
   });
 });

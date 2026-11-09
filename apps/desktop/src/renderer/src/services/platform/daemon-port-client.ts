@@ -7,6 +7,11 @@
 // params is sent as a `{"$bytes": n}` member and its bytes, and a reply's or a value's bytes come
 // back beside it for its check to read.
 
+import {
+  type SubscriptionId,
+  validateSubscribeAcknowledgmentResponse,
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+
 import { DAEMON_PORT_MESSAGE } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
@@ -84,16 +89,17 @@ export class DaemonPortClient {
   /**
    * Open a stream of `event`, delivering each value, its bytes and the tokens main minted for the
    * paths it offers until it is closed or ends; its end is told once, unless the page closed it
-   * first.
+   * first. `onOpened` is told the subscription's id when the acknowledgment is the id alone.
    */
   public subscribe(
     event: string,
     params: unknown,
     deliver: StreamDelivery,
     onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined,
+    onOpened?: ((subscriptionId: SubscriptionId) => void) | undefined,
   ): Unsubscribe {
     const streamId = this.#nextId++;
-    this.#streams.set(streamId, { deliver, onEnded });
+    this.#streams.set(streamId, { deliver, onEnded, onOpened });
     const attachments: Uint8Array[] = [];
     this.#send({
       kind: "stream.open",
@@ -162,8 +168,11 @@ export class DaemonPortClient {
       case "stream.opened": {
         // A subscribe answered with more than its id, as a list's carries the list, opens with it.
         const acknowledgment = JSON.parse(answer.json) as unknown;
-        if (carriesMoreThanId(acknowledgment)) {
-          this.#streams.get(answer.streamId)?.deliver(acknowledgment, answer.attachments);
+        const stream = this.#streams.get(answer.streamId);
+        if (validateSubscribeAcknowledgmentResponse(acknowledgment)) {
+          stream?.onOpened?.(acknowledgment.subscriptionId);
+        } else if (carriesMoreThanId(acknowledgment)) {
+          stream?.deliver(acknowledgment, answer.attachments);
         }
         return;
       }
@@ -214,10 +223,10 @@ export function createDaemonPortWire(preload: DaemonPreload, page: DaemonPortWin
     // The reply's type is the method's, which the caller's check confirms.
     call: ((method: string, params: unknown) =>
       client.call(method, params)) as unknown as DaemonWire["call"],
-    subscribe: (event, params, handler, onEnded) =>
+    subscribe: (event, params, handler, onEnded, onOpened) =>
       event === DAEMON_STATUS_TOPIC
         ? preload.subscribeStatus(handler as (state: unknown) => void)
-        : client.subscribe(event, params, handler as StreamDelivery, onEnded),
+        : client.subscribe(event, params, handler as StreamDelivery, onEnded, onOpened),
     requestStart: () => preload.requestStart(),
   };
 }
@@ -239,6 +248,7 @@ interface PendingCall {
 interface OpenStream {
   readonly deliver: StreamDelivery;
   readonly onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined;
+  readonly onOpened: ((subscriptionId: SubscriptionId) => void) | undefined;
 }
 
 /** Whether a subscribe's acknowledgment carries more than the subscription's id. */

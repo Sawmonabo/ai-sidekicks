@@ -1,56 +1,49 @@
-// The terminal pane once a session is addressed: the emulator under the shell's lease.
+// The terminal pane once a session is addressed: the session's shells, read off its shell list.
 //
-// Split from `TerminalPane.tsx` because the store hooks may only be called when there is a
-// store. The pane shows the shell keyed by the session's id, and its write gate opens on the
-// lease folded from the session's standing events against this device's id, which main's
-// connection to the service was given; until that id is known another device's hold, or this
-// device's own, reads as not yet read and the body stays read-only. The standing events hold the
-// shell's newest change of holder whatever rows the transcript's window holds.
+// Split from `TerminalPane.tsx` because the store hooks may only be called when there is a store.
+// Until the list is read the pane reads `Loading the terminal…`; with no tab strip yet it shows
+// the list's first shell, and a session with none has one opened for it.
 
-import { useMemo } from "react";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { TerminalId } from "@ai-sidekicks/contracts/terminal";
-
-import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { selectStandingEvents } from "#renderer/store/session/selectors.js";
-import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
-import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
-import {
-  canTypeIntoShell,
-  projectTerminalLease,
-  type TerminalLeaseState,
-} from "../../lease/state.js";
+import { useSessionShells } from "../hooks/useSessionShells.js";
+import { ShellBody } from "./ShellBody.js";
 
-/** The shell body's accessible name. */
-const TERMINAL_OUTPUT_LABEL = "Shell output";
-
-/** The store of the session whose shell the pane shows, and the window's, for this device's id. */
+/** The bridge the shells' streams ride, the session's store, and the window's, for this device. */
 export interface SessionTerminalPaneProps {
+  readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
   readonly frameStore: WindowStore;
 }
 
-/** The emulator under the shell's lease, for one addressed session. */
+/** The session's shown shell, or the line saying it is not read yet or why it cannot be. */
 export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.Element {
-  const { sessionStore, frameStore } = props;
-  const sessionId = sessionStore.sessionId;
-  const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
-  const thisDeviceId = useMainProcessState(frameStore).negotiation?.deviceId;
-
-  // The selector returns the stored array, so the fold reruns only when its identity changes.
-  const lease: TerminalLeaseState = useMemo(
-    () =>
-      projectTerminalLease(standingEvents, { terminalId: sessionId as TerminalId, thisDeviceId }),
-    [sessionId, thisDeviceId, standingEvents],
-  );
+  const { bridge, sessionStore, frameStore } = props;
+  // The store keys a session by the daemon's own id.
+  const sessionId = sessionStore.sessionId as SessionId;
+  const { terminals, refusal } = useSessionShells(bridge, sessionId);
+  const shownShell = terminals?.[0];
 
   return (
-    <XtermMountPoint
-      terminalId={sessionId}
-      isWriteEnabled={canTypeIntoShell(lease.holder)}
-      label={TERMINAL_OUTPUT_LABEL}
-    />
+    <>
+      {shownShell === undefined ? (
+        <Nothing kind="not-loaded" placement="block" title="Loading the terminal…" />
+      ) : (
+        <ShellBody
+          key={shownShell.terminalId}
+          bridge={bridge}
+          sessionId={sessionId}
+          sessionStore={sessionStore}
+          frameStore={frameStore}
+          shell={shownShell}
+        />
+      )}
+      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+    </>
   );
 }

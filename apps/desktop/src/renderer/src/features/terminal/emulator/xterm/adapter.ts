@@ -149,6 +149,28 @@ export class XtermTerminalAdapter {
   }
 
   /**
+   * Draw a scrollback window afresh: clear the screen and its history, size the grid to the
+   * columns and rows the window was last drawn at so a program's boxes come back unwrapped, write
+   * the window, then fit the grid back to its mount element. The clear and the resize take effect
+   * at once rather than in write order, so call it only once every earlier write has been parsed.
+   */
+  public redrawScrollback(
+    window: { readonly data: Uint8Array; readonly columns: number; readonly rows: number },
+    onDrawn?: (() => void) | undefined,
+  ): void {
+    const terminal = this.#terminal;
+    if (terminal === undefined) {
+      return;
+    }
+    terminal.reset();
+    terminal.resize(window.columns, window.rows);
+    terminal.write(window.data, () => {
+      this.fitToMountPoint();
+      onDrawn?.();
+    });
+  }
+
+  /**
    * Re-measure the grid against its mount element; the observer drives it, no timer. Skipped
    * before the emulator is built or while detached, when there is no grid or no box.
    */

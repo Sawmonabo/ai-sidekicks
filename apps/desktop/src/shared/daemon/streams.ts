@@ -43,6 +43,13 @@ export const SESSION_LIST_STREAM: Subscription<"session.subscribe"> = "session.s
 /** The subscription name for the machine's projects: the whole list, then again on each change. */
 export const PROJECT_LIST_STREAM: Subscription<"project.subscribe"> = "project.subscribe";
 
+/** The subscription name for a session's shells: the whole list, then again on each change. */
+export const TERMINAL_LIST_STREAM: Subscription<"terminal.subscribe"> = "terminal.subscribe";
+
+/** The subscription name for one shell's output: its scrollback window, then what it writes. */
+export const TERMINAL_OUTPUT_STREAM: Subscription<"terminal.output.subscribe"> =
+  "terminal.output.subscribe";
+
 /** The subscription name for the machine's settings file: the file, then each written change. */
 export const MACHINE_SETTINGS_STREAM: Subscription<"machine.settings.subscribe"> =
   "machine.settings.subscribe";
@@ -59,4 +66,6 @@ export type DaemonStream =
   | typeof WORKFLOW_NOTICE_STREAM
   | typeof SESSION_LIST_STREAM
   | typeof PROJECT_LIST_STREAM
+  | typeof TERMINAL_LIST_STREAM
+  | typeof TERMINAL_OUTPUT_STREAM
   | typeof MACHINE_SETTINGS_STREAM;
