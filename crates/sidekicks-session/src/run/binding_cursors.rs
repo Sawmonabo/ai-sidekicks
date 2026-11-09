@@ -424,6 +424,26 @@ impl RunBindingCursors {
         Ok(())
     }
 
+    /// Lifts the fence a fork and restart set on `binding_id`, the binding it cut, once the fork's
+    /// binding was not recorded: the cut binding's cursor counts on unfrozen, and it is again its
+    /// session's current binding. A binding with no cursor open is already gone.
+    pub fn lift_fork_fence(&self, binding_id: &RuntimeBindingId) {
+        let mut sessions = self.lock_sessions();
+        let mut epochs = lock(&self.epochs);
+        let Ok(run_id) = epochs.binding(binding_id).map(|binding| binding.run_id) else {
+            return;
+        };
+        epochs.lift_freeze(binding_id);
+        if let Some(session) = sessions.by_session.values_mut().find(|session| {
+            session
+                .binding_ids_by_run
+                .get(&run_id)
+                .is_some_and(|binding_ids| binding_ids.contains(binding_id))
+        }) {
+            session.current_binding = Some((run_id, binding_id.clone()));
+        }
+    }
+
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
     /// drop and its continue unmarks them; a close drops all, and an open or a continue of the
     /// session in flight opens none. Fails when a run state change's payload does not read as its

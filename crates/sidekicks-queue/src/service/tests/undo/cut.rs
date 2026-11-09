@@ -36,6 +36,7 @@ use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::engine::undo::{
     RollbackCheckError, RollbackCompanionCheck, RollbackCompanions,
 };
+use sidekicks_session::run::epochs::ConfirmedCut;
 use sidekicks_session::run::state_change::{RunWriteCompanions, RunWriteError};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::appender::SessionEventDraft;
@@ -405,15 +406,22 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
 }
 
 // A fork whose row the store refuses, its handle past the bound, fails the cut once its process is
-// closed with the append lock free, leaving the session on no binding and the fork's cursor
-// closed, while the rollback stays recorded. Killed by the store's failure swallowed, by the
-// fork's cursor left open, by no close, by a close with another cause, and by a close made under
-// the append hold or the queue's hold.
+// closed with the append lock free, leaving the session on the binding it was cut on, its cursor
+// unfrozen, its process forgotten as opened and the fork's cursor closed, while the rollback stays
+// recorded. Killed by the store's failure swallowed, by the fork's cursor left open, by no close,
+// by a close with another cause, by a close made under the append hold or the queue's hold, by
+// the source's freeze kept, by the session left on no binding and by the opened record kept.
 #[tokio::test]
 async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
     let fork_binding_id = mint_runtime_binding_id();
     let scene = scene(applied_on_fork(&fork_binding_id, &"f".repeat(4_097))).await;
     let fixture = &scene.fixture;
+    let provider_sessions = &fixture.queue.provider_sessions;
+    assert!(provider_sessions.is_opened(fixture.session_id));
+    let source_binding_id = provider_sessions
+        .binding_cursors()
+        .current_binding(&fixture.session_id)
+        .expect("the scene runs on a binding");
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, client_key())
@@ -441,9 +449,23 @@ async fn a_fork_the_daemon_cannot_record_is_closed_and_fails_the_cut() {
             is_queue_lock_free: true,
         }]
     );
-    let binding_cursors = fixture.queue.provider_sessions.binding_cursors();
-    assert_eq!(binding_cursors.current_binding(&fixture.session_id), None);
+    let binding_cursors = provider_sessions.binding_cursors();
+    assert_eq!(
+        binding_cursors.current_binding(&fixture.session_id),
+        Some(source_binding_id.clone())
+    );
     assert!(!binding_cursors.is_binding_open(&fork_binding_id));
+    assert!(!provider_sessions.is_opened(fixture.session_id));
+    // A frozen cursor refuses every later cut.
+    assert!(
+        binding_cursors
+            .fence_cut(ConfirmedCut::InPlace {
+                binding_id: source_binding_id,
+                point: position(TARGET_POSITION),
+            })
+            .is_ok(),
+        "the source binding's cursor is unfrozen"
+    );
     assert!(
         fixture
             .event_types()

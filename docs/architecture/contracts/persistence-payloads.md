@@ -142,12 +142,12 @@ interface SessionRestorePreviewResponse {
   // What would be skipped, each with its reason. The count is stated and each entry is readable,
   // because a skip the person cannot inspect is a silent partial restore.
   skipped: Array<{ path: string; reason: SessionRestoreSkipReason }>;
-  // The agents started after the point, which the question names before it acts: on Claude Code the
-  // conversation cut ends them and they cannot be resumed, on Codex the daemon stops each by id and
-  // they resume. Zero means the question asks nothing extra.
-  affectedChildCount: number;
-  // The commands still running after the point, which the undo stops.
-  runningCommands: number;
+  // The agents and commands started after the point that are still running, by id, which the
+  // question names before it acts and the undo stops: on Claude Code the conversation cut ends the
+  // agents and they cannot be resumed, on Codex the daemon stops each by id and they resume. Empty
+  // lists mean the question asks nothing extra. The undo sends these ids back as the person's
+  // consent.
+  stops: SessionRestoreStops;
   // The data of the two lines the count's hover title carries whenever a command ran after the
   // point: the ignored folders an ordinary undo never puts back, by name, and whether a command ran
   // at all.

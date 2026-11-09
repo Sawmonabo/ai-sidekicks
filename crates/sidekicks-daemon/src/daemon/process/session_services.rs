@@ -38,7 +38,10 @@ use sidekicks_queue::provider_session::{
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
+use sidekicks_queue::service::undo::order::UndoService;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
+use sidekicks_queue::undo::{UndoStops, UndoStopsDeps};
+use sidekicks_session::agent_tree::sweep::AgentTreeSweep;
 use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::checkpoints::command_windows::{CommandWindows, CommandWindowsDeps};
@@ -215,6 +218,12 @@ pub(crate) struct SessionServices {
     pub(crate) signals: Arc<QueueChangeSignals>,
     /// Records, accepts and dispatches interventions.
     pub(crate) interventions: Arc<InterventionService>,
+    /// Runs every undo in its one order.
+    #[expect(
+        dead_code,
+        reason = "the undo's handler and recovery's undo to where both sides agree call it"
+    )]
+    pub(crate) undo: Arc<UndoService>,
     /// Pauses and resumes runs.
     pub(crate) pauses: Arc<RunPauseControl>,
     /// Answers the choices a provider holds runs on.
@@ -550,6 +559,23 @@ pub(crate) fn build_session_services(
     engine
         .set_limit_interrupter(Arc::downgrade(&interventions) as Weak<_>)
         .expect("a new engine holds no interventions service yet");
+    let undo = Arc::new(UndoService::new(
+        Arc::clone(&queue),
+        Arc::clone(&interventions),
+        UndoStops::new(UndoStopsDeps {
+            pool: Arc::clone(&reads),
+            event_log: Arc::clone(&event_log),
+            providers: Arc::clone(&providers),
+            read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+            running_commands: Arc::clone(&running_commands),
+            sweep: AgentTreeSweep::new(
+                Arc::clone(&reads),
+                Arc::clone(&providers),
+                (*interventions).clone(),
+                Arc::clone(&appender),
+            ),
+        }),
+    ));
     let related_ranking = Arc::new(SessionRelatedRanking::new(
         Arc::clone(&reads),
         Arc::clone(&writer),
@@ -580,6 +606,7 @@ pub(crate) fn build_session_services(
         resumed_runs,
         signals,
         interventions,
+        undo,
         pauses,
         choices,
         binding_cursors,

@@ -441,10 +441,11 @@ async fn stops_exactly_what_the_reader_names() {
         [helper_run]
     );
 
-    let stopped = tokio::time::timeout(WAIT, step.stop_started_after(scene.session_id, point))
-        .await
-        .expect("the step answers once everything ended")
-        .expect("every stop stopped");
+    let stopped =
+        tokio::time::timeout(WAIT, step.stop_started_after(scene.session_id, point, None))
+            .await
+            .expect("the step answers once everything ended")
+            .expect("every stop stopped");
 
     assert_eq!(stopped, named);
     let mut stopped_commands = ids(&lock(&stops.commands));
@@ -481,7 +482,7 @@ async fn answers_only_after_each_end_is_in_the_log() {
     let session_id = scene.session_id;
     let stopping = tokio::spawn({
         let step = Arc::clone(&step);
-        async move { step.stop_started_after(session_id, point).await }
+        async move { step.stop_started_after(session_id, point, None).await }
     });
     tokio::time::timeout(WAIT, async {
         while lock(&stops.commands).is_empty() || lock(&stops.helpers).is_empty() {
@@ -526,7 +527,7 @@ async fn names_what_still_runs_after_the_bound() {
     let step = scene.stops(driver);
 
     let failure = step
-        .stop_started_after(scene.session_id, point)
+        .stop_started_after(scene.session_id, point, None)
         .await
         .expect_err("the command never ends");
 

@@ -3,8 +3,10 @@
 //! and recorded as one rollback write of every run it reaches with the caller's companions, then
 //! fenced on the session's live binding, a fork the provider cut onto recorded as that binding's
 //! relaunch once the fence opened its cursor; and the release, which sends the edited message ahead
-//! of every send held meanwhile and opens the lead's next turn with it.
+//! of every send held meanwhile and opens the lead's next turn with it. The order an undo runs
+//! these in, with its stops and the lead's interrupt between, is `order`'s.
 
+pub mod order;
 pub(crate) mod reach;
 
 use std::sync::{Arc, Weak};
@@ -239,13 +241,13 @@ impl RunQueue {
     /// committing in it, and the cut is fenced on the session's live binding; a fork the provider
     /// cut onto is recorded in that write as a conversation the binding left, so the purge reaches
     /// it whatever follows, and then as that binding's relaunch, the conversation it left with it,
-    /// under the same holds; the hold stays.
-    /// A turn opening on the session that meets the write in progress opens once the write has
-    /// ended. Refuses as [`ConversationCutError`] says before the provider is asked, an open turn
-    /// among the runs it reaches and a companion its check refuses included; a provider's fallback
-    /// or failure writes nothing, a write the store does not record once the provider cut answers
-    /// [`ConversationCutError::Unrecorded`], and a fork whose fence or row is refused is closed
-    /// and answers [`ConversationCutError::ForkUnrecorded`].
+    /// under the same holds; the hold stays. A turn opening on the session that meets the write in
+    /// progress opens once the write has ended. Refuses as [`ConversationCutError`] says before the
+    /// provider is asked, an open turn among the runs it reaches and a companion its check refuses
+    /// included; a provider's fallback or failure writes nothing, a write the store does not record
+    /// once the provider cut answers [`ConversationCutError::Unrecorded`], and a fork whose fence
+    /// or row is refused is closed and answers [`ConversationCutError::ForkUnrecorded`], the
+    /// session left on the binding it was cut on, unfrozen, and its process forgotten as opened.
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
@@ -331,11 +333,13 @@ impl RunQueue {
         };
         // The fork's row is recorded once this fence opened its cursor, under both holds: a row
         // recorded through a path that opens a cursor would be refused the one the fence opened.
+        let source_binding_id = reach.binding.id.clone();
         let fenced = binding_cursors.fence_cut(ConfirmedCut::ForkRestart {
             binding_id: reach.binding.id.clone(),
             point: reach.binding_point,
             new_binding_id: fork.binding_id.clone(),
         });
+        let is_fenced = fenced.is_ok();
         let recorded = match fenced {
             Ok(()) => {
                 let left_conversations = LeftConversation::of_relaunch(
@@ -364,6 +368,13 @@ impl RunQueue {
             drop(append_hold);
             drop(queue_hold);
             let error = close_unrecorded(driver.as_ref(), session_id, failure.into()).await;
+            // The session carries on from the binding it was cut on, its log holding the rollback
+            // and its conversation the turns rolled back until its next turn; a fence refused set
+            // no freeze, and one set earlier stays.
+            if is_fenced {
+                binding_cursors.lift_fork_fence(&source_binding_id);
+            }
+            self.provider_sessions.forget_unrecorded_fork(session_id);
             tracing::error!(
                 session_id = %session_id,
                 error = &error as &(dyn std::error::Error + 'static),

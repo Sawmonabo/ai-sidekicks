@@ -341,6 +341,15 @@ impl ProviderSessions {
         self.deps.process_follower.forget_closed(session_id);
     }
 
+    /// Forgets `session_id`'s process as opened once an undo's fork onto it was closed unrecorded,
+    /// so the session's next admission opens it again on its source binding's conversation.
+    pub(crate) fn forget_unrecorded_fork(&self, session_id: SessionId) {
+        self.lock_opened().remove(&session_id);
+        self.deps
+            .execution_postures
+            .forget_moved_posture(&session_id);
+    }
+
     /// Whether this daemon opened `session_id`'s process: created, resumed or joined, and not
     /// deferred, closed or forgotten since.
     pub(crate) fn is_opened(&self, session_id: SessionId) -> bool {
