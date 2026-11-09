@@ -4,12 +4,14 @@
 // link out of it. The `@` box searches once a burst of typing pauses, so each search reads the
 // folder once, and searches that arrive while a read of their folder is under way share it.
 
+import { readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { basename, join, sep } from "node:path";
 
 import type { Database } from "better-sqlite3";
 
-import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
+import { FuzzyMatcher } from "@ai-sidekicks/search-ranking";
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
@@ -26,6 +28,11 @@ import { listWorkingFolder } from "./listing.js";
 
 // The most paths one `@` file search answers.
 const FILE_SEARCH_RESULT_MAX = 50;
+
+// Node's `WebAssembly`, which `@types/node` leaves to the DOM library the daemon does not load.
+const NodeWebAssembly = (
+  globalThis as unknown as { WebAssembly: { Module: new (bytes: Uint8Array) => object } }
+).WebAssembly;
 
 // A path that vanished, or whose links never end, has no real location to keep.
 const UNRESOLVABLE_PATH_CODES: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
@@ -52,6 +59,7 @@ export class FileSearchService {
   readonly #git: GitCommand;
   readonly #writeServiceLog: ServiceLogWriter;
   readonly #readWorkingFolder: (sessionId: SessionId) => SessionWorkingFolder;
+  readonly #matcher = new FuzzyMatcher();
   // Each working folder's read under way, which the searches arriving meanwhile share.
   readonly #listings = new Map<string, Promise<string[]>>();
 
@@ -59,6 +67,14 @@ export class FileSearchService {
     this.#git = deps.git;
     this.#writeServiceLog = deps.writeServiceLog;
     this.#readWorkingFolder = prepareWorkingFolderRead(deps.reader);
+    // Node compiles the matcher's module itself, from the file its package builds.
+    this.#matcher.provide(
+      new NodeWebAssembly.Module(
+        readFileSync(
+          createRequire(import.meta.url).resolve("@ai-sidekicks/search-ranking/matcher.wasm"),
+        ),
+      ),
+    );
   }
 
   /**
@@ -76,7 +92,7 @@ export class FileSearchService {
       );
     }
     const listedPaths = await this.#listingOf(workingFolder);
-    const rankedPaths = rankPaths(listedPaths, request.query);
+    const rankedPaths = rankPaths(this.#matcher, listedPaths, request.query);
     return {
       paths: await keepContainedPaths(workingFolder, rankedPaths),
       searchedFileCount: listedPaths.length,
@@ -101,22 +117,30 @@ export class FileSearchService {
 }
 
 // Every path the query matches, best first; an empty query keeps every path in path order.
-function rankPaths(paths: readonly string[], query: string): string[] {
+function rankPaths(matcher: FuzzyMatcher, paths: readonly string[], query: string): string[] {
   if (query.length === 0) {
     return [...paths].sort(comparePaths);
   }
   const ranked: RankedPath[] = [];
-  for (const path of paths) {
-    const nameMatch = scoreSubsequence(basename(path), query);
-    if (nameMatch !== undefined) {
+  const unnamedPaths: string[] = [];
+  const nameMatches = matcher.scoreList(
+    paths.map((path) => basename(path)),
+    query,
+  );
+  paths.forEach((path, index) => {
+    const nameMatch = nameMatches[index];
+    if (nameMatch === undefined) {
+      unnamedPaths.push(path);
+    } else {
       ranked.push({ path, isNameMatch: true, score: nameMatch.score });
-      continue;
     }
-    const pathMatch = scoreSubsequence(path, query);
-    if (pathMatch !== undefined) {
+  });
+  matcher.scoreList(unnamedPaths, query).forEach((pathMatch, index) => {
+    const path = unnamedPaths[index];
+    if (pathMatch !== undefined && path !== undefined) {
       ranked.push({ path, isNameMatch: false, score: pathMatch.score });
     }
-  }
+  });
   return ranked
     .sort(
       (left, right) =>
