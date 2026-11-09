@@ -8,15 +8,19 @@ use std::time::Duration;
 use crate::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
 use crate::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
+    ClaudeSdkMcpServerConfig,
 };
 use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
+/// Claude Code's own cap on a wait it times, in milliseconds: about 24.8 days.
+const CLAUDE_CODE_TIMEOUT_CAP_MILLISECONDS: u64 = 2_147_483_647;
+
 /// How long Claude Code waits on a held callback, in seconds: the largest whole second under
-/// Claude Code's own cap of 2,147,483,647 ms, about 24.8 days. Without it a callback left
-/// unanswered is canceled after Claude Code's own ten minutes.
-const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS: u64 = 2_147_483;
+/// Claude Code's own cap. Without it a callback left unanswered is canceled after Claude Code's own
+/// ten minutes.
+const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS: u64 = CLAUDE_CODE_TIMEOUT_CAP_MILLISECONDS / 1000;
 
 /// How long a paused helper's call is held before the daemon answers it to be made again: one day
 /// short of the timeout, so a clock set back or a late wake still answers it in time.
@@ -123,8 +127,9 @@ impl ClaudeDialogKind {
 /// helper call's among them, which forgets what the call asked for, and the send hook on the
 /// message tool, which refuses a message to another session), the session's helper
 /// definitions, the two dialogs the console draws, and the per-task stop the console offers, and
-/// the tool servers the daemon hosts in-process, by name. The helper hold, on the helper and
-/// message tools, is registered only where the policy limits helpers at once.
+/// the tool servers the daemon hosts in-process, by name, the daemon's own tool server's calls
+/// bounded only by Claude Code's own cap. The helper hold, on the helper and message tools, is
+/// registered only where the policy limits helpers at once.
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,
@@ -196,6 +201,17 @@ pub(crate) fn compose_claude_initialize_request(
                 .collect(),
         ),
         per_task_stop_affordance: Some(true),
+        sdk_mcp_server_configs: in_process_servers
+            .iter()
+            .any(|name| name == DAEMON_TOOL_SERVER_NAME)
+            .then(|| {
+                BTreeMap::from([(
+                    DAEMON_TOOL_SERVER_NAME.to_owned(),
+                    ClaudeSdkMcpServerConfig {
+                        timeout: CLAUDE_CODE_TIMEOUT_CAP_MILLISECONDS,
+                    },
+                )])
+            }),
         sdk_mcp_servers: (!in_process_servers.is_empty()).then_some(in_process_servers),
     }
 }
@@ -231,6 +247,7 @@ fn compose_claude_agents(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use serde_json::json;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{ClaudeHookCallback, compose_claude_initialize_request};
@@ -266,5 +283,23 @@ mod tests {
             .map(|hook| hook.matcher.as_deref())
             .collect();
         assert_eq!(matchers, expected_matchers);
+    }
+
+    // Killed by the daemon's tool server registered with no timeout of its own, whose held call
+    // Claude Code then cuts at its default, and by `disableAutoBackground` sent, which keeps a call
+    // held past two minutes in the foreground.
+    #[test]
+    fn the_daemon_s_tool_server_takes_claude_code_s_own_cap_and_its_background_move() {
+        let initialize = serde_json::to_value(compose_claude_initialize_request(
+            None,
+            vec!["sidekicks".to_owned()],
+        ))
+        .expect("the request serializes");
+
+        assert_eq!(
+            initialize["sdkMcpServerConfigs"],
+            json!({"sidekicks": {"timeout": 2_147_483_647_u64}})
+        );
+        assert_eq!(initialize["sdkMcpServers"], json!(["sidekicks"]));
     }
 }

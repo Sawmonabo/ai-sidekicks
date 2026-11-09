@@ -5,7 +5,7 @@
 //! sender, from the session's inbox.
 
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use lru::LruCache;
@@ -19,7 +19,7 @@ use crate::inbound_json::decode_inbound_json;
 const RECEIPT_ROUTE_MEMORY: NonZeroUsize = NonZeroUsize::new(4096).expect("the memory is not zero");
 
 /// The prefix of a sender address on a local socket.
-const SOCKET_ADDRESS_PREFIX: &str = "uds:";
+pub(super) const SOCKET_ADDRESS_PREFIX: &str = "uds:";
 
 /// The `type` of the line a sender proves itself with, which the daemon's own connection to the
 /// live process does not need.
@@ -56,7 +56,8 @@ impl ClaudeInboxForwarding {
 
     /// The line to write to the live process for one line `session_inbox` received: a frame with
     /// a sender and a message id goes on with the daemon's inbox as its sender, its sender kept for
-    /// the answers; a sender's proof is dropped, `None`; any other line goes on as it came.
+    /// the answers; a sender's proof is dropped, `None`; any other line goes on as it came, a frame
+    /// the daemon itself sent among them, whose answers are its own receipts.
     pub(crate) fn forward_line(&self, line: &[u8], session_inbox: &str) -> Option<Vec<u8>> {
         let Ok(Value::Object(mut frame)) =
             serde_json::from_str::<Value>(&decode_inbound_json(line))
@@ -74,6 +75,10 @@ impl ClaudeInboxForwarding {
         let (Some(sender_socket), Some(message_id)) = (sender_socket, message_id) else {
             return Some(line.to_vec());
         };
+        // A route back to the daemon's own inbox would pass each receipt to it again, endlessly.
+        if sender_socket == Path::new(&self.daemon_inbox) {
+            return Some(line.to_vec());
+        }
         lock(&self.receipt_routes).put(
             message_id.to_owned(),
             ClaudeReceiptRoute {
@@ -119,4 +124,29 @@ fn sender_socket_of(address: &str) -> Option<PathBuf> {
 // One frame as a line, its newline added by the writer.
 fn serialize_frame(frame: &Map<String, Value>) -> Vec<u8> {
     serde_json::to_vec(frame).expect("a JSON object serializes")
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::ClaudeInboxForwarding;
+
+    // Killed by a route kept for a frame the daemon's own inbox sent, which passes each receipt
+    // for it back into the daemon's inbox, where it is routed again without end.
+    #[test]
+    fn a_frame_from_the_daemon_s_own_inbox_goes_on_as_sent_and_keeps_no_route() {
+        let forwarding = ClaudeInboxForwarding::new("/tmp/cc-socks/daemon.sock".to_owned());
+        let frame = json!({"type": "user", "from": "uds:/tmp/cc-socks/daemon.sock",
+            "msg_id": "m-1", "uuid": "m-1"})
+        .to_string();
+
+        let forwarded = forwarding.forward_line(frame.as_bytes(), "/tmp/cc-socks/session.sock");
+        let receipt = json!({"type": "control", "action": "peer_message_status",
+            "status": "delivered", "orig_msg_id": "m-1"})
+        .to_string();
+
+        assert_eq!(forwarded.as_deref(), Some(frame.as_bytes()));
+        assert_eq!(forwarding.route_answer(receipt.as_bytes()), None);
+    }
 }

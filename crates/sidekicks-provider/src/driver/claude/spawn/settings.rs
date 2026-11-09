@@ -1,7 +1,8 @@
 //! The `--settings` document every Claude Code process starts with: how long Claude Code keeps a
-//! conversation, its agent view held off, the session's whole permission rules, its advisor and
-//! output style, and the command sandbox at Sandboxed; for a process pre-approved nothing, no
-//! allow rule and no sandbox, the person's own deny rules carried beside the session's.
+//! conversation, its agent view held off, every message from another session let in, the
+//! session's whole permission rules, its advisor and output style, and the command sandbox at
+//! Sandboxed; for a process pre-approved nothing, no allow rule and no sandbox, the person's own
+//! deny rules carried beside the session's.
 
 use std::path::{Path, PathBuf};
 
@@ -45,6 +46,17 @@ impl Serialize for AgentViewOff {
     }
 }
 
+/// Messages from other sessions, always let in, so one the daemon delivers is never held for the
+/// person's approval. It writes as `"accept"`, the only value the daemon sends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CrossSessionInboundAccepted;
+
+impl Serialize for CrossSessionInboundAccepted {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str("accept")
+    }
+}
+
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
 /// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
 /// settings resolve it; `output_style` is absent where the session chose none.
@@ -55,6 +67,8 @@ pub(crate) struct ClaudeSpawnSettings {
     pub(crate) cleanup_period_days: u32,
     /// The agent view, off.
     pub(crate) disable_agent_view: AgentViewOff,
+    /// Messages from other sessions, let in.
+    pub(crate) cross_session_inbound: CrossSessionInboundAccepted,
     /// The session's whole permission rules.
     pub(crate) permissions: ClaudePermissionsDocument,
     /// The session's advisor model, `""` for none, absent where none was picked.
@@ -248,6 +262,7 @@ pub(crate) fn compose_claude_spawn_settings(
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
+        cross_session_inbound: CrossSessionInboundAccepted,
         permissions,
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
@@ -396,6 +411,44 @@ mod tests {
             .expect("the rules compose");
         assert_eq!(reviewed.allow, [] as [String; 0]);
         assert_eq!(reviewed.ask, ["Bash(rm *)"]);
+    }
+
+    // Killed by `crossSessionInbound` left out of either process's settings: a message the daemon
+    // delivers to a session that bypasses permission prompts is then held for an approval no one
+    // gives, or dropped once a headless hold expires.
+    #[test]
+    fn every_process_lets_in_messages_from_other_sessions() {
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &[],
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+        let posture = compose_execution_posture(
+            PermissionLevel::Yolo,
+            FilesystemPath::new("/Users/alice/project".to_owned()).expect("a path"),
+        );
+        for pre_approvals in [
+            ClaudePreApprovals::Kept,
+            ClaudePreApprovals::DenyRulesOnly(&[]),
+        ] {
+            let settings = compose_claude_spawn_settings(
+                &request,
+                Some(&posture),
+                &ClaudeSessionAdvisor::Unpicked,
+                None,
+                None,
+                pre_approvals,
+            )
+            .expect("the settings compose");
+
+            assert_eq!(
+                serde_json::to_value(settings).expect("the settings serialize")["crossSessionInbound"],
+                json!("accept"),
+                "{pre_approvals:?}"
+            );
+        }
     }
 
     // Killed by an unpicked advisor sent as off, which hides the person's own advisor, and by an

@@ -108,13 +108,6 @@ impl ClaudePeerReplies {
     /// whose idle notice is `notice_id`, so call it before the message is written. Fails with
     /// `InvalidInput` where the receiver's registry file names no session id or sits in no config
     /// folder, and as the transcript cannot be searched for or measured.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's send to a terminal session awaits its reply"
-        )
-    )]
     pub(crate) async fn await_reply(
         self: &Arc<Self>,
         receiver: &ClaudeLiveSession,

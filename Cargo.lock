@@ -8981,6 +8981,7 @@ dependencies = [
  "tracing-subscriber",
  "typify",
  "unicode-normalization",
+ "unicode-properties",
  "url",
  "uuid",
  "vte",

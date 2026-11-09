@@ -17,14 +17,14 @@ const MESSAGE_STATUS_ACTION: &str = "peer_message_status";
 /// The control action reporting that a message's receiver went idle.
 const IDLE_NOTICE_ACTION: &str = "peer_idle_notice";
 
-/// How a reply's element opens, before its attributes.
-const ELEMENT_OPENING: &str = "<cross-session-message";
+/// How a `<cross-session-message>` element opens, before its attributes.
+pub(super) const ELEMENT_OPENING: &str = "<cross-session-message";
 
-/// How a reply's element closes, after its body's last line.
-const ELEMENT_CLOSING: &str = "\n</cross-session-message>";
+/// How a `<cross-session-message>` element closes, after its body's last line.
+pub(super) const ELEMENT_CLOSING: &str = "\n</cross-session-message>";
 
-/// What separates the session ids in a reply's `hop-chain` attribute.
-const HOP_CHAIN_SEPARATOR: char = ',';
+/// What separates the session ids in an element's `hop-chain` attribute.
+pub(super) const HOP_CHAIN_SEPARATOR: &str = ",";
 
 /// One frame Claude Code wrote to the daemon's inbox about a message the daemon sent, each named by
 /// the id of the message it is about.

@@ -43,6 +43,13 @@ pub(crate) enum ClaudeControlRequest {
         /// a re-send.
         #[serde(rename = "sdkMcpServers", skip_serializing_if = "Option::is_none")]
         sdk_mcp_servers: Option<Vec<String>>,
+        /// The settings of in-process tool servers named in `sdkMcpServers`, by name; absent on a
+        /// re-send, since Claude Code applies them only as it first registers a server.
+        #[serde(
+            rename = "sdkMcpServerConfigs",
+            skip_serializing_if = "Option::is_none"
+        )]
+        sdk_mcp_server_configs: Option<BTreeMap<String, ClaudeSdkMcpServerConfig>>,
     },
     /// Stops the running turn; with `cancel_queued` it also drops what is queued behind it.
     Interrupt {
@@ -175,6 +182,14 @@ pub(crate) enum ClaudeControlRequest {
     NegativeControl {},
 }
 
+/// One in-process tool server's settings in `initialize`. It carries no `disableAutoBackground`,
+/// so a call held past two minutes moves to Claude Code's background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct ClaudeSdkMcpServerConfig {
+    /// How long one call may run, in milliseconds.
+    pub(crate) timeout: u64,
+}
+
 impl ClaudeControlRequest {
     /// The request a capability probe named `probe_name` sends: `initialize` re-sent with nothing,
     /// which answers what the process holds, or the negative control; `None` for any other name.
@@ -186,6 +201,7 @@ impl ClaudeControlRequest {
                 supported_dialog_kinds: None,
                 per_task_stop_affordance: None,
                 sdk_mcp_servers: None,
+                sdk_mcp_server_configs: None,
             })
         } else if probe_name == ClaudeControlSubtype::NegativeControl.as_str() {
             Some(Self::NegativeControl {})

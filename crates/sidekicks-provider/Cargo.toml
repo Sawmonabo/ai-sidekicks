@@ -73,6 +73,8 @@ tracing.workspace = true
 # The diagnostics recorder and the captured log other crates' tests install.
 tracing-subscriber = { workspace = true, optional = true }
 unicode-normalization.workspace = true
+# The character classes Claude Code strips from a sender name it parses back.
+unicode-properties.workspace = true
 url.workspace = true
 uuid.workspace = true
 # The terminal parser a sign-in's address line is read through.
