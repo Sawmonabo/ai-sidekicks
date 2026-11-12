@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Bash command policy for Claude Code: one script behind two hook events.
 
-As a PreToolUse hook it refuses the banned shell forms before a command runs. As a
-PermissionRequest hook it answers the removal prompt Claude Code still raises in bypass mode: a
-command with no rm or rmdir runs, an rm or rmdir on spelled-out paths inside this checkout or
-this user's Claude temp folder runs, and anything else prints nothing so the prompt reaches the
-person. It reads rm and rmdir only, as that prompt does; a removal done any other way was never
-asked about.
+It reads the shell command of a Bash or Monitor call. As a PreToolUse hook it refuses the banned
+shell forms before the command runs. As a PermissionRequest hook it answers the removal prompt
+Claude Code still raises in bypass mode: a command with no rm or rmdir runs, an rm or rmdir on
+spelled-out paths inside this checkout or this user's Claude temp folder runs, a trailing /* on
+such a folder included, and anything else prints nothing so the prompt reaches the person. It
+reads rm and rmdir only, as that prompt does; a removal done any other way was never asked about.
 """
 
 import json
@@ -58,6 +58,7 @@ COMMAND_STARTS = ";&|\n({"
 KEYWORD_BEFORE_COMMAND = re.compile(r"(?:^|[\s;&|(])(?:do|then|else)$")
 BLANKS = re.compile(r"(?:[ \t]|\\\n)*")
 ARGUMENTS_END = ";&|\n)"
+WORD_END = " \t" + ARGUMENTS_END
 DISCARDED_OUTPUT = re.compile(
     r"(?:[12]?>>?[ \t]*/dev/null|2>&1|&>>?[ \t]*/dev/null)(?=[\s;&|)]|$)"
 )
@@ -105,9 +106,15 @@ def refuse_banned_forms(request):
 
 
 def read_literal_word(command, at):
-    """Read one shell word the shell cannot change; return its text and where it ends."""
+    """Read one shell word the shell cannot change, but for a /* that may end it.
+
+    Returns its text, whether that wildcard ended it, and where it ends.
+    """
     parts = []
-    while at < len(command) and command[at] not in " \t" + ARGUMENTS_END:
+    while at < len(command) and command[at] not in WORD_END:
+        if command[at] == "*" and "".join(parts).endswith("/"):
+            # The caller refuses a word that runs on past the wildcard.
+            return "".join(parts), True, at + 1
         plain = PLAIN_TEXT.match(command, at)
         quoted = SINGLE_QUOTED.match(command, at) or DOUBLE_QUOTED.match(command, at)
         if plain:
@@ -117,11 +124,15 @@ def read_literal_word(command, at):
         else:
             raise Refused("an rm argument is not a spelled-out path")
         at = (plain or quoted).end()
-    return "".join(parts), at
+    return "".join(parts), False, at
 
 
 def read_removal(command, at):
-    """Read one rm or rmdir's words; return its targets and whether it removes folders whole."""
+    """Read one rm or rmdir's words.
+
+    Returns its targets, each with whether it names everything in a folder, and whether the
+    command removes folders whole.
+    """
     words = []
     while True:
         blanks = BLANKS.match(command, at)
@@ -134,14 +145,14 @@ def read_removal(command, at):
         if discarded:
             at = discarded.end()
             continue
-        word, at = read_literal_word(command, at)
-        words.append(word)
+        word, empties_a_folder, at = read_literal_word(command, at)
+        words.append((word, empties_a_folder))
     targets = []
     is_recursive = False
     options_ended = False
-    for word in words:
+    for word, empties_a_folder in words:
         if options_ended or not word.startswith("-"):
-            targets.append(word)
+            targets.append((word, empties_a_folder))
         elif targets:
             # BSD rm reads this as a file and GNU rm as an option, so neither reading is sure.
             raise Refused("an rm option follows a path")
@@ -151,7 +162,7 @@ def read_removal(command, at):
             raise Refused("an rm option outside -r, -f and -v")
         elif "r" in word.lower():
             is_recursive = True
-    if not targets or "" in targets:
+    if not targets or ("", False) in targets:
         raise Refused("an rm names no path")
     return targets, is_recursive
 
@@ -255,8 +266,11 @@ def check_removals(command, cwd):
         if not starts_a_command:
             raise Refused("an rm word is not a command of its own")
         targets, is_recursive = read_removal(command, removal.end())
-        for target in targets:
-            check_target(target, cwd, roots, is_recursive, changes_directory)
+        for target, empties_a_folder in targets:
+            # A wildcard after . or .. empties whichever folder the shell is in or above.
+            if empties_a_folder and {".", ".."} & set(target.split("/")):
+                raise Refused("a wildcard empties a folder no path spells out")
+            check_target(target, cwd, roots, is_recursive or empties_a_folder, changes_directory)
     return "rm on spelled-out paths in an allowed folder"
 
 
@@ -299,4 +313,6 @@ POLICIES = {"PreToolUse": refuse_banned_forms, "PermissionRequest": answer_remov
 
 if __name__ == "__main__":
     hook_request = json.load(sys.stdin)
-    POLICIES[hook_request["hook_event_name"]](hook_request)
+    # A Monitor that watches a WebSocket runs no shell command.
+    if "command" in hook_request["tool_input"]:
+        POLICIES[hook_request["hook_event_name"]](hook_request)

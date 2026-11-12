@@ -157,10 +157,37 @@ test("approves rm and rmdir on spelled-out paths inside the checkout and the tem
     `rm -rf ${tempRoot}/scratch/run-1`,
     "if [ -f build/out.txt ]; then rm build/out.txt; fi",
     'D=(${(f)"$(ls)"}); rm -f build/out.txt',
+    "rm -rf build/*",
+    `rm -rf "${repo}/build"/*`,
+    `rm -f ${tempRoot}/scratch/*`,
   ]) {
     assert.equal(answerTo(command), "allow", command);
   }
   assert.equal(answerTo("rm -f file.txt", { cwd: worktree }), "allow");
+});
+
+test("reads a Monitor's shell command and passes over a Monitor that has none", () => {
+  const monitor = { tool_name: "Monitor" };
+  assert.equal(answerTo('D=(${(f)"$(ls)"}); echo ${#D}', monitor), "allow");
+  assert.equal(answerTo("rm -rf /", monitor), "ask");
+  const banned = runPolicy({
+    ...monitor,
+    hook_event_name: "PreToolUse",
+    tool_input: { command: "tail -f run.log | xargs echo" },
+  });
+  assert.equal(banned.status, 2);
+  for (const hook_event_name of ["PreToolUse", "PermissionRequest"]) {
+    const result = runPolicy({
+      ...monitor,
+      hook_event_name,
+      permission_mode: "bypassPermissions",
+      permission_suggestions: [],
+      cwd: repo,
+      tool_input: { ws: { url: "wss://events.example.com/stream" }, description: "events" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+  }
 });
 
 test("leaves the prompt to the person when a removal is not provably inside", () => {
@@ -171,7 +198,14 @@ test("leaves the prompt to the person when a removal is not provably inside", ()
     `rm -rf ${outside}`,
     'rm -rf "$DIR/"',
     "rm -rf $(pwd)",
-    "rm -rf build/*",
+    "rm -rf *",
+    "rm -rf ./*",
+    "rm -rf /*",
+    `rm -rf ${repo}/*`,
+    "rm -rf build/*.txt",
+    "rm -rf build*",
+    "rm holder/*",
+    "rm -rf link/*",
     "rm -rf .",
     "rm",
     "sudo rm -rf build",
@@ -191,6 +225,10 @@ test("leaves the prompt to the person when a removal is not provably inside", ()
     "rm -rf link/",
   ]) {
     assert.equal(answerTo(command), "ask", command);
+  }
+  // From build/empty, these name everything in a folder without spelling the folder out.
+  for (const command of ["rm -rf ../*", "rm -rf *"]) {
+    assert.equal(answerTo(command, { cwd: join(repo, "build", "empty") }), "ask", command);
   }
 });
 
