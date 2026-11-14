@@ -92,12 +92,15 @@ impl EngineTick {
                             .get_mut(&execution_index)
                             .expect("a dispatched step is live")
                             .cancel = Some(dispatched.cancel);
+                        // Its driver takes back the run it made before the stop.
+                        live.taken_back.remove(&execution_index);
                         live.next_batch.extend(dispatched.reports);
                     }
                 }
                 Err(error) => {
                     let message = format!("the workflow's level could not be read: {error}");
                     for ready in readied {
+                        live.stop_taken_back(&self.dispatch, &ready.step).await;
                         let failure =
                             step_failure(live, &ready.step, StepFailure::Failed, message.clone());
                         live.next_batch.extend(failed_at_once(&ready.step, failure));

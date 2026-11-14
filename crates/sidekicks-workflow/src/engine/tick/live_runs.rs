@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::branch_cancellation::BranchWave;
 use super::commit::{RunEnding, RunLiveStep, RunTurnCommit};
+use super::dispatch::StepDispatch;
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
 use super::turns::{RunCancelIntake, RunCancelReply, RunResumeIntake};
@@ -175,7 +176,7 @@ pub(crate) struct LiveStep {
     pub(crate) last_hold_report_at: Option<WireInstant>,
     /// Its dispatch's cancel, `None` until it is dispatched.
     pub(crate) cancel: Option<CancellationToken>,
-    /// Whether it was asked to stop and is winding down.
+    /// Whether it was asked to stop and is winding down, or the restart's sweep queued its cancel.
     pub(crate) is_winding_down: bool,
     /// Whether a failed park of its run canceled it, so a Resume runs it again.
     pub(crate) is_park_canceled: bool,
@@ -421,6 +422,18 @@ impl LiveRun {
             });
         } else {
             self.walk.drop_step(step);
+        }
+    }
+
+    /// Stops the agent run `step` made before the daemon stopped, where the restart took the step
+    /// back and it settles before any dispatch.
+    pub(crate) async fn stop_taken_back(
+        &mut self,
+        dispatch: &StepDispatch,
+        step: &WorkflowStepKey,
+    ) {
+        if self.taken_back.remove(&step.execution_index.get()) {
+            dispatch.stop_stored_run(&self.record, step).await;
         }
     }
 

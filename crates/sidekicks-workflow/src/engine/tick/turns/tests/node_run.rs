@@ -408,7 +408,7 @@ async fn a_reused_payload_of_another_session_is_stored_again(#[case] is_same_ses
     else {
         panic!("the stranded payload is an artifact");
     };
-    harness.restart().await;
+    harness.restart(Vec::new()).await;
     assert_eq!(
         harness.payloads.deletes(),
         [stranded_id],

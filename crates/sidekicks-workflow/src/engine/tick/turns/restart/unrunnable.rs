@@ -108,16 +108,7 @@ impl EngineTick {
                     record.fault(None, fault, &error).await;
                 }
                 for row in unsettled.iter().filter(|row| has_agent_run(row)) {
-                    let stored = self.dispatch.reattach_agent_run(&row.step).await;
-                    let stop = match stored {
-                        Ok(Some(agent_run)) => agent_run.cancel().await,
-                        Ok(None) => Ok(()),
-                        Err(error) => Err(error),
-                    };
-                    if let Err(error) = stop {
-                        let fault = EngineFault::AgentRunStopFailed;
-                        record.fault(Some(&row.step), fault, error.as_ref()).await;
-                    }
+                    self.dispatch.stop_stored_run(&record, &row.step).await;
                 }
                 self.withdraw_cards(&record, session_id, cards).await;
             }

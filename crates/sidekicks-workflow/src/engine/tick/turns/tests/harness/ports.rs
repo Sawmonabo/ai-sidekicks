@@ -65,12 +65,14 @@ pub(in crate::engine::tick::turns) struct WithdrawnCard {
 }
 
 /// The approval cards and questions of a test, over their own connection to its database: each
-/// call is kept with what the step's row reads at the call, and every ask fails while told to.
+/// call is kept with what the step's row reads at the call, every ask fails while told to, and
+/// every question read fails while told to.
 pub(in crate::engine::tick::turns) struct RecordingAsks {
     rows: Mutex<Connection>,
     calls: Mutex<Vec<RecordedAsk>>,
     withdrawn: Mutex<Vec<WithdrawnCard>>,
     is_refusing: AtomicBool,
+    is_refusing_reattaches: AtomicBool,
     order: Arc<OrderLog>,
 }
 
@@ -82,6 +84,7 @@ impl RecordingAsks {
             calls: Mutex::new(Vec::new()),
             withdrawn: Mutex::new(Vec::new()),
             is_refusing: AtomicBool::new(false),
+            is_refusing_reattaches: AtomicBool::new(false),
             order,
         }
     }
@@ -94,6 +97,11 @@ impl RecordingAsks {
     /// Makes every later call fail, as a card or question that cannot be written.
     pub(in crate::engine::tick::turns) fn refuse_every_call(&self) {
         self.is_refusing.store(true, Ordering::SeqCst);
+    }
+
+    /// Makes every later read of a question fail, as a question store that cannot be read.
+    pub(in crate::engine::tick::turns) fn refuse_reattaches(&self) {
+        self.is_refusing_reattaches.store(true, Ordering::SeqCst);
     }
 
     /// Forgets every call taken, so no question asked so far reads as open, as a stop that lost
@@ -206,12 +214,16 @@ impl PersonWaitQuestions for RecordingAsks {
         Box::pin(async move { taken.map(|()| fresh_question_id()) })
     }
 
-    // A question asked earlier in the test is still open; any other is not.
+    // A question asked earlier in the test is still open; any other is not; every read fails
+    // while told to.
     fn reattach(
         &self,
         _session_id: SessionId,
         wait_id: UuidTextForm,
     ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>> {
+        if self.is_refusing_reattaches.load(Ordering::SeqCst) {
+            return Box::pin(async { Err("the test's questions refuse every read".into()) });
+        }
         let is_asked = lock(&self.calls).iter().any(|call| call.wait_id == wait_id);
         Box::pin(async move { Ok(is_asked.then(fresh_question_id)) })
     }

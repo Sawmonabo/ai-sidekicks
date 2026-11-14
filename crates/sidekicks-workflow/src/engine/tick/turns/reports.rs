@@ -25,11 +25,12 @@ use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, Workf
 use super::{EngineTick, PausePoint, ReadiedNext, RunTurn, TurnReadied, step_failure};
 use crate::definitions::kept_values::remove_dropped;
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome, RunEngineRecord};
-use crate::engine::ports::{AgentStepRun, WorkflowRunSnapshotPointRequest};
+use crate::engine::ports::WorkflowRunSnapshotPointRequest;
 use crate::engine::tick::branch_cancellation::WaveSettle;
 use crate::engine::tick::commit::{
     RunEnding, RunTurnCommit, SettlementAnswer, SettlementWriteFailure,
 };
+use crate::engine::tick::dispatch::{StepDispatch, stop_agent_run};
 use crate::engine::tick::live_runs::{LiveRun, LiveStep, TurnAsk};
 use crate::engine::tick::step_failure::{
     RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
@@ -112,7 +113,7 @@ impl EngineTick {
                 {
                     live_step.is_winding_down = false;
                     if let StepSettlement::AccountSpent { run, .. } = settlement {
-                        stop_agent_run(live, &report.step, Some(run)).await;
+                        stop_agent_run(&live.record, &report.step, Ok(Some(run))).await;
                     }
                 }
                 return;
@@ -518,7 +519,7 @@ impl EngineTick {
         stop: RunStop,
     ) {
         live.move_step(step.execution_index.get(), WorkflowStepStatus::Failed, None);
-        stop_steps(live, turn, Some(step), at, stop).await;
+        stop_steps(&self.dispatch, live, turn, Some(step), at, stop).await;
     }
 }
 
@@ -574,6 +575,7 @@ pub(super) fn run_again(
 /// none, on the earliest running step; its reason is the person's cancel where the run's ending
 /// is one, else a sibling's failure.
 pub(super) async fn stop_steps(
+    dispatch: &StepDispatch,
     live: &mut LiveRun,
     turn: &mut RunTurn,
     deciding: Option<&WorkflowStepKey>,
@@ -601,7 +603,7 @@ pub(super) async fn stop_steps(
                 .map(|readied| readied.ready.step.clone()),
         )
         .collect();
-    let siblings = sort_losers(live, turn, others, at, false).await;
+    let siblings = sort_losers(dispatch, live, turn, others, at, false).await;
     // With no running sibling no wave forms, so the step the key names carries nothing.
     let Some(deciding) = deciding
         .cloned()
@@ -624,17 +626,19 @@ pub(super) async fn stop_steps(
     turn.follow_ups.extend(reports);
     live.waves.extend(wave);
     for waiting in canceled_waits {
-        cancel_now(live, turn, waiting, at, None).await;
+        cancel_now(dispatch, live, turn, waiting, at, None).await;
     }
 }
 
 /// Sorts `steps`, which a cancel of `live` at `at` names, by how each stops: the run's stop, or
 /// where `is_merge_win`, a first-to-arrive merge's win, whose cause each records. A step readied
-/// earlier in this turn is canceled unrun and leaves the walk; an undispatched `pending` step is
-/// canceled now; a step winding down, or one that settled, is left as it is. Answers each running
-/// step with its cancel, each dispatched one the entry line or the memory gate holds with its
-/// cancel, whose driver reports its own cancel, and each waiting one, which the caller stops.
+/// earlier in this turn is canceled unrun and leaves the walk; an undispatched `pending` step, or
+/// one the restart took back held, is canceled now; a step winding down, or one that settled, is
+/// left as it is. Answers each running step with its cancel, each dispatched one the entry line or
+/// the memory gate holds with its cancel, whose driver reports its own cancel, and each waiting
+/// one, which the caller stops.
 pub(super) async fn sort_losers(
+    dispatch: &StepDispatch,
     live: &mut LiveRun,
     turn: &mut RunTurn,
     steps: Vec<WorkflowStepKey>,
@@ -678,15 +682,14 @@ pub(super) async fn sort_losers(
                 live_step.is_merge_canceled |= is_merge_win;
                 SiblingState::Held(cancel.clone())
             }
-            (WorkflowStepStatus::Pending, None) => {
+            (WorkflowStepStatus::Pending | WorkflowStepStatus::WaitingMemory, None) => {
                 live_step.is_park_canceled = is_parked;
-                cancel_now(live, turn, step, at, merge_cause).await;
+                cancel_now(dispatch, live, turn, step, at, merge_cause).await;
                 continue;
             }
             (WorkflowStepStatus::Waiting, _) => SiblingState::Waiting,
             (
                 WorkflowStepStatus::Running
-                | WorkflowStepStatus::WaitingMemory
                 | WorkflowStepStatus::Succeeded
                 | WorkflowStepStatus::Failed
                 | WorkflowStepStatus::Skipped
@@ -759,8 +762,9 @@ fn is_step_timeout(error: &WorkflowStepError) -> bool {
 
 /// Cancels the live `step` of `live` at `at` without a driver for `cancellation_reason`, `None`
 /// where the run's stop records none: its cancel queued on the turn's follow-ups, and the agent
-/// run a spent account parked on it stopped.
+/// run a spent account parked on it, or the restart's take-back left it, stopped.
 pub(super) async fn cancel_now(
+    dispatch: &StepDispatch,
     live: &mut LiveRun,
     turn: &mut RunTurn,
     step: WorkflowStepKey,
@@ -772,7 +776,8 @@ pub(super) async fn cancel_now(
         .get_mut(&step.execution_index.get())
         .and_then(|live_step| live_step.parked_agent_run.take())
         .map(|parked| parked.run);
-    stop_agent_run(live, &step, parked).await;
+    stop_agent_run(&live.record, &step, Ok(parked)).await;
+    live.stop_taken_back(dispatch, &step).await;
     turn.follow_ups.push_back(StepReport {
         step,
         at: at.clone(),
@@ -800,7 +805,7 @@ async fn offer_to_waves(
                 index += 1;
             }
             WaveSettle::Pending { run_to_stop } => {
-                stop_agent_run(live, &step, run_to_stop).await;
+                stop_agent_run(&live.record, &step, Ok(run_to_stop)).await;
                 return None;
             }
             WaveSettle::Closed {
@@ -809,28 +814,12 @@ async fn offer_to_waves(
             } => {
                 live.waves.remove(index);
                 follow_ups.extend(reports);
-                stop_agent_run(live, &step, run_to_stop).await;
+                stop_agent_run(&live.record, &step, Ok(run_to_stop)).await;
                 return None;
             }
         }
     }
     Some(report)
-}
-
-/// Stops `run`, the agent run of `step` of `live` that no cancel reaches any more, recording a
-/// stop that could not be sent.
-pub(super) async fn stop_agent_run(
-    live: &LiveRun,
-    step: &WorkflowStepKey,
-    run: Option<Box<dyn AgentStepRun>>,
-) {
-    if let Some(run) = run
-        && let Err(error) = run.cancel().await
-    {
-        live.record
-            .fault(Some(step), EngineFault::AgentRunStopFailed, error.as_ref())
-            .await;
-    }
 }
 
 #[cfg(test)]

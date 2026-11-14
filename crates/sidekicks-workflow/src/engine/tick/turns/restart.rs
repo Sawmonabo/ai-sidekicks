@@ -34,14 +34,12 @@ use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use self::replay::{ReplayedRun, replay_run, replayed_epoch, reused_seeds};
 use self::unrunnable::UnrunnableRun;
 use super::EngineTick;
-use super::reports::stop_agent_run;
 use super::retries::{arm_retry, retry_wait_left};
 use super::starting::{seeded_run, trigger_inputs};
-use crate::engine::event_record::EngineFault;
 use crate::engine::start::{ReloadedRun, ReloadedScope, ReloadedStep};
 use crate::engine::tick::branch_cancellation::BranchWave;
 use crate::engine::tick::commit::RunEnding;
-use crate::engine::tick::live_runs::{LiveRun, LiveStep, ParkCanceledStep};
+use crate::engine::tick::live_runs::{LiveStep, ParkCanceledStep};
 use crate::engine::tick::run_status::RunPersonWait;
 use crate::engine::tick::step_failure::{RunStop, crashed_step_failure, step_retry};
 use crate::engine::tick::walk::WalkReady;
@@ -303,7 +301,7 @@ impl EngineTick {
         let is_parked = is_stopped && live.ending.is_none();
         crashing.sort_by_key(|step| step.execution_index.get());
         for step in crashing {
-            self.stop_stored_run(&live, &step).await;
+            self.dispatch.stop_stored_run(&live.record, &step).await;
             let failure = crashed_step_failure(&step);
             live.next_batch.push(StepReport {
                 step,
@@ -319,7 +317,7 @@ impl EngineTick {
             .map(|wave| BranchWave::new(wave.deciding, wave.reason, wave.members))
             .collect();
         for step in canceling {
-            self.stop_stored_run(&live, &step).await;
+            self.dispatch.stop_stored_run(&live.record, &step).await;
             let index = step.execution_index.get();
             let live_step = live.steps.get_mut(&index).expect("a wave's member is live");
             live_step.is_park_canceled = is_parked
@@ -331,13 +329,14 @@ impl EngineTick {
             let index = step.execution_index.get();
             let is_lost = merge_losers.contains(&index);
             if is_stopped || is_lost {
-                self.stop_stored_run(&live, &step).await;
+                self.dispatch.stop_stored_run(&live.record, &step).await;
             }
             let live_step = live.steps.get_mut(&index).expect("a held step is live");
             if is_stopped || is_lost {
-                // The cut hold ends at its last report.
+                // The cut hold ends at its last report; its queued cancel is the only one.
                 live_step.is_park_canceled = is_parked && !is_lost;
                 live_step.is_merge_canceled = is_lost;
+                live_step.is_winding_down = true;
                 let at = live_step
                     .last_hold_report_at
                     .clone()
@@ -363,10 +362,12 @@ impl EngineTick {
             let index = step.execution_index.get();
             let is_lost = merge_losers.contains(&index);
             if is_stopped || is_lost {
-                self.stop_stored_run(&live, &step).await;
+                self.dispatch.stop_stored_run(&live.record, &step).await;
                 let live_step = live.steps.get_mut(&index).expect("a pending step is live");
                 live_step.is_park_canceled = is_parked && !is_lost;
                 live_step.is_merge_canceled = is_lost;
+                // Its queued cancel is the only one, so a stop the batch decides passes it over.
+                live_step.is_winding_down = true;
                 live.next_batch
                     .push(canceled_report(step, now.clone(), None));
                 continue;
@@ -400,20 +401,6 @@ impl EngineTick {
         self.runs.insert(run_id, live);
         if is_batched {
             self.batched.push(run_id);
-        }
-    }
-
-    /// Stops the agent run `step` of `live` made before the stop, where it made one, since the
-    /// queue's recovery starts it again and the sweep settles the step; a run that cannot be read
-    /// is recorded as a stop not sent.
-    async fn stop_stored_run(&self, live: &LiveRun, step: &WorkflowStepKey) {
-        match self.dispatch.reattach_agent_run(step).await {
-            Ok(run) => stop_agent_run(live, step, run).await,
-            Err(error) => {
-                live.record
-                    .fault(Some(step), EngineFault::AgentRunStopFailed, error.as_ref())
-                    .await;
-            }
         }
     }
 }

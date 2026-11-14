@@ -1,6 +1,8 @@
 //! The restart in the tick's loop: a loop stopped mid-run, its runs reloaded from the rows and
 //! the log into a new loop, and each step the sweep finds settled, held again or kept waiting.
 
+use std::sync::atomic::Ordering;
+
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -55,6 +57,11 @@ enum Cut {
     RunningBesideHeld,
     /// An agent step the memory gate holds, its run made.
     HeldAgent,
+    /// An agent step the memory gate holds, its run made, a person's cancel arriving with the
+    /// take-back.
+    HeldAgentCanceled,
+    /// An agent step the memory gate holds, its run made, its params failing after the restart.
+    HeldAgentParamsFailing,
     /// An agent step running.
     RunningAgent,
     /// A retry attempt waiting out its wait, nothing else alive.
@@ -70,14 +77,18 @@ enum Cut {
 /// Each state a stop cuts a run in comes back after the restart as its log says, and the rows
 /// rebuild from the log. Mutations: the replay's cancel or wave dropped (the run ends crashed, or
 /// no `branchesCanceled`); the sweep's crashed failure dropped (`A` stays `running`); the held
-/// sibling left out of the park's cancels; a held agent step making a second run; a crashed step's
-/// agent run left running; a pending retry crashing its run; a failed ask again kept as a fault
-/// (`A` waits forever); the pause count reset at a run leaving its wait (pause 1 taken twice); the
-/// card raised without its point; a lost ask panicking.
+/// sibling left out of the park's cancels; a held agent step making a second run; a taken-back
+/// held step left out of a cancel (`A` is dispatched and the run never ends); a taken-back step
+/// that settles before its run is handed over leaving that run working; a crashed step's agent
+/// run left running; a pending retry crashing its run; a failed ask again kept as a fault (`A`
+/// waits forever); the pause count reset at a run leaving its wait (pause 1 taken twice); the card
+/// raised without its point; a lost ask panicking.
 #[rstest]
 #[case::canceled_winding_down(Cut::CanceledWindingDown)]
 #[case::running_beside_held(Cut::RunningBesideHeld)]
 #[case::held_agent(Cut::HeldAgent)]
+#[case::held_agent_canceled(Cut::HeldAgentCanceled)]
+#[case::held_agent_params_failing(Cut::HeldAgentParamsFailing)]
 #[case::running_agent(Cut::RunningAgent)]
 #[case::retry_waiting(Cut::RetryWaiting)]
 #[case::reply_ask_failing(Cut::ReplyAskFailing)]
@@ -87,7 +98,13 @@ enum Cut {
 async fn a_restart_finishes_what_the_stop_cut(#[case] cut: Cut) {
     let mut harness = Harness::new(None).await;
     cut_run(&mut harness, cut).await;
-    harness.restart().await;
+    let (along, _canceled) = if matches!(cut, Cut::HeldAgentCanceled) {
+        let (input, replied) = harness.cancel_input("Not needed any more");
+        (vec![input], Some(replied))
+    } else {
+        (Vec::new(), None)
+    };
+    harness.restart(along).await;
     match cut {
         Cut::CanceledWindingDown => {
             harness
@@ -155,6 +172,31 @@ async fn a_restart_finishes_what_the_stop_cut(#[case] cut: Cut) {
             harness
                 .wait_until(|rows| run_status(rows) == "succeeded")
                 .await;
+        }
+        Cut::HeldAgentCanceled => {
+            timeout(WAIT, harness.agents.wait_for_cancel())
+                .await
+                .expect("the canceled step's agent run is stopped");
+            harness
+                .wait_until(|rows| run_status(rows) == "canceled")
+                .await;
+            assert_eq!(harness.status("A").as_deref(), Some("canceled"));
+            assert!(
+                step_events(&harness, "workflow.phase.admitted", "A").is_empty(),
+                "the canceled step is never dispatched"
+            );
+        }
+        Cut::HeldAgentParamsFailing => {
+            timeout(WAIT, harness.agents.wait_for_cancel())
+                .await
+                .expect("the failed step's agent run is stopped");
+            harness
+                .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("failed"))
+                .await;
+            assert!(
+                harness.agents.requests().is_empty(),
+                "the step makes no second run"
+            );
         }
         Cut::RunningAgent => {
             timeout(WAIT, harness.agents.wait_for_cancel())
@@ -262,7 +304,7 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
                 json!({ "hang": true }),
             )
         }
-        Cut::HeldAgent => {
+        Cut::HeldAgent | Cut::HeldAgentCanceled | Cut::HeldAgentParamsFailing => {
             harness.agents.hold();
             (only("test.agent"), vec![edge("T", "A", 0)], json!({}))
         }
@@ -312,12 +354,18 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
                 })
                 .await;
         }
-        Cut::HeldAgent => {
+        Cut::HeldAgent | Cut::HeldAgentCanceled | Cut::HeldAgentParamsFailing => {
             harness
                 .wait_until(|rows| {
                     step_column(rows, "A", "status").as_deref() == Some("waitingMemory")
                 })
                 .await;
+            if matches!(cut, Cut::HeldAgentParamsFailing) {
+                harness
+                    .signal
+                    .is_agent_failing
+                    .store(true, Ordering::SeqCst);
+            }
         }
         Cut::RunningAgent => {
             harness
@@ -425,7 +473,7 @@ async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values()
         .await
         .expect("the cut start's payload is stored and recorded");
 
-    harness.restart().await;
+    harness.restart(Vec::new()).await;
     let deletes = harness.payloads.deletes();
     assert!(deletes.contains(&cut), "the cut start's payload is deleted");
     assert!(!deletes.contains(&kept), "the kept value's artifact stays");
@@ -439,6 +487,103 @@ async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values()
         records, 0,
         "the cut start's record is deleted with its payload"
     );
+}
+
+/// A leftover a stop left that will not delete is kept with its record and recorded as a fault,
+/// and the session's runs are still taken back: the waiting run takes its reply and ends.
+/// Mutation: a failed leftover delete failing the reload (the restart panics).
+#[tokio::test]
+async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("T", "test.trigger", 0, None),
+                node("A", "test.ask", 1, None),
+            ],
+            &[edge("T", "A", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    let cut_step: WorkflowStepKey = serde_json::from_value(json!({
+        "workflowRunId": "0190a000-0000-7000-8000-0000000000c8",
+        "nodeId": "T", "attempt": 1, "executionIndex": 0,
+    }))
+    .expect("the cut start's step key reads");
+    harness
+        .start_payloads(cut_step.workflow_run_id)
+        .store_bytes(&cut_step, b"[]".to_vec(), 0)
+        .await
+        .expect("the cut start's payload is stored and recorded");
+    harness.payloads.refuse_deletes();
+
+    harness.restart(Vec::new()).await;
+    let reply = PersonWaitAnswer::Reply(NonEmptyText::new("Yes".to_owned()).expect("a reply"));
+    let answered = harness.answer(harness.wait_id("A"), reply, None).await;
+    assert_eq!(answered.expect("the loop replies"), Ok(()));
+    harness
+        .wait_until(|rows| run_status(rows) == "succeeded")
+        .await;
+    let records: i64 = harness
+        .rows
+        .query_row("SELECT count(*) FROM workflow_start_payloads", [], |row| {
+            row.get(0)
+        })
+        .expect("the start records count");
+    assert_eq!(
+        records, 1,
+        "the leftover's record is kept for the next restart"
+    );
+    let kept = harness.record_lines("stopLeftoverKept");
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        kept[0]["workflowRunId"],
+        json!(cut_step.workflow_run_id.text().as_str())
+    );
+}
+
+/// A form whose question cannot be read at the restart is asked again under its wait, and the
+/// failed read is recorded. Mutation: a failed read leaving the wait standing with nothing asked
+/// (the second ask never comes).
+#[tokio::test]
+async fn a_form_whose_question_does_not_read_is_asked_again() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("T", "test.trigger", 0, None),
+                node("A", "test.form", 1, None),
+            ],
+            &[edge("T", "A", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    harness.asks.refuse_reattaches();
+
+    harness.restart(Vec::new()).await;
+    let wait_id = harness.wait_id("A");
+    let is_form = |call: &OrderedCall| match call {
+        OrderedCall::Ask {
+            kind,
+            wait_id: asked,
+        } => *kind == "form" && *asked == wait_id,
+        OrderedCall::Point(_) => false,
+    };
+    // Waits for the form's second ask, past any snapshot point the run took.
+    let mut calls = Vec::new();
+    while calls.iter().filter(|call| is_form(call)).count() < 2 {
+        calls = harness.ordered_calls(calls.len() + 1).await;
+    }
+    assert_eq!(harness.record_lines("waitNotReattached").len(), 1);
 }
 
 /// A run stopped twice inside its loop's body, once per batch, parks each time, and each Resume
@@ -488,7 +633,7 @@ async fn a_run_stopped_inside_its_loop_body_goes_on_with_its_batches() {
                 == 1
         };
         harness.wait_until(running).await;
-        harness.restart().await;
+        harness.restart(Vec::new()).await;
         harness
             .wait_until(|rows| run_status(rows) == "failed")
             .await;
@@ -548,7 +693,7 @@ async fn a_waiting_step_keeps_its_wait_across_the_restart() {
         .wait_until(|rows| step_column(rows, "A", "status").as_deref() == Some("waiting"))
         .await;
 
-    harness.restart().await;
+    harness.restart(Vec::new()).await;
     let reply = PersonWaitAnswer::Reply(NonEmptyText::new("Yes".to_owned()).expect("a reply"));
     let answered = harness.answer(harness.wait_id("A"), reply, None).await;
     assert_eq!(answered.expect("the loop replies"), Ok(()));
@@ -557,7 +702,7 @@ async fn a_waiting_step_keeps_its_wait_across_the_restart() {
         .await;
     assert_eq!(harness.asks.calls().len(), 1, "the reply is asked once");
     assert!(
-        harness.record_lines("fault").is_empty(),
+        harness.record_lines("waitNotReattached").is_empty(),
         "the wait is taken back"
     );
     assert_rebuilds(&harness).await;
@@ -589,7 +734,7 @@ async fn an_unrunnable_run_cancels_its_steps_on_their_own_events() {
         .execute("UPDATE workflow_versions SET definition_body = '{}'", [])
         .expect("the test breaks the run's version");
 
-    harness.restart().await;
+    harness.restart(Vec::new()).await;
     harness
         .wait_until(|rows| run_status(rows) == "crashed")
         .await;

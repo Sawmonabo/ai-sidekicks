@@ -320,15 +320,17 @@ pub trait StepProcess: Send + Sync {
 /// Stores the step payloads too large to carry inline as artifacts; the step payload store
 /// implements it.
 pub trait StepPayloadArtifacts: Send + Sync {
-    /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`. Fails when
-    /// the artifact cannot be written.
+    /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`, as
+    /// `artifact_id`, an id the caller minted, so a record can name it before the write. Fails
+    /// when the artifact cannot be written.
     fn write<'call>(
         &'call self,
         session_id: SessionId,
         step: &'call WorkflowStepKey,
+        artifact_id: ArtifactId,
         bytes: Vec<u8>,
         item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>>;
+    ) -> BoxFuture<'call, Result<(), PortError>>;
 
     /// The bytes of `artifact_id`. Fails when the artifact cannot be read.
     fn read<'call>(
@@ -336,8 +338,9 @@ pub trait StepPayloadArtifacts: Send + Sync {
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
 
-    /// Deletes `artifact_id`, a stored payload no record will name. Fails when the artifact cannot
-    /// be removed.
+    /// Deletes `artifact_id`, a stored payload no record will name; an artifact that is not
+    /// stored, such as one whose write never ran, counts as deleted. Fails when the artifact
+    /// cannot be removed.
     fn delete<'call>(
         &'call self,
         artifact_id: &'call ArtifactId,
@@ -548,9 +551,10 @@ impl StepPayloadArtifacts for RefusingPorts {
         &'call self,
         _session_id: SessionId,
         _step: &'call WorkflowStepKey,
+        _artifact_id: ArtifactId,
         _bytes: Vec<u8>,
         _item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
+    ) -> BoxFuture<'call, Result<(), PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 

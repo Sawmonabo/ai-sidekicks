@@ -2,6 +2,7 @@
 //! one kind per script, each waking the test's signals where its script waits or is canceled.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -82,6 +83,8 @@ pub(in crate::engine::tick::turns) struct Signals {
     pub(in crate::engine::tick::turns) running: Notify,
     /// Woken by the test to let a gated step settle.
     pub(in crate::engine::tick::turns) go: Notify,
+    /// Set by the test to fail every agent step's params from then on.
+    pub(in crate::engine::tick::turns) is_agent_failing: AtomicBool,
 }
 
 impl NodeExecutor for ScriptedExecutor {
@@ -187,6 +190,11 @@ impl NodeExecutor for ScriptedExecutor {
                 }
                 Script::Ask => return Ok(person_wait(PersonAsk::Reply { prompt: prompt() }, 120)),
                 Script::Agent => {
+                    if self.signal.is_agent_failing.load(Ordering::SeqCst) {
+                        return Err(StepFailure::Failed(Box::new(uncoded_step_error(
+                            "the agent step's params fail".to_owned(),
+                        ))));
+                    }
                     return Ok(StepOutcome::AgentRun(AgentStepRequest {
                         session_id: context.session_id,
                         step: context.step.clone(),

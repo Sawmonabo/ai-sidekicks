@@ -16,9 +16,11 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::run::execute;
-use super::{StepDispatch, fill_step_failure, scrub_outputs, settle_launch_failure};
+use super::{
+    StepDispatch, fill_step_failure, scrub_outputs, settle_launch_failure, stop_agent_run,
+};
 use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome};
-use crate::engine::ports::{AgentStepOutcome, AgentStepRun};
+use crate::engine::ports::{AgentStepOutcome, AgentStepRun, PortError};
 use crate::engine::tick::admission::{GateWaitEnd, SiblingEntry, wait_at_gate};
 use crate::engine::tick::node_settings::{
     main_input_lengths, main_output_count, place_on_first_output, shape_outputs,
@@ -82,7 +84,9 @@ impl StepDispatch {
     /// entry line through its sibling `entry` and creates the run in it, then reports the run's
     /// hold, admission, start and progress and settles with its outcome. A step canceled before
     /// its run is created creates none; one canceled after settles canceled once its stopped run
-    /// has ended, and a stop that cannot be sent goes to the engine's record.
+    /// has ended, and a stop that cannot be sent goes to the engine's record. A step the restart
+    /// took back takes the run it made before the stop in place of a creation, and stops that run
+    /// where it settles first.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(super) async fn drive_agent_step(
         self,
@@ -94,6 +98,13 @@ impl StepDispatch {
     ) {
         let (node, kind) = self.look_up_step(&scope, &ready.step);
         let step = ready.step.clone();
+        // A step the restart took back first takes the run it made before the stop, which the
+        // queue's recovery starts again, so a settlement before the run is handed over stops it.
+        let stored = if ready.is_taken_back {
+            Some(self.ports.agent_steps.reattach(&step).await)
+        } else {
+            None
+        };
         let main_input_lengths = main_input_lengths(&kind.spec, &ready.inputs);
         let launched = self
             .launch(&scope, &snapshot, &ready, kind, cancel.clone())
@@ -104,6 +115,7 @@ impl StepDispatch {
                 // Every path gives its place up before it reports, so a slow report channel never
                 // holds up a sibling.
                 drop(entry);
+                self.stop_unhanded_run(&scope, &step, stored).await;
                 let settlement =
                     settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
                 self.report(&step, &cancel, StepReportKind::Settled(settlement))
@@ -138,6 +150,7 @@ impl StepDispatch {
             Ok(request) => request,
             Err(failure) => {
                 drop(entry);
+                self.stop_unhanded_run(&scope, &step, stored).await;
                 let settlement = match failure {
                     None => StepSettlement::Canceled {
                         hold_started_at: None,
@@ -156,6 +169,7 @@ impl StepDispatch {
         // A step canceled before its turn came holds no turn when it reports, so a slow report
         // channel never holds up the line.
         let Some(turn) = entry.wait_for_turn(&cancel).await else {
+            self.stop_unhanded_run(&scope, &step, stored).await;
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
                 cancellation_reason: None,
@@ -164,15 +178,10 @@ impl StepDispatch {
                 .await;
             return;
         };
-        let created = if ready.is_taken_back {
-            // The queue's recovery starts again a run the step made before the stop.
-            match self.ports.agent_steps.reattach(&step).await {
-                Ok(Some(run)) => Ok(run),
-                Ok(None) => self.ports.agent_steps.run(request).await,
-                Err(error) => Err(error),
-            }
-        } else {
-            self.ports.agent_steps.run(request).await
+        let created = match stored {
+            Some(Ok(Some(run))) => Ok(run),
+            Some(Err(error)) => Err(error),
+            Some(Ok(None)) | None => self.ports.agent_steps.run(request).await,
         };
         // The run holds its place in the gate's line now, so the turn behind this one may enter.
         drop(turn);
@@ -211,6 +220,22 @@ impl StepDispatch {
             .await;
         self.report(&step, &cancel, StepReportKind::Settled(settlement))
             .await;
+    }
+
+    /// Stops `stored`, as the reattach of `step` of the run of `scope` read it, where the restart
+    /// took the step back and it settles before its run is handed over.
+    async fn stop_unhanded_run(
+        &self,
+        scope: &RunScope,
+        step: &WorkflowStepKey,
+        stored: Option<Result<Option<Box<dyn AgentStepRun>>, PortError>>,
+    ) {
+        if let Some(stored) = stored {
+            let record = self
+                .recorder
+                .for_run(scope.run_id, Arc::clone(&scope.redaction));
+            stop_agent_run(&record, step, stored).await;
+        }
     }
 
     /// Takes `parked`, the kept agent run of `step` of the run of `scope`, whose resume from its

@@ -12,11 +12,12 @@ use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWai
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio::sync::oneshot;
 
-use super::reports::{stop_agent_run, stop_steps};
+use super::reports::stop_steps;
 use super::{EngineTick, ReadiedNext, RunTurn};
 use crate::engine::results::run_posts_results;
 use crate::engine::tick::commit::RunEnding;
 use crate::engine::tick::commit::SessionEventId;
+use crate::engine::tick::dispatch::stop_agent_run;
 use crate::engine::tick::live_runs::{LiveRun, LiveStep};
 use crate::engine::tick::step_failure::{RunStop, run_cap_failure, step_failure_error};
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
@@ -96,7 +97,7 @@ impl EngineTick {
             &now,
         );
         live.cancel_replies.push(reply);
-        stop_steps(live, turn, None, &now, RunStop::End).await;
+        stop_steps(&self.dispatch, live, turn, None, &now, RunStop::End).await;
     }
 
     /// Ends the run of `live` on its cap of `limit_ms` at `at`, which the clock reported on
@@ -133,7 +134,7 @@ impl EngineTick {
             };
             live.decide_ending(ending, &mut turn.commit, &at);
             self.deadlines.skip_cap(live.scope.run_id);
-            stop_steps(live, turn, None, &at, RunStop::End).await;
+            stop_steps(&self.dispatch, live, turn, None, &at, RunStop::End).await;
             return;
         };
         self.deadlines.skip_cap(live.scope.run_id);
@@ -161,7 +162,8 @@ impl EngineTick {
             .get_mut(&step.execution_index.get())
             .and_then(|live_step| live_step.parked_agent_run.take())
             .map(|parked| parked.run);
-        stop_agent_run(live, &step, parked_agent_run).await;
+        stop_agent_run(&live.record, &step, Ok(parked_agent_run)).await;
+        live.stop_taken_back(&self.dispatch, &step).await;
         let failed = StepReport {
             step: step.clone(),
             at: at.clone(),

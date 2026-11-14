@@ -34,7 +34,7 @@ use super::node_settings::{
     execute_once_inputs, main_input_lengths, main_output_count, pinned_outputs, shape_outputs,
 };
 use super::{ReadyStep, RunScope, RunSnapshot, StepReport, StepReportKind, StepSettlement};
-use crate::engine::event_record::{EngineFault, EngineRecorder};
+use crate::engine::event_record::{EngineFault, EngineRecorder, RunEngineRecord};
 use crate::engine::ports::{
     AgentStepRun, EnginePorts, PortError, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey,
 };
@@ -138,14 +138,23 @@ impl StepDispatch {
     }
 
     /// The agent run `step` made before the daemon stopped, which the restart takes again for a
-    /// step waiting on its spent account and stops for a step it crashes; `None` where the step
-    /// made none. Fails when the stored runs cannot be read.
+    /// step waiting on its spent account; `None` where the step made none. Fails when the stored
+    /// runs cannot be read.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn reattach_agent_run(
         &self,
         step: &WorkflowStepKey,
     ) -> Result<Option<Box<dyn AgentStepRun>>, PortError> {
         self.ports.agent_steps.reattach(step).await
+    }
+
+    /// Stops the agent run `step` made before the daemon stopped, where it made one, since the
+    /// queue's recovery starts it again and its step settles without it; a run that cannot be read,
+    /// or a stop that cannot be sent, is recorded on `record`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) async fn stop_stored_run(&self, record: &RunEngineRecord, step: &WorkflowStepKey) {
+        let stored = self.ports.agent_steps.reattach(step).await;
+        stop_agent_run(record, step, stored).await;
     }
 
     /// Dispatches `ready` as [`Self::dispatch`] does, its `entry` its place among its siblings,
@@ -476,6 +485,27 @@ impl StepDispatch {
             cancel.cancel();
         }
         is_taken
+    }
+}
+
+/// Stops `run`, the agent run of `step` no cancel reaches any more, where there is one: one a step
+/// hands back, or one the read of the runs made before the daemon stopped answered; a read that
+/// failed, or a stop that could not be sent, is recorded on `record`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) async fn stop_agent_run(
+    record: &RunEngineRecord,
+    step: &WorkflowStepKey,
+    run: Result<Option<Box<dyn AgentStepRun>>, PortError>,
+) {
+    let stopped = match run {
+        Ok(Some(run)) => run.cancel().await,
+        Ok(None) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = stopped {
+        record
+            .fault(Some(step), EngineFault::AgentRunStopFailed, error.as_ref())
+            .await;
     }
 }
 

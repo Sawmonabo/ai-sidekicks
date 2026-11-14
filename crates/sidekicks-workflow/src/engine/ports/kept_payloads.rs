@@ -6,12 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use crate::engine::ports::{PortError, REFUSED_PORT_CALL, StepPayloadArtifacts};
 
-/// A payload the test's store kept, with the artifact it answered.
+/// A payload the test's store kept, with the artifact it was written as.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct KeptPayload {
     /// The session the payload was written in.
@@ -22,13 +21,13 @@ pub(crate) struct KeptPayload {
     pub(crate) bytes: Vec<u8>,
     /// How many items they hold.
     pub(crate) item_count: u64,
-    /// The artifact answered.
+    /// The artifact it was written as.
     pub(crate) artifact_id: ArtifactId,
 }
 
-/// A payload store that keeps what each write was given and answers a fresh artifact, or refuses
-/// every write past a count once told to, reads each kept artifact's bytes back, and keeps each
-/// artifact deleted, or refuses every delete once told to.
+/// A payload store that keeps what each write was given, or refuses every write past a count once
+/// told to, reads each kept artifact's bytes back, and keeps each artifact deleted, one never
+/// written among them, or refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
@@ -71,11 +70,10 @@ impl StepPayloadArtifacts for KeptPayloads {
         &'call self,
         session_id: SessionId,
         step: &'call WorkflowStepKey,
+        artifact_id: ArtifactId,
         bytes: Vec<u8>,
         item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
-        let artifact_id =
-            ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id");
+    ) -> BoxFuture<'call, Result<(), PortError>> {
         let limit = *self.write_limit.lock().expect("the test's payloads lock");
         let mut writes = self.writes.lock().expect("the test's payloads lock");
         if limit.is_some_and(|limit| writes.len() >= limit) {
@@ -88,7 +86,7 @@ impl StepPayloadArtifacts for KeptPayloads {
             item_count,
             artifact_id,
         });
-        Box::pin(async move { Ok(artifact_id) })
+        Box::pin(async { Ok(()) })
     }
 
     fn read<'call>(

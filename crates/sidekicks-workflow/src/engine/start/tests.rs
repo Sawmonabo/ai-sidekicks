@@ -52,8 +52,9 @@ use sidekicks_workspace::test_rows::project_and_mount_rows;
 
 use self::binding::TestBinder;
 use super::{
-    StartedRun, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart, WorkflowRunStartError,
-    WorkflowRunStarter, WorkflowRunStarterDependencies, WorkflowStartArrival, WorkflowStartOutcome,
+    StartedRun, StartsUnderWay, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart,
+    WorkflowRunStartError, WorkflowRunStarter, WorkflowRunStarterDependencies,
+    WorkflowStartArrival, WorkflowStartOutcome,
 };
 use crate::definitions::kept_values::{
     WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
@@ -198,6 +199,7 @@ impl Fixture {
             recorder: Arc::new(EngineRecorder::new(
                 Arc::clone(&records) as Arc<dyn EngineRecordSink>
             )),
+            starts_under_way: Arc::new(StartsUnderWay::default()),
         });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);

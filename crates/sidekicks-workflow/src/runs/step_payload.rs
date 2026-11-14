@@ -6,8 +6,10 @@
 use std::borrow::Cow;
 
 use rusqlite::{Connection, named_params};
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::step::methods::{
@@ -64,25 +66,84 @@ pub(crate) async fn write_step_payload(
     step: &WorkflowStepKey,
     items: &[WorkflowItem],
 ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
+    prepare_step_payload(items)?
+        .write(payloads, session_id, step)
+        .await
+}
+
+/// `items` made ready to keep, inline at or under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON
+/// bytes, else as the bytes of one artifact under an id minted before anything is written, so a
+/// caller can record the id first. Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn prepare_step_payload(
+    items: &[WorkflowItem],
+) -> Result<PreparedStepPayload, StepPayloadWriteError> {
     let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
     if measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP {
-        return Ok(WorkflowPayloadRef::Inline {
-            items: items.to_vec(),
+        return Ok(PreparedStepPayload {
+            reference: WorkflowPayloadRef::Inline {
+                items: items.to_vec(),
+            },
+            bytes: None,
         });
     }
     let bytes = serde_json::to_vec(items).map_err(StepPayloadWriteError::Json)?;
     let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
         .expect("a payload above the inline cap holds bytes");
-    let item_count = SafeInt::from_usize(items.len());
-    let artifact_id = payloads
-        .write(session_id, step, bytes, item_count.get())
-        .await
-        .map_err(StepPayloadWriteError::Artifact)?;
-    Ok(WorkflowPayloadRef::Artifact {
-        artifact_id,
-        size_bytes,
-        item_count,
+    Ok(PreparedStepPayload {
+        reference: WorkflowPayloadRef::Artifact {
+            artifact_id: mint_payload_artifact_id(),
+            size_bytes,
+            item_count: SafeInt::from_usize(items.len()),
+        },
+        bytes: Some(bytes),
     })
+}
+
+/// A fresh id for a payload kept as an artifact, minted before the artifact's write.
+pub(crate) fn mint_payload_artifact_id() -> ArtifactId {
+    ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id")
+}
+
+/// A step payload ready to keep: the reference its row will store and, where that names an
+/// artifact, the artifact's bytes, not yet written.
+pub(crate) struct PreparedStepPayload {
+    reference: WorkflowPayloadRef,
+    bytes: Option<Vec<u8>>,
+}
+
+impl PreparedStepPayload {
+    /// The artifact the payload is kept as, `None` for one carried inline.
+    pub(crate) fn artifact_id(&self) -> Option<ArtifactId> {
+        match &self.reference {
+            WorkflowPayloadRef::Artifact { artifact_id, .. } => Some(*artifact_id),
+            WorkflowPayloadRef::Inline { .. } => None,
+        }
+    }
+
+    /// The reference, once the artifact it names, if any, is written through `payloads` as a
+    /// payload of `step` in `session_id`. Fails with [`StepPayloadWriteError::Artifact`].
+    pub(crate) async fn write(
+        self,
+        payloads: &dyn StepPayloadArtifacts,
+        session_id: SessionId,
+        step: &WorkflowStepKey,
+    ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
+        if let (
+            Some(bytes),
+            WorkflowPayloadRef::Artifact {
+                artifact_id,
+                item_count,
+                ..
+            },
+        ) = (self.bytes, &self.reference)
+        {
+            payloads
+                .write(session_id, step, *artifact_id, bytes, item_count.get())
+                .await
+                .map_err(StepPayloadWriteError::Artifact)?;
+        }
+        Ok(self.reference)
+    }
 }
 
 /// Every output list's items in output order, as one payload stores them.

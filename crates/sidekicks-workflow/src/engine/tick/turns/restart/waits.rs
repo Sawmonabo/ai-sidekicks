@@ -1,6 +1,6 @@
 //! The restart's take-back of a waiting step's wait: an account wait's agent run with the records
-//! it kept, a form's or a reply's open question, asked again where it is gone, and an approval's
-//! pause point taken again before its card is raised again.
+//! it kept, a form's or a reply's open question, asked again where it is gone or unread, and an
+//! approval's pause point taken again before its card is raised again.
 
 use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -19,8 +19,9 @@ impl EngineTick {
     /// Takes the wait of `live_step`, a waiting step of `live`, back from `row` and what its
     /// suspension stored: an account wait's agent run with the records it kept and its resume
     /// where it reads, a wait whose resume does not read kept off the clock; a form's or a reply's
-    /// open question, asked again where it is no longer open; an approval asked again. Answers
-    /// `false` where the agent run is not there to take back, which the sweep fails as crashed.
+    /// open question, asked again where it is no longer open or cannot be read; an approval asked
+    /// again. Answers `false` where the agent run is not there to take back, which the sweep fails
+    /// as crashed.
     pub(super) async fn take_wait_back(
         &mut self,
         live: &mut LiveRun,
@@ -70,10 +71,13 @@ impl EngineTick {
                 match reattached {
                     Ok(Some(_)) => {}
                     Ok(None) => self.ask_again(live, step, row, asked),
+                    // A question that cannot be read is asked again, so the wait never stands
+                    // with nothing asked.
                     Err(error) => {
                         live.record
                             .fault(Some(&step), EngineFault::WaitNotReattached, error.as_ref())
                             .await;
+                        self.ask_again(live, step, row, asked);
                     }
                 }
                 true

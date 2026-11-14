@@ -2,7 +2,8 @@
 //! the scope its steps share rebuilt from what its start stored, its pinned version's graph, its
 //! steps not yet settled and its workflow events in log order. Before it, what a start left behind
 //! when a stop cut it before its run's row is deleted: the workspace it bound for its run, and the
-//! payloads it recorded under that run.
+//! payloads it recorded under that run; what a start still under way holds is left to it, and a
+//! leftover that cannot be deleted is recorded as a fault and kept for the next restart.
 #![cfg_attr(
     not(test),
     expect(
@@ -11,7 +12,7 @@
     )
 )]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
@@ -47,11 +48,10 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
-use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 use sidekicks_workspace::run_setup_gates::execution_root::context::SessionRunBinder;
 use sidekicks_workspace::working_folder::{
     ProjectEnvironmentReadError, WorkingFolderReadError, read_mount_environment_rows,
@@ -61,10 +61,11 @@ use tokio_util::sync::CancellationToken;
 
 use super::pins::read_started_pins;
 use super::stored_payloads::{LEFT_PAYLOADS_SQL, forget_payload};
-use super::{check_run_graph, hash_pin_data, read_session_project};
+use super::{StartsUnderWay, check_run_graph, hash_pin_data, read_session_project};
 use crate::definitions::kept_values::{WorkflowKeptValueError, WorkflowKeptValueStore};
 use crate::definitions::stored_document::parse_stored_workflow_body;
 use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
+use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::partial_run::covered_places;
 use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::engine::results::run_posts_results;
@@ -275,15 +276,6 @@ pub(crate) enum RunReloadError {
     /// A stored event's instant did not read as one.
     #[error("a stored event's instant does not read as an instant")]
     Instant(#[from] NotAnInstant),
-    /// A workspace bound for a run that has no row could not be deleted.
-    #[error("a workspace a stop left with no run could not be deleted")]
-    StrandedWorkspace(#[source] Box<RunSetupGateError>),
-    /// A payload a stop left recorded under a run that has no row could not be deleted.
-    #[error("a payload a stop left with no run could not be deleted")]
-    StrandedPayload(#[source] PortError),
-    /// The record of a payload deleted since could not be deleted.
-    #[error("the record of a payload a stop left could not be deleted")]
-    StrandedPayloadRecord(#[source] WriteError),
 }
 
 /// Reads a session's unfinished runs back for the tick at the restart.
@@ -303,6 +295,17 @@ pub(crate) struct RunReloader {
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
     /// The writer the record of each payload deleted is deleted through.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The engine's record, which takes each leftover that could not be deleted.
+    pub(crate) recorder: Arc<EngineRecorder>,
+    /// The starts under way, whose leftovers are left to them.
+    pub(crate) starts_under_way: Arc<StartsUnderWay>,
+}
+
+/// What stops left in a session: the runs a workspace was bound for that have no row, and each
+/// payload a start recorded that no run's write took over, with the run it was recorded under.
+struct StopLeftovers {
+    stranded_runs: Vec<WorkflowRunId>,
+    left_payloads: Vec<(ArtifactId, WorkflowRunId)>,
 }
 
 /// One unfinished run's row, as the reload reads it.
@@ -325,8 +328,10 @@ struct RunRow {
 impl RunReloader {
     /// The unfinished runs of `session_id`, oldest first, each with its scope rebuilt from its
     /// row and its start event, or the error its crashed ending stores, once what a start cut
-    /// before its run's row left is deleted. Fails as [`RunReloadError`] when a read of the
-    /// session's rows, kept values or log fails, or a leftover cannot be deleted.
+    /// before its run's row left is deleted, a leftover that will not delete recorded on the
+    /// engine's record and kept. A start in the session may run alongside: what it holds is left
+    /// to it. Fails as [`RunReloadError`] when a read of the session's rows, kept values or log
+    /// fails.
     pub(crate) async fn reload_session(
         &self,
         session_id: SessionId,
@@ -376,39 +381,83 @@ impl RunReloader {
     // Deletes each workspace bound for a run of the session that has no row, then each payload
     // a start of the session recorded that no run's write took over: a trigger input or a copy of
     // another session's output stored before a stop cut its run's row, or one its cleanup could
-    // not delete. A record names only what such a start stored, so no kept value is among them.
+    // not delete. A record names only what such a start stored, so no kept value is among them. A
+    // leftover is deleted only where both reads, one on each side of the check of the starts under
+    // way, hold it and its start is not under way: a start that ends after the first read has
+    // cleared or taken over what it held by the second. One that will not delete is recorded as a
+    // fault under its run, and its workspace or record kept for the next restart.
     async fn delete_stop_leftovers(&self, session_id: SessionId) -> Result<(), RunReloadError> {
-        let (stranded_runs, left_payloads) = self
-            .pool
+        let mut leftovers = self.read_stop_leftovers(session_id).await?;
+        let starts = &self.starts_under_way;
+        leftovers
+            .stranded_runs
+            .retain(|run_id| !starts.is_under_way(*run_id));
+        leftovers
+            .left_payloads
+            .retain(|(_, run_id)| !starts.is_under_way(*run_id));
+        if leftovers.stranded_runs.is_empty() && leftovers.left_payloads.is_empty() {
+            return Ok(());
+        }
+        let still_left = self.read_stop_leftovers(session_id).await?;
+        let still_stranded = still_left.stranded_runs.into_iter().collect::<HashSet<_>>();
+        let still_recorded = still_left.left_payloads.into_iter().collect::<HashSet<_>>();
+        for workflow_run_id in leftovers.stranded_runs {
+            if !still_stranded.contains(&workflow_run_id) {
+                continue;
+            }
+            if let Err(error) = self.binder.discard_project_run(workflow_run_id).await {
+                self.recorder
+                    .fault_rowless_run(workflow_run_id, EngineFault::StopLeftoverKept, &error)
+                    .await;
+            }
+        }
+        for left in leftovers.left_payloads {
+            if !still_recorded.contains(&left) {
+                continue;
+            }
+            let (artifact_id, workflow_run_id) = left;
+            let deleted = match self.payloads.delete(&artifact_id).await {
+                Ok(()) => forget_payload(&self.writer, artifact_id)
+                    .await
+                    .map_err(|error| Box::new(error) as PortError),
+                Err(error) => Err(error),
+            };
+            if let Err(error) = deleted {
+                self.recorder
+                    .fault_rowless_run(workflow_run_id, EngineFault::StopLeftoverKept, &*error)
+                    .await;
+            }
+        }
+        Ok(())
+    }
+
+    // The runs of `session_id` a workspace was bound for that have no row, and the payloads its
+    // starts recorded that no run's write took over.
+    async fn read_stop_leftovers(
+        &self,
+        session_id: SessionId,
+    ) -> Result<StopLeftovers, RunReloadError> {
+        self.pool
             .read(ReadLength::Short, move |connection| {
                 let left_payloads = connection
                     .prepare_cached(LEFT_PAYLOADS_SQL)?
                     .query_map([session_id.text().as_str()], |row| {
-                        text_column(row, 0, |text| ArtifactId::new(&text))
+                        Ok((
+                            text_column(row, 0, |text| ArtifactId::new(&text))?,
+                            text_column(row, 1, |text| WorkflowRunId::new(&text))?,
+                        ))
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok::<_, RunReloadError>((
-                    read_run_ids(connection, STRANDED_RUN_WORKSPACES_SQL, session_id)?,
+                Ok::<_, RunReloadError>(StopLeftovers {
+                    stranded_runs: read_run_ids(
+                        connection,
+                        STRANDED_RUN_WORKSPACES_SQL,
+                        session_id,
+                    )?,
                     left_payloads,
-                ))
+                })
             })
-            .await?;
-        for workflow_run_id in stranded_runs {
-            self.binder
-                .discard_project_run(workflow_run_id)
-                .await
-                .map_err(|error| RunReloadError::StrandedWorkspace(Box::new(error)))?;
-        }
-        for artifact_id in left_payloads {
-            self.payloads
-                .delete(&artifact_id)
-                .await
-                .map_err(RunReloadError::StrandedPayload)?;
-            forget_payload(&self.writer, artifact_id)
-                .await
-                .map_err(RunReloadError::StrandedPayloadRecord)?;
-        }
-        Ok(())
+            .await
     }
 }
 

@@ -182,7 +182,8 @@ impl EngineTick {
             return;
         }
         for win in wins {
-            let losers = reports::sort_losers(live, turn, win.losers, &at, true).await;
+            let losers =
+                reports::sort_losers(&self.dispatch, live, turn, win.losers, &at, true).await;
             let mut branch_losers = Vec::with_capacity(losers.len());
             for RunSibling { step, state } in losers {
                 match state {
@@ -198,7 +199,7 @@ impl EngineTick {
                     }),
                     SiblingState::Waiting => {
                         let merge = Some(WorkflowPhaseCancellationReason::MergeFirstToArrive);
-                        reports::cancel_now(live, turn, step, &at, merge).await;
+                        reports::cancel_now(&self.dispatch, live, turn, step, &at, merge).await;
                     }
                 }
             }

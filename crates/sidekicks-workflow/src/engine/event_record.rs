@@ -192,6 +192,9 @@ pub(crate) enum EngineFault {
     RemovedTreeSweepFailed,
     /// A wait's approval card could not be read or withdrawn; the restart's settle closes it.
     CardWithdrawFailed,
+    /// A workspace or a payload a stop left before the run's row could not be deleted at the
+    /// restart; the next restart tries it again.
+    StopLeftoverKept,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -277,6 +280,27 @@ impl EngineRecorder {
     )]
     pub(crate) fn end_run(&self, run_id: WorkflowRunId) {
         lock(&self.sequences).remove(&run_id);
+    }
+
+    /// Records `fault` and its `error` under `run_id`, a run that has no row and records nothing
+    /// more, then forgets its sequence.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run start's held start and the restart's leftover sweep"
+        )
+    )]
+    pub(crate) async fn fault_rowless_run(
+        &self,
+        run_id: WorkflowRunId,
+        fault: EngineFault,
+        error: &(dyn Error + Send + Sync + 'static),
+    ) {
+        self.for_run(run_id, Arc::new(RunRedaction::new(&[])))
+            .fault(None, fault, error)
+            .await;
+        self.end_run(run_id);
     }
 
     /// Whether the life still keeps a sequence for `run_id`, which a run's end forgets.
@@ -495,6 +519,11 @@ impl RunEngineRecord {
                 &mut line,
                 "cardWithdrawFailed",
                 "A wait's approval card could not be withdrawn; the restart's settle closes it.",
+            ),
+            EngineFault::StopLeftoverKept => says(
+                &mut line,
+                "stopLeftoverKept",
+                "What a stop left before the run's row could not be deleted; a restart retries it.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));

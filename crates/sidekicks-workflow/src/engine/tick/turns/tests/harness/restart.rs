@@ -29,6 +29,7 @@ use crate::engine::ports::{
     ScriptedGate, StepAdmission, StepAdmissionOutcome, StepPayloadArtifacts, WorkflowRunLimits,
     refusing_engine_ports,
 };
+use crate::engine::start::StartsUnderWay;
 use crate::engine::start::reload::RunReloader;
 use crate::engine::tick::StepReport;
 use crate::engine::tick::dispatch::test_dispatch_recording;
@@ -136,8 +137,9 @@ impl DaemonLife {
 
 impl Harness {
     /// Stops the running loop as the daemon's stop does, its steps cut off unsettled, then
-    /// starts a new life's loop and hands it the scope's session's reloaded unfinished runs.
-    pub(in crate::engine::tick::turns) async fn restart(&mut self) {
+    /// starts a new life's loop and hands it the scope's session's reloaded unfinished runs, then
+    /// `along`, all in its inbox before it runs, so its first turn takes them together.
+    pub(in crate::engine::tick::turns) async fn restart(&mut self, along: Vec<EngineTickInput>) {
         let DaemonLife {
             tick,
             inbox,
@@ -193,17 +195,21 @@ impl Harness {
             binder: Arc::clone(&self.notices) as Arc<dyn SessionRunBinder>,
             payloads: Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
             writer: Arc::clone(&self.log.writer),
+            recorder: Arc::clone(&self.recorder),
+            starts_under_way: Arc::new(StartsUnderWay::default()),
         };
         let runs = reloader
             .reload_session(session_id)
             .await
             .expect("the session's runs reload");
-        self.tick_task = tokio::spawn(tick.run());
         // Taken back through the loop's inbox, as a session settled late is.
-        self.inbox
-            .send(EngineTickInput::TakeBack(runs))
-            .await
-            .expect("the new loop takes its inputs");
+        for input in std::iter::once(EngineTickInput::TakeBack(runs)).chain(along) {
+            self.inbox
+                .send(input)
+                .await
+                .expect("the new loop takes its inputs");
+        }
+        self.tick_task = tokio::spawn(tick.run());
         self.reports = reports;
         self.deadlines = deadlines;
         self.agents = agents;

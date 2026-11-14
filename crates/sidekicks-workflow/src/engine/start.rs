@@ -17,6 +17,7 @@ mod retry;
 mod stored_payloads;
 #[cfg(test)]
 mod tests;
+mod under_way;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -95,6 +96,7 @@ pub(crate) use self::reload::{
 use self::retry::RetriedRun;
 use self::stored_payloads::StartPayloadError;
 pub(crate) use self::stored_payloads::StartPayloads;
+pub(crate) use self::under_way::StartsUnderWay;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's pins and provider, a named project's folder, its
@@ -300,6 +302,9 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) data_folder: PathBuf,
     /// The engine's record, which takes what a held start could not clean up.
     pub(crate) recorder: Arc<EngineRecorder>,
+    /// The starts under way, each holding its run's id until it returns, which the leftover sweep
+    /// of a session taken back reads.
+    pub(crate) starts_under_way: Arc<StartsUnderWay>,
 }
 
 /// Starts workflow runs: checks each start, prepares the run's folder, reads the scope its steps
@@ -321,6 +326,7 @@ pub(crate) struct WorkflowRunStarter {
     binder: Arc<dyn SessionRunBinder>,
     data_folder: PathBuf,
     recorder: Arc<EngineRecorder>,
+    starts_under_way: Arc<StartsUnderWay>,
 }
 
 impl WorkflowRunStarter {
@@ -343,6 +349,7 @@ impl WorkflowRunStarter {
             binder,
             data_folder,
             recorder,
+            starts_under_way,
         } = dependencies;
         Self {
             pool,
@@ -357,6 +364,7 @@ impl WorkflowRunStarter {
             binder,
             data_folder,
             recorder,
+            starts_under_way,
         }
     }
 
@@ -406,6 +414,8 @@ impl WorkflowRunStarter {
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let workflow_run_id =
             WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        // Held until the start returns, so a leftover sweep leaves what it stores or binds alone.
+        let _under_way = self.starts_under_way.hold(workflow_run_id);
         let is_run_owned = checked.project_root.is_some();
         // A run of its own workspace binds and prepares it before the write, so a start the chain
         // would hold is held first.
@@ -454,7 +464,9 @@ impl WorkflowRunStarter {
         for (artifact_id, removal) in stored.discard().await {
             ended = match ended {
                 Ok(held) => {
-                    self.record_left_behind(run_id, &*removal).await;
+                    self.recorder
+                        .fault_rowless_run(run_id, EngineFault::HeldStartLeftBehind, &*removal)
+                        .await;
                     Ok(held)
                 }
                 Err(error) => Err(WorkflowRunStartError::PayloadLeft {
@@ -469,7 +481,9 @@ impl WorkflowRunStarter {
         {
             ended = match ended {
                 Ok(held) => {
-                    self.record_left_behind(run_id, &removal).await;
+                    self.recorder
+                        .fault_rowless_run(run_id, EngineFault::HeldStartLeftBehind, &removal)
+                        .await;
                     Ok(held)
                 }
                 Err(error) => Err(WorkflowRunStartError::FolderLeft {
@@ -502,7 +516,9 @@ impl WorkflowRunStarter {
         };
         match ended {
             Ok(held) => {
-                self.record_left_behind(workflow_run_id, &removal).await;
+                self.recorder
+                    .fault_rowless_run(workflow_run_id, EngineFault::HeldStartLeftBehind, &removal)
+                    .await;
                 Ok(held)
             }
             Err(error) => Err(WorkflowRunStartError::WorkspaceLeft {
@@ -511,24 +527,6 @@ impl WorkflowRunStarter {
                 removal,
             }),
         }
-    }
-
-    // Records what a held start could not remove, under the run id it minted, then ends that run's
-    // record, since a held start makes no run.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    async fn record_left_behind(
-        &self,
-        run_id: WorkflowRunId,
-        removal: &(dyn std::error::Error + Send + Sync + 'static),
-    ) {
-        self.recorder
-            .for_run(run_id, Arc::new(RunRedaction::new(&[])))
-            .fault(None, EngineFault::HeldStartLeftBehind, removal)
-            .await;
-        self.recorder.end_run(run_id);
     }
 
     // What the run's scope reads beside its version and its workflow's row: one pooled read of the
