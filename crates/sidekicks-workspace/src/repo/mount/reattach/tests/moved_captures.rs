@@ -1,9 +1,16 @@
+use std::error::Error;
 use std::ffi::OsString;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rusqlite::params;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::repo::folders::RepoMountMoveRequest;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_platforms::{CAN_OPEN_INSIDE_UNREADABLE_FOLDER, is_superuser, make_unreadable};
 use sidekicks_store::data_folder::session_storage_folder;
+use tokio_util::sync::CancellationToken;
 
 use super::{RUN_ID, ReattachFixture};
 use crate::execution_root::test_fixture::{MOUNT_ID, SESSION_ID};
@@ -12,11 +19,22 @@ use crate::git::process::{GitCall, GitRunner};
 use crate::git::turn_snapshot::capture_folder::{
     CAPTURES_SEGMENT, CaptureFolder, git_folder_argument, real_path_name,
 };
-use crate::test_rows::PARENT_ROWS_AT;
+use crate::repo::mount::reattach::moved_captures::UncarriedCaptures;
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
-// Counts the mounts still recording a carry of their captures.
-const RECORD: &str = "SELECT count(*) FROM repo_mounts \
-                      WHERE json_extract(metadata, '$.capturesMovedFrom') IS NOT NULL";
+// The mounts of `project_id` still recording a carry of their captures.
+fn records(fixture: &ReattachFixture, project_id: &str) -> i64 {
+    fixture.roots.count(&format!(
+        "SELECT count(*) FROM repo_mounts WHERE project_id = '{project_id}' \
+         AND json_extract(metadata, '$.capturesMovedFrom') IS NOT NULL"
+    ))
+}
+
+// Another project's mount, moved into a folder whose carry cannot be made.
+const HELD_MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e95";
+
+// A past run whose context names a common folder the daemon may not enter.
+const UNREACHABLE_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e96";
 
 // A capture of the session's taken in the mount's repository before any move, with the run
 // context that names its common folder.
@@ -81,8 +99,24 @@ async fn capture_before_a_move(fixture: &ReattachFixture) -> CapturedBeforeMove 
 }
 
 // Puts the rows back as a stop between the first move's write and its carry leaves them, and the
-// capture folder too from `carried_name` when given, then holds the carry as the start does.
+// capture folder too from `carried_name` when given, then holds the carry as the start does and
+// answers it.
 async fn stop_before_the_carry(
+    fixture: &ReattachFixture,
+    captured: &CapturedBeforeMove,
+    carried_name: Option<&str>,
+) -> UncarriedCaptures {
+    leave_the_carry(fixture, captured, carried_name);
+    fixture
+        .service
+        .expect_moved_captures()
+        .await
+        .expect("the start holds the carry before anything captures")
+}
+
+// Puts the rows back as a stop between the first move's write and its carry leaves them, and the
+// capture folder too from `carried_name` when given.
+fn leave_the_carry(
     fixture: &ReattachFixture,
     captured: &CapturedBeforeMove,
     carried_name: Option<&str>,
@@ -104,11 +138,6 @@ async fn stop_before_the_carry(
         )
         .expect("the capture folder is as it was before the carry");
     }
-    fixture
-        .service
-        .expect_moved_captures()
-        .await
-        .expect("the start holds the carry before anything captures");
 }
 
 // The carry is done: the run's context names `common`, no mount records a carry, and the capture
@@ -121,7 +150,7 @@ async fn assert_found_at(fixture: &ReattachFixture, captured: &CapturedBeforeMov
         )),
         Some(common.to_string_lossy().into_owned())
     );
-    assert_eq!(fixture.roots.count(RECORD), 0);
+    assert_eq!(records(fixture, MOUNT_ID), 0);
     let found = CaptureFolder::open_existing(&fixture.packing, &captured.owner, common)
         .await
         .expect("the captures folder reads")
@@ -167,7 +196,7 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
     // As the move left it, then as a stop after its write leaves it, the folder renamed or not.
     for is_folder_renamed_back in [None, Some(false), Some(true)] {
         if let Some(is_folder_renamed_back) = is_folder_renamed_back {
-            stop_before_the_carry(
+            let uncarried = stop_before_the_carry(
                 &fixture,
                 &captured,
                 is_folder_renamed_back.then_some(new_name.as_str()),
@@ -189,7 +218,7 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
             );
             fixture
                 .service
-                .carry_moved_captures()
+                .carry_moved_captures(uncarried)
                 .await
                 .expect("the start's carry finishes the move");
         }
@@ -207,12 +236,17 @@ async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
             params![captured.old_common.to_string_lossy()],
         )
         .expect("a carry is owed again");
+    let uncarried = fixture
+        .service
+        .expect_moved_captures()
+        .await
+        .expect("the start holds the carry");
     fixture
         .service
-        .carry_moved_captures()
+        .carry_moved_captures(uncarried)
         .await
         .expect_err("the new name is taken");
-    assert_eq!(fixture.roots.count(RECORD), 1);
+    assert_eq!(records(&fixture, MOUNT_ID), 1);
 }
 
 // A capture taken before a first move is found and read after a second move made before the first
@@ -249,6 +283,229 @@ async fn a_capture_taken_before_two_moves_is_found_and_read_after_both() {
         .expect("the mount follows its repository again");
 
     assert_found_at(&fixture, &captured, &moved_again.join(".git")).await;
+}
+
+// A start whose stored carry of one project's captures cannot be made, its record unread or its
+// new folder one the daemon may not enter, holds only that project: the start goes on, the other
+// project's carry runs, passing over a stored folder it cannot resolve, and each opener of the held
+// project's capture folder is refused with the cause. Once the folder may be entered, the next
+// opener's ask carries the folder and it opens, and the carry clears the record; an unread record
+// has nothing to try. Killed by a start that fails on the one record, by a carry that stops at the
+// unresolved stored folder, by an opener that opens a held folder, and by an ask that tries
+// nothing.
+#[tokio::test]
+async fn a_carry_that_cannot_be_made_holds_only_its_own_mount() {
+    // A folder the daemon may not enter cannot be made here.
+    if is_superuser() || CAN_OPEN_INSIDE_UNREADABLE_FOLDER {
+        return;
+    }
+    for does_record_read in [false, true] {
+        let fixture = ReattachFixture::new().await;
+        let captured = capture_before_a_move(&fixture).await;
+        let scratch = fixture
+            .roots
+            .repository
+            .parent()
+            .expect("the repository sits in the scratch folder")
+            .to_path_buf();
+        let moved = scratch.join("moved");
+        std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
+        fixture
+            .move_to(MOUNT_ID, &moved)
+            .await
+            .expect("the mount follows its repository");
+        let new_common = moved.join(".git");
+        let new_name = real_path_name(&new_common)
+            .await
+            .expect("the new common folder resolves");
+        leave_the_carry(&fixture, &captured, Some(&new_name));
+
+        let locked = scratch.join("locked");
+        let held_common = locked.join("held").join(".git");
+        std::fs::create_dir_all(&held_common).expect("the held project's folder is made");
+        let held_old = scratch.join("held-old").join(".git");
+        let captures = captured.owner.join(CAPTURES_SEGMENT);
+        let held_old_folder = captures.join(
+            real_path_name(&held_old)
+                .await
+                .expect("the held project's old folder resolves"),
+        );
+        std::fs::create_dir_all(&held_old_folder).expect("its capture folder is at the old name");
+        for row in project_and_mount_rows(HELD_MOUNT_ID, None) {
+            fixture
+                .roots
+                .rows
+                .execute_batch(&row)
+                .expect("the held project and its mount are stored");
+        }
+        // A single folder where a list belongs does not read as the record.
+        let record = if does_record_read {
+            "json_array(?2)"
+        } else {
+            "?2"
+        };
+        fixture
+            .roots
+            .rows
+            .execute(
+                &format!(
+                    "UPDATE repo_mounts SET metadata = json_set(metadata, '$.commonDir', ?1, \
+                     '$.capturesMovedFrom', {record}) WHERE id = '{HELD_MOUNT_ID}'"
+                ),
+                params![held_common.to_string_lossy(), held_old.to_string_lossy()],
+            )
+            .expect("the held mount records its carry");
+        let unreachable = locked.join("other").join(".git");
+        fixture
+            .roots
+            .rows
+            .execute(
+                "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+                 execution_mode, execution_root, checkout_root, git_common_dir, \
+                 branch_context_id, created_at, released_at) \
+                 SELECT ?1, session_id, workspace_id, execution_mode, execution_root, \
+                 checkout_root, ?2, branch_context_id, created_at, released_at \
+                 FROM run_execution_contexts WHERE run_id = ?3",
+                params![UNREACHABLE_RUN_ID, unreachable.to_string_lossy(), RUN_ID],
+            )
+            .expect("a past run names a folder the daemon may not enter");
+        let unreadable = make_unreadable(&locked).expect("the folder is made unreadable");
+
+        let uncarried = fixture
+            .service
+            .expect_moved_captures()
+            .await
+            .expect("one record holds back no start");
+        fixture
+            .service
+            .carry_moved_captures(uncarried)
+            .await
+            .expect("the other project's carry runs");
+        assert_found_at(&fixture, &captured, &new_common).await;
+        assert_eq!(
+            fixture.text(&format!(
+                "SELECT git_common_dir FROM run_execution_contexts \
+                 WHERE run_id = '{UNREACHABLE_RUN_ID}'"
+            )),
+            Some(unreachable.to_string_lossy().into_owned())
+        );
+        let refused = CaptureFolder::open_existing(&fixture.packing, &captured.owner, &held_common)
+            .await
+            .expect_err("the held project's capture folder opens for no one");
+        assert!(
+            is_refused_with_the_cause(&refused, does_record_read),
+            "the opener hears why: {refused:?}"
+        );
+
+        drop(unreadable);
+        let reopened =
+            CaptureFolder::open_existing(&fixture.packing, &captured.owner, &held_common).await;
+        if does_record_read {
+            let opened = reopened
+                .expect("the ask carries the folder")
+                .expect("the capture folder is found at the new name");
+            let held_name = real_path_name(&held_common)
+                .await
+                .expect("the held folder resolves now");
+            assert_eq!(opened.folder(), captures.join(held_name));
+            assert!(!held_old_folder.exists(), "the old name is carried");
+            let stop = CancellationToken::new();
+            stop.cancel();
+            fixture.service.carry_lifted_captures(&stop).await;
+            assert_eq!(records(&fixture, HELD_MOUNT_ID), 0);
+        } else {
+            reopened.expect_err("a record that does not read has nothing to try");
+            assert_eq!(records(&fixture, HELD_MOUNT_ID), 1);
+        }
+    }
+}
+
+// A move that commits while an older carry of the same mount is between its read and its write,
+// and whose own carry reads the rows before that older write, leaves every row at the newest
+// folder and no record: the older write is refused once the move took its record forward. Killed
+// by an older write that rewrites the rows to the middle folder, which the newer carry then misses.
+#[tokio::test]
+async fn a_carry_a_newer_move_overtook_leaves_every_row_at_the_newest_folder() {
+    let fixture = ReattachFixture::new().await;
+    let captured = capture_before_a_move(&fixture).await;
+    let scratch = fixture
+        .roots
+        .repository
+        .parent()
+        .expect("the repository sits in the scratch folder")
+        .to_path_buf();
+    let moved = scratch.join("moved");
+    std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
+    let first = fixture
+        .move_to(MOUNT_ID, &moved)
+        .await
+        .expect("the mount follows its repository");
+    let middle_name = real_path_name(&moved.join(".git"))
+        .await
+        .expect("the middle common folder resolves");
+    let uncarried = stop_before_the_carry(&fixture, &captured, Some(&middle_name)).await;
+
+    let older_paused = fixture.service.carry_write_pause.arm();
+    let newer_paused = fixture.service.carry_write_pause.arm();
+    let older = tokio::spawn({
+        let service = Arc::clone(&fixture.service);
+        async move { service.carry_moved_captures(uncarried).await }
+    });
+    older_paused
+        .reached
+        .await
+        .expect("the older carry reaches its write");
+    let moved_again = scratch.join("moved-again");
+    std::fs::rename(&moved, &moved_again).expect("the repository moves again");
+    let newer = tokio::spawn({
+        let service = Arc::clone(&fixture.service);
+        let request = RepoMountMoveRequest {
+            repo_mount_id: first.repo_mount_id,
+            local_path: FilesystemPath::new(moved_again.to_string_lossy().into_owned())
+                .expect("the path is short"),
+            place: None,
+        };
+        async move { service.move_to_folder(&request).await }
+    });
+    newer_paused
+        .reached
+        .await
+        .expect("the newer move's carry reaches its write");
+    older_paused
+        .release
+        .send(())
+        .expect("the older carry waits");
+    older
+        .await
+        .expect("the older carry ends")
+        .expect("an overtaken carry writes nothing and fails nothing");
+    newer_paused
+        .release
+        .send(())
+        .expect("the newer carry waits");
+    newer
+        .await
+        .expect("the newer move ends")
+        .expect("the mount follows its repository again");
+
+    assert_found_at(&fixture, &captured, &moved_again.join(".git")).await;
+}
+
+// Whether `refused` carries the cause of the held carry: the folder the daemon may not enter when
+// the record reads, the record itself when it does not.
+fn is_refused_with_the_cause(refused: &io::Error, does_record_read: bool) -> bool {
+    std::iter::successors(Some(refused as &(dyn Error + 'static)), |&error| {
+        error.source()
+    })
+    .any(|cause| {
+        if does_record_read {
+            cause
+                .downcast_ref::<io::Error>()
+                .is_some_and(|cause| cause.kind() == io::ErrorKind::PermissionDenied)
+        } else {
+            cause.is::<serde_json::Error>()
+        }
+    })
 }
 
 // What git printed, trimmed, for `arguments` against the capture folder with the repository's

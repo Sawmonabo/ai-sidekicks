@@ -20,7 +20,9 @@ use sidekicks_store::database::stored_column::returned_parsed;
 
 use super::moved_captures::CAPTURES_MOVED_FROM_METADATA_PATH;
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
-use crate::repo::mount::health::first_verdict::REPLACED_REPO_MOUNT_METADATA_PATH;
+use crate::repo::mount::health::first_verdict::{
+    MOVED_SESSIONS_METADATA_PATH, REPLACED_REPO_MOUNT_METADATA_PATH,
+};
 use crate::repo::mount::service::detach::SELECT_RUNNING_RUN_SQL;
 use crate::row_guards::{
     COMMON_DIR_METADATA_PATH, LAST_ERROR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH,
@@ -80,8 +82,8 @@ static DETACH_OLD_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The new mount takes the old one's machine, place and project at the folder bound, anchored on
-// the repository there now, and owes its first verdict naming the old one to each session on it;
-// its project is answered for the service log.
+// the repository there now, and owes its first verdict to each session on it, naming the old one
+// to the sessions whose workspaces move to it next; its project is answered for the service log.
 static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO repo_mounts (
@@ -92,11 +94,15 @@ static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
          project_id, '{}', @now, @now,
          json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir,
                   '{ROOT_COMMIT_METADATA_PATH}', @root_commit,
-                  '{REPLACED_REPO_MOUNT_METADATA_PATH}', @repo_mount_id)
+                  '{REPLACED_REPO_MOUNT_METADATA_PATH}', @repo_mount_id,
+                  '{MOVED_SESSIONS_METADATA_PATH}', json((
+                    SELECT json_group_array(DISTINCT session_id) FROM workspaces
+                     WHERE repo_mount_id = @repo_mount_id AND state <> '{}')))
     FROM repo_mounts
    WHERE id = @repo_mount_id
   RETURNING project_id",
-        <&'static str>::from(RepoMountState::Attached)
+        <&'static str>::from(RepoMountState::Attached),
+        <&'static str>::from(WorkspaceState::Archived)
     )
 });
 
@@ -166,15 +172,18 @@ const UPDATE_PROJECT_FOLDER_SQL: &str = "UPDATE projects
 // A move records the old common folder its captures are carried from until the carry clears it,
 // after the ones the old mount still carried, oldest first, so a carry a later move cut off is
 // finished by the newest mount's carry; a re-attach in place of a mount still carrying takes its
-// record forward the same way. Read before the old row's record is removed below.
+// record forward the same way. An old record that is no list names no old folder, so none of it is
+// taken forward. Read before the old row's record is removed below.
 static RECORD_CAPTURES_MOVED_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE repo_mounts
     SET metadata = json_set(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}', json_insert(
-          json(coalesce(
-            (SELECT json_extract(old.metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}')
-               FROM repo_mounts AS old WHERE old.id = @repo_mount_id),
-            '[]')),
+          (SELECT CASE
+                    WHEN json_type(old.metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}') = 'array'
+                    THEN old.metadata -> '{CAPTURES_MOVED_FROM_METADATA_PATH}'
+                    ELSE '[]'
+                  END
+             FROM repo_mounts AS old WHERE old.id = @repo_mount_id),
           '$[#]', @old_common_dir))
   WHERE id = @new_repo_mount_id
     AND (@is_moved OR EXISTS (

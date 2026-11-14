@@ -34,13 +34,15 @@ interface RepoMountHealthChangedPayload {
   repoMountId: RepoMountId;
   health: RepoMountHealth;
   // The mount a re-attach (`repoMount.reattach`) or a move (`repoMount.move`) turned `detached` to
-  // make this one; present only on that first verdict, once on each session on the new mount, the
-  // ended mount's sessions, so the banner drawn for the ended mount ends on this fact. The commit's
-  // write records the first verdict as owed, and a pass whose send fails or that a stop cuts off
-  // leaves it owed, so a later pass sends it to each session whose log holds no health of the new
-  // mount. Where the ended mount was itself made by a re-attach or a move whose first verdict a
-  // session never got, it names, for that session, the nearest earlier mount on that chain whose
-  // health its log holds, the one its banner was drawn for. Absent on every other verdict.
+  // make this one; present only on that first verdict, once on each session the commit moved onto
+  // the new mount, the ended mount's sessions, so the banner drawn for the ended mount ends on this
+  // fact. The commit's write records the first verdict as owed, and a pass whose send fails or that
+  // a stop cuts off leaves it owed, so a later pass sends it to each session whose log holds no
+  // health of the new mount. Where the ended mount was itself made by a re-attach or a move whose
+  // first verdict a session never got, it names, for that session, the nearest earlier mount on
+  // that chain whose health its log holds, the one its banner was drawn for. A session bound to the
+  // new mount after the commit was on none of them: its first verdict carries no
+  // `replacedRepoMountId`. Absent on every other verdict.
   replacedRepoMountId?: RepoMountId;
 }
 

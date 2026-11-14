@@ -308,7 +308,8 @@ pub struct RepoMountService {
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     machine_id: MachineId,
-    // Raised once a project's mount is attached, and shared with the re-attach, which raises it too.
+    // Raised once a project's mount is attached, and shared with the re-attach, which raises it
+    // too.
     attach_notice: Arc<ProjectAttachNotice>,
     /// Where a test holds a detach between its row read and its write.
     #[cfg(test)]

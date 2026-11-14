@@ -147,8 +147,9 @@ pub(crate) enum DaemonStartError {
     /// The run queues could not be read to deliver what a stop left waiting.
     #[error("the run queues could not be recovered")]
     QueueRecovery(#[source] Box<QueueError>),
-    /// The moved projects' captures a stop left uncarried could not be read or named, so nothing
-    /// may capture before they are.
+    /// The records of the moved projects' captures a stop left uncarried could not be read, so
+    /// nothing may capture before they are; one record that cannot be made into a carry holds only
+    /// its own project's capture folders and does not fail the start.
     #[error("the moved projects' captures still to carry could not be read")]
     MovedCaptures(#[from] CaptureCarryError),
 }

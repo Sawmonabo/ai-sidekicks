@@ -6,9 +6,11 @@
 //!
 //! A mount ended while it still owed its own first verdict keeps its record, since only a pass of
 //! an attached mount clears one, so the records chain from the newest mount back through each one
-//! it replaced. The verdict names, for each session, the nearest mount on that chain the session's
-//! log holds health of, the one its banner was drawn for, and the direct one where it holds none;
-//! the clear removes every record on the chain.
+//! it replaced. The write also records the sessions whose workspaces it moved onto the new mount,
+//! the ones that were on the chain. The verdict names, for each of those, the nearest mount on the
+//! chain the session's log holds health of, the one its banner was drawn for, and the direct one
+//! where it holds none; a session bound to the new mount since names none. The clear removes every
+//! record on the chain.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -20,7 +22,7 @@ use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 use super::{
     AttachedMount, MountHealthReadError, MountPassFailure, ProbeTimeoutReading,
@@ -30,6 +32,10 @@ use super::{
 /// Where a mount's row records the mount a re-attach or a move replaced with it while its first
 /// verdict is owed to a session on it.
 pub(crate) const REPLACED_REPO_MOUNT_METADATA_PATH: &str = "$.replacedRepoMountId";
+
+/// Where a mount's row records, beside the mount it replaced, the sessions whose workspaces the
+/// re-attach or the move moved onto it, as a JSON array.
+pub(crate) const MOVED_SESSIONS_METADATA_PATH: &str = "$.movedSessionIds";
 
 // The mounts `@repo_mount_id` replaced, nearest first, each row's record naming the one before it
 // whatever its state; a record names a mount made before its own, so the chain ends.
@@ -46,11 +52,16 @@ static REPLACED_CHAIN_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The sessions with a live workspace on the mount whose log holds no health of it, each with the
-// replaced mount its verdict names.
+// replaced mount its verdict names, null for a session the write did not move onto the mount.
 static SELECT_UNTOLD_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
-SELECT untold.session_id, coalesce(
+SELECT untold.session_id, CASE WHEN EXISTS (
+    SELECT 1
+      FROM repo_mounts AS mount,
+           json_each(mount.metadata, '{MOVED_SESSIONS_METADATA_PATH}') AS moved
+     WHERE mount.id = @repo_mount_id AND moved.value = untold.session_id
+  ) THEN coalesce(
     (SELECT replaced.repo_mount_id FROM replaced
       WHERE EXISTS (
         SELECT 1 FROM session_events AS event
@@ -59,7 +70,7 @@ SELECT untold.session_id, coalesce(
       )
       ORDER BY replaced.depth
       LIMIT 1),
-    (SELECT repo_mount_id FROM replaced WHERE depth = 1))
+    (SELECT repo_mount_id FROM replaced WHERE depth = 1)) END
   FROM (
     SELECT DISTINCT workspace.session_id
       FROM workspaces AS workspace
@@ -81,7 +92,8 @@ static CLEAR_REPLACED_REPO_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
 UPDATE repo_mounts
-    SET metadata = json_remove(metadata, '{REPLACED_REPO_MOUNT_METADATA_PATH}')
+    SET metadata = json_remove(metadata, '{REPLACED_REPO_MOUNT_METADATA_PATH}',
+                               '{MOVED_SESSIONS_METADATA_PATH}')
   WHERE id = @repo_mount_id OR id IN (SELECT repo_mount_id FROM replaced)",
         *REPLACED_CHAIN_SQL
     )
@@ -101,12 +113,12 @@ impl RepoMountHealthReprobe {
     }
 
     /// The sessions on `mount` still owed its first verdict, each with the replaced mount it names,
-    /// read in one read only while one is owed. Fails as the read fails, and for a stored id the
-    /// contracts refuse.
+    /// none for a session bound to it since, read in one read only while one is owed. Fails as the
+    /// read fails, and for a stored id the contracts refuse.
     pub(super) async fn read_owed_sessions(
         &self,
         mount: &AttachedMount,
-    ) -> Result<HashMap<SessionId, RepoMountId>, MountHealthReadError> {
+    ) -> Result<HashMap<SessionId, Option<RepoMountId>>, MountHealthReadError> {
         if mount.replaced_repo_mount_id.is_none() {
             return Ok(HashMap::new());
         }
@@ -160,7 +172,7 @@ impl RepoMountHealthReprobe {
 fn read_untold_sessions(
     connection: &Connection,
     repo_mount_id: RepoMountId,
-) -> Result<HashMap<SessionId, RepoMountId>, MountHealthReadError> {
+) -> Result<HashMap<SessionId, Option<RepoMountId>>, MountHealthReadError> {
     Ok(connection
         .prepare_cached(&SELECT_UNTOLD_SESSIONS_SQL)?
         .query_map(
@@ -168,7 +180,7 @@ fn read_untold_sessions(
             |row| {
                 Ok((
                     text_column(row, 0, |text| SessionId::new(&text))?,
-                    text_column(row, 1, |text| RepoMountId::new(&text))?,
+                    optional_text_column(row, 1, |text| RepoMountId::new(&text))?,
                 ))
             },
         )?

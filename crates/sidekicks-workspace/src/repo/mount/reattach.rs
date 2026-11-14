@@ -71,7 +71,8 @@ use self::write::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::{ExecutionRootError, ExecutionRootService};
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::turn_snapshot::capture_folder::{CaptureCarry, real_path_name};
+use crate::git::turn_snapshot::capture_folder::carry::CaptureCarry;
+use crate::git::turn_snapshot::capture_folder::real_path_name;
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventEmitter};
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
@@ -89,9 +90,9 @@ use crate::trust_envelope::components_equal;
 
 /// The statements the re-attach's reads keep prepared on each read connection: the running run,
 /// the holder of the repository, the mount's live trees, a move's recorded first commit and
-/// workspace paths, the mounts whose captures are still to be carried, and the stored common
-/// folders of the run contexts and the command windows a carry rewrites.
-pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 8;
+/// workspace paths, the mounts whose captures are still to be carried, a carry's record, and the
+/// stored common folders of the run contexts and the command windows a carry rewrites.
+pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 9;
 
 // What a log line names a failed follow-up's group as.
 const FOLLOW_UP_OPERATION: &str = "a re-attach's follow-ups";
@@ -286,6 +287,9 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     /// Where a test holds a re-attach between its checks and its write.
     #[cfg(test)]
     pub(crate) write_pause: PausePoint,
+    /// Where a test holds a carry between its read and its write.
+    #[cfg(test)]
+    pub(crate) carry_write_pause: PausePoint,
 }
 
 impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
@@ -310,6 +314,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             health: deps.health,
             #[cfg(test)]
             write_pause: PausePoint::default(),
+            #[cfg(test)]
+            carry_write_pause: PausePoint::default(),
         }
     }
 
@@ -481,9 +487,11 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         );
 
         // The re-attach is committed: every follow-up is tried, and the failures answered together.
-        // The captures go first, so a run admitted on the new mount finds them at the new name.
-        if (is_moved || carry.is_rename())
-            && let Err(failure) = self.carry_captures(new_repo_mount_id, &carry).await
+        // The captures go first, so a run admitted on the new mount finds them at the new name. A
+        // chain still unmade waits for an opener's ask, which makes and runs it.
+        if let Some(carry) = &carry
+            && (is_moved || carry.is_rename())
+            && let Err(failure) = self.carry_captures(new_repo_mount_id, carry).await
         {
             failures.push(RepoMountReattachFollowUpFailure::Captures(failure));
         }

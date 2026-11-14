@@ -185,8 +185,10 @@ pub struct RepoMountHealthChangedPayload {
     /// Its health now.
     #[garde(dive)]
     pub health: RepoMountHealth,
-    /// The mount a re-attach or a move ended to make this one, present only on the new mount's
-    /// first health, so whatever a session drew for the ended mount ends with it.
+    /// The mount a re-attach or a move ended to make this one or, for a session that never heard
+    /// of that one, the nearest earlier one whose health it heard; present only on the new mount's
+    /// first health to a session that was on one of them, so whatever it drew for the ended mount
+    /// ends with it, and absent for a session that was on none of them.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

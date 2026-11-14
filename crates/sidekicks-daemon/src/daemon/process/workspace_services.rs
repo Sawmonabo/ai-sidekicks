@@ -54,7 +54,9 @@ use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::project::service::ProjectService;
-use sidekicks_workspace::repo::mount::reattach::moved_captures::CaptureCarryError;
+use sidekicks_workspace::repo::mount::reattach::moved_captures::{
+    CaptureCarryError, UncarriedCaptures,
+};
 use sidekicks_workspace::repo::mount::reattach::{
     RepoMountReattachService, RepoMountReattachServiceDeps,
 };
@@ -423,6 +425,8 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
             creation,
             conversion,
             reattach: Arc::clone(&roots.reattach),
+            moved_captures: None,
+            carry_stop: CancellationToken::new(),
             cleanup,
             removed,
             start_tasks: Vec::new(),
@@ -564,12 +568,16 @@ impl WorktreeCleanup {
 }
 
 /// The workspace services' work at the start and its end at the stop: the finishing of the creates
-/// and conversions a stop cut off, the worktree cleanup job's requests, and the kept worktrees'
-/// background reads.
+/// and conversions a stop cut off, the carry of the moved mounts' captures, the worktree cleanup
+/// job's requests, and the kept worktrees' background reads.
 pub(crate) struct WorkspaceWork {
     creation: Arc<SessionCreation>,
     conversion: Arc<SessionConversion>,
     reattach: Arc<RepoMountReattachService>,
+    // The carries the start held pending, until the start's background carry takes them.
+    moved_captures: Option<UncarriedCaptures>,
+    // Ends the carry of the captures an opener's ask made, at the stop.
+    carry_stop: CancellationToken,
     cleanup: WorktreeCleanupRequests,
     removed: Arc<RemovedWorktreeStore>,
     start_tasks: Vec<(&'static str, JoinHandle<()>)>,
@@ -577,16 +585,19 @@ pub(crate) struct WorkspaceWork {
 
 impl WorkspaceWork {
     /// Holds pending the carry of each moved mount's captures a stop cut off, so nothing captured
-    /// before the carry runs opens a capture folder of theirs uncarried. Called before anything
-    /// captures. Fails as the pending carries cannot be read, which fails the start, so no capture
-    /// folder opens before they are known.
-    pub(crate) async fn expect_moved_captures(&self) -> Result<(), CaptureCarryError> {
-        self.reattach.expect_moved_captures().await
+    /// before the carry runs opens a capture folder of theirs uncarried; a mount whose carry cannot
+    /// be made holds only its own capture folders. Called before anything captures. Fails only as
+    /// the records cannot be read, which fails the start, so no capture folder opens before they
+    /// are known.
+    pub(crate) async fn expect_moved_captures(&mut self) -> Result<(), CaptureCarryError> {
+        self.moved_captures = Some(self.reattach.expect_moved_captures().await?);
+        Ok(())
     }
 
     /// Begins in the background the finish of the creates, the removal of the copies and the carry
-    /// of the moved mounts' captures a stop cut off, and the worktree cleanup, now and on each
-    /// wake. Called once the start's recovery pass has ended.
+    /// of the moved mounts' captures a stop cut off, then the carry of each one an opener's ask
+    /// makes until the stop, and the worktree cleanup, now and on each wake. Called once the
+    /// start's recovery pass has ended.
     pub(crate) fn start(&mut self) {
         let creation = Arc::clone(&self.creation);
         self.start_tasks.push((
@@ -603,25 +614,34 @@ impl WorkspaceWork {
             }),
         ));
         let reattach = Arc::clone(&self.reattach);
+        let moved_captures = self.moved_captures.take();
+        let carry_stop = self.carry_stop.clone();
         self.start_tasks.push((
-            "stopped moves' capture carry",
+            "moved projects' capture carry",
             tokio::spawn(async move {
-                if let Err(error) = reattach.carry_moved_captures().await {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "a moved project's captures could not be carried to its new folder; its \
-                         next start tries again"
-                    );
+                if let Some(moved_captures) = moved_captures
+                    && let Err(failures) = reattach.carry_moved_captures(moved_captures).await
+                {
+                    for failure in each_failure(failures) {
+                        tracing::warn!(
+                            repo_mount_id = %failure.repo_mount_id,
+                            error = &failure as &(dyn Error + 'static),
+                            "a moved project's captures could not be carried to its new folder; \
+                             its next start tries again"
+                        );
+                    }
                 }
+                reattach.carry_lifted_captures(&carry_stop).await;
             }),
         ));
         self.cleanup.start();
     }
 
-    /// Ends the cleanup's requests, then waits within `bound` for the start's background tasks;
-    /// one still running then is ended. Answers each task that ended abnormally or ran past the
-    /// bound. Run before the scheduler stops.
+    /// Ends the carry of the captures an opener's ask makes and the cleanup's requests, then waits
+    /// within `bound` for the start's background tasks; one still running then is ended. Answers
+    /// each task that ended abnormally or ran past the bound. Run before the scheduler stops.
     pub(crate) async fn stop(&mut self, bound: Duration) -> Vec<DaemonStopFailure> {
+        self.carry_stop.cancel();
         let mut failures: Vec<DaemonStopFailure> = self
             .cleanup
             .stop()

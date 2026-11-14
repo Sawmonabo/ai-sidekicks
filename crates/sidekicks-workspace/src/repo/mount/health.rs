@@ -591,9 +591,9 @@ impl RepoMountHealthReprobe {
                 .and_then(|memory| memory.heard.get(&session_id).copied())
                 .unwrap_or(MountVerdict::ASSUMED);
             // A session owed the first verdict is sent it whatever it holds, naming the replaced
-            // mount it heard of.
-            let replaced_repo_mount_id = owed.get(&session_id).copied();
-            if heard == verdict && replaced_repo_mount_id.is_none() {
+            // mount it heard of when it was on that mount's chain.
+            let owed_verdict = owed.get(&session_id).copied();
+            if heard == verdict && owed_verdict.is_none() {
                 continue;
             }
             let sent = self
@@ -602,7 +602,7 @@ impl RepoMountHealthReprobe {
                     session_id,
                     repo_mount_id,
                     health.clone(),
-                    replaced_repo_mount_id,
+                    owed_verdict.flatten(),
                     SessionEventLinkage::default(),
                 )
                 .await;
