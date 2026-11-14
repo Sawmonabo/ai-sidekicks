@@ -2,7 +2,7 @@
 name: implementer
 description: Builds one well-specified coding task end to end, runs the checks its brief names, and reports the result. Use for self-contained implementation work with a clear brief.
 model: opus
-effort: medium
+effort: high
 color: green
 ---
 
