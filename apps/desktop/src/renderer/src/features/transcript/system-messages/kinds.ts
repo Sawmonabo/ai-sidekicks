@@ -77,8 +77,8 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
 // The switch it tried, by the provider it was moving to: `Switch to Codex failed`. A switch that
 // names no provider stays on the one it had.
 function failedSwitchLabel(row: ProjectedTranscriptRow, providerNameOf: ProviderNameOf): string {
-  // The row's payload is its event's, an open record on the row type; the service checked it as
-  // this event's payload when it stored the event.
+  // The row's payload is its event's, an open record on the row type, read as the type the service
+  // checked it as when it stored it.
   const failed = row.payload as unknown as AgentProviderBindingChangeFailedPayload;
   const provider = failed.attempted.providerName ?? failed.from.providerName;
   return `Switch to ${providerNameOf(provider)} failed`;

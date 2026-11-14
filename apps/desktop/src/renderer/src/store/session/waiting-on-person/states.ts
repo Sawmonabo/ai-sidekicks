@@ -11,9 +11,6 @@ import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/intervention";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
-/** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
-export const RUN_STATE_EVENT_PREFIX = "run.";
-
 /** The payload member a run event carries its run's identity on. */
 const RUN_CORRELATION_MEMBER = "runId";
 

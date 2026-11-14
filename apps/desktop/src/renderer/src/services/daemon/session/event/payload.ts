@@ -81,7 +81,8 @@ export function readSessionStreamFrame(
  * because the wire does not say whether an id is a user or an agent. `category` is checked but not
  * carried, since no reader uses it. A type the census does not know passes unchanged, which keeps
  * an event type newer than this build readable. The run stamp is carried as the daemon sent it,
- * absent when it sent none.
+ * absent when it sent none. The payload is carried as stored: the service checked it when it
+ * stored the event, and a row another build stored under the same type keeps that build's shape.
  */
 export function projectSessionEvent(
   envelope: EventEnvelope,

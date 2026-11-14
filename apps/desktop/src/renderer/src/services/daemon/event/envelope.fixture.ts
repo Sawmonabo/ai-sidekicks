@@ -9,7 +9,7 @@
 // Composing is not judging: the result is a candidate that carries only what the beat states, so a
 // kind outside the census composes with no `category`, which `validateEventEnvelope` refuses. The
 // judges are the generated checks, run by `tests/helpers/scenario/contract-check/all-axes.ts` on
-// every beat before a scenario ships and by `session/event/payload.ts` on every delivery.
+// every beat before a scenario ships.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/category-by-type";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";

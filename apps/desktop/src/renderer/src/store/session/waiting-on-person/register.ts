@@ -15,13 +15,7 @@
 
 import { runStateOfEventType } from "@ai-sidekicks/contracts/transcript/run-facts";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/vocabulary.js";
-import {
-  RUN_STATE_EVENT_PREFIX,
-  identifiedRequestKeyOf,
-  lifecycleFor,
-  runIdOf,
-  uncorrelatedKey,
-} from "./states.js";
+import { identifiedRequestKeyOf, lifecycleFor, runIdOf, uncorrelatedKey } from "./states.js";
 
 /**
  * One request lifecycle, as two positions. A terminal seen before its opener still settles the
@@ -37,10 +31,7 @@ export interface WaitingRequestRecord {
 /** One run's newest known state and the position it was read at. */
 export interface WaitingRunRecord {
   readonly atSequence: number;
-  /**
-   * The state, wire-verbatim, or `undefined` where the base state named none. Whether a person
-   * has to act on it is `isAttentionRunState`'s call.
-   */
+  /** The state, as the base state or the event's type named it, or `undefined` for none. */
   readonly state: string | undefined;
 }
 
@@ -127,11 +118,12 @@ export class WaitingOnPersonRegister {
   }
 
   #admitOne(event: ProjectedSessionEvent): void {
-    if (runStateOfEventType(event.kind) !== undefined) {
+    const runState = runStateOfEventType(event.kind);
+    if (runState !== undefined) {
       this.#recordRunState({
         runId: runIdOf(event) ?? uncorrelatedKey(event),
         atSequence: event.sequence,
-        state: event.kind.slice(RUN_STATE_EVENT_PREFIX.length),
+        state: runState,
       });
       return;
     }

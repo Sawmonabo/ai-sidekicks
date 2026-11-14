@@ -321,11 +321,6 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
 export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings =
   bindCallableMethods(WINDOW_METHOD_DESCRIPTORS);
 
-/** Every daemon query and mutation a window calls, by its wire name. */
-export const REGISTERED_DAEMON_METHODS: readonly RegisteredDaemonMethod[] = Object.freeze(
-  Object.keys(DAEMON_METHOD_BINDINGS) as RegisteredDaemonMethod[],
-);
-
 /**
  * The descriptor for one method name known only at runtime, or `undefined` for a name no window
  * calls. For the fixture bridge and the scenario checks, each handed a call name at runtime; typed

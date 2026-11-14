@@ -43,13 +43,13 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
       cursor: 12,
       isWindowHeadUnread: true,
       entities: [
-        { kind: "run", id: "run-a", state: "waiting_for_approval", attributedTo: "agent-scout" },
+        { kind: "run", id: "run-a", state: "waitingForApproval", attributedTo: "agent-scout" },
       ],
     });
 
     expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
       atSequence: 12,
-      state: "waiting_for_approval",
+      state: "waitingForApproval",
     });
   });
 
@@ -67,12 +67,12 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     register.seedFrom({
       cursor: 12,
       isWindowHeadUnread: false,
-      entities: [{ kind: "run", id: "run-a", state: "waiting_for_approval" }],
+      entities: [{ kind: "run", id: "run-a", state: "waitingForApproval" }],
     });
-    register.admit([rowOf(12, "run.running", { runId: "run-a" })]);
-    expect(register.records.runsByRunId.get("run-a")?.state).toBe("waiting_for_approval");
+    register.admit([rowOf(12, "agent.run.running", { runId: "run-a" })]);
+    expect(register.records.runsByRunId.get("run-a")?.state).toBe("waitingForApproval");
 
-    register.admit([rowOf(13, "run.running", { runId: "run-a" })]);
+    register.admit([rowOf(13, "agent.run.running", { runId: "run-a" })]);
     expect(register.records.runsByRunId.get("run-a")?.state).toBe("running");
   });
 });
@@ -102,8 +102,8 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 
   it("keeps the newest run state whichever end of the log it arrived from", () => {
     const register = new WaitingOnPersonRegister();
-    register.admit([rowOf(8, "run.running", { runId: "run-a" })]);
-    register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
+    register.admit([rowOf(8, "agent.run.running", { runId: "run-a" })]);
+    register.admit([rowOf(3, "agent.run.waitingForApproval", { runId: "run-a" })]);
 
     expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
       atSequence: 8,

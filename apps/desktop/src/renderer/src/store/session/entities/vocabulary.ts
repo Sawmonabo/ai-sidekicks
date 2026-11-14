@@ -170,7 +170,9 @@ export function emptyPartitions(): Record<EntityKind, Readonly<Record<string, St
 
 /**
  * `event`'s payload as the contracts type an event of `type`, or `undefined` for an event of
- * another type. The service checks every event it stores, so the payload is its type's own.
+ * another type. Matched on the type alone: the service checks an event when it stores it, and the
+ * store refuses a file whose schema another build made, but that fingerprint is the SQL's, so a
+ * row another build stored under the same type reaches its reader as today's type.
  */
 export function payloadOf<Type extends SessionEvent["type"]>(
   event: ProjectedSessionEvent,

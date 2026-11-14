@@ -4,6 +4,14 @@
 // `scripted/reply.fixture.ts` and the scenario contract reply checks in
 // `tests/helpers/scenario/contract-check/replies.ts` need no other scenario member.
 
+import type { SubscribeAcknowledgmentResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+
+import type {
+  DaemonResult,
+  DaemonStreamEmission,
+  RegisteredDaemonMethod,
+  WindowMethodTypes,
+} from "#shared/daemon/method-bindings.js";
 import type { WireErrorEnvelope } from "#renderer/lib/wire/errors.js";
 import type { MachineNoticeStreamName } from "../session/event/streams.js";
 
@@ -14,9 +22,11 @@ import type { MachineNoticeStreamName } from "../session/event/streams.js";
  */
 export type RequestStampReader = (stamp: string) => number;
 
-/** A canned reply that answers with a value. */
-export interface ScenarioResolvingReply extends ScenarioReplyBase {
-  readonly result: unknown;
+/** A canned reply that answers with a value, typed as its call's generated result. */
+export interface ScenarioResolvingReply<
+  Call extends RegisteredDaemonMethod,
+> extends ScenarioReplyBase<Call> {
+  readonly result: DaemonResult<Call>;
   readonly refusal?: never;
   readonly resultFor?: never;
 }
@@ -42,7 +52,9 @@ export type ScenarioRefusalEnvelope = WireErrorEnvelope & {
  * app's one reading of it; any other shape would train a view against a value the live bridge
  * never sends.
  */
-export interface ScenarioRejectingReply extends ScenarioReplyBase {
+export interface ScenarioRejectingReply<
+  Call extends RegisteredDaemonMethod,
+> extends ScenarioReplyBase<Call> {
   readonly refusal: ScenarioRefusalEnvelope;
   readonly result?: never;
   readonly resultFor?: never;
@@ -74,60 +86,74 @@ export type AnsweredRequests = (...calls: readonly string[]) => readonly unknown
  * daemon would have applied: a switched-off binding reads back switched off. A stamp the request
  * carries is read through `readRequestStamp`.
  */
-export interface ScenarioComputedReply extends ScenarioReplyBase {
+export interface ScenarioComputedReply<
+  Call extends RegisteredDaemonMethod,
+> extends ScenarioReplyBase<Call> {
   readonly resultFor: (
     request: unknown,
     settledAtMilliseconds: number,
     computedReplyOrdinal: number,
     answeredRequestsFor: AnsweredRequests,
     readRequestStamp: RequestStampReader,
-  ) => unknown;
+  ) => DaemonResult<Call> | undefined;
   readonly result?: never;
   readonly refusal?: never;
 }
 
 /**
- * A canned reply for one request/response call the scenario expects. Exactly one of `result`,
- * `refusal` or `resultFor`, enforced by `?: never` on each arm, since independent optionals would
- * admit a reply that both resolves and refuses, or neither.
+ * A canned reply for one request/response call the scenario expects, keyed by the call so its
+ * value is that call's generated result. Exactly one of `result`, `refusal` or `resultFor`,
+ * enforced by `?: never` on each arm, since independent optionals would admit a reply that both
+ * resolves and refuses, or neither.
  */
-export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | ScenarioComputedReply;
+export type ScenarioReply = {
+  readonly [Call in RegisteredDaemonMethod]:
+    | ScenarioResolvingReply<Call>
+    | ScenarioRejectingReply<Call>
+    | ScenarioComputedReply<Call>;
+}[RegisteredDaemonMethod];
 
 /**
  * One live notice a settled reply pushes on a machine stream, as the daemon pushes one after an
  * edit or when a sign-in it brokered finishes. The payload is composed when the notice comes due,
  * from the writes the playback has answered by then, so a later write can withdraw it: a sign-in
- * canceled before it finishes reports no completion. It is held to the stream's registered
- * emission shape as it is delivered.
+ * canceled before it finishes reports no completion. Keyed by the stream, so its payload is that
+ * stream's generated emission.
  */
-export interface ScenarioNotice {
-  readonly stream: MachineNoticeStreamName;
-  /** Scenario time after the reply settles; zero pushes it at once. */
-  readonly afterMs: number;
-  /** The frame to push, or `undefined` when a write since the reply means there is none. */
-  readonly payloadAtDelivery: (
-    answeredRequestsFor: AnsweredRequests,
-    readRequestStamp: RequestStampReader,
-  ) => unknown;
-}
+export type ScenarioNotice = {
+  readonly [Stream in MachineNoticeStreamName]: {
+    readonly stream: Stream;
+    /** Scenario time after the reply settles; zero pushes it at once. */
+    readonly afterMs: number;
+    /** The frame to push, or `undefined` when a write since the reply means there is none. */
+    readonly payloadAtDelivery: (
+      answeredRequestsFor: AnsweredRequests,
+      readRequestStamp: RequestStampReader,
+    ) => DaemonStreamEmission<Stream> | undefined;
+  };
+}[MachineNoticeStreamName];
 
 /**
  * The frame a machine stream sends first, the moment it is opened, as `workflow.subscribe` sends
  * the current start hold before anything else. Composed when the subscriber opens the stream,
- * from the writes the playback has answered by then, so a hold switched on earlier opens on.
+ * from the writes the playback has answered by then, so a hold switched on earlier opens on. Keyed
+ * by the stream, so its frame is that stream's generated emission, or its subscribe's result where
+ * that carries more than the subscription's id.
  */
-export interface ScenarioOpeningNotice {
-  readonly stream: MachineNoticeStreamName;
-  readonly payloadAtOpen: (
-    answeredRequestsFor: AnsweredRequests,
-    readRequestStamp: RequestStampReader,
-  ) => unknown;
-}
+export type ScenarioOpeningNotice = {
+  readonly [Stream in MachineNoticeStreamName]: {
+    readonly stream: Stream;
+    readonly payloadAtOpen: (
+      answeredRequestsFor: AnsweredRequests,
+      readRequestStamp: RequestStampReader,
+    ) => DaemonStreamEmission<Stream> | OpeningResult<WindowMethodTypes[Stream]["result"]>;
+  };
+}[MachineNoticeStreamName];
 
 /** What every canned reply carries, whichever way it settles. */
-interface ScenarioReplyBase {
+interface ScenarioReplyBase<Call extends RegisteredDaemonMethod> {
   /** The daemon method name, verbatim. */
-  readonly call: string;
+  readonly call: Call;
   /**
    * Simulated latency, so a loading state is reachable. Measured in scenario time, which only
    * the caller moves: the reply stays pending until the engine has advanced this far past the
@@ -140,3 +166,6 @@ interface ScenarioReplyBase {
    */
   readonly noticesFor?: (request: unknown, answer: unknown) => readonly ScenarioNotice[];
 }
+
+/** A subscribe's result as an opening frame: none where it carries only the subscription's id. */
+type OpeningResult<Result> = [SubscribeAcknowledgmentResponse] extends [Result] ? never : Result;

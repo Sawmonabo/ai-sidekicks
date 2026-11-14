@@ -47,7 +47,10 @@ function readAfterRow(sequence: number): SessionBaseState {
   return { shape: "project", entities: [], streamAfterCursor: cursorAt(sequence) };
 }
 
-/** One run per `agent.run.starting` row, named for its sequence; the row at `failingSequence` throws. */
+/**
+ * One run per `agent.run.starting` row, named for its sequence; the row at `failingSequence`
+ * throws.
+ */
 function runPerRow(failingSequence?: number): EntityProjectorTable {
   return {
     "agent.run.starting": (event) => {

@@ -19,7 +19,7 @@ describe("scenario contract — the shipped scenarios", () => {
     ).toStrictEqual([]);
   });
 
-  it("reports an invented call and a second reply to the same call", () => {
+  it("reports a second reply to the same call", () => {
     const sessionRead = EMPTY_SESSION_SCENARIO.replies.find(
       (reply) => reply.call === "session.read",
     );
@@ -28,12 +28,11 @@ describe("scenario contract — the shipped scenarios", () => {
     }
     const broken: Scenario = {
       ...EMPTY_SESSION_SCENARIO,
-      replies: [sessionRead, sessionRead, { call: "workflow.runsList", result: [] }],
+      replies: [sessionRead, sessionRead],
     };
 
     expect(findScenarioContractDefects([broken]).map((defect) => defect.subject)).toStrictEqual([
       'reply "session.read"',
-      'reply "workflow.runsList"',
     ]);
   });
 });

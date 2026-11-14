@@ -173,7 +173,9 @@ function scriptedQueueRowFor(
   engine: ScenarioEngine,
   queueItemId: string,
 ): Readonly<Record<string, unknown>> | undefined {
-  const scriptedReadResult = engine.replyFor(RUN_QUEUE_ROW_READ)?.result;
+  // The projection checks the row against its registered shape, so the scripted read's result,
+  // typed as any reply's, is read here as an open record.
+  const scriptedReadResult: unknown = engine.replyFor(RUN_QUEUE_ROW_READ)?.result;
   if (!isWireRecord(scriptedReadResult)) {
     return undefined;
   }

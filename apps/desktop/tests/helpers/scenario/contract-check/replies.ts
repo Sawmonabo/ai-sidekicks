@@ -1,22 +1,15 @@
-// One scripted answer per call, one call the app registers, and one spendable latency.
+// One scripted answer per call and one spendable latency.
 //
-// All three claims are about a `ScenarioReply`: the entry can be reached, the call it answers
-// exists, and the delay it scripts can be spent. A scenario failing any of them has a reply no
-// transport would give, and it shows up only as a view that never leaves its loading state or one
-// rendering a call the daemon does not have.
-//
-// The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
-// to make up as to transcribe: a scenario answering `workflow.runsList` renders a view that looks
-// served, and every tier that mounts it passes against a call the daemon does not have. The
-// registry is the daemon call set the app binds, so nothing here is a second list.
+// Both claims are about a `ScenarioReply`: the entry can be reached, and the delay it scripts can
+// be spent. A scenario failing either has a reply no transport would give, and it shows up only as
+// a view that never leaves its loading state. That the call is one the app registers, and that its
+// value is that call's result, the compiler holds: a reply is typed by its call.
 
-import { REGISTERED_DAEMON_METHODS } from "#shared/daemon/method-bindings.js";
 import type { ScenarioContractDefect } from "./defect.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**
- * Every reply defect in one scenario: unreachable entries, unregistered calls and unspendable
- * latencies.
+ * Every reply defect in one scenario: unreachable entries and unspendable latencies.
  *
  * A duplicate entry is reported and skipped rather than also measured, since `replyFor` answers
  * with the first match and a second entry's `afterMs` belongs to a reply that cannot be served.
@@ -37,10 +30,6 @@ export function findReplyDefects(scenario: Scenario): readonly ScenarioContractD
       continue;
     }
     seenCalls.add(reply.call);
-    const callReason = describeCallDefect(reply.call);
-    if (callReason !== undefined) {
-      defects.push({ scenarioId: scenario.id, subject, reason: callReason });
-    }
     const latencyReason = describeLatencyDefect(reply.afterMs);
     if (latencyReason !== undefined) {
       defects.push({ scenarioId: scenario.id, subject, reason: latencyReason });
@@ -80,21 +69,5 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
     "latency above zero, so this one is never parked: it settles on the calling turn, and " +
     "the loading state the latency exists to make reachable is never observable. Script a " +
     "finite number of milliseconds — 0 is the honest way to script no latency at all."
-  );
-}
-
-/**
- * A call the app registers nowhere, or `undefined` when it registers one. The registry is read,
- * so a method added to the app's call set is scriptable the same day.
- */
-function describeCallDefect(call: string): string | undefined {
-  if ((REGISTERED_DAEMON_METHODS as readonly string[]).includes(call)) {
-    return undefined;
-  }
-  return (
-    `it answers "${call}", which the app registers nowhere — not as a daemon method ` +
-    "the app binds a request and response shape for. A scenario answering an " +
-    "invented name renders a view that looks served and reaches nothing once the app runs " +
-    "against the real daemon. Script the registered method."
   );
 }

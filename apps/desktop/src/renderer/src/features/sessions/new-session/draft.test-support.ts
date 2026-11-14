@@ -3,11 +3,11 @@
 // (plain, and one that records what reached the wire). One copy, so the draft and control
 // suites never script slightly different replies.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
+import type { SessionCreateResponse, SessionLead } from "@ai-sidekicks/contracts/session/directory";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
@@ -38,17 +38,9 @@ export const DRAFT_PROJECT: DraftProject = {
   executionMode: "provisionedWorktree",
 };
 
-/**
- * The whole registered create response. The fixture bridge refuses a scripted reply that is
- * short of the method's shape, so a partial script would test a reply the daemon cannot send.
- */
-export const CREATE_REPLY: {
-  readonly sessionId: string;
-  readonly shape: "chat";
-  readonly state: "active";
-  readonly lead: AgentProviderBinding;
-} = {
-  sessionId: CREATED_SESSION_ID,
+/** The whole create response, held to the method's generated type as the scripted reply is. */
+export const CREATE_REPLY: SessionCreateResponse = {
+  sessionId: CREATED_SESSION_ID as SessionId,
   shape: "chat",
   state: "active",
   lead: { ...NEW_SESSION_LEAD, providerAccountId: "claude-work-account" as ProviderAccountId },

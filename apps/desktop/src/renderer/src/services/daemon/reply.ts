@@ -15,6 +15,7 @@
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.notFound` into
 // `call-rejected`.
 
+import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 import type {
@@ -25,6 +26,7 @@ import type {
 import { REQUEST_UNSENDABLE_CODE, REQUEST_UNSENDABLE_MESSAGE } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
+import { readGuardedProperty } from "#renderer/lib/wire/errors.js";
 import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -163,7 +165,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: isUnsendable ? REQUEST_UNSENDABLE_CODE : refusal.code,
       subject: method,
-      issues: [],
+      issues: refusedIssuesOf(rejection),
     });
     return isUnsendable ? unsendableRequest() : { status: "refused", refusal };
   }
@@ -195,6 +197,15 @@ export function unwrapDaemonReply<TValue>(reply: DaemonReply<TValue>): TValue {
     throw new RefusalError(reply.refusal);
   }
   return reply.value;
+}
+
+/**
+ * The faults a refusal names at their places in the request, as its wire error carries them at
+ * `data.fields.issues`; none for a rejection that names none. Only their paths are recorded.
+ */
+function refusedIssuesOf(rejection: unknown): readonly Issue[] {
+  const fields = readGuardedProperty(readGuardedProperty(rejection, "data"), "fields");
+  return (readGuardedProperty(fields, "issues") as readonly Issue[] | undefined) ?? [];
 }
 
 /** The abandoned-read refusal as `callDaemon`'s own answer. */
