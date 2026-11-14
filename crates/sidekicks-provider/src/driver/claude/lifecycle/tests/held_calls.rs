@@ -18,6 +18,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::bounded_poll::poll_until;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::run::routes::ClaudeTurnOpener;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
@@ -65,7 +66,12 @@ pub(super) async fn holding_session(
         .routes;
     let run_id = new_run_id();
     routes
-        .hold_turn(run_id, session_id, binding_id("lead"))
+        .hold_turn(
+            run_id,
+            session_id,
+            binding_id("lead"),
+            ClaudeTurnOpener::Daemon,
+        )
         .expect("the session's turn is free");
     let call_ids: Vec<&str> = calls.iter().map(|(call_id, _)| *call_id).collect();
     let mut frames = vec![init(), export_calls(&call_ids)];

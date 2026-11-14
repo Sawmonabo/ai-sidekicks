@@ -207,7 +207,8 @@ async fn remove_work_folder(folder: PathBuf, tree_ends: TaskTracker) {
 }
 
 // Removes `folder` whole, once more where a write a killed process had in flight landed in it
-// during the first pass; a folder already gone, as a part-done removal leaves it, counts as removed.
+// during the first pass; a folder already gone, as a part-done removal leaves it, counts as
+// removed.
 fn remove_folder(folder: &Path) -> io::Result<()> {
     let removed = match std::fs::remove_dir_all(folder) {
         Err(error) if error.kind() == io::ErrorKind::DirectoryNotEmpty => {

@@ -140,6 +140,9 @@ pub(crate) struct ClaudeSessionTask {
     live: Arc<LiveClaudeSession>,
     stream: Arc<ClaudeSessionStream>,
     tool_server_calls: ClaudeToolServerCalls,
+    // The turn-ending `result` the stream set aside, whose settlement, the next `Terminal`
+    // arrival, does not run.
+    is_settlement_withheld: bool,
 }
 
 impl ClaudeSessionTask {
@@ -154,6 +157,7 @@ impl ClaudeSessionTask {
             live,
             stream,
             tool_server_calls: ClaudeToolServerCalls::default(),
+            is_settlement_withheld: false,
         }
     }
 
@@ -164,7 +168,8 @@ impl ClaudeSessionTask {
             .map(ExecutionPosture::permission_level)
     }
 
-    async fn take_frame(&self, routed: ClaudeRoutedFrame) {
+    // Takes one frame, answering whether it was a turn-ending `result` the stream set aside.
+    async fn take_frame(&self, routed: ClaudeRoutedFrame) -> bool {
         let services = &self.services;
         let live = &self.live;
         let session_id = live.session_id;
@@ -175,7 +180,7 @@ impl ClaudeSessionTask {
             .slots
             .binds_channel(session_id, &live.channel)
         {
-            return;
+            return false;
         }
         let observation = &routed.frame.observation;
         let is_turn_ending = routed.is_turn_ending;
@@ -236,6 +241,8 @@ impl ClaudeSessionTask {
             .delivery
             .take_frame(&self.stream, routed, is_reviewed)
             .await;
+        let is_set_aside = after.is_turn_end_set_aside;
+        let is_turn_ending = is_turn_ending && !is_set_aside;
         if is_turn_ending {
             self.close_remaining_commands(&ClaudeCommandOwner::Lead);
         }
@@ -261,6 +268,7 @@ impl ClaudeSessionTask {
                 .price_result(&self.stream, model_costs, lead, thread_id)
                 .await;
         }
+        is_set_aside
     }
 
     async fn take_request(&mut self, event: ClaudeInboundRequestEvent) {
@@ -608,7 +616,15 @@ impl ClaudeSessionArrivalHandler for ClaudeSessionTask {
     fn arrive(&mut self, arrival: ClaudeSessionArrival) -> BoxFuture<'_, ()> {
         async move {
             match arrival {
-                ClaudeSessionArrival::Frame(routed) => self.take_frame(*routed).await,
+                ClaudeSessionArrival::Frame(routed) => {
+                    // Held until the `Terminal` the reader queued behind the frame.
+                    if self.take_frame(*routed).await {
+                        self.is_settlement_withheld = true;
+                    }
+                }
+                ClaudeSessionArrival::Terminal if self.is_settlement_withheld => {
+                    self.is_settlement_withheld = false;
+                }
                 ClaudeSessionArrival::Terminal => {
                     self.stream.forget_lead_helper_calls();
                     let is_settled = self.services.settlement.settle_turn(&self.live).await;

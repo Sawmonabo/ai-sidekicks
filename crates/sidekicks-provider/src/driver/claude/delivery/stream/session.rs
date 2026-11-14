@@ -329,9 +329,12 @@ impl ClaudeSessionStream {
     /// steer still waiting keeps the turn through the settlement the reader then makes, since
     /// Claude Code starts its next turn with that steer; the turn's end on the session's task
     /// decides whether the run goes on into it. A `result` Claude Code wrote for a task's
-    /// notification with no model turn ends nothing.
+    /// notification with no model turn ends nothing while the daemon's own input holds the turn,
+    /// and ends the turn its own `system/init` opened otherwise.
     pub(crate) fn is_turn_ending(&self, text: &str) -> bool {
-        if is_claude_task_notification_result(text) {
+        if is_claude_task_notification_result(text)
+            && self.routes.is_turn_held_by_daemon(self.session_id)
+        {
             return false;
         }
         let is_ending = {

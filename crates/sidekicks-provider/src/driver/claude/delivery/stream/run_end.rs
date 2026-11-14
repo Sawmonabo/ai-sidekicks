@@ -23,7 +23,7 @@ use crate::driver::claude::delivery::run_readings::{
 };
 use crate::driver::claude::delivery::turn_end::{ClaudeTurnEndMarks, compose_claude_turn_end};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeTurnOpener};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -369,7 +369,7 @@ impl ClaudeDeliveryStream {
         match (reader_carried, is_carried) {
             (true, false) => routes.unbind_run(run_id),
             (false, true) => {
-                if let Err(refusal) = routes.hold_turn_again(run_id) {
+                if let Err(refusal) = routes.hold_turn_again(run_id, ClaudeTurnOpener::Daemon) {
                     tracing::debug!(
                         %run_id,
                         ?refusal,

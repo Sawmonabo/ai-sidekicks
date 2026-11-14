@@ -24,7 +24,9 @@ use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::intervention::interrupt_claude_turn;
 use crate::driver::claude::output_speed::{apply_claude_output_speed, resolve_claude_output_speed};
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::driver::claude::run::routes::{
+    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes, ClaudeTurnOpener,
+};
 use crate::driver::claude::session::controls::claude_full_model_id;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, is_unavailable_for,
@@ -393,7 +395,12 @@ impl ClaudeRunStart {
         let (text, message_id, attachment_blocks, command_name) = match opening {
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
-                    .hold_turn(run_id, session_id, run.binding_id.clone())
+                    .hold_turn(
+                        run_id,
+                        session_id,
+                        run.binding_id.clone(),
+                        ClaudeTurnOpener::ClaudeCode,
+                    )
                     .map_err(|_held| {
                         claude_session_unavailable(
                             ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -491,7 +498,12 @@ impl ClaudeRunStart {
         let ClaudeBoundRun { run_id, binding_id } = run;
         let session_id = live.session_id;
         self.routes
-            .hold_turn(run_id, session_id, binding_id.clone())
+            .hold_turn(
+                run_id,
+                session_id,
+                binding_id.clone(),
+                ClaudeTurnOpener::Daemon,
+            )
             .map_err(|_held| {
                 DriverError::from(claude_session_unavailable(
                     ClaudeSessionUnavailableReason::SessionTurnInFlight,

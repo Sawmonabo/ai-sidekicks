@@ -116,6 +116,8 @@ fn read_cut_rows(
                 continue;
             }
         };
+        // Grown once for the whole line, so the join copies each piece without a reallocation.
+        block.reserve(tail_bytes);
         for piece in tail.drain(..).rev() {
             block.extend_from_slice(&piece);
         }

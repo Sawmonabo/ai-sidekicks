@@ -85,6 +85,9 @@ pub(crate) struct ClaudeFrameAfter {
         reason = "a frame that calls for no read differs from one whose read follows no run"
     )]
     pub(crate) context_read: Option<Option<ClaudeBoundRun>>,
+    /// The frame was a `result` the reader read as ending the turn that the stream set aside, so
+    /// the settlement the reader queued behind it does not run.
+    pub(crate) is_turn_end_set_aside: bool,
 }
 
 /// Turns each delivered frame of every session into the run engine's deliveries.
@@ -96,6 +99,20 @@ impl ClaudeDeliveryStream {
     /// A stream delivering through `dependencies`.
     pub(crate) fn new(dependencies: ClaudeStreamDependencies) -> Self {
         Self { dependencies }
+    }
+
+    // Whether the turn a `result` read now would end is one the daemon's own input holds: a
+    // command, or the daemon-opened run holding the turn while the stream has no turn open or has
+    // that run's open, rather than the turn a `system/init` Claude Code wrote by itself opened.
+    fn is_daemon_turn_open(&self, session: &ClaudeSessionStream) -> bool {
+        let routes = &self.dependencies.routes;
+        let open = session.lock().turn.as_ref().map(|turn| turn.run_id);
+        routes.is_turn_held_by_daemon(session.session_id)
+            && open.is_none_or(|run_id| {
+                routes
+                    .lead_run_on(session.session_id)
+                    .is_some_and(|lead| lead.run_id == run_id)
+            })
     }
 
     /// Takes one frame the reader routed off `session`'s process, whole and untrusted, on the
@@ -213,15 +230,20 @@ impl ClaudeDeliveryStream {
             return after;
         }
         let is_result = kind.is_result();
-        // A relaunch's report of a task the last process left running opens and ends no turn of
-        // a run that holds this one.
-        if is_result && !is_turn_ending && is_claude_task_notification_result(&frame.text) {
+        // Claude Code's report of a background task, written with no model turn, opens and ends no
+        // turn the daemon's own input holds, whether the reader found it held or it was taken
+        // since; it ends only a turn its own `system/init` opened.
+        if is_result
+            && is_claude_task_notification_result(&frame.text)
+            && (!is_turn_ending || self.is_daemon_turn_open(session))
+        {
             record_unmapped(
                 session,
                 &session.unheld_reports,
                 frame_kind,
                 UNHELD_FRAME_REASON,
             );
+            after.is_turn_end_set_aside = is_turn_ending;
             return after;
         }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the

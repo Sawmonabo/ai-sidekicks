@@ -117,12 +117,16 @@ fn read_result_naming(text: &str) -> Option<ResultNaming> {
         .flatten()
 }
 
-/// Whether a lead `result` is one Claude Code wrote for a task's notification with no model turn,
-/// as a relaunched or forked process does before any input for a task the last process left
-/// running: it answers nothing the daemon sent, so it ends and opens no turn of a run.
+/// Whether a lead `result` is one Claude Code wrote for a task's notification with no model turn
+/// and no message, as a relaunched or forked process does before any input for a task the last
+/// process left running: it answers nothing the daemon sent. One naming a message the daemon sent
+/// is that message's turn end.
 pub(crate) fn is_claude_task_notification_result(text: &str) -> bool {
     read_result_naming(text).is_some_and(|naming| {
         naming.num_turns == Some(0)
+            && naming
+                .user_message_uuids
+                .is_none_or(|uuids| uuids.0.is_empty())
             && naming
                 .origin
                 .and_then(|origin| origin.kind)
