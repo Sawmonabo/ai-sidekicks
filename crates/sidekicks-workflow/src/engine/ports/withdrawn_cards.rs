@@ -29,9 +29,10 @@ impl ApprovalCardRaiser for WithdrawnCards {
     fn withdraw(
         &self,
         session_id: SessionId,
-        wait_id: UuidTextForm,
-    ) -> BoxFuture<'_, Result<(), PortError>> {
-        lock(&self.0).push((session_id, wait_id));
-        Box::pin(async { Ok(()) })
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>> {
+        lock(&self.0).extend(wait_ids.iter().map(|&wait_id| (session_id, wait_id)));
+        let answers = wait_ids.iter().map(|_| Ok(())).collect();
+        Box::pin(async { Ok(answers) })
     }
 }

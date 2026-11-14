@@ -13,6 +13,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use rusqlite::Row;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
@@ -31,6 +32,7 @@ use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSu
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
 
+use crate::engine::event_record::{EngineFault, EngineIntent, EngineOutcome, RunEngineRecord};
 use crate::engine::ports::{
     ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
     StepAdmissionTicket, WorkflowApprovalCardRequest,
@@ -239,6 +241,59 @@ impl PersonWaitPorts {
                 .map(|_question| ()),
         }
     }
+}
+
+/// Withdraws through `cards` the card of each of `withdrawn`, an approval wait of the run `record`
+/// records in `session_id` that ended unanswered, with its step: every intent is recorded, the
+/// cards go in one call, whose cancels the writer commits together, then every outcome; a failed
+/// withdraw also records its error as a fault, and the restart's settle closes its card.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) async fn withdraw_cards(
+    cards: &dyn ApprovalCardRaiser,
+    record: &RunEngineRecord,
+    session_id: SessionId,
+    withdrawn: Vec<(WorkflowStepKey, UuidTextForm)>,
+) {
+    if withdrawn.is_empty() {
+        return;
+    }
+    let intents = join_all(withdrawn.iter().map(|(step, wait_id)| {
+        let intent = EngineIntent::WithdrawingCard { wait_id: *wait_id };
+        record.intent(Some(step), intent)
+    }))
+    .await;
+    let wait_ids = withdrawn.iter().map(|(_, wait_id)| *wait_id).collect();
+    let answers = match cards.withdraw(session_id, wait_ids).await {
+        Ok(answers) => answers,
+        Err(unread) => {
+            join_all(
+                intents
+                    .into_iter()
+                    .map(|pending| record.outcome(pending, EngineOutcome::Failed { code: None })),
+            )
+            .await;
+            record
+                .fault(None, EngineFault::CardWithdrawFailed, &*unread)
+                .await;
+            return;
+        }
+    };
+    join_all(withdrawn.iter().zip(intents).zip(answers).map(
+        |(((step, _), pending), answer)| async move {
+            match answer {
+                Ok(()) => record.outcome(pending, EngineOutcome::Done).await,
+                Err(failed) => {
+                    record
+                        .outcome(pending, EngineOutcome::Failed { code: None })
+                        .await;
+                    record
+                        .fault(Some(step), EngineFault::CardWithdrawFailed, &*failed)
+                        .await;
+                }
+            }
+        },
+    ))
+    .await;
 }
 
 /// A person's answer to a step waiting on them: an approval card's decision, a form's fields keyed

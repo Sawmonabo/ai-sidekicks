@@ -702,8 +702,8 @@ interface WorkflowChainRunJoinedPayload {
   workflowRunId: WorkflowRunId;
 }
 // workflow.phase.canceling — a phase asked to stop and winding down, one member of the wave its
-// deciding step's turn canceled: a merge's first to arrive, the failure that stopped the run, or the
-// earliest running step a person's cancel stopped. A restart settles the wave as it was decided.
+// deciding step's turn canceled: a merge's first to arrive, the failure that stopped the run,
+// or the earliest running step a person's cancel stopped. A restart settles the wave as decided.
 interface WorkflowPhaseCancelingPayload extends WorkflowStepEventPayload {
   decidingStep: { nodeId: string; attempt: number; executionIndex: number };
   cancellationReason: "siblingFailure" | "runCanceled" | "mergeFirstToArrive";

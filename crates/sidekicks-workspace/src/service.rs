@@ -54,7 +54,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::log_service::{EventAppendError, EventLogAppendReceipt};
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventEmitError, SessionEventLinkage,
@@ -401,11 +401,9 @@ impl WorkspaceService {
         match deleted {
             // Another discard deleted it since the read.
             Err(error) if error.refused_statement_index().is_some() => Ok(()),
-            ended => ended.map(drop).map_err(|error| {
-                WorkspaceServiceError::Append(
-                    SessionEventAppendError::from(EventAppendError::from(error)).into(),
-                )
-            }),
+            ended => ended
+                .map(drop)
+                .map_err(|error| WorkspaceServiceError::Append(row_write_failure(error))),
         }
     }
 
@@ -469,8 +467,8 @@ impl WorkspaceService {
             ]),
             expected_row_count: Some(1),
         };
-        // The birth event names the mount, the one place a transcript reader learns which mount
-        // the workspace is on.
+        // A session's own workspace's birth event names the mount, the one place a transcript
+        // reader learns which mount the workspace is on; a run-owned one writes no event.
         let appended = self
             .write_transition(
                 workflow_run_id.is_some(),
@@ -738,7 +736,7 @@ impl WorkspaceService {
             .write(linkage.transactional_prelude)
             .await
             .map(drop)
-            .map_err(|error| SessionEventAppendError::from(EventAppendError::from(error)).into())
+            .map_err(row_write_failure)
     }
 
     /// [`WorkspaceService::find_workspace_row`], refusing `workspace.notFound` for none.
@@ -782,6 +780,12 @@ pub(crate) fn workspace_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRow> {
         place: optional_text_column(row, 7, |text| serde_json::from_str::<Place>(&text))?,
         is_run_owned: row.get(8)?,
     })
+}
+
+// A run-owned workspace's row write that failed, as the emit error a session's own transition fails
+// with, so a caller reads a refused row count alike either way.
+fn row_write_failure(error: WriteError) -> SessionEventEmitError {
+    SessionEventAppendError::from(EventAppendError::from(error)).into()
 }
 
 fn new_workspace_id() -> WorkspaceId {

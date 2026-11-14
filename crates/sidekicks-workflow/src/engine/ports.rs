@@ -369,14 +369,16 @@ pub trait ApprovalCardRaiser: Send + Sync {
     /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
 
-    /// Withdraws the card the wait `wait_id` holds open in `session_id`, once the write that ended
-    /// the wait unanswered committed; a card already answered or withdrawn is left as it is. Fails
-    /// when the card cannot be read or its cancel cannot be written.
+    /// Withdraws the cards the waits `wait_ids` hold open in `session_id`, once the write that
+    /// ended those waits unanswered committed, the cancels sent together and each guarded on its
+    /// own card; a card already answered or withdrawn is left as it is, and a wait with no card
+    /// writes nothing. Answers one result per wait, in order, failing a card whose cancel cannot
+    /// be written; fails, with nothing written, when the cards cannot be read.
     fn withdraw(
         &self,
         session_id: SessionId,
-        wait_id: UuidTextForm,
-    ) -> BoxFuture<'_, Result<(), PortError>>;
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>>;
 }
 
 /// A snapshot point a workflow run takes.

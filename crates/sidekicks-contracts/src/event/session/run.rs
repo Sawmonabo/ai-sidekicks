@@ -81,15 +81,16 @@ pub(super) use event_run;
 /// One arm of [`SessionEvent::workflow_run_id`]: the pattern that binds the payload where its
 /// workflow run is read, then the run read from it, as the arm's `in` rule in the registration
 /// table says: `workflow_run` for a `workflowRunId`, `workflow_run(function)` for a payload union,
-/// and no rule for an event no workflow run of its session owns.
+/// `none` for a workflow event no workflow run of its session owns, and no rule for an event of
+/// another category.
 macro_rules! event_workflow_run {
-    (@binding $payload:ident) => {
+    (@binding $payload:ident $(none)?) => {
         _
     };
     (@binding $payload:ident workflow_run $(($read:ident))?) => {
         $payload
     };
-    ($payload:ident) => {
+    ($payload:ident $(none)?) => {
         None
     };
     ($payload:ident workflow_run) => {

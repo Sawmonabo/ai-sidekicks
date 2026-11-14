@@ -151,8 +151,9 @@ impl<Payload> DeclaresNoContent for &ContentProbe<Payload> {}
 /// Declares [`SessionEvent`] from one registration table: each row is an arm named as its
 /// [`SessionEventType`] variant, its payload (with `#[garde(dive)]` where the payload has checks),
 /// its wire name, after `=>` the rule its agent run is read by (see `event_run!`) and after `in`
-/// the rule its workflow run is read by (see `event_workflow_run!`). The same table lists
-/// [`SESSION_EVENT_TYPES`].
+/// the rule its workflow run is read by (see `event_workflow_run!`), which every `workflow.*` row
+/// states, `in none` where no workflow run owns it, so each says whether a run's keyed read of its
+/// own events takes it. The same table lists [`SESSION_EVENT_TYPES`].
 macro_rules! session_events {
     ($(
         $(#[doc = $doc:literal])+
@@ -518,9 +519,9 @@ session_events! {
     WorkflowRunKeepChanged(WorkflowRunKeepChangedPayload) =
         "workflow.run.keepChanged" in workflow_run,
     /// Emitted in a chain's first run's session when a run joins that chain.
-    WorkflowChainRunJoined(WorkflowChainRunJoinedPayload) = "workflow.chain.runJoined",
+    WorkflowChainRunJoined(WorkflowChainRunJoinedPayload) = "workflow.chain.runJoined" in none,
     /// Emitted when a finished run's results land as a row in the asking session.
-    WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted",
+    WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted" in none,
     /// Emitted when a workflow step starts waiting, with what it waits on.
     WorkflowPhaseSuspended(#[garde(dive)] WorkflowPhaseSuspendedPayload) =
         "workflow.phase.suspended" in workflow_run(phase_suspended_run),
@@ -550,7 +551,7 @@ session_events! {
     /// Emitted when a workflow gate is answered.
     WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved" in workflow_run,
     /// Emitted when a workflow is authored or a new version of it is written.
-    WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created",
+    WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created" in none,
     /// Emitted when a workflow run reaches a gate that must be answered before it goes on.
     WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached" in workflow_run,
     /// Emitted when a workflow run ends on a failure.
@@ -561,13 +562,15 @@ session_events! {
     /// provider account.
     WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting" in workflow_run,
     /// Emitted when a workflow's schedule is armed.
-    WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule.armed",
+    WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule.armed" in none,
     /// Emitted when an armed schedule fires, starting a run.
-    WorkflowScheduleFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.schedule.fired",
+    WorkflowScheduleFired(#[garde(dive)] WorkflowTriggerFiredPayload) =
+        "workflow.schedule.fired" in none,
     /// Emitted when a workflow's file watch, webhook or session-event filter is armed.
-    WorkflowTriggerArmed(WorkflowTriggerArmedPayload) = "workflow.trigger.armed",
+    WorkflowTriggerArmed(WorkflowTriggerArmedPayload) = "workflow.trigger.armed" in none,
     /// Emitted when an armed trigger other than a schedule fires, starting a run.
-    WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.trigger.fired",
+    WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) =
+        "workflow.trigger.fired" in none,
     /// Emitted when the memory gate admits a workflow step, which may start.
     WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase.admitted" in workflow_run,
     /// Emitted when an admitted workflow phase begins.

@@ -35,6 +35,7 @@ use crate::engine::tick::step_failure::{
     RunSibling, RunStop, SiblingState, SiblingStop, stop_siblings,
 };
 use crate::engine::tick::{ParkedAgentRun, StepReport, StepReportKind, StepSettlement};
+use crate::engine::waits::withdraw_cards;
 use crate::kinds::{PersonAsk, StepFailure};
 
 impl EngineTick {
@@ -456,24 +457,15 @@ impl EngineTick {
         }
     }
 
-    /// Withdraws each of `cards`, an approval wait with its step, of the run `record` records in
-    /// `session_id`, each with its intent and outcome recorded; a failed one is left to the
-    /// restart's settle.
+    /// Withdraws through the tick's card port each of `cards`, an approval wait with its step, of
+    /// the run `record` records in `session_id`, as the waits' shared withdraw does.
     pub(super) async fn withdraw_cards(
         &self,
         record: &RunEngineRecord,
         session_id: SessionId,
         cards: Vec<(WorkflowStepKey, UuidTextForm)>,
     ) {
-        for (step, wait_id) in cards {
-            let intent = EngineIntent::WithdrawingCard { wait_id };
-            let pending = record.intent(Some(&step), intent).await;
-            let outcome = match self.person_waits.cards.withdraw(session_id, wait_id).await {
-                Ok(()) => EngineOutcome::Done,
-                Err(_failed) => EngineOutcome::Failed { code: None },
-            };
-            record.outcome(pending, outcome).await;
-        }
+        withdraw_cards(self.person_waits.cards.as_ref(), record, session_id, cards).await;
     }
 
     /// Starts the pause point of `turn_ask`, an approval of the run of `live`, on its own task as

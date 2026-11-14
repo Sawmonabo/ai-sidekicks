@@ -9,8 +9,9 @@
 //!   the projects through [`ProjectListFeed::refresh`], and one that changes a session without an
 //!   event names it through [`ProjectListFeed::refresh_sessions`].
 //! - One task reads every waiting change in one read however many named it: a session reaches the
-//!   project the last read held it in and the one it sits in now, and only those projects are read
-//!   again, their sessions' facts with them, so a burst never reads the whole list.
+//!   projects the last read held it in, the one it sits in now and those its live workflow runs
+//!   work on in workspaces of their own, and only those projects are read again, their sessions'
+//!   facts with them, so a burst never reads the whole list.
 //! - The list holds a place, never a queue: it is sent only when it differs from the one held, and
 //!   a slow subscriber reads only the newest list.
 //! - A failed read ends every subscription and drops the list, so the next one reads the rows
@@ -77,12 +78,12 @@ struct FeedState {
     next_generation: u64,
 }
 
-// The held list, the project each counted session sat in at the last read, and the task that
-// keeps the list current, which ends when it drops.
+// The held list, the projects each session was counted or running in at the last read, and the
+// task that keeps the list current, which ends when it drops.
 struct HeldList {
     generation: u64,
     projects: Vec<ListedProject>,
-    session_projects: HashMap<SessionId, ProjectId>,
+    session_projects: HashMap<SessionId, HashSet<ProjectId>>,
     _reading: AbortOnDropHandle<()>,
 }
 
@@ -162,9 +163,10 @@ impl ProjectListFeed {
         self.shared.collect(&[], project_ids);
     }
 
-    /// Reads again the projects those sessions sat in at the last read and sit in now, and sends
-    /// the list when it changed, so a session whose rows are already deleted still reaches its
-    /// project. For a session change written without an event, called after the write commits.
+    /// Reads again the projects those sessions sat in at the last read, sit in now and work on
+    /// through a live workflow run's own workspace, and sends the list when it changed, so a
+    /// session whose rows are already deleted still reaches its project. For a session change
+    /// written without an event, called after the write commits.
     pub fn refresh_sessions(&self, session_ids: &[SessionId]) {
         self.shared.collect(session_ids, &[]);
     }
@@ -194,7 +196,7 @@ impl SharedFeed {
     }
 
     // Every waiting change as the projects to read again: those named, and for each named session
-    // the project the held list holds it in, with the sessions to map to their projects now.
+    // the projects the held list holds it in, with the sessions to map to their projects now.
     // `None` once the list `generation` names is no longer held.
     fn take_changes(&self, generation: u64) -> Option<(Vec<SessionId>, Vec<ProjectId>)> {
         let mut state = self.lock_state();
@@ -212,7 +214,9 @@ impl SharedFeed {
         project_ids.extend(
             session_ids
                 .iter()
-                .filter_map(|session_id| held.session_projects.get(session_id).copied()),
+                .filter_map(|session_id| held.session_projects.get(session_id))
+                .flatten()
+                .copied(),
         );
         Some((
             session_ids.into_iter().collect(),
@@ -306,16 +310,15 @@ impl FeedState {
 
 impl HeldList {
     fn new(generation: u64, listed: ListedProjects, reading: AbortOnDropHandle<()>) -> Self {
-        Self {
+        let mut held = Self {
             generation,
-            session_projects: listed
-                .sessions
-                .iter()
-                .map(|facts| (facts.session_id, facts.project_id))
-                .collect(),
-            projects: listed.projects,
+            projects: Vec::new(),
+            session_projects: HashMap::new(),
             _reading: reading,
-        }
+        };
+        held.map_sessions(&listed);
+        held.projects = listed.projects;
+        held
     }
 
     // Replaces every project read again with what the read found, a project whose row is gone
@@ -324,20 +327,35 @@ impl HeldList {
         let read: HashSet<ProjectId> = changes.read_project_ids.into_iter().collect();
         self.projects
             .retain(|listed| !read.contains(&listed.entry.project_id));
-        self.session_projects
-            .retain(|_, project_id| !read.contains(project_id));
-        self.session_projects.extend(
-            changes
-                .listed
-                .sessions
-                .iter()
-                .map(|facts| (facts.session_id, facts.project_id)),
-        );
+        self.session_projects.retain(|_, project_ids| {
+            project_ids.retain(|project_id| !read.contains(project_id));
+            !project_ids.is_empty()
+        });
+        self.map_sessions(&changes.listed);
         self.projects.extend(changes.listed.projects);
         self.projects.sort_by(|left, right| {
             (left.created_at.as_str(), left.entry.project_id)
                 .cmp(&(right.created_at.as_str(), right.entry.project_id))
         });
+    }
+
+    // Maps each session `listed` counts in a project, and each a live run works in on one, to
+    // that project.
+    fn map_sessions(&mut self, listed: &ListedProjects) {
+        let counted = listed
+            .sessions
+            .iter()
+            .map(|facts| (facts.session_id, facts.project_id));
+        let running = listed
+            .running
+            .iter()
+            .map(|&(project_id, session_id)| (session_id, project_id));
+        for (session_id, project_id) in counted.chain(running) {
+            self.session_projects
+                .entry(session_id)
+                .or_default()
+                .insert(project_id);
+        }
     }
 
     fn list(&self) -> ProjectList {
@@ -556,252 +574,4 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    use futures::FutureExt as _;
-    use rusqlite::{Connection, params};
-    use serde_json::json;
-    use sidekicks_contracts::project::{ProjectId, ProjectList};
-    use sidekicks_contracts::repo::mount::ExecutionMode;
-    use sidekicks_contracts::session::directory::SessionActivity;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_ipc::registry::HandlerError;
-    use sidekicks_ipc::stream::feed::Feed as _;
-    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
-    use sidekicks_std::mutex_lock::lock;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_store::database::writer::test_file::{
-        TestDatabase, test_envelope, test_session_id,
-    };
-    use sidekicks_store::events::log_service::EventLogAppendOptions;
-    use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-    use tokio::time::timeout;
-
-    use crate::git::worktree::schema::schema_parts;
-    use crate::project::list_feed::ProjectListFeed;
-    use crate::project::records::{
-        PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity,
-        ProjectSessionFacts,
-    };
-    use crate::project::test_doubles::OpenGate;
-    use crate::test_rows::PARENT_ROWS_AT;
-
-    // Long enough that a read the feed was going to make has made it.
-    const QUIET: Duration = Duration::from_millis(200);
-    const WAIT: Duration = Duration::from_secs(10);
-
-    // The session directory's activity as the test sets it, counting each read and failing on
-    // demand.
-    #[derive(Default)]
-    struct CountedActivity {
-        reads: AtomicUsize,
-        is_failing: AtomicBool,
-        facts: Mutex<Vec<ProjectSessionFacts>>,
-    }
-
-    impl ProjectSessionActivity for CountedActivity {
-        fn read_session_facts(
-            &self,
-            _reader: &Connection,
-            project_ids: Option<&[ProjectId]>,
-        ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-            self.reads.fetch_add(1, Ordering::SeqCst);
-            if self.is_failing.load(Ordering::SeqCst) {
-                return Err(rusqlite::Error::InvalidQuery);
-            }
-            Ok(lock(&self.facts)
-                .iter()
-                .filter(|facts| project_ids.is_none_or(|ids| ids.contains(&facts.project_id)))
-                .cloned()
-                .collect())
-        }
-    }
-
-    impl CountedActivity {
-        fn reads(&self) -> usize {
-            self.reads.load(Ordering::SeqCst)
-        }
-
-        fn set(&self, project_id: ProjectId, session_id: SessionId, activity: SessionActivity) {
-            *lock(&self.facts) = vec![ProjectSessionFacts {
-                project_id,
-                session_id,
-                activity,
-            }];
-        }
-    }
-
-    // A project and one of its sessions, the session found in it through its create request.
-    fn insert_project_session(
-        connection: &Connection,
-        project_id: ProjectId,
-        session_id: SessionId,
-    ) {
-        connection
-            .execute(
-                "INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, \
-                 updated_at) VALUES (?1, 'app', ?1, '/repos/app', 'active', \
-                 '{\"filesToCopy\":[],\"commands\":[]}', ?2, ?2)",
-                params![project_id.text().as_str(), PARENT_ROWS_AT],
-            )
-            .expect("the test stores a project");
-        insert_session_row(connection, session_id.text().as_str(), None, None);
-        connection
-            .execute(
-                "INSERT INTO session_create_requests (client_idempotency_key, session_id, \
-                 project_id, execution_mode, provider_account_id) \
-                 VALUES (?1, ?1, ?2, ?3, 'account-a')",
-                params![
-                    session_id.text().as_str(),
-                    project_id.text().as_str(),
-                    <&'static str>::from(ExecutionMode::ProvisionedWorktree)
-                ],
-            )
-            .expect("the test stores the session's create request");
-    }
-
-    async fn append_archived(log: &TestLog, session_id: SessionId) {
-        let event = serde_json::from_value(json!({
-            "type": "session.archived",
-            "payload": { "sessionId": session_id, "newState": "archived" },
-        }))
-        .expect("the test writes a session.archived event");
-        log.service
-            .append(
-                test_envelope(session_id, &event),
-                EventLogAppendOptions::default(),
-            )
-            .await
-            .expect("the event is appended");
-    }
-
-    type ProjectListStream = LatestValueFeed<ProjectList, Box<dyn FnOnce() + Send>>;
-
-    async fn open_list(feed: &Arc<ProjectListFeed>) -> Result<ProjectListStream, HandlerError> {
-        let feed = Arc::clone(feed);
-        LatestValueFeed::open(move |outlet| async move { feed.open(outlet).await }).await
-    }
-
-    fn running_count(list: &ProjectList) -> SafeInt<0> {
-        list.projects
-            .first()
-            .expect("the list holds the project")
-            .session_tally
-            .running
-    }
-
-    // Kills a read per change (a fourth read reaches the third hold), a send of an unchanged list,
-    // a failed read that leaves its subscription open, and a held list kept past a failure (the
-    // reopen would answer without reading).
-    #[tokio::test]
-    async fn a_burst_reads_once_an_unchanged_list_is_not_sent_and_a_failed_read_ends_the_list() {
-        let database = TestDatabase::new(schema_parts());
-        let log = open_log(&database, None).await;
-        let project_id =
-            ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
-        let session_id = test_session_id();
-        insert_project_session(&database.reader(), project_id, session_id);
-        let activity = Arc::new(CountedActivity::default());
-        activity.set(project_id, session_id, SessionActivity::Idle);
-        let records = Arc::new(ProjectRecords::new(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                PROJECT_RECORDS_STATEMENT_CAPACITY,
-            )),
-            Arc::clone(&activity) as Arc<dyn ProjectSessionActivity>,
-        ));
-        let feed = Arc::new(ProjectListFeed::new(records, &log.followers));
-        let gate = OpenGate;
-
-        let mut list = open_list(&feed).await.expect("the list opens");
-        let opened = list
-            .next(&gate)
-            .await
-            .expect("the list reads")
-            .expect("a list comes");
-        assert_eq!(
-            running_count(&opened),
-            SafeInt::new(0).expect("zero is a safe integer")
-        );
-        assert_eq!(activity.reads(), 1);
-
-        // The first change is held after its take, so the burst waits behind it.
-        let first_hold = feed.shared.burst_read_pause.arm();
-        let burst_hold = feed.shared.burst_read_pause.arm();
-        feed.refresh(&[project_id]);
-        first_hold.reached.await.expect("the first change is taken");
-        activity.set(project_id, session_id, SessionActivity::Running);
-        for _ in 0..3 {
-            append_archived(&log, session_id).await;
-        }
-        feed.refresh(&[project_id]);
-        first_hold.release.send(()).expect("the first read is held");
-
-        let changed = timeout(WAIT, list.next(&gate))
-            .await
-            .expect("the changed list comes")
-            .expect("the list reads")
-            .expect("a list comes");
-        assert_eq!(
-            running_count(&changed),
-            SafeInt::new(1).expect("one is a safe integer")
-        );
-        timeout(WAIT, burst_hold.reached)
-            .await
-            .expect("the burst is taken")
-            .expect("the burst is held");
-        let after_burst_hold = feed.shared.burst_read_pause.arm();
-        burst_hold.release.send(()).expect("the burst read is held");
-        let mut after_burst_reached = after_burst_hold.reached;
-        assert!(
-            timeout(QUIET, &mut after_burst_reached).await.is_err(),
-            "three events and a refresh read once"
-        );
-        assert_eq!(activity.reads(), 3);
-        assert!(
-            list.next(&gate).now_or_never().is_none(),
-            "an unchanged list is not sent"
-        );
-
-        activity.is_failing.store(true, Ordering::SeqCst);
-        feed.refresh(&[project_id]);
-        after_burst_reached
-            .await
-            .expect("the failing read is taken");
-        after_burst_hold
-            .release
-            .send(())
-            .expect("the failing read is held");
-        assert!(
-            timeout(WAIT, list.next(&gate))
-                .await
-                .expect("the stream answers")
-                .is_err(),
-            "a failed read ends the subscription"
-        );
-
-        activity.is_failing.store(false, Ordering::SeqCst);
-        let reads_before_reopen = activity.reads();
-        let mut reopened = open_list(&feed).await.expect("the list opens again");
-        let reread = reopened
-            .next(&gate)
-            .await
-            .expect("the list reads")
-            .expect("a list comes");
-        assert_eq!(
-            activity.reads(),
-            reads_before_reopen + 1,
-            "the reopen reads the rows"
-        );
-        assert_eq!(
-            running_count(&reread),
-            SafeInt::new(1).expect("one is a safe integer")
-        );
-    }
-}
+mod tests;

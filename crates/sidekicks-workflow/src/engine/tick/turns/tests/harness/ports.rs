@@ -167,20 +167,25 @@ impl ApprovalCardRaiser for RecordingAsks {
     fn withdraw(
         &self,
         _session_id: SessionId,
-        wait_id: UuidTextForm,
-    ) -> BoxFuture<'_, Result<(), PortError>> {
-        let is_wait_stored = lock(&self.rows)
-            .query_row(
-                "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE wait_id = ?1)",
-                [wait_id.text().as_str()],
-                |row| row.get(0),
-            )
-            .expect("the step rows read");
-        lock(&self.withdrawn).push(WithdrawnCard {
-            wait_id,
-            is_wait_stored,
-        });
-        Box::pin(async { Ok(()) })
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>> {
+        let rows = lock(&self.rows);
+        let mut withdrawn = lock(&self.withdrawn);
+        for &wait_id in &wait_ids {
+            let is_wait_stored = rows
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE wait_id = ?1)",
+                    [wait_id.text().as_str()],
+                    |row| row.get(0),
+                )
+                .expect("the step rows read");
+            withdrawn.push(WithdrawnCard {
+                wait_id,
+                is_wait_stored,
+            });
+        }
+        let answers = wait_ids.iter().map(|_| Ok(())).collect();
+        Box::pin(async { Ok(answers) })
     }
 }
 

@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::sync::LazyLock;
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::approval::events::{ApprovalRequestedPayload, ApprovalResolvedPayload};
 use sidekicks_contracts::approval::holder::ApprovalHolder;
 use sidekicks_contracts::approval::{
@@ -337,19 +337,25 @@ impl ApprovalService {
         Err(refusal.into())
     }
 
-    /// Withdraws the card the wait `wait_id` holds open in `session_id` with one
-    /// `approval.canceled`, once its wait ended unanswered; an answer that landed first keeps it,
-    /// and a wait with no open card writes nothing. Fails as the read fails and when the cancel was
-    /// not kept.
-    pub async fn withdraw_workflow_gate(
+    /// Withdraws the cards the waits `wait_ids` hold open in `session_id`, once their waits ended
+    /// unanswered: the open cards are read in one read, then each card's `approval.canceled` is
+    /// queued with none awaited before the next, so the writer commits them together while each
+    /// keeps its own guard. An answer that landed first keeps its card and refuses no other
+    /// card's cancel, and a wait with no open card writes nothing. Answers one result per wait, in
+    /// order, a cancel not kept failing its own; fails, with nothing written, when the read fails.
+    pub async fn withdraw_workflow_gates(
         &self,
         session_id: SessionId,
-        wait_id: UuidTextForm,
-    ) -> Result<(), ApprovalServiceError> {
-        if let Some(open) = self.read_open_wait_card(session_id, wait_id).await? {
-            self.cancel(&open, None).await?;
-        }
-        Ok(())
+        wait_ids: Vec<UuidTextForm>,
+    ) -> Result<Vec<Result<(), ApprovalServiceError>>, ApprovalServiceError> {
+        let open_cards = self.read_open_wait_cards(session_id, wait_ids).await?;
+        Ok(join_all(open_cards.iter().map(|open| async move {
+            match open {
+                Some(open) => self.cancel(open, None).await.map(drop),
+                None => Ok(()),
+            }
+        }))
+        .await)
     }
 
     // The card the wait holds open, through the open wait's unique index.
@@ -360,6 +366,21 @@ impl ApprovalService {
     ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
         self.read(move |reader| reader.read_open_wait_request(&session_id, &wait_id))
             .await
+    }
+
+    // The card each wait holds open, as one wait's read finds it, all in one read.
+    async fn read_open_wait_cards(
+        &self,
+        session_id: SessionId,
+        wait_ids: Vec<UuidTextForm>,
+    ) -> Result<Vec<Option<StoredApprovalRequest>>, ApprovalServiceError> {
+        self.read(move |reader| {
+            wait_ids
+                .iter()
+                .map(|wait_id| reader.read_open_wait_request(&session_id, wait_id))
+                .collect()
+        })
+        .await
     }
 
     /// Hands `wait_answer`, the answer to the wait-held card `stored`, to the registered waits,

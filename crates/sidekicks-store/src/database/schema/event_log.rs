@@ -84,8 +84,8 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- On a stored part of a file's text, the UTF-8 offset in the text of its first byte; NULL on
   -- every other row.
   patch_text_offset INTEGER,
-  -- The workflow run an event is its own event of, written by the append from the typed event;
-  -- NULL on every other event. `run_id` is an agent's run.
+  -- The workflow run whose own event this is, written by the append from the typed event; NULL
+  -- on every other event. `run_id` is an agent's run.
   workflow_run_id   TEXT,
   UNIQUE (session_id, sequence)
 ) STRICT;

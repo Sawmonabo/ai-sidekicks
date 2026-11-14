@@ -8,7 +8,6 @@
     expect(dead_code, reason = "the daemon's workflow run method handlers")
 )]
 
-use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::Connection;
@@ -45,6 +44,7 @@ use crate::engine::tick::{
     EngineTickInput, RepinReadError, RepinRefusal, RunCancelIntake, RunCancelRefusal,
     RunResumeIntake, RunResumeRefusal,
 };
+use crate::engine::waits::withdraw_cards;
 use crate::kinds::uncoded_step_error;
 use crate::runs::cancellation::{
     WorkflowRunCancellation, WorkflowRunCancellationWrite, read_canceled_event_id,
@@ -349,27 +349,18 @@ impl WorkflowRunControls {
             match self.appender.append(draft, linkage).await {
                 Ok(receipt) => {
                     self.binder.note_context_changed(session_id);
+                    // The run has ended, so no live step's secret reaches its record.
+                    let record = self
+                        .recorder
+                        .for_run(workflow_run_id, Arc::new(RunRedaction::new(&[])));
                     if is_bound && let Err(error) = self.binder.sweep_released_run(session_id).await
                     {
-                        // The run has ended, so no live step's secret reaches its record.
-                        let record = self
-                            .recorder
-                            .for_run(workflow_run_id, Arc::new(RunRedaction::new(&[])));
                         record
                             .fault(None, EngineFault::RemovedTreeSweepFailed, &error)
                             .await;
-                        self.recorder.end_run(workflow_run_id);
                     }
-                    for wait_id in withdrawn_cards {
-                        if let Err(error) = self.cards.withdraw(session_id, wait_id).await {
-                            tracing::warn!(
-                                workflow_run_id = %workflow_run_id,
-                                wait_id = wait_id.text().as_str(),
-                                error = &*error as &(dyn Error + 'static),
-                                "a canceled run's approval card was not withdrawn"
-                            );
-                        }
-                    }
+                    withdraw_cards(self.cards.as_ref(), &record, session_id, withdrawn_cards).await;
+                    self.recorder.end_run(workflow_run_id);
                     let event_id = receipt
                         .preceding_ids
                         .into_iter()

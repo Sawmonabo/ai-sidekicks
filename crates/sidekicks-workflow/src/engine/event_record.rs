@@ -190,6 +190,8 @@ pub(crate) enum EngineFault {
     WaitNotReattached,
     /// The run's session could not leave a tree removed while the run worked in it.
     RemovedTreeSweepFailed,
+    /// A wait's approval card could not be read or withdrawn; the restart's settle closes it.
+    CardWithdrawFailed,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -488,6 +490,11 @@ impl RunEngineRecord {
                 &mut line,
                 "removedTreeSweepFailed",
                 "The session could not leave a tree removed while the run worked in it.",
+            ),
+            EngineFault::CardWithdrawFailed => says(
+                &mut line,
+                "cardWithdrawFailed",
+                "A wait's approval card could not be withdrawn; the restart's settle closes it.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));

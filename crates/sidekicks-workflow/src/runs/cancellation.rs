@@ -25,12 +25,14 @@ use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
+use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::engine::results::{results_posted_event, run_posts_results};
+use crate::engine::waits::step_key;
 use crate::runs::record::{FIRST_NON_RETRY_MODE_SQL, end_run_statements};
 use crate::runs::step_rows::CLEAR_WAIT_COLUMNS_SQL;
 
@@ -102,8 +104,9 @@ pub(crate) struct WorkflowRunCancellationWrite {
     /// The run's results event, with its summary line, appended after its canceled event in the
     /// same write, for a run whose mode posts its results.
     pub(crate) results_posted: Option<SessionEvent>,
-    /// The approval waits the cancel ends, whose cards are withdrawn once the write commits.
-    pub(crate) withdrawn_cards: Vec<UuidTextForm>,
+    /// The approval waits the cancel ends, each with its step, whose cards are withdrawn once the
+    /// write commits.
+    pub(crate) withdrawn_cards: Vec<(WorkflowStepKey, UuidTextForm)>,
     /// Whether the run held an execution context, which the write releases, so its session is
     /// swept out of a removed tree once the write commits.
     pub(crate) is_bound: bool,
@@ -125,10 +128,12 @@ static RUN_CANCELLATION_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The wait and its cause of each step of a run waiting under a wait of its own, in step order.
+// The step, its wait and the wait's cause of each step of a run waiting under a wait of its own,
+// in step order.
 static OPEN_WAITS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT wait_id, wait_cause FROM workflow_steps
+        "SELECT workflow_run_id, node_id, attempt, execution_index, wait_id, wait_cause
+  FROM workflow_steps
   WHERE workflow_run_id = ?1 AND status = '{waiting}' AND wait_id IS NOT NULL
   ORDER BY execution_index",
         waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
@@ -196,11 +201,12 @@ pub(crate) fn workflow_run_cancellation_statements(
     let mut waits = connection.prepare_cached(OPEN_WAITS_SQL.as_str())?;
     for wait in waits.query_map([run_text.as_str()], |row| {
         Ok((
-            text_column(row, 0, |text| UuidTextForm::new(&text))?,
-            text_column(row, 1, closed_word::<WorkflowWaitCause>)?,
+            step_key(row)?,
+            text_column(row, 4, |text| UuidTextForm::new(&text))?,
+            text_column(row, 5, closed_word::<WorkflowWaitCause>)?,
         ))
     })? {
-        let (wait_id, cause) = wait?;
+        let (step, wait_id, cause) = wait?;
         match cause {
             WorkflowWaitCause::Form | WorkflowWaitCause::Reply => {
                 questions_settled.push(SessionEvent::QuestionWaitSettled(
@@ -211,7 +217,7 @@ pub(crate) fn workflow_run_cancellation_statements(
                     },
                 ));
             }
-            WorkflowWaitCause::Approval => withdrawn_cards.push(wait_id),
+            WorkflowWaitCause::Approval => withdrawn_cards.push((step, wait_id)),
             WorkflowWaitCause::Account | WorkflowWaitCause::Chain => {}
         }
     }

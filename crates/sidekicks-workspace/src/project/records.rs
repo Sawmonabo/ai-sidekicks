@@ -44,7 +44,7 @@ use crate::schema::{CloneOutcome, MountOrigin};
 
 /// The distinct statements the records keep prepared on each read connection; the session
 /// activity port counts its own.
-pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 14;
+pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 15;
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
@@ -149,13 +149,17 @@ pub(crate) struct ListedProject {
     pub(crate) entry: ProjectListEntry,
 }
 
-/// Projects as the list draws them, oldest first, with the sessions counted in them.
+/// Projects as the list draws them, oldest first, with the sessions counted in them and those a
+/// live run works in.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ListedProjects {
     /// The projects read.
     pub(crate) projects: Vec<ListedProject>,
     /// Every session counted in those projects.
     pub(crate) sessions: Vec<ProjectSessionFacts>,
+    /// Every session a live run works in on those projects, beside the project of its run's
+    /// workspace's mount, which for a workflow run's own workspace may be another than its own.
+    pub(crate) running: Vec<(ProjectId, SessionId)>,
 }
 
 /// One read of the projects some changes touched: the projects named and those the changed
@@ -249,6 +253,16 @@ static SESSION_PROJECTS_SQL: LazyLock<String> = LazyLock::new(|| {
         session_project_sql("given.value")
     )
 });
+
+// The project of the mount each named session's workflow runs work on in a workspace of their own
+// while the run's context is live, which may be another than the session's own.
+const SESSION_RUN_PROJECTS_SQL: &str = "SELECT DISTINCT mount.project_id
+  FROM json_each(@session_ids) AS given
+  JOIN workspaces AS workspace ON workspace.session_id = given.value
+  JOIN run_execution_contexts AS run_context ON run_context.workspace_id = workspace.id
+  JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
+ WHERE workspace.workflow_run_id IS NOT NULL AND run_context.released_at IS NULL
+   AND mount.project_id IS NOT NULL";
 
 // One project's row.
 const PROJECT_ROW_SQL: &str =
@@ -401,8 +415,9 @@ impl ProjectRecords {
             .await
     }
 
-    /// The project each of `session_ids` sits in now, and every one of `project_ids` and of those
-    /// projects read again, in one read. Fails as the read fails.
+    /// The project each of `session_ids` sits in now and those its live workflow runs work on,
+    /// and every one of `project_ids` and of those projects read again, in one read. Fails as the
+    /// read fails.
     pub(crate) async fn read_project_changes(
         &self,
         session_ids: Vec<SessionId>,
@@ -412,7 +427,11 @@ impl ProjectRecords {
         self.reads
             .read(ReadLength::Short, move |connection| {
                 let mut read_project_ids = project_ids;
-                for project_id in read_session_projects(connection, &session_ids)? {
+                let session_projects =
+                    read_session_projects(connection, &SESSION_PROJECTS_SQL, &session_ids)?;
+                let run_projects =
+                    read_session_projects(connection, SESSION_RUN_PROJECTS_SQL, &session_ids)?;
+                for project_id in session_projects.into_iter().chain(run_projects) {
                     if !read_project_ids.contains(&project_id) {
                         read_project_ids.push(project_id);
                     }
@@ -657,9 +676,10 @@ impl ProjectRecords {
     ) -> Result<Option<AttachedProjectRoot>, ProjectReadError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
-                let Some(project_id) = read_session_projects(connection, &[session_id])?
-                    .into_iter()
-                    .next()
+                let Some(project_id) =
+                    read_session_projects(connection, &SESSION_PROJECTS_SQL, &[session_id])?
+                        .into_iter()
+                        .next()
                 else {
                     return Ok(None);
                 };
@@ -731,18 +751,18 @@ fn read_listed(
             .or_default()
             .push(facts.activity);
     }
-    // The oldest run comes first, so the first seen per project is the one named.
-    let mut running_sessions: HashMap<ProjectId, SessionId> = HashMap::new();
-    for running in connection.prepare_cached(RUNNING_SESSIONS_SQL)?.query_map(
-        named_params! { "@project_ids": project_ids_json },
-        |row| {
+    let running = connection
+        .prepare_cached(RUNNING_SESSIONS_SQL)?
+        .query_map(named_params! { "@project_ids": project_ids_json }, |row| {
             Ok((
                 text_column(row, 0, |text| ProjectId::new(&text))?,
                 text_column(row, 1, |text| SessionId::new(&text))?,
             ))
-        },
-    )? {
-        let (project_id, session_id) = running?;
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    // The oldest run comes first, so the first seen per project is the one named.
+    let mut running_sessions: HashMap<ProjectId, SessionId> = HashMap::new();
+    for &(project_id, session_id) in &running {
         running_sessions.entry(project_id).or_insert(session_id);
     }
     let projects = connection
@@ -773,12 +793,19 @@ fn read_listed(
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(ListedProjects { projects, sessions })
+    Ok(ListedProjects {
+        projects,
+        sessions,
+        running,
+    })
 }
 
-// The projects `session_ids` sit in now; a session in none, or whose rows are gone, adds none.
+// The projects `sql`, over the JSON list `@session_ids`, reads for `session_ids`: those they sit
+// in now, or those their live workflow runs work on; a session in none, or whose rows are gone,
+// adds none.
 fn read_session_projects(
     connection: &Connection,
+    sql: &str,
     session_ids: &[SessionId],
 ) -> rusqlite::Result<Vec<ProjectId>> {
     if session_ids.is_empty() {
@@ -787,7 +814,7 @@ fn read_session_projects(
     let session_ids_json =
         serde_json::to_string(session_ids).expect("a list of ids serializes to JSON");
     connection
-        .prepare_cached(&SESSION_PROJECTS_SQL)?
+        .prepare_cached(sql)?
         .query_map(named_params! { "@session_ids": session_ids_json }, |row| {
             optional_text_column(row, 0, |text| ProjectId::new(&text))
         })?

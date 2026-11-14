@@ -79,13 +79,17 @@ impl ApprovalCardRaiser for WorkflowGateCards {
     fn withdraw(
         &self,
         session_id: SessionId,
-        wait_id: UuidTextForm,
-    ) -> BoxFuture<'_, Result<(), PortError>> {
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>> {
         async move {
-            self.approvals
-                .withdraw_workflow_gate(session_id, wait_id)
+            let withdrawn = self
+                .approvals
+                .withdraw_workflow_gates(session_id, wait_ids)
                 .await?;
-            Ok(())
+            Ok(withdrawn
+                .into_iter()
+                .map(|card| card.map_err(PortError::from))
+                .collect())
         }
         .boxed()
     }
