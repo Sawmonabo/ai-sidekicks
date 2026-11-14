@@ -105,7 +105,8 @@ fn failed_with_its_turn() -> RestartDecision {
 // keeping a paused lead past a stop it waits on (`paused_lead_with_a_person_interrupt`), by
 // failing a provider's helper whose lead's stop wins, which the restart cut
 // (`helper_of_a_stopping_lead_*` read `failed_with_its_turn()` with the stopping arm dropped), and
-// by giving a run the wrong turn end or none.
+// by giving a run the wrong turn end or none, and by an undo's row settled as the person's
+// (`undo_interrupt` reads interrupted with no trigger where a pending row without a limit counts).
 #[rstest]
 #[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, false, None)]
 #[case::queued_with_nothing_to_start_it(
@@ -303,6 +304,15 @@ fn failed_with_its_turn() -> RestartDecision {
     Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
 #[case::running(RunState::Running, false, &[], None, false, false, Some(failed_with_its_turn()))]
+#[case::undo_interrupt(
+    RunState::Running,
+    false,
+    &[r#"{"undoKey":"0190f2a0-0000-7000-8000-000000000006"}"#],
+    None,
+    false,
+    false,
+    Some(failed_with_its_turn())
+)]
 fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
     #[case] state: RunState,
     #[case] has_parent: bool,
@@ -714,10 +724,11 @@ fn a_pending_stop_wins_over_the_resume_before_any_pause(
 }
 
 // A lead the person asked to stop: its provider's helper and that helper's own helper read
-// stopping, while a run the lead reached through the bridge, a lead with no stop and its helper do
-// not. Killed by the helper clause dropped (the helpers read not stopping), by the walk stopping
-// at one level (the helper's helper does), by any child counted a helper (the bridged run does),
-// and by the run's own stops dropped (the lead does).
+// stopping, while a run the lead reached through the bridge, a lead with no stop and its helper,
+// and a lead with only an undo's interrupt left pending and its helper do not. Killed by the helper
+// clause dropped (the helpers read not stopping), by the walk stopping at one level (the helper's
+// helper does), by any child counted a helper (the bridged run does), by the run's own stops
+// dropped (the lead does), and by the pending read keeping an undo's row (the undo's lead does).
 #[test]
 fn a_helper_of_a_stopping_lead_reads_stopping() {
     let database = TestDatabase::new(schema_parts());
@@ -746,20 +757,26 @@ fn a_helper_of_a_stopping_lead_reads_stopping() {
     let bridged = new_run(Some(stopping_lead), Some("bridgeRun"));
     let lead = new_run(None, None);
     let lead_helper = new_run(Some(lead), Some("providerSubagent"));
-    reader
-        .execute(
-            &format!(
-                "INSERT INTO interventions (id, target_run_id, type, state, payload,
-                   expected_run_version, client_idempotency_key, created_at)
-                 VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1, {DATABASE_NOW_SQL})"
-            ),
-            params![
-                mint_uuid_v7().to_string(),
-                stopping_lead.text().as_str(),
-                r#"{"pending":"nextTurn"}"#,
-            ],
-        )
-        .expect("the test records the person's interrupt");
+    let undo_lead = new_run(None, None);
+    let undo_lead_helper = new_run(Some(undo_lead), Some("providerSubagent"));
+    for (run_id, record) in [
+        (stopping_lead, r#"{"pending":"nextTurn"}"#),
+        (
+            undo_lead,
+            r#"{"undoKey":"0190f2a0-0000-7000-8000-000000000007"}"#,
+        ),
+    ] {
+        reader
+            .execute(
+                &format!(
+                    "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                       expected_run_version, client_idempotency_key, created_at)
+                     VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1, {DATABASE_NOW_SQL})"
+                ),
+                params![mint_uuid_v7().to_string(), run_id.text().as_str(), record],
+            )
+            .expect("the test records the pending interrupt");
+    }
 
     for (run_id, is_stopping) in [
         (stopping_lead, true),
@@ -768,6 +785,8 @@ fn a_helper_of_a_stopping_lead_reads_stopping() {
         (bridged, false),
         (lead, false),
         (lead_helper, false),
+        (undo_lead, false),
+        (undo_lead_helper, false),
     ] {
         assert_eq!(
             read_is_run_stopping(&reader, &run_id).expect("the stops read"),

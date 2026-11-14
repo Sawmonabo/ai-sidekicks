@@ -1,10 +1,10 @@
 //! The run queue as an interrupt uses it: `Send now` on a provider that reads a priority message,
 //! in each run state, sent again under its key or another, and a reorder after it; an interrupt's
 //! release from inside the session's hold, one left unsettled and a run's end it held back, settled
-//! at a later hold, and a closed session's held-back run ends given back; and a return to the draft
-//! applied after its run ended first, whose Stop still cancels the lead messages into the draft,
-//! writes every outcome and the draft in one write and ends a queued run left with no message
-//! `stopped`.
+//! at a later hold, a closed session's held-back run ends given back, and an undo's interrupt end
+//! leaving every waiting message waiting; and a return to the draft applied after its run ended
+//! first, whose Stop still cancels the lead messages into the draft, writes every outcome and the
+//! draft in one write and ends a queued run left with no message `stopped`.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -28,10 +28,11 @@ use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::interventions::interrupt_queue::{
-    InterruptChoice, InterruptQueue, SendNow, SendNowOutcome,
+    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, SendNow, SendNowOutcome,
 };
 use sidekicks_session::queue_store::send_now::{SentNow, read_sent_now};
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
+use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::test_envelope;
 use sidekicks_store::events::session::followers::CommittedEvent;
@@ -771,6 +772,61 @@ async fn a_reorder_after_send_now_keeps_the_mark_only_on_a_message_left_first(
             assert_eq!(calls.steers(), [(other, false), (sent_now, false)]);
         }
     }
+}
+
+// The undo's interrupt end of a running lead run, held for the undo, with two messages waiting for
+// it, the second put first by a reorder: the run ends `interrupted`, both messages still wait for
+// it in the reordered order, neither canceled nor returned to the draft, and nothing is handed,
+// since the interrupted run's continue reads the undo's hold.
+// Killed by the undo's cause mapped to a person's `ReturnToDraft` (both messages leave the queue),
+// or by an end that places the waiting messages (the order reads first, second). A person's
+// `NextTurn` with no message first writes nothing, so it reads as the undo's here.
+#[tokio::test]
+async fn an_undos_interrupt_end_leaves_every_waiting_message_waiting() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running").await;
+    let undo_hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, client_key())
+        .await;
+    let first = fixture.queue_message(run_id).await;
+    let second = fixture.queue_message(run_id).await;
+    fixture
+        .queue
+        .reorder(AgentQueueItemReorderRequest {
+            session_id: fixture.session_id,
+            child_handle: None,
+            queue_item_ids: UniqueList::new(vec![second, first])
+                .expect("the order names each once"),
+        })
+        .await
+        .expect("the queue takes the order");
+
+    let is_ended = fixture
+        .queue
+        .end_run_for_interrupt(InterruptEnd {
+            run_id,
+            accepted_run_version: 1,
+            cause: InterruptCause::Undo,
+            canceled: Vec::new(),
+            verdict: RunWriteCompanions::default(),
+        })
+        .await
+        .expect("the run's end is written");
+
+    assert!(is_ended);
+    assert_eq!(fixture.run_state(run_id), "interrupted");
+    assert_eq!(fixture.waiting_order(run_id), [second, first]);
+    for item_id in [first, second] {
+        let item = fixture.stored_item(item_id);
+        assert_eq!(item.state, RecordedQueueItemState::Queued);
+        assert_eq!(item.target_run_id, Some(run_id));
+        assert_eq!(item.sent_now_id, None);
+    }
+    assert!(calls.steers().is_empty(), "{:?}", calls.steers());
+    drop(undo_hold);
+    fixture.queue.stop().await;
 }
 
 // The late return of a queued run's only messages cancels both into the draft and ends the run

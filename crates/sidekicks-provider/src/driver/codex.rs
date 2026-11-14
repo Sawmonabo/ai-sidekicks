@@ -30,6 +30,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::mutex_lock::lock;
 
+use crate::command::channel::stop::StoppedCommandParties;
 use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::mcp::compose_codex_mcp_entry;
@@ -91,7 +92,7 @@ use crate::driver::session_messages::{
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{DriverServices, HelperModeServices};
 use crate::port::running_command_publisher::{
-    RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
+    RunningCommandParams, StopCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::pricing::receiver::TelemetryExportReader;
@@ -278,6 +279,11 @@ impl ProviderDriver for CodexDriver {
         params: RewindConversationParams,
     ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>> {
         self.rewind_conversation(params).boxed()
+    }
+
+    // Codex's `thread/revert` cuts before a whole turn and has no verb that cuts inside one.
+    fn can_cut_inside_turn(&self) -> bool {
+        false
     }
 
     fn respond_to_request(
@@ -547,7 +553,10 @@ impl ProviderDriver for CodexDriver {
         self.list_provider_commands(params).boxed()
     }
 
-    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn stop_command(
+        &self,
+        params: StopCommandParams,
+    ) -> BoxFuture<'_, Result<StoppedCommandParties, DriverError>> {
         self.stop_command(params).boxed()
     }
 

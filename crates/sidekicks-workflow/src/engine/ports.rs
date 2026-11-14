@@ -9,6 +9,8 @@
 #[cfg(test)]
 pub(crate) mod kept_payloads;
 #[cfg(test)]
+pub(crate) mod noticed_sessions;
+#[cfg(test)]
 pub(crate) mod run_limits;
 #[cfg(test)]
 pub(crate) mod scripted_agent_runs;

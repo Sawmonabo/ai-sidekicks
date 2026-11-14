@@ -33,6 +33,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
+use sidekicks_workspace::run_setup_gates::execution_root::context::release_run_context_statement;
 
 use crate::runs::spent_account::SpentAccountColumns;
 
@@ -169,28 +170,33 @@ static END_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The one statement that ends run `workflow_run_id`'s row: `status`, ended at `finished_at` with
-/// `error`, its open wait on people closed into its total. It expects one row, so the write is
-/// refused, changing nothing, for a run that has already finished or that no row answers to.
-pub(crate) fn end_run_row(
+/// The statements that end run `workflow_run_id`: first its row, `status`, ended at `finished_at`
+/// with `error`, its open wait on people closed into its total, expecting one row, so the write is
+/// refused, changing nothing, for a run that has already finished or that no row answers to; then
+/// its execution context released at the same instant, which changes no row for a run with none.
+pub(crate) fn end_run_statements(
     workflow_run_id: WorkflowRunId,
     status: WorkflowRunStatus,
     finished_at: &WireInstant,
     error: Option<&WorkflowStepError>,
-) -> WriteStatement {
+) -> [WriteStatement; 2] {
     let error_json = error.map(|error| {
         serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
     });
-    WriteStatement {
-        sql: Cow::Borrowed(END_RUN_SQL.as_str()),
-        bindings: StatementBindings::Named(vec![
-            text_binding("@status", <&'static str>::from(status)),
-            text_binding("@finished_at", finished_at.as_str()),
-            nullable_text_binding("@error_json", error_json.as_deref()),
-            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
-        ]),
-        expected_row_count: Some(1),
-    }
+    let run_id = workflow_run_id.text();
+    [
+        WriteStatement {
+            sql: Cow::Borrowed(END_RUN_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@status", <&'static str>::from(status)),
+                text_binding("@finished_at", finished_at.as_str()),
+                nullable_text_binding("@error_json", error_json.as_deref()),
+                text_binding("@workflow_run_id", run_id.as_str()),
+            ]),
+            expected_row_count: Some(1),
+        },
+        release_run_context_statement(run_id.as_str(), finished_at),
+    ]
 }
 
 /// How far a run has come: still going, a failed run parked on its failed step, or finished.

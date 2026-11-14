@@ -1,16 +1,20 @@
 use std::io::{BufRead as _, BufReader};
-use std::process::Command;
+use std::process::{Child, Command};
+use std::sync::Arc;
 use std::time::Duration;
 
 use hpke::Kem as _;
 use sidekicks_platforms::pin_running_process;
 
+use super::stop::COMMAND_STOP_WAIT;
 use super::test_support::{
-    end_party, names_in, open_channel, open_channel_bound_to, party_command, ready_parties, sealed,
+    KeyPair, end_party, names_in, new_party_keys, open_channel, open_channel_bound_to,
+    party_command, ready_parties, sealed, sent_requests,
 };
 use super::{
-    AdmittedParty, ChannelKem, Direction, PartyRecord, REQUESTS_FOLDER, command_channel_root,
-    record_context, record_name, remove_channel_folders, seal, write_record,
+    AdmittedParty, ChannelKem, CommandChannel, DaemonRequest, Direction, PartyId, PartyRecord,
+    REQUESTS_FOLDER, command_channel_root, record_context, record_name, remove_channel_folders,
+    seal, write_record,
 };
 
 fn exited() -> PartyRecord {
@@ -55,7 +59,9 @@ fn a_record_opens_only_under_its_own_context_key_and_a_rising_number() {
         is_wrapper: false,
         is_nested: false,
         first_argument: None,
+        is_asking: false,
         wrapper: None,
+        parent: None,
         process: pin_running_process(std::process::id())
             .expect("the test pins itself")
             .expect("it runs"),
@@ -173,6 +179,103 @@ async fn a_party_under_an_admitted_party_speaks_only_its_prompt() {
     end_party(outer);
 }
 
+// A wrapper started with a party of its own under it, each admitted to `channel` by its start,
+// the wrapper's first: the wrapper, its id, its keys, and the nested party's id and keys.
+async fn admitted_wrapper_with_nested(
+    channel: &CommandChannel,
+) -> (Child, PartyId, KeyPair, PartyId, KeyPair) {
+    let (keys, nested_keys) = (new_party_keys(), new_party_keys());
+    let mut wrapper = party_command(&keys, Some(&nested_keys))
+        .spawn()
+        .expect("the wrapper starts");
+    let mut lines = BufReader::new(wrapper.stdout.take().expect("its output")).lines();
+    let ready = ready_parties(&mut lines, 2);
+    let id = wrapper.id();
+    let nested = *ready
+        .iter()
+        .find(|ready| **ready != id)
+        .expect("the nested party is ready");
+    for (party, party_keys) in [(id, &keys), (nested, &nested_keys)] {
+        let start = sealed(channel, party_keys, party, 1, &starting());
+        channel
+            .open_record(party, 1, &start)
+            .await
+            .expect("the party's place reads")
+            .expect("the party is admitted");
+    }
+    (wrapper, id, keys, nested, nested_keys)
+}
+
+// Waits up to five seconds for `holds`.
+async fn wait_until(holds: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !holds() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("it holds in time");
+}
+
+// Fails when a command's stop leaves a party under its wrapper running, reaches another command's
+// parties, or has the wrapper kill its group before the party under it ended its own command.
+// Mutations: send the wrapper alone its `Stop`; send every party one; send the wrapper's `Stop`
+// before the nested party's process ended.
+#[tokio::test]
+async fn a_stop_reaches_the_wrapper_and_each_nested_party() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let (stopped, stopped_id, stopped_keys, nested_id, nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+    let (other, other_id, other_keys, other_nested_id, other_nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+
+    let stopping = tokio::spawn({
+        let channel = Arc::clone(&channel);
+        async move {
+            let parties = channel
+                .read_command_parties(stopped_id)
+                .expect("the wrapper is admitted");
+            channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+        }
+    });
+    wait_until(|| sent_requests(&channel, &nested_keys, nested_id) == [DaemonRequest::Stop {}])
+        .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        sent_requests(&channel, &stopped_keys, stopped_id),
+        Vec::new()
+    );
+    assert!(!stopping.is_finished());
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", &nested_id.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(killed.success());
+    let parties = tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .expect("the stop answers once the nested party ended")
+        .expect("the stop ran")
+        .expect("the stop was sent");
+
+    assert_eq!(
+        sent_requests(&channel, &stopped_keys, stopped_id),
+        [DaemonRequest::Stop {}]
+    );
+    let mut expected = vec![stopped_id, nested_id];
+    expected.sort_unstable();
+    assert_eq!(parties.process_ids(), expected);
+    assert_eq!(sent_requests(&channel, &other_keys, other_id), Vec::new());
+    assert_eq!(
+        sent_requests(&channel, &other_nested_keys, other_nested_id),
+        Vec::new()
+    );
+    end_party(stopped);
+    end_party(other);
+}
+
 // Fails when one record that cannot be read ends the records' follower, losing the records
 // beside it and every later one. Mutation: in `take_records`, return the read's error.
 #[tokio::test]
@@ -270,4 +373,60 @@ async fn the_start_removes_left_channel_folders_and_nothing_else() {
 
     assert!(!left.exists());
     assert!(kept.exists());
+}
+
+// Fails when a wrapper let go between its read and its stop, as its row's end lets it go once the
+// provider stopped its command, leaves the party under it unstopped or unwaited. Mutation: read
+// the parties at the stop rather than before it.
+#[tokio::test]
+async fn a_wrapper_let_go_after_its_read_still_stops_and_answers_its_parties() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path(), std::process::id());
+    let (wrapper, wrapper_id, _keys, nested_id, nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+    let parties = channel
+        .read_command_parties(wrapper_id)
+        .expect("the wrapper is admitted");
+    channel.forget_party(wrapper_id).await;
+
+    let parties = channel
+        .stop_command_parties(parties, Duration::from_millis(100))
+        .await
+        .expect("the stop was sent");
+
+    assert_eq!(
+        sent_requests(&channel, &nested_keys, nested_id),
+        [DaemonRequest::Stop {}]
+    );
+    let mut expected = vec![wrapper_id, nested_id];
+    expected.sort_unstable();
+    assert_eq!(parties.process_ids(), expected);
+    end_party(wrapper);
+}
+
+// Fails when a party under the wrapper that never ends holds the stop past its wait, or the wait
+// running out leaves the wrapper unasked. Mutation: wait for the level with no bound.
+#[tokio::test]
+async fn a_party_that_never_ends_holds_the_stop_no_longer_than_its_wait() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path(), std::process::id());
+    let (wrapper, wrapper_id, keys, _nested_id, _nested_keys) =
+        admitted_wrapper_with_nested(&channel).await;
+    let parties = channel
+        .read_command_parties(wrapper_id)
+        .expect("the wrapper is admitted");
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        channel.stop_command_parties(parties, Duration::from_millis(100)),
+    )
+    .await
+    .expect("the stop answers once its wait ran out")
+    .expect("the stop was sent");
+
+    assert_eq!(
+        sent_requests(&channel, &keys, wrapper_id),
+        [DaemonRequest::Stop {}]
+    );
+    end_party(wrapper);
 }

@@ -1,7 +1,8 @@
 //! Which execution each provider delivery belongs to: one cursor per runtime binding, counting the
-//! turns the binding delivered in its delivery order, the provider operations opened on it, and
-//! the fence an undo's confirmed cut sets. Nothing here is a guess made at read time: a delivery
-//! is attributed from what its binding delivered before it.
+//! run positions the binding delivered in its delivery order, a run position being one of the
+//! person's messages the run took (a turn's opening or a steer), the provider operations opened on
+//! it, and the fence an undo's confirmed cut sets. Nothing here is a guess made at read time: a
+//! delivery is attributed from what its binding delivered before it.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -54,12 +55,12 @@ pub(crate) enum DeliveryAttribution {
     Current,
     /// The execution before a cut, at `source`.
     BeforeCut {
-        /// The epoch and turn the delivery belongs to.
+        /// The epoch and run position the delivery belongs to.
         source: EpochPosition,
     },
     /// Possibly the execution before a cut; `source` is the generation it may be from.
     Unknown {
-        /// The epoch and turn of the generation the delivery may belong to.
+        /// The epoch and run position of the generation the delivery may belong to.
         source: EpochPosition,
     },
 }
@@ -73,14 +74,14 @@ pub enum ConfirmedCut {
     InPlace {
         /// The binding cut.
         binding_id: RuntimeBindingId,
-        /// The turn the new epoch opens at.
+        /// The run position the new epoch opens at.
         point: SourcePosition,
     },
     /// The provider forked the conversation and restarted on the fork.
     ForkRestart {
         /// The binding that freezes.
         binding_id: RuntimeBindingId,
-        /// The turn the new epoch opens at.
+        /// The run position the new epoch opens at.
         point: SourcePosition,
         /// The binding that carries the new epoch.
         new_binding_id: RuntimeBindingId,
@@ -88,7 +89,7 @@ pub enum ConfirmedCut {
 }
 
 impl ConfirmedCut {
-    /// The turn the new epoch opens at.
+    /// The run position the new epoch opens at.
     pub fn point(&self) -> SourcePosition {
         match self {
             Self::InPlace { point, .. } | Self::ForkRestart { point, .. } => *point,
@@ -123,7 +124,8 @@ pub enum EpochCursorError {
 #[derive(Clone, Debug)]
 struct BindingCursor {
     binding: EpochBinding,
-    // The open generation's pair; its position moves at each turn boundary.
+    // The open generation's pair; its position moves at each of the person's messages the run
+    // takes.
     current: EpochPosition,
     // Set when a fork and restart froze the binding: every later delivery belongs to this pair.
     frozen_at: Option<EpochPosition>,
@@ -152,8 +154,8 @@ impl ExecutionEpochs {
         }
     }
 
-    /// Opens a binding's cursor at `start`, the epoch and turn its conversation stands at. Fails
-    /// with [`EpochCursorError::AlreadyOpen`] for a binding that has one.
+    /// Opens a binding's cursor at `start`, the epoch and run position its conversation stands at.
+    /// Fails with [`EpochCursorError::AlreadyOpen`] for a binding that has one.
     pub(crate) fn open_binding(
         &mut self,
         binding: EpochBinding,
@@ -207,6 +209,13 @@ impl ExecutionEpochs {
         }
     }
 
+    /// The epoch and run position a binding's cursor stands at, for a test that reads a fence's
+    /// point from outside; `None` for a binding with no cursor open.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn standing(&self, binding_id: &RuntimeBindingId) -> Option<EpochPosition> {
+        self.cursors.get(binding_id).map(|cursor| cursor.current)
+    }
+
     /// The binding a cursor counts for. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open.
     pub fn binding(
@@ -221,10 +230,11 @@ impl ExecutionEpochs {
             })
     }
 
-    /// Counts a turn boundary the binding delivered: the current generation moves to its next
-    /// turn. On a frozen binding nothing moves, and the boundary belongs to the execution before
-    /// the cut. Fails with [`EpochCursorError::NotOpen`] for a binding with no cursor open.
-    pub(crate) fn open_turn(
+    /// Counts one of the person's messages the binding's run took, a turn's opening or a steer: the
+    /// current generation moves to its next run position, the one that message takes. On a frozen
+    /// binding nothing moves, and the message belongs to the execution before the cut. Fails with
+    /// [`EpochCursorError::NotOpen`] for a binding with no cursor open.
+    pub(crate) fn move_to_next_position(
         &mut self,
         binding_id: &RuntimeBindingId,
     ) -> Result<DeliveryAttribution, EpochCursorError> {
@@ -536,7 +546,7 @@ mod tests {
             match *step {
                 Step::Turn => {
                     epochs
-                        .open_turn(&old)
+                        .move_to_next_position(&old)
                         .expect("the binding's cursor is open");
                 }
                 Step::Open(correlation_key) => {

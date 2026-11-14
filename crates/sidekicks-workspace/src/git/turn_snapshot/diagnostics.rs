@@ -6,7 +6,6 @@ use std::io;
 use std::path::PathBuf;
 
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::run::id::RunId;
 use strum::IntoStaticStr;
 
 use sidekicks_contracts::repo::git_reads::GitObjectId;
@@ -14,7 +13,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use crate::git::process::version::{GitFeature, GitVersion};
 use crate::git::turn_snapshot::retention::RunContextKey;
 
-/// The steps of a turn snapshot or a command capture, named on a failed capture. `detectSparseRoot`
+/// The steps of a capture, named on a failed one. `detectSparseRoot`
 /// and `checkSparseRules` (the matcher failed) fail closed, never as a checkout that is not sparse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
@@ -88,6 +87,9 @@ pub enum TurnSnapshotRetentionSkipReason {
     GitDirUnusable,
     /// The listing succeeded but an `update-ref -d` did not; refs already deleted still count.
     RefDeleteFailed,
+    /// The capture folder's reclaim mark could not be written, so no ref was deleted; retry the
+    /// prune.
+    ReclaimMarkFailed,
 }
 
 /// What the captures and their packing report to the service log: a diagnostic is the daemon's
@@ -104,16 +106,13 @@ pub(crate) enum CaptureDiagnostic {
         /// The feature it lacks, whose first release is the floor.
         feature: GitFeature,
     },
-    /// A turn's snapshot was not captured; the turn ends anyway.
+    /// A run's snapshot or checkout read was not captured; the run goes on anyway.
     CaptureFailed {
-        /// The run whose turn ended.
-        run_id: RunId,
-        /// The run's execution epoch.
-        epoch: u64,
-        /// The turn's ordinal within the epoch.
-        turn_ordinal: u64,
-        /// The ref the snapshot would have been written to.
-        snapshot_ref: String,
+        /// The run, of either kind, whose snapshot was taken.
+        run_key: RunContextKey,
+        /// The ref the snapshot would have been written to; `None` for a read of a workflow run's
+        /// checkout, which writes none.
+        snapshot_ref: Option<String>,
         /// The step that failed.
         failed_step: CaptureStep,
         /// The failure of whichever step failed.
@@ -164,26 +163,19 @@ pub(crate) enum CaptureDiagnostic {
     /// Untracked embedded repositories were not recorded as gitlinks: an unborn `HEAD` has no
     /// object id, or the object format differs from the superproject's (git 2.50.1).
     EmbeddedRepositoriesSkipped {
-        /// The run whose turn ended.
-        run_id: RunId,
-        /// The run's execution epoch.
-        epoch: u64,
-        /// The turn's ordinal within the epoch.
-        turn_ordinal: u64,
-        /// The ref the snapshot was written to.
-        snapshot_ref: String,
+        /// The run, of either kind, whose snapshot was taken.
+        run_key: RunContextKey,
+        /// The ref the snapshot was written to; `None` for a read of a workflow run's checkout,
+        /// which writes none.
+        snapshot_ref: Option<String>,
         /// Each skipped repository's path within the checkout.
         skipped_paths: Vec<String>,
     },
     /// The scratch index, in the capture folder, could not be removed after a capture, so a
     /// surviving file is noticed.
     ScratchIndexCleanupFailed {
-        /// The run whose turn ended.
-        run_id: RunId,
-        /// The run's execution epoch.
-        epoch: u64,
-        /// The turn's ordinal within the epoch.
-        turn_ordinal: u64,
+        /// The run, of either kind, whose snapshot was taken.
+        run_key: RunContextKey,
         /// The scratch index, or the lock file beside it, left behind.
         scratch_index_path: PathBuf,
         /// The removal's failure.
@@ -214,20 +206,16 @@ impl CaptureDiagnostic {
                 "The daemon's git is older than this work needs, so it is not done"
             ),
             Self::CaptureFailed {
-                run_id,
-                epoch,
-                turn_ordinal,
+                run_key,
                 snapshot_ref,
                 failed_step,
                 detail,
             } => tracing::warn!(
-                run_id = %run_id,
-                epoch,
-                turn_ordinal,
-                snapshot_ref = snapshot_ref.as_str(),
+                run_id = %run_key,
+                snapshot_ref = snapshot_ref.as_deref(),
                 failed_step = <&str>::from(*failed_step),
                 error = &**detail as &(dyn Error + 'static),
-                "A turn snapshot was not captured"
+                "A run's checkout was not captured"
             ),
             Self::CommandCaptureFailed {
                 phase,
@@ -274,32 +262,24 @@ impl CaptureDiagnostic {
                 "A capture ref does not read as one capture, so the sweep leaves it out"
             ),
             Self::EmbeddedRepositoriesSkipped {
-                run_id,
-                epoch,
-                turn_ordinal,
+                run_key,
                 snapshot_ref,
                 skipped_paths,
             } => tracing::warn!(
-                run_id = %run_id,
-                epoch,
-                turn_ordinal,
-                snapshot_ref = snapshot_ref.as_str(),
+                run_id = %run_key,
+                snapshot_ref = snapshot_ref.as_deref(),
                 skipped_paths = ?skipped_paths,
-                "A turn snapshot left embedded repositories unrecorded"
+                "A run's snapshot left embedded repositories unrecorded"
             ),
             Self::ScratchIndexCleanupFailed {
-                run_id,
-                epoch,
-                turn_ordinal,
+                run_key,
                 scratch_index_path,
                 detail,
             } => tracing::warn!(
-                run_id = %run_id,
-                epoch,
-                turn_ordinal,
+                run_id = %run_key,
                 scratch_index_path = %scratch_index_path.display(),
                 error = detail as &(dyn Error + 'static),
-                "A turn snapshot's scratch index could not be removed"
+                "A run's snapshot's scratch index could not be removed"
             ),
             Self::RunContextReadFailed { run_key, detail } => tracing::warn!(
                 run_id = %run_key,
@@ -316,5 +296,6 @@ fn refused_work(feature: GitFeature) -> &'static str {
         GitFeature::CoreFsync => "every capture is refused",
         GitFeature::SparseCheckoutCheckRules => "a capture in a sparse checkout is refused",
         GitFeature::RepackGeometric => "the capture folders' packs are not folded",
+        GitFeature::LsFilesSparse => "a sparse index is read expanded through its folders' trees",
     }
 }

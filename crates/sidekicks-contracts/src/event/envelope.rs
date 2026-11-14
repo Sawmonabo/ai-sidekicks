@@ -431,8 +431,9 @@ named_scalar! {
 }
 
 named_scalar! {
-    /// The turn position a stamped row occupies within its source epoch, so the supersede cutoff
-    /// (`turn > targetPosition`) can rank a late row against its epoch's surviving rows.
+    /// The run position a stamped row occupies within its source epoch, counting the person's
+    /// messages the run took (a turn's opening or a steer), not turns, so the supersede cutoff
+    /// (`position > targetPosition`) can rank a late row against its epoch's surviving rows.
     SourcePosition(SafeInt<0>), Copy
 }
 

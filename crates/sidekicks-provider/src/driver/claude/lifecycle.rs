@@ -21,10 +21,11 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::data_folder::program_link_folder;
+use sidekicks_store::data_folder::{program_link_folder, tools_folder};
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::command::askpass::command_askpass_program_path;
+use crate::command::channel::records::LineCapture;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::DriverServices;
@@ -32,6 +33,7 @@ use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::ClaudeSignInReader;
+use crate::driver::claude::agent_sdk::ClaudeAgentSdk;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::ClaudeAnswerRules;
@@ -46,6 +48,7 @@ use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -111,6 +114,9 @@ pub(crate) struct ClaudeDriver {
     pub(crate) account_legs: Arc<ClaudeAccountLegs>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,
+    // The windows and notes of every session's commands, which the command channels pair each
+    // line with and every compose of the session pieces shares.
+    command_windows: Arc<ClaudeCommandWindows>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
 }
 
@@ -150,13 +156,15 @@ pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudePr
 
 impl ClaudeDriver {
     /// The driver over the shared services, starting every process from the installed build the
-    /// command names. Stores handles and does no I/O.
+    /// command names, each start fetching the Agent SDK's file for its version into the daemon's
+    /// tools folder. Stores handles and does no I/O.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let launcher = compose_claude_launcher(services);
         let starts = Arc::new(ClaudeInstalledBuild::new(
             Arc::clone(&launcher),
             Arc::clone(&services.command_search),
             services.home_folder.clone(),
+            ClaudeAgentSdk::for_registry(&tools_folder(&services.data_folder)),
         ));
         Self::with_sign_in(
             services,
@@ -209,6 +217,9 @@ impl ClaudeDriver {
     ) -> Self {
         let usage_probe_models: Arc<ClaudeUsageProbeModels> = Arc::default();
         let link_folder = program_link_folder(&services.data_folder);
+        let command_windows = Arc::new(ClaudeCommandWindows::new(Arc::clone(
+            &services.ports.command_capture,
+        )));
         let sources = Arc::new(ClaudeSpawnSources {
             spawner: services.spawner.clone(),
             command_sandbox_check,
@@ -231,7 +242,10 @@ impl ClaudeDriver {
                 Arc::clone(&services.caller_processes),
                 Arc::clone(&services.input_waits),
                 Arc::clone(&services.ports.command_output),
-                Arc::clone(&services.ports.command_capture),
+                LineCapture {
+                    capture: Arc::clone(&services.ports.command_capture),
+                    noted_calls: Some(Arc::clone(&command_windows) as _),
+                },
             )),
             ports: Arc::clone(&services.ports),
         });
@@ -263,6 +277,7 @@ impl ClaudeDriver {
                 usage_probe_models,
             )),
             capability_read: tokio::sync::Mutex::default(),
+            command_windows,
             parts: OnceLock::new(),
         }
     }
@@ -341,6 +356,7 @@ impl ClaudeDriver {
         let pauses = Arc::new(Mutex::new(ClaudeRunPauses::default()));
         let helpers = Arc::new(Mutex::new(ClaudeHelperLimit::default()));
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
+        let command_windows = Arc::clone(&self.command_windows);
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
             Arc::clone(dispatch),
             Arc::clone(&routes),
@@ -364,6 +380,7 @@ impl ClaudeDriver {
                     home_folder: self.sources.home_folder.clone(),
                     path_rules: PathRules::NATIVE,
                 },
+                command_windows: Arc::clone(&command_windows),
             },
         ));
         let message_taken = Arc::clone(&ports.message_taken);
@@ -402,6 +419,7 @@ impl ClaudeDriver {
             tool_traces: Arc::clone(&ports.tool_traces),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
+            command_windows: Arc::clone(&command_windows),
             pricing: Arc::clone(&pricing),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
@@ -475,6 +493,8 @@ impl ClaudeDriver {
                 helper_steers: Arc::clone(&helper_steers),
                 interventions: Arc::clone(&interventions),
                 command_channels: Arc::clone(&self.sources.command_channels),
+                edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
+                command_windows: Arc::clone(&command_windows),
             };
             let task_services = Arc::new(ClaudeSessionTaskServices {
                 delivery,
@@ -508,6 +528,8 @@ impl ClaudeDriver {
                 session_directory_lookup: Arc::clone(&ports.session_directory_lookup),
                 provider_account_registry: Arc::clone(&ports.provider_account_registry),
                 base_environment: Arc::clone(&self.sources.base_environment),
+                edit_checkpoint: Arc::clone(&ports.edit_checkpoint),
+                command_windows,
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),
                 controls: Arc::clone(&session_controls),

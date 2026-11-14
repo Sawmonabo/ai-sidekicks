@@ -27,6 +27,7 @@ use zeroize::Zeroizing;
 
 pub(crate) mod party;
 pub(crate) mod records;
+pub mod stop;
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -65,7 +66,7 @@ pub(crate) fn command_channel_root(data_folder: &Path) -> PathBuf {
 }
 
 /// A party: the process id of the wrapper or askpass that writes records.
-pub(crate) type PartyId = u32;
+pub type PartyId = u32;
 
 /// A record a party writes to the daemon.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,8 +255,12 @@ struct AdmittedParty {
     is_nested: bool,
     /// The first of the party's own arguments, which is an askpass's prompt.
     first_argument: Option<String>,
+    /// Whether the party opened an askpass's prompt, which only an answer ends.
+    is_asking: bool,
     /// The nearest admitted wrapper above it that speaks for its command.
     wrapper: Option<PartyId>,
+    /// The nearest admitted party above it, whose stop waits for its end.
+    parent: Option<PartyId>,
     /// The party's process, pinned at its admission, whose end releases what the daemon holds of
     /// it.
     process: PinnedProcess,
@@ -302,6 +307,9 @@ impl AdmittedParty {
         // A nested wrapper speaks for no command, so an askpass under it reaches the one above.
         if !self.is_nested && matches!(record, PartyRecord::Starting { .. }) {
             self.is_wrapper = true;
+        }
+        if matches!(record, PartyRecord::Asking {}) {
+            self.is_asking = true;
         }
         Some(record)
     }
@@ -488,6 +496,14 @@ impl CommandChannel {
         .map_err(io::Error::other)?
     }
 
+    // Writes `request` to `party`, a party let go meanwhile skipped. Fails with the write's error.
+    async fn send_unless_let_go(&self, party: PartyId, request: &DaemonRequest) -> io::Result<()> {
+        match self.send_request(party, request).await {
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            sent => sent,
+        }
+    }
+
     /// Forgets `party`, which has ended, so its key and numbers are not held and the requests it
     /// did not read are removed; a later record from its id is admitted afresh. A request that
     /// cannot be removed is logged.
@@ -622,6 +638,7 @@ impl CommandChannel {
         };
         let first_argument = start.arguments.get(2).cloned();
         let mut wrapper = None;
+        let mut parent_party = None;
         let mut is_nested = false;
         let mut process = pinned.clone();
         loop {
@@ -639,7 +656,9 @@ impl CommandChannel {
                     is_wrapper: false,
                     is_nested,
                     first_argument,
+                    is_asking: false,
                     wrapper,
+                    parent: parent_party,
                     process: pinned,
                 }));
             }
@@ -652,6 +671,7 @@ impl CommandChannel {
             match admitted_ancestor {
                 Some(is_wrapper) => {
                     is_nested = true;
+                    parent_party.get_or_insert(parent.id());
                     if wrapper.is_none() && is_wrapper {
                         wrapper = Some(parent.id());
                     }

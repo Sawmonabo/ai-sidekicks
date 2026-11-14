@@ -5,9 +5,10 @@
 //! sign-out, as the running erase does, so no erase leaves an account signed in at its provider;
 //! an account that does not sign out is named with why, and the erase goes on. It then ends what
 //! a stopped or crashed service left running, the children the orphan registry names and each
-//! provider's recorded services, deletes every credential-store item the app made, and then the
-//! data folder but its backups. The mode installs no log, so its answer, one JSON object on its
-//! standard output, names every failure.
+//! provider's recorded services, removes every session's own folder on another volume, naming
+//! each it leaves, deletes every credential-store item the app made, and then the data folder but
+//! its backups. The mode installs no log, so its answer, one JSON object on its standard output,
+//! names every failure.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -28,7 +29,9 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 
-use crate::data_acts::erase::{DataEraseOutcome, erase_data, stop_every_recorded_service};
+use crate::data_acts::erase::{
+    DataEraseOutcome, erase_data, remove_every_volume_folder, stop_every_recorded_service,
+};
 use crate::data_acts::mode_outcome::{
     ModeFolders, hold_data_folder, login_session_secret_items, run_data_folder_mode,
     store_unavailable,
@@ -67,8 +70,8 @@ async fn erase_data_folder(folders: ModeFolders) -> DaemonModeOutcome<()> {
 }
 
 // Checks the keychain, signs every account out with the bundle `account_services` gives, awaited
-// only when an account is registered, then ends what a stopped service left and erases, answering
-// every failure.
+// only when an account is registered, then ends what a stopped service left, removes the sessions'
+// folders on other volumes and erases, answering every failure and every folder left.
 async fn erase_held_data_folder(
     data_folder: &Path,
     lock: DataFolderLock,
@@ -96,6 +99,24 @@ async fn erase_held_data_folder(
         .filter_map(|registration| registration.stop_recorded_services);
     for failure in stop_every_recorded_service(recorded_stops, data_folder).await {
         failures.push(not_ended(&failure));
+    }
+    // No row names a session's folder on another volume once the data folder is gone.
+    match remove_every_volume_folder(data_folder).await {
+        Ok(left) => failures.extend(left.into_iter().map(|left| match left.removal_failure {
+            None => format!(
+                "a session's folder on a volume that is not connected was left: {}",
+                left.folder.as_str()
+            ),
+            Some(failure) => format!(
+                "a session's folder on another volume was left: {}: {}",
+                left.folder.as_str(),
+                describe_error(&failure)
+            ),
+        })),
+        Err(failure) => failures.push(format!(
+            "the sessions' folders on other volumes were not removed: {}",
+            describe_error(&failure)
+        )),
     }
 
     // The lock file sits in the data folder, so it closes before the folder goes.

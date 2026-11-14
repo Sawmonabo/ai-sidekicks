@@ -4,6 +4,7 @@
 //! streams as stored pieces of their message, the provider's status, warnings and model switches,
 //! a helper's child run, the turn's end, the session's running commands, the usage each thread
 //! spent, what the working line and the context ring read, and each message another session sent.
+//! A call's tool result, its refusal and its background task's end close its command's window.
 //! A frame of a turn no daemon run holds is recorded and dropped, a peer message published first.
 
 mod backgrounded;
@@ -175,6 +176,7 @@ impl ClaudeDeliveryStream {
                 None => return after,
             }
         };
+        self.close_command_windows(session, &kind, &body);
         self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
             .await;
         if let ThreadFrameRoute::ChildTranscript { child_thread_id } = &routed.route {
@@ -199,7 +201,7 @@ impl ClaudeDeliveryStream {
                 .note_report(mode, frame_kind, &session.provider_account_id());
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
-            self.read_command_lifecycle(session, &members);
+            self.read_command_lifecycle(session, &members).await;
             return after;
         }
         // The account's quota, whichever turn it came on.
@@ -457,6 +459,35 @@ impl ClaudeDeliveryStream {
         after
     }
 
+    // The lead's or a helper's frame closes the windows and notes of the calls it settles: each
+    // tool result in a `user` message, and a refusal before the call ran, which nothing ran under.
+    fn close_command_windows(
+        &self,
+        session: &ClaudeSessionStream,
+        kind: &ClaudeWireFrameKind,
+        body: &ClaudeFrameBody,
+    ) {
+        let windows = &self.dependencies.command_windows;
+        let closing: Vec<_> = match (kind, body) {
+            (ClaudeWireFrameKind::User, ClaudeFrameBody::Message(message)) => message
+                .tool_results()
+                .filter_map(|(tool_use_id, _)| {
+                    windows.take_tool_result(session.session_id, tool_use_id)
+                })
+                .collect(),
+            (ClaudeWireFrameKind::SystemPermissionDenied, ClaudeFrameBody::Members(members)) => {
+                read_non_empty_string(members, "tool_use_id")
+                    .and_then(|tool_use_id| windows.take_unrun(session.session_id, tool_use_id))
+                    .into_iter()
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        for closing in closing {
+            windows.close(closing);
+        }
+    }
+
     /// Sends the pieces and held rows whose time has come at `now`, as the session's timer fires.
     pub(crate) async fn deliver_due(&self, session: &ClaudeSessionStream, now: Instant) {
         let (pieces, released, turn) = {
@@ -640,4 +671,4 @@ fn is_too_long_for_window(members: &Map<String, Value>) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -1,6 +1,7 @@
 //! A command's two captures: one before the command runs and one after it ends, each staged into
 //! the checkout's kept index and committed into the owner's capture folder, the after-capture
-//! answering what changed between the two trees.
+//! answering what changed between the two trees and the before-capture's blobs read back as the
+//! changed files' before-images.
 //!
 //! - Each capture lists the tracked and untracked files under the tree's own `.gitignore` rules,
 //!   plus the ignored files outside an ignored folder; an ignored folder is named, never staged.
@@ -21,8 +22,8 @@ use sidekicks_std::keyed_lock::KeyedLock;
 
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::git::turn_snapshot::capture::{
-    COMMAND_CAPTURE_SUBJECT, EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, LargeFile,
-    SparseListingPartition, UnreadPath, join_nul_terminated_listing,
+    COMMAND_CAPTURE_SUBJECT, CheckoutCaptureInput, EXCLUDE_PER_DIRECTORY_GITIGNORE,
+    GitFloorReports, LargeFile, SparseListingPartition, UnreadPath, join_nul_terminated_listing,
     split_nul_terminated_listing_bytes,
 };
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
@@ -30,24 +31,12 @@ use crate::git::turn_snapshot::capture_steps::{
     CaptureStepError, DiffTreeReadError, SnapshotCheckout, at,
 };
 use crate::git::turn_snapshot::diagnostics::{CaptureDiagnostic, CaptureStep, CommandCapturePhase};
-use crate::git::turn_snapshot::held_checkout::{CaptureRoots, CaptureStartFailure, hold_checkout};
+use crate::git::turn_snapshot::held_checkout::{CaptureStartFailure, hold_checkout};
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 use crate::git::turn_snapshot::repack::CapturedCommit;
 
-/// What one of a command's captures records, every field resolved by the caller.
-#[derive(Clone, Debug)]
-pub struct CommandCaptureInput {
-    /// The folder of the capture's owner, whose capture folders hold its captures.
-    pub owner_folder: PathBuf,
-    /// Where the command runs: the worktree, or the bound folder of a bound root.
-    pub execution_root: PathBuf,
-    /// The top level of the working tree holding `execution_root`, as its caller records it; a
-    /// value the live tree disagrees with fails the capture.
-    pub checkout_root: PathBuf,
-    /// When the capture is taken: both of its commit's dates.
-    pub captured_at: Timestamp,
-}
+pub mod before_images;
 
 /// One capture of a command's checkout, committed into the owner's capture folder.
 #[derive(Debug)]
@@ -68,6 +57,10 @@ pub struct CommandCapture {
     pub skipped_embedded_repositories: Vec<String>,
     /// The capture's commit and its base, for packing what the capture borrows.
     pub objects: CapturedCommit,
+    /// The checkout's top level, its links resolved.
+    pub checkout_real_path: PathBuf,
+    /// The repository's common git folder, which its capture folder is named for, as git names it.
+    pub common_folder: PathBuf,
 }
 
 /// The capture taken after a command, with what changed since the one taken before it.
@@ -126,26 +119,30 @@ pub enum TreeChange {
     },
 }
 
-/// Takes a command's two captures. Keeps nothing between calls but the places whose old git it
-/// already reported.
+/// Takes a command's two captures. Keeps nothing between calls; the old gits it meets go in the
+/// daemon run's shared record.
 pub struct CommandCaptureService {
     /// The daemon's git.
     git: GitRunner,
     /// The run setup gate's lock, keyed by each checkout's canonical folder, held while a capture
     /// stages into the checkout's kept index.
     checkout_lock: Arc<KeyedLock<PathBuf>>,
-    /// The places and features whose git was reported too old in this daemon run.
-    floor_reports: GitFloorReports,
+    /// The daemon run's record of the old gits already reported.
+    floor_reports: Arc<GitFloorReports>,
 }
 
 impl CommandCaptureService {
-    /// A service running `git` and holding a checkout in `checkout_lock`, the run setup gate's,
-    /// while it captures it.
-    pub fn new(git: GitRunner, checkout_lock: Arc<KeyedLock<PathBuf>>) -> Self {
+    /// A service running `git`, holding a checkout in `checkout_lock`, the run setup gate's, while
+    /// it captures it, and reporting an old git once through `floor_reports`, the daemon run's.
+    pub fn new(
+        git: GitRunner,
+        checkout_lock: Arc<KeyedLock<PathBuf>>,
+        floor_reports: Arc<GitFloorReports>,
+    ) -> Self {
         Self {
             git,
             checkout_lock,
-            floor_reports: GitFloorReports::new(),
+            floor_reports,
         }
     }
 
@@ -155,7 +152,7 @@ impl CommandCaptureService {
     pub async fn capture_before(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
     ) -> Result<CommandCapture, CaptureStep> {
         let (capture, _) = self.capture(place, input, None).await?;
         Ok(capture)
@@ -168,7 +165,7 @@ impl CommandCaptureService {
     pub async fn capture_after(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
         before_tree: &GitObjectId,
     ) -> Result<CommandCaptureAfter, CaptureStep> {
         let (capture, changes) = self.capture(place, input, Some(before_tree)).await?;
@@ -180,7 +177,7 @@ impl CommandCaptureService {
     async fn capture(
         &self,
         place: Option<&Place>,
-        input: &CommandCaptureInput,
+        input: &CheckoutCaptureInput,
         before_tree: Option<&GitObjectId>,
     ) -> Result<(CommandCapture, Vec<TreeChange>), CaptureStep> {
         let phase = if before_tree.is_some() {
@@ -188,17 +185,12 @@ impl CommandCaptureService {
         } else {
             CommandCapturePhase::Before
         };
-        let roots = CaptureRoots {
-            owner_folder: &input.owner_folder,
-            execution_root: &input.execution_root,
-            checkout_root: &input.checkout_root,
-        };
         let started = hold_checkout(
             &self.git,
             place,
             &self.checkout_lock,
             &self.floor_reports,
-            roots,
+            input.roots(),
         )
         .await;
         let held = match started {
@@ -227,14 +219,22 @@ impl CommandCaptureService {
             .map_err(|failure| report_failure(phase, CaptureStep::DiffTrees, failure))?,
             Some(_) | None => Vec::new(),
         };
+        let objects = CapturedCommit::new(
+            held.capture_folder,
+            captured.commit,
+            captured.tree.clone(),
+            captured.head.clone(),
+        );
         let capture = CommandCapture {
             tree: captured.tree,
-            head: captured.head.clone(),
+            head: captured.head,
             large_files: captured.large_files,
             unread_paths: captured.unread_paths,
             ignored_folders: captured.ignored_folders,
             skipped_embedded_repositories: captured.skipped_embedded_repositories,
-            objects: CapturedCommit::new(held.capture_folder, captured.commit, captured.head),
+            objects,
+            checkout_real_path: held.root,
+            common_folder: held.common_folder,
         };
         Ok((capture, changes))
     }

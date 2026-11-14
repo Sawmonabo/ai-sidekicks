@@ -21,7 +21,7 @@ use strum::VariantArray;
 use crate::projector::is_probe_bearing;
 use crate::schema::MountOrigin;
 
-/// The project's own environment rows of the repository a working folder belongs to.
+/// The own environment rows of the project a mount serves.
 const PROJECT_ENVIRONMENT_ROWS_SQL: &str = "SELECT project.environment_rows
     FROM repo_mounts AS mount
     JOIN projects AS project ON project.id = mount.project_id
@@ -148,9 +148,19 @@ pub fn read_project_environment_rows(
     else {
         return Ok(Vec::new());
     };
+    read_mount_environment_rows(reader, repository.repo_mount_id)
+}
+
+/// The environment rows of the project mount `repo_mount_id` serves, read on `reader`. Fails with
+/// [`ProjectEnvironmentReadError::ProjectMissing`] when the mount or its project has no row, and
+/// with [`ProjectEnvironmentReadError::Database`] when the read fails.
+pub fn read_mount_environment_rows(
+    reader: &Connection,
+    repo_mount_id: RepoMountId,
+) -> Result<Vec<EnvironmentRow>, ProjectEnvironmentReadError> {
     reader
         .prepare_cached(PROJECT_ENVIRONMENT_ROWS_SQL)?
-        .query_row([repository.repo_mount_id.text().as_str()], |row| {
+        .query_row([repo_mount_id.text().as_str()], |row| {
             text_column(row, 0, |text| {
                 serde_json::from_str::<Vec<EnvironmentRow>>(&text)
             })

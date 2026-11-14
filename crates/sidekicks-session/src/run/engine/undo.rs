@@ -24,13 +24,14 @@ use crate::run::engine::live::{LiveRuns, UndoWrite, settle};
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::state_change::{RunWriteCompanions, rolled_back_event};
 
-/// One run a conversation cut reaches, and the turn boundary its conversation lands at: every turn
-/// of the run past that position leaves the conversation.
+/// One run a conversation cut reaches, and the run position its conversation lands at: every one
+/// of the person's messages the run took past that position leaves the conversation, with what
+/// followed it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunCut {
     /// The run.
     pub run_id: RunId,
-    /// The last turn position kept.
+    /// The last run position kept.
     pub target_position: SourcePosition,
 }
 

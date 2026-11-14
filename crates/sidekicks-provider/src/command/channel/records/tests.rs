@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -11,16 +11,18 @@ use sidekicks_contracts::command::{
     AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandId,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_signal};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
-use super::{RecordFollower, follow_channel_records, tail_output};
+use super::{LineCapture, NotedWrapperCalls, RecordFollower, follow_channel_records, tail_output};
 use crate::command::channel::test_support::{
     KeyPair, end_party, names_in, open_channel, party_command, ready_parties, sealed,
     sent_requests, write_party_record,
@@ -35,7 +37,8 @@ use crate::command::running_set::{
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::contract::MockProviderDriver;
 use crate::port::command_capture::{
-    CommandCapture, CommandWindowEnd, CommandWindowId, CommandWindowOpenError, CommandWindowStart,
+    CaptureCall, CommandCapture, CommandWindowEnd, held_capture, held_capture_with_starts,
+    next_call, no_call, unregistered_capture,
 };
 use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
@@ -75,84 +78,6 @@ impl InputWaitReader for NoTerminals {
     }
 }
 
-/// A call a capture was handed, named by the wrapper whose window it is.
-#[derive(Debug, PartialEq, Eq)]
-enum CaptureCall {
-    Open(PartyId),
-    Began(PartyId, bool),
-    Close(PartyId, CommandWindowEnd),
-}
-
-/// A capture whose opens settle as the test sets `opens`: held while it reads `None`, then each
-/// opened or failed as it reads; each call is handed to the test, each window named by its party.
-struct HeldCapture {
-    opens: watch::Receiver<Option<bool>>,
-    calls: mpsc::UnboundedSender<CaptureCall>,
-}
-
-impl CommandCapture for HeldCapture {
-    fn open_window(
-        &self,
-        start: CommandWindowStart,
-    ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>> {
-        let mut opens = self.opens.clone();
-        // A call after the test ended, the close of a window it left open, reaches no one.
-        self.calls
-            .send(CaptureCall::Open(start.party))
-            .unwrap_or_default();
-        async move {
-            let opened = *opens
-                .wait_for(Option::is_some)
-                .await
-                .expect("the test holds the opens");
-            if opened == Some(true) {
-                Ok(CommandWindowId::new(start.party.to_string()))
-            } else {
-                Err(CommandWindowOpenError::CaptureFailed(
-                    "the test failed it".into(),
-                ))
-            }
-        }
-        .boxed()
-    }
-
-    fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()> {
-        let party = window.as_str().parse().expect("a party");
-        self.calls
-            .send(CaptureCall::Began(party, is_covered))
-            .unwrap_or_default();
-        async {}.boxed()
-    }
-
-    fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()> {
-        let party = window.as_str().parse().expect("a party");
-        self.calls
-            .send(CaptureCall::Close(party, end))
-            .unwrap_or_default();
-        async {}.boxed()
-    }
-}
-
-/// A capture registration nothing registered.
-fn unregistered_capture() -> Arc<PortRegistration<Arc<dyn CommandCapture>>> {
-    Arc::new(PortRegistration::new("command capture"))
-}
-
-/// A registered [`HeldCapture`], its opens as `opens` sets them, its calls on the receiver.
-fn held_capture(
-    opens: watch::Receiver<Option<bool>>,
-) -> (
-    Arc<PortRegistration<Arc<dyn CommandCapture>>>,
-    mpsc::UnboundedReceiver<CaptureCall>,
-) {
-    let (calls, called) = mpsc::unbounded_channel();
-    let capture = unregistered_capture();
-    capture
-        .register(Arc::new(HeldCapture { opens, calls }))
-        .expect("the capture registers once");
-    (capture, called)
-}
-
 /// The requests a wrapper is answered, in order: its acknowledgment, then `go`.
 fn acknowledged_and_go() -> Vec<DaemonRequest> {
     vec![DaemonRequest::Acknowledged {}, DaemonRequest::Go {}]
@@ -179,22 +104,38 @@ fn starting(process: Option<&str>) -> PartyRecord {
     }
 }
 
-/// The next call `called` takes, failing the test after 5 s.
-async fn next_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>) -> CaptureCall {
-    tokio::time::timeout(Duration::from_secs(5), called.recv())
-        .await
-        .expect("a call comes")
-        .expect("the capture stays")
-}
-
-/// Fails unless `called` takes no call for 200 ms.
-async fn no_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>, what: &str) {
-    let call = tokio::time::timeout(Duration::from_millis(200), called.recv()).await;
-    assert!(call.is_err(), "{what}: {call:?}");
-}
-
 fn session() -> SessionId {
     SessionId::new(SESSION).expect("a session id")
+}
+
+/// The capture of a follower whose provider notes no calls, lines captured through `capture`.
+fn unnoted(capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>) -> LineCapture {
+    LineCapture {
+        capture,
+        noted_calls: None,
+    }
+}
+
+/// Noted calls that answer `paired` for every start and keep each line they are asked, in order.
+struct RecordedNotes {
+    paired: Option<ToolCallId>,
+    asked: Mutex<Vec<String>>,
+}
+
+impl RecordedNotes {
+    fn pairing(paired: Option<&str>) -> Arc<Self> {
+        Arc::new(Self {
+            paired: paired.map(|id| ToolCallId::new(id.to_owned()).expect("a call id")),
+            asked: Mutex::default(),
+        })
+    }
+}
+
+impl NotedWrapperCalls for RecordedNotes {
+    fn pair_started_wrapper(&self, _session_id: SessionId, line: &str) -> Option<ToolCallId> {
+        lock(&self.asked).push(line.to_owned());
+        self.paired.clone()
+    }
 }
 
 /// The start of a row `id` whose line runs `id`.
@@ -335,7 +276,7 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let stdout_path = folder.path().join("output");
     std::fs::write(&stdout_path, b"").expect("the output file is made");
@@ -387,7 +328,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let starting = PartyRecord::Starting {
         command: "npm test".to_owned(),
@@ -441,7 +382,7 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let requests = channel.folder.join(REQUESTS_FOLDER);
     // The first askpass is answered, the second dies unanswered.
@@ -542,7 +483,7 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         channel: Arc::clone(&channel),
         set: Arc::clone(&sets),
         waits: Arc::new(NoTerminals),
-        capture: unregistered_capture(),
+        line_capture: unnoted(unregistered_capture()),
         wrappers: HashMap::new(),
         askpasses: HashMap::new(),
         process_ended,
@@ -612,14 +553,14 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        capture,
+        unnoted(capture),
     ));
 
     // The window opens while the wrapper waits acknowledged, and `go` follows its open.
     let (first, first_keys, ready) = started_party(None);
     let first_id = ready[0];
     write_party_record(&channel, &first_keys, first_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(first_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
     until("the wrapper is acknowledged", || {
         !sent_requests(&channel, &first_keys, first_id).is_empty()
     })
@@ -637,10 +578,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     .await;
     let began = PartyRecord::Began { is_covered: false };
     write_party_record(&channel, &first_keys, first_id, 2, &began);
-    assert_eq!(
-        next_call(&mut called).await,
-        CaptureCall::Began(first_id, false)
-    );
+    assert_eq!(next_call(&mut called).await, CaptureCall::Began(1, false));
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         sent_requests(&channel, &first_keys, first_id),
@@ -654,7 +592,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     assert_eq!(
         next_call(&mut called).await,
         CaptureCall::Close(
-            first_id,
+            1,
             CommandWindowEnd::Exited {
                 exit_code: Some(3),
                 signal: None,
@@ -668,7 +606,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let (second, second_keys, ready) = started_party(None);
     let second_id = ready[0];
     write_party_record(&channel, &second_keys, second_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(second_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(2));
     write_party_record(&channel, &second_keys, second_id, 2, &exited);
     until("the exited wrapper is let go", || {
         channel.party_process(second_id).is_none()
@@ -678,7 +616,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     opens.send_replace(Some(true));
     assert_eq!(
         next_call(&mut called).await,
-        CaptureCall::Close(second_id, CommandWindowEnd::Unrun)
+        CaptureCall::Close(2, CommandWindowEnd::Unrun)
     );
     no_call(&mut called, "the window closed twice").await;
 
@@ -687,12 +625,12 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let (mut third, third_keys, ready) = started_party(None);
     let third_id = ready[0];
     write_party_record(&channel, &third_keys, third_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(third_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(3));
     third.kill().expect("the wrapper is killed");
     third.wait().expect("the killed wrapper is reaped");
     assert_eq!(
         next_call(&mut called).await,
-        CaptureCall::Close(third_id, CommandWindowEnd::Unrun)
+        CaptureCall::Close(3, CommandWindowEnd::Unrun)
     );
     follower.abort();
     end_party(first);
@@ -700,9 +638,10 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
 }
 
 // Fails when a relayed command, a wrapper under another or a follower with no capture registered
-// opens a window or waits on one, or when a failed open leaves its wrapper waiting. Mutations:
-// drop `process.is_none()` or `!received.is_nested` from the capture's filter; return before
-// `Go` in the window's task when the open fails.
+// opens a window or waits on one, when a relayed or a nested start takes a call's note, or when a
+// failed open leaves its wrapper waiting. Mutations: drop `process.is_none()` or
+// `!received.is_nested` from `is_line`; return before `Go` in the window's task when the open
+// fails.
 #[tokio::test]
 async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     let folder = tempfile::tempdir().expect("a folder");
@@ -710,6 +649,7 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     let sets = unbound_running_command_sets();
     let (_opens, failed_opens) = watch::channel(Some(false));
     let (capture, mut called) = held_capture(failed_opens);
+    let noted = RecordedNotes::pairing(None);
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
@@ -718,7 +658,10 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        capture,
+        LineCapture {
+            capture,
+            noted_calls: Some(Arc::clone(&noted) as _),
+        },
     ));
     let answered_go = |keys: &KeyPair, party: PartyId| {
         let channel = Arc::clone(&channel);
@@ -752,11 +695,16 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         .find(|id| **id != outer_id)
         .expect("the nested party is ready");
     write_party_record(&channel, &outer_keys, outer_id, 1, &starting(None));
-    assert_eq!(next_call(&mut called).await, CaptureCall::Open(outer_id));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
     answered_go(&outer_keys, outer_id).await;
     write_party_record(&channel, &nested_keys, nested_id, 1, &starting(None));
     answered_go(&nested_keys, nested_id).await;
     no_call(&mut called, "a nested wrapper opened a window").await;
+    assert_eq!(
+        *lock(&noted.asked),
+        ["npm test"],
+        "only the line's start pairs"
+    );
     follower.abort();
 
     // With no capture registered a line is answered go at once.
@@ -768,7 +716,7 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
-        unregistered_capture(),
+        unnoted(unregistered_capture()),
     ));
     let (line, line_keys, ready) = started_party(None);
     write_party_record(&channel, &line_keys, ready[0], 1, &starting(None));
@@ -777,4 +725,40 @@ async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
     for party in [relayed, outer, line] {
         end_party(party);
     }
+}
+
+// Fails when a line's start skips the pairing, or its window drops the call it paired with.
+// Mutations: drop the `pair_started_wrapper` call; open the window with no tool call.
+#[tokio::test]
+async fn a_wrapper_start_names_the_call_it_paired_with() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let (_opens, opens) = watch::channel(Some(true));
+    let (capture, mut called, starts) = held_capture_with_starts(opens);
+    let noted = RecordedNotes::pairing(Some("toolu_1"));
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        None,
+        Arc::clone(&channel),
+        watch,
+        unbound_running_command_sets(),
+        Arc::new(NoTerminals),
+        LineCapture {
+            capture,
+            noted_calls: Some(Arc::clone(&noted) as _),
+        },
+    ));
+
+    let (party, keys, ready) = started_party(None);
+    write_party_record(&channel, &keys, ready[0], 1, &starting(None));
+
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(1));
+    assert_eq!(*lock(&noted.asked), ["npm test"]);
+    assert_eq!(
+        lock(&starts)[0].tool_call_id,
+        Some(ToolCallId::new("toolu_1".to_owned()).expect("a call id"))
+    );
+    follower.abort();
+    end_party(party);
 }

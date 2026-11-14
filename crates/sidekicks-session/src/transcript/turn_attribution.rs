@@ -1,9 +1,9 @@
-//! Which turn of its run each event belongs to. Folding a run's events in log order, a turn
-//! boundary moves the run to its next position, and an accepted rollback ends the epoch it rewound
-//! and opens the next at its point. Any other event takes the turn of its own execution: the source
-//! stamped on a row appended after a cut, else the turn its tool call opened in, else the turn the
-//! run stands at. A run first met partway through the log, or met again after its fold ended at a
-//! terminal event, is seeded from its log before that event.
+//! Which run position of its run each event belongs to. Folding a run's events in log order, a turn
+//! boundary or a steer moves the run to its next position, and an accepted rollback ends the epoch
+//! it rewound and opens the next at its point. Any other event takes the run position of its own
+//! execution: the source stamped on a row appended after a cut, else the run position its tool call
+//! opened at, else the run position the run stands at. A run first met partway through the log, or
+//! met again after its fold ended at a terminal event, is seeded from its log before that event.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -18,11 +18,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::{TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE, TranscriptRunStamp};
 use sidekicks_contracts::transcript::run_attribution::transcript_run_id_of;
 use sidekicks_contracts::transcript::turn_attribution::{
-    EpochPosition, RUN_START_POSITION, SupersededTurns, TOOL_CALL_OPENING_EVENT_TYPE,
-    TURN_STARTED_EVENT_TYPE, add_superseding_cut, stamped_source_of, standing_after_rollback,
-    standing_after_turn_started, transcript_run_stamp_at, transcript_tool_call_id_of,
+    EpochPosition, RUN_POSITION_EVENT_TYPES, RUN_START_POSITION, SupersededTurns,
+    TOOL_CALL_OPENING_EVENT_TYPE, add_superseding_cut, stamped_source_of,
+    standing_after_message_taken, standing_after_rollback, transcript_run_stamp_at,
+    transcript_tool_call_id_of,
 };
 use sidekicks_contracts::wire::id::IdError;
+use sidekicks_store::database::schema::SESSION_EVENTS_RUN_INDEX;
+use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::json_object_column;
 use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
@@ -87,11 +90,14 @@ const TOOL_CALL_CLOSING_EVENT_TYPES: [&str; 3] = [
     SessionEventType::AgentToolCallBackgrounded.as_str(),
 ];
 
-/// The statements a read of where a run stands prepares: its rollbacks and its turn starts.
+/// The statements a read of where a run stands prepares: its rollbacks, and its turn starts and
+/// steers.
 pub const RUN_STANDING_STATEMENT_CAPACITY: usize = 2;
 
-// Each read seeks the run's rows of one type through the event log's run-and-type index, bounded
-// strictly before the event being seeded, and reads only rows the log can read.
+// Each read seeks the run's rows through the event log's run-and-type index, bounded strictly
+// before the event being seeded, and reads only rows the log can read. The position read names
+// that index for its two types, turn starts and steers, which the planner would otherwise leave
+// for an index that walks every row of the range.
 static SELECT_ROLLBACKS_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence, payload FROM session_events AS event
@@ -102,16 +108,20 @@ static SELECT_ROLLBACKS_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-static SELECT_TURNS_BETWEEN_SQL: LazyLock<String> = LazyLock::new(|| {
+static SELECT_POSITIONS_BETWEEN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT payload FROM session_events AS event
-  WHERE session_id = @session_id AND type = @type
+        "SELECT payload FROM session_events AS event INDEXED BY {SESSION_EVENTS_RUN_INDEX}
+  WHERE session_id = @session_id AND type IN ({})
     AND sequence > @after_sequence AND sequence < @before_sequence
     AND run_id = @run_id AND {}
   ORDER BY sequence",
+        sql_list_of(RUN_POSITION_EVENT_TYPES),
         readable_event_sql("event")
     )
 });
+
+// A call's opening as its row holds it: its sequence and its payload.
+type ToolCallOpening = (i64, serde_json::Map<String, serde_json::Value>);
 
 // The latest opening wins: a provider may reuse a call's key after a cut.
 static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -148,7 +158,7 @@ where
         }
     }
 
-    /// The epoch and turn the run stands at just before `before_sequence`.
+    /// The epoch and run position the run stands at just before `before_sequence`.
     pub(crate) fn read_standing_before(
         &self,
         session_id: &SessionId,
@@ -173,25 +183,25 @@ where
             standing = standing_after_rollback(standing, rollback.target_position);
             last_rollback_sequence = sequence;
         }
-        // Turns before the last rollback do not move the run: the rollback set its position.
-        let mut turns = self.reader.prepare_cached(&SELECT_TURNS_BETWEEN_SQL)?;
-        let mut turn_rows = turns.query(named_params! {
+        // Turn starts and steers before the last rollback do not move the run: the rollback set
+        // its position.
+        let mut positions = self.reader.prepare_cached(&SELECT_POSITIONS_BETWEEN_SQL)?;
+        let mut position_rows = positions.query(named_params! {
             "@session_id": session_id.text().as_str(),
-            "@type": TURN_STARTED_EVENT_TYPE,
             "@run_id": run_id.text().as_str(),
             "@after_sequence": last_rollback_sequence,
             "@before_sequence": before_sequence,
             "@read_bound": read_bound,
         })?;
-        while let Some(row) = turn_rows.next()? {
+        while let Some(row) = position_rows.next()? {
             let payload = json_object_column(row, 0)?;
-            standing = standing_after_turn_started(standing, &payload);
+            standing = standing_after_message_taken(standing, &payload);
         }
         Ok(standing)
     }
 
-    /// The epoch and turn the run's latest call `tool_call_id` opened in before `before_sequence`,
-    /// or `None` when no such call opened.
+    /// The epoch and run position the run's latest call `tool_call_id` opened at before
+    /// `before_sequence`, or `None` when no such call opened.
     pub(crate) fn read_tool_call_opening_before(
         &self,
         session_id: &SessionId,
@@ -199,8 +209,44 @@ where
         tool_call_id: &str,
         before_sequence: i64,
     ) -> Result<Option<EpochPosition>, TurnAttributionError> {
+        let Some((opening_sequence, payload)) =
+            self.read_tool_call_opening(session_id, run_id, tool_call_id, before_sequence)?
+        else {
+            return Ok(None);
+        };
+        match stamped_source_of(&payload) {
+            Some(source) => Ok(Some(source)),
+            None => self
+                .read_standing_before(session_id, run_id, opening_sequence)
+                .map(Some),
+        }
+    }
+
+    /// The sequence of the run's newest `agent.toolCall.invoked` row of the call `tool_call_id`
+    /// before `before_sequence`, or `None` when no such call opened.
+    pub fn read_tool_call_opening_sequence(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        tool_call_id: &str,
+        before_sequence: i64,
+    ) -> Result<Option<i64>, TurnAttributionError> {
+        Ok(self
+            .read_tool_call_opening(session_id, run_id, tool_call_id, before_sequence)?
+            .map(|(sequence, _payload)| sequence))
+    }
+
+    // The sequence and payload of the run's newest opening of the call `tool_call_id` before
+    // `before_sequence`.
+    fn read_tool_call_opening(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        tool_call_id: &str,
+        before_sequence: i64,
+    ) -> Result<Option<ToolCallOpening>, TurnAttributionError> {
         let read_bound = session_read_bound(&self.read_damaged_from_sequence, session_id, None);
-        let opening = self
+        Ok(self
             .reader
             .prepare_cached(&SELECT_TOOL_CALL_OPENING_SQL)?
             .query_row(
@@ -214,16 +260,7 @@ where
                 },
                 |row| Ok((row.get::<_, i64>(0)?, json_object_column(row, 1)?)),
             )
-            .optional()?;
-        let Some((opening_sequence, payload)) = opening else {
-            return Ok(None);
-        };
-        match stamped_source_of(&payload) {
-            Some(source) => Ok(Some(source)),
-            None => self
-                .read_standing_before(session_id, run_id, opening_sequence)
-                .map(Some),
-        }
+            .optional()?)
     }
 
     /// A run's fold seeded from its log before `before_sequence`: where it stands, and its turns
@@ -291,8 +328,8 @@ impl SessionTurnAttribution {
                 cause,
             })?;
         let mut fold = self.take_fold(reads, &run_id, sequence)?;
-        let stamp = if event_type == TURN_STARTED_EVENT_TYPE {
-            fold.standing = standing_after_turn_started(fold.standing, &event.payload);
+        let stamp = if RUN_POSITION_EVENT_TYPES.contains(&event_type) {
+            fold.standing = standing_after_message_taken(fold.standing, &event.payload);
             transcript_run_stamp_at(&fold.turns, fold.standing)
         } else {
             let tool_call_id = transcript_tool_call_id_of(Some(event.category), &event.payload);
@@ -467,6 +504,92 @@ mod tests {
             )
             .expect("a run's terminal event is attributed");
         assert!(!attribution.fold_by_run_id.contains_key(&run_id));
+    }
+
+    // Run A's turn 1 takes a steer at position 2, then turn 2 opens with no position supplied; a
+    // row follows each. One pass stamps the rows at 1, 2 and 3, and a fold first met at the last
+    // row reads 3 from the log. Killed by the fold skipping the steer (the second row at 1) and by
+    // the position read skipping it (the seeded row at 2).
+    #[test]
+    fn a_steer_moves_its_run_for_every_reader() {
+        let log = SessionTestLog::new(schema_parts());
+        let session_id = log.session_id;
+        let run_id = log.run_id;
+        let turn_started = |turn_number: u64| {
+            log.write(
+                json!({
+                    "type": "agent.turn.started",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "runVersion": 1,
+                        "turnNumber": turn_number,
+                    },
+                }),
+                None,
+            );
+        };
+        let tool_row = |tool_call_id: &str| {
+            log.write(
+                json!({
+                    "type": "agent.toolCall.invoked",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "toolName": "Bash",
+                        "toolCallId": tool_call_id,
+                    },
+                }),
+                Some("ls"),
+            );
+        };
+        turn_started(1);
+        tool_row("call-1");
+        log.write(
+            json!({
+                "type": "agent.turn.steered",
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "runVersion": 1,
+                    "turnNumber": 1,
+                    "position": 2,
+                    "messageId": mint_uuid_v7().to_string(),
+                },
+            }),
+            None,
+        );
+        tool_row("call-2");
+        turn_started(2);
+        tool_row("call-3");
+
+        let reader = log.database.reader();
+        let no_damage = |_: &SessionId| None;
+        let events = SessionEventReads::new(&reader, no_damage)
+            .read_after(&session_id, -1, -1, SessionEventFilter::default())
+            .expect("the run's events read");
+        let reads = RunTurnReads::new(&reader, no_damage);
+        let mut attribution = SessionTurnAttribution::new(session_id);
+        let row_positions: Vec<u64> = events
+            .iter()
+            .filter_map(|event| {
+                let stamp = attribution
+                    .attribute(&reads, event)
+                    .expect("each event is attributed")
+                    .expect("each event is the run's")
+                    .stamp;
+                (event.event_type.as_str() == "agent.toolCall.invoked")
+                    .then(|| stamp.position.0.get())
+            })
+            .collect();
+        let last_row = events.last().expect("the last row reads");
+        let seeded = SessionTurnAttribution::new(session_id)
+            .attribute(&reads, last_row)
+            .expect("the last row is attributed")
+            .expect("the last row is the run's")
+            .stamp;
+
+        assert_eq!((row_positions, seeded.position.0.get()), (vec![1, 2, 3], 3));
     }
 
     // Run A opens `call-1` in turn 2 and the provider moves it to the background; A stands at turn

@@ -46,6 +46,8 @@ ignored = [
 doctest = false
 
 [dependencies]
+# Decodes the pinned digests of the programs the daemon fetches for itself.
+base16ct.workspace = true
 blake3.workspace = true
 bytes.workspace = true
 crash-handler.workspace = true
@@ -100,7 +102,7 @@ sidekicks-queue.workspace = true
 sidekicks-recovery.workspace = true
 sidekicks-session.workspace = true
 sidekicks-shell.workspace = true
-sidekicks-std.workspace = true
+sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sidekicks-terminal.workspace = true
 sidekicks-workflow.workspace = true
@@ -119,9 +121,12 @@ url.workspace = true
 uuid.workspace = true
 walkdir.workspace = true
 web-push-native.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 alacritty_terminal.workspace = true
+# The server bun's install tests serve its archive from.
+axum = { workspace = true, features = ["http1", "tokio"] }
 proptest.workspace = true
 rstest.workspace = true
 # The artifact test store the tests open.
