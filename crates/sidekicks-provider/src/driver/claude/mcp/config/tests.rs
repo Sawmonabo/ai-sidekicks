@@ -11,7 +11,7 @@ use sidekicks_platforms::{make_folder_link, real_path};
 
 use super::{
     ClaudeMcpConfigReading, ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles,
-    read_claude_mcp_config,
+    add_claude_switch_offs, read_claude_mcp_config,
 };
 use crate::driver::claude::session::rules::{
     CLAUDE_SHARED_SETTINGS_FILE, CLAUDE_USER_SETTINGS_FILE, local_settings_path, settings_path,
@@ -130,6 +130,51 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     );
     assert_eq!(root_a.switched_off_server_names, [server_name("off")]);
     assert_eq!(root_b.switched_off_server_names, [] as [McpServerName; 0]);
+}
+
+// A server an account's config switches off at a repository stays off for a project attached
+// through a link to that repository and for one attached at its subfolder, since the account's
+// entry is looked up by the key Claude Code files both under. Killed by a lookup at the root as
+// given.
+#[tokio::test]
+async fn an_accounts_switch_off_reaches_a_root_by_its_project_key() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let scratch = real_path(scratch.path()).expect("the scratch folder resolves");
+    let repository = scratch.join("repository");
+    fs::create_dir_all(repository.join(".git")).expect("the git folder is made");
+    fs::create_dir_all(repository.join("packages").join("app")).expect("the subfolder is made");
+    make_folder_link(&repository, &scratch.join("linked")).expect("the link is made");
+    let roots = [
+        attached_root(&scratch.join("linked")),
+        attached_root(&repository.join("packages").join("app")),
+    ];
+    let account_config = scratch.join("account").join(".claude.json");
+    let repository_key = repository.to_string_lossy().into_owned();
+    write_json(
+        &account_config,
+        &json!({ "projects": { repository_key: { "disabledMcpServers": ["off"] } } }),
+    );
+    let mut reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
+        person: &ClaudePersonConfigFiles::resolve(&[], &scratch.join("home")).await,
+        managed_settings_folder: None,
+        plugin_home: &scratch.join("plugin-home"),
+        roots: &roots,
+    })
+    .await
+    .expect("the config reads");
+
+    add_claude_switch_offs(&mut reading, &account_config)
+        .await
+        .expect("the account's config reads");
+
+    for root in &reading.roots {
+        assert_eq!(
+            root.switched_off_server_names,
+            [server_name("off")],
+            "{}",
+            root.root.path.as_str()
+        );
+    }
 }
 
 // Reads the `user` servers of a `.claude.json` holding `servers` in a fresh home.

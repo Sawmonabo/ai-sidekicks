@@ -446,23 +446,23 @@ mod tests {
         );
     }
 
-    /// Text that is no number in an integer field is refused `fieldValueInvalid` at that field's
-    /// page among the pages asked, with nothing handed to the engine. Kills: the check skipped;
-    /// the page taken from the schema's properties, where a property the reader leaves out comes
-    /// first.
+    /// A whole number above its integer field's maximum, which the session's kind check lets
+    /// through, is refused `fieldValueInvalid` at that field's page among the pages asked, with
+    /// nothing handed to the engine. Kills: the check skipped; the page taken from the schema's
+    /// properties, where a property the reader leaves out comes first.
     #[test]
     fn a_value_its_field_does_not_take_is_refused_at_its_page() {
         let schema = json!({
             "type": "object",
             "properties": {
                 "unasked": true,
-                "count": { "type": "integer", "title": "Count" },
+                "count": { "type": "integer", "title": "Count", "maximum": 10 },
             },
         });
         let (pages, _) = form_question(&workflow_name(), &prompt(), input_schema(schema.clone()))
             .expect("the schema is a record");
         let answers: Vec<QuestionAnswer> =
-            serde_json::from_value(json!([{ "kind": "typed", "text": "abc" }]))
+            serde_json::from_value(json!([{ "kind": "typed", "text": "11" }]))
                 .expect("the test's answers");
 
         let refused = wait_answer(&asked(pages, Some(schema)), &answers);

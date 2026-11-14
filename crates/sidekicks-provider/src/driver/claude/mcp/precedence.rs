@@ -445,7 +445,7 @@ mod tests {
                 ],
                 kept_out_server_names: vec![server_name("docs"), server_name("my server")],
                 switched_off_server_names: Vec::new(),
-                is_project_key_unread: false,
+                project_key: Some(root.path.as_str().to_owned()),
             }],
             server_policy: McpServerPolicy::default(),
         };

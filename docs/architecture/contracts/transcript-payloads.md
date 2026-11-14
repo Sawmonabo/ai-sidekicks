@@ -579,7 +579,8 @@ interface QuestionAskedPayload {
     // members: a pick among the options (with typed text beside them), typed text, a number, a
     // whole number or a yes-or-no. Claude Code's question carries its own `kind`; a Codex question
     // is a choice where it lists options and text where it lists none; a tool server's form field
-    // takes its kind from its schema type, `integer` and `flag` only there. Typed text for a
+    // and a workflow form wait's field take their kind from their schema type, `integer` and `flag`
+    // only there; a workflow reply wait's page and a path question are `text`. Typed text for a
     // `number` or `integer` question that is not a number is refused `notANumber`, a number that is
     // not whole for an `integer` one `notAWholeNumber`, and text that is neither `true` nor `false`
     // for a `flag` one `notAFlag`.
@@ -604,7 +605,8 @@ interface QuestionAskedPayload {
     // flow, and the person's turn afterwards records only that a secret was answered.
     secret: boolean;
     // True on a workflow form's `path` field: the card draws `Browse…`, which opens the platform's
-    // folder chooser, and NO option rows, and the question takes only a path or a skip.
+    // folder chooser, and NO option rows, and the question takes only a path or a skip. A path
+    // question is never secret and its `kind` is `text`.
     path?: boolean;
     // Whether the form must have this field answered. A tool server's form field and a workflow
     // wait's question set it; on a question with options it refuses typed text, and a workflow

@@ -57,8 +57,9 @@ pub struct QuestionOption {
 }
 
 /// The kind of answer a question takes, as its provider sent it: a pick among its options, typed
-/// text, a number, a whole number or a yes-or-no. Only a tool server's form field is a whole
-/// number or a yes-or-no, where its schema types the field so.
+/// text, a number, a whole number or a yes-or-no. Only a tool server's or a workflow form wait's
+/// field is a whole number or a yes-or-no, where its schema types the field so; a workflow reply
+/// wait's page and a path question are text.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -86,14 +87,17 @@ impl QuestionKind {
     }
 }
 
-/// States in the schema that a secret question and a path question have no option rows, and that a
-/// question of a kind [`QuestionKind::is_numeric`] does not take carries no range, step or unit.
+/// States in the schema that a secret question has no option rows, that a path question has no
+/// option rows, is not secret and is of the text kind, and that a question of a kind
+/// [`QuestionKind::is_numeric`] does not take carries no range, step or unit.
 fn add_question_prompt_rules(schema: &mut schemars::Schema) {
     let other_kinds: Vec<serde_json::Value> = QuestionKind::VARIANTS
         .iter()
         .filter(|kind| !kind.is_numeric())
         .map(|kind| serde_json::to_value(kind).expect("a kind serializes as its name"))
         .collect();
+    let text_kind =
+        serde_json::to_value(QuestionKind::Text).expect("a kind serializes as its name");
     schema.insert(
         "allOf".into(),
         serde_json::json!([
@@ -116,7 +120,11 @@ fn add_question_prompt_rules(schema: &mut schemars::Schema) {
                 },
                 "then": {
                     "type": "object",
-                    "properties": { "options": { "type": "array", "maxItems": 0 } },
+                    "properties": {
+                        "options": { "type": "array", "maxItems": 0 },
+                        "secret": { "const": false },
+                        "kind": { "const": text_kind },
+                    },
                 },
             },
             {
@@ -175,10 +183,10 @@ pub enum QuestionDefault {
 }
 
 /// One question of the record, one page of the card. A secret question takes a masked answer and
-/// has no option rows; a path question takes a folder picked with the platform's chooser and has
-/// no option rows; only a number question carries a range, a step or a unit, and its smallest
-/// number is at most its largest; a question with option rows starts from its own options, which
-/// the schema states as `defaultAmongOptions`.
+/// has no option rows; a path question takes a folder picked with the platform's chooser, has no
+/// option rows, is not secret and is of the text kind; only a number question carries a range, a
+/// step or a unit, and its smallest number is at most its largest; a question with option rows
+/// starts from its own options, which the schema states as `defaultAmongOptions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(extend("defaultAmongOptions" = true))]
@@ -284,7 +292,8 @@ pub struct QuestionPrompt {
 }
 
 /// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret or a
-/// path question at `options`, a range, step or unit on a question that takes no number at that
+/// path question at `options`, a secret path question at `secret`, a path question of a kind other
+/// than text at `kind`, a range, step or unit on a question that takes no number at that
 /// member, a largest number below the smallest at `maximum`, and a default that is not one of the
 /// prompt's own options at `default`.
 impl garde::Validate for QuestionPrompt {
@@ -324,6 +333,18 @@ impl garde::Validate for QuestionPrompt {
             report.append(
                 parent().join("options"),
                 garde::Error::new("a path question draws the folder chooser and no option rows"),
+            );
+        }
+        if self.path && self.secret {
+            report.append(
+                parent().join("secret"),
+                garde::Error::new("a path question takes a picked folder, never a masked answer"),
+            );
+        }
+        if self.path && self.kind != QuestionKind::Text {
+            report.append(
+                parent().join("kind"),
+                garde::Error::new("a path question is of the text kind"),
             );
         }
         if let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum)
@@ -636,8 +657,9 @@ pub enum QuestionAnswerInvalidReason {
     NotAFlag,
     /// A skip for a question a workflow wait holds with `required` true.
     SkipOnRequired,
-    /// A value its workflow form field does not take: the wrong type, out of its bounds, or a
-    /// required field left out.
+    /// A value its workflow form field's schema does not take once the kind check passed it: out
+    /// of its bounds or another limit the field sets, or a required field left out. Typed text that
+    /// is no value of the field's kind is refused by the kind first.
     FieldValueInvalid,
 }
 

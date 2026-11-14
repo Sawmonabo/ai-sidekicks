@@ -12,8 +12,8 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 
 ts_constants! {
-    /// Each stop step's words after `The background service is still`, keyed by the step's wire
-    /// name.
+    /// Each stop step's words, which follow `the background service is still` in the line of a
+    /// stop that did not happen, keyed by the step's wire name.
     DAEMON_STOP_STEP_PHRASES = DaemonStopStep::VARIANTS
         .iter()
         .map(|step| {
@@ -106,7 +106,7 @@ pub enum DaemonStopStep {
 }
 
 impl DaemonStopStep {
-    /// The step in a person's words, which follow `The background service is still`.
+    /// The step in a person's words, which follow `the background service is still`.
     pub const fn phrase(self) -> &'static str {
         match self {
             Self::Gateway => "closing the connection to the app",

@@ -7,6 +7,7 @@
 //! once sent. Beside the read sit the observe, compose, guarded edit and write of one server's
 //! entry in the person's own config, which keep values only in memory.
 
+mod account_switch_offs;
 mod compose;
 mod edit;
 mod entry;
@@ -17,6 +18,7 @@ mod policy;
 mod project_key;
 mod write;
 
+pub(crate) use self::account_switch_offs::add_claude_switch_offs;
 pub(crate) use self::compose::compose_claude_mcp_entry;
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
@@ -264,9 +266,10 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
-    /// Whether the key `.claude.json` files the root under could not be worked out, so its entry
-    /// there, with its `local` servers and its lists of names, was not read.
-    pub(crate) is_project_key_unread: bool,
+    /// The key `.claude.json` files the root under, as [`resolve_claude_config_project_key`] finds
+    /// it; `None` where it could not be worked out, so no entry there, with its `local` servers and
+    /// its lists of names, is read for the root.
+    pub(crate) project_key: Option<String>,
 }
 
 /// Whether `kept_out_server_names` names `server_name`, matched as Claude Code matches them: a
@@ -357,11 +360,11 @@ pub(crate) async fn read_claude_mcp_config(
                     "a root's key in the Claude Code config could not be worked out, so its \
                      entry there is not read"
                 );
-            });
-        let is_project_key_unread = project_key.is_err();
-        let project_entry = project_key.ok().and_then(|project_key| {
+            })
+            .ok();
+        let project_entry = project_key.as_deref().and_then(|project_key| {
             projects
-                .and_then(|projects| projects.get(&project_key))
+                .and_then(|projects| projects.get(project_key))
                 .and_then(Tolerated::read)
         });
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
@@ -424,7 +427,7 @@ pub(crate) async fn read_claude_mcp_config(
             switched_off_server_names: project_entry
                 .map(|entry| read_names(&entry.disabled_mcp_servers))
                 .unwrap_or_default(),
-            is_project_key_unread,
+            project_key,
         });
     }
 
@@ -436,36 +439,6 @@ pub(crate) async fn read_claude_mcp_config(
         roots,
         server_policy: read_server_policy(user_settings.as_ref(), &managed_settings),
     })
-}
-
-/// Adds to each root of `reading` the names Claude Code's own per-project switch turns off there
-/// in the config file at `person_config`, the one a session's process reads from its account's
-/// config folder, each name once. A file that is absent, not the daemon's to read or not JSON of
-/// the expected shape adds none; fails with the path and the system's error on any other read
-/// failure.
-pub(crate) async fn add_claude_switch_offs(
-    reading: &mut ClaudeMcpConfigReading,
-    person_config: &Path,
-) -> Result<(), ClaudeSettingsReadError> {
-    let Some(config) = read_json_file::<ClaudePersonConfigFile>(person_config).await? else {
-        return Ok(());
-    };
-    let Some(projects) = config.projects.read() else {
-        return Ok(());
-    };
-    for root in &mut reading.roots {
-        let switched_off = projects
-            .get(root.root.path.as_str())
-            .and_then(Tolerated::read)
-            .map(|entry| read_names(&entry.disabled_mcp_servers))
-            .unwrap_or_default();
-        for name in switched_off {
-            if !root.switched_off_server_names.contains(&name) {
-                root.switched_off_server_names.push(name);
-            }
-        }
-    }
-    Ok(())
 }
 
 // A value the read takes when it has the shape it expects, and skips otherwise, so one malformed
