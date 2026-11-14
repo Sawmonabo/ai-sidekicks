@@ -128,7 +128,7 @@ while read -r line; do :; done
     #[tokio::test(flavor = "multi_thread")]
     async fn the_resting_read_offers_the_sessions_helpers_in_its_initialize() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let program = folder.path().join("claude");
+        let program = folder.path().join("claude-stand-in");
         write_file_atomically(&program, STAND_IN, 0o755)
             .await
             .expect("the stand-in is written");
