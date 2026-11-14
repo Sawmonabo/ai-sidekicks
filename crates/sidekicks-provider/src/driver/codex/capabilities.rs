@@ -255,6 +255,8 @@ impl CodexModelCatalogReader {
             fast,
             // A larger window is read from the catalog dump, which adds its own row for it.
             larger_window: false,
+            // Copied as the catalog marks it; anything but `true` marks nothing.
+            is_default: row.get("isDefault") == Some(&Value::Bool(true)),
             context_window: None,
         });
         Ok(())
@@ -481,7 +483,7 @@ mod tests {
     }
 
     fn row(id: &str) -> serde_json::Value {
-        json!({ "id": id, "displayName": id.to_uppercase(), "hidden": false })
+        json!({ "id": id, "displayName": id.to_uppercase(), "hidden": false, "isDefault": false })
     }
 
     #[tokio::test]
@@ -494,6 +496,30 @@ mod tests {
 
         assert_eq!(ids.expect("the catalog reads"), ["gpt-a", "gpt-b", "gpt-c"]);
         assert_eq!(cursors, [None, Some("after-b".to_owned())]);
+    }
+
+    // Killed by dropping the catalog's `isDefault` flag from the row it marks.
+    #[tokio::test]
+    async fn the_codex_catalog_marks_only_the_row_it_lists_as_default() {
+        let mut marked = row("gpt-b");
+        marked["isDefault"] = json!(true);
+        let page = json!({ "data": [row("gpt-a"), marked, row("gpt-c")], "nextCursor": null });
+        let mut diagnostics = OnceReportedDiagnostics::default();
+        let models = read_codex_model_catalog(
+            |_| {
+                let page = page.to_string();
+                async move { Ok::<_, DriverError>(RawValue::from_string(page).expect("JSON")) }
+            },
+            &mut diagnostics,
+        )
+        .await
+        .expect("the catalog reads");
+
+        let marks: Vec<_> = models
+            .iter()
+            .map(|model| (model.id.as_str(), model.is_default))
+            .collect();
+        assert_eq!(marks, [("gpt-a", false), ("gpt-b", true), ("gpt-c", false)]);
     }
 
     #[tokio::test]

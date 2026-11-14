@@ -16,6 +16,7 @@ mod daemon_stop;
 mod hand_over;
 mod held_calls;
 mod inspector_reads;
+mod known_names;
 mod level_moves;
 mod naming;
 mod restarts;

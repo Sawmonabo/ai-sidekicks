@@ -1,7 +1,8 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
 //! answers the next scripted reply; a catalog or figures read answers the next scripted reading,
-//! and a resting session's command read the next scripted rows;
+//! and a resting session's listing read the next scripted listing, recording the helpers it was
+//! offered;
 //! an account read's process and the MCP server probe's process are the next scripted channels;
 //! an MCP sign-in's process is the next scripted channel, the next scripted saved sign-ins kept
 //! where it was scripted to keep them: its credential folder's file, or the keychain item named
@@ -48,14 +49,15 @@ use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSettingsReadback,
 };
 use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcessArrival;
-use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnOutcome, ClaudeOneTurnRequest};
+use crate::driver::claude::spawn::launch::session_listing::ClaudeSessionListing;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
+use crate::driver::session_control::SubagentDefinition;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
 
@@ -103,9 +105,9 @@ struct ScriptedStartTables {
     catalog_environments: Vec<Vec<(String, String)>>,
     creation_figures: VecDeque<ClaudeCreationFiguresReading>,
     creation_reads: usize,
-    session_commands: VecDeque<Vec<ClaudeListedCommand>>,
-    session_command_holds: VecDeque<oneshot::Receiver<()>>,
-    session_command_reads: usize,
+    session_listings: VecDeque<ClaudeSessionListing>,
+    session_listing_holds: VecDeque<oneshot::Receiver<()>>,
+    session_listing_reads: Vec<Vec<SubagentDefinition>>,
     // Each scripted one turn's outcome, and what it waits for before answering it.
     one_turn_outcomes: VecDeque<(ClaudeOneTurnOutcome, OneTurnWait)>,
     one_turns: Vec<ScriptedOneTurnRecord>,
@@ -241,22 +243,27 @@ impl ScriptedStarts {
         self.lock().creation_figures.push_back(reading);
     }
 
-    /// Scripts the next resting session's command read to answer `rows`.
-    pub(crate) fn script_session_commands(&self, rows: Vec<ClaudeListedCommand>) {
-        self.lock().session_commands.push_back(rows);
+    /// Scripts the next resting session's listing read to answer `listing`.
+    pub(crate) fn script_session_listing(&self, listing: ClaudeSessionListing) {
+        self.lock().session_listings.push_back(listing);
     }
 
-    /// Holds the next resting session's command read, once counted, until the returned sender
+    /// Holds the next resting session's listing read, once counted, until the returned sender
     /// fires or drops.
-    pub(crate) fn hold_next_session_commands_read(&self) -> oneshot::Sender<()> {
+    pub(crate) fn hold_next_session_listing_read(&self) -> oneshot::Sender<()> {
         let (release, held) = oneshot::channel();
-        self.lock().session_command_holds.push_back(held);
+        self.lock().session_listing_holds.push_back(held);
         release
     }
 
-    /// Takes the count of resting sessions' command reads so far, each one process.
-    pub(crate) fn take_session_commands_read_count(&self) -> usize {
-        std::mem::take(&mut self.lock().session_command_reads)
+    /// Takes the count of resting sessions' listing reads so far, each one process.
+    pub(crate) fn take_session_listing_read_count(&self) -> usize {
+        std::mem::take(&mut self.lock().session_listing_reads).len()
+    }
+
+    /// Takes the helpers each resting session's listing read so far was offered, in read order.
+    pub(crate) fn take_session_listing_offers(&self) -> Vec<Vec<SubagentDefinition>> {
+        std::mem::take(&mut self.lock().session_listing_reads)
     }
 
     /// Scripts the next one-turn process to end as `outcome`.
@@ -512,18 +519,19 @@ impl ClaudeProcessStarts for ScriptedStarts {
         async { Err(spawn_failure("no sign-in scripted")) }.boxed()
     }
 
-    fn read_session_commands(
+    fn read_session_listing(
         &self,
         _environment: Vec<(String, String)>,
         _working_directory: PathBuf,
         _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
-        let (rows, hold) = {
+        definitions: Vec<SubagentDefinition>,
+    ) -> BoxFuture<'static, Result<ClaudeSessionListing, ClaudeLaunchError>> {
+        let (listing, hold) = {
             let mut tables = self.lock();
-            tables.session_command_reads += 1;
+            tables.session_listing_reads.push(definitions);
             (
-                tables.session_commands.pop_front(),
-                tables.session_command_holds.pop_front(),
+                tables.session_listings.pop_front(),
+                tables.session_listing_holds.pop_front(),
             )
         };
         async move {
@@ -531,7 +539,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 // A dropped sender releases the read too.
                 hold.await.unwrap_or(());
             }
-            rows.ok_or_else(|| spawn_failure("no session commands scripted"))
+            listing.ok_or_else(|| spawn_failure("no session listing scripted"))
         }
         .boxed()
     }

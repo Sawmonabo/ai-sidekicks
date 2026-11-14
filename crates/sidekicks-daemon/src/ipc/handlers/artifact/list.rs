@@ -1,5 +1,5 @@
-//! `artifact.list`: a session's plans and the files and folders its chat wrote, each listed once
-//! with its newest manifest.
+//! `artifact.list`: a session's plans and the files and folders of the chat folder it holds,
+//! whichever holder wrote them, each listed once with its newest manifest.
 
 use std::sync::Arc;
 

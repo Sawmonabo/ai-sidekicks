@@ -15,6 +15,8 @@ use futures::{FutureExt as _, SinkExt as _, StreamExt as _};
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
+use sidekicks_artifact::payload_store::ContentHash;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
 use sidekicks_client::transport::local_socket::connect_local_socket;
 use sidekicks_contracts::daemon::config::{DaemonConfigUpdate, DaemonConfigUpdateRequest};
@@ -28,6 +30,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
@@ -43,6 +46,9 @@ use sidekicks_provider::driver::test_registry::{
     registry_of_first_providers, test_driver_services,
 };
 use sidekicks_provider::driver::{PROVIDER_REGISTRATIONS, PROVIDERS};
+use sidekicks_provider::port::file_tool_write::{
+    FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWriteSettled,
+};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
@@ -51,7 +57,10 @@ use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_session_id;
+use sidekicks_workspace::managed::service::managed_workspaces_folder;
+use sidekicks_workspace::test_rows::insert_held_managed_mount;
 use tempfile::TempDir;
 use tokio_util::codec::Framed;
 use tokio_util::sync::CancellationToken;
@@ -445,6 +454,97 @@ async fn the_started_client_reads_prompts_and_stops_before_the_database_closes()
         drop(held);
     });
     stopped.expect("the stop fails nothing");
+}
+
+// The started daemon hands the drivers' file-tool port the chats' file versions: a chat's edit
+// opened and settled through the port lands one version holding the disk's bytes, its line ends
+// as written rather than as the claim spells them. Killed by the port left unregistered, or
+// registered over any other intake.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_started_daemon_takes_file_tool_writes_into_the_chats_versions() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+    let database = Connection::open(
+        &process
+            .database
+            .as_ref()
+            .expect("the start keeps the database")
+            .database_path,
+    )
+    .expect("the test opens the database");
+    database
+        .busy_timeout(Duration::from_secs(10))
+        .expect("the test waits out the daemon's writes");
+    let session_id = test_session_id();
+    insert_session_row(&database, session_id.text().as_str(), None, None);
+    let workspace = managed_workspaces_folder(home.home.path()).join(session_id.to_string());
+    std::fs::create_dir_all(&workspace).expect("the test makes the chat's folder");
+    insert_held_managed_mount(
+        &database,
+        &mint_uuid_v7().to_string(),
+        &workspace,
+        session_id.text().as_str(),
+    );
+    let intake = process
+        .providers
+        .as_ref()
+        .expect("the start keeps the providers")
+        .ports
+        .file_tool_writes
+        .port()
+        .map(Arc::clone)
+        .expect("the start registers the file-tool intake");
+    let path = workspace.join("notes.md");
+    let disk = b"alpha\r\nbeta\r\n";
+
+    intake
+        .open_file_tool_write(FileToolWriteOpened {
+            session_id,
+            call_id: "edit".to_owned(),
+            path: path.clone(),
+        })
+        .await
+        .expect("the call opens");
+    std::fs::write(&path, disk).expect("the tool writes the file");
+    intake
+        .settle_file_tool_write(FileToolWriteSettled {
+            session_id,
+            call_id: "edit".to_owned(),
+            path,
+            outcome: FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(
+                "alpha\nbeta\n".to_owned(),
+            )),
+        })
+        .await
+        .expect("the call settles");
+
+    let stored: Vec<String> = database
+        .prepare(
+            "SELECT content_hash FROM artifact_manifests \
+             WHERE session_id = ?1 AND workspace_path = 'notes.md'",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([session_id.text().as_str()], |row| row.get(0))?
+                .collect()
+        })
+        .expect("the test reads the versions");
+    assert_eq!(
+        stored,
+        [ContentHash::of_sha256(&Sha256::digest(disk))
+            .as_str()
+            .to_owned()]
+    );
+    process
+        .stop(DaemonStopReason::Stop)
+        .await
+        .expect("the stop fails nothing");
 }
 
 // A call on the served socket before its handshake is refused as the handshake's gate refuses
