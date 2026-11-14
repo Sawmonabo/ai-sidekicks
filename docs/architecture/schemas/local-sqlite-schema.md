@@ -72,6 +72,7 @@ CREATE TABLE session_events (
   tool_call_id           TEXT,                       -- the tool call a run's tool completion completes; NULL on its stored parts and on every other event
   patch_file_index       INTEGER,                    -- on a stored part of a tool completion's patched files, which is no event of its own, the file's place in the completion's list; NULL on every event
   patch_text_offset      INTEGER,                    -- on a stored part of a file's text, the UTF-8 offset in the text of its first byte; NULL on every other row
+  workflow_run_id        TEXT,                       -- the workflow run an event is its own event of, set by the append from the typed event; NULL on every other event (run_id is an agent's run)
   UNIQUE(session_id, sequence)
 ) STRICT;
 
@@ -86,6 +87,8 @@ CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, 
 CREATE INDEX idx_session_events_run_sequence ON session_events(session_id, run_id, sequence) WHERE run_id IS NOT NULL;
 -- The events filed under a run that are not its own, in log order.
 CREATE INDEX idx_session_events_target_run ON session_events(session_id, target_run_id, sequence) WHERE target_run_id IS NOT NULL;
+-- One workflow run's own events in log order, so the restart's read of a few runs never walks the session's other runs.
+CREATE INDEX idx_session_events_workflow_run ON session_events(session_id, workflow_run_id, sequence) WHERE workflow_run_id IS NOT NULL;
 -- A tool call's completions, newest last, for the read of the patches it left out.
 CREATE INDEX idx_session_events_tool_call ON session_events(session_id, tool_call_id, sequence) WHERE tool_call_id IS NOT NULL;
 -- A run's newest piece of one type under one message and block, which a later piece joins.

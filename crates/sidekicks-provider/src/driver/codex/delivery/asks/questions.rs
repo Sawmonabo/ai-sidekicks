@@ -98,6 +98,7 @@ fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPro
         options,
         several_answers: true,
         secret,
+        path: false,
         required: None,
         default: None,
         minimum: None,

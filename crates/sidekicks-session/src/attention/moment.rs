@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::events::WorkflowRunFailedOutcome;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
+use sidekicks_contracts::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 /// What one entry speaks for. Its id is the banner's tag and the push's collapse id, so a later
@@ -217,7 +217,7 @@ pub(crate) enum AttentionChange {
 
 /// Every event type whose change is not [`AttentionChange::Nothing`]: the live statements read no
 /// event of another type, and a rebuild folds only these.
-pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 28] = [
+pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
     SessionEventType::AgentRunWaitingForApproval,
     SessionEventType::AgentRunWaitingForInput,
     SessionEventType::AgentRunQueued,
@@ -240,6 +240,7 @@ pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 28] = [
     SessionEventType::WorkflowStepCanceled,
     SessionEventType::WorkflowRunResumed,
     SessionEventType::WorkflowRunCanceled,
+    SessionEventType::WorkflowRunCrashed,
     SessionEventType::WorkflowRunCompleted,
     SessionEventType::WorkflowRunFailed,
     SessionEventType::WorkflowRunDeleted,
@@ -443,6 +444,9 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         SessionEvent::WorkflowRunCanceled(payload) => {
             resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
         }
+        SessionEvent::WorkflowRunCrashed(payload) => {
+            resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
+        }
         SessionEvent::WorkflowRunCompleted(payload) => workflow_run_end(
             payload.workflow_run_id,
             AttentionMomentTrigger::RunCompleted,
@@ -506,6 +510,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::QuestionAsked(_)
         | SessionEvent::QuestionOpened(_)
         | SessionEvent::QuestionCanceled(_)
+        | SessionEvent::QuestionWaitSettled(_)
         | SessionEvent::AgentQueueItemCreated(_)
         | SessionEvent::AgentQueueItemAdmitted(_)
         | SessionEvent::AgentQueueItemSuperseded(_)
@@ -570,6 +575,8 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorkflowVersionCreated(_)
         | SessionEvent::WorkflowGateReached(_)
         | SessionEvent::WorkflowRunWaiting(_)
+        | SessionEvent::WorkflowRunKeepChanged(_)
+        | SessionEvent::WorkflowChainRunJoined(_)
         | SessionEvent::WorkflowScheduleArmed(_)
         | SessionEvent::WorkflowScheduleFired(_)
         | SessionEvent::WorkflowTriggerArmed(_)
@@ -578,6 +585,8 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorkflowPhaseStarted(_)
         | SessionEvent::WorkflowPhaseProgressed(_)
         | SessionEvent::WorkflowPhaseCanceling(_)
+        | SessionEvent::WorkflowRunCanceling(_)
+        | SessionEvent::WorkflowRunFailing(_)
         | SessionEvent::WorkflowPhaseRetried(_)
         | SessionEvent::WorkflowPhaseCompleted(_)
         | SessionEvent::WorkflowParallelJoinBranchesCanceled(_)

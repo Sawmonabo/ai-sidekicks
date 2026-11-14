@@ -18,30 +18,33 @@ use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStep
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::control::WorkflowCancelReason;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::events::{
     WorkflowParallelJoinBranchesCanceledPayload, WorkflowPhaseAdmittedPayload,
-    WorkflowPhaseCancelingPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseRetriedPayload,
-    WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload, WorkflowReadiedStep,
-    WorkflowStepSkipReason, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
+    WorkflowPhaseCancelingPayload, WorkflowPhaseCancellationReason, WorkflowPhaseProgressedPayload,
+    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload,
+    WorkflowReadiedStep, WorkflowStepSkipReason, WorkflowStepSkippedPayload,
+    WorkflowStepStartedPayload, WorkflowWaveDecidingStep,
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use super::run_status::{
     GoingRunStatus, RunPersonWait, RunStepCounts, going_run_status, whole_milliseconds_between,
 };
 use super::walk::{WalkReady, WalkSkip, WalkSkipReason};
-use super::{BranchCancelReason, ParkedAgentRun, StepReport, StepReportKind};
+use super::{ParkedAgentRun, StepReport, StepReportKind};
 use crate::definitions::kept_values::KeptArtifactReads;
 use crate::engine::event_record::{EngineDecision, StepEnding, StepTransition};
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::{StepAdmissionTicket, StepPayloadArtifacts};
 use crate::engine::waits::OpenedPersonWait;
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonAsk, StepFailure};
 use crate::runs::gate_resolution::RunEventKeys;
-use crate::runs::step_payload::StepPayloadWriteError;
 use crate::runs::step_rows::{
     add_step_memory_wait, admit_step, hold_step, insert_pending_step, insert_skipped_step,
     record_step_start,
@@ -75,11 +78,13 @@ macro_rules! run_payload {
     };
 }
 
+mod payloads;
 mod run_events;
 mod settlement;
 mod write;
 
 pub(crate) use run_events::RunLiveStep;
+pub(crate) use settlement::StoredRunVariable;
 
 /// One run's events and row statements for this turn, in the order handed: each event typed,
 /// with its instant, until the append drafts it, since a readied step adds to an event held.
@@ -89,6 +94,11 @@ pub(crate) struct RunTurnCommit {
     keys: RunEventKeys,
     /// The run.
     run_id: WorkflowRunId,
+    /// The run's execution, which its `workflow.run.resumed` carries.
+    epoch: WorkflowRunEpoch,
+    /// The index of the `workflow.run.resumed` a person's Resume wrote, which the steps it runs
+    /// again ride and which takes the turn's status move in place of a second.
+    resumed_event: Option<usize>,
     /// The run's step counts, moved by each change the turn makes to a step.
     counts: RunStepCounts,
     /// The run's status as the turn found it.
@@ -97,6 +107,13 @@ pub(crate) struct RunTurnCommit {
     person_wait: RunPersonWait,
     /// The store of a payload above the inline cap, written before the append.
     payloads: Arc<dyn StepPayloadArtifacts>,
+    /// The writer the turn reserves its payloads' ids through, ahead of the append.
+    writer: Arc<DatabaseWriter>,
+    /// The ids of the turn's last reserved block that no payload has taken yet.
+    spare_ids: Vec<ArtifactId>,
+    /// Each id the turn reserved whose reservation its write deletes: every one but an artifact's
+    /// that may be stored and is named by no row, whose reservation the restart's sweep takes.
+    reserved_ids: Vec<ArtifactId>,
     /// The turn's events, in write order.
     events: Vec<TurnEvent>,
     /// The turn's row statements, in the order handed.
@@ -138,6 +155,11 @@ pub(crate) enum RunEnding {
         /// The run's error, carrying the reason as its message, where the cancel gave one.
         error: Option<WorkflowStepError>,
     },
+    /// The restart's sweep found nothing for the run to go on with: `crashed`.
+    Crashed {
+        /// Why, where the sweep knows.
+        error: Option<WorkflowStepError>,
+    },
 }
 
 /// An event of the turn, at the instant it records.
@@ -164,7 +186,7 @@ enum StepMove {
     /// The step's turn canceled a wave of its run's other branches.
     BranchesCanceled {
         /// Why.
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         /// How many.
         count: usize,
     },
@@ -271,17 +293,17 @@ pub(crate) enum SettlementAnswer {
 #[derive(Debug)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SettlementWriteFailure {
-    /// The payload write that failed.
-    pub(crate) error: StepPayloadWriteError,
-    /// Each artifact the settlement wrote before the failure, which no record names, for the tick
+    /// The payload write, or its reservation, that failed.
+    pub(crate) error: ReservedPayloadError,
+    /// Each artifact the settlement wrote before the failure, which no row names, for the tick
     /// to delete through the payload store.
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
 
 /// What a committed turn answers: each event's sequence, in write order, the readying sequence of
 /// each step whose `pending` row the write stored, the run's step counts and person-wait columns
-/// after the turn, which the tick keeps for the run's next turn, the artifacts of the kept values
-/// the write replaced, which the tick deletes, and the id of the run's ending event, where the
+/// after the turn, which the tick keeps for the run's next turn, the kept-value artifacts the write
+/// left no record naming, which the tick deletes, and the id of the run's ending event, where the
 /// write ended the run.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -295,8 +317,9 @@ pub(crate) struct RunTurnCommitted {
     pub(crate) counts: RunStepCounts,
     /// The run's person-wait columns after the turn.
     pub(crate) person_wait: RunPersonWait,
-    /// Each artifact a kept value the write replaced named, which no record names now, for the
-    /// tick to delete through the payload store.
+    /// Each artifact no record names now, for the tick to delete through the payload store: one a
+    /// kept value the write replaced named, and one the write stored for a value it could not keep,
+    /// its workflow deleted meanwhile.
     pub(crate) dropped_kept_artifact_ids: Vec<ArtifactId>,
     /// The id of the run's ending event, where the write ended the run.
     pub(crate) ending_event_id: Option<SessionEventId>,
@@ -311,30 +334,40 @@ pub(crate) type SessionEventId = FreeFormText<EVENT_FIELD_MAX_LEN>;
 pub(crate) struct RunTurnCommitFailure {
     /// The event that would not draft, or the append that was not kept.
     pub(crate) error: SessionEventEmitError,
-    /// Every artifact a payload ref of the write names, which no record now names, for the tick
+    /// Every artifact a payload ref of the write names, which no row now names, for the tick
     /// to delete through the payload store.
     pub(crate) artifact_ids: Vec<ArtifactId>,
+    /// Each id the turns reserved whose reservation the write would have deleted, for the tick to
+    /// delete once it has deleted the artifacts, keeping the reservation of one that would not.
+    pub(crate) reserved_ids: Vec<ArtifactId>,
 }
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
-    /// An empty turn of the run `run_id`, whose events name `keys`, with its step counts and
-    /// person-wait columns as the tick keeps them, storing a payload above the inline cap through
-    /// `payloads`.
+    /// An empty turn of the run `run_id`, whose events name `keys`, in its execution `epoch`, with
+    /// its step counts and person-wait columns as the tick keeps them, storing a payload above the
+    /// inline cap through `payloads` under an id reserved through `writer`.
     pub(crate) fn new(
         keys: RunEventKeys,
         run_id: WorkflowRunId,
+        epoch: WorkflowRunEpoch,
         counts: RunStepCounts,
         person_wait: RunPersonWait,
         payloads: Arc<dyn StepPayloadArtifacts>,
+        writer: Arc<DatabaseWriter>,
     ) -> Self {
         Self {
             keys,
             run_id,
+            epoch,
+            resumed_event: None,
             counts,
             status_before: going_run_status(&counts),
             person_wait,
             payloads,
+            writer,
+            spare_ids: Vec::new(),
+            reserved_ids: Vec::new(),
             events: Vec::new(),
             statements: Vec::new(),
             pending: Vec::new(),
@@ -355,6 +388,14 @@ impl RunTurnCommit {
     /// The run's person-wait columns as the turn found them; the write moves them last.
     pub(crate) fn person_wait(&self) -> &RunPersonWait {
         &self.person_wait
+    }
+
+    /// The first step this turn settled, whose row only the turn's write stores.
+    pub(crate) fn first_settled_step(&self) -> Option<&WorkflowStepKey> {
+        self.moves
+            .iter()
+            .find(|(_, step_move)| matches!(step_move, StepMove::Settled(_)))
+            .map(|(step, _)| step)
     }
 
     /// Ends the run as `ending` says in this turn's write, its row and its run event after every
@@ -380,17 +421,18 @@ impl RunTurnCommit {
         let last_hold_report_at = reported.last_hold_report_at;
         match kind {
             StepReportKind::WaitingOnMemory { hold_started_at } => {
-                if at == hold_started_at {
+                // A hold's first report finds no earlier one; the restart's sweep opens a step's
+                // new hold itself, so the gate's own first report then adds to it.
+                if let Some(since) = last_hold_report_at {
+                    let memory_wait_ms = whole_milliseconds_between(since, &at);
+                    self.statements
+                        .push(add_step_memory_wait(&step, memory_wait_ms));
+                } else {
                     self.statements.push(hold_step(&step));
                     self.counts.moved(
                         Some(reported.standing()),
                         (WorkflowStepStatus::WaitingMemory, None),
                     );
-                } else {
-                    let since = last_hold_report_at.unwrap_or(&hold_started_at);
-                    let memory_wait_ms = whole_milliseconds_between(since, &at);
-                    self.statements
-                        .push(add_step_memory_wait(&step, memory_wait_ms));
                 }
                 self.push(
                     &at,
@@ -464,13 +506,19 @@ impl RunTurnCommit {
                     step,
                 )),
             ),
-            StepReportKind::Canceling => {
+            StepReportKind::Canceling { deciding, reason } => {
                 self.push(
                     &at,
                     SessionEvent::WorkflowPhaseCanceling(step_payload!(
                         WorkflowPhaseCancelingPayload,
                         session_id,
                         step,
+                        deciding_step: WorkflowWaveDecidingStep {
+                            node_id: deciding.node_id,
+                            attempt: deciding.attempt,
+                            execution_index: deciding.execution_index,
+                        },
+                        cancellation_reason: reason,
                     )),
                 );
                 self.moves.push((step, StepMove::Canceling));
@@ -493,16 +541,33 @@ impl RunTurnCommit {
         Ok(None)
     }
 
-    /// Cancels `step`, readied in this turn and never run, at `at`: its row and
-    /// `workflow.step.canceled` with nothing readied, its count moved from `pending`.
-    pub(crate) fn canceled_unrun(&mut self, step: &WorkflowStepKey, at: &WireInstant) {
+    /// Cancels `step`, readied in this turn and never run, at `at` for `cancellation_reason`: its
+    /// row and `workflow.step.canceled` with nothing readied, its count moved from `pending`.
+    pub(crate) fn canceled_unrun(
+        &mut self,
+        step: &WorkflowStepKey,
+        at: &WireInstant,
+        cancellation_reason: WorkflowPhaseCancellationReason,
+    ) {
         self.cancel(
             step.clone(),
             at,
             0,
-            None,
+            Some(cancellation_reason),
             (WorkflowStepStatus::Pending, None),
+            false,
         );
+    }
+
+    /// Cancels `step` of a run the restart cannot drive again, standing as `standing`, at `at`: its
+    /// row and `workflow.step.canceled` with no cause, so a rebuild writes the same row.
+    pub(crate) fn canceled_at_restart(
+        &mut self,
+        step: &WorkflowStepKey,
+        at: &WireInstant,
+        standing: (WorkflowStepStatus, Option<WorkflowWaitCause>),
+    ) {
+        self.cancel(step.clone(), at, 0, None, standing, false);
     }
 
     /// Writes `workflow.parallelJoin.branchesCanceled` on `step` at `at`, whose turn canceled
@@ -512,7 +577,7 @@ impl RunTurnCommit {
         &mut self,
         step: WorkflowStepKey,
         at: &WireInstant,
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         count: usize,
     ) {
         let session_id = self.keys.session_id;
@@ -530,7 +595,8 @@ impl RunTurnCommit {
 
     /// Writes the `skipped` row of `skip` at `at`, on `input_ref`, passing `output_ref` on, and
     /// its `workflow.step.skipped`, each naming the step a reused skip reused and that step's pin
-    /// hash; answers that event's index, for the steps its write readies.
+    /// hash; a reused skip's refs are its earlier step's. Answers that event's index, for the steps
+    /// its write readies.
     pub(crate) fn skipped(
         &mut self,
         skip: &WalkSkip,
@@ -553,10 +619,10 @@ impl RunTurnCommit {
             &at,
             (reused.map(|reused| &reused.from), pin_hash),
         ));
-        self.keep_artifact(input_ref);
-        // A reused step's own output belongs to the run that recorded it, so a refused turn
-        // never deletes it; a copy stored for this run is the turn's.
-        if reused.is_none_or(|reused| reused.output_ref != *output_ref) {
+        // A reused step's payloads belong to the run that recorded them, or to the start that
+        // copied them into this run's session, so a refused turn never deletes them.
+        if reused.is_none() {
+            self.keep_artifact(input_ref);
             self.keep_artifact(output_ref);
         }
         let session_id = self.keys.session_id;
@@ -594,6 +660,18 @@ impl RunTurnCommit {
         readying_event: usize,
     ) {
         self.keep_artifact(&input_ref);
+        self.add_pending(ready, input_ref, readying_event);
+    }
+
+    /// Writes the `pending` row of `ready`, the next attempt of a step a failed park stopped, on
+    /// `input_ref`, the earlier attempt's own input, in the readied steps of the event at
+    /// `readying_event`; that input's committed row already names it, so a failed turn keeps it.
+    pub(crate) fn rerun(
+        &mut self,
+        ready: &WalkReady,
+        input_ref: WorkflowPayloadRef,
+        readying_event: usize,
+    ) {
         self.add_pending(ready, input_ref, readying_event);
     }
 
@@ -648,6 +726,8 @@ impl RunTurnCommit {
         } else if let SessionEvent::WorkflowPhaseRetried(readying) = event {
             &mut readying.readied
         } else if let SessionEvent::WorkflowStepCanceled(readying) = event {
+            &mut readying.readied
+        } else if let SessionEvent::WorkflowRunResumed(readying) = event {
             &mut readying.readied
         } else {
             unreachable!("a step is readied only by an event that carries its readied steps")
@@ -712,16 +792,16 @@ impl StepMove {
     }
 }
 
-/// The whole milliseconds a hold that began at `hold_started_at` ran from its last report, at
-/// `last_hold_report_at` or its start, to `at`; 0 for a step the gate was not holding.
+/// The whole milliseconds a hold ran from its last report, at `last_hold_report_at`, or else from
+/// its start at `hold_started_at`, to `at`; 0 for a step the gate was not holding.
 fn held_milliseconds(
     hold_started_at: Option<&WireInstant>,
     last_hold_report_at: Option<&WireInstant>,
     at: &WireInstant,
 ) -> u64 {
-    hold_started_at.map_or(0, |hold_started_at| {
-        whole_milliseconds_between(last_hold_report_at.unwrap_or(hold_started_at), at)
-    })
+    last_hold_report_at
+        .or(hold_started_at)
+        .map_or(0, |since| whole_milliseconds_between(since, at))
 }
 
 #[cfg(test)]

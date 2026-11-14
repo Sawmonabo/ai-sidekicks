@@ -9220,6 +9220,7 @@ dependencies = [
  "garde",
  "jiff",
  "jsonata-core",
+ "jsonschema",
  "percent-encoding",
  "petgraph 0.8.3",
  "proptest",

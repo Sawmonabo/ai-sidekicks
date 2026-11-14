@@ -100,6 +100,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::QuestionAsked
         | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
+        | SessionEventType::QuestionWaitSettled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled
         | SessionEventType::SessionCreated
@@ -181,8 +182,11 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowRunCompleted
         | SessionEventType::WorkflowRunResumed
         | SessionEventType::WorkflowRunCanceled
+        | SessionEventType::WorkflowRunCrashed
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
+        | SessionEventType::WorkflowRunKeepChanged
+        | SessionEventType::WorkflowChainRunJoined
         | SessionEventType::WorkflowScheduleArmed
         | SessionEventType::WorkflowScheduleFired
         | SessionEventType::WorkflowTriggerArmed
@@ -193,6 +197,8 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowRunCanceling
+        | SessionEventType::WorkflowRunFailing
         | SessionEventType::WorkflowPhaseFailed
         | SessionEventType::WorkflowPhaseRetried
         | SessionEventType::WorkflowPhaseSuspended

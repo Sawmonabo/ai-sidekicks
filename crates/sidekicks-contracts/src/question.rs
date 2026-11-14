@@ -1,8 +1,9 @@
 //! A question record and the one call that answers it. An agent's held question on either
-//! provider, a tool server's question and a workflow step waiting for a chat reply all become one
-//! question record the screen renders (`question.asked`), answered by one call
-//! (`question.resolve`). The daemon holds the question with no timer and rebuilds its card on a
-//! reload and on every linked device; the first answer settles it everywhere, and a later answer
+//! provider, a tool server's question and a workflow step waiting for a form or a chat reply all
+//! become one question record the screen renders (`question.asked`), answered by one call
+//! (`question.resolve`). The daemon holds an agent's or a tool server's question with no timer, and
+//! a workflow wait's question ends with its wait (`question.wait.settled`); each card is rebuilt on
+//! a reload and on every linked device, the first answer settles it everywhere, and a later answer
 //! reads back the settled state rather than applying again.
 //!
 //! A secret answer is delivered and never stored: it reaches no event payload, no projection and
@@ -12,6 +13,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
+use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -22,6 +24,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
+use crate::wire::record::JsonRecord;
 use crate::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
 
 branded_uuid_id! {
@@ -161,7 +164,8 @@ pub enum QuestionDefault {
 }
 
 /// One question of the record, one page of the card. A secret question takes a masked answer and
-/// has no option rows; only a number question carries a range, a step or a unit, and its smallest
+/// has no option rows; a path question takes a folder picked with the platform's chooser and has
+/// no option rows; only a number question carries a range, a step or a unit, and its smallest
 /// number is at most its largest; a question with option rows starts from its own options, which
 /// the schema states as `defaultAmongOptions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -203,8 +207,14 @@ pub struct QuestionPrompt {
     pub several_answers: bool,
     /// Whether the answer is masked and never stored.
     pub secret: bool,
-    /// Whether the form must have this field answered. Only a tool server's form field sets it, and
-    /// a producer that sets it on an agent's question makes that question refuse typed text.
+    /// Whether the answer is a folder picked with the platform's own chooser, never typed: a
+    /// workflow form's `path` field sets it, and such a question takes only a path or a skip;
+    /// absent reads false.
+    #[serde(default, skip_serializing_if = "<&bool as std::ops::Not>::not")]
+    pub path: bool,
+    /// Whether the form must have this field answered. A tool server's form field and a workflow
+    /// wait's question set it; a producer that sets it on a question with options makes that
+    /// question refuse typed text, and a workflow wait's question with it true takes no skip.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -262,9 +272,9 @@ pub struct QuestionPrompt {
     pub placeholder: Option<NonEmptyText>,
 }
 
-/// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret
-/// question at `options`, a range, step or unit on a question that takes no number at that member,
-/// a largest number below the smallest at `maximum`, and a default that is not one of the
+/// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret or a
+/// path question at `options`, a range, step or unit on a question that takes no number at that
+/// member, a largest number below the smallest at `maximum`, and a default that is not one of the
 /// prompt's own options at `default`.
 impl garde::Validate for QuestionPrompt {
     type Context = ();
@@ -298,6 +308,12 @@ impl garde::Validate for QuestionPrompt {
                     );
                 }
             }
+        }
+        if self.path && !self.options.is_empty() {
+            report.append(
+                parent().join("options"),
+                garde::Error::new("a path question draws the folder chooser and no option rows"),
+            );
         }
         if let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum)
             && minimum > maximum
@@ -393,6 +409,14 @@ question_asked! {
         )]
         #[schemars(with = "Never")]
         pub wait_id: Option<Never>,
+        /// Only a workflow form wait's question carries its fields' schema.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub form_schema: Option<Never>,
     }
 }
 
@@ -417,6 +441,15 @@ question_asked! {
         )]
         #[schemars(with = "Never")]
         pub state: Option<Never>,
+        /// A form wait's fields as a JSON Schema, by which its answers go back keyed by each
+        /// field's id; absent on a reply wait.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "JsonRecord")]
+        pub form_schema: Option<JsonRecord>,
     }
 }
 
@@ -467,8 +500,34 @@ pub struct QuestionCanceledPayload {
     pub reason: QuestionCanceledReason,
 }
 
-/// The answer to one question: the picked labels, typed text, a secret, or a skip; each question
-/// takes exactly one.
+/// How a workflow wait's question was settled: answered, timed out at its step's own `Timeout`, or
+/// ended unanswered by its run's end or its branch's cancel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionWaitOutcome {
+    /// The first answer, through the card or the run's step panel, settled the wait.
+    Answered,
+    /// The step's own `Timeout` came first.
+    TimedOut,
+    /// Its run ended or its branch was canceled before an answer came.
+    Ended,
+}
+
+/// `question.wait.settled`: the write that ended a workflow form or reply wait settled the
+/// question its wait holds, so its card closes on every open copy and stays closed after a reload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuestionWaitSettledPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The workflow wait whose question is settled.
+    pub wait_id: UuidTextForm,
+    /// How the wait ended.
+    pub outcome: QuestionWaitOutcome,
+}
+
+/// The answer to one question: the picked labels, typed text, a secret, a picked folder's path, or
+/// a skip; each question takes exactly one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
@@ -491,6 +550,12 @@ pub enum QuestionAnswer {
     Secret {
         /// The secret.
         value: NonEmptyText,
+    },
+    /// A folder picked with the platform's own chooser: the page sends the chooser's file token,
+    /// and the desktop's main process puts the path it stands for in its place.
+    Path {
+        /// The folder's path.
+        path: FilesystemPath,
     },
     /// Skipped.
     Skipped {},
@@ -533,15 +598,19 @@ pub struct QuestionResolveResponse {
 }
 
 /// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
-/// question, a label the question does not offer, several labels for a question that takes one,
-/// typed text for a question that takes only its options, or typed text that is not a value of
-/// the question's kind: a number, a whole number or a flag.
+/// question, a path for a question that takes none, a label the question does not offer, several
+/// labels for a question that takes one, typed text for a question that takes only its options,
+/// typed text that is not a value of the question's kind (a number, a whole number or a flag), a
+/// skip of a workflow wait's required question, or a value its workflow form field does not take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionAnswerInvalidReason {
     /// A secret for a question that is not secret, or anything but a secret or a skip for one that
     /// is.
     SecretOnPlain,
+    /// A path for a question that is not a path question, or anything but a path or a skip for
+    /// one that is.
+    PathOnPlain,
     /// A label the question does not offer.
     LabelNotOffered,
     /// Several labels for a question that takes one.
@@ -554,6 +623,11 @@ pub enum QuestionAnswerInvalidReason {
     NotAWholeNumber,
     /// Typed text that is neither `true` nor `false` for a yes-or-no question.
     NotAFlag,
+    /// A skip for a question a workflow wait holds with `required` true.
+    SkipOnRequired,
+    /// A value its workflow form field does not take: the wrong type, out of its bounds, or a
+    /// required field left out.
+    FieldValueInvalid,
 }
 
 methods! {
@@ -590,6 +664,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QuestionOpenedPayload>().checked(),
         Definition::read::<QuestionCanceledReason>(),
         Definition::read::<QuestionCanceledPayload>().checked(),
+        Definition::read::<QuestionWaitOutcome>(),
+        Definition::read::<QuestionWaitSettledPayload>().checked(),
         Definition::read::<QuestionAnswer>(),
         Definition::read::<QuestionAnswerInvalidReason>(),
         Definition::read::<QuestionResolveRequest>().checked(),

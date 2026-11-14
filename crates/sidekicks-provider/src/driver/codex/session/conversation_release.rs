@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
@@ -175,20 +176,31 @@ impl CodexConversationRelease {
         true
     }
 
-    /// Forgets every conversation a session holds on `service`, its helpers' included, that
-    /// `is_released` names, except those held here, whose frames keep reaching the session until
-    /// their commands end.
-    pub(crate) fn release_session_threads(
+    /// Forgets and unsubscribes from every conversation a session holds on `service`, its
+    /// helpers' included, that `is_released` names, except those held here, whose frames keep
+    /// reaching the session until their commands end; answers the ones let go. A helper stays
+    /// loaded while a connection subscribes to it, its lead's unload aside, and Codex refuses to
+    /// load it anywhere else meanwhile.
+    pub(crate) fn release_session_threads<'service>(
         &self,
-        service: &CodexService,
+        service: &'service CodexService,
         session_id: &SessionId,
         is_released: impl Fn(&str) -> bool,
-    ) {
+    ) -> impl Future<Output = Vec<String>> + 'service {
         let held: Vec<String> = self.lock().held.keys().cloned().collect();
-        for thread_id in service.threads_of(session_id) {
-            if !held.contains(&thread_id) && is_released(&thread_id) {
-                service.release_thread(&thread_id);
-            }
+        let released: Vec<String> = service
+            .threads_of(session_id)
+            .into_iter()
+            .filter(|thread_id| !held.contains(thread_id) && is_released(thread_id))
+            .collect();
+        async move {
+            join_all(
+                released
+                    .iter()
+                    .map(|thread_id| let_go_codex_thread(service, thread_id)),
+            )
+            .await;
+            released
         }
     }
 

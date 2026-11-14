@@ -1,5 +1,6 @@
-//! The events a workflow run appends about the run as a whole: it started, was gated, waited,
-//! failed, completed, was canceled, resumed or deleted, and its results were posted into a session.
+//! The events a workflow run appends about the run as a whole: it started, joined a chain, was
+//! gated, waited, began winding down on a cancel or a failure, failed, completed, was canceled,
+//! resumed, kept or deleted, and its results were posted into a session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -7,12 +8,19 @@ use serde::{Deserialize, Serialize};
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::integer::SafeInt;
+use crate::wire::record::Record;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
-use crate::workflow::definition::item::WorkflowStepError;
-use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
+use crate::workflow::definition::document::{
+    WorkflowContentHash, WorkflowNodeId, WorkflowVersionId,
+};
+use crate::workflow::definition::item::{WorkflowPinnedItem, WorkflowStepError};
+use crate::workflow::run::control::{
+    WorkflowCancelReason, WorkflowNodeExecuteScope, names_whole_repin,
+};
 use crate::workflow::run::id::WorkflowRunId;
-use crate::workflow::run::step::events::WorkflowReadiedStep;
+use crate::workflow::run::snapshot::WorkflowRunEpoch;
+use crate::workflow::run::step::events::{WorkflowReadiedStep, WorkflowReusedStep};
 use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
 use crate::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
@@ -39,13 +47,75 @@ macro_rules! workflow_run_event {
 
 pub(crate) use workflow_run_event;
 
+/// The node a node run targets and what it covers, as its started event and its row name it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowNodeRun {
+    /// The target node.
+    pub node_id: WorkflowNodeId,
+    /// What the node run covers.
+    pub scope: WorkflowNodeExecuteScope,
+}
+
+/// One earlier step a node run or a retry replays in place of running its node, as its start
+/// stored it in the run's session: the node, the step whose data it carries, its input and output,
+/// its output's item counts and, where that step recorded one, the hash of its pin.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct WorkflowStartedReusedStep {
+    /// The node the step replays.
+    pub node_id: WorkflowNodeId,
+    /// The earlier step whose data it carries.
+    #[garde(dive)]
+    pub reused_from: WorkflowReusedStep,
+    /// The earlier step's input.
+    #[garde(dive)]
+    pub input_ref: WorkflowPayloadRef,
+    /// The earlier step's output.
+    #[garde(dive)]
+    pub output_ref: WorkflowPayloadRef,
+    /// How many items each main output holds, in output order.
+    pub output_item_counts: Vec<SafeInt<0>>,
+    /// The hash of the pin the earlier step gave, where it gave one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "WorkflowContentHash")]
+    pub pin_hash: Option<WorkflowContentHash>,
+}
+
 workflow_run_event! {
     /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
-    /// it, its place in its chain and the input its trigger step starts on, so the run row
-    /// rebuilds from events.
+    /// it, its place in its chain, the node a node run targets, the run a retry retries, the pins
+    /// it honors, inline or past the inline cap as a stored payload, the earlier steps it replays
+    /// and the input its trigger step starts on, so the run row and its walk rebuild from events.
+    /// `inputRef` is absent exactly on a node run or a retry that reuses its trigger's step, which
+    /// writes no trigger row, `retriedWorkflowRunId` is present exactly on a retry, and `pinData`
+    /// and `pinDataRef` are never both present.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
+    #[garde(custom(|payload: &Self, (): &()| names_its_input_and_retried_run(payload)))]
+    #[schemars(extend(
+        "anyOf" = [
+            { "required": ["inputRef"], "properties": { "inputRef": true } },
+            { "required": ["nodeRun"], "properties": { "nodeRun": true } },
+            {
+                "required": ["retriedWorkflowRunId"],
+                "properties": { "retriedWorkflowRunId": true }
+            },
+        ],
+        "if" = { "properties": { "mode": { "const": "retry" } }, "required": ["mode"] },
+        "then" = {
+            "properties": { "retriedWorkflowRunId": true },
+            "required": ["retriedWorkflowRunId"]
+        },
+        "else" = { "not": { "required": ["retriedWorkflowRunId"] } },
+        "not" = { "required": ["pinData", "pinDataRef"] },
+    ))]
     pub struct WorkflowRunStartedPayload {
         /// How it was started.
         pub mode: WorkflowRunMode,
@@ -63,9 +133,82 @@ workflow_run_event! {
         )]
         #[schemars(with = "ProviderId")]
         pub provider: Option<ProviderId>,
-        /// The input its trigger step starts on.
+        /// The node a node run targets; absent on a whole run.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowNodeRun")]
+        pub node_run: Option<WorkflowNodeRun>,
+        /// The run a retry retries; present exactly on a retry.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowRunId")]
+        pub retried_workflow_run_id: Option<WorkflowRunId>,
+        /// The test data pinned onto its nodes by node id as the run started, which it gives in
+        /// place of running them for its whole life; absent where it honors no pin.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Record<String, Vec<WorkflowPinnedItem>>")]
+        pub pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
+        /// The pins `pinData` would hold, stored as one payload where their JSON passes the
+        /// inline cap: an artifact holding that record, its item count the nodes it pins; absent
+        /// where `pinData` holds them or the run honors no pin.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
         #[garde(dive)]
-        pub input_ref: WorkflowPayloadRef,
+        pub pin_data_ref: Option<WorkflowPayloadRef>,
+        /// The earlier steps a node run or a retry replays in place of running their nodes, each
+        /// node's in its earlier run's execution order; absent on a run that replays none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[garde(dive)]
+        pub reused_steps: Vec<WorkflowStartedReusedStep>,
+        /// The input its trigger step starts on; absent on a node run or a retry that reuses its
+        /// trigger's step.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowPayloadRef")]
+        #[garde(dive)]
+        pub input_ref: Option<WorkflowPayloadRef>,
+    }
+}
+
+/// Refuses a started payload that leaves its trigger's input out unless it starts a node run or a
+/// retry, the runs that may reuse their trigger's step, one that names a retried run on a run that
+/// is no retry or none on a retry, and one that carries its pins both inline and stored.
+fn names_its_input_and_retried_run(payload: &WorkflowRunStartedPayload) -> garde::Result {
+    if payload.pin_data.is_some() && payload.pin_data_ref.is_some() {
+        return Err(garde::Error::new(
+            "a run's start carries its pins inline or as a stored payload, never both",
+        ));
+    }
+    let is_retry = payload.mode == WorkflowRunMode::Retry;
+    if is_retry != payload.retried_workflow_run_id.is_some() {
+        return Err(garde::Error::new(
+            "a retry's start names the run it retries, and no other run's start names one",
+        ));
+    }
+    if payload.input_ref.is_some() || payload.node_run.is_some() || is_retry {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "a run's start names its trigger's input unless a node run or a retry reuses its \
+             trigger's step",
+        ))
     }
 }
 
@@ -100,12 +243,88 @@ workflow_run_event! {
 }
 
 workflow_run_event! {
+    /// `workflow.run.canceling`: a person's cancel of the run was taken and its steps wind down,
+    /// written in the write that takes it, before any step has settled, so a restart finishes the
+    /// cancel; `reason` and `error` are the ones its `workflow.run.canceled` repeats.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunCancelingPayload {
+        /// The person's reason.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowCancelReason")]
+        #[garde(dive)]
+        pub reason: Option<WorkflowCancelReason>,
+        /// The run's error, where the cancel stores one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
+    }
+}
+
+workflow_run_event! {
+    /// `workflow.run.crashed`: the daemon stopped while the run went on, and its next start's sweep
+    /// found nothing for it to go on with: a `new` run with no held step, a run whose only
+    /// unsettled steps are `pending`, a run whose version holds a kind this daemon lacks, or a
+    /// state the restart cannot decide. Written with the status in one step, so a rebuild ends it
+    /// too. `error` says why, where the sweep knows.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunCrashedPayload {
+        /// Why the sweep ended it, where it knows.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WorkflowStepError")]
+        #[garde(dive)]
+        pub error: Option<WorkflowStepError>,
+    }
+}
+
+workflow_run_event! {
     /// `workflow.run.deleted`, written with the delete of the run's rows in one step, so rebuilding
     /// the runs from the log leaves out a run the person deleted, whose earlier events the log
     /// keeps.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowRunDeletedPayload {}
+}
+
+workflow_run_event! {
+    /// `workflow.run.keepChanged`, written with the run's Keep mark in one step, so rebuilding the
+    /// runs from the log keeps the mark the person left.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    pub struct WorkflowRunKeepChangedPayload {
+        /// Whether the run is kept now.
+        pub kept: bool,
+    }
+}
+
+/// `workflow.chain.runJoined`: a run joined the chain whose first run is `chainRootRunId` and was
+/// counted on that first run's row. It is appended in the first run's session, in the joining
+/// run's start write, so rebuilding that session's runs counts every run the chain started.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowChainRunJoinedPayload {
+    /// The session of the chain's first run, whose log keeps the count.
+    pub session_id: SessionId,
+    /// The chain's first run.
+    pub chain_root_run_id: WorkflowRunId,
+    /// The run that joined.
+    pub workflow_run_id: WorkflowRunId,
 }
 
 workflow_run_event! {
@@ -133,6 +352,22 @@ workflow_step_key! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     pub struct WorkflowRunEndingStep {}
+}
+
+workflow_run_event! {
+    /// `workflow.run.failing`: a failure decided the run's end, a step's failure routed to its end
+    /// or the run cap, and its other steps wind down; written in the write that decides it, so a
+    /// restart ends the run on the same step and error, which its `workflow.run.failed` repeats.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    pub struct WorkflowRunFailingPayload {
+        /// The step the run's ending sits on.
+        pub ending_step: WorkflowRunEndingStep,
+        /// The run's error.
+        #[garde(dive)]
+        pub error: WorkflowStepError,
+    }
 }
 
 workflow_run_event! {
@@ -224,7 +459,7 @@ pub struct WorkflowResumptionPoint {
 workflow_run_event! {
     /// `workflow.run.resumed`: a person or an armed schedule resumed a waiting or failed run, with
     /// where it picks up and, only on an accepted re-pin, the version it left and the one it
-    /// joined, both or neither.
+    /// joined, both or neither, with the steps the joined version keeps.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -237,6 +472,9 @@ workflow_run_event! {
         "repinnedToWorkflowVersionId": ["repinnedFromWorkflowVersionId"],
     }))]
     pub struct WorkflowRunResumedPayload {
+        /// The run's execution from this resume on: the next one where the resume runs steps
+        /// again, the one under way otherwise.
+        pub epoch: WorkflowRunEpoch,
         /// Where it picks up.
         pub resumption_point: WorkflowResumptionPoint,
         /// The version the run left, on an accepted re-pin.
@@ -255,6 +493,10 @@ workflow_run_event! {
         )]
         #[schemars(with = "WorkflowVersionId")]
         pub repinned_to_workflow_version_id: Option<WorkflowVersionId>,
+        /// On an accepted re-pin, the run's settled steps the joined version keeps, whose outputs
+        /// its walk replays, in execution order; absent otherwise.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub kept_steps: Vec<WorkflowResumedStep>,
         /// The steps this event's write readied, each with what its `pending` row stores; empty
         /// where it readied none.
         #[garde(dive)]
@@ -284,16 +526,23 @@ pub struct WorkflowResultsPostedPayload {
 /// The TypeScript module of the run events.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/events",
-    doc: "The events a workflow run appends about the run as a whole: it started, was gated, \
-          waited, failed, completed, was canceled, resumed or deleted, and its results were posted \
-          into a session.",
+    doc: "The events a workflow run appends about the run as a whole: it started, joined a chain, \
+          was gated, waited, began winding down on a cancel or a failure, failed, completed, was \
+          canceled, resumed, kept or deleted, and its results were posted into a session.",
     definitions: &[
+        Definition::read::<WorkflowNodeRun>(),
+        Definition::read::<WorkflowStartedReusedStep>(),
         Definition::read::<WorkflowRunStartedPayload>().checked(),
+        Definition::read::<WorkflowRunCancelingPayload>().checked(),
         Definition::read::<WorkflowRunCanceledPayload>().checked(),
+        Definition::read::<WorkflowRunCrashedPayload>().checked(),
         Definition::read::<WorkflowRunDeletedPayload>().checked(),
+        Definition::read::<WorkflowRunKeepChangedPayload>().checked(),
+        Definition::read::<WorkflowChainRunJoinedPayload>().checked(),
         Definition::read::<WorkflowGateReachedPayload>().checked(),
         Definition::read::<WorkflowRunFailedOutcome>(),
         Definition::read::<WorkflowRunEndingStep>(),
+        Definition::read::<WorkflowRunFailingPayload>().checked(),
         Definition::read::<WorkflowRunFailedPayload>().checked(),
         Definition::read::<WorkflowRunCompletedPayload>().checked(),
         Definition::read::<WorkflowRunWaitingPayload>().checked(),
@@ -311,7 +560,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::WorkflowRunFailedPayload;
+    use super::{WorkflowRunFailedPayload, WorkflowRunStartedPayload};
 
     /// The step an ended run names.
     fn ending_step() -> Value {
@@ -355,6 +604,60 @@ mod tests {
         }
         let payload =
             serde_json::from_value::<WorkflowRunFailedPayload>(wire).expect("the payload reads");
+        assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
+    }
+
+    /// A run's start names its trigger's input unless it is a node run or a retry, which may reuse
+    /// its trigger's step, and a retry's start, and only a retry's, names the run it retries.
+    /// Mutations: drop the garde check on `WorkflowRunStartedPayload`, which lets the start naming
+    /// neither through; drop its retried-run comparison, which lets a manual start naming a
+    /// retried run and a retry naming none through; drop `is_retry` from the input check, which
+    /// refuses the retry reusing its trigger.
+    #[rstest]
+    #[case::whole_run("manual", true, false, false, true)]
+    #[case::node_run_reusing_its_trigger("manual", false, true, false, true)]
+    #[case::node_run_given_items("manual", true, true, false, true)]
+    #[case::neither("manual", false, false, false, false)]
+    #[case::retry_reusing_its_trigger("retry", false, false, true, true)]
+    #[case::retry_running_its_trigger("retry", true, false, true, true)]
+    #[case::retry_naming_no_retried_run("retry", true, false, false, false)]
+    #[case::manual_naming_a_retried_run("manual", true, false, true, false)]
+    fn a_runs_start_leaves_its_input_out_only_on_a_node_run_or_a_retry(
+        #[case] mode: &str,
+        #[case] has_input: bool,
+        #[case] is_node_run: bool,
+        #[case] names_retried_run: bool,
+        #[case] is_accepted: bool,
+    ) {
+        let mut wire = json!({
+            "sessionId": "018f0000-0000-7000-8000-000000000001",
+            "workflowRunId": "018f0000-0000-7000-8000-000000000004",
+            "definitionId": "018f0000-0000-7000-8000-000000000005",
+            "workflowVersionId": "018f0000-0000-7000-8000-000000000006",
+            "mode": mode,
+            "startedBy": {"kind": "schedule"},
+            "trigger": {"kind": "trigger.manual", "nodeId": "start"},
+            "chain": {"kind": "starts"},
+        });
+        if let Some(members) = wire.as_object_mut() {
+            if has_input {
+                members.insert("inputRef".into(), json!({"kind": "inline", "items": []}));
+            }
+            if is_node_run {
+                members.insert(
+                    "nodeRun".into(),
+                    json!({"nodeId": "ask", "scope": "fromHere"}),
+                );
+            }
+            if names_retried_run {
+                members.insert(
+                    "retriedWorkflowRunId".into(),
+                    json!("018f0000-0000-7000-8000-000000000007"),
+                );
+            }
+        }
+        let payload =
+            serde_json::from_value::<WorkflowRunStartedPayload>(wire).expect("the payload reads");
         assert_eq!(garde::Validate::validate(&payload).is_ok(), is_accepted);
     }
 }

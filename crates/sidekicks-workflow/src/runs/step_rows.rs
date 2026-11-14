@@ -1,6 +1,6 @@
 //! What a step's moves do to its row: the statements the tick's commit writes in one unit of work
-//! with the step events that record them, each keyed on the whole step key and refusing the write
-//! unless it changes that one row.
+//! with the step events that record them, and a rebuild of the steps writes from those events, each
+//! keyed on the whole step key and refusing the write unless it changes that one row.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -14,7 +14,9 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowContentHash;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
-use sidekicks_contracts::workflow::run::step::events::WorkflowReusedStep;
+use sidekicks_contracts::workflow::run::step::events::{
+    WorkflowPhaseCancellationReason, WorkflowReusedStep,
+};
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowCost, WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -72,6 +74,7 @@ static CANCEL_STEP_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE workflow_steps
   SET status = '{canceled}', finished_at = @finished_at,
+      cancellation_reason = @cancellation_reason,
       total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms, {CLEAR_WAIT_COLUMNS_SQL}
   WHERE {STEP_KEY_SQL}"
     )
@@ -133,6 +136,16 @@ static WAIT_ON_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
   SET status = '{waiting}', wait_cause = '{account}', wait_account_id = @wait_account_id,
       wait_started_at = @wait_started_at, resume_at = @resume_at,
       total_memory_wait_ms = total_memory_wait_ms + @memory_wait_ms
+  WHERE {STEP_KEY_SQL}"
+    )
+});
+
+static WAIT_ON_CHAIN_SQL: LazyLock<String> = LazyLock::new(|| {
+    let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
+    let chain = <&'static str>::from(WorkflowWaitCause::Chain);
+    format!(
+        "UPDATE workflow_steps
+  SET status = '{waiting}', wait_cause = '{chain}', wait_started_at = @wait_started_at
   WHERE {STEP_KEY_SQL}"
     )
 });
@@ -224,12 +237,14 @@ pub(crate) fn record_step_start(
     )
 }
 
-/// Moves `step` to `canceled`, ended at `finished_at`, with every wait column emptied, adding
-/// `memory_wait_ms`, the time a hold the cancel cut ran since its last report.
+/// Moves `step` to `canceled` for `cancellation_reason`, `None` where no cause is recorded, ended
+/// at `finished_at`, with every wait column emptied, adding `memory_wait_ms`, the time a hold the
+/// cancel cut ran since its last report.
 pub(crate) fn cancel_step(
     step: &WorkflowStepKey,
     finished_at: &WireInstant,
     memory_wait_ms: u64,
+    cancellation_reason: Option<WorkflowPhaseCancellationReason>,
 ) -> WriteStatement {
     keyed_statement(
         &CANCEL_STEP_SQL,
@@ -237,6 +252,10 @@ pub(crate) fn cancel_step(
         vec![
             text_binding("@finished_at", finished_at.as_str()),
             memory_wait_binding(memory_wait_ms),
+            nullable_text_binding(
+                "@cancellation_reason",
+                cancellation_reason.map(<&'static str>::from),
+            ),
         ],
     )
 }
@@ -383,6 +402,19 @@ pub(crate) fn wait_step_on_account(
             nullable_text_binding("@resume_at", resume_at.map(WireInstant::as_str)),
             memory_wait_binding(memory_wait_ms),
         ],
+    )
+}
+
+/// Moves `step` to `waiting` on its chain's question since `started_at`; the question belongs to
+/// the chain's first run, so the step holds no wait id.
+pub(crate) fn wait_step_on_chain(
+    step: &WorkflowStepKey,
+    started_at: &WireInstant,
+) -> WriteStatement {
+    keyed_statement(
+        &WAIT_ON_CHAIN_SQL,
+        step,
+        vec![text_binding("@wait_started_at", started_at.as_str())],
     )
 }
 

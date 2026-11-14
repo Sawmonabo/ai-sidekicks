@@ -335,10 +335,14 @@ interface McpLiveApplicationResult {
 
 // ---- Operations (12; JSON-RPC per ADR-009) ---- Reads:
 //   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[],
-// failedProviders: {provider: ProviderId, cause: string}[], providerPolicies?: McpProviderPolicy[]}
+// failedProviders: {provider: ProviderId, cause: string}[], failedRoots: {provider: ProviderId,
+// root: PlacedPath}[], providerPolicies?: McpProviderPolicy[]}
 // // each provider is read on its own: one whose read fails is left out of `servers` and named in
 // `failedProviders` with its cause, sanitized (no credential, URL query or path outside a web
 // address) and capped at the error message's length; the other providers' rows still list.
+// A project root part of whose config a provider's read could not read is named in `failedRoots`
+// with that provider, carrying no system error text; its other servers and every other root's
+// still list.
 // `providerPolicies` holds each policy that bears on every server a provider runs, the page's
 // provider policy line; absent where none does
 //   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a driver's

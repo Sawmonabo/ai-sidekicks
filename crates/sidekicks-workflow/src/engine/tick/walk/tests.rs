@@ -1,5 +1,6 @@
 mod first_to_arrive;
 mod flush;
+mod reuse;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -96,9 +97,8 @@ fn edge(source: &str, output: usize, target: &str, input: usize) -> WorkflowEdge
     .expect("the test's edge reads")
 }
 
-/// A walk over `nodes`, the `trigger` among them, and `edges`, built from its own node map, with
-/// the turn that starts it.
-fn start(nodes: Vec<WorkflowNode>, edges: &[WorkflowEdge]) -> (RunWalk, WalkTurn) {
+/// The run graph over `nodes`, the `trigger` among them, and `edges`, built from its own node map.
+fn graph(nodes: Vec<WorkflowNode>, edges: &[WorkflowEdge]) -> Arc<RunGraph> {
     let nodes: HashMap<_, _> = nodes
         .into_iter()
         .map(|node| (node.id.clone(), node))
@@ -108,9 +108,17 @@ fn start(nodes: Vec<WorkflowNode>, edges: &[WorkflowEdge]) -> (RunWalk, WalkTurn
         .find(|id| id.as_str() == "trigger")
         .expect("the graph has a trigger")
         .clone();
-    let graph = RunGraph::new(&nodes, &trigger, edges, &kinds()).expect("the graph builds");
-    let run_id = WorkflowRunId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62").expect("a run id");
-    let mut walk = RunWalk::new(Arc::new(graph), run_id);
+    Arc::new(RunGraph::new(&nodes, &trigger, edges, &kinds()).expect("the graph builds"))
+}
+
+/// The id of the run every test walk keys its steps under.
+fn run_id() -> WorkflowRunId {
+    WorkflowRunId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62").expect("a run id")
+}
+
+/// A walk over `nodes`, the `trigger` among them, and `edges`, with the turn that starts it.
+fn start(nodes: Vec<WorkflowNode>, edges: &[WorkflowEdge]) -> (RunWalk, WalkTurn) {
+    let mut walk = RunWalk::new(graph(nodes, edges), run_id());
     let turn = walk.start();
     (walk, turn)
 }
@@ -150,28 +158,30 @@ fn readied(turn: &WalkTurn, node_id: &str) -> WorkflowStepKey {
         .expect("the turn readied the node")
 }
 
+/// A step's sources as `node:output@execution` each, `-` for an unfed slot, joined by spaces.
+fn sources(sources: &[Option<WorkflowStepSource>]) -> String {
+    sources
+        .iter()
+        .map(|source| {
+            source.as_ref().map_or_else(
+                || "-".to_owned(),
+                |source| {
+                    format!(
+                        "{}:{}@{}",
+                        source.node_id.as_str(),
+                        source.output_index.get(),
+                        source.execution_index.get()
+                    )
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Each answer of `turn` as one line: ready steps, then skipped ones, each with its node, run
 /// index, execution index and sources as `node:output@execution`, `-` for an unfed slot.
 fn describe(turn: &WalkTurn) -> Vec<String> {
-    let sources = |sources: &[Option<WorkflowStepSource>]| -> String {
-        sources
-            .iter()
-            .map(|source| {
-                source.as_ref().map_or_else(
-                    || "-".to_owned(),
-                    |source| {
-                        format!(
-                            "{}:{}@{}",
-                            source.node_id.as_str(),
-                            source.output_index.get(),
-                            source.execution_index.get()
-                        )
-                    },
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
     let ready = turn.ready.iter().map(|ready| {
         format!(
             "ready {} run {} exec {} from {}",

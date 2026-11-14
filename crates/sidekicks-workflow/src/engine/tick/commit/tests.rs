@@ -15,6 +15,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
@@ -126,9 +127,11 @@ impl TurnHarness {
                     .expect("the test's version id"),
             },
             run_id(),
+            WorkflowRunEpoch(SafeInt::ZERO),
             counts,
             person_wait,
             Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
+            Arc::clone(&self.writer),
         )
     }
 
@@ -537,12 +540,12 @@ async fn a_turn_is_one_write_in_report_order() {
 }
 
 /// A reused skip records the step it reused and that step's pin hash on its row and event and
-/// passes the reused output on, and a refused write of it answers its own input's artifact but
-/// never the reused output's, which the earlier run's record names. Mutations: drop
-/// `reused_from_json` from `insert_skipped_step`'s statement; keep the reused output's artifact
-/// among the turn's.
+/// passes the reused output on, and a refused write of it answers neither its input's artifact nor
+/// its output's, which its earlier step's record or the start's copy names, never the turn.
+/// Mutations: drop `reused_from_json` from `insert_skipped_step`'s statement; keep the reused
+/// input's or output's artifact among the turn's.
 #[tokio::test]
-async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
+async fn a_reused_skip_names_its_source_and_never_drops_its_payloads() {
     let harness = TurnHarness::new().await;
     let from = WorkflowReusedStep {
         step: WorkflowStepKey {
@@ -552,20 +555,21 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
         workflow_version_id: WorkflowVersionId::new(VERSION_ID).expect("the test's version id"),
     };
     let reused_output = artifact_payload(artifact_id());
+    let input_ref = artifact_payload(artifact_id());
     let pin_hash = WorkflowContentHash(NonEmptyText::new("b3:pin".to_owned()).expect("a hash"));
     let skip = WalkSkip {
         step: step_key(TEST_NODE_ID, 1),
         run_index: 0,
         reason: WalkSkipReason::Reused(ReusedStepRecord {
             from: from.clone(),
+            input_ref: input_ref.clone(),
             output_ref: reused_output.clone(),
             pin_hash: Some(pin_hash),
+            outputs: Vec::new(),
         }),
         sources: vec![None],
         output_lengths: vec![3],
     };
-    let input_artifact = artifact_id();
-    let input_ref = artifact_payload(input_artifact);
     let at = instant("2026-10-02T00:04:00.000Z");
 
     let mut commit = harness.commit();
@@ -604,11 +608,11 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
         .append(&harness.appender, &harness.record, [])
         .await
         .expect_err("a second row for one step refuses the write");
-    assert_eq!(failure.artifact_ids, [input_artifact]);
+    assert_eq!(failure.artifact_ids, Vec::<ArtifactId>::new());
 }
 
-// Killed by a sibling-failure marker on a step a merge canceled, and by a cancel that drops the
-// hold it cut.
+// Killed by a sibling-failure marker on a step a merge canceled, by a cancel that drops the hold
+// it cut, and by a cancel whose row or event drops its cause.
 #[rstest]
 #[case::held_by_a_sibling_failure(
     WorkflowStepStatus::WaitingMemory,
@@ -620,7 +624,7 @@ async fn a_reused_skip_names_its_source_and_never_drops_its_output() {
 #[case::running_and_canceled_by_a_merge(
     WorkflowStepStatus::Running,
     None,
-    None,
+    Some(WorkflowPhaseCancellationReason::MergeFirstToArrive),
     &["workflow.step.canceled"],
     0
 )]
@@ -646,7 +650,7 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         )
         .await
         .expect("a cancel writes no payload");
-    let readying_event = usize::from(cancellation_reason.is_some());
+    let readying_event = event_types.len() - 1;
     assert!(matches!(
         answer,
         Some(SettlementAnswer::Canceled { readying_event: index }) if index == readying_event
@@ -660,9 +664,21 @@ async fn a_canceled_held_step_adds_its_cut_hold(
         .map(|(_, event_type, _, _)| event_type.as_str())
         .collect();
     assert_eq!(written, event_types);
-    if cancellation_reason.is_some() {
-        assert_eq!(events[0].3["cancellationReason"], json!("siblingFailure"));
-    }
+    let cause = json!(cancellation_reason);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.3["cancellationReason"] == cause)
+    );
+    let stored_cause: Option<String> = harness
+        .rows
+        .query_row(
+            "SELECT cancellation_reason FROM workflow_steps WHERE execution_index = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the step's row reads");
+    assert_eq!(json!(stored_cause), cause);
 }
 
 /// How a turn that replaces a kept value is written.
@@ -733,13 +749,17 @@ async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] wri
         )
         .await
         .expect("the kept value's artifact writes");
-    let kept: Vec<ArtifactId> = harness
+    let stored: Vec<ArtifactId> = harness
         .payloads
         .writes()
         .iter()
         .map(|write| write.artifact_id)
         .collect();
-    assert_eq!(kept.len(), 1, "only the kept value is above the cap");
+    assert_eq!(
+        stored.len(),
+        2,
+        "only the step's run variables and the kept value are above the cap"
+    );
 
     let written = if write == KeptWrite::Joined {
         let mut before = harness.commit();
@@ -773,7 +793,7 @@ async fn a_replaced_kept_artifact_is_answered_once_its_write_commits(#[case] wri
         }
         Err(failure) => {
             assert!(is_refused, "{:?}", failure.error);
-            assert_eq!(failure.artifact_ids, kept);
+            assert_eq!(failure.artifact_ids, stored);
         }
     }
     assert_eq!(harness.payloads.deletes(), []);

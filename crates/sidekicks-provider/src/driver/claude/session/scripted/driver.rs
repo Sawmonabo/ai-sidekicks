@@ -12,7 +12,7 @@ use std::time::SystemTime;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
@@ -580,7 +580,7 @@ impl ScriptedDriver {
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
         resume_handle: &str,
-        runtime_metadata: Map<String, serde_json::Value>,
+        runtime_metadata: Map<String, Value>,
     ) {
         let recorded_at = "2026-01-01T00:00:00.000Z".to_owned();
         self.engine.set_session_leg(
@@ -621,20 +621,21 @@ impl ScriptedDriver {
 
     /// Hands the lead `result` that ends the session's turn to the process `start` brought up.
     pub(crate) fn end_turn(&self, start: &ScriptedStartRecord, session_id: SessionId) {
-        end_turn_of(&self.driver, start, session_id);
+        end_turn_of(&self.driver, start, session_id, init());
     }
 }
 
-/// Hands the lead `result` that ends the session's turn to the process `start` brought up for
-/// `driver`.
+/// Hands the turn's `system/init` frame `init` and then the lead `result` that ends the session's
+/// turn to the process `start` brought up for `driver`.
 pub(crate) fn end_turn_of(
     driver: &ClaudeDriver,
     start: &ScriptedStartRecord,
     session_id: SessionId,
+    init: Value,
 ) {
     let routes = &driver.composed_parts().expect("composed").run_start.routes;
     for frame in [
-        init(),
+        init,
         json!({
             "type": "result",
             "subtype": "success",

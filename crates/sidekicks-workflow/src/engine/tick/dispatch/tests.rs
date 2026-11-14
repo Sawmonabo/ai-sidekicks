@@ -271,7 +271,7 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             json!({ "started": started })
         }
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling
+        StepReportKind::Canceling { .. }
         | StepReportKind::BranchesCanceled { .. }
         | StepReportKind::ResumeDue { .. }
         | StepReportKind::RunCapped { .. } => {
@@ -310,6 +310,10 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
                 StepFailure::EndsRun(error) => {
                     let error = serde_json::to_value(error).expect("a step failure writes");
                     json!({ "endsRun": error })
+                }
+                StepFailure::Crashed(error) => {
+                    let error = serde_json::to_value(error).expect("a step failure writes");
+                    json!({ "crashed": error })
                 }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };

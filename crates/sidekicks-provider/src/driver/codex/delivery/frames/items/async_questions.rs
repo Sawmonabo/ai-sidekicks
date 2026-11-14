@@ -92,6 +92,7 @@ fn read_async_questions(item: &Map<String, Value>) -> Vec<QuestionPrompt> {
                 options,
                 several_answers: true,
                 secret: false,
+                path: false,
                 required: None,
                 default: None,
                 minimum: None,

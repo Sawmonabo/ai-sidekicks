@@ -540,6 +540,7 @@ impl ClaudeDriver {
                     Arc::clone(dispatch),
                     &self.sources.data_folder,
                 )),
+                inspector_reads: Arc::clone(&inspector_reads),
             });
             composed = Some((
                 restarts,

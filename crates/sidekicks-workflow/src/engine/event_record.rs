@@ -24,11 +24,11 @@ use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::engine::ports::EngineRecordSink;
-use crate::engine::tick::BranchCancelReason;
 use crate::kinds::StepFailure;
 use crate::secrets::redaction::RunRedaction;
 
@@ -51,6 +51,11 @@ pub(crate) enum EngineIntent {
     /// A person wait's question is being opened.
     OpeningQuestion {
         /// The wait the question answers.
+        wait_id: UuidTextForm,
+    },
+    /// The approval card of a wait that ended unanswered is being withdrawn.
+    WithdrawingCard {
+        /// The wait the card answered.
         wait_id: UuidTextForm,
     },
 }
@@ -123,7 +128,7 @@ pub(crate) enum StepTransition<'report> {
     /// The step's turn canceled a wave of its run's other branches.
     BranchesCanceled {
         /// Why they were canceled.
-        reason: BranchCancelReason,
+        reason: WorkflowPhaseCancellationReason,
         /// How many running branches the wave canceled.
         count: usize,
     },
@@ -179,6 +184,17 @@ pub(crate) enum EngineFault {
     SettlementWriteFailed,
     /// A `Keep going` could not be read or written; its sender reads it as not taken.
     KeepGoingFailed,
+    /// A step's stored resume did not read at the restart; the step waits on the person's Resume.
+    ResumeUnreadable,
+    /// A wait the restart took back found its question unread or gone, or its agent run gone.
+    WaitNotReattached,
+    /// The run's session could not leave a tree removed while the run worked in it.
+    RemovedTreeSweepFailed,
+    /// A wait's approval card could not be read or withdrawn; the restart's settle closes it.
+    CardWithdrawFailed,
+    /// A workspace or a payload a stop left before the run's row could not be deleted at the
+    /// restart; the next restart tries it again.
+    StopLeftoverKept,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -266,6 +282,21 @@ impl EngineRecorder {
         lock(&self.sequences).remove(&run_id);
     }
 
+    /// The faults of runs that record nothing more in this life, none recorded yet.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run start's held start and the restart's leftover sweep"
+        )
+    )]
+    pub(crate) fn ended_run_faults(&self) -> EndedRunFaults<'_> {
+        EndedRunFaults {
+            recorder: self,
+            records: HashMap::new(),
+        }
+    }
+
     /// Whether the life still keeps a sequence for `run_id`, which a run's end forgets.
     #[cfg(test)]
     pub(crate) fn has_sequence(&self, run_id: WorkflowRunId) -> bool {
@@ -273,7 +304,58 @@ impl EngineRecorder {
     }
 }
 
-/// One run's record within one daemon life.
+/// The faults of runs that record nothing more in this life, a start's that wrote no row and a
+/// finished or rowless run's the restart's sweep found: each run's go through one record, so they
+/// carry one sequence, and each run's sequence is forgotten once, when this is dropped.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run start's held start and the restart's leftover sweep"
+    )
+)]
+pub(crate) struct EndedRunFaults<'recorder> {
+    /// The recorder the records come from and whose sequences are forgotten.
+    recorder: &'recorder EngineRecorder,
+    /// The record of each run a fault was recorded under.
+    records: HashMap<WorkflowRunId, RunEngineRecord>,
+}
+
+impl EndedRunFaults<'_> {
+    /// Records `fault` and its `error` under `run_id`, after the run's earlier faults here.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run start's held start and the restart's leftover sweep"
+        )
+    )]
+    pub(crate) async fn fault(
+        &mut self,
+        run_id: WorkflowRunId,
+        fault: EngineFault,
+        error: &(dyn Error + Send + Sync + 'static),
+    ) {
+        let recorder = self.recorder;
+        self.records
+            .entry(run_id)
+            .or_insert_with(|| recorder.for_run(run_id, Arc::new(RunRedaction::new(&[]))))
+            .fault(None, fault, error)
+            .await;
+    }
+}
+
+impl Drop for EndedRunFaults<'_> {
+    fn drop(&mut self) {
+        for run_id in self.records.keys() {
+            self.recorder.end_run(*run_id);
+        }
+    }
+}
+
+/// One run's record within one daemon life; a copy writes on the same sequence, after the run's end
+/// too.
+#[derive(Clone)]
 #[cfg_attr(
     not(test),
     expect(
@@ -333,6 +415,14 @@ impl RunEngineRecord {
                     &mut line,
                     "openingQuestion",
                     "The engine is dispatching the wait's question.",
+                );
+                line.insert("waitId".to_owned(), json!(wait_id));
+            }
+            EngineIntent::WithdrawingCard { wait_id } => {
+                says(
+                    &mut line,
+                    "withdrawingCard",
+                    "The engine is withdrawing the wait's approval card.",
                 );
                 line.insert("waitId".to_owned(), json!(wait_id));
             }
@@ -452,6 +542,31 @@ impl RunEngineRecord {
                 &mut line,
                 "keepGoingFailed",
                 "A Keep going of the run's chain could not be read or written.",
+            ),
+            EngineFault::ResumeUnreadable => says(
+                &mut line,
+                "resumeUnreadable",
+                "The step's stored resume did not read; it waits on the person's Resume.",
+            ),
+            EngineFault::WaitNotReattached => says(
+                &mut line,
+                "waitNotReattached",
+                "The step's wait could not be taken back after the restart.",
+            ),
+            EngineFault::RemovedTreeSweepFailed => says(
+                &mut line,
+                "removedTreeSweepFailed",
+                "The session could not leave a tree removed while the run worked in it.",
+            ),
+            EngineFault::CardWithdrawFailed => says(
+                &mut line,
+                "cardWithdrawFailed",
+                "A wait's approval card could not be withdrawn; the restart's settle closes it.",
+            ),
+            EngineFault::StopLeftoverKept => says(
+                &mut line,
+                "stopLeftoverKept",
+                "What a stop left before the run's row could not be deleted; a restart retries it.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));
@@ -574,11 +689,6 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
         }
         StepTransition::BranchesCanceled { reason, count } => {
             line.insert("report".to_owned(), json!("branchesCanceled"));
-            let reason = match reason {
-                BranchCancelReason::FirstToArrive => "firstToArrive",
-                BranchCancelReason::SiblingFailure => "siblingFailure",
-                BranchCancelReason::RunCanceled => "runCanceled",
-            };
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));
         }
@@ -604,11 +714,13 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn failure_code(failure: &StepFailure) -> Value {
     match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => match error.as_ref() {
-            WorkflowStepError::Uncoded(_) => json!("uncoded"),
-            WorkflowStepError::Coded(coded) => json!(coded.code),
-            WorkflowStepError::AgentResolution(resolution) => json!(resolution.code),
-        },
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error) => {
+            match error.as_ref() {
+                WorkflowStepError::Uncoded(_) => json!("uncoded"),
+                WorkflowStepError::Coded(coded) => json!(coded.code),
+                WorkflowStepError::AgentResolution(resolution) => json!(resolution.code),
+            }
+        }
         StepFailure::Declined { .. } => json!("declined"),
     }
 }

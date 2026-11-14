@@ -13,7 +13,7 @@ use sidekicks_contracts::mcp::server::inventory::{
     McpToolSetting,
 };
 use sidekicks_contracts::mcp::server::requests::{
-    McpProviderReadFailure, McpServerListRequest, McpServerListResponse,
+    McpProviderReadFailure, McpRootReadFailure, McpServerListRequest, McpServerListResponse,
 };
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpToolName};
 use sidekicks_contracts::place::PlacedPath;
@@ -127,6 +127,9 @@ pub struct McpInventoryService {
     sources: McpInventorySources,
 }
 
+// One provider's rows, each keyed by its binding, and the roots its driver could not read whole.
+type McpProviderRows<Row> = (Vec<(McpBindingKey, Row)>, Vec<PlacedPath>);
+
 /// The sources one read shares across its providers: each attached project with its root, the
 /// roots the read adds besides and every account.
 struct McpInventoryContext {
@@ -155,7 +158,8 @@ impl McpInventoryService {
 
     /// Every binding each provider declares, in the providers' order, each provider read on its
     /// own: a provider whose driver's read fails, or one of whose stored accounts has an id that is
-    /// not one, is named with its cause beside the others' rows.
+    /// not one, is named with its cause beside the others' rows, and each root part of whose config
+    /// a driver could not read is named beside its provider's rows.
     /// A refresh has each driver read again what it keeps between reads and probe every binding
     /// it can, one probe per provider at a time: a refresh that finds its provider's probe running
     /// waits for it and reads what it recorded. Fails as a source every provider shares cannot be
@@ -165,16 +169,28 @@ impl McpInventoryService {
         request: &McpServerListRequest,
     ) -> Result<McpServerListResponse, McpInventoryError> {
         let is_refresh = request.refresh == Some(true);
-        let context = self.read_context().await?;
-        let providers = join_all(self.sources.providers.drivers().map(|(provider, driver)| {
-            self.list_provider(provider, driver.as_ref(), &context, is_refresh)
-        }))
+        let context = &self.read_context().await?;
+        let providers = join_all(self.sources.providers.drivers().map(
+            |(provider, driver)| async move {
+                let rows = self
+                    .list_provider(provider, driver.as_ref(), context, is_refresh)
+                    .await;
+                (provider, rows)
+            },
+        ))
         .await;
         let mut servers = Vec::new();
         let mut failed_providers = Vec::new();
-        for rows in providers {
+        let mut failed_roots = Vec::new();
+        for (listed_provider, rows) in providers {
             match rows {
-                Ok(rows) => servers.extend(rows.into_iter().map(|(_key, entry)| entry)),
+                Ok((rows, roots)) => {
+                    servers.extend(rows.into_iter().map(|(_key, entry)| entry));
+                    failed_roots.extend(roots.into_iter().map(|root| McpRootReadFailure {
+                        provider: listed_provider.clone(),
+                        root,
+                    }));
+                }
                 Err(McpInventoryError::Driver { provider, source }) => {
                     failed_providers.push(name_failed_provider(provider, &source));
                 }
@@ -192,6 +208,7 @@ impl McpInventoryService {
         Ok(McpServerListResponse {
             servers,
             failed_providers,
+            failed_roots,
         })
     }
 
@@ -230,7 +247,7 @@ impl McpInventoryService {
             .find(|(provider, _driver)| **provider == key.provider)
             .ok_or_else(not_found)?;
         let context = self.read_context().await?;
-        let entries = self
+        let (entries, _failed_roots) = self
             .read_provider_rows(
                 provider,
                 driver.as_ref(),
@@ -263,7 +280,7 @@ impl McpInventoryService {
             return Ok(Vec::new());
         };
         let context = self.read_context().await?;
-        let rows = self
+        let (rows, _failed_roots) = self
             .read_resolved_rows(
                 provider,
                 driver.as_ref(),
@@ -291,7 +308,7 @@ impl McpInventoryService {
         context.extra_roots = extra_roots.to_vec();
         let mut declarations = Vec::new();
         for (provider, driver) in self.sources.providers.drivers() {
-            let rows = self
+            let (rows, _failed_roots) = self
                 .read_resolved_rows(
                     provider,
                     driver.as_ref(),
@@ -394,7 +411,7 @@ impl McpInventoryService {
         driver: &dyn ProviderDriver,
         context: &McpInventoryContext,
         is_refresh: bool,
-    ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
+    ) -> Result<McpProviderRows<McpServerInventoryEntry>, McpInventoryError> {
         if !is_refresh {
             return self
                 .read_provider_rows(provider, driver, context, false, McpProbeScope::None, None)
@@ -482,20 +499,22 @@ impl McpInventoryService {
         is_refresh: bool,
         probe: McpProbeScope,
         landing: Option<McpBindingLanding<'_>>,
-    ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
-        Ok(self
+    ) -> Result<McpProviderRows<McpServerInventoryEntry>, McpInventoryError> {
+        let (rows, failed_roots) = self
             .read_resolved_rows(provider, driver, context, is_refresh, probe, landing)
-            .await?
+            .await?;
+        let entries = rows
             .into_iter()
             .map(|(key, row)| {
                 let entry = self.entry(&key, row, context);
                 (key, entry)
             })
-            .collect())
+            .collect();
+        Ok((entries, failed_roots))
     }
 
     // The read [`Self::read_provider_rows`] makes, each binding's row resolved and keyed before
-    // it becomes an entry.
+    // it becomes an entry, with the roots the driver could not read whole.
     async fn read_resolved_rows(
         &self,
         provider: &ProviderId,
@@ -504,7 +523,7 @@ impl McpInventoryService {
         is_refresh: bool,
         probe: McpProbeScope,
         landing: Option<McpBindingLanding<'_>>,
-    ) -> Result<Vec<(McpBindingKey, McpBindingRow)>, McpInventoryError> {
+    ) -> Result<McpProviderRows<McpBindingRow>, McpInventoryError> {
         let provider_account_ids = provider_account_ids(provider, context)?;
         // The store is read first, since the driver probes the `local` bindings it keeps.
         let stored = self
@@ -567,7 +586,7 @@ impl McpInventoryService {
             let listed = rows.iter().map(|(key, _row)| key.clone()).collect();
             self.sources.tracker.forget_probes_of(provider, &listed);
         }
-        Ok(rows)
+        Ok((rows, reading.failed_roots))
     }
 
     /// Records in the status tracker each probe reading that observed its server, with its error

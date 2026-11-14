@@ -2,19 +2,22 @@
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
 //! results answer, the `SendMessage` calls an assistant frame makes, an assistant message's usage
 //! with what prices its request and a result's own usage and cost per model, the `system/init`
-//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
-//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
-//! naming only these members, each leniently: an absent or malformed one reads as absent, and
-//! every other member is skipped unread. A `result`'s cost per model is its
+//! declaration with its MCP servers' readings and memory stores and a later whole `/` list, the
+//! compaction boundary, and a start-up hook's start or end. The frame is untrusted, so it is read
+//! once into a struct naming only these members, each leniently: an absent or malformed one reads
+//! as absent, and every other member is skipped unread. A `result`'s cost per model is its
 //! `model_usage_since_last_result`, each model's counts and cost since the process's previous
 //! result; `modelUsage`, the process's running total, is never read.
+
 use std::fmt;
 use std::marker::PhantomData;
+use std::path::Path;
 
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 
 use crate::driver::claude::capabilities::without_larger_window_mark;
@@ -96,6 +99,8 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default)]
     mcp_servers: Option<Value>,
     #[serde(default, deserialize_with = "read_lenient")]
+    memory_paths: Option<ClaudeMemoryPaths>,
+    #[serde(default, deserialize_with = "read_lenient")]
     fast_mode_state: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     fast_mode_disabled_reason: Option<String>,
@@ -160,6 +165,15 @@ struct ClaudeContentBlock {
     tool_use_id: Option<String>,
 }
 
+// The memory store folders a `system/init` frame names.
+#[derive(Deserialize)]
+struct ClaudeMemoryPaths {
+    #[serde(default, deserialize_with = "read_lenient")]
+    auto: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    team: Option<String>,
+}
+
 // What a `task_updated` frame changes of its task.
 #[derive(Deserialize)]
 struct ClaudeTaskPatch {
@@ -214,6 +228,7 @@ lenient_object!(
     ClaudeFrameMessage,
     ClaudeContentBlock,
     ClaudeTaskPatch,
+    ClaudeMemoryPaths,
     ClaudeTokenUsage,
     ClaudeCacheCreation,
     ClaudeServerToolUse,
@@ -404,6 +419,14 @@ impl ClaudeStreamFrameRead {
                 .mcp_servers
                 .as_ref()
                 .map(normalize_claude_mcp_server_init_census),
+            memory_stores: self
+                .memory_paths
+                .iter()
+                .flat_map(|paths| [paths.auto.clone(), paths.team.clone()])
+                .flatten()
+                .filter(|path| Path::new(path).is_absolute())
+                .filter_map(|path| FilesystemPath::new(path).ok())
+                .collect(),
         }
     }
 

@@ -17,7 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use rusqlite::{Connection, OptionalExtension, Row};
+use rusqlite::{OptionalExtension, Row};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
@@ -38,9 +38,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, place_column, text_column,
-};
+use sidekicks_store::database::stored_column::{closed_word, place_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
@@ -52,11 +50,10 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::risks::{RemovalRiskReadError, read_removal_risk_reading};
 use crate::git::worktree::rows::{
     AttachedMountRow, MARK_READY_SQL, NewWorktreeRow, UNRELEASED_RUN_IN_WORKTREE_SQL,
-    UNRELEASED_RUNS_SQL, UnreleasedRunRow, WorktreeRow, WorktreeRowChange, WorktreeRowRefusal,
-    insert_worktree_statement, transition_statement,
+    UNRELEASED_RUNS_STATEMENT_CAPACITY, WorktreeRow, WorktreeRowChange, WorktreeRowRefusal,
+    insert_worktree_statement, read_unreleased_runs, transition_statement,
 };
 use crate::repo::errors::RepoRefusal;
-use crate::trust_envelope::is_contained_within;
 
 /// The `worktrees` columns [`worktree_row_of`] reads, in its order, for a query naming the table
 /// `wt`.
@@ -244,9 +241,9 @@ pub enum WorktreeRowsReadError {
 }
 
 /// The statements the worktree service prepares on a read connection: a tree's row by id, by
-/// folder and its state, the attached mount, the retired among a list, the unreleased runs, and
-/// the sweep's sweepable and uncleaned retired trees.
-pub const WORKTREE_SERVICE_STATEMENT_CAPACITY: usize = 8;
+/// folder and its state, the attached mount, the retired among a list, the sweep's sweepable and
+/// uncleaned retired trees, and the unreleased runs, a read the working folders share.
+pub const WORKTREE_SERVICE_STATEMENT_CAPACITY: usize = 7 + UNRELEASED_RUNS_STATEMENT_CAPACITY;
 
 /// Owns every `worktrees` transition and worktree-scoped git call.
 pub struct WorktreeService {
@@ -578,19 +575,19 @@ impl WorktreeService {
         let runs = self
             .deps
             .reads
-            .read(ReadLength::Short, read_unreleased_runs)
+            .read(ReadLength::Short, |connection| {
+                Ok::<_, WorktreeServiceError>(read_unreleased_runs(connection)?)
+            })
             .await?;
         let tree_key = canonical_folder_path(Path::new(tree.fs_root.as_str()))
             .await
             .map_err(WorktreeServiceError::Folder)?;
         for run in runs {
-            if run.worktree_id == Some(tree.id) {
-                return Ok(Some(run.session_id));
-            }
-            let root_key = canonical_folder_path(Path::new(run.execution_root.as_str()))
+            if run
+                .is_in_tree(tree.id, &tree_key)
                 .await
-                .map_err(WorktreeServiceError::Folder)?;
-            if is_contained_within(&root_key, &tree_key) {
+                .map_err(WorktreeServiceError::Folder)?
+            {
                 return Ok(Some(run.session_id));
             }
         }
@@ -745,19 +742,4 @@ pub(crate) fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
         fs_root: text_column(row, 5, FilesystemPath::new)?,
         state: text_column(row, 6, closed_word)?,
     })
-}
-
-fn read_unreleased_runs(
-    connection: &Connection,
-) -> Result<Vec<UnreleasedRunRow>, WorktreeServiceError> {
-    Ok(connection
-        .prepare_cached(UNRELEASED_RUNS_SQL)?
-        .query_map([], |row| {
-            Ok(UnreleasedRunRow {
-                session_id: text_column(row, 0, |text| SessionId::new(&text))?,
-                worktree_id: optional_text_column(row, 1, |text| WorktreeId::new(&text))?,
-                execution_root: text_column(row, 2, FilesystemPath::new)?,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?)
 }

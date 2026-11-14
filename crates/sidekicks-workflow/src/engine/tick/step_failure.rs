@@ -16,13 +16,12 @@ use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::failures::{
     WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
 };
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::tick::StepReport;
-use crate::engine::tick::branch_cancellation::{
-    BranchCancelReason, BranchLoser, BranchWave, cancel_branches,
-};
+use crate::engine::tick::branch_cancellation::{BranchLoser, BranchWave, cancel_branches};
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
 use crate::kinds::{StepFailure, coded_step_error, uncoded_step_error};
@@ -93,8 +92,10 @@ pub(crate) fn route_step_failure(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> StepFailureRoute {
-    if matches!(failure, StepFailure::EndsRun(_)) {
-        return StepFailureRoute::End;
+    match failure {
+        StepFailure::EndsRun(_) => return StepFailureRoute::End,
+        StepFailure::Crashed(_) => return StepFailureRoute::Park,
+        StepFailure::Failed(_) | StepFailure::Declined { .. } => {}
     }
     let retry = step_retry(node);
     if matches!(failure, StepFailure::Failed(_)) && step.attempt.get() < retry.max_tries {
@@ -179,7 +180,9 @@ pub(crate) fn step_failure_error(
     failure: &StepFailure,
 ) -> WorkflowStepError {
     let mut error = match failure {
-        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) | StepFailure::Crashed(error) => {
+            (**error).clone()
+        }
         StepFailure::Declined { words, .. } => uncoded_step_error(match words {
             Some(words) => format!("The step was declined: {}", words.as_str()),
             None => "The step was declined".to_owned(),
@@ -204,6 +207,17 @@ pub(crate) fn run_cap_failure(limit_ms: SafeInt<1>) -> StepFailure {
         "The run passed its time cap".to_owned(),
         serde_json::to_value(details).expect("the timed-out details write as JSON"),
         None,
+    )))
+}
+
+/// The failure the restart's sweep gives `step`, which was running when the daemon stopped:
+/// `workflow.step.crashed`, a failure that parks its run.
+pub(crate) fn crashed_step_failure(step: &WorkflowStepKey) -> StepFailure {
+    StepFailure::Crashed(Box::new(coded_step_error(
+        RefusalCode::WorkflowStepCrashed,
+        "The daemon stopped while the step ran".to_owned(),
+        serde_json::json!({}),
+        Some(step.node_id.clone()),
     )))
 }
 
@@ -257,7 +271,7 @@ pub(crate) struct SiblingStop {
 pub(crate) fn stop_siblings(
     deciding: WorkflowStepKey,
     stop: RunStop,
-    reason: BranchCancelReason,
+    reason: WorkflowPhaseCancellationReason,
     siblings: Vec<RunSibling>,
 ) -> SiblingStop {
     let mut losers = Vec::new();
@@ -305,7 +319,7 @@ mod tests {
     use super::{
         RunSibling, RunStop, SiblingState, StepFailureRoute, route_step_failure, stop_siblings,
     };
-    use crate::engine::tick::branch_cancellation::{BranchCancelReason, WaveSettle};
+    use crate::engine::tick::branch_cancellation::WaveSettle;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
     use crate::kinds::StepFailure;
 
@@ -505,14 +519,14 @@ mod tests {
         let stopped = stop_siblings(
             step("failed", 1),
             stop,
-            BranchCancelReason::SiblingFailure,
+            WorkflowPhaseCancellationReason::SiblingFailure,
             siblings,
         );
         let reports: Vec<(String, bool)> = stopped
             .reports
             .iter()
             .map(|report| {
-                let is_canceling = matches!(report.kind, StepReportKind::Canceling);
+                let is_canceling = matches!(report.kind, StepReportKind::Canceling { .. });
                 (report.step.node_id.as_str().to_owned(), is_canceling)
             })
             .collect();

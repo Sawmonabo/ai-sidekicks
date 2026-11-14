@@ -1,9 +1,10 @@
 //! What the tick keeps of each run it drives between turns: the run's walk, what its steps
 //! recorded, each of its steps still to settle with what its failure route reads and how it is
 //! stopped, the waves of its steps winding down, how a failure stopped it, the approval asks
-//! waiting on their pause points, and what reached the run while it paused.
+//! waiting on their pause points, the approval cards to withdraw once its write commits, and what
+//! reached the run while it paused.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -13,6 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
@@ -20,15 +22,17 @@ use sidekicks_contracts::workflow::run::step::record::{
 use tokio_util::sync::CancellationToken;
 
 use super::branch_cancellation::BranchWave;
-use super::commit::{RunEnding, RunLiveStep};
+use super::commit::{RunEnding, RunLiveStep, RunTurnCommit};
+use super::dispatch::StepDispatch;
 use super::run_status::{RunPersonWait, RunStepCounts};
 use super::step_failure::RunStop;
-use super::turns::{RunCancelIntake, RunCancelReply};
-use super::walk::{RunGraph, RunWalk, WalkReady};
+use super::turns::{RunCancelIntake, RunCancelReply, RunResumeIntake};
+use super::walk::{RunWalk, WalkReady};
 use super::{ParkedAgentRun, RunScope, StepReport};
 use crate::engine::deadlines::EngineDeadlines;
 use crate::engine::event_record::{EngineDeadline, EngineDecision, RunEngineRecord};
 use crate::engine::ports::StepAdmissionTicket;
+use crate::engine::under_way::RunUnderWay;
 use crate::engine::waits::OpenedPersonWait;
 use crate::engine::waits::answers::PersonWaitIntake;
 use crate::expressions::lineage::StepOutputs;
@@ -36,10 +40,11 @@ use crate::kinds::PersonAsk;
 use crate::runs::gate_resolution::RunEventKeys;
 
 /// A run the tick drives: its scope, its record, its walk, each node's executions so far, the
-/// values it set with `Set variables`, its steps still to settle, the reports its last dispatch
+/// values it set with
+/// `Set variables`, its steps still to settle, the reports its last dispatch
 /// answered, which open its next turn, its step counts and person-wait columns as its last write
 /// left them, the waves of its steps winding down, how a failure stopped it and the ending it
-/// decided, and its approval pauses.
+/// decided, its approval pauses, and the cards of the approval waits its turn ended unanswered.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct LiveRun {
     /// What the run's steps share.
@@ -70,6 +75,9 @@ pub(crate) struct LiveRun {
     /// The ending a stop decided, written once none of the run's steps runs, is held, pending or
     /// waiting.
     pub(crate) ending: Option<RunEnding>,
+    /// The steps a failed park canceled before they settled, in the order they were canceled,
+    /// each kept in the walk for the Resume that runs it again.
+    pub(crate) park_canceled: Vec<ParkCanceledStep>,
     /// The replies to the person's cancels of the run, sent once the write of its ending commits.
     pub(crate) cancel_replies: Vec<RunCancelReply>,
     /// Whether the run's turn armed or cleared a person wait's deadline, a parked step's resume or
@@ -89,8 +97,17 @@ pub(crate) struct LiveRun {
     /// The approval asks of the run's pause, each waiting on its point; all are asked once the
     /// last of their points ends.
     pub(crate) pausing: Vec<TurnAsk>,
+    /// The approval waits the run's turn ended unanswered, each with its step, whose cards are
+    /// withdrawn once the turn's write commits; a refused write drops them with the run.
+    pub(crate) withdrawn_cards: Vec<(WorkflowStepKey, UuidTextForm)>,
     /// What reached the run while it paused, taken by the turn its last pause point's end opens.
     pub(crate) held: HeldTurn,
+    /// The execution indexes of the steps the restart took back undispatched, whose dispatch takes
+    /// again the agent run each made before the stop.
+    pub(crate) taken_back: HashSet<u64>,
+    /// The run's hold as under way, let go when the tick drops the run, so the leftover sweep
+    /// of a session reloaded beside it leaves what its turns reserve alone.
+    _under_way: RunUnderWay,
 }
 
 /// What reached a pausing run, kept for the turn its last pause point's end opens, each list in
@@ -104,6 +121,18 @@ pub(crate) struct HeldTurn {
     pub(crate) dispatches: Vec<WorkflowStepKey>,
     /// The person's cancels of the run, taken once the capture under way ends.
     pub(crate) cancels: Vec<RunCancelIntake>,
+    /// The person's Resumes of the run, taken once the capture under way ends.
+    pub(crate) resumes: Vec<RunResumeIntake>,
+}
+
+/// A step a failed park of its run canceled before it settled: what its next attempt reads.
+pub(crate) struct ParkCanceledStep {
+    /// The step canceled.
+    pub(crate) step: WorkflowStepKey,
+    /// Its input lists, which its next attempt reads again.
+    pub(crate) inputs: Vec<Vec<WorkflowItem>>,
+    /// Its input as its row stores it.
+    pub(crate) input_ref: WorkflowPayloadRef,
 }
 
 /// A person wait a turn opened, asked once the turn's write commits: its step, the wait, what the
@@ -151,13 +180,18 @@ pub(crate) struct LiveStep {
     pub(crate) last_hold_report_at: Option<WireInstant>,
     /// Its dispatch's cancel, `None` until it is dispatched.
     pub(crate) cancel: Option<CancellationToken>,
-    /// Whether it was asked to stop and is winding down.
+    /// Whether it was asked to stop and is winding down, or the restart's sweep queued its cancel.
     pub(crate) is_winding_down: bool,
+    /// Whether a failed park of its run canceled it, so a Resume runs it again.
+    pub(crate) is_park_canceled: bool,
     /// The agent run it waits on while its account is spent, kept for the account's resume and
     /// stopped when the step is canceled.
     pub(crate) parked_agent_run: Option<ParkedAgentRun>,
     /// When it resumes itself from its spent account's wait, where a resume is armed.
     pub(crate) resume_at: Option<WireInstant>,
+    /// Whether a first-to-arrive merge's win canceled it while the entry line or the memory gate
+    /// held it, so its own cancel, when it settles, records that cause.
+    pub(crate) is_merge_canceled: bool,
 }
 
 impl LiveStep {
@@ -183,16 +217,48 @@ impl LiveStep {
             last_hold_report_at: None,
             cancel: None,
             is_winding_down: false,
+            is_park_canceled: false,
             parked_agent_run: None,
             resume_at: None,
+            is_merge_canceled: false,
         }
     }
 }
 
 impl LiveRun {
-    /// The run of `scope` before any step, walking `graph` and recording through `record`.
+    /// Decides `ending` for the run where none is decided yet, recorded at `at` in `commit`, so a
+    /// restart finishes the run on it; an ending already decided stands.
+    pub(crate) fn decide_ending(
+        &mut self,
+        ending: RunEnding,
+        commit: &mut RunTurnCommit,
+        at: &WireInstant,
+    ) {
+        if self.ending.is_none() {
+            commit.stopping(&ending, at);
+            self.ending = Some(ending);
+        }
+    }
+
+    /// Why the run's stop cancels its other steps: the person's cancel where the run's ending is
+    /// one, else a sibling's failure.
+    pub(crate) fn stop_cancellation_reason(&self) -> WorkflowPhaseCancellationReason {
+        if matches!(self.ending, Some(RunEnding::Canceled { .. })) {
+            WorkflowPhaseCancellationReason::RunCanceled
+        } else {
+            WorkflowPhaseCancellationReason::SiblingFailure
+        }
+    }
+
+    /// The run of `scope` before any step, on `walk`, recording through `record`, held as under
+    /// way by `under_way` until the tick drops it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn new(scope: Arc<RunScope>, graph: Arc<RunGraph>, record: RunEngineRecord) -> Self {
+    pub(crate) fn new(
+        scope: Arc<RunScope>,
+        walk: RunWalk,
+        record: RunEngineRecord,
+        under_way: RunUnderWay,
+    ) -> Self {
         let outputs = StepOutputs::new(
             scope
                 .nodes
@@ -200,7 +266,7 @@ impl LiveRun {
                 .map(|node| (node.id.clone(), node.name.as_str().to_owned())),
         );
         Self {
-            walk: RunWalk::new(graph, scope.run_id),
+            walk,
             scope,
             record,
             outputs,
@@ -212,6 +278,7 @@ impl LiveRun {
             waves: Vec::new(),
             stop: None,
             ending: None,
+            park_canceled: Vec::new(),
             cancel_replies: Vec::new(),
             needs_deadline_read: false,
             deadline_lines: Vec::new(),
@@ -219,13 +286,22 @@ impl LiveRun {
             epoch: WorkflowRunEpoch(SafeInt::ZERO),
             approval_pauses: 0,
             pausing: Vec::new(),
+            withdrawn_cards: Vec::new(),
             held: HeldTurn {
                 answers: Vec::new(),
                 reports: Vec::new(),
                 dispatches: Vec::new(),
                 cancels: Vec::new(),
+                resumes: Vec::new(),
             },
+            taken_back: HashSet::new(),
+            _under_way: under_way,
         }
+    }
+
+    /// Whether a step's failure parked the run, waiting on Resume, with its ending undecided.
+    pub(crate) fn is_parked_on_failure(&self) -> bool {
+        self.stop == Some(RunStop::Park) && self.ending.is_none()
     }
 
     /// Whether any ask of the run's pause still waits on its point: a pausing run takes no turn.
@@ -340,10 +416,43 @@ impl LiveRun {
         }
     }
 
+    /// Takes `step`, canceled before it settled, out of the walk so it feeds nothing; a run parked
+    /// on a failure keeps it there instead, with its `inputs` stored as `input_ref`, for the Resume
+    /// that runs it again.
+    pub(crate) fn leave_walk(
+        &mut self,
+        step: &WorkflowStepKey,
+        inputs: &[Vec<WorkflowItem>],
+        input_ref: &WorkflowPayloadRef,
+    ) {
+        if self.is_parked_on_failure() {
+            self.park_canceled.push(ParkCanceledStep {
+                step: step.clone(),
+                inputs: inputs.to_vec(),
+                input_ref: input_ref.clone(),
+            });
+        } else {
+            self.walk.drop_step(step);
+        }
+    }
+
+    /// Stops the agent run `step` made before the daemon stopped, where the restart took the step
+    /// back and it settles before any dispatch.
+    pub(crate) async fn stop_taken_back(
+        &mut self,
+        dispatch: &StepDispatch,
+        step: &WorkflowStepKey,
+    ) {
+        if self.taken_back.remove(&step.execution_index.get()) {
+            dispatch.stop_stored_run(&self.record, step).await;
+        }
+    }
+
     /// Takes the live step at `execution_index` out of the run, `None` where none is live; the
     /// step leaves any person wait it held, whose deadline is cleared.
     pub(crate) fn remove_step(&mut self, execution_index: u64) -> Option<LiveStep> {
         let mut removed = self.steps.remove(&execution_index)?;
+        self.taken_back.remove(&execution_index);
         let cleared = leave_wait(&mut removed);
         self.clear_deadline(cleared);
         Some(removed)

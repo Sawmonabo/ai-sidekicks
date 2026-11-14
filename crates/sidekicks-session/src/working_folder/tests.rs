@@ -37,7 +37,7 @@ use sidekicks_workspace::repo::mount::reattach::{
 };
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use sidekicks_workspace::run_setup_gates::execution_root::context::{
-    SessionRunBinder, context_statement,
+    SessionRunBinder, context_statement, release_run_context_statement,
 };
 use sidekicks_workspace::run_setup_gates::execution_root::{
     ExecutionRootSetupGate, SessionFolderMoves,
@@ -711,11 +711,13 @@ async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
     );
 }
 
-/// A removed tree's sweep passes over a workflow run's live context there: the session is swept
-/// back to the repository at once, since only an agent run holds it. Mutation: the bound-run read
-/// counting a workflow run's context, which keeps the session in the removed tree.
+/// A removed tree's sweep passes over a session whose workflow run is bound in that tree, as it
+/// does an agent run's, and the run's end sweeps it back to the repository once its context is
+/// released. Mutations: the sweep's bound-run test leaving out a workflow run's context, which
+/// moves the session under its live run; the binder's sweep of a released run doing nothing, which
+/// leaves it in the removed tree.
 #[tokio::test]
-async fn a_removed_trees_sweep_moves_a_session_whose_workflow_run_is_live_there() {
+async fn a_removed_trees_sweep_passes_over_a_workflow_runs_session_until_its_run_ends() {
     let fixture = Fixture::new().await;
     let workspace_id = fixture.roots.bind().await;
     fixture
@@ -730,6 +732,7 @@ async fn a_removed_trees_sweep_moves_a_session_whose_workflow_run_is_live_there(
             Ok((row.get(0)?, row.get(1)?))
         })
         .expect("the tree is stored");
+    let tree = PathBuf::from(tree);
     fixture.bind_workflow_run().await;
     fixture
         .roots
@@ -745,11 +748,93 @@ async fn a_removed_trees_sweep_moves_a_session_whose_workflow_run_is_live_there(
         .sweep_to_repo_root(&WorktreeSweep {
             repo_mount_id: RepoMountId::new(MOUNT_ID).expect("the id is a UUID"),
             worktree_id: WorktreeId::new(&worktree_id).expect("the id is a UUID"),
-            folder: wire_path(&PathBuf::from(tree)),
+            folder: wire_path(&tree),
         })
         .await
         .expect("the sweep lands");
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"
+        )),
+        Some(path_text(&tree)),
+        "the bound session keeps its folder"
+    );
+    assert_eq!(fixture.sweeps_of(SESSION_ID), Vec::<bool>::new());
 
+    // The run's ending write releases its context, then the binder sweeps, as the engine ends it.
+    fixture
+        .roots
+        .log
+        .writer
+        .write(vec![release_run_context_statement(
+            WORKFLOW_RUN_ID,
+            &WireInstant::now(),
+        )])
+        .await
+        .expect("the workflow run's context is released");
+    fixture
+        .gate
+        .sweep_released_run(session_id())
+        .await
+        .expect("the run's end sweeps");
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"
+        )),
+        Some(path_text(&fixture.roots.repository))
+    );
+    assert_eq!(fixture.sweeps_of(SESSION_ID), vec![false]);
+}
+
+/// A session moved into a tree while its workflow run works in another folder is swept to the
+/// repository at the tree's removal, since no run of it is bound in the tree, so its next send
+/// binds where a folder is. Mutation: the sweep passing over a session for a run bound anywhere in
+/// its workspace, which leaves it in the removed tree.
+#[tokio::test]
+async fn a_removed_trees_sweep_moves_a_session_whose_workflow_run_works_elsewhere() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.roots.bind().await;
+    fixture
+        .roots
+        .prepare(workspace_id, Some("feature"))
+        .await
+        .expect("the tree is made");
+    let (worktree_id, tree): (String, String) = fixture
+        .roots
+        .rows
+        .query_row("SELECT id, fs_root FROM worktrees", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the tree is stored");
+    let tree = PathBuf::from(tree);
+    assert_eq!(
+        fixture.set(&fixture.roots.repository).await,
+        SessionWorkingFolderDisposition::Applied
+    );
+    fixture.bind_workflow_run().await;
+    assert_eq!(
+        fixture.set(&tree).await,
+        SessionWorkingFolderDisposition::Applied,
+        "a workflow run holds no move"
+    );
+    fixture
+        .roots
+        .rows
+        .execute(
+            "UPDATE worktrees SET state = 'retired' WHERE id = ?1",
+            [&worktree_id],
+        )
+        .expect("the tree is removed");
+
+    fixture
+        .folders
+        .sweep_to_repo_root(&WorktreeSweep {
+            repo_mount_id: RepoMountId::new(MOUNT_ID).expect("the id is a UUID"),
+            worktree_id: WorktreeId::new(&worktree_id).expect("the id is a UUID"),
+            folder: wire_path(&tree),
+        })
+        .await
+        .expect("the sweep lands");
     assert_eq!(
         fixture.text(&format!(
             "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"

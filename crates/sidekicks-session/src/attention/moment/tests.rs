@@ -359,22 +359,28 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     }}),
     AttentionChange::Nothing
 )]
-#[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting", json!({})), AttentionChange::Nothing)]
+#[case::workflow_run_waiting(
+    workflow_run_event("workflow.run.waiting", json!({})),
+    AttentionChange::Nothing
+)]
 #[case::step_waits_on_an_approval(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "approval", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Ship?",
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_form(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "form", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Notes", "inputSchema": {"type": "object"},
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_reply(
     step_event("workflow.phase.suspended", json!({
         "waitCause": "reply", "waitId": WAIT, "logRef": {"kind": "inline", "items": []},
+        "prompt": "Why?",
     })),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
@@ -408,13 +414,16 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_canceled(
-    step_event("workflow.step.canceled", json!({"readied": []})),
+    step_event(
+        "workflow.step.canceled",
+        json!({"cancellationReason": "mergeFirstToArrive", "readied": []})
+    ),
     resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::workflow_run_resumed(
     json!({"type": "workflow.run.resumed", "payload": {
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
-        "workflowVersionId": VERSION,
+        "workflowVersionId": VERSION, "epoch": 0,
         "resumptionPoint": {"activeSteps": [], "pendingGates": []}, "readied": [],
     }}),
     resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))

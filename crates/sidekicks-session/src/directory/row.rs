@@ -334,6 +334,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::QuestionAsked
         | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
+        | SessionEventType::QuestionWaitSettled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled
         | SessionEventType::SessionGoalUpdated
@@ -403,8 +404,11 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorkflowRunCompleted
         | SessionEventType::WorkflowRunResumed
         | SessionEventType::WorkflowRunCanceled
+        | SessionEventType::WorkflowRunCrashed
         | SessionEventType::WorkflowRunWaiting
         | SessionEventType::WorkflowRunDeleted
+        | SessionEventType::WorkflowRunKeepChanged
+        | SessionEventType::WorkflowChainRunJoined
         | SessionEventType::WorkflowScheduleArmed
         | SessionEventType::WorkflowScheduleFired
         | SessionEventType::WorkflowTriggerArmed
@@ -415,6 +419,8 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorkflowPhaseStarted
         | SessionEventType::WorkflowPhaseProgressed
         | SessionEventType::WorkflowPhaseCanceling
+        | SessionEventType::WorkflowRunCanceling
+        | SessionEventType::WorkflowRunFailing
         | SessionEventType::WorkflowPhaseFailed
         | SessionEventType::WorkflowPhaseRetried
         | SessionEventType::WorkflowPhaseSuspended

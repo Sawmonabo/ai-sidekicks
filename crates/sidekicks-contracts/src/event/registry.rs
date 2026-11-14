@@ -146,6 +146,7 @@ session_event_types! {
         QuestionAsked = "question.asked",
         QuestionOpened = "question.opened",
         QuestionCanceled = "question.canceled",
+        QuestionWaitSettled = "question.wait.settled",
     ]
     /// The event types of the `artifactPublication` category.
     ARTIFACT_PUBLICATION_EVENT_TYPES = ArtifactPublication [
@@ -260,9 +261,14 @@ session_event_types! {
         WorkflowRunFailed = "workflow.run.failed",
         WorkflowRunCompleted = "workflow.run.completed",
         WorkflowRunResumed = "workflow.run.resumed",
+        WorkflowRunCanceling = "workflow.run.canceling",
+        WorkflowRunFailing = "workflow.run.failing",
         WorkflowRunCanceled = "workflow.run.canceled",
+        WorkflowRunCrashed = "workflow.run.crashed",
         WorkflowRunWaiting = "workflow.run.waiting",
         WorkflowRunDeleted = "workflow.run.deleted",
+        WorkflowRunKeepChanged = "workflow.run.keepChanged",
+        WorkflowChainRunJoined = "workflow.chain.runJoined",
         WorkflowScheduleArmed = "workflow.schedule.armed",
         WorkflowScheduleFired = "workflow.schedule.fired",
         WorkflowTriggerArmed = "workflow.trigger.armed",
