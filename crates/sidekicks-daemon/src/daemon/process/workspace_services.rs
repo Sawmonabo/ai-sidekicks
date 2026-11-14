@@ -124,6 +124,7 @@ pub(crate) fn build_execution_root_services(
         reads: Arc::clone(&reads),
         events: Arc::clone(&repo.workspace_events),
         resolver: RepoRootResolver::new(git.clone()),
+        writer: Arc::clone(&writer),
     }));
     let execution_roots = Arc::new(ExecutionRootService::new(ExecutionRootServiceDeps {
         writer: Arc::clone(&writer),

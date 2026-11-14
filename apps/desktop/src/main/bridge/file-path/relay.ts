@@ -15,6 +15,7 @@
 import nodePath from "node:path";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
 import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
@@ -55,6 +56,11 @@ const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = 
   [
     REPO_METHOD_DESCRIPTORS["repoMount.attach"].method,
     [{ location: ["localPath"], purpose: "folder" }],
+  ],
+  // A question card's path page, answered with a folder picked by the platform's chooser.
+  [
+    QUESTION_METHOD_DESCRIPTORS["question.resolve"].method,
+    [{ location: ["answers", "*", "path"], purpose: "folder" }],
   ],
 ]);
 

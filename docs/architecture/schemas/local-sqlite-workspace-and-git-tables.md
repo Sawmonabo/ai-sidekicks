@@ -113,16 +113,21 @@ CREATE TABLE workspaces (
   state           TEXT NOT NULL DEFAULT 'preparing'
                   CHECK(state IN ('preparing', 'ready', 'rootLost', 'archived')),  -- no run holds a workspace: an agent runs where its run's execution context is unreleased
   metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the `boundRoot` mode's execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008); checkoutRoot: the top level of the working tree boundRoot sits in, rewritten by every completed preparation, which a run's checkout_root and a worktree's occupancy read
+  workflow_run_id TEXT,                       -- the workflow run a run-owned workspace serves: a run started on a named project works in a 'boundRoot' workspace of its own at that project's root, which its session's working-folder read and every read of which workspace a session works in or which sessions a mount holds leave out; archived in the write that ends the run and deleted, with its branch contexts, with the run's record. NULL for a session's own workspace. Run ids are event-sourced, so no FK
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 ) STRICT;
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
--- A session has one live workspace on a mount, so binding it again answers that one; an archived
--- row is history and does not count.
+-- A session has one live workspace of its own on a mount, so binding it again answers that one;
+-- an archived row is history and a run-owned one is its run's, so neither counts.
 CREATE UNIQUE INDEX idx_workspaces_live_session_mount
-  ON workspaces(session_id, repo_mount_id) WHERE state <> 'archived';
+  ON workspaces(session_id, repo_mount_id)
+  WHERE state <> 'archived' AND workflow_run_id IS NULL;
+-- A workflow run owns at most one workspace.
+CREATE UNIQUE INDEX idx_workspaces_workflow_run
+  ON workspaces(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
 
 -- Owner: Plan-007 (provenance columns, active-branch uniqueness, cleanup stamp — D-007-5)
 CREATE TABLE worktrees (

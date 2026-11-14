@@ -1,7 +1,8 @@
 // The relay rule at the trust boundary, checked against the verb's own contract: every absolute
 // path a reply or a session event offers to open comes back with one token the page can open it
-// by, a path that is not absolute comes back with none, and a folder the page attaches reaches the
-// daemon only as the path its picked token stands for.
+// by, a path that is not absolute comes back with none, and a request's folder member (a folder
+// the page attaches, a question card's path answer) reaches the daemon only as the path a token the
+// page was given for a folder stands for.
 
 import {
   SESSION_INSPECTOR_METHOD_DESCRIPTORS,
@@ -9,6 +10,7 @@ import {
 } from "@ai-sidekicks/contracts/session/inspector";
 import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
+import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { validateSessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { describe, expect, it } from "vitest";
@@ -24,6 +26,8 @@ const MEMORY_READ = SESSION_INSPECTOR_METHOD_DESCRIPTORS["session.memory.read"].
 const EVENT_SUBSCRIBE = SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.event.subscribe"].method;
 
 const REPO_MOUNT_ATTACH = REPO_METHOD_DESCRIPTORS["repoMount.attach"].method;
+
+const QUESTION_RESOLVE = QUESTION_METHOD_DESCRIPTORS["question.resolve"].method;
 
 /** A memory read whose entries sit at `paths`, as the contract checks it. */
 function memoryReadAt(paths: readonly string[]): unknown {
@@ -156,5 +160,38 @@ describe("a session event that offers a path to open", () => {
 
     expect(Object.keys(minted)).toStrictEqual([ignoredFile]);
     expect(refs.requirePath(page, minted[ignoredFile], "open")).toBe(ignoredFile);
+  });
+});
+
+describe("a question card's answers", () => {
+  it("cross with a path page's folder token swapped for its path, the rest as sent", () => {
+    const refs = new FilePathRefs();
+    const page = pageOwner(1);
+    const folder = "/Users/person/projects/app";
+    const folderRef = refs.mint(page, "folder", folder);
+    const answersWith = (path: string): unknown => ({
+      questionId: SESSION_ID,
+      answers: [
+        // A token typed as text is an answer's words, not a path, and crosses as sent.
+        { kind: "typed", text: folderRef },
+        { kind: "path", path },
+        { kind: "skipped" },
+      ],
+    });
+
+    expect(swapTokensForPaths(refs, page, QUESTION_RESOLVE, answersWith(folderRef))).toEqual({
+      questionId: SESSION_ID,
+      answers: [
+        { kind: "typed", text: folderRef },
+        { kind: "path", path: folder },
+        { kind: "skipped" },
+      ],
+    });
+    // A raw path, and a token minted for another purpose, never reach the daemon.
+    for (const unminted of [folder, refs.mint(page, "attach", folder)]) {
+      expect(() => swapTokensForPaths(refs, page, QUESTION_RESOLVE, answersWith(unminted))).toThrow(
+        TypeError,
+      );
+    }
   });
 });

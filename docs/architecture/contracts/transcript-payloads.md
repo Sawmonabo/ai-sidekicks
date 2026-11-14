@@ -375,15 +375,16 @@ interface TranscriptChildRunExpandRequest {
 // than fit one frame — so the expansion needs the same continuation, on the same two arms, with the
 // same rule about which of them may carry a cursor — and the same advancing cursor on the
 // continuing arm, empty only past the same cap of stretches passed over, for the same reason: a
-// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
-// carries a run identity must carry THIS run's (the general arm is exempt, having none — a
-// session-scoped row inside a child's window is context, not misattribution), and runId !==
-// parentRunId, since a run that is its own parent makes the lineage graph cyclic and every walk of
-// it — nesting, one-layer-depth checking, cost attribution — non-terminating. The rows are the
-// run's own events, the interventions on it and its own children's creation rows, each of which
-// names its child's run and carries a summary naming this run as parent, which the schema admits.
-// A run the daemon does not hold is refused `agent.run.notFound`, a run with no parent
-// `agent.run.notChild`. joinedThrough is as on TranscriptReadResponse.
+// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two
+// further rules the schema enforces (Plan-010 Phase 1): every entry that carries a run identity
+// must carry THIS run's (the general arm is exempt, having none — a session-scoped row inside a
+// child's window is context, not misattribution), and runId !== parentRunId, since a run that is
+// its own parent makes the lineage graph cyclic and every walk of it — nesting, one-layer-depth
+// checking, cost attribution — non-terminating. The rows are the run's own events, the
+// interventions on it and its own children's creation rows, each of which names its child's run and
+// carries a summary naming this run as parent, which the schema admits. A run the daemon does not
+// hold is refused `agent.run.notFound`, a run with no parent `agent.run.notChild`. joinedThrough is
+// as on TranscriptReadResponse.
 type TranscriptChildRunExpandResponse = {
   runId: RunId;
   parentRunId: RunId;
@@ -520,35 +521,38 @@ interface TurnTasksUpdate {
   tasks: Array<{ text: string; state: "notStarted" | "inProgress" | "done" }>;
 }
 
-// ---- An agent's question ----
-// Claude Code and Codex each stop a turn to ask by their own mechanism, with one record: the daemon
-// turns a held Claude Code question request or a Codex user-input request into ONE question record
-// the screen renders and ONE call answers. It holds either request open with NO timer, rebuilds the
-// card on a reload and on the person's other devices, and the first answer settles it everywhere. A
-// question is an attention entry exactly as an approval is. Codex's NON-WAITING question has a
-// question record too, which the daemon writes beside the message item the question arrived in,
-// with `isAgentWaiting: false`: the record stays unanswered until the ordinary message answering it
-// is taken, when the daemon marks it answered, so the working line's question count drops on every
-// device. It raises no card of its own and no bell entry; pressing the working line's question
-// count opens the card on it. The answered mark is the answering turn's `user.message.sent` row
-// whose `answersQuestionId?` names the question it answers: the message `question.resolve` writes
-// for a held question, and the taken message for a non-waiting one. A question no message names is
-// unanswered. Beside `answersQuestionId?` the same row carries `cloudTaskId?`, which marks a message
-// sent to the provider's cloud with `cloud.task.start`: the agent never received it.
+// ---- An agent's question ---- Claude Code and Codex each stop a turn to ask by their own
+// mechanism, with one record: the daemon turns a held Claude Code question request or a Codex
+// user-input request into ONE question record the screen renders and ONE call answers. It holds
+// either request open with NO timer, rebuilds the card on a reload and on the person's other
+// devices, and the first answer settles it everywhere. A question is an attention entry exactly as
+// an approval is. Codex's NON-WAITING question has a question record too, which the daemon writes
+// beside the message item the question arrived in, with `isAgentWaiting: false`: the record stays
+// unanswered until the ordinary message answering it is taken, when the daemon marks it answered,
+// so the working line's question count drops on every device. It raises no card of its own and no
+// bell entry; pressing the working line's question count opens the card on it. The answered mark is
+// the answering turn's `user.message.sent` row whose `answersQuestionId?` names the question it
+// answers: the message `question.resolve` writes for a held question, and the taken message for a
+// non-waiting one. A question no message names is unanswered. Beside `answersQuestionId?` the same
+// row carries `cloudTaskId?`, which marks a message sent to the provider's cloud with
+// `cloud.task.start`: the agent never received it.
 
 // question.asked — the record the screen renders, registered in Spec-005's `interactiveRequest`
 // category, which owns the name and the census. A tool server's question and a workflow step
-// waiting for a chat reply become the same record.
+// waiting on a form or a chat reply become the same record.
 type QuestionId = string & { readonly __brand: "QuestionId" }; // daemon-minted
 interface QuestionAskedPayload {
   questionId: QuestionId;
   sessionId: SessionId;
   // Exactly one of the two names what is waiting: an agent's or a tool server's question names the
-  // agent's run; a workflow step waiting for a chat reply names its wait, the durable id that ties
-  // the wait to its workflow run, its step and its session, so the first answer through either door
-  // settles it.
+  // agent's run; a workflow step waiting on a form or a chat reply names its wait, the durable id
+  // that ties the wait to its workflow run, its step and its session, so the first answer through
+  // either door settles it.
   runId?: RunId;
   waitId?: string; // a UUID
+  // On a form wait's question only: its fields as a JSON Schema, by which its answers go back keyed
+  // by each field's id.
+  formSchema?: Record<string, unknown>;
   // On a run's question only: `open` is answerable at once, its run waiting on it; `waitingForRun`
   // was asked while its run waits on something else, so it is recorded waiting, shown greyed under
   // `Waiting for the run`, and opens in the order the run's questions came once the run reads
@@ -590,10 +594,13 @@ interface QuestionAskedPayload {
     // option rows, so a secret question carries no options; the value is never written into the
     // flow, and the person's turn afterwards records only that a secret was answered.
     secret: boolean;
-    // `required` comes only from a tool server's form; `default`, `minimum` and `maximum`
-    // come from a tool server's form or a Claude Code number question. Each is present only
-    // where its source sets it.
-    // Whether the form must have this field answered.
+    // True on a workflow form's `path` field: the card draws `Browse…`, which opens the platform's
+    // folder chooser, and NO option rows, and the question takes only a path or a skip.
+    path?: boolean;
+    // Whether the form must have this field answered. A tool server's form field and a workflow
+    // wait's question set it; on a question with options it refuses typed text, and a workflow
+    // wait's question with it true takes no skip. `default`, `minimum` and `maximum` come from a
+    // form or a Claude Code number question. Each is present only where its source sets it.
     required?: boolean;
     // The answer the field starts from: the label of the option it preselects (several labels on a
     // field of several picks), or a typed field's value in its own type. A label is always one of
@@ -630,15 +637,29 @@ interface QuestionCanceledPayload {
   reason: "interrupted" | "withdrawn" | "runEnded";
 }
 
+// question.wait.settled — the write that ended a workflow form or reply wait settled the question
+// its wait holds, so its card closes on every open copy and stays closed after a reload: `answered`
+// where the first answer, through the card or the run's step panel, settled the wait, `timedOut`
+// where the step's own `Timeout` came first, `ended` where its run ended or its branch was canceled
+// before an answer came.
+interface QuestionWaitSettledPayload {
+  sessionId: SessionId;
+  waitId: string; // a UUID
+  outcome: "answered" | "timedOut" | "ended";
+}
+
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the
-// picked labels, typed text, a secret, or a skip — which is why the arms are a closed union rather
-// than four optional members. A secret is delivered to the provider and NEVER stored: it reaches no
-// event payload, no artifact and no projection. The person's turn is written as an ordinary message
-// record with the secret masked.
+// picked labels, typed text, a secret, a picked folder's path, or a skip — which is why the arms
+// are a closed union rather than five optional members. A path page's answer leaves the page as the
+// folder chooser's file token, and the desktop's main process puts the path it stands for in its
+// place before the call reaches the daemon, so no typed path stands for one. A secret is delivered
+// to the provider and NEVER stored: it reaches no event payload, no artifact and no projection. The
+// person's turn is written as an ordinary message record with the secret masked.
 type QuestionAnswer =
   | { kind: "picked"; labels: string[] } // at least one
   | { kind: "typed"; text: string }
   | { kind: "secret"; value: string }
+  | { kind: "path"; path: string }
   | { kind: "skipped" };
 interface QuestionResolveRequest {
   questionId: QuestionId;
@@ -650,8 +671,8 @@ interface QuestionResolveResponse {
   questionId: QuestionId;
   // The record is the receipt: a question that has been answered cannot be answered again, and a
   // second call reads this state rather than re-applying. `kept` is a tool server's question whose
-  // answer the server kept for its next ask: the question stays open and its run keeps waiting until
-  // that ask settles it.
+  // answer the server kept for its next ask: the question stays open and its run keeps waiting
+  // until that ask settles it.
   state: "answered" | "canceled" | "kept";
 }
 ```

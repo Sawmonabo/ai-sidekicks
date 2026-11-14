@@ -340,6 +340,7 @@ mod tests {
             output_speed_levels: None,
             fast: false,
             larger_window: false,
+            is_default: false,
             context_window: None,
         }]
     }

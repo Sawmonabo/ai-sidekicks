@@ -109,6 +109,8 @@ pub(crate) enum ClaudeControlRequest {
     /// Reads the status of each MCP server the process holds, answered by a
     /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
     McpStatus {},
+    /// Reloads the process's plugins from disk, answered with the plugins it loaded.
+    ReloadPlugins {},
     /// Cuts the conversation back to before one message.
     RewindConversation {
         /// The message the cut removes, with all after it.
@@ -206,6 +208,7 @@ impl ClaudeControlRequest {
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
             Self::GetHooksListing {} => ClaudeControlSubtype::GetHooksListing,
             Self::McpStatus {} => ClaudeControlSubtype::McpStatus,
+            Self::ReloadPlugins {} => ClaudeControlSubtype::ReloadPlugins,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
             Self::GetContextUsage { .. } => ClaudeControlSubtype::GetContextUsage,
@@ -245,6 +248,8 @@ pub(crate) enum ClaudeControlSubtype {
     GetHooksListing,
     /// `mcp_status`.
     McpStatus,
+    /// `reload_plugins`.
+    ReloadPlugins,
     /// `rewind_conversation`.
     RewindConversation,
     /// `cancel_async_message`.
@@ -289,6 +294,7 @@ impl ClaudeControlSubtype {
             Self::GetSettings => "get_settings",
             Self::GetHooksListing => "get_hooks_listing",
             Self::McpStatus => "mcp_status",
+            Self::ReloadPlugins => "reload_plugins",
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",
             Self::GetContextUsage => "get_context_usage",

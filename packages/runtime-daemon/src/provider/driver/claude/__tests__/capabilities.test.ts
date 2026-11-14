@@ -484,18 +484,34 @@ describe("Claude model catalog", () => {
         capabilities: [],
         fast: false,
         largerWindow: false,
+        isDefault: false,
         contextWindow: 200_000,
       },
-      { id: "model-y", name: "Y", capabilities: [], fast: false, largerWindow: false },
+      {
+        id: "model-y",
+        name: "Y",
+        capabilities: [],
+        fast: false,
+        largerWindow: false,
+        isDefault: false,
+      },
       {
         id: "model-y[1m]",
         name: "Y 1M",
         capabilities: [],
         fast: false,
         largerWindow: true,
+        isDefault: false,
         contextWindow: 1_000_000,
       },
-      { id: "model-w", name: "W", capabilities: [], fast: false, largerWindow: false },
+      {
+        id: "model-w",
+        name: "W",
+        capabilities: [],
+        fast: false,
+        largerWindow: false,
+        isDefault: false,
+      },
     ]);
   });
 

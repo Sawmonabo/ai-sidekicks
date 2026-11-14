@@ -97,7 +97,9 @@ interface ArtifactReadFacts {
 }
 
 // ArtifactList — the session's artifacts: every plan the agent finished and, on a chat session, every
-// file and folder the chat wrote, each listed once. The inspector's `Artifacts` section and a chat's
+// file and folder of the chat folder it holds, whichever holder wrote them, each listed once; a file
+// entry's `manifest.sessionId` names the chat that recorded that version, which can differ from the
+// session asked about. The inspector's `Artifacts` section and a chat's
 // files-written row both read it, and the section's count is the number of entries listed. A plan's
 // state word is its plan record's (the `plans` projection, moved only by the `plan.*` events), joined by
 // the manifest's plan id; a hand-off's seed plan, written again in the fresh session, lists there as

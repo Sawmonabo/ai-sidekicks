@@ -65,10 +65,15 @@ ts_constants! {
     WORKFLOW_RUN_NOT_CANCELABLE_CODE = RefusalCode::WorkflowRunNotCancelable;
     /// A resume on a run that is not waiting: there is no wait to lift.
     WORKFLOW_RUN_RESUME_NOT_PARKED_CODE = RefusalCode::WorkflowRunResumeNotParked;
-    /// A version re-pin on a run that is not waiting; a going run is never re-pinned.
-    WORKFLOW_RUN_REPAIR_NOT_PARKED_CODE = RefusalCode::WorkflowRunRepairNotParked;
+    /// A resume on a run whose only waits are on a person's answer or its chain's question: the
+    /// answer lifts them, a resume does not. Nothing changes.
+    WORKFLOW_RUN_RESUME_AWAITS_ANSWER_CODE = RefusalCode::WorkflowRunResumeAwaitsAnswer;
     /// A version re-pin while one of the run's steps is still in flight.
     WORKFLOW_RUN_REPAIR_ATTEMPT_IN_FLIGHT_CODE = RefusalCode::WorkflowRunRepairAttemptInFlight;
+    /// A version re-pin whose target lacks the node of a failed step the resume would run again;
+    /// the refusal names the nodes.
+    WORKFLOW_RUN_REPAIR_FAILED_NODE_MISSING_CODE =
+        RefusalCode::WorkflowRunRepairFailedNodeMissing;
     /// A version re-pin whose target cannot account for the steps the run already finished.
     WORKFLOW_RUN_REPAIR_VERSION_UNACCOUNTABLE_CODE =
         RefusalCode::WorkflowRunRepairVersionUnaccountable;
@@ -736,9 +741,14 @@ methods! {
                 WorkflowRunNotFound,
                 WorkflowVersionNotFound,
                 WorkflowRunResumeNotParked,
-                WorkflowRunRepairNotParked,
+                WorkflowRunResumeAwaitsAnswer,
                 WorkflowRunRepairAttemptInFlight,
                 WorkflowRunRepairVersionUnaccountable,
+                WorkflowRunRepairFailedNodeMissing,
+                WorkflowRunRepositoryRequired,
+                WorkflowRunProviderRequired,
+                WorkflowRunNodeKindUnavailable,
+                WorkflowRunHandleUndeclared,
             ],
         },
         /// Starts a new run from a named step of a run, its upstream data pinned.

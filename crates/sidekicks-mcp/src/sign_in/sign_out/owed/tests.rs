@@ -653,6 +653,7 @@ async fn a_detached_projects_server_keeps_its_sign_in() {
             server_policy: McpServerPolicy::default(),
             account_servers: Vec::new(),
             probe_readings: Vec::new(),
+            failed_roots: Vec::new(),
         })))
     });
     notes

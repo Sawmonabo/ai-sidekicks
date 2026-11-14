@@ -9,6 +9,7 @@
 //! worked in when its session had none goes too, with the workflow's runs folder when that leaves
 //! it empty. Each deleted run's git common folder is answered, so its snapshot refs can be pruned.
 
+pub(crate) mod keep;
 #[cfg(test)]
 mod tests;
 
@@ -34,9 +35,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::run::events::WorkflowRunDeletedPayload;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::retention::{
-    WorkflowRunKeepSet, WorkflowRunPurgePreviewResponse,
-};
+use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewResponse;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
@@ -47,13 +46,13 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::run_setup_gates::execution_root::context::run_workspace_delete_sql;
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::record::{
@@ -156,22 +155,36 @@ static STILL_REMOVABLE_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-const KEEP_SQL: &str = "UPDATE workflow_runs SET kept = @kept WHERE id = @workflow_run_id";
+// The deletes of the runs a JSON list of their ids names, with every row that hangs off them.
+static LISTED_RUN_DELETE_SQL: LazyLock<Vec<String>> =
+    LazyLock::new(|| run_delete_sql("SELECT value FROM json_each(?1)"));
 
-// The deletes of the rows that hang off a run, children first so the foreign keys hold at every
-// statement, then of the run, each over a JSON list of run ids.
-static RUN_ROW_DELETE_SQL: LazyLock<[String; 5]> = LazyLock::new(|| {
+// The deletes of the runs of a session, bound first, that a JSON list of run ids, bound second,
+// leaves out, with every row that hangs off them.
+static UNLISTED_SESSION_RUN_DELETE_SQL: LazyLock<Vec<String>> = LazyLock::new(|| {
+    run_delete_sql(
+        "SELECT id FROM workflow_runs WHERE session_id = ?1
+    AND id NOT IN (SELECT value FROM json_each(?2))",
+    )
+});
+
+// The deletes of the runs `runs` selects, a subquery of run ids, and of the rows that hang off
+// them, children first so the foreign keys hold at every statement: the workspace a run owns goes
+// after its execution context, which names that workspace's branch context, and the run's own row
+// last.
+fn run_delete_sql(runs: &str) -> Vec<String> {
     [
         ("workflow_steps", "workflow_run_id"),
         ("human_phase_form_state", "workflow_run_id"),
         ("workflow_gate_resolutions", "workflow_run_id"),
         ("run_execution_contexts", "run_id"),
-        ("workflow_runs", "id"),
     ]
-    .map(|(table, run_column)| {
-        format!("DELETE FROM {table} WHERE {run_column} IN (SELECT value FROM json_each(?1))")
-    })
-});
+    .into_iter()
+    .map(|(table, run_column)| format!("DELETE FROM {table} WHERE {run_column} IN ({runs})"))
+    .chain(run_workspace_delete_sql(runs))
+    .chain([format!("DELETE FROM workflow_runs WHERE id IN ({runs})")])
+    .collect()
+}
 
 /// A run a delete removed, with the git common folder its execution context named, or `None` where
 /// it had none; the snapshot cleanup prunes the run's refs there after the rows are gone.
@@ -245,12 +258,9 @@ pub(crate) enum WorkflowRunDeletionError {
     /// A run's deleted event broke one of its type's checks.
     #[error("a run's deleted event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep a delete's write.
-    #[error("a run's delete was not kept")]
+    /// The event log did not keep a delete's or a Keep mark's write.
+    #[error("a run's delete or Keep mark was not kept")]
     Append(#[from] SessionEventAppendError),
-    /// The writer did not keep the Keep mark.
-    #[error("a run's Keep mark was not kept")]
-    Write(#[from] WriteError),
     /// A delete's reads, writes or folder removals failed: `deleted` holds every run it did
     /// delete, whose snapshot refs still need pruning, and the source the first failures and how
     /// many there were.
@@ -338,7 +348,6 @@ impl From<WorkflowRunDeletionError> for HandlerError {
             WorkflowRunDeletionError::NotDeletable(refusal) => Self::Refused(refusal.into()),
             fault @ (WorkflowRunDeletionError::Draft(_)
             | WorkflowRunDeletionError::Append(_)
-            | WorkflowRunDeletionError::Write(_)
             | WorkflowRunDeletionError::Incomplete { .. }
             | WorkflowRunDeletionError::Database(_)
             | WorkflowRunDeletionError::Pool(_)
@@ -347,16 +356,40 @@ impl From<WorkflowRunDeletionError> for HandlerError {
     }
 }
 
-/// The statements that remove the runs `workflow_run_ids` with every row that hangs off them,
-/// children first so the foreign keys hold at every statement: what a delete writes with each run's
-/// `workflow.run.deleted`, and what a rebuild of the runs applies on reading that event.
+/// The statements that remove the runs `workflow_run_ids` with every row that hangs off them, the
+/// workspace each owns among them, children first so the foreign keys hold at every statement:
+/// what a delete writes with each run's `workflow.run.deleted`, and what a rebuild of the runs
+/// applies on reading that event.
 pub fn workflow_run_deletion_statements(workflow_run_ids: &[WorkflowRunId]) -> Vec<WriteStatement> {
     let ids_json = serde_json::to_string(workflow_run_ids).expect("run ids write as JSON");
-    RUN_ROW_DELETE_SQL
+    run_deletes(&LISTED_RUN_DELETE_SQL, &[Value::Text(ids_json)])
+}
+
+/// The statements that remove every run of `session_id` but `kept`, with every row that hangs off
+/// them, as [`workflow_run_deletion_statements`] removes a listed run: what a rebuild of the runs
+/// that read the log only up to a point applies once it has, for a run it kept for its gate
+/// answers or form drafts whose `workflow.run.started` lies past that point.
+pub(crate) fn unlisted_session_run_deletion_statements(
+    session_id: SessionId,
+    kept: &[WorkflowRunId],
+) -> Vec<WriteStatement> {
+    let kept_json = serde_json::to_string(kept).expect("run ids write as JSON");
+    run_deletes(
+        &UNLISTED_SESSION_RUN_DELETE_SQL,
+        &[
+            Value::Text(session_id.text().as_str().to_owned()),
+            Value::Text(kept_json),
+        ],
+    )
+}
+
+// The statements of `deletes`, each over `bindings`.
+fn run_deletes(deletes: &'static [String], bindings: &[Value]) -> Vec<WriteStatement> {
+    deletes
         .iter()
         .map(|sql| WriteStatement {
             sql: Cow::Borrowed(sql.as_str()),
-            bindings: StatementBindings::Positional(vec![Value::Text(ids_json.clone())]),
+            bindings: StatementBindings::Positional(bindings.to_vec()),
             expected_row_count: None,
         })
         .collect()
@@ -432,8 +465,8 @@ impl RunToDelete {
 }
 
 /// Deletes runs, one or many, and sets the Keep mark that bulk delete leaves, reading through the
-/// daemon's read pool, appending each delete through the event log and removing each deleted run's
-/// own folder from the daemon's data folder.
+/// daemon's read pool, appending each delete and each Keep mark through the event log and removing
+/// each deleted run's own folder from the daemon's data folder.
 #[cfg_attr(
     not(test),
     expect(
@@ -443,15 +476,13 @@ impl RunToDelete {
 )]
 pub(crate) struct WorkflowRunDeletion {
     pool: Arc<DatabaseReadPool>,
-    writer: Arc<DatabaseWriter>,
     appender: SessionEventAppender,
     data_folder: PathBuf,
 }
 
 impl WorkflowRunDeletion {
-    /// The deletion reading through `pool`, writing the Keep mark through `writer`, appending each
-    /// delete to `event_log`, whose writer `writer` is, and removing runs' folders from
-    /// `data_folder`.
+    /// The deletion reading through `pool`, appending each delete and each Keep mark to
+    /// `event_log` and removing runs' folders from `data_folder`.
     #[cfg_attr(
         not(test),
         expect(
@@ -461,13 +492,11 @@ impl WorkflowRunDeletion {
     )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
-        writer: Arc<DatabaseWriter>,
         event_log: Arc<EventLogService>,
         data_folder: PathBuf,
     ) -> Self {
         Self {
             pool,
-            writer,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             data_folder,
         }
@@ -488,13 +517,7 @@ impl WorkflowRunDeletion {
         &self,
         workflow_run_id: WorkflowRunId,
     ) -> Result<DeletedWorkflowRun, WorkflowRunDeletionError> {
-        let run = self
-            .pool
-            .read(ReadLength::Short, move |connection| {
-                Ok::<_, WorkflowRunDeletionError>(read_run_to_delete(connection, workflow_run_id)?)
-            })
-            .await?
-            .ok_or(WorkflowNotFound::Run { workflow_run_id })?;
+        let run = self.read_run(workflow_run_id).await?;
         match self.delete_runs(&[], &run, RunGuard::Deletable).await {
             Ok(()) => match remove_run_folder(run.folder(&self.data_folder)).await {
                 Ok(()) => Ok(run.deleted()),
@@ -623,34 +646,6 @@ impl WorkflowRunDeletion {
         })
     }
 
-    /// Sets or clears the run's Keep mark. Fails with [`WorkflowRunDeletionError::NotFound`] for a
-    /// run there is none of.
-    #[expect(dead_code, reason = "the workflow.run.keep.update handler")]
-    pub(crate) async fn set_keep(
-        &self,
-        keep_set: WorkflowRunKeepSet,
-    ) -> Result<WorkflowRunKeepSet, WorkflowRunDeletionError> {
-        let statement = WriteStatement {
-            sql: Cow::Borrowed(KEEP_SQL),
-            bindings: StatementBindings::Named(vec![
-                (
-                    Cow::Borrowed("@kept"),
-                    Value::Integer(i64::from(keep_set.keep)),
-                ),
-                text_binding("@workflow_run_id", keep_set.workflow_run_id.text().as_str()),
-            ]),
-            expected_row_count: Some(1),
-        };
-        match self.writer.write(vec![statement]).await {
-            Ok(_) => Ok(keep_set),
-            Err(WriteError::Refused { .. }) => Err(WorkflowNotFound::Run {
-                workflow_run_id: keep_set.workflow_run_id,
-            }
-            .into()),
-            Err(error) => Err(error.into()),
-        }
-    }
-
     // Deletes the chunk's runs bulk delete would still remove, and answers those it deleted. A run
     // whose guard refuses the write is dropped and the rest written again, so a run kept since the
     // read is left and the others go.
@@ -707,6 +702,19 @@ impl WorkflowRunDeletion {
         Ok(())
     }
 
+    // The run `workflow_run_id` names, failing with `NotFound` when there is none.
+    async fn read_run(
+        &self,
+        workflow_run_id: WorkflowRunId,
+    ) -> Result<RunToDelete, WorkflowRunDeletionError> {
+        self.pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, WorkflowRunDeletionError>(read_run_to_delete(connection, workflow_run_id)?)
+            })
+            .await?
+            .ok_or_else(|| WorkflowNotFound::Run { workflow_run_id }.into())
+    }
+
     // Why a delete was refused, read after the refusal: there is no such run, it is still going,
     // it is parked on its failed step, or it is a chain's first run and a later run of the chain is
     // going or parked on its failed step.
@@ -752,7 +760,6 @@ fn refused_statement_index(error: &WorkflowRunDeletionError) -> Option<usize> {
         WorkflowRunDeletionError::NotFound(_)
         | WorkflowRunDeletionError::NotDeletable(_)
         | WorkflowRunDeletionError::Draft(_)
-        | WorkflowRunDeletionError::Write(_)
         | WorkflowRunDeletionError::Incomplete { .. }
         | WorkflowRunDeletionError::Database(_)
         | WorkflowRunDeletionError::Pool(_)

@@ -60,10 +60,7 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
     insert_worktree_rows(&rows);
     insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
     let data_folder = data_folder(database);
-    (
-        WorkflowRunDeletion::new(pool, writer, event_log, data_folder),
-        rows,
-    )
+    (WorkflowRunDeletion::new(pool, event_log, data_folder), rows)
 }
 
 /// The data folder the test's deletion removes runs' folders from.

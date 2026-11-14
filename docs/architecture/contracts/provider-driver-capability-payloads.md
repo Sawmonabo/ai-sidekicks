@@ -73,6 +73,8 @@ interface ProviderModel {
   // model id). On Codex the row's `contextWindow` is the figure a pick of it records; a Claude
   // larger row is picked by its own id.
   largerWindow: boolean;
+  // The provider's own catalog marks this model as the one a new session starts on; at most one row.
+  isDefault: boolean;
   // The window in tokens as the provider reports it; absent until a reading arrives, never filled
   // from a table or a default.
   contextWindow?: number;

@@ -56,6 +56,7 @@ pub fn read_elicitation_questions(
                 options: Vec::new(),
                 several_answers: false,
                 secret: false,
+                path: false,
                 required: None,
                 default: None,
                 minimum: None,
@@ -106,6 +107,7 @@ pub fn read_elicitation_questions(
                 options,
                 several_answers: field.takes_several_answers,
                 secret: false,
+                path: false,
                 required: Some(field.is_required),
                 default,
                 minimum,
@@ -154,6 +156,21 @@ pub fn compose_elicitation_content(
         content.insert(field.name.to_owned(), answer);
     }
     content
+}
+
+/// The names of the fields [`read_elicitation_questions`] asks of `params`, one per question in
+/// the order it asks them, so a field's name gives its question's page; a property that is no
+/// object or is asked by nothing is not among them.
+pub fn read_elicitation_field_names(params: &Value) -> Vec<&str> {
+    params
+        .as_object()
+        .map(|payload| {
+            read_elicitation_fields(payload)
+                .into_iter()
+                .map(|field| field.name)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // The fields of a `form` elicitation, in the order its schema lists its properties; none for

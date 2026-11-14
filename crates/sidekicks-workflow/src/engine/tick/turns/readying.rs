@@ -1,21 +1,22 @@
 //! The readying path of the tick's loop: a settled step's outputs kept, and what the walk then
 //! readies, skips, wins or cancels added to the run's turn, each readied step's first main input
-//! stored for its `pending` row.
+//! stored for its `pending` row and each reused step's outputs kept as a settled step's.
 
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
 use super::{EngineTick, ReadiedNext, RunTurn, TurnReadied, failed_at_once, reports, step_failure};
 use crate::engine::event_record::EngineFault;
-use crate::engine::tick::branch_cancellation::{BranchCancelReason, BranchLoser, cancel_branches};
+use crate::engine::tick::branch_cancellation::{BranchLoser, cancel_branches};
+use crate::engine::tick::commit::RunTurnCommit;
 use crate::engine::tick::live_runs::LiveRun;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::step_failure::{RunSibling, SiblingState};
 use crate::engine::tick::walk::{WalkSkip, WalkSkipReason, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput};
 use crate::kinds::StepFailure;
-use crate::runs::step_payload::write_step_payload;
 
 impl EngineTick {
     /// Settles `step` in the walk with `outputs`, which move into the run's outputs beside its
@@ -68,10 +69,11 @@ impl EngineTick {
         }
     }
 
-    /// Adds what the walk answered to the turn: each skip's row and event, then each readied
+    /// Adds what the walk answered to the turn: each skip's row and event, a reused skip's outputs
+    /// kept as its step's and its earlier step's payloads recorded as its own, then each readied
     /// step's `pending` row on its stored first main input, on the event of the last skip it
     /// names as a source, or else on `readying`'s event.
-    async fn take_walk(
+    pub(super) async fn take_walk(
         &self,
         live: &mut LiveRun,
         turn: &mut RunTurn,
@@ -80,20 +82,29 @@ impl EngineTick {
     ) {
         let WalkTurn {
             ready,
-            skipped,
+            mut skipped,
             wins,
             canceled,
         } = walked;
         let mut skip_events: Vec<(u64, usize)> = Vec::with_capacity(skipped.len());
-        for skip in &skipped {
-            let (input_ref, output_ref) = match &skip.reason {
+        for skip in &mut skipped {
+            let (input_ref, output_ref) = match &mut skip.reason {
                 WalkSkipReason::Disabled => {
-                    let payload = self.store_skipped_input(live, skip).await;
+                    let payload = self.store_skipped_input(live, &mut turn.commit, skip).await;
                     (payload.clone(), payload)
                 }
                 WalkSkipReason::Reused(reused) => {
-                    let input_ref = self.store_skipped_input(live, skip).await;
-                    (input_ref, reused.output_ref.clone())
+                    live.outputs.record(
+                        StepKey {
+                            node_id: skip.step.node_id.clone(),
+                            execution_index: skip.step.execution_index.get(),
+                        },
+                        StepOutput {
+                            sources: skip.sources.clone(),
+                            outputs: std::mem::take(&mut reused.outputs),
+                        },
+                    );
+                    (reused.input_ref.clone(), reused.output_ref.clone())
                 }
                 WalkSkipReason::NoItems => (
                     WorkflowPayloadRef::Inline { items: Vec::new() },
@@ -128,7 +139,9 @@ impl EngineTick {
             let inputs = live
                 .walk
                 .ready_inputs(&ready.step, &ready.sources, &live.outputs);
-            let stored = self.store_input(live, &ready.step, &inputs).await;
+            let stored = self
+                .store_input(live, &mut turn.commit, &ready.step, &inputs)
+                .await;
             let (input_ref, next) = match stored {
                 Ok(input_ref) if is_canceled => (input_ref, ReadiedNext::Canceled),
                 Ok(input_ref) => (input_ref, ReadiedNext::Dispatch),
@@ -147,9 +160,15 @@ impl EngineTick {
             };
             turn.commit.readied(&ready, input_ref.clone(), event);
             if is_canceled {
-                turn.commit.canceled_unrun(&ready.step, &at);
+                // The walk cancels only a first-to-arrive merge's losers; a stopped run its own.
+                let reason = if is_walk_live {
+                    live.stop_cancellation_reason()
+                } else {
+                    WorkflowPhaseCancellationReason::MergeFirstToArrive
+                };
+                turn.commit.canceled_unrun(&ready.step, &at, reason);
                 if is_walk_live {
-                    live.walk.drop_step(&ready.step);
+                    live.leave_walk(&ready.step, &inputs, &input_ref);
                 }
             }
             turn.readied.push(TurnReadied {
@@ -165,7 +184,8 @@ impl EngineTick {
             return;
         }
         for win in wins {
-            let losers = reports::sort_losers(live, turn, win.losers, &at).await;
+            let losers =
+                reports::sort_losers(&self.dispatch, live, turn, win.losers, &at, true).await;
             let mut branch_losers = Vec::with_capacity(losers.len());
             for RunSibling { step, state } in losers {
                 match state {
@@ -179,12 +199,15 @@ impl EngineTick {
                         is_running: false,
                         cancel,
                     }),
-                    SiblingState::Waiting => reports::cancel_now(live, turn, step, &at).await,
+                    SiblingState::Waiting => {
+                        let merge = Some(WorkflowPhaseCancellationReason::MergeFirstToArrive);
+                        reports::cancel_now(&self.dispatch, live, turn, step, &at, merge).await;
+                    }
                 }
             }
             let (cancelings, wave) = cancel_branches(
                 win.deciding,
-                BranchCancelReason::FirstToArrive,
+                WorkflowPhaseCancellationReason::MergeFirstToArrive,
                 branch_losers,
             );
             turn.follow_ups.extend(cancelings);
@@ -192,22 +215,30 @@ impl EngineTick {
         }
     }
 
-    /// The first main input of `skip` as the ref its row stores. A payload that cannot be stored
-    /// is recorded on the skip as an empty input, and the skip passes its items on all the same.
-    async fn store_skipped_input(&self, live: &LiveRun, skip: &WalkSkip) -> WorkflowPayloadRef {
+    /// The first main input of `skip` as the ref its row stores, stored through `commit`. A
+    /// payload that cannot be stored is recorded on the skip as an empty input, and the skip passes
+    /// its items on all the same.
+    async fn store_skipped_input(
+        &self,
+        live: &LiveRun,
+        commit: &mut RunTurnCommit,
+        skip: &WalkSkip,
+    ) -> WorkflowPayloadRef {
         let inputs = live
             .walk
             .ready_inputs(&skip.step, &skip.sources, &live.outputs);
-        self.store_input(live, &skip.step, &inputs)
+        self.store_input(live, commit, &skip.step, &inputs)
             .await
             .unwrap_or(WorkflowPayloadRef::Inline { items: Vec::new() })
     }
 
-    /// The first main input of `inputs`, the input lists of `step`, as the ref its row stores.
+    /// The first main input of `inputs`, the input lists of `step`, as the ref its row stores,
+    /// stored through `commit` under an id the turn reserved where it is above the inline cap.
     /// Fails with the write's message when it cannot be stored, which is recorded on the step.
     async fn store_input(
         &self,
         live: &LiveRun,
+        commit: &mut RunTurnCommit,
         step: &WorkflowStepKey,
         inputs: &[Vec<WorkflowItem>],
     ) -> Result<WorkflowPayloadRef, String> {
@@ -220,7 +251,7 @@ impl EngineTick {
         let first = main_inputs(spec, inputs)
             .next()
             .map_or(&[][..], Vec::as_slice);
-        match write_step_payload(self.payloads.as_ref(), live.scope.session_id, step, first).await {
+        match commit.store_payload(step, first).await {
             Ok(input_ref) => Ok(input_ref),
             Err(error) => {
                 live.record

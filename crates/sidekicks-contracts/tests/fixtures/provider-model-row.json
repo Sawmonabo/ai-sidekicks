@@ -5,7 +5,8 @@
       "name": "Opus",
       "capabilities": [],
       "fast": false,
-      "largerWindow": false
+      "largerWindow": false,
+      "isDefault": false
     },
     {
       "id": "opus",
@@ -13,6 +14,7 @@
       "capabilities": [],
       "fast": false,
       "largerWindow": true,
+      "isDefault": false,
       "contextWindow": 1000000
     },
     {
@@ -20,7 +22,8 @@
       "name": "Sonnet",
       "capabilities": [],
       "fast": true,
-      "largerWindow": false
+      "largerWindow": false,
+      "isDefault": false
     }
   ],
   "cases": [

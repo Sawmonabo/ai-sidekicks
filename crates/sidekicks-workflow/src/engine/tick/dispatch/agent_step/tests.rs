@@ -158,7 +158,7 @@ async fn an_agent_steps_run_joins_the_gate_once_and_the_step_starts_when_the_run
         .await
         .expect("the run's place is reported");
     if admission.is_none() {
-        let hold = first["waitingOnPool"].clone();
+        let hold = first["waitingOnMemory"].clone();
         assert!(hold.is_string(), "the first report is not a hold: {first}");
         runner.admit();
         assert_eq!(
@@ -341,7 +341,7 @@ async fn a_canceled_agent_step_stops_its_run_and_settles_once_the_run_has_ended(
             let held = next_report(&mut received, &step)
                 .await
                 .expect("the hold is reported");
-            let hold = held["waitingOnPool"].clone();
+            let hold = held["waitingOnMemory"].clone();
             assert!(hold.is_string(), "the first report is not a hold: {held}");
             hold
         }
@@ -649,7 +649,7 @@ async fn a_resumed_run_waits_at_the_gate_and_settles_with_its_params_records() {
     let first = next_report(&mut received, &step)
         .await
         .expect("the resumed run's place is reported");
-    let hold = first["waitingOnPool"].clone();
+    let hold = first["waitingOnMemory"].clone();
     assert!(hold.is_string(), "the first report is not a hold: {first}");
     runner.progress();
     tokio::time::sleep(QUIET).await;

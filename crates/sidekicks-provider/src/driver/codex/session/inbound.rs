@@ -36,6 +36,7 @@ use crate::driver::codex::run::turn_end_waiters::{CodexTurnWait, CodexTurnWaitAn
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::calls::CodexSessionReading;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
@@ -246,6 +247,22 @@ pub(crate) enum CodexSessionCall {
         resume: Box<CodexInPlaceResumeCall>,
         /// Where the resume's result, and why it failed where it did, goes.
         reply: oneshot::Sender<CodexInPlaceOutcome>,
+    },
+    /// Ends the helper reopen waits an earlier move left, once a move claimed the slot and before
+    /// it lets the session's conversations go, and answers each helper they left that a service
+    /// still holds loaded, by that service.
+    TakeHelperReopenWaits {
+        /// Where those helpers go.
+        reply: oneshot::Sender<HashMap<String, Arc<CodexService>>>,
+    },
+    /// Reopens a helper a move let go once the service that held it unloaded it, or its wait ran
+    /// out, where the session still runs on the service the move reopens it on, no later move took
+    /// the wait over and the record still binds its child run.
+    ReopenHelper {
+        /// The helper's conversation.
+        thread_id: String,
+        /// The service the session ran on when the move began the wait.
+        service_id: CodexServiceId,
     },
     /// Cuts the conversation back to before `turn_id` with `thread/revert`, once the caller
     /// claimed the slot.

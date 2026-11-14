@@ -115,7 +115,7 @@ CREATE INDEX idx_workflow_versions_parent ON workflow_versions(parent_version_id
 -- does not count against it; no run carries a cap, a step budget or a pool reservation of its own.
 CREATE TABLE workflow_runs (
   id                        TEXT PRIMARY KEY,          -- the workflow run id, an event-sourced UUID; run_execution_contexts keys the captured context of a run that works in a repository by it
-  workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
+  workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id), -- the version the run runs: the one it started on until an accepted re-pin (`workflow.run.resumed` naming the version joined) moves it
   session_id                TEXT NOT NULL,             -- the asking chat's session, or the workflow's own session for a run no chat asked for
   provider                  TEXT,                      -- the workflow's provider as the run started, which a restart reads; NULL when the workflow named none
   status                    TEXT NOT NULL DEFAULT 'new'
@@ -126,6 +126,10 @@ CREATE TABLE workflow_runs (
                             CHECK(mode IN ('manual','trigger','webhook','chat','agent','retry','subWorkflow')),
   trigger_json              TEXT NOT NULL DEFAULT '{}' -- JSON: the trigger record — which trigger node started the run and with what
                             CHECK(json_valid(trigger_json)),
+  node_run_json             TEXT                       -- JSON: the node a node run (`Run this node`, `Run from here`) targets and its scope, `{nodeId, scope}`; NULL on a whole run. A node run that reuses its trigger's step writes no trigger row
+                            CHECK(node_run_json IS NULL OR json_valid(node_run_json)),
+  retried_run_id            TEXT                       -- the run a retry (`workflow.run.retry`) retries, from its `workflow.run.started`; its trigger kind and whether it posts its results are read from that run. NULL on every run that is not a retry; run ids are event-sourced, so no foreign key
+                            CHECK((mode = 'retry') = (retried_run_id IS NOT NULL)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
                             CHECK(json_valid(started_by)),
   started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.run.started`; the run reads `new` from then until the engine admits it
@@ -162,6 +166,24 @@ CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);  -- the runs list pages newest first by start, ties broken by id
 CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
   WHERE finished_at IS NULL;  -- the engine's deadline clock reads every unfinished run's cap, a failed park among them
+CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, started_at, id)
+  WHERE finished_at IS NULL;  -- the restart reads a session's unfinished runs alone, oldest first
+
+-- Each artifact id a run reserves before it stores a payload under it, ahead of the write that
+-- names the payload: a start's, before its run's row, and a turn's, before the turn's write (a turn
+-- reserves a block of ids in one write at its first payload over the inline cap). A start's run
+-- write deletes the run's rows and a turn's write those of its ids, but an artifact's that may be
+-- stored and that no row names; a start or turn whose write never lands deletes each payload with
+-- its row, keeping the row of one that will not delete. A row left is what a stop cut or a cleanup
+-- could not finish, which the restart deletes once its run is not under way. Run ids are
+-- event-sourced, so no foreign key.
+CREATE TABLE workflow_payload_reservations (
+  artifact_id               TEXT PRIMARY KEY,
+  session_id                TEXT NOT NULL,
+  workflow_run_id           TEXT NOT NULL
+) STRICT;
+CREATE INDEX idx_workflow_payload_reservations_session ON workflow_payload_reservations(session_id);
+CREATE INDEX idx_workflow_payload_reservations_run ON workflow_payload_reservations(workflow_run_id);
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5
@@ -241,7 +263,7 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(source_json) AND json_type(source_json) = 'array'),
   status            TEXT NOT NULL
                     CHECK(status IN ('pending', 'running', 'waiting', 'waitingMemory', 'succeeded', 'failed', 'skipped', 'canceled')),
-                                                 -- 'waitingMemory' = held by the memory gate before it starts; 'canceled' = running or waiting when its run ended failed or canceled
+                                                 -- 'waitingMemory' = held by the memory gate before it starts; 'canceled' = running or waiting when its run ended failed or canceled, or on a branch a first-to-arrive merge took no input from
   wait_cause        TEXT                         -- what a waiting step waits on: a person ('approval', 'form', 'reply'), its chain's question ('chain'), or a spent provider account ('account')
                     CHECK(wait_cause IS NULL OR wait_cause IN ('approval', 'form', 'reply', 'chain', 'account')),
   resume_at         TEXT,                        -- the instant a step parked on a spent account resumes itself, where one is armed; NULL where none is, which reads as awaiting resume
@@ -281,8 +303,11 @@ CREATE TABLE workflow_steps (
   permission_level  TEXT                           -- an agent step whose account cannot run its run's level: the level it ran at in its place, from its workflow.step.started; NULL on every other step
                     CHECK(permission_level IS NULL OR permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   decline_reason    TEXT,                          -- the words typed with the Decline on a command step's own approval card that failed it, from its workflow.step.failed; NULL on every other step and on a bare decline
-  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnPool to the event that ends it
-                    CHECK(total_pool_wait_ms >= 0),
+  cancellation_reason TEXT                         -- a canceled step: why, from its workflow.step.canceled ('siblingFailure', 'runCanceled' or 'mergeFirstToArrive'); NULL on every other step and on a cancel with no recorded cause
+                    CHECK(cancellation_reason IS NULL OR (status = 'canceled'
+                      AND cancellation_reason IN ('siblingFailure', 'runCanceled', 'mergeFirstToArrive'))),
+  total_memory_wait_ms INTEGER NOT NULL DEFAULT 0  -- milliseconds the memory gate held the step, summed over its holds, each from its first workflow.phase.waitingOnMemory to the event that ends it
+                    CHECK(total_memory_wait_ms >= 0),
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
   UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it

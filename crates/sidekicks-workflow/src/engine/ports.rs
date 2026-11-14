@@ -15,6 +15,8 @@ pub(crate) mod run_limits;
 #[cfg(test)]
 pub(crate) mod scripted_agent_runs;
 pub mod tool_call;
+#[cfg(test)]
+pub(crate) mod withdrawn_cards;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -37,7 +39,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::ComposedText;
-use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowDefinitionId, WorkflowName, WorkflowNodeId,
+};
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{
@@ -216,11 +220,12 @@ pub trait AgentStepRunner: Send + Sync {
         request: AgentStepRequest,
     ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>>;
 
-    /// The run `step` started before a restart. Fails when no such run is stored.
+    /// The run `step` made before a restart, which the queue's recovery starts again; `None` where
+    /// the step made none. Fails when the stored runs cannot be read.
     fn reattach<'call>(
         &'call self,
         step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>>;
+    ) -> BoxFuture<'call, Result<Option<Box<dyn AgentStepRun>>, PortError>>;
 }
 
 /// One agent step's run.
@@ -315,15 +320,17 @@ pub trait StepProcess: Send + Sync {
 /// Stores the step payloads too large to carry inline as artifacts; the step payload store
 /// implements it.
 pub trait StepPayloadArtifacts: Send + Sync {
-    /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`. Fails when
-    /// the artifact cannot be written.
+    /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`, as
+    /// `artifact_id`, an id the caller minted, so a reservation can name it before the write.
+    /// Fails when the artifact cannot be written, with part of it possibly stored.
     fn write<'call>(
         &'call self,
         session_id: SessionId,
         step: &'call WorkflowStepKey,
+        artifact_id: ArtifactId,
         bytes: Vec<u8>,
         item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>>;
+    ) -> BoxFuture<'call, Result<(), PortError>>;
 
     /// The bytes of `artifact_id`. Fails when the artifact cannot be read.
     fn read<'call>(
@@ -331,8 +338,9 @@ pub trait StepPayloadArtifacts: Send + Sync {
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
 
-    /// Deletes `artifact_id`, a stored payload no record will name. Fails when the artifact cannot
-    /// be removed.
+    /// Deletes `artifact_id`, a stored payload no row will name; an artifact that is not
+    /// stored, such as one whose write never ran, counts as deleted. Fails when the artifact
+    /// cannot be removed.
     fn delete<'call>(
         &'call self,
         artifact_id: &'call ArtifactId,
@@ -346,6 +354,8 @@ pub struct WorkflowApprovalCardRequest {
     pub session_id: SessionId,
     /// The run that waits.
     pub run_id: WorkflowRunId,
+    /// The workflow whose wait asks, named on the card.
+    pub workflow_name: WorkflowName,
     /// The step that waits, `None` for a chain's hold.
     pub step: Option<WorkflowStepKey>,
     /// The wait the answer settles.
@@ -361,6 +371,17 @@ pub trait ApprovalCardRaiser: Send + Sync {
     /// the request's wait id: the restart raises again for a stored wait whose card never landed,
     /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
+
+    /// Withdraws the cards the waits `wait_ids` hold open in `session_id`, once the write that
+    /// ended those waits unanswered committed, the cancels sent together and each guarded on its
+    /// own card; a card already answered or withdrawn is left as it is, and a wait with no card
+    /// writes nothing. Answers one result per wait, in order, failing a card whose cancel cannot
+    /// be written; fails, with nothing written, when the cards cannot be read.
+    fn withdraw(
+        &self,
+        session_id: SessionId,
+        wait_ids: Vec<UuidTextForm>,
+    ) -> BoxFuture<'_, Result<Vec<Result<(), PortError>>, PortError>>;
 }
 
 /// A snapshot point a workflow run takes.
@@ -392,6 +413,8 @@ pub trait RunSnapshotPoints: Send + Sync {
 pub struct FormQuestionRequest {
     /// The session the question is asked in.
     pub session_id: SessionId,
+    /// The workflow whose step asks, named on the question's card.
+    pub workflow_name: WorkflowName,
     /// The step that waits.
     pub step: WorkflowStepKey,
     /// The wait the answer settles.
@@ -407,6 +430,8 @@ pub struct FormQuestionRequest {
 pub struct ReplyQuestionRequest {
     /// The session the question is asked in.
     pub session_id: SessionId,
+    /// The workflow whose step asks, named on the question's card.
+    pub workflow_name: WorkflowName,
     /// The step that waits.
     pub step: WorkflowStepKey,
     /// The wait the answer settles.
@@ -433,12 +458,14 @@ pub trait PersonWaitQuestions: Send + Sync {
         request: ReplyQuestionRequest,
     ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
 
-    /// Routes the answer to the question of `wait_id` back to the engine after a restart. Fails
-    /// when the question cannot be read.
-    fn reattach<'call>(
-        &'call self,
-        wait_id: &'call UuidTextForm,
-    ) -> BoxFuture<'call, Result<(), PortError>>;
+    /// The open question the wait `wait_id` holds in `session_id`, which a restart reattaches to
+    /// its stored wait; `None` where none is open, so the restart asks it again. Fails when the
+    /// question cannot be read.
+    fn reattach(
+        &self,
+        session_id: SessionId,
+        wait_id: UuidTextForm,
+    ) -> BoxFuture<'_, Result<Option<QuestionId>, PortError>>;
 }
 
 /// Takes the engine's own records, its intents and outcomes, which are never read back as facts;
@@ -489,7 +516,7 @@ impl AgentStepRunner for RefusingPorts {
     fn reattach<'call>(
         &'call self,
         _step: &'call WorkflowStepKey,
-    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>> {
+    ) -> BoxFuture<'call, Result<Option<Box<dyn AgentStepRun>>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 }
@@ -524,9 +551,10 @@ impl StepPayloadArtifacts for RefusingPorts {
         &'call self,
         _session_id: SessionId,
         _step: &'call WorkflowStepKey,
+        _artifact_id: ArtifactId,
         _bytes: Vec<u8>,
         _item_count: u64,
-    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
+    ) -> BoxFuture<'call, Result<(), PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 

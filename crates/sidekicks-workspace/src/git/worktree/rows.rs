@@ -1,17 +1,20 @@
 //! The `worktrees` rows the worktree modules read back and the statements more than one of them
-//! writes, the conditions that say a row is live, that it stands ready to work in and that an agent
-//! runs in a tree, the join to a tree's newest branch context, and what a refused compare-and-swap
+//! writes, the conditions that say a row is live, that it stands ready to work in and that a run
+//! works in a tree, the join to a tree's newest branch context, and what a refused compare-and-swap
 //! on one of its transitions means.
 
 use std::borrow::Cow;
 use std::fmt;
+use std::io;
+use std::path::Path;
 use std::sync::LazyLock;
 
+use rusqlite::Connection;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::repo::mount::RepoMountId;
+use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
@@ -21,10 +24,13 @@ use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 use sidekicks_store::database::writer::WriteError;
 use strum::VariantArray;
 
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::schema::BRANCH_RELEASING_STATE_LIST;
+use crate::trust_envelope::is_contained_within;
 
 /// The `worktrees` columns a removal reads: the row, its mount, creator, folder, branch and state,
 /// each parsed to its type where the row is read.
@@ -59,15 +65,31 @@ pub(crate) struct AttachedMountRow {
     pub(crate) place: Option<Place>,
 }
 
-/// One run context whose run has not ended.
+/// One run context whose run has not ended, as [`read_unreleased_runs`] reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct UnreleasedRunRow {
+pub struct UnreleasedRunRow {
     /// The session the run belongs to.
     pub(crate) session_id: SessionId,
+    /// The workspace the run is bound in: its session's own, or a workflow run's own.
+    pub workspace_id: WorkspaceId,
     /// The tree the run works in; `None` for a run in the mount's own checkout.
     pub(crate) worktree_id: Option<WorktreeId>,
     /// The folder the run works in, as recorded.
     pub(crate) execution_root: FilesystemPath,
+}
+
+impl UnreleasedRunRow {
+    /// Whether the run works in the tree `worktree_id`, whose folder `canonical_folder_path`
+    /// resolved to `tree_key`: its context names the tree, or its root resolved is the tree's
+    /// folder or inside it. The one test a tree's removal refuses on and its sweep passes over a
+    /// session for. Fails when the run's root cannot be resolved.
+    pub async fn is_in_tree(&self, worktree_id: WorktreeId, tree_key: &Path) -> io::Result<bool> {
+        if self.worktree_id == Some(worktree_id) {
+            return Ok(true);
+        }
+        let root_key = canonical_folder_path(Path::new(self.execution_root.as_str())).await?;
+        Ok(is_contained_within(&root_key, tree_key))
+    }
 }
 
 /// The values of a `creating` row's insert.
@@ -207,7 +229,7 @@ pub(crate) fn transition_statement(
 /// agent runs in the tree when its context names the tree or roots at its folder or below it,
 /// under either platform's separator. The retirement's write checks this inside its transaction;
 /// a run recorded under another spelling of the folder is caught before the write by the
-/// resolved-path read over [`UNRELEASED_RUNS_SQL`].
+/// resolved-path test over [`read_unreleased_runs`].
 pub(crate) const UNRELEASED_RUN_IN_WORKTREE_SQL: &str = "SELECT run.session_id
     FROM worktrees
     JOIN run_execution_contexts AS run
@@ -220,12 +242,28 @@ pub(crate) const UNRELEASED_RUN_IN_WORKTREE_SQL: &str = "SELECT run.session_id
    ORDER BY run.created_at ASC
    LIMIT 1";
 
-/// Every run context whose run has not ended, oldest first, for a resolved-path comparison; its
-/// columns are [`UnreleasedRunRow`]'s, in order.
-pub(crate) const UNRELEASED_RUNS_SQL: &str = "SELECT session_id, worktree_id, execution_root
+// Every run context whose run has not ended, oldest first, for a resolved-path comparison; its
+// columns are `UnreleasedRunRow`'s, in order.
+const UNRELEASED_RUNS_SQL: &str = "SELECT session_id, workspace_id, worktree_id, execution_root
     FROM run_execution_contexts
    WHERE released_at IS NULL
    ORDER BY created_at ASC, run_id ASC";
+
+/// Every run context whose run has not ended, oldest first, each tested against a tree with
+/// [`UnreleasedRunRow::is_in_tree`]. Fails when the rows cannot be read.
+pub fn read_unreleased_runs(connection: &Connection) -> rusqlite::Result<Vec<UnreleasedRunRow>> {
+    connection
+        .prepare_cached(UNRELEASED_RUNS_SQL)?
+        .query_map([], |row| {
+            Ok(UnreleasedRunRow {
+                session_id: text_column(row, 0, |text| SessionId::new(&text))?,
+                workspace_id: text_column(row, 1, |text| WorkspaceId::new(&text))?,
+                worktree_id: optional_text_column(row, 2, |text| WorktreeId::new(&text))?,
+                execution_root: text_column(row, 3, FilesystemPath::new)?,
+            })
+        })?
+        .collect()
+}
 
 /// The worktree row changes whose compare-and-swap a refusal names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

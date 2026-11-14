@@ -93,7 +93,7 @@ interface RuntimeBindingReadResponse {
 
 // ---- The file checkpoint store, and what undo reads ----
 // The daemon copies aside every file the agent or one of its children is about to edit — Write,
-// Edit, MultiEdit and NotebookEdit on Claude Code, `apply_patch` on Codex — at every prompt that
+// Edit and NotebookEdit on Claude Code, `apply_patch` on Codex — at every prompt that
 // starts a turn, from its own pre-tool hook, the same hook that holds a run for Pause: one
 // mechanism, not a second interception path. What a shell command writes is inside the same store
 // on every provider: around every command an agent or a child runs, the daemon captures the working

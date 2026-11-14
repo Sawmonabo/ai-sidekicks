@@ -8,7 +8,10 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
+use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::snapshot::WorkflowRunEpoch;
 use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 
@@ -25,11 +28,12 @@ use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 use crate::engine::waits::answers::{PersonWaitIntake, answered_step};
 use crate::engine::waits::{PersonWaitRefusal, WaitingPersonStep};
 
-/// Why a `Keep going`'s read failed.
+/// Why a read on the inbox path failed: a `Keep going`'s chain question and held steps, or
+/// whether an answer's wait still stands.
 #[derive(Debug, thiserror::Error)]
-enum KeepGoingReadError {
+enum InboxReadError {
     /// SQLite refused the read, or a stored value did not read as its type.
-    #[error("a read of a chain's question or its held steps failed")]
+    #[error("a read of a chain's question, its held steps or a wait's step failed")]
     Database(#[from] rusqlite::Error),
     /// The read pool is closed, a connection did not open, or the read's blocking task did not
     /// finish.
@@ -41,7 +45,9 @@ impl EngineTick {
     /// Routes `intake` to the run whose live step waits under the wait it names, the run added
     /// to `order` where it is not there yet, by one scan of the live steps. An answer to a dropped
     /// run's wait is dropped unreplied, which its sender reads as not taken, since the wait may
-    /// still hold after the restart; any other wait is answered not waiting at once.
+    /// still hold after the restart. Any other wait no live run holds is refused off the loop, by
+    /// one read of its step: not held where the step still waits under it, since no run of this
+    /// life drives it, and not waiting where the wait ended.
     pub(super) fn route_answer(
         &self,
         intake: PersonWaitIntake,
@@ -63,7 +69,29 @@ impl EngineTick {
             }
             None if self.dropped_waits.contains(&intake.wait_id) => drop(intake),
             None => {
-                let _unheard = intake.reply.send(Err(PersonWaitRefusal::NotWaiting));
+                let pool = Arc::clone(&self.pool);
+                tokio::spawn(async move {
+                    let wait_id = intake.wait_id;
+                    let stands = pool
+                        .read(ReadLength::Short, move |connection| {
+                            is_wait_standing(connection, wait_id)
+                        })
+                        .await;
+                    let refusal = match stands {
+                        Ok(true) => PersonWaitRefusal::NotHeld,
+                        Ok(false) => PersonWaitRefusal::NotWaiting,
+                        // An answer is never read as taken on a failed read.
+                        Err(error) => {
+                            tracing::warn!(
+                                wait_id = wait_id.text().as_str(),
+                                error = &error as &(dyn Error + 'static),
+                                "an unheld wait's step was not read"
+                            );
+                            PersonWaitRefusal::NotHeld
+                        }
+                    };
+                    let _unheard = intake.reply.send(Err(refusal));
+                });
             }
         }
     }
@@ -125,14 +153,19 @@ impl EngineTick {
         }
     }
 
-    /// Writes `intake`'s `Keep going` in one write over the chain's first run and every live run
-    /// holding a step behind its question, each held step moved to `running`, and replies once it
-    /// commits. A chain with no question left to answer, or a first run neither live nor stored,
-    /// is answered not waiting; a failed read or write leaves the reply unsent, which its sender
-    /// reads as not taken, and is recorded. Held steps of runs the tick does not drive are left for
-    /// the restart to settle.
+    /// Writes `intake`'s `Keep going` with its chain card's answer in one write over the chain's
+    /// first run and every live run holding a step behind its question, each held step moved to
+    /// `running`, and replies once it commits. A chain with no question left to answer, or a first
+    /// run neither live nor stored, is answered not waiting; a failed read or write leaves the
+    /// reply unsent, which its sender reads as not taken, and is recorded. Held steps of runs the
+    /// tick does not drive are left for the restart to settle.
     pub(super) async fn keep_going(&mut self, intake: KeepGoingIntake) {
-        let KeepGoingIntake { answer, at, reply } = intake;
+        let KeepGoingIntake {
+            answer,
+            card,
+            at,
+            reply,
+        } = intake;
         let root = answer.root();
         let is_root_live = self.runs.contains_key(&root);
         let read = self
@@ -161,17 +194,21 @@ impl EngineTick {
                 (Some(live), _) => RunTurnCommit::new(
                     live.event_keys(),
                     *run_id,
+                    live.epoch,
                     live.counts,
                     live.person_wait.clone(),
                     Arc::clone(&self.payloads),
+                    Arc::clone(&self.writer),
                 ),
                 // A first run the tick does not drive writes no run event.
                 (None, Some(question)) => RunTurnCommit::new(
                     question.keys,
                     *run_id,
+                    WorkflowRunEpoch(SafeInt::ZERO),
                     RunStepCounts::default(),
                     RunPersonWait::default(),
                     Arc::clone(&self.payloads),
+                    Arc::clone(&self.writer),
                 ),
                 (None, None) => {
                     let _unheard = reply.send(Err(PersonWaitRefusal::NotWaiting));
@@ -180,7 +217,7 @@ impl EngineTick {
             };
             commits.push(commit);
         }
-        let commits = keep_going_write(&answer, commits, &held, &at);
+        let commits = keep_going_write(&answer, card, commits, &held, &at);
         // The write answers each turn in the order it was handed.
         let written: Vec<WorkflowRunId> = commits.iter().map(RunTurnCommit::run_id).collect();
         let writes = commits
@@ -274,7 +311,7 @@ fn read_keep_going(
     connection: &Connection,
     root: &WorkflowRunId,
     is_root_live: bool,
-) -> Result<(Vec<ChainHeldStep>, Option<ChainQuestion>), KeepGoingReadError> {
+) -> Result<(Vec<ChainHeldStep>, Option<ChainQuestion>), InboxReadError> {
     let held = read_chain_held_steps(connection, root)?;
     let question = if is_root_live {
         None
@@ -282,6 +319,19 @@ fn read_keep_going(
         read_chain_question(connection, root)?
     };
     Ok((held, question))
+}
+
+const WAIT_STANDING_SQL: &str =
+    "SELECT EXISTS (SELECT 1 FROM workflow_steps WHERE wait_id = ?1 AND status = 'waiting')";
+
+// Whether a step still waits under `wait_id`.
+fn is_wait_standing(
+    connection: &Connection,
+    wait_id: UuidTextForm,
+) -> Result<bool, InboxReadError> {
+    Ok(connection
+        .prepare_cached(WAIT_STANDING_SQL)?
+        .query_row([wait_id.text().as_str()], |row| row.get(0))?)
 }
 
 #[cfg(test)]

@@ -14,9 +14,9 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::ports::StepAdmissionOutcome;
 use crate::engine::tick::{StepReport, StepReportKind};
 
-/// How often a held step repeats its `workflow.phase.waitingOnPool` report while the hold lasts.
+/// How often a held step repeats its `workflow.phase.waitingOnMemory` report while the hold lasts.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(crate) const POOL_WAIT_REPEAT: Duration = Duration::from_secs(30);
+pub(crate) const MEMORY_WAIT_REPEAT: Duration = Duration::from_secs(30);
 
 /// How a step's wait at the memory gate ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,8 +39,8 @@ pub(crate) enum GateWaitEnd {
 }
 
 /// Waits for the gate's answer on `admission` for `step`, reporting the hold on `reports`: a
-/// `WaitingOnPool` when it starts and every [`POOL_WAIT_REPEAT`] after, each carrying the first's
-/// instant, then `Admitted`. A step the gate already decided reports no hold.
+/// `WaitingOnMemory` when it starts and every [`MEMORY_WAIT_REPEAT`] after, each carrying the
+/// first's instant, then `Admitted`. A step the gate already decided reports no hold.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) async fn wait_at_gate(
     step: WorkflowStepKey,
@@ -79,7 +79,7 @@ pub(crate) async fn wait_at_gate(
     {
         return end;
     }
-    let repeat = tokio::time::sleep(POOL_WAIT_REPEAT);
+    let repeat = tokio::time::sleep(MEMORY_WAIT_REPEAT);
     tokio::pin!(repeat);
     loop {
         tokio::select! {
@@ -114,7 +114,7 @@ pub(crate) async fn wait_at_gate(
                 if let Some(end) = sent.await {
                     return end;
                 }
-                let next = repeat.deadline() + POOL_WAIT_REPEAT;
+                let next = repeat.deadline() + MEMORY_WAIT_REPEAT;
                 repeat.as_mut().reset(next);
             }
         }
@@ -133,7 +133,7 @@ async fn send_hold(
     is_hold_reported: bool,
     cancel: &CancellationToken,
 ) -> Option<GateWaitEnd> {
-    let held = StepReportKind::WaitingOnPool {
+    let held = StepReportKind::WaitingOnMemory {
         hold_started_at: hold_started_at.clone(),
     };
     tokio::select! {
@@ -367,10 +367,10 @@ mod tests {
         (wait, gate, cancel, received)
     }
 
-    /// The hold instant of a `WaitingOnPool` report, after checking it names [`step`].
+    /// The hold instant of a `WaitingOnMemory` report, after checking it names [`step`].
     fn hold_of(report: StepReport) -> (WireInstant, WireInstant) {
         assert_eq!(report.step, step());
-        let StepReportKind::WaitingOnPool { hold_started_at } = report.kind else {
+        let StepReportKind::WaitingOnMemory { hold_started_at } = report.kind else {
             panic!("the report is not a hold");
         };
         (report.at, hold_started_at)
