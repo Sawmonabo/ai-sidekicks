@@ -103,5 +103,6 @@ pub(crate) async fn read_codex_mcp_servers(
         server_policy: reading.server_policy,
         account_servers: Vec::new(),
         probe_readings,
+        failed_roots: Vec::new(),
     })
 }

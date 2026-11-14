@@ -93,6 +93,9 @@ pub struct ProviderMcpServersReading {
     pub account_servers: Vec<McpAccountServers>,
     /// What the probe read for each binding it started; empty when no probe was asked for.
     pub probe_readings: Vec<McpProbeReading>,
+    /// The attached roots where part of the provider's config could not be read: each root's
+    /// servers the rest of its config declares are still in `declarations`.
+    pub failed_roots: Vec<PlacedPath>,
 }
 
 /// One server declaration, redacted.

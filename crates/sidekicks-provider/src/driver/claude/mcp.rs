@@ -225,6 +225,12 @@ pub(crate) async fn read_claude_mcp_servers(
         server_policy: reading.server_policy,
         account_servers: ranking.account_servers,
         probe_readings,
+        failed_roots: reading
+            .roots
+            .into_iter()
+            .filter(|root| root.is_project_key_unread)
+            .map(|root| root.root)
+            .collect(),
     })
 }
 

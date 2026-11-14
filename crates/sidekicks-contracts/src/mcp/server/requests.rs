@@ -13,7 +13,7 @@ use crate::mcp::server::inventory::{
 };
 use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
 use crate::method::KeyedRequest;
-use crate::place::WslPlace;
+use crate::place::{PlacedPath, WslPlace};
 use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
@@ -193,8 +193,9 @@ pub struct McpRegistrySearchRequest {
     pub cursor: Option<McpRequestText>,
 }
 
-/// What `mcp.server.list` answers with: the bindings of every provider whose read answered, and
-/// each provider whose read failed.
+/// What `mcp.server.list` answers with: the bindings of every provider whose read answered, each
+/// provider whose read failed, and each project root part of whose config a provider could not
+/// read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpServerListResponse {
@@ -205,6 +206,22 @@ pub struct McpServerListResponse {
     /// every provider answered.
     #[garde(skip)]
     pub failed_providers: Vec<McpProviderReadFailure>,
+    /// One entry per project root and provider where part of the provider's config for that root
+    /// could not be read; the root's other bindings are still in `servers`. Empty when every root
+    /// was read whole.
+    #[garde(skip)]
+    pub failed_roots: Vec<McpRootReadFailure>,
+}
+
+/// A project root part of whose MCP config a provider's read could not read. It carries no
+/// system error text; the daemon's log keeps that.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpRootReadFailure {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The root, with the distribution it is in.
+    pub root: PlacedPath,
 }
 
 /// A provider whose MCP servers could not be read, with why.

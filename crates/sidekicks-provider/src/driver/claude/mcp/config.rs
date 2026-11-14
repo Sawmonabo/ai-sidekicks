@@ -265,6 +265,9 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
+    /// Whether the key `.claude.json` files the root under could not be worked out, so its entry
+    /// there, with its `local` servers and its lists of names, was not read.
+    pub(crate) is_project_key_unread: bool,
 }
 
 /// Whether `kept_out_server_names` names `server_name`, matched as Claude Code matches them: a
@@ -315,9 +318,9 @@ pub(crate) struct ClaudePluginRoot {
 }
 
 /// Reads the person's Claude Code MCP config from `sources`. A file that is absent, not the
-/// daemon's to read or not JSON of the expected shape declares nothing, and so does a root's entry
-/// in `.claude.json` where the root's key cannot be read for the same reasons; fails with the path
-/// and the system's error on any other read failure.
+/// daemon's to read or not JSON of the expected shape declares nothing; a root whose key in
+/// `.claude.json` cannot be worked out is marked so, logged, and read without its entry there.
+/// Fails with the path and the system's error on any other read failure.
 pub(crate) async fn read_claude_mcp_config(
     sources: &ClaudeMcpConfigSources<'_>,
 ) -> Result<ClaudeMcpConfigReading, ClaudeSettingsReadError> {
@@ -345,15 +348,23 @@ pub(crate) async fn read_claude_mcp_config(
     let projects = person_config.projects.read();
     let mut roots = Vec::with_capacity(sources.roots.len());
     for root in sources.roots {
-        // A root whose key the daemon cannot read has no entry it can find, as an unreadable file
-        // declares nothing.
-        let project_entry = match resolve_claude_config_project_key(root.root.path.as_str()).await {
-            Ok(project_key) => projects
+        // A root whose key cannot be worked out has no entry the read can find; the other roots
+        // are read all the same, and the list names this one.
+        let project_key = resolve_claude_config_project_key(root.root.path.as_str())
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    error = error as &(dyn std::error::Error + 'static),
+                    "a root's key in the Claude Code config could not be worked out, so its \
+                     entry there is not read"
+                );
+            });
+        let is_project_key_unread = project_key.is_err();
+        let project_entry = project_key.ok().and_then(|project_key| {
+            projects
                 .and_then(|projects| projects.get(&project_key))
-                .and_then(Tolerated::read),
-            Err(error) if is_unreadable_path(&error.failure) => None,
-            Err(error) => return Err(error),
-        };
+                .and_then(Tolerated::read)
+        });
         let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?
             .unwrap_or_default();
@@ -414,6 +425,7 @@ pub(crate) async fn read_claude_mcp_config(
             switched_off_server_names: project_entry
                 .map(|entry| read_names(&entry.disabled_mcp_servers))
                 .unwrap_or_default(),
+            is_project_key_unread,
         });
     }
 
