@@ -10,6 +10,8 @@
 //!   (`repoMount.health.changed`), `healthy` when the log says nothing, so a change while the
 //!   daemon was down still reaches it. A send that fails leaves that session's verdict where it
 //!   was, so the next pass sends it again.
+//! - A mount a re-attach or a move made owes its first verdict, naming the mount it replaced, to
+//!   each session on it until every one has it (see `first_verdict`).
 //! - Mounts are probed as many at once as the machine has processors, one pass per mount at a
 //!   time; every call that arrives during a mount's pass is served by the one pass after it.
 //! - A probe's file reads are held to the bounded read's ceiling: a root that does not open in
@@ -22,6 +24,8 @@
 //! - A project mount that reads `healthy` with no first commit recorded, attached before one was
 //!   kept or while its repository had none, records it the first time its repository has one, so
 //!   a later move can know the repository wherever its folder goes.
+
+pub(crate) mod first_verdict;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -49,12 +53,15 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{StoredJsonFault, place_column, text_column};
+use sidekicks_store::database::stored_column::{
+    StoredJsonFault, optional_text_column, place_column, text_column,
+};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
+use self::first_verdict::REPLACED_REPO_MOUNT_METADATA_PATH;
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::GIT_COMMAND_TIMEOUT;
 use crate::projector::{
@@ -70,13 +77,14 @@ use crate::row_guards::{
 use crate::trust_envelope::{components_equal, is_contained_within};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
-pub const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
+pub const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 6;
 
 // What every attached-mount read selects, in the order `attached_mount_of` reads it.
 static ATTACHED_MOUNT_COLUMNS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, canonical_root, place, json_extract(metadata, '{COMMON_DIR_METADATA_PATH}'),
-        json_extract(metadata, '{ROOT_COMMIT_METADATA_PATH}') IS NOT NULL
+        json_extract(metadata, '{ROOT_COMMIT_METADATA_PATH}') IS NOT NULL,
+        json_extract(metadata, '{REPLACED_REPO_MOUNT_METADATA_PATH}')
    FROM repo_mounts
   WHERE state = '{}'",
         <&'static str>::from(RepoMountState::Attached)
@@ -264,6 +272,23 @@ pub enum MountPassFailure {
         #[source]
         source: SettleFailures<SessionEventEmitError>,
     },
+    /// A re-attached or moved mount's first verdict is owed and the probe gave none; the next
+    /// pass that reaches a verdict sends it.
+    #[error("repo mount {repo_mount_id}: its first health was not read, so no session was told")]
+    FirstVerdictUnsent {
+        /// The mount.
+        repo_mount_id: RepoMountId,
+    },
+    /// Every session had a re-attached or moved mount's first verdict and its record was not
+    /// cleared; the next pass, which sends nothing more, clears it.
+    #[error("repo mount {repo_mount_id}: the record of its owed first health was not cleared")]
+    FirstVerdictUncleared {
+        /// The mount.
+        repo_mount_id: RepoMountId,
+        /// Why.
+        #[source]
+        source: WriteError,
+    },
 }
 
 /// Why a re-probe did not finish telling every session what changed.
@@ -317,6 +342,8 @@ struct AttachedMount {
     place: Option<Place>,
     common_dir_anchor: Option<PathBuf>,
     has_root_commit: bool,
+    // The mount a re-attach or a move replaced with this one, while its first verdict is owed.
+    replaced_repo_mount_id: Option<RepoMountId>,
 }
 
 impl AttachedMount {
@@ -348,7 +375,8 @@ struct MountMemory {
 /// on a mount whose verdict changed: every mount at the service's start
 /// ([`start_probe`](Self::start_probe)) and on wake ([`reprobe`](Self::reprobe)), and only the
 /// mounts holding a folder that changed
-/// ([`reprobe_mounts_containing`](Self::reprobe_mounts_containing)). See the module doc.
+/// ([`reprobe_mounts_containing`](Self::reprobe_mounts_containing)), and the one mount a re-attach
+/// or a move just made (`reprobe_mount`). See the module doc.
 pub struct RepoMountHealthReprobe {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
@@ -509,7 +537,7 @@ impl RepoMountHealthReprobe {
             return Ok(());
         };
         let Some(health) = self.probe_within_bound(&mount, on_timeout).await? else {
-            return Ok(());
+            return self.answer_no_verdict(&mount);
         };
         let verdict = MountVerdict::of(&health);
 
@@ -544,11 +572,17 @@ impl RepoMountHealthReprobe {
                 memory.heard.extend(logged);
             }
         }
+        let owed = self
+            .read_owed_sessions(&mount)
+            .await
+            .map_err(read_failure)?;
 
         let mut sends = Vec::new();
+        let mut is_cut_short = false;
         for session_id in sessions {
             // Cut short by the stop, the sessions not yet told keep the verdict they heard.
             if self.stop.is_cancelled() {
+                is_cut_short = true;
                 break;
             }
             let heard = self
@@ -556,7 +590,11 @@ impl RepoMountHealthReprobe {
                 .get(&repo_mount_id)
                 .and_then(|memory| memory.heard.get(&session_id).copied())
                 .unwrap_or(MountVerdict::ASSUMED);
-            if heard == verdict {
+            // A session owed the first verdict is sent it whatever it holds.
+            let replaced_repo_mount_id = mount
+                .replaced_repo_mount_id
+                .filter(|_| owed.contains(&session_id));
+            if heard == verdict && replaced_repo_mount_id.is_none() {
                 continue;
             }
             let sent = self
@@ -565,7 +603,7 @@ impl RepoMountHealthReprobe {
                     session_id,
                     repo_mount_id,
                     health.clone(),
-                    None,
+                    replaced_repo_mount_id,
                     SessionEventLinkage::default(),
                 )
                 .await;
@@ -594,12 +632,18 @@ impl RepoMountHealthReprobe {
                 repo_mount_id,
                 source,
             });
+        // Cleared only once every session the pass owed was told, each append already kept.
+        let cleared = if sent.is_ok() && !is_cut_short {
+            self.clear_first_verdict(&mount).await
+        } else {
+            Ok(())
+        };
         let recorded = if verdict == MountVerdict::Healthy {
             self.record_root_commit(&mount).await
         } else {
             Ok(())
         };
-        sent.and(recorded)
+        sent.and(cleared).and(recorded)
     }
 
     // Records the first commit of a healthy project mount that recorded none, once its repository
@@ -756,6 +800,7 @@ fn attached_mount_of(row: &Row<'_>) -> rusqlite::Result<AttachedMount> {
         place: place_column(row, 2)?,
         common_dir_anchor: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
         has_root_commit: row.get(4)?,
+        replaced_repo_mount_id: optional_text_column(row, 5, |text| RepoMountId::new(&text))?,
     })
 }
 
@@ -795,9 +840,8 @@ fn read_mount_checkouts(
         .collect::<rusqlite::Result<_>>()?)
 }
 
-/// The sessions with a live workspace on the mount, each once, in id order. Fails as the read
-/// fails, and for a stored id the contracts refuse.
-pub(crate) fn read_sessions_on_mount(
+// The sessions with a live workspace on the mount, each once, in id order.
+fn read_sessions_on_mount(
     connection: &Connection,
     repo_mount_id: RepoMountId,
 ) -> Result<Vec<SessionId>, MountHealthReadError> {

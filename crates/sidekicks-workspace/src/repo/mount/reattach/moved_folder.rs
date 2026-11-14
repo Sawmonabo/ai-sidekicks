@@ -121,7 +121,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             root_commit: Some(root_commit),
             rebased_workspaces,
         };
-        self.commit(mount, &old_anchor, target).await
+        self.commit(&mount, &old_anchor, target).await
     }
 }
 

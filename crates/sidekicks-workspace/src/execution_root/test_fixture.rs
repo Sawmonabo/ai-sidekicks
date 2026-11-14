@@ -30,6 +30,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     ExecutionRootError, ExecutionRootService, ExecutionRootServiceDeps, PreparedExecutionRoot,
@@ -50,6 +51,7 @@ use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::git::worktree::setup::test_runner::test_setup_runner;
 use crate::project::list_feed::ProjectListFeed;
 use crate::project::records::{ProjectRecords, ProjectSessionActivity};
+use crate::repo::mount::health::RepoMountHealthReprobe;
 use crate::repo::mount::reattach::{
     RepoMountReattachService, RepoMountReattachServiceDeps, RunningHolderLookup,
     RunningHolderLookupError,
@@ -305,6 +307,9 @@ impl ExecutionRootFixture {
                 data_folder: self.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
                 attach_notice: Arc::default(),
+                health: self.mount_health(Arc::new(WorkspaceEventEmitter::new(Arc::clone(
+                    &self.log.service,
+                )))),
             },
         ));
         let records = Arc::new(ProjectRecords::new(Arc::clone(&self.reads), sessions));
@@ -319,6 +324,17 @@ impl ExecutionRootFixture {
             checkout_lock: Arc::new(KeyedLock::new()),
             list_feed: Arc::new(ProjectListFeed::new(records, &self.log.followers)),
         })
+    }
+
+    /// The mounts' health re-probe over these rows, sending each verdict through `events`.
+    pub fn mount_health(&self, events: Arc<WorkspaceEventEmitter>) -> Arc<RepoMountHealthReprobe> {
+        Arc::new(RepoMountHealthReprobe::new(
+            Arc::clone(&self.reads),
+            Arc::clone(&self.log.writer),
+            events,
+            RepoRootResolver::new(test_git_runner()),
+            CancellationToken::new(),
+        ))
     }
 
     /// Moves `workspace_id` into `folder` under its own hold.

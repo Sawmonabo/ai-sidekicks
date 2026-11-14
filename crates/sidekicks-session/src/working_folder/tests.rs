@@ -644,6 +644,9 @@ async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
         data_folder: roots.scratch.path().join("data"),
         common_folder_columns: Vec::new(),
         attach_notice: Arc::default(),
+        health: roots.mount_health(Arc::new(WorkspaceEventEmitter::new(Arc::clone(
+            &roots.log.service,
+        )))),
     });
     roots.replace_repository().await;
     let refused = reattach

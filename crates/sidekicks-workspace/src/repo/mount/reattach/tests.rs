@@ -15,14 +15,22 @@ use sidekicks_contracts::repo::folders::{
 };
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::recovery::SessionRebuildingDetails;
 use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::data_folder::session_storage_folder;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::log_service::{
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    SessionAppendRefusal,
+};
+use sidekicks_store::events::session::followers::SessionEventFollowers;
 
 use super::{
-    RepoMountReattachError, RepoMountReattachService, RepoMountReattachServiceDeps,
-    RunningHolderLookup, RunningHolderLookupError,
+    RepoMountReattachError, RepoMountReattachFollowUpFailure, RepoMountReattachService,
+    RepoMountReattachServiceDeps, RunningHolderLookup, RunningHolderLookupError,
 };
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
@@ -72,6 +80,16 @@ struct ReattachFixture {
 
 impl ReattachFixture {
     async fn new() -> Self {
+        Self::with_health_events(|roots| {
+            Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service)))
+        })
+        .await
+    }
+
+    /// The fixture whose health pass sends each verdict through what `health_events` makes.
+    async fn with_health_events(
+        health_events: impl FnOnce(&ExecutionRootFixture) -> Arc<WorkspaceEventEmitter>,
+    ) -> Self {
         let roots = ExecutionRootFixture::new().await;
         roots
             .rows
@@ -101,6 +119,7 @@ impl ReattachFixture {
                 data_folder: roots.scratch.path().join("data"),
                 common_folder_columns: Vec::new(),
                 attach_notice: Arc::default(),
+                health: roots.mount_health(health_events(&roots)),
             },
         ));
         Self {
@@ -153,6 +172,30 @@ impl ReattachFixture {
             self.roots.count("SELECT count(*) FROM session_events"),
         )
     }
+}
+
+/// A log over the fixture's database that refuses every append, as one that takes no more events.
+fn refusing_events(roots: &ExecutionRootFixture) -> Arc<WorkspaceEventEmitter> {
+    Arc::new(WorkspaceEventEmitter::new(Arc::new(EventLogService::new(
+        EventLogServiceDependencies {
+            writer: Arc::clone(&roots.log.writer),
+            pool: Arc::new(DatabaseReadPool::new(
+                roots.database.path(),
+                EVENT_LOG_STATEMENT_CAPACITY,
+            )),
+            followers: Arc::new(SessionEventFollowers::default()),
+            projection_statements: None,
+            refuse_session_write: Some(Box::new(|session_id: &SessionId, _event_type: &str| {
+                Err(SessionAppendRefusal::Rebuilding {
+                    message: "the test refuses every append".to_owned(),
+                    details: SessionRebuildingDetails {
+                        session_id: *session_id,
+                    },
+                })
+            })),
+            read_damaged_from_sequence: None,
+        },
+    ))))
 }
 
 fn refusal(error: RepoMountReattachError) -> DomainError {
@@ -341,6 +384,89 @@ async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest()
              AND json_extract(payload, '$.replacedRepoMountId') = '{MOUNT_ID}'"
         )),
         Some(format!("repoMount.health.changed {new_mount}"))
+    );
+}
+
+// A re-attach whose first health was refused leaves it owed on the new mount: the next health pass
+// sends it once, naming the replaced mount, and clears the record, and a pass that finds the record
+// again, as a stop between the append and the clear leaves it, sends nothing. Killed by the record
+// left unwritten or cleared before the send was kept, and by the verdict sent again to a session
+// whose log holds it.
+#[tokio::test]
+async fn a_reattachs_refused_first_health_is_sent_once_by_the_next_health_pass() {
+    let fixture = ReattachFixture::with_health_events(refusing_events).await;
+    let workspace_id = fixture.roots.bind().await;
+    fixture
+        .roots
+        .prepare(workspace_id, None)
+        .await
+        .expect("the workspace roots at the repository");
+    fixture.roots.replace_repository().await;
+
+    let failed = fixture
+        .reattach(MOUNT_ID)
+        .await
+        .expect_err("the first health is refused");
+    let RepoMountReattachError::FollowUpIncomplete {
+        repo_mount_id,
+        source,
+        ..
+    } = failed
+    else {
+        panic!("the re-attach commits and answers its failed follow-up");
+    };
+    assert!(
+        matches!(
+            *source,
+            SettleFailures::One(RepoMountReattachFollowUpFailure::FirstVerdict(_))
+        ),
+        "only the first health fails: {source:?}"
+    );
+    let new_mount = repo_mount_id.text().as_str().to_owned();
+    let owed = format!(
+        "SELECT count(*) FROM repo_mounts WHERE id = '{new_mount}' \
+         AND json_extract(metadata, '$.replacedRepoMountId') = '{MOUNT_ID}'"
+    );
+    let told = format!(
+        "SELECT group_concat(coalesce(json_extract(payload, '$.replacedRepoMountId'), 'none')) \
+         FROM session_events WHERE session_id = '{SESSION_ID}' \
+         AND type = 'repoMount.health.changed' \
+         AND json_extract(payload, '$.repoMountId') = '{new_mount}'"
+    );
+    assert_eq!((fixture.roots.count(&owed), fixture.text(&told)), (1, None));
+
+    let events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(
+        &fixture.roots.log.service,
+    )));
+    fixture
+        .roots
+        .mount_health(Arc::clone(&events))
+        .reprobe()
+        .await
+        .expect("the owed first health is sent");
+    assert_eq!(
+        (fixture.roots.count(&owed), fixture.text(&told)),
+        (0, Some(MOUNT_ID.to_owned()))
+    );
+
+    fixture
+        .roots
+        .rows
+        .execute(
+            "UPDATE repo_mounts SET metadata = json_set(metadata, '$.replacedRepoMountId', ?1) \
+             WHERE id = ?2",
+            params![MOUNT_ID, new_mount],
+        )
+        .expect("the record stands as a stop before the clear leaves it");
+    fixture
+        .roots
+        .mount_health(events)
+        .start_probe()
+        .await
+        .expect("the session that has it is owed nothing");
+    assert_eq!(
+        (fixture.roots.count(&owed), fixture.text(&told)),
+        (0, Some(MOUNT_ID.to_owned()))
     );
 }
 

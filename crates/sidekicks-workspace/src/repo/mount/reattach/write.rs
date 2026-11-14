@@ -1,8 +1,8 @@
 //! The re-attach's one write: the running and holder checks tested again, the old mount's detach
-//! and the new mount's insert, the workspaces' and listed trees' move, the other trees'
-//! retirement, and for a move to a picked folder the project's folder and the workspaces' paths
-//! inside the old root carried to the new one, with the old common folder recorded for the carry of
-//! its captures; and what the committed write read back.
+//! and the new mount's insert with its owed first verdict, the workspaces' and listed trees' move,
+//! the other trees' retirement, and for a move to a picked folder the project's folder and the
+//! workspaces' paths inside the old root carried to the new one, with the old common folder
+//! recorded for the carry of its captures; and what the committed write read back.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -19,6 +19,7 @@ use sidekicks_store::database::stored_column::returned_parsed;
 
 use super::moved_captures::CAPTURES_MOVED_FROM_METADATA_PATH;
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
+use crate::repo::mount::health::first_verdict::REPLACED_REPO_MOUNT_METADATA_PATH;
 use crate::repo::mount::service::detach::SELECT_RUNNING_RUN_SQL;
 use crate::row_guards::{
     COMMON_DIR_METADATA_PATH, LAST_ERROR_METADATA_PATH, ROOT_COMMIT_METADATA_PATH,
@@ -78,7 +79,8 @@ static DETACH_OLD_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The new mount takes the old one's machine, place and project at the folder bound, anchored on
-// the repository there now; its project is answered for the service log.
+// the repository there now, and owes its first verdict naming the old one to each session on it;
+// its project is answered for the service log.
 static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO repo_mounts (
@@ -88,7 +90,8 @@ static INSERT_NEW_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
   SELECT @new_repo_mount_id, machine_id, @local_path, @canonical_root, place, vcs_type, origin,
          project_id, '{}', @now, @now,
          json_set('{{}}', '{COMMON_DIR_METADATA_PATH}', @common_dir,
-                  '{ROOT_COMMIT_METADATA_PATH}', @root_commit)
+                  '{ROOT_COMMIT_METADATA_PATH}', @root_commit,
+                  '{REPLACED_REPO_MOUNT_METADATA_PATH}', @repo_mount_id)
     FROM repo_mounts
    WHERE id = @repo_mount_id
   RETURNING project_id",

@@ -22,7 +22,9 @@
 //! - Once the write commits, the project attach notice is raised, as an attach raises it, so what
 //!   reads the projects' folders reads them again.
 //! - Each session on the new mount hears its first health naming the mount it replaced, so what
-//!   the session drew for the ended mount ends on that fact.
+//!   the session drew for the ended mount ends on that fact. The write records it owed and the
+//!   health re-probe's pass of the new mount sends it, so a send that fails or that a stop cuts
+//!   off is sent by a later pass.
 
 pub mod moved_captures;
 mod moved_folder;
@@ -77,7 +79,7 @@ use crate::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::mount::attach_notice::ProjectAttachNotice;
 use crate::repo::mount::health::{
-    MountHealthProbeError, MountHealthReadError, probe_repo_mount_health, read_sessions_on_mount,
+    MountHealthProbeError, MountPassFailure, RepoMountHealthReprobe, probe_repo_mount_health,
 };
 use crate::repo::mount::service::detach::read_running_run;
 use crate::repo::mount::service::new_repo_mount_id;
@@ -86,10 +88,10 @@ use crate::service::{AttachedMount, WorkspaceService, WorkspaceServiceError, roo
 use crate::trust_envelope::components_equal;
 
 /// The statements the re-attach's reads keep prepared on each read connection: the running run,
-/// the holder of the repository, the mount's live trees, the sessions on the new mount, a move's
-/// recorded first commit and workspace paths, the mounts whose captures are still to be carried,
-/// and the stored common folders of the run contexts and the command windows a carry rewrites.
-pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 9;
+/// the holder of the repository, the mount's live trees, a move's recorded first commit and
+/// workspace paths, the mounts whose captures are still to be carried, and the stored common
+/// folders of the run contexts and the command windows a carry rewrites.
+pub const REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY: usize = 8;
 
 // What a log line names a failed follow-up's group as.
 const FOLLOW_UP_OPERATION: &str = "a re-attach's follow-ups";
@@ -127,8 +129,7 @@ pub enum RepoMountReattachFollowUpFailure {
     /// A workspace or tree the write moved could not be read into its typed facts.
     #[error("a row the re-attach moved could not be read")]
     Rows(#[source] rusqlite::Error),
-    /// A retired tree's `worktree.retired`, or a session's `repoMount.health.changed`, was not
-    /// appended.
+    /// A retired tree's `worktree.retired` was not appended.
     #[error("an event the re-attach owed was not appended")]
     Announcement(#[source] SessionEventEmitError),
     /// A moved workspace could not be admitted again.
@@ -140,9 +141,10 @@ pub enum RepoMountReattachFollowUpFailure {
         #[source]
         source: ExecutionRootError,
     },
-    /// The new mount's health, or the sessions on it, could not be read.
-    #[error("the new mount's health could not be read")]
-    Health(#[source] Box<dyn Error + Send + Sync>),
+    /// The new mount's first health did not reach every session on it; its record keeps it owed
+    /// and the next health pass sends it.
+    #[error("the new mount's first health did not reach every session on it")]
+    FirstVerdict(#[source] Arc<MountPassFailure>),
     /// A move's captures were not carried to the new folder; the next start's carry finishes it.
     #[error("a move's captures were not carried to the new folder")]
     Captures(#[source] CaptureCarryError),
@@ -242,7 +244,7 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     pub workspaces: Arc<WorkspaceService>,
     /// The owner of every workspace's preparation hold.
     pub execution_roots: Arc<ExecutionRootService<W>>,
-    /// Where a moved workspace's `workspace.preparing` and the new mount's health go.
+    /// Where a moved workspace's `workspace.preparing` goes.
     pub events: Arc<WorkspaceEventEmitter>,
     /// Where each tree the re-attach retired is announced, as a removal announces it.
     pub worktree_events: Arc<WorktreeEventEmitter>,
@@ -259,6 +261,8 @@ pub struct RepoMountReattachServiceDeps<W = RecommendedWatcher> {
     pub common_folder_columns: Vec<CommonFolderColumn>,
     /// Raised once a re-attach or a move commits, since the project's folder is a new mount's.
     pub attach_notice: Arc<ProjectAttachNotice>,
+    /// The mounts' health re-probe, whose pass of the new mount sends its first verdict.
+    pub health: Arc<RepoMountHealthReprobe>,
 }
 
 /// Re-attaches a mount whose folder holds another repository now, or moves a lost one to a picked
@@ -278,6 +282,7 @@ pub struct RepoMountReattachService<W = RecommendedWatcher> {
     // The run contexts' common folder first, then the deps' columns.
     common_folder_columns: Vec<CommonFolderColumn>,
     attach_notice: Arc<ProjectAttachNotice>,
+    health: Arc<RepoMountHealthReprobe>,
     /// Where a test holds a re-attach between its checks and its write.
     #[cfg(test)]
     pub(crate) write_pause: PausePoint,
@@ -302,6 +307,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 .chain(deps.common_folder_columns)
                 .collect(),
             attach_notice: deps.attach_notice,
+            health: deps.health,
             #[cfg(test)]
             write_pause: PausePoint::default(),
         }
@@ -361,7 +367,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             root_commit,
             rebased_workspaces: Vec::new(),
         };
-        self.commit(mount, &old_anchor, target).await
+        self.commit(&mount, &old_anchor, target).await
     }
 
     // The project's mount `repo_mount_id` with its identity anchor, refusing a chat's managed
@@ -387,7 +393,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
     // project and no other mount holds the repository or the root, then owes each follow-up.
     async fn commit(
         &self,
-        mount: AttachedMount,
+        mount: &AttachedMount,
         old_anchor: &Path,
         target: ReattachTarget,
     ) -> Result<RepoMountReattachResponse, RepoMountReattachError> {
@@ -502,17 +508,11 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 });
             }
         }
-        let new_mount = AttachedMount {
-            id: new_repo_mount_id,
-            local_path: target.local_path,
-            canonical_root: target.canonical_root,
-            common_folder_anchor: Some(target.common_folder.clone()),
-            ..mount
-        };
-        failures.extend(
-            self.announce_health(&new_mount, &target.common_folder, repo_mount_id)
-                .await,
-        );
+        // The health pass is the one sender of the owed first verdict, so no other pass of the new
+        // mount can send it beside this one.
+        if let Err(failure) = self.health.reprobe_mount(new_repo_mount_id).await {
+            failures.push(RepoMountReattachFollowUpFailure::FirstVerdict(failure));
+        }
 
         let outcomes: Vec<Result<(), RepoMountReattachFollowUpFailure>> =
             failures.into_iter().map(Err).collect();
@@ -663,52 +663,6 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             Err(refusal) => refusal,
             Ok(()) => error.into(),
         }
-    }
-
-    // Sends the new mount's verdict to every session on it, naming the mount it replaced, which
-    // takes that mount's banner away; answers each failure.
-    async fn announce_health(
-        &self,
-        mount: &AttachedMount,
-        anchor: &Path,
-        replaced_repo_mount_id: RepoMountId,
-    ) -> Vec<RepoMountReattachFollowUpFailure> {
-        let health = match self.probe_health(mount, anchor).await {
-            Ok(health) => health,
-            Err(failure) => {
-                return vec![RepoMountReattachFollowUpFailure::Health(Box::new(failure))];
-            }
-        };
-        let repo_mount_id = mount.id;
-        let sessions: Result<_, MountHealthReadError> = self
-            .reads
-            .read(ReadLength::Short, move |connection| {
-                read_sessions_on_mount(connection, repo_mount_id)
-            })
-            .await;
-        let sessions = match sessions {
-            Ok(sessions) => sessions,
-            Err(failure) => {
-                return vec![RepoMountReattachFollowUpFailure::Health(Box::new(failure))];
-            }
-        };
-        let mut failures = Vec::new();
-        for session_id in sessions {
-            if let Err(failure) = self
-                .events
-                .emit_mount_health_changed(
-                    session_id,
-                    repo_mount_id,
-                    health.clone(),
-                    Some(replaced_repo_mount_id),
-                    SessionEventLinkage::default(),
-                )
-                .await
-            {
-                failures.push(RepoMountReattachFollowUpFailure::Announcement(failure));
-            }
-        }
-        failures
     }
 }
 
