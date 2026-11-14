@@ -155,10 +155,14 @@ export function useSessionShells(
           thisDeviceId,
         ),
       );
+      // Joined to a question still open, so a shell already asked about stays asked.
       publish((current) => ({
         ...current,
         hasClosedHere: true,
-        heldTerminalIdsAsked: held,
+        heldTerminalIdsAsked: [
+          ...current.heldTerminalIdsAsked,
+          ...held.filter((terminalId) => !current.heldTerminalIdsAsked.includes(terminalId)),
+        ],
       }));
       for (const terminalId of terminalIds) {
         if (!held.includes(terminalId)) {

@@ -2,9 +2,10 @@
 //
 // `openOutput` is what the emulator calls once it is on screen: it follows the shell's output
 // stream into the emulator through the output writer, which says when the pane is behind or caught
-// up; the connection is declared behind with `terminal.flowControl.update` while any pane on it
-// watching the shell is behind. It is stable for the shell, so the emulator is built once per
-// shell. Each open of the stream names the subscription a write or a take is bound to;
+// up; the window is declared behind with `terminal.flowControl.update` while any pane in it
+// watching the shell is behind, and a behind pane declares it again on each open of the stream, so
+// a client helper started again hears it. It is stable for the shell, so the emulator is built once
+// per shell. Each open of the stream names the subscription a write or a take is bound to;
 // between a stream's end and its re-open the input queue holds what is typed and sends it bound to
 // the new subscription. Sizes go to `terminal.resize`, the newest only while one is out.
 
@@ -22,10 +23,10 @@ import {
 } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { TerminalGridSize } from "../../emulator/xterm/adapter.js";
-import { connectionShellFor } from "../connection-shells.js";
 import { ShellInputQueue } from "../input-queue.js";
 import { ShellOutputWriter, type ShellOutputSink } from "../output-writer.js";
 import { ShellResizeQueue } from "../resize-queue.js";
+import { windowShellFor } from "../window-shells.js";
 
 /** A shell's feed as the pane holds it. */
 export interface ShellOutput {
@@ -38,7 +39,7 @@ export interface ShellOutput {
    * while it is opened again; what is typed meanwhile waits for the new subscription.
    */
   readonly isFollowing: boolean;
-  /** Why the stream could not be opened again, or the last write, size or flow update was refused. */
+  /** Why the stream could not be opened again, or why the last write, size or flow was refused. */
   readonly refusal: Refusal | undefined;
   /** Send typed keys to the shell, in order. */
   readonly typeKeys: (data: string) => void;
@@ -60,7 +61,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
   const inputQueue = useMemo(
     () =>
       new ShellInputQueue(
-        () => connectionShellFor(bridge, { sessionId, terminalId }),
+        () => windowShellFor(bridge, { sessionId, terminalId }),
         async (write, outputSubscriptionId) => {
           const reply = await callDaemon(bridge, "terminal.write", {
             ...write,
@@ -99,11 +100,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
   const openOutput = useCallback(
     (sink: ShellOutputSink): Unsubscribe => {
       const shell = { sessionId, terminalId };
-      const writer = new ShellOutputWriter(sink, (isBehind) => {
-        const paused = connectionShellFor(bridge, shell).noteBehind(isBehind);
-        if (paused === undefined) {
-          return;
-        }
+      const declareFlow = (paused: boolean): void => {
         void callDaemon(bridge, "terminal.flowControl.update", { ...shell, paused }).then(
           (reply) => {
             if (reply.status === "refused") {
@@ -115,10 +112,20 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
             }
           },
         );
+      };
+      const writer = new ShellOutputWriter(sink, (isBehind) => {
+        const paused = windowShellFor(bridge, shell).noteBehind(isBehind);
+        if (paused !== undefined) {
+          declareFlow(paused);
+        }
       });
       const stopFollowing = followShellOutput(bridge, shell, (delivery) => {
         switch (delivery.kind) {
           case "opened":
+            // The helper the stream now runs through may be a new one, which holds no pause.
+            if (writer.isBehind) {
+              declareFlow(true);
+            }
             inputQueue.bind(delivery.subscriptionId);
             publish((current) => ({
               ...current,

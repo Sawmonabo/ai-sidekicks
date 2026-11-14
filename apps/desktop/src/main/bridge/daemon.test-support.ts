@@ -52,7 +52,7 @@ export interface ScriptedDaemon {
   readonly start: () => ClientHelperUtilityProcess;
 }
 
-/** A daemon that answers each call and subscribe from `answer`, on a later turn as a socket does. */
+/** A daemon answering each call and subscribe from `answer`, on a later turn as a socket does. */
 export function scriptedDaemon(
   answer: (request: { method: string }) => ScriptedAnswer,
 ): ScriptedDaemon {

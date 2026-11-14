@@ -9,8 +9,10 @@
 // closed fails. A connect main closed before it settled is dropped, its link closed unused. The
 // link's state, and a starting daemon's answers that it is repairing, go to main as the addon
 // reports them; the addon pings, times and retries the link itself, so the helper keeps no timer.
-// Main alone asks the helper to end the service and to read a process's identity, and hears the
-// client's bounds and the status file's place once, at start.
+// A shell's flow state and its waiting writes are counted over every window on the connection
+// (`connection-shells.ts`), as the daemon counts them per connection. Main alone asks the helper
+// to end the service and to read a process's identity, and hears the client's bounds and the
+// status file's place once, at start.
 
 import type {
   DaemonClient,
@@ -24,6 +26,11 @@ import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-s
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
+import type {
+  TerminalFlowControlUpdateRequest,
+  TerminalFlowControlUpdateResponse,
+  TerminalWriteRequest,
+} from "@ai-sidekicks/contracts/terminal";
 
 import { FILE_PATH_METHODS, mayOfferPathsToOpen } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
@@ -34,6 +41,7 @@ import { describeFailure } from "#shared/failure-message.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
+import { ConnectionShells } from "./connection-shells.js";
 import type {
   ClientHelperLinkState,
   ClientHelperServiceAnswer,
@@ -42,6 +50,14 @@ import type {
   MainToClientHelperMessage,
 } from "./messages.js";
 import { paramsRefusal, requestRefusal, type ClientHelperChannelKind } from "./method-allowlist.js";
+import { isOpenedTwice, readWindowRequest } from "./window-request.js";
+
+const FLOW_CONTROL_METHOD = "terminal.flowControl.update";
+
+/** The reply a window gets for a flow update that changes nothing the daemon holds. */
+const FLOW_CONTROL_TAKEN_JSON = JSON.stringify({
+  accepted: true,
+} satisfies TerminalFlowControlUpdateResponse);
 
 /** What the helper uses of the daemon client the addon connects. */
 export type ClientHelperDaemonClient = Pick<
@@ -201,6 +217,9 @@ class ClientHelper {
   readonly #asks = new Map<number, (answer: FilePathAnswer) => void>();
   #nextAskId = 0;
   #nextAddonCallId = 0;
+  readonly #shells = new ConnectionShells<Channel>((update) => {
+    void this.#tellFlowControl(update);
+  });
 
   public constructor(parentPort: ClientHelperParentPort, addon: ClientHelperAddon) {
     this.#parentPort = parentPort;
@@ -245,27 +264,34 @@ class ClientHelper {
     }
   }
 
-  /** Answers one of main's service asks through the addon, which runs the ending's whole sequence. */
+  /**
+   * Answers one of main's service asks through the addon, which runs the ending's whole sequence;
+   * an ask that threw is answered as failed, so main's ask settles.
+   */
   async #answerServiceAsk(ask: ClientHelperServiceAsk): Promise<void> {
     let answer: ClientHelperServiceAnswer;
-    switch (ask.kind) {
-      case "daemon.end":
-        answer = {
-          kind: "daemon.ended",
-          askId: ask.askId,
-          outcome: await this.#addon.endDaemon(ask.request, ask.presentsToken),
-        };
-        break;
-      case "daemon.endProcess":
-        answer = {
-          kind: "daemon.ended",
-          askId: ask.askId,
-          outcome: await this.#addon.endDaemonProcess(JSON.stringify(ask.identity)),
-        };
-        break;
-      case "process.identityRead":
-        answer = this.#processIdentityAnswer(ask.askId, ask.processId);
-        break;
+    try {
+      switch (ask.kind) {
+        case "daemon.end":
+          answer = {
+            kind: "daemon.ended",
+            askId: ask.askId,
+            outcome: await this.#addon.endDaemon(ask.request, ask.presentsToken),
+          };
+          break;
+        case "daemon.endProcess":
+          answer = {
+            kind: "daemon.ended",
+            askId: ask.askId,
+            outcome: await this.#addon.endDaemonProcess(JSON.stringify(ask.identity)),
+          };
+          break;
+        case "process.identityRead":
+          answer = this.#processIdentityAnswer(ask.askId, ask.processId);
+          break;
+      }
+    } catch (failure) {
+      answer = { kind: "service.askFailed", askId: ask.askId, error: describeFailure(failure) };
     }
     this.#parentPort.postMessage(answer);
   }
@@ -298,6 +324,7 @@ class ClientHelper {
       this.#pendingLink = Promise.withResolvers<LinkOutcome>();
     }
     this.#isConnecting = true;
+    this.#shells.forgetConnection();
     void this.#connect(presentsToken, waitsForStart);
   }
 
@@ -307,6 +334,7 @@ class ClientHelper {
     const onState = (state: string): void => {
       if (isCurrent()) {
         // The addon reports only the five states it names.
+        this.#noteLinkState(state as ClientHelperLinkState);
         this.#parentPort.postMessage({ kind: "link.state", state: state as ClientHelperLinkState });
       }
     };
@@ -339,6 +367,56 @@ class ClientHelper {
       initializeResponse: connected.initializeResponse as ConnectionInitializeResponse,
     });
     this.#settleLink({ client: connected.client });
+    this.#shells.tellUntold();
+  }
+
+  /**
+   * A link the addon lost and opens again is a new connection, which holds no pause until told;
+   * quiet and open again is the same one, with nothing untold.
+   */
+  #noteLinkState(state: ClientHelperLinkState): void {
+    switch (state) {
+      case "reconnecting":
+      case "silent":
+      case "down":
+        this.#shells.forgetConnection();
+        return;
+      case "open":
+        if (this.#linkOutcome !== undefined && "client" in this.#linkOutcome) {
+          this.#shells.tellUntold();
+        }
+        return;
+      case "quiet":
+        return;
+    }
+  }
+
+  /**
+   * Sends the connection's own flow update, after the connect under way and the calls waiting on
+   * it; a failure is told to main, which logs it.
+   */
+  async #tellFlowControl(update: TerminalFlowControlUpdateRequest): Promise<void> {
+    const link = await this.#link();
+    // With no link up the daemon holds nothing for this connection; the next one is told.
+    if (!("client" in link)) {
+      return;
+    }
+    let message: string;
+    try {
+      const { error } = await link.client.call(
+        this.#takeAddonCallId(),
+        FLOW_CONTROL_METHOD,
+        JSON.stringify(update),
+        [],
+      );
+      if (error === undefined) {
+        return;
+      }
+      message = wireErrorOf(error).message;
+    } catch (failure) {
+      message = describeFailure(failure);
+    }
+    this.#parentPort.postMessage({ kind: "flowControl.failed", message });
   }
 
   /**
@@ -433,6 +511,21 @@ class ClientHelper {
     const held: HeldCall = { addon: undefined, isCanceled: false };
     channel.calls.set(callId, held);
     let params = request.params;
+    if (method === FLOW_CONTROL_METHOD) {
+      // The params passed the method's check.
+      const update = params as TerminalFlowControlUpdateRequest;
+      const paused = this.#shells.declareFlow(channel, update);
+      if (paused === undefined) {
+        this.#settleCall(channel, callId, {
+          kind: "call.served",
+          callId,
+          json: FLOW_CONTROL_TAKEN_JSON,
+          attachments: [],
+        });
+        return;
+      }
+      params = { ...update, paused };
+    }
     let replyAsk: number | undefined;
     if (channel.windowId !== undefined && FILE_PATH_METHODS.has(method)) {
       const askId = this.#nextAskId++;
@@ -454,6 +547,27 @@ class ClientHelper {
       params = swap.params;
       replyAsk = swap.readsReply ? askId : undefined;
     }
+    // The params passed the method's check.
+    const releaseWrite =
+      method === "terminal.write"
+        ? await this.#shells.takeWriteRoom(params as TerminalWriteRequest)
+        : undefined;
+    try {
+      await this.#callOverLink(channel, request, held, params, replyAsk);
+    } finally {
+      releaseWrite?.();
+    }
+  }
+
+  /** Sends one checked call over the link once it settles and tells its asker the answer. */
+  async #callOverLink(
+    channel: Channel,
+    request: Extract<ClientHelperRequest, { readonly kind: "call" }>,
+    held: HeldCall,
+    params: unknown,
+    replyAsk: number | undefined,
+  ): Promise<void> {
+    const { callId, method } = request;
     const link = await this.#link();
     if (channel.isClosed) {
       return;
@@ -470,8 +584,7 @@ class ClientHelper {
       this.#settleCall(channel, callId, { kind: "call.refused", callId, refusal: link.error });
       return;
     }
-    const addonCallId = this.#nextAddonCallId;
-    this.#nextAddonCallId = (addonCallId + 1) % 2 ** 32;
+    const addonCallId = this.#takeAddonCallId();
     let answer: ClientHelperAnswer;
     try {
       const outcome = link.client.call(
@@ -498,6 +611,12 @@ class ClientHelper {
       };
     }
     this.#settleCall(channel, callId, answer);
+  }
+
+  #takeAddonCallId(): number {
+    const addonCallId = this.#nextAddonCallId;
+    this.#nextAddonCallId = (addonCallId + 1) % 2 ** 32;
+    return addonCallId;
   }
 
   /** A served reply, with the tokens main minted for the paths it offers when the swap said so. */
@@ -723,12 +842,16 @@ class ClientHelper {
     held.addon?.client.cancelStream(held.addon.streamId);
   }
 
-  /** A window's port closed: every call and stream it held is canceled, and nothing more is told. */
+  /**
+   * A window's port closed: every call and stream it held is canceled, a shell it alone was behind
+   * on resumes, and nothing more is told.
+   */
   #closeChannel(channel: Channel): void {
     if (channel.isClosed) {
       return;
     }
     channel.isClosed = true;
+    this.#shells.forgetAsker(channel);
     for (const held of channel.calls.values()) {
       held.isCanceled = true;
       held.addon?.client.cancelCall(held.addon.callId);
@@ -763,53 +886,4 @@ function bufferOf(attachment: Uint8Array): Buffer {
 function wireErrorOf(error: unknown): JsonRpcError {
   const { code, message, data } = error as JsonRpcError;
   return data === undefined ? { code, message } : { code, message, data };
-}
-
-/** A window's message read as a request, or `undefined` for anything else. */
-function readWindowRequest(data: unknown): ClientHelperRequest | undefined {
-  if (data === null || typeof data !== "object") {
-    return undefined;
-  }
-  const message = data as Record<string, unknown>;
-  switch (message["kind"]) {
-    case "call":
-      return isId(message["callId"]) && isRequestBody(message)
-        ? (message as ClientHelperRequest)
-        : undefined;
-    case "stream.open":
-      return isId(message["streamId"]) && isRequestBody(message)
-        ? (message as ClientHelperRequest)
-        : undefined;
-    case "call.cancel":
-      return isId(message["callId"]) ? (message as ClientHelperRequest) : undefined;
-    case "stream.close":
-      return isId(message["streamId"]) ? (message as ClientHelperRequest) : undefined;
-    default:
-      return undefined;
-  }
-}
-
-/** Whether `request` opens a call or stream under an id its asker already holds open. */
-function isOpenedTwice(channel: Channel, request: ClientHelperRequest): boolean {
-  switch (request.kind) {
-    case "call":
-      return channel.calls.has(request.callId);
-    case "stream.open":
-      return channel.streams.has(request.streamId);
-    default:
-      return false;
-  }
-}
-
-function isId(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function isRequestBody(message: Record<string, unknown>): boolean {
-  const attachments = message["attachments"];
-  return (
-    typeof message["method"] === "string" &&
-    Array.isArray(attachments) &&
-    attachments.every((attachment) => attachment instanceof Uint8Array)
-  );
 }

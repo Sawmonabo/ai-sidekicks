@@ -82,36 +82,37 @@ function servedHelper() {
   };
   sendFromMain({ kind: "link.connect", presentsToken: true, waitsForStart: false });
 
-  const toWindow: ClientHelperAnswer[] = [];
-  let fromWindow: ((messageEvent: { data: unknown }) => void) | undefined;
-  let closeWindow: (() => void) | undefined;
-  const port: ClientHelperWindowPort = {
-    on: (event: "message" | "close", listener: never) => {
-      if (event === "message") {
-        fromWindow = listener;
-      } else {
-        closeWindow = listener;
-      }
-    },
-    postMessage: (answer) => {
-      toWindow.push(answer);
-    },
-    start: () => {},
-    close: () => {},
+  /** Hands the helper one more window's port, answering what that window is told and sends. */
+  const openWindow = (windowId: number) => {
+    const toWindow: ClientHelperAnswer[] = [];
+    let fromWindow: ((messageEvent: { data: unknown }) => void) | undefined;
+    let closeWindow: (() => void) | undefined;
+    const port: ClientHelperWindowPort = {
+      on: (event: "message" | "close", listener: never) => {
+        if (event === "message") {
+          fromWindow = listener;
+        } else {
+          closeWindow = listener;
+        }
+      },
+      postMessage: (answer) => {
+        toWindow.push(answer);
+      },
+      start: () => {},
+      close: () => {},
+    };
+    sendFromMain({ kind: "window.port", windowId }, [port]);
+    return {
+      toWindow,
+      sendFromWindow: (request: ClientHelperRequest) => {
+        fromWindow!({ data: request });
+      },
+      closeWindow: () => {
+        closeWindow!();
+      },
+    };
   };
-  sendFromMain({ kind: "window.port", windowId: WINDOW_ID }, [port]);
-  return {
-    daemon,
-    toMain,
-    toWindow,
-    sendFromMain,
-    sendFromWindow: (request: ClientHelperRequest) => {
-      fromWindow!({ data: request });
-    },
-    closeWindow: () => {
-      closeWindow!();
-    },
-  };
+  return { daemon, toMain, sendFromMain, openWindow, ...openWindow(WINDOW_ID) };
 }
 
 describe("the client helper", () => {
@@ -290,6 +291,57 @@ describe("the client helper", () => {
         fileRefs: { "/Users/me/a": token },
       },
       { kind: "stream.value", streamId: 8, json: '{"kind":"behind"}', attachments: [] },
+    ]);
+  });
+
+  it("keeps a shell paused until every window on the connection has caught up", async () => {
+    const helper = servedHelper();
+    const otherWindow = helper.openWindow(WINDOW_ID + 1);
+    const shell = { sessionId: "0199f0a4-5c2e-7a3b-8c1d-2e3f4a5b6c7d", terminalId: "terminal-1" };
+    const declare = (
+      window: { sendFromWindow: (request: ClientHelperRequest) => void },
+      callId: number,
+      paused: boolean,
+    ) => {
+      window.sendFromWindow({
+        kind: "call",
+        callId,
+        method: "terminal.flowControl.update",
+        params: { ...shell, paused },
+        attachments: [],
+      });
+    };
+    const toldPaused = () =>
+      helper.daemon.calls.map(
+        (call) => (JSON.parse(call.paramsJson) as { paused: boolean }).paused,
+      );
+
+    declare(helper, 1, true);
+    await vi.waitFor(() => {
+      expect(toldPaused()).toStrictEqual([true]);
+    });
+    declare(otherWindow, 1, true);
+    // The first window catches up while the other is still behind: the shell stays paused.
+    declare(helper, 2, false);
+    await vi.waitFor(() => {
+      expect(otherWindow.toWindow).toHaveLength(1);
+      expect(helper.toWindow).toContainEqual(expect.objectContaining({ callId: 2 }));
+    });
+    expect(toldPaused()).toStrictEqual([true]);
+    expect(otherWindow.toWindow[0]).toStrictEqual({
+      kind: "call.served",
+      callId: 1,
+      json: '{"accepted":true}',
+      attachments: [],
+    });
+
+    declare(otherWindow, 2, false);
+    await vi.waitFor(() => {
+      expect(toldPaused()).toStrictEqual([true, false]);
+    });
+    expect(helper.daemon.calls.map((call) => call.method)).toStrictEqual([
+      "terminal.flowControl.update",
+      "terminal.flowControl.update",
     ]);
   });
 

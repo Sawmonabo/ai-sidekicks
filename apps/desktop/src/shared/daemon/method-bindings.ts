@@ -3,12 +3,12 @@
 // page reads it. A method's shape is stated once, by the generated tables; this module names the
 // tables a window reaches and keys each method by its generated name.
 //
-// The calls and the streams are split by each descriptor's `procedureType`: `DAEMON_METHOD_BINDINGS`
-// holds the queries and mutations, and `DaemonStreamMethod` names the subscriptions, which have no
-// reply to bind and which `streams.ts` names. What only main sends is not here: the daemon's stop
-// and restart, which go through main's supervisor; the app's diagnostics, which main redacts and
-// rate-limits; the machine's settings, which main relays to each window; and the presence
-// heartbeat, which main sends for the app.
+// The calls and the streams are split by each descriptor's `procedureType`:
+// `DAEMON_METHOD_BINDINGS` holds the queries and mutations, and `DaemonStreamMethod` names the
+// subscriptions, which have no reply to bind and which `streams.ts` names. What only main sends is
+// not here: the daemon's stop and restart, which go through main's supervisor; the app's
+// diagnostics, which main redacts and rate-limits; the machine's settings, which main relays to
+// each window; and the presence heartbeat, which main sends for the app.
 
 import {
   AGENT_METHOD_DESCRIPTORS,

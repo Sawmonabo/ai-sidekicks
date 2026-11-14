@@ -4,7 +4,8 @@
 // hands over. A fork is made when main connects or asks with no helper running, so a helper that
 // exits comes back on the supervisor's next start, at its backoff, or before main's next ask, and
 // each window asks for a new port once its old one closes. Every call, stream and ask main holds
-// fails once the helper exits. Main loads no addon: the helper reports the client's bounds.
+// fails once the helper exits. Once disposed at quit nothing is forked again, and a connect or an
+// ask is refused. Main loads no addon: the helper reports the client's bounds.
 
 import type { DaemonEndingOutcome, DaemonEndingRequest } from "@ai-sidekicks/client-sdk";
 import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
@@ -27,6 +28,9 @@ import type {
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
+
+/** Why a connect or an ask made after the quit let the helper go is refused. */
+const HELPER_ENDED_MESSAGE = "The client helper has ended for the quit.";
 
 /** A daemon method main calls: its name and the check its reply must pass. */
 export interface MainCallMethod<Response> {
@@ -117,7 +121,10 @@ export interface ClientHelperProcessOptions {
   readonly presentsToken: boolean;
   /** Answers a file-path ask for `window`; throws for one main cannot answer. */
   readonly answerFilePathAsk: (window: FilePathRefOwner, ask: FilePathAsk) => FilePathAnswer;
-  /** Records a window port the helper dropped and a file-path ask main could not answer. */
+  /**
+   * Records a window port the helper dropped, a file-path ask main could not answer and a flow
+   * update of the helper's own the daemon did not take.
+   */
   readonly logWarning: (message: string) => void;
 }
 
@@ -169,13 +176,15 @@ export class ClientHelperProcess implements MainDaemonClient {
 
   /**
    * The client's bounds and the status file's place, as the helper reported them at start; forks
-   * the helper when none has reported yet. Rejects when it exits first.
+   * the helper when none has reported yet. Rejects when it exits first, or once disposed.
    */
   public facts(): Promise<ClientHelperFacts> {
     if (this.#facts !== undefined) {
       return Promise.resolve(this.#facts);
     }
-    this.#runningHelper();
+    if (this.#runningHelper() === undefined) {
+      return Promise.reject(new Error(HELPER_ENDED_MESSAGE));
+    }
     this.#pendingFacts ??= Promise.withResolvers<ClientHelperFacts>();
     return this.#pendingFacts.promise;
   }
@@ -226,10 +235,13 @@ export class ClientHelperProcess implements MainDaemonClient {
    * Connect the helper, forking it first when none runs; `waitsForStart` waits for a daemon that is
    * starting, within the client's handshake deadline, rather than trying once. Resolves with the
    * daemon's handshake answer once the link is up, or with the wire's error the connect failed
-   * with; rejects when the helper exits first.
+   * with; rejects when the helper exits first, or once disposed.
    */
   public connect(waitsForStart: boolean): Promise<ClientHelperConnectOutcome> {
     const helper = this.#runningHelper();
+    if (helper === undefined) {
+      return Promise.reject(new Error(HELPER_ENDED_MESSAGE));
+    }
     this.#pendingConnect ??= Promise.withResolvers<ClientHelperConnectOutcome>();
     helper.postMessage({
       kind: "link.connect",
@@ -340,13 +352,16 @@ export class ClientHelperProcess implements MainDaemonClient {
 
   /**
    * Sends the helper the ask `askOf` builds, forking it first when none runs, and holds it in
-   * `pending` until the helper answers or exits.
+   * `pending` until the helper answers or exits; refused once disposed.
    */
   #askService<Answer>(
     pending: Map<number, PromiseWithResolvers<Answer>>,
     askOf: (askId: number) => ClientHelperServiceAsk,
   ): Promise<Answer> {
     const helper = this.#runningHelper();
+    if (helper === undefined) {
+      return Promise.reject(new Error(HELPER_ENDED_MESSAGE));
+    }
     const askId = this.#nextAskId++;
     const answered = Promise.withResolvers<Answer>();
     pending.set(askId, answered);
@@ -354,9 +369,9 @@ export class ClientHelperProcess implements MainDaemonClient {
     return answered.promise;
   }
 
-  /** The helper running now, forked when none is. */
-  #runningHelper(): ClientHelperUtilityProcess {
-    if (this.#helper !== undefined) {
+  /** The helper running now, forked when none is; `undefined` once disposed, forking nothing. */
+  #runningHelper(): ClientHelperUtilityProcess | undefined {
+    if (this.#helper !== undefined || this.#isDisposed) {
       return this.#helper;
     }
     const helper = this.#options.start();
@@ -421,6 +436,11 @@ export class ClientHelperProcess implements MainDaemonClient {
       case "process.identityRefused":
         takeAsk(this.#identityReads, message.askId)?.reject(new Error(message.error));
         return;
+      case "service.askFailed":
+        (
+          takeAsk(this.#endings, message.askId) ?? takeAsk(this.#identityReads, message.askId)
+        )?.reject(new Error(message.error));
+        return;
       case "link.state":
         this.#listener?.linkStateChanged(message.state);
         return;
@@ -434,6 +454,11 @@ export class ClientHelperProcess implements MainDaemonClient {
       case "window.portDropped":
         this.#options.logWarning(
           `The client helper dropped window ${String(message.windowId)}'s port: ${message.reason}`,
+        );
+        return;
+      case "flowControl.failed":
+        this.#options.logWarning(
+          `The client helper's flow update for a shell was not taken: ${message.message}`,
         );
         return;
     }

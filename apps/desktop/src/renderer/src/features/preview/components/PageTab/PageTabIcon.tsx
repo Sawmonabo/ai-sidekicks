@@ -33,9 +33,11 @@ export function PageTabIcon(props: PageTabIconProps): React.JSX.Element | null {
 
 function FaviconImage(props: { readonly favicon: PreviewFavicon }): React.JSX.Element | null {
   const [favicon, setFavicon] = useState(props.favicon);
-  if (!isSameFavicon(favicon, props.favicon)) {
-    setFavicon(props.favicon);
-  }
+  useEffect(() => {
+    if (!isSameFavicon(favicon, props.favicon)) {
+      setFavicon(props.favicon);
+    }
+  }, [favicon, props.favicon]);
   const [address, setAddress] = useState<string | undefined>(undefined);
   useEffect(() => {
     // Copied once, since a blob takes only bytes over a plain buffer.

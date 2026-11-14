@@ -10,7 +10,7 @@
 // its saved sessions is not started again until the person's `Retry`. What the supervisor knows,
 // the service's status file included, is published on main's `DaemonLink`.
 
-import type { DaemonEnded } from "@ai-sidekicks/client-sdk";
+import type { DaemonEnded, DaemonEndingOutcome } from "@ai-sidekicks/client-sdk";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   DAEMON_REPAIRING_CODE,
@@ -114,7 +114,7 @@ export class DaemonSupervisor implements ClientHelperListener {
   #current: CurrentLink | undefined;
   /** The service this app started last, while it has not been seen to exit. */
   #startedService: StartedService | undefined;
-  /** An ending under way, which the next start waits out so the service can take the data folder. */
+  /** An ending under way; the next start waits it out, so the service can take the data folder. */
   #ending: Promise<void> | undefined;
   #consecutiveFailedStarts = 0;
   /** Waits taken since the last link, loss or `Retry`; each start after one takes the next. */
@@ -209,12 +209,19 @@ export class DaemonSupervisor implements ClientHelperListener {
       throw new Error(NOT_CONNECTED_MESSAGE);
     }
     const isStop = method === "daemon.stop";
-    // Set before anything is sent, so a loss that lands before the ending settles reads as the stop.
+    // Set before anything is sent, so a loss landing before the ending settles reads as the stop.
     this.#isStopRequested = isStop;
     this.#cannotStop = undefined;
     const ending = this.#helper.endDaemon(isStop ? "stop" : "restart");
     this.#trackEnding(ending.then(() => undefined));
-    const outcome = await ending;
+    let outcome: DaemonEndingOutcome;
+    try {
+      outcome = await ending;
+    } catch (failure) {
+      // No ending ran: a later loss is not the person's stop.
+      this.#isStopRequested = false;
+      throw failure;
+    }
     if (isStop) {
       await this.#readCannotStop(outcome.error as JsonRpcError | undefined);
     }
@@ -489,7 +496,7 @@ export class DaemonSupervisor implements ClientHelperListener {
     }
   }
 
-  /** Hold `ending` until it settles, so the next start and the quit wait for it; a failure is logged. */
+  /** Hold `ending` until it settles, so the next start and the quit wait for it; logs a failure. */
   #trackEnding(ending: Promise<void>): void {
     const tracked = ending.then(
       () => undefined,

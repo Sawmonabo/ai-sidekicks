@@ -60,7 +60,7 @@ export const TERMINAL_OUTPUT_STREAM: Subscription<"terminal.output.subscribe"> =
 export const SESSION_DRAFT_STREAM: Subscription<"session.draft.subscribe"> =
   "session.draft.subscribe";
 
-/** The subscription name for a session's tool servers: the whole list, then again on each change. */
+/** A session's tool servers' subscription name: the whole list, then again on each change. */
 export const SESSION_MCP_SERVER_STREAM: Subscription<"session.mcpServer.subscribe"> =
   "session.mcpServer.subscribe";
 

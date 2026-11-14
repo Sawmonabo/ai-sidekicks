@@ -104,7 +104,7 @@ registerRendererScheme();
 // the install first: a development build and a shipped one never share a lock or a profile.
 keyProfileToInstall(app);
 
-/** The service's data folder, whose absence at start means an erase ran while the app was closed. */
+/** The service's data folder; its absence at start means an erase ran while the app was closed. */
 const DAEMON_DATA_FOLDER = path.join(homedir(), DAEMON_DATA_FOLDER_NAME);
 
 // Main's one log, handed to everything that writes it: two logs over one file could interleave a

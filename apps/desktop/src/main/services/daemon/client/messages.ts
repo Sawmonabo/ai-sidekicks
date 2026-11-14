@@ -20,7 +20,7 @@ import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/por
  */
 export type ClientHelperLinkState = "open" | "quiet" | "reconnecting" | "silent" | "down";
 
-/** The daemon client's fixed bounds and the status file's place, which the helper reports at start. */
+/** The daemon client's fixed bounds and the status file's place, reported once at start. */
 export interface ClientHelperFacts {
   readonly kind: "helper.started";
   /** How long a connect waits for a daemon that is starting, in milliseconds. */
@@ -52,6 +52,8 @@ export type ClientHelperServiceAsk =
 /** The helper's answer to one of main's service asks. */
 export type ClientHelperServiceAnswer =
   | { readonly kind: "daemon.ended"; readonly askId: number; readonly outcome: DaemonEndingOutcome }
+  /** Answering the ask threw, with the failure's words. */
+  | { readonly kind: "service.askFailed"; readonly askId: number; readonly error: string }
   | {
       readonly kind: "process.identity";
       readonly askId: number;
@@ -98,8 +100,8 @@ export type MainToClientHelperMessage =
 
 /**
  * What the helper sends main: its facts once at start, answers to main's own requests and service
- * asks, the link's connect and state, the file-path asks for a window's call, and a window port it
- * stopped serving.
+ * asks, the link's connect and state, the file-path asks for a window's call, a window port it
+ * stopped serving, and a flow update of its own the daemon did not take.
  */
 export type ClientHelperToMainMessage =
   | ClientHelperFacts
@@ -133,4 +135,5 @@ export type ClientHelperToMainMessage =
       /** The served reply or the stream frame, parsed. */
       readonly value: unknown;
     }
-  | { readonly kind: "window.portDropped"; readonly windowId: number; readonly reason: string };
+  | { readonly kind: "window.portDropped"; readonly windowId: number; readonly reason: string }
+  | { readonly kind: "flowControl.failed"; readonly message: string };

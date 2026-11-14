@@ -1,8 +1,8 @@
 // A quit held for the background service's flush: it goes ahead at once when the flush answers and
-// at the flush bound it is given when it never does, a failed flush is recorded and the app still quits, a second
-// quit while the flush runs waits on that one flush, and the quit asked for again passes through
-// once while a quit a peer cancels flushes again. Main's log drains before the quit goes on, and a
-// log that stopped writing is reported.
+// at the flush bound it is given when it never does, a failed flush is recorded and the app still
+// quits, a second quit while the flush runs waits on that one flush, and the quit asked for again
+// passes through once while a quit a peer cancels flushes again. Main's log drains before the quit
+// goes on, and a log that stopped writing is reported.
 
 import { EventEmitter } from "node:events";
 

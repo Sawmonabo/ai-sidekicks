@@ -42,6 +42,11 @@ export class ShellOutputWriter {
     this.#onBehindChange = onBehindChange;
   }
 
+  /** Whether the backlog last crossed above the behind mark and has not yet fallen back. */
+  public get isBehind(): boolean {
+    return this.#isBehind;
+  }
+
   /** Take one frame's changes, oldest first, and hand on what can be drawn now. */
   public apply(frame: TerminalOutputFrame): void {
     if (this.#isClosed) {

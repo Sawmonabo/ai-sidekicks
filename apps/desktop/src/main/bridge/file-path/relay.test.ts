@@ -74,7 +74,7 @@ describe("a reply that offers a path to open", () => {
     expect(again).toStrictEqual(first);
   });
 
-  it("mints no token for a path that is not absolute, which a program could read as an option", () => {
+  it("mints no token for a relative path, which a program could read as an option", () => {
     const refs = new FilePathRefs();
     const minted = mintTokensForPaths(
       refs,

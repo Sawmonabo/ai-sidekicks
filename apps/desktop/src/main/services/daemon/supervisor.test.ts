@@ -1,12 +1,13 @@
-// The supervisor over a scripted service behind a fake client helper and a fake clock. It probes once and starts the service only when no socket answers, then hands
-// the wait to the client; a found service still writing its token or repairing is waited for and
-// never started over. A started service that exits before it answers ends the wait with how it
-// exited, and one still running once the client's wait ran out is ended by its identity. A link
-// that stopped answering ends its service at once by the identity it reported, and the next start
-// waits for that ending; one whose socket dropped is left to the client. Lost links come back at
-// the backoff's waits, five failed starts give up, a service that cannot start over its saved
-// sessions is not started again, `Retry` starts afresh, and nothing starts once the quit lets go.
-// The handshake's answer and the status file's cannot-start reach the status topic.
+// The supervisor over a scripted service behind a fake client helper and a fake clock. It probes
+// once and starts the service only when no socket answers, then hands the wait to the client; a
+// found service still writing its token or repairing is waited for and never started over. A
+// started service that exits before it answers ends the wait with how it exited, and one still
+// running once the client's wait ran out is ended by its identity. A link that stopped answering
+// ends its service at once by the identity it reported, and the next start waits for that ending;
+// one whose socket dropped is left to the client. Lost links come back at the backoff's waits,
+// five failed starts give up, a service that cannot start over its saved sessions is not started
+// again, `Retry` starts afresh, and nothing starts once the quit lets go. The handshake's answer
+// and the status file's cannot-start reach the status topic.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
