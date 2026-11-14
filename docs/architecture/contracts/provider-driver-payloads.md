@@ -645,7 +645,7 @@ interface PickedSkill {
 
 interface InterruptPayload {
   // the waiting messages go as the next turn, back to the draft, or keep waiting (the daemon's own
-  // interrupt at a limit, which no wire request carries)
+  // interrupts, at a limit and for an undo, which no wire request carries)
   pending: "nextTurn" | "returnToDraft" | "keepWaiting";
   reason?: string;
 }

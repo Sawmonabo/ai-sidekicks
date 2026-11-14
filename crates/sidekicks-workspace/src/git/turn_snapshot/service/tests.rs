@@ -1,28 +1,38 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
-use std::fs::File;
+use std::fs::{File, FileTimes};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, SystemTime};
 
 use rstest::rstest;
+use sidekicks_contracts::git::local::WorkflowRunSnapshotPoint;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::run::snapshot::{WorkflowRunEpoch, WorkflowRunPauseNumber};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::test_support::{
-    answer, answer_in_git_folder, answer_with_captures, as_the_test, files_with_bytes,
-    made_capture_folder, minted_run_id, repository_with_a_commit, service_reading, turn_of, utf8,
-    write_in,
+    answer, answer_in_git_folder, answer_with_captures, as_the_test, checkout_of, files_with_bytes,
+    made_capture_folder, minted_run_id, minted_workflow_run_id, point_of, repository_with_a_commit,
+    service_reading, turn_of, utf8, write_in,
 };
-use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
+use super::{
+    CheckoutTreeOutcome, TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome,
+    TurnSnapshotPruneOutcome,
+};
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::version::KeptProgramFacts;
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
-use crate::git::turn_snapshot::capture::LARGE_FILE_BYTES;
-use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
+use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports, LARGE_FILE_BYTES};
+use crate::git::turn_snapshot::capture_folder::{
+    CaptureFolder, OBJECTS_SEGMENT, git_folder_argument,
+};
 use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
-use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
+use crate::git::turn_snapshot::refs::{RunSnapshotPoint, build_run_snapshot_ref_prefix};
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::git::worktree::schema::schema_parts;
@@ -49,7 +59,10 @@ fn service_over(
     database: &TestDatabase,
     checkout_lock: Arc<KeyedLock<std::path::PathBuf>>,
 ) -> super::TurnSnapshotService {
-    let packing = Arc::new(CapturePacking::new(git.clone()));
+    let packing = Arc::new(CapturePacking::new(
+        git.clone(),
+        Arc::new(GitFloorReports::default()),
+    ));
     service_reading(git.clone(), database, checkout_lock, packing)
 }
 
@@ -123,23 +136,159 @@ async fn a_turn_is_captured_once_into_its_owners_folder_and_the_repository_stays
     );
 }
 
+// Execution `number` of a workflow run.
+fn epoch(number: u64) -> WorkflowRunEpoch {
+    WorkflowRunEpoch(SafeInt::new(number).expect("the epoch is a safe integer"))
+}
+
+// Approval pause `number` of an execution, counted from 1.
+fn pause(number: u64) -> WorkflowRunPauseNumber {
+    WorkflowRunPauseNumber(SafeInt::new(number).expect("the pause number is counted from 1"))
+}
+
+// Fails when two point kinds spell one ref (`start` and `end` alike), when `build_snapshot_ref`
+// writes `pause` without its number (pause 2 then answers `AlreadyCaptured`), when it drops the
+// epoch (epoch 1's start then answers `AlreadyCaptured`), when the refs are keyed on any id but the
+// workflow run's (the listing under its prefix is then empty), or when a point taken again
+// repoints its ref instead of keeping its first capture.
+#[tokio::test]
+async fn a_workflow_runs_points_land_beside_each_other_and_one_taken_again_keeps_its_first() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let workflow_run_id = minted_workflow_run_id();
+    let at = |point| {
+        let point = RunSnapshotPoint::WorkflowRun {
+            workflow_run_id,
+            point,
+        };
+        point_of(&repository, &owner, point)
+    };
+    let pause_one = WorkflowRunSnapshotPoint::Pause {
+        epoch: epoch(0),
+        pause_number: pause(1),
+    };
+    let epoch_zero = [
+        (
+            "epoch-0/start",
+            WorkflowRunSnapshotPoint::Start { epoch: epoch(0) },
+        ),
+        ("epoch-0/pause-1", pause_one),
+        (
+            "epoch-0/pause-2",
+            WorkflowRunSnapshotPoint::Pause {
+                epoch: epoch(0),
+                pause_number: pause(2),
+            },
+        ),
+        (
+            "epoch-0/end",
+            WorkflowRunSnapshotPoint::End { epoch: epoch(0) },
+        ),
+    ];
+    let notes = repository.join("notes.txt");
+    // The point taken over the checkout once `state` is written into it.
+    let take = async |state: String, point| {
+        tokio::fs::write(&notes, state)
+            .await
+            .expect("the file is written");
+        service.capture_turn_snapshot(None, &at(point)).await
+    };
+    let mut taken = Vec::new();
+    for (index, (point_ref, point)) in epoch_zero.into_iter().enumerate() {
+        let outcome = take(format!("state {index}\n"), point).await;
+        let TurnSnapshotCaptureOutcome::Captured {
+            snapshot_commit, ..
+        } = outcome
+        else {
+            panic!("{point_ref} is captured, got {outcome:?}");
+        };
+        taken.push((point_ref, snapshot_commit));
+    }
+    let again = take("changed after the end\n".to_owned(), pause_one).await;
+    let next_start = take(
+        "the next execution\n".to_owned(),
+        WorkflowRunSnapshotPoint::Start { epoch: epoch(1) },
+    )
+    .await;
+
+    let (_, first_pause) = &taken[1];
+    assert!(
+        matches!(&again, TurnSnapshotCaptureOutcome::AlreadyCaptured { snapshot_commit, .. }
+            if snapshot_commit == first_pause),
+        "a point taken twice keeps its first capture, got {again:?}"
+    );
+    let TurnSnapshotCaptureOutcome::Captured {
+        snapshot_commit, ..
+    } = next_start
+    else {
+        panic!("the next execution's start is captured, got {next_start:?}");
+    };
+    taken.push(("epoch-1/start", snapshot_commit));
+    let distinct: HashSet<&str> = taken.iter().map(|(_, commit)| commit.as_str()).collect();
+    assert_eq!(distinct.len(), 5, "each point records its own state");
+    let prefix = build_run_snapshot_ref_prefix(RunContextKey::from(workflow_run_id));
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let listing = ["for-each-ref", "--format=%(refname)", prefix.as_str()];
+    let listed = answer_in_git_folder(&git, capture_folder.folder(), &listing, &[]).await;
+    let expected: Vec<String> = [
+        "epoch-0/end",
+        "epoch-0/pause-1",
+        "epoch-0/pause-2",
+        "epoch-0/start",
+        "epoch-1/start",
+    ]
+    .map(|point_ref| format!("{prefix}{point_ref}"))
+    .into();
+    assert_eq!(listed.lines().collect::<Vec<_>>(), expected);
+    for (point_ref, commit) in &taken {
+        let full_ref = format!("{prefix}{point_ref}");
+        let recorded = answer_in_git_folder(
+            &git,
+            capture_folder.folder(),
+            &["rev-parse", &full_ref],
+            &[],
+        )
+        .await;
+        assert_eq!(recorded, commit.as_str(), "{point_ref} names its own take");
+    }
+}
+
 // Fails when an unended run's refs or an absent capture folder's are touched or misreported, when
 // the prune is aimed at the repository instead of the owner's capture folder (the repository's
 // ref of the same name goes, or the capture folder's stays), when a symref planted under the
 // run's prefix takes the branch it names with it, or when any ref under the prefix is left
-// behind; a second prune finds none.
+// behind; a second prune finds none. Fails too when a prune that deletes refs leaves no reclaim
+// mark (the sweep never reclaims the run's objects), when a skipped or empty prune leaves one, and
+// when the delete runs before the mark or past a failed one (the blocked mark's refs go).
 #[rstest]
-#[case::an_unended_run_is_skipped(None, true, Some(TurnSnapshotRetentionSkipReason::RunNotEnded))]
+#[case::an_unended_run_is_skipped(
+    None,
+    true,
+    false,
+    Some(TurnSnapshotRetentionSkipReason::RunNotEnded)
+)]
 #[case::an_owner_without_a_capture_folder_is_skipped(
     Some(ENDED_AT),
     false,
+    false,
     Some(TurnSnapshotRetentionSkipReason::GitDirAbsent)
 )]
-#[case::a_planted_symref_goes_and_its_branch_stays(Some(ENDED_AT), true, None)]
+#[case::a_planted_symref_goes_and_its_branch_stays(Some(ENDED_AT), true, false, None)]
+#[case::a_mark_that_cannot_be_written_deletes_no_ref(
+    Some(ENDED_AT),
+    true,
+    true,
+    Some(TurnSnapshotRetentionSkipReason::ReclaimMarkFailed)
+)]
 #[tokio::test]
 async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_and_nothing_else(
     #[case] released_at: Option<&str>,
     #[case] is_capture_folder_made: bool,
+    #[case] is_mark_blocked: bool,
     #[case] skip_reason: Option<TurnSnapshotRetentionSkipReason>,
 ) {
     let git = test_git_runner();
@@ -166,6 +315,10 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
             ["symbolic-ref", planted_ref.as_str(), "refs/heads/kept"],
         ] {
             answer_in_git_folder(&git, folder, &arguments, &[]).await;
+        }
+        if is_mark_blocked {
+            // A file where the marks' folder goes, so the mark cannot be written.
+            std::fs::write(folder.join("reclaims"), "").expect("the blocking file is written");
         }
         Some((capture_folder, snapshot))
     } else {
@@ -210,11 +363,15 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
             ),
             "got {pruned:?}"
         );
-        if capture_folder.is_some() {
+        if let Some((capture_folder, _)) = &capture_folder {
             assert_eq!(
                 remaining.lines().count(),
                 2,
                 "a skipped prune deletes nothing"
+            );
+            assert!(
+                is_mark_blocked || !capture_folder.folder().join("reclaims").exists(),
+                "a skipped prune marks nothing"
             );
         }
         return;
@@ -231,6 +388,12 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
         answer_in_git_folder(&git, capture_folder.folder(), &kept, &[]).await,
         snapshot
     );
+    let mark = capture_folder
+        .folder()
+        .join("reclaims")
+        .join(run_key.to_string());
+    assert!(mark.exists(), "the prune marks the folder for its reclaim");
+    std::fs::remove_file(&mark).expect("the mark is removed");
     let again = service.prune_snapshots_for_run(None, run_key, &owner).await;
     let is_empty_prune = matches!(
         &again,
@@ -240,6 +403,7 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
         is_empty_prune,
         "a second prune finds nothing, got {again:?}"
     );
+    assert!(!mark.exists(), "an empty prune marks nothing");
 }
 
 // Fails when the capture takes a lock of its own instead of the run setup gate's: it then runs
@@ -416,4 +580,205 @@ async fn a_file_over_the_size_bound_is_left_out_of_a_turn_snapshot_and_named() {
         message.ends_with("\n\nLeft-Out-Paths: [\"big.bin\"]"),
         "got {message:?}"
     );
+}
+
+// What a failing capture takes.
+#[derive(Clone, Copy, Debug)]
+enum FailedCapture {
+    // A workflow run's start.
+    WorkflowRunStart,
+    // A read of a workflow run's checkout.
+    CheckoutRead,
+}
+
+// Fails when the cause is dropped from the outcome or taken from another failure than the step's,
+// when the read's start answers its step without its cause, or when a checkout the live tree
+// disagrees with is captured anyway, recording a wrong tree as the run's: the subfolder is not the
+// top level of the tree holding the execution root.
+#[rstest]
+#[case::a_workflow_runs_start(FailedCapture::WorkflowRunStart)]
+#[case::a_checkout_read(FailedCapture::CheckoutRead)]
+#[tokio::test]
+async fn a_capture_the_live_tree_disagrees_with_fails_naming_its_cause_and_writes_nothing(
+    #[case] captured: FailedCapture,
+) {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let subfolder = repository.join("nested");
+    std::fs::create_dir(&subfolder).expect("the subfolder is made");
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = CheckoutCaptureInput {
+        checkout_root: subfolder,
+        ..checkout_of(&repository, &owner)
+    };
+
+    let (failed_step, cause) = match captured {
+        FailedCapture::WorkflowRunStart => {
+            let input = TurnSnapshotCaptureInput {
+                checkout,
+                point: RunSnapshotPoint::WorkflowRun {
+                    workflow_run_id: minted_workflow_run_id(),
+                    point: WorkflowRunSnapshotPoint::Start { epoch: epoch(0) },
+                },
+            };
+            match service.capture_turn_snapshot(None, &input).await {
+                TurnSnapshotCaptureOutcome::Failed {
+                    failed_step, cause, ..
+                } => (failed_step, cause),
+                outcome @ (TurnSnapshotCaptureOutcome::Captured { .. }
+                | TurnSnapshotCaptureOutcome::AlreadyCaptured { .. }) => {
+                    panic!("the capture fails, got {outcome:?}")
+                }
+            }
+        }
+        FailedCapture::CheckoutRead => {
+            let read = service
+                .capture_checkout_tree(None, minted_workflow_run_id(), &checkout)
+                .await;
+            match read {
+                CheckoutTreeOutcome::Failed { failed_step, cause } => (failed_step, cause),
+                outcome @ CheckoutTreeOutcome::Captured { .. } => {
+                    panic!("the read fails, got {outcome:?}")
+                }
+            }
+        }
+    };
+
+    assert_eq!(failed_step, CaptureStep::VerifyCheckoutRoot);
+    assert!(
+        cause.contains("not the working tree holding the execution root"),
+        "got {cause:?}"
+    );
+    assert!(!owner.exists(), "no capture folder is made");
+}
+
+// Fails when the tree and the commit are swapped or one is answered for both, when the base is not
+// the repository's `HEAD` and the commit's parent (a sweep would keep nothing on it), when the read
+// writes a ref, when its pack is dropped (the untracked file's blob, which only the repository
+// held, is then gone once the repository prunes it), or when the same checkout read again answers
+// another tree.
+#[tokio::test]
+async fn a_checkout_read_writes_its_tree_and_no_ref_and_keeps_what_it_borrows() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, base) = repository_with_a_commit(&git, root.path()).await;
+    tokio::fs::write(repository.join("notes.txt"), "a note\n")
+        .await
+        .expect("the untracked file is written");
+    // Its blob is in the repository's objects and reached by nothing there.
+    write_in(&git, &repository, &["add", "notes.txt"]).await;
+    write_in(
+        &git,
+        &repository,
+        &["rm", "--cached", "--quiet", "notes.txt"],
+    )
+    .await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = checkout_of(&repository, &owner);
+    let workflow_run_id = minted_workflow_run_id();
+
+    let first = service
+        .capture_checkout_tree(None, workflow_run_id, &checkout)
+        .await;
+
+    let CheckoutTreeOutcome::Captured {
+        tree,
+        snapshot_commit,
+        base_commit,
+    } = first
+    else {
+        panic!("the checkout is read, got {first:?}");
+    };
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let with_captures = async |arguments: &[&str]| {
+        answer_with_captures(&git, &repository, &capture_folder, arguments).await
+    };
+    assert_eq!(
+        with_captures(&["cat-file", "-t", tree.as_str()]).await,
+        "tree"
+    );
+    let commit_tree = format!("{}^{{tree}}", snapshot_commit.as_str());
+    assert_eq!(
+        with_captures(&["rev-parse", &commit_tree]).await,
+        tree.as_str()
+    );
+    let parent = format!("{}^", snapshot_commit.as_str());
+    assert_eq!(with_captures(&["rev-parse", &parent]).await, base);
+    assert_eq!(
+        base_commit.as_ref().map(GitObjectId::as_str),
+        Some(base.as_str())
+    );
+    let refs = answer_in_git_folder(&git, capture_folder.folder(), &["for-each-ref"], &[]).await;
+    assert_eq!(refs, "", "a read writes no ref");
+    write_in(&git, &repository, &["gc", "--prune=now", "--quiet"]).await;
+    let blob = format!("{}:notes.txt", tree.as_str());
+    let kept = ["cat-file", "-p", blob.as_str()];
+    assert_eq!(
+        answer_in_git_folder(&git, capture_folder.folder(), &kept, &[]).await,
+        "a note",
+        "the folder alone holds what the read borrowed"
+    );
+    let again = service
+        .capture_checkout_tree(None, workflow_run_id, &checkout)
+        .await;
+    assert!(
+        matches!(&again, CheckoutTreeOutcome::Captured { tree: read_again, .. }
+            if *read_again == tree),
+        "the same checkout answers the same tree, got {again:?}"
+    );
+}
+
+// Fails when the capture folder lacks `gc.pruneExpire=never`: the cruft repack the maintenance's
+// geometric task falls back to then expires the aged reads, which no ref reaches. Two reads of one
+// shape leave two packs of one weight, which the task rolls up whole, the path that expires.
+#[tokio::test]
+async fn a_capture_folder_keeps_a_capture_with_no_ref_through_a_maintenance_run() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+    let checkout = checkout_of(&repository, &owner);
+    let workflow_run_id = minted_workflow_run_id();
+    let mut reads = Vec::new();
+    for state in ["first\n", "second\n"] {
+        tokio::fs::write(repository.join("notes.txt"), state)
+            .await
+            .expect("the file is written");
+        let outcome = service
+            .capture_checkout_tree(None, workflow_run_id, &checkout)
+            .await;
+        let CheckoutTreeOutcome::Captured {
+            tree,
+            snapshot_commit,
+            ..
+        } = outcome
+        else {
+            panic!("the checkout is read, got {outcome:?}");
+        };
+        reads.push((tree, snapshot_commit));
+    }
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let folder = capture_folder.folder();
+    let aged = SystemTime::now() - Duration::from_hours(30 * 24);
+    for (path, _) in files_with_bytes(&folder.join(OBJECTS_SEGMENT)) {
+        std::fs::set_times(&path, FileTimes::new().set_modified(aged))
+            .expect("the object file is aged");
+    }
+
+    let maintenance = ["maintenance", "run", "--task=geometric-repack", "--quiet"];
+    answer_in_git_folder(&git, folder, &maintenance, &[]).await;
+
+    for (tree, snapshot_commit) in &reads {
+        for object in [tree, snapshot_commit] {
+            // Nothing attached, so only the folder's own objects read; a missing one fails git.
+            answer_in_git_folder(&git, folder, &["cat-file", "-e", object.as_str()], &[]).await;
+        }
+    }
 }

@@ -38,7 +38,7 @@ use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
 pub(crate) const CLAUDE_CLEANUP_PERIOD_DAYS: u32 = 36_500;
 
 /// The shell tool, which the background deny rules and the Reviewed ask rule name.
-const CLAUDE_SHELL_TOOL_NAME: &str = "Bash";
+pub(crate) const CLAUDE_SHELL_TOOL_NAME: &str = "Bash";
 
 /// The command the Reviewed ask rule names.
 const CLAUDE_REMOVAL_COMMAND: &str = "rm";

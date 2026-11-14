@@ -46,6 +46,7 @@ use crate::driver::claude::event_normalizer::{
     CLAUDE_PLAN_EXIT_TOOL_NAME, CLAUDE_QUESTION_TOOL_NAME,
 };
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::ClaudeSessionError;
@@ -104,6 +105,9 @@ pub(crate) struct ClaudeInboundRequestsDependencies {
     pub(crate) reviewer: Arc<ClaudeReviewerCapture>,
     /// What a made rule is kept with.
     pub(crate) answer_rules: ClaudeAnswerRules,
+    /// The windows of the commands that run with no wrapper, which a refusal before the call ran
+    /// closes with no after-capture.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
 }
 
 /// The live session a request event came from, as the requests read it.
@@ -236,10 +240,11 @@ impl ClaudeInboundRequests {
 
     /// Answers one request a run is held on under its own id: a question with its answers, one per
     /// question in order, composed into the question tool's own answer; an ask with the approval
-    /// pipeline's answer, then the rule it made kept. The request stays held when nothing was
-    /// written; the session's open asks close once its answer went. Fails for a request the
-    /// session no longer holds or an answer of the other kind, as the answer's write fails, and
-    /// with [`ProviderRuleNotKeptError`] once the call is answered but its rule was not kept.
+    /// pipeline's answer, then the rule it made kept; a refusal once written closes the call's
+    /// command window, since the call never ran. The request stays held when nothing was written;
+    /// the session's open asks close once its answer went. Fails for a request the session no
+    /// longer holds or an answer of the other kind, as the answer's write fails, and with
+    /// [`ProviderRuleNotKeptError`] once the call is answered but its rule was not kept.
     pub(crate) async fn respond(
         &self,
         live: &LiveClaudeSession,
@@ -253,17 +258,22 @@ impl ClaudeInboundRequests {
             .ok_or_else(|| ClaudeRequestAnswerError::NotHeld {
                 request_id: request_id.to_owned(),
             })?;
-        let (answer, made_rule) = match (&held, response) {
-            (HeldRequest::Question(question), ProviderRequestAnswer::Question { answers }) => {
-                (compose_claude_question_answer(question, &answers), None)
-            }
+        let (answer, made_rule, refused_call) = match (&held, response) {
+            (HeldRequest::Question(question), ProviderRequestAnswer::Question { answers }) => (
+                compose_claude_question_answer(question, &answers),
+                None,
+                None,
+            ),
             (HeldRequest::Ask(ask), ProviderRequestAnswer::Permission(answer)) => {
                 let composed = compose_claude_ask_answer(
                     ask,
                     &answer,
                     self.dependencies.answer_rules.path_rules,
                 )?;
-                (composed, made_rule_of(answer))
+                let refused_call = matches!(answer, ProviderPermissionAnswer::Refuse { .. })
+                    .then(|| ask.tool_use_id.clone())
+                    .flatten();
+                (composed, made_rule_of(answer), refused_call)
             }
             (HeldRequest::Question(_), ProviderRequestAnswer::Permission(_))
             | (HeldRequest::Ask(_), ProviderRequestAnswer::Question { .. })
@@ -283,6 +293,9 @@ impl ClaudeInboundRequests {
             &answer,
         )
         .await?;
+        if let Some(tool_use_id) = refused_call {
+            self.close_unrun(live.session_id, &tool_use_id);
+        }
         let Some(made_rule) = made_rule else {
             return Ok(());
         };
@@ -294,6 +307,15 @@ impl ClaudeInboundRequests {
                 source: Box::new(error),
             })?;
         Ok(())
+    }
+
+    // Closes the window of the call `tool_use_id`, refused before it ran, with no after-capture;
+    // its note is dropped unrecorded.
+    fn close_unrun(&self, session_id: SessionId, tool_use_id: &str) {
+        let windows = &self.dependencies.command_windows;
+        if let Some(closing) = windows.take_unrun(session_id, tool_use_id) {
+            windows.close(closing);
+        }
     }
 
     /// Whether the session holds an ask, a question or a plan open, and a receiver told once the
@@ -447,6 +469,7 @@ impl ClaudeInboundRequests {
         let held = HeldRequest::Ask(ClaudeHeldAsk {
             input: input.clone(),
             action: reading.action.clone(),
+            tool_use_id: tool_call_id.clone(),
         });
         let Some((admitted, _admission, _let_go)) = self
             .admit(
@@ -526,6 +549,10 @@ impl ClaudeInboundRequests {
                 .await;
             }
             Some(RegisteredHook::PermissionDenied) => {
+                // Auto mode refused the call before it ran.
+                if let Some(tool_use_id) = read_non_empty_string(&input, "tool_use_id") {
+                    self.close_unrun(session_id, tool_use_id);
+                }
                 if let (Some(report), Some(run)) = (read_claude_hook_denial(&input), run) {
                     self.dependencies
                         .reviewer
@@ -540,6 +567,8 @@ impl ClaudeInboundRequests {
                 | RegisteredHook::HelperLimit
                 | RegisteredHook::BackgroundWork
                 | RegisteredHook::HelperSteerAfterTool
+                | RegisteredHook::CaptureAfterTool
+                | RegisteredHook::CaptureAfterFailedTool
                 | RegisteredHook::HelperSteerAtStop
                 | RegisteredHook::HelperCallFailed,
             )

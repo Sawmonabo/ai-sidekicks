@@ -1,6 +1,6 @@
 //! The interrupts a restart found pending, a person's and a limit's, handed again over the
-//! harness's running run, and the daemon's stop of the engine's interrupt hands that carry them
-//! and a limit's interrupt out.
+//! harness's running run, an undo's handed nothing, and the daemon's stop of the engine's interrupt
+//! hands that carry them and a limit's interrupt out.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -156,6 +156,35 @@ async fn a_limits_accepted_row_left_by_a_restart_is_carried_out_once() {
         "interrupted"
     );
     assert_eq!(harness.interrupted_trigger().as_deref(), Some("stepLimit"));
+    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
+}
+
+// An undo's `accepted` row a former process left, on a run whose provider kept its turn, is handed
+// nothing: no driver call, no queue hold, the row still `accepted` for the turn's end and the run
+// still running. Killed by the pending read keeping an undo's row while the restart hands it as a
+// limit's or a person's (the driver is called, which the mock refuses).
+#[tokio::test]
+async fn a_restart_hands_an_undos_interrupt_nothing() {
+    let mut driver = MockProviderDriver::new();
+    driver.expect_apply_intervention().never();
+    let harness = harness(driver).await;
+    let undo = harness.record_pending_interrupt(
+        "accepted",
+        r#"{"undoKey":"0190f2a0-0000-7000-8000-000000000005"}"#,
+        None,
+    );
+
+    harness
+        .service
+        .carry_out_pending_interrupts(harness.run_id)
+        .await
+        .expect("the undo's row is left as it is");
+
+    assert_eq!(harness.intervention_state(&undo), "accepted");
+    assert_eq!(
+        stored_run_state(&harness.database, &harness.run_id).0,
+        "running"
+    );
     assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
 }
 

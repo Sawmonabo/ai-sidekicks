@@ -59,6 +59,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
+        | SessionEventType::AgentTurnSteered
         | SessionEventType::AgentTurnCompleted
         | SessionEventType::AgentTurnInterrupted
         | SessionEventType::AgentChildrenStopped

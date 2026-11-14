@@ -13,7 +13,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
+use crate::command::channel::stop::{COMMAND_STOP_WAIT, StoppedCommandParties};
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
@@ -22,7 +24,8 @@ use crate::driver::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProvid
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::hooks::callbacks::answer_released_callbacks;
+use crate::driver::claude::hooks::command_capture::ClaudeCommandWindows;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::{
@@ -54,7 +57,10 @@ use crate::driver::run_control::{
 };
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::edit_checkpoint::EditCheckpoint;
+use crate::port::running_command_publisher::{
+    CommandStopCause, RunningCommandParams, StopCommandParams,
+};
 
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {
@@ -130,6 +136,10 @@ pub(crate) struct ClaudeRunControls {
     /// Every session's command channels, which find a command run by a process apart from the
     /// session's own.
     pub(crate) command_channels: Arc<ClaudeCommandChannels>,
+    /// The copy kept before each edit a continued helper's held call makes, once registered.
+    pub(crate) edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
+    /// The windows of the commands a continued helper's held calls run with no wrapper.
+    pub(crate) command_windows: Arc<ClaudeCommandWindows>,
 }
 
 impl ClaudeRunControls {
@@ -217,16 +227,16 @@ impl ClaudeRunControls {
                     stream.forget_helper_call_of_request(&callback.request_id);
                 }
             }
-            for callback in resumed.released {
-                answer_claude_request(
-                    &*live.channel,
-                    &session_id,
-                    &live.admitted_provider_account_id(),
-                    callback.request_id,
-                    &callback.answer,
-                )
-                .await;
-            }
+            answer_released_callbacks(
+                self.edit_checkpoint.port(),
+                &self.command_windows,
+                &*live.channel,
+                &session_id,
+                live.process_identity,
+                &live.admitted_provider_account_id(),
+                resumed.released,
+            )
+            .await;
             words.map_err(DriverError::Internal)?;
             return Ok(ResumeRunOutcome {
                 is_hold_lost: resumed.had_lost_hold,
@@ -314,7 +324,7 @@ impl ClaudeRunControls {
             .map_err(|_held| unavailable(ClaudeSessionUnavailableReason::SessionTurnInFlight))?;
         // Continued before the write, so the process's first frames for the answers, which can
         // arrive before the write returns, read as the lead's turn.
-        let before = stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        let before = stream.continue_turn(&turn.run, turn.turn_number, turn.provider_turn_id);
         let message_uuid = mint_uuid_v7().to_string();
         let written = self
             .write_message(
@@ -440,46 +450,67 @@ impl ClaudeRunControls {
     }
 
     /// Stops a running command with Claude Code's `stop_task` to the process that runs it, the
-    /// session's own or one apart from it such as a staged review's, answering once Claude Code
-    /// acknowledged it; the command's row ends on the task's own notification, and the run that
-    /// started it is then told the person stopped it. Fails `NoLiveSession` and as Claude Code
-    /// refuses or the request fails; a request whose write was cut stops that process first.
+    /// session's own or one apart from it such as a staged review's, then through its wrapper's
+    /// channel to the wrapper and every party under it, answering once Claude Code acknowledged
+    /// the stop, with the parties the wrapper's stop reached. The command's row ends on the task's
+    /// own notification; for the person's stop the run that started it is then told the person
+    /// stopped it, and an undo's tells no run, since the undo cuts its turns. Fails
+    /// `NoLiveSession`, as Claude Code refuses or the request fails, and as the wrapper's stop
+    /// cannot be written; a request whose write was cut stops that process first.
     pub(crate) async fn stop_command(
         &self,
-        params: &RunningCommandParams,
-    ) -> Result<(), DriverError> {
-        let task_id = params.command_id.as_str();
+        params: &StopCommandParams,
+    ) -> Result<StoppedCommandParties, DriverError> {
+        let StopCommandParams { command, cause } = params;
+        let task_id = command.command_id.as_str();
         let stop = || ClaudeControlRequest::StopTask {
             task_id: task_id.to_owned(),
         };
-        if let Some(apart) = self
+        // Read before the stop, whose notification ends the row and lets its wrapper go, so the
+        // processes of the wrapper and of each party under it are pinned while they still run.
+        let wrapper = self
             .command_channels
-            .apart_command(params.session_id, task_id)
-        {
+            .command_output
+            .port()
+            .and_then(|sets| sets.command_wrapper(command.session_id, &command.command_id))
+            .and_then(|(channel, party)| Some((channel.read_command_parties(party)?, channel)));
+        let apart = self
+            .command_channels
+            .apart_command(command.session_id, task_id);
+        let told = if let Some(apart) = apart {
             if let Err(error) = apart.process.send_control_request(stop()).await {
                 stop_on_cut_write(&*apart.process, &error).await;
                 return Err(error.into());
             }
-            self.tell_command_stopped(params.session_id, &apart.command, Some(&*apart.process))
+            Some((apart.command, Some(apart.process)))
+        } else {
+            let live = self.start.live_session(command.session_id)?;
+            let held = self
+                .start
+                .streams
+                .get(command.session_id)
+                .and_then(|stream| stream.held_command(task_id));
+            if let Err(error) = live.channel.send_control_request(stop()).await {
+                stop_on_cut_write(&*live.channel, &error).await;
+                return Err(error.into());
+            }
+            held.map(|held| (held, None))
+        };
+        // After the stop Claude Code answered, so the task is marked stopped before its shell ends.
+        let parties = match wrapper {
+            Some((parties, channel)) => channel
+                .stop_command_parties(parties, COMMAND_STOP_WAIT)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))?,
+            None => StoppedCommandParties::default(),
+        };
+        if *cause == CommandStopCause::Person
+            && let Some((held, apart_process)) = told
+        {
+            self.tell_command_stopped(command.session_id, &held, apart_process.as_deref())
                 .await;
-            return Ok(());
         }
-        let live = self.start.live_session(params.session_id)?;
-        // Read before the stop, whose notification lets the command go.
-        let held = self
-            .start
-            .streams
-            .get(params.session_id)
-            .and_then(|stream| stream.held_command(task_id));
-        if let Err(error) = live.channel.send_control_request(stop()).await {
-            stop_on_cut_write(&*live.channel, &error).await;
-            return Err(error.into());
-        }
-        if let Some(held) = held {
-            self.tell_command_stopped(params.session_id, &held, None)
-                .await;
-        }
-        Ok(())
+        Ok(parties)
     }
 
     /// Moves a running command to the background through the tool call that started it, on the
@@ -622,13 +653,14 @@ impl ClaudeRunControls {
 }
 
 impl ClaudeDriver {
-    /// Stops a running command once Claude Code acknowledges its `stop_task`. Fails
-    /// `NoLiveSession` and as the request fails.
+    /// Stops a running command once Claude Code acknowledges its `stop_task`, then through its
+    /// wrapper, as [`ClaudeRunControls::stop_command`] does. Fails `NoLiveSession` and as the
+    /// stop fails.
     pub(crate) async fn stop_command(
         &self,
-        params: RunningCommandParams,
-    ) -> Result<(), DriverError> {
-        self.live_run_controls(params.session_id)?
+        params: StopCommandParams,
+    ) -> Result<StoppedCommandParties, DriverError> {
+        self.live_run_controls(params.command.session_id)?
             .stop_command(&params)
             .await
     }

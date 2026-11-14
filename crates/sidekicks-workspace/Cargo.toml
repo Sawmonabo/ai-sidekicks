@@ -12,6 +12,7 @@ doctest = false
 
 [dependencies]
 base16ct.workspace = true
+bytes.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 icu_collator.workspace = true

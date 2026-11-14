@@ -26,6 +26,16 @@ pub enum SessionOpening {
     Deferred,
 }
 
+/// What a resume's read of the messages waiting for its run found.
+#[derive(Debug)]
+pub enum ContinuedRead {
+    /// The messages waiting for the run, in send order, each marked as the resume's.
+    Messages(Vec<WaitingMessage>),
+    /// An undo holds the run's session: nothing was read or marked, and the run is owed one resume
+    /// when the session's last undo lets it go.
+    HeldForUndo,
+}
+
 /// The messages waiting for a paused run that its resume delivers: read once the resume is sure to
 /// go, taken once the driver continued the run with them, given back when it did not, and kept
 /// when the driver sent them and no answer came. Each call runs under the queue's own lock on the
@@ -54,13 +64,15 @@ pub trait ContinuedMessages: Send + Sync {
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>>;
 
     /// The messages waiting for `run_id`, in send order, each marked as the resume's to a provider
-    /// that takes messages as `handing` says. Called under `hold`.
+    /// that takes messages as `handing` says; [`ContinuedRead::HeldForUndo`] instead while an undo
+    /// holds the session, nothing marked and the run owed a resume at the undo's release. Called
+    /// under `hold`, which the undo's hold is set under, so the answer cannot race it.
     fn read(
         &self,
         hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
         handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>>;
+    ) -> BoxFuture<'_, Result<ContinuedRead, ContinuedMessagesError>>;
 
     /// Marks the messages read for `run_id` as delivered with its resume. Called under `hold`.
     fn admit(

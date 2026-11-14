@@ -257,12 +257,12 @@ const MADE_AND_CLONED: Calls = Calls {
 #[case::gone(Answers { open: Open::Gone, ..reads(&[]) }, Kept::Gone, NOTHING)]
 #[case::link(
     Answers { open: Open::Link, ..reads(&[]) },
-    not_kept(NotKeptReason::Failed, Facts::AtPath),
+    not_kept(NotKeptReason::SymbolicLink, Facts::AtPath),
     NOTHING
 )]
 #[case::special_file(
     Answers { open: Open::SpecialFile, ..reads(&[]) },
-    not_kept(NotKeptReason::Failed, Facts::AtPath),
+    not_kept(NotKeptReason::NotARegularFile, Facts::AtPath),
     NOTHING
 )]
 #[case::open_fails(

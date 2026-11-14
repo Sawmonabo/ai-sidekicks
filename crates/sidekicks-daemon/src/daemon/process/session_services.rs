@@ -41,6 +41,9 @@ use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
 use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::checkpoints::command_windows::{CommandWindows, CommandWindowsDeps};
+use sidekicks_session::checkpoints::edits::EditCheckpoints;
+use sidekicks_session::checkpoints::sweep::{CheckpointSweep, CheckpointSweepDeps};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
@@ -78,6 +81,8 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::command_capture::CommandCaptureService;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
@@ -142,6 +147,10 @@ pub(crate) struct SessionServiceStart {
     pub(crate) git: GitRunner,
     /// The turn snapshots, which each turn end's capture records through.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
+    /// The two captures around each command, which the command windows take.
+    pub(crate) command_captures: Arc<CommandCaptureService>,
+    /// The packing of the capture folders, which packs each command window's captures.
+    pub(crate) packing: Arc<CapturePacking>,
     /// The session list's feed.
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the list feed was built over, which ending a run reads.
@@ -241,6 +250,13 @@ pub(crate) struct SessionServices {
     pub(crate) auto_title: Arc<SessionAutoTitle>,
     /// Records the checkout at each turn end; the start starts it and the stop waits for it.
     pub(crate) turn_capture: Arc<TurnCapture>,
+    /// Keeps the copy of each file an agent's edit tool is about to write.
+    pub(crate) edit_checkpoints: Arc<EditCheckpoints>,
+    /// The captures around every command an agent runs; the start settles the windows the last
+    /// stop left open, and the stop waits for every capture under way.
+    pub(crate) command_windows: Arc<CommandWindows>,
+    /// The sweep over every capture folder and owed folder, which the start schedules.
+    pub(crate) checkpoint_sweep: Arc<CheckpointSweep>,
     /// The questions an agent asks the person.
     pub(crate) questions: Arc<QuestionsService>,
     /// The plans an agent hands over.
@@ -312,6 +328,8 @@ pub(crate) fn build_session_services(
         working_folders,
         git,
         snapshots,
+        command_captures,
+        packing,
         list_feed,
         plan_holds,
         payloads,
@@ -347,6 +365,27 @@ pub(crate) fn build_session_services(
         snapshots,
         data_folder.clone(),
     ));
+    let edit_checkpoints = Arc::new(EditCheckpoints::new(
+        Arc::clone(&reads),
+        Arc::clone(&writer),
+        data_folder.clone(),
+    ));
+    let sweep_packing = Arc::clone(&packing);
+    let command_windows = Arc::new(CommandWindows::new(CommandWindowsDeps {
+        pool: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        captures: command_captures,
+        packing,
+        data_folder: data_folder.clone(),
+    }));
+    let checkpoint_sweep = Arc::new(CheckpointSweep::new(CheckpointSweepDeps {
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        packing: sweep_packing,
+        data_folder: data_folder.clone(),
+        clock: Arc::clone(&clock),
+        windows: Arc::clone(&command_windows),
+    }));
     // Taken before the watch moves on; the file search opens it with how each folder is followed.
     let folder_changes = working_folders.folder_change_feed();
     let approval_start = ApprovalStart {
@@ -577,6 +616,9 @@ pub(crate) fn build_session_services(
             providers,
         )),
         turn_capture,
+        edit_checkpoints,
+        command_windows,
+        checkpoint_sweep,
         changes,
         questions,
         plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),

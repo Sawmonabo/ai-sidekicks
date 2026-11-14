@@ -386,7 +386,7 @@ impl RunQueue {
             && !is_held_for_undo
         {
             // A resume that did not go was logged, and the message waits.
-            let _resumed = self.resume_for_send(run_id, run.version).await;
+            let _resumed = self.resume_paused_run(run_id, run.version).await;
         }
         Ok(created_response_of(written.item))
     }
@@ -632,10 +632,11 @@ impl RunQueue {
         }
     }
 
-    // Resumes the paused or pausing run a send went into, off the session's lock, so the message
-    // goes with the continue; a run moved on meanwhile takes the message as it runs. Answers
-    // whether the resume went, a failure logged.
-    async fn resume_for_send(&self, run_id: RunId, run_version: i64) -> bool {
+    // Resumes the paused or pausing run `run_id` at `run_version`, off the session's lock: a send
+    // into it, so the message goes with the continue, a run moved on meanwhile taking the message
+    // as it runs; or an undo's release, for the run it opened and each run whose resume the undo
+    // held back. Answers whether the resume went, a failure logged.
+    async fn resume_paused_run(&self, run_id: RunId, run_version: i64) -> bool {
         let request = AgentRunResumeRequest {
             target_run_id: run_id,
             expected_run_version: safe_run_version(run_version),
@@ -646,7 +647,7 @@ impl RunQueue {
                 tracing::error!(
                     run_id = %run_id,
                     error = &error as &(dyn std::error::Error + 'static),
-                    "resuming the paused run a message was sent to failed; the message waits"
+                    "resuming the paused run failed; the messages waiting for it wait"
                 );
                 false
             }

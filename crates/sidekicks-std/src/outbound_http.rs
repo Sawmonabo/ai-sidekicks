@@ -2,7 +2,10 @@
 //! and a user agent naming the app with no version. No total timeout is set, since a long event
 //! stream would be cut, and connection tracing is never on, since it writes raw bytes, paths and
 //! headers included. A caller that follows no redirect keeps one client built on first use; a
-//! body a caller reads whole is read here within the caller's cap.
+//! body a caller reads whole is read here within the caller's cap. Also the download checked
+//! against its digest before anything reads it.
+
+pub mod download;
 
 use std::sync::Mutex;
 

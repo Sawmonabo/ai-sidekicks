@@ -28,6 +28,7 @@ use sidekicks_store::events::session::read::{SessionEventFilter, SessionEventRea
 use tempfile::TempDir;
 
 use super::{RunCut, RunRollback};
+use crate::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use crate::interventions::store::run_at_version_statement;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
@@ -53,7 +54,8 @@ struct Fixture {
 
 impl Fixture {
     async fn new(state: RunState) -> Self {
-        let database = TestDatabase::new(schema_parts());
+        // The checkpoint table takes the row a turn's start writes.
+        let database = TestDatabase::new(schema_parts().with_parts(checkpoint_schema_parts()));
         let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let session_id = test_session_id();

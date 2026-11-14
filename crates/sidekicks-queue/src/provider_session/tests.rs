@@ -1,11 +1,13 @@
 //! The fixture a session's provider session is tested over: a session an earlier daemon left, its
 //! provider sessions and its changes. The openings and the bindings they record are tested in
 //! `opening`, a closed or purging session's refusals in `ended_session`, a restart and a process
-//! gone in `restart`, the controls that act on the process in `controls`, and a run bound after a
-//! resume and the idle sleep's wake in `resume`; a start whose provider is missing posts the
-//! session's `providerMissing` notice in `opening`, `resume` and `ended_session`.
+//! gone in `restart`, an undo's settle of the cut turns' held calls in `cut_held_calls`, the
+//! controls that act on the process in `controls`, and a run bound after a resume and the idle
+//! sleep's wake in `resume`; a start whose provider is missing posts the session's
+//! `providerMissing` notice in `opening`, `resume` and `ended_session`.
 
 mod controls;
+mod cut_held_calls;
 mod ended_session;
 mod opening;
 mod restart;

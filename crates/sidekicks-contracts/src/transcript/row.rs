@@ -24,7 +24,8 @@ use crate::transcript::run_attribution::{
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcript_run_id_of,
 };
 use crate::transcript::turn_attribution::{
-    RUN_START_POSITION, TOOL_CALL_OPENING_EVENT_TYPE, TURN_STARTED_EVENT_TYPE,
+    RUN_POSITION_EVENT_TYPES, RUN_START_POSITION, TOOL_CALL_OPENING_EVENT_TYPE,
+    TURN_STARTED_EVENT_TYPE,
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -43,11 +44,17 @@ ts_constants! {
     pub const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY: EventCategory = EventCategory::RunLifecycle;
     /// The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS = TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS;
-    /// The event type of a turn boundary, which moves its run to its next turn.
+    /// The event type of a turn boundary, which moves its run to the position its opening message
+    /// takes.
     TURN_STARTED_EVENT_TYPE = TURN_STARTED_EVENT_TYPE;
-    /// The event type that opens a tool call; the call's later rows take the turn it opened in.
+    /// The event types that move a run to a position of its own, one per message of the person's
+    /// the run took: a turn boundary and a steer.
+    RUN_POSITION_EVENT_TYPES = RUN_POSITION_EVENT_TYPES;
+    /// The event type that opens a tool call; the call's later rows take the run position it
+    /// opened at.
     TOOL_CALL_OPENING_EVENT_TYPE = TOOL_CALL_OPENING_EVENT_TYPE;
-    /// Where every run starts: the first epoch, before its first turn.
+    /// Where every run starts: the first epoch, before the first of the person's messages it
+    /// takes.
     RUN_START_POSITION = RUN_START_POSITION;
 }
 
@@ -126,9 +133,9 @@ fn transcript_run_scoped_event_type_names() -> Vec<&'static str> {
         .collect()
 }
 
-/// The superseded marker: present exactly when the row's turn is superseded. `targetPosition` is
-/// the rewind cutoff of the first accepted rollback in the run's lineage, at the row's epoch or
-/// later, that rewound the surviving history containing the row.
+/// The superseded marker: present exactly when the row's run position is superseded.
+/// `targetPosition` is the rewind cutoff of the first accepted rollback in the run's lineage, at
+/// the row's epoch or later, that rewound the surviving history containing the row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SupersededMarker {
@@ -318,7 +325,7 @@ transcript_row_arm! {
         pub event_type: FreeFormText<EVENT_FIELD_MAX_LEN>,
         /// The run the row belongs to.
         pub run_id: RunId,
-        /// The row's originating turn position; above any superseded marker's cutoff.
+        /// The row's originating run position; above any superseded marker's cutoff.
         #[garde(custom(|position: &SourcePosition, (): &()| {
             require_marker_to_outrank_row(*position, self.superseded.as_ref())
         }))]
@@ -500,8 +507,8 @@ impl TranscriptReadRow {
     }
 }
 
-/// The run attribution the daemon stamps on one event of a run: its turn position, its execution
-/// epoch and, when the turn was rolled back, the superseded marker, which ranks below the
+/// The run attribution the daemon stamps on one event of a run: its run position, its execution
+/// epoch and, when the position was rolled back, the superseded marker, which ranks below the
 /// position.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
@@ -509,7 +516,7 @@ impl TranscriptReadRow {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct TranscriptRunStamp {
-    /// The turn position.
+    /// The run position: the person's messages the run took (a turn's opening or a steer).
     #[garde(custom(|position: &SourcePosition, (): &()| {
         require_marker_to_outrank_row(*position, self.superseded.as_ref())
     }))]

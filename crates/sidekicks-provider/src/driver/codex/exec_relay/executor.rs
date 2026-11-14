@@ -1,8 +1,19 @@
-//! The daemon's own Codex executor and its one connection: newline-delimited JSON-RPC both ways,
-//! the relay's own requests answered by their ids, every other message handed to the client the
-//! relay serves, each process's end watched so a held terminate or a stop can wait on it, the
-//! answer to a client's request watched where the relay keeps something for it, and what the
-//! client is owed at the connection's end kept in its ledger.
+//! The daemon's own Codex executor and the many connections the relay serves onto it:
+//! newline-delimited JSON-RPC both ways, the relay's own requests answered by their ids, each
+//! connection's request sent under a relay id and its answer handed to that connection alone under
+//! the connection's own id. Each connection's processes, open files and http requests run under
+//! relay ids, and every message naming one, a policy ask and a streamed body among them, reaches
+//! its connection alone under its own id; a dropped connection's open files are closed. Every
+//! connection's missing-path watch joins one on the executor. An executor request no connection
+//! owns is refused and an unrouted notification dropped, so nothing reaches every connection. Each
+//! process's end is watched so a held terminate or a stop can wait on it, the answer to a
+//! client's request where the relay keeps something for it, and what each connection is owed at
+//! the executor's end kept until the relay settles it.
+
+mod connection_ids;
+mod missing_watches;
+mod policy_requests;
+mod routing;
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -12,25 +23,36 @@ use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use process_wrap::tokio::ChildWrapper;
-use serde::Deserialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_platforms::{Spawner, wrap_child_command};
 use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Command;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+use tokio_util::sync::CancellationToken;
 
+use self::connection_ids::{ConnectionIds, UNKNOWN_ID};
+use self::missing_watches::MissingWatches;
+use self::policy_requests::{PolicyRequests, deny_answer};
 use crate::driver::codex::exec_relay::executor_end::{
-    ClientLedger, OutputStream, ProcessEventKind,
+    ProcessLedger, compose_executor_ended_answer, compose_executor_ended_body_delta,
 };
-use crate::driver::codex::exec_relay::{INITIALIZE_METHOD, INITIALIZED_METHOD};
+use crate::driver::codex::exec_relay::message::{RoutedParams, splice, text_of};
+use crate::driver::codex::exec_relay::methods::{
+    ClientMethod, FS_CLOSE_METHOD, INITIALIZE_METHOD, INITIALIZED_METHOD, RelayIdKind,
+};
 use crate::driver::codex::session::errors::CodexError;
 
 /// What opens the id of every request the relay sends itself, so its answer is told apart from an
 /// answer to the client's own requests.
 const RELAY_REQUEST_PREFIX: &str = "sidekicks-relay-";
+
+/// What opens the relay id every client's request reaches the executor under, so two connections'
+/// own ids never meet there.
+const CLIENT_REQUEST_PREFIX: &str = "sidekicks-client-";
 
 /// The longest message line either side reads, the most one WebSocket message carries by default.
 const EXECUTOR_LINE_MAX_BYTES: usize = 64 << 20;
@@ -50,33 +72,6 @@ const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 /// The answer a request of the relay's own gets: its result, or the executor's refusal in words.
 type RelayAnswer = Result<Box<RawValue>, String>;
 
-// The members of any message the relay routes by; the rest passes on as it came.
-#[derive(Deserialize)]
-struct RoutedMessage<'line> {
-    #[serde(borrow)]
-    id: Option<&'line RawValue>,
-    method: Option<String>,
-    #[serde(borrow)]
-    params: Option<&'line RawValue>,
-    #[serde(borrow)]
-    result: Option<&'line RawValue>,
-    error: Option<RefusedRequest>,
-}
-
-#[derive(Deserialize)]
-struct RefusedRequest {
-    message: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProcessNamed {
-    process_id: String,
-    seq: Option<u64>,
-    exit_code: Option<i32>,
-    stream: Option<OutputStream>,
-}
-
 /// How one of the executor's processes ended: the exit code its `process/exited` reported, `None`
 /// for one that closed or whose connection ended with no code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,15 +80,49 @@ pub(super) struct ProcessEnd {
     pub(super) exit_code: Option<i32>,
 }
 
+/// One connection the relay serves onto its executor, unique for the executor's life.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct RelayConnectionId(u64);
+
+// One connection's queue toward its socket, which its own task drains, and the token that tells
+// its socket to close once the queue fell behind its bound.
+struct ConnectionQueue {
+    lines: mpsc::Sender<String>,
+    closed: CancellationToken,
+}
+
+// A client's request the executor has not answered: the connection that sent it, the id it sent
+// it under, as raw JSON text, how the relay carries its method, and the relay id it names in its
+// method's table: the one it minted, forgotten when the mint is refused, or the handle a close
+// names, forgotten at its answer; and whether an http request streams its body.
+struct ClientRequest {
+    connection: RelayConnectionId,
+    client_id: Box<str>,
+    method: ClientMethod,
+    relay_id: Option<String>,
+    streams: bool,
+}
+
 /// One executor and the daemon's connection to it.
 pub(super) struct CodexExecutor {
     lines: mpsc::Sender<String>,
     pending: Mutex<HashMap<String, oneshot::Sender<RelayAnswer>>>,
     next_request: AtomicU64,
-    client: Mutex<Option<mpsc::Sender<String>>>,
+    // Each connection's only sender, so removing its entry closes the connection.
+    clients: Mutex<HashMap<RelayConnectionId, ConnectionQueue>>,
+    next_connection: AtomicU64,
+    // Keyed by the relay id as raw JSON text.
+    client_requests: Mutex<HashMap<String, ClientRequest>>,
+    next_client_request: AtomicU64,
+    process_ids: Mutex<ConnectionIds>,
+    file_handles: Mutex<ConnectionIds>,
+    http_requests: Mutex<ConnectionIds>,
+    policy_requests: Mutex<PolicyRequests>,
+    missing_watches: MissingWatches,
+    // Keyed by the relay's process id.
     exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
     client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
-    ledger: Mutex<ClientLedger>,
+    ledger: Mutex<ProcessLedger>,
     ended: watch::Sender<bool>,
     process_id: Option<u32>,
     initialize_result: Mutex<Option<Box<RawValue>>>,
@@ -152,10 +181,18 @@ impl CodexExecutor {
             lines,
             pending: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
-            client: Mutex::new(None),
+            clients: Mutex::new(HashMap::new()),
+            next_connection: AtomicU64::new(1),
+            client_requests: Mutex::new(HashMap::new()),
+            next_client_request: AtomicU64::new(1),
+            process_ids: Mutex::new(ConnectionIds::new(RelayIdKind::Process)),
+            file_handles: Mutex::new(ConnectionIds::new(RelayIdKind::FileHandle)),
+            http_requests: Mutex::new(ConnectionIds::new(RelayIdKind::HttpRequest)),
+            policy_requests: Mutex::new(PolicyRequests::default()),
+            missing_watches: MissingWatches::default(),
             exits: Mutex::new(HashMap::new()),
             client_replies: Mutex::new(HashMap::new()),
-            ledger: Mutex::new(ClientLedger::default()),
+            ledger: Mutex::new(ProcessLedger::default()),
             ended: watch::Sender::new(false),
             process_id,
             initialize_result: Mutex::new(None),
@@ -202,31 +239,209 @@ impl CodexExecutor {
         lock(&self.initialize_result).clone()
     }
 
-    /// Makes `client` the one the executor's messages go to, in place of any before it.
-    pub(super) fn attach_client(&self, client: mpsc::Sender<String>) {
-        *lock(&self.client) = Some(client);
+    /// Attaches `client`, a connection's queue, beside the others and answers the connection's
+    /// id; `None` once the executor's connection ended. The executor keeps the queue's only
+    /// sender, so the connection's detach or the executor's end closes it, and cancels `closed`
+    /// once the queue is full, for the connection to close as a closed socket does.
+    pub(super) fn attach_client(
+        &self,
+        client: mpsc::Sender<String>,
+        closed: CancellationToken,
+    ) -> Option<RelayConnectionId> {
+        let mut clients = lock(&self.clients);
+        if *self.ended.borrow() {
+            return None;
+        }
+        let connection = RelayConnectionId(self.next_connection.fetch_add(1, Ordering::Relaxed));
+        clients.insert(
+            connection,
+            ConnectionQueue {
+                lines: client,
+                closed,
+            },
+        );
+        Some(connection)
     }
 
-    /// Lets `client` go, when it is still the one attached.
-    pub(super) fn detach_client(&self, client: &mpsc::Sender<String>) {
-        let mut attached = lock(&self.client);
-        if attached
-            .as_ref()
-            .is_some_and(|attached| attached.same_channel(client))
-        {
-            *attached = None;
+    /// How many connections are attached, which a test reads.
+    #[cfg(test)]
+    pub(super) fn connection_count(&self) -> usize {
+        lock(&self.clients).len()
+    }
+
+    /// Lets the connection `connection` go, forgetting every request it has in flight but its
+    /// opens, whose answers then reach no one, and its ids, whose messages then reach no one,
+    /// closing its queue, denying every policy ask it had not answered and closing its open files
+    /// on the executor, those lines sent on a task of their own; a file still opening is closed at
+    /// its open's answer.
+    pub(super) fn detach_client(&self, connection: RelayConnectionId) {
+        lock(&self.client_requests).retain(|_relay_id, request| {
+            request.connection != connection || request.method == ClientMethod::FileOpen
+        });
+        lock(&self.process_ids).forget_connection(connection);
+        let open_files = lock(&self.file_handles).forget_connection(connection);
+        // A streamed body runs on to its last delta, since no method cancels it, and reaches no
+        // one.
+        lock(&self.http_requests).forget_connection(connection);
+        lock(&self.clients).remove(&connection);
+        // After the connection's queue goes, so a join answered meanwhile finds it gone or is
+        // forgotten here.
+        self.missing_watches.forget_connection(connection);
+        let unanswered = lock(&self.policy_requests).take_connection(connection);
+        let denies = unanswered.iter().map(|id| deny_answer(id));
+        let closes = open_files
+            .into_iter()
+            .map(|handle| self.compose_file_close(&handle));
+        self.send_own_lines(denies.chain(closes).collect());
+    }
+
+    /// Whether the connection `connection`'s answer under `id` to one of the executor's requests
+    /// goes on to the executor: only when that request was asked of it, and only once.
+    pub(super) fn takes_client_answer(&self, connection: RelayConnectionId, id: &RawValue) -> bool {
+        lock(&self.policy_requests).answer(id, connection)
+    }
+
+    /// `line`, a request the connection `connection` sent under `id` for `method`, with a new relay
+    /// id in that id's place and, for a method that names an id of its own in `params`, the
+    /// relay's id in its place: minted for a method that mints one, and for any other the one
+    /// minted for it, or [`UNKNOWN_ID`] for an id the connection never minted. Both are slices of
+    /// `line` its parse read. The connection and its id are kept under the relay id until the
+    /// executor answers it, the connection goes or the executor's end answers it. Answers the line
+    /// with whether it minted a new relay id, which only its refusal then forgets; `None` once
+    /// the executor ended, nothing then kept.
+    pub(super) fn relay_client_request(
+        &self,
+        connection: RelayConnectionId,
+        line: &str,
+        id: &RawValue,
+        method: ClientMethod,
+        params: Option<&RoutedParams<'_>>,
+    ) -> Option<(String, bool)> {
+        let relay_request_id = format!(
+            "\"{CLIENT_REQUEST_PREFIX}{}\"",
+            self.next_client_request.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut kept_id = None;
+        let relay_named = method.named_id().and_then(|named| {
+            let raw = params?.id_of(named.kind)?;
+            let own_id = text_of(raw)?;
+            let mut ids = lock(self.ids_of(named.kind));
+            let relay_id = if named.mints {
+                let (relay_id, is_new) = ids.mint(connection, &own_id);
+                if is_new {
+                    kept_id = Some(relay_id.clone());
+                }
+                relay_id
+            } else {
+                let relay_id = ids.relay_id(connection, &own_id).to_owned();
+                if method == ClientMethod::FileClose && relay_id != UNKNOWN_ID {
+                    kept_id = Some(relay_id.clone());
+                }
+                relay_id
+            };
+            Some((raw, format!("\"{relay_id}\"")))
+        });
+        let relayed = splice(
+            line,
+            std::iter::once((id, relay_request_id.as_str())).chain(
+                relay_named
+                    .as_ref()
+                    .map(|(raw, relay_id)| (*raw, relay_id.as_str())),
+            ),
+        );
+        let is_minted = method.named_id().is_some_and(|named| named.mints) && kept_id.is_some();
+        let mut client_requests = lock(&self.client_requests);
+        // Read under the requests' lock, which the end's settle drains, so a request kept here is
+        // answered by that settle.
+        if *self.ended.borrow() {
+            return None;
+        }
+        client_requests.insert(
+            relay_request_id,
+            ClientRequest {
+                connection,
+                client_id: id.get().into(),
+                method,
+                relay_id: kept_id,
+                streams: method == ClientMethod::HttpRequest
+                    && params.is_some_and(|params| params.stream_response),
+            },
+        );
+        Some((relayed, is_minted))
+    }
+
+    // The table of `kind`'s ids.
+    fn ids_of(&self, kind: RelayIdKind) -> &Mutex<ConnectionIds> {
+        match kind {
+            RelayIdKind::Process => &self.process_ids,
+            RelayIdKind::FileHandle => &self.file_handles,
+            RelayIdKind::HttpRequest => &self.http_requests,
         }
     }
 
-    /// Hands `line` to the attached client: a message of the executor's or an answer the relay
-    /// gives in its place; dropped while no client is attached.
-    pub(super) async fn answer_client(&self, line: String) {
-        let client = lock(&self.client).clone();
-        if let Some(client) = client
-            && client.send(line).await.is_err()
-        {
-            tracing::debug!("the Codex relay's client went away before its answer reached it");
+    /// Hands `line` to the connection `connection` alone without waiting, answering whether it
+    /// was handed on: dropped once that connection is gone, and a connection whose queue is full
+    /// is let go as a closed socket is, so one connection that stops reading never holds up
+    /// another's lines.
+    pub(super) fn answer_connection(&self, connection: RelayConnectionId, line: String) -> bool {
+        let mut clients = lock(&self.clients);
+        let Some(queue) = clients.get(&connection) else {
+            tracing::debug!("the Codex relay's client went away before its line was handed on");
+            return false;
+        };
+        match queue.lines.try_send(line) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_line)) => {
+                tracing::warn!("a Codex relay client fell a full queue behind, so it is let go");
+                if let Some(queue) = clients.remove(&connection) {
+                    queue.closed.cancel();
+                }
+                false
+            }
+            Err(TrySendError::Closed(_line)) => {
+                tracing::debug!("the Codex relay's client went away before its line reached it");
+                false
+            }
         }
+    }
+
+    /// Hands each attached connection what the executor's end owes it, under its own ids: an
+    /// error answer to each of its requests left unanswered, the end of each of its processes the
+    /// executor had not closed, a last delta carrying the error to each of its streamed http
+    /// bodies, and the fire of its missing-path watch.
+    pub(super) fn settle_clients(&self) {
+        let requests: Vec<_> = lock(&self.client_requests)
+            .drain()
+            .map(|(_relay_id, request)| {
+                let answer = compose_executor_ended_answer(&request.client_id);
+                (request.connection, answer)
+            })
+            .collect();
+        let process_ends = {
+            let mut process_ids = lock(&self.process_ids);
+            let owed = lock(&self.ledger).take_owed_lines(|relay_id| {
+                let owner = process_ids.owner(relay_id)?;
+                Some((owner.connection, owner.own_id.clone()))
+            });
+            process_ids.clear();
+            owed
+        };
+        let body_ends = lock(&self.http_requests)
+            .clear()
+            .into_iter()
+            .map(|(owner, last_seq)| {
+                let line = compose_executor_ended_body_delta(&owner.own_id, last_seq + 1);
+                (owner.connection, line)
+            });
+        let lines: Vec<_> = requests
+            .into_iter()
+            .chain(process_ends)
+            .chain(body_ends)
+            .collect();
+        for (connection, line) in lines {
+            self.answer_connection(connection, line);
+        }
+        self.fire_every_missing_watch();
     }
 
     /// Writes one message to the executor as its own line. Fails with `CodexError::Transport`
@@ -252,52 +467,49 @@ impl CodexExecutor {
         lock(&self.exits).remove(process_id);
     }
 
-    /// Keeps the client's request `id`, its id as compact JSON, a start of `started_process` where
-    /// it is one, so the connection's end answers it. Answers false once the connection ended.
-    pub(super) fn open_client_request(&self, id: &str, started_process: Option<String>) -> bool {
-        lock(&self.ledger).open_request(id, started_process)
-    }
-
-    /// Hands the attached client what the connection's end owes it: an error answer to each of its
-    /// requests left unanswered and the end of each process the executor had not closed.
-    pub(super) async fn settle_client(&self) {
-        let owed = lock(&self.ledger).take_owed_lines();
-        for line in owed {
-            self.answer_client(line).await;
-        }
-    }
-
-    /// Watches the executor's answer to the client's request whose id is `id` as compact JSON,
-    /// still handed to the client: true for a refusal, false for a result; the sender drops when
-    /// the connection ends first.
+    /// Watches the executor's answer to the client's request whose relay id is `id` as compact
+    /// JSON, still handed to the client: true for a refusal, false for a result; the sender drops
+    /// when the connection ends first.
     pub(super) fn watch_client_answer(&self, id: String) -> oneshot::Receiver<bool> {
         let (answer, answered) = oneshot::channel();
         lock(&self.client_replies).insert(id, answer);
         answered
     }
 
-    /// Sends the relay's own request and answers its result, `None` when `timeout` passed first.
-    /// Fails with `CodexError::Transport` when the executor refused it or the connection ended.
+    /// Sends the relay's own request and answers its result, `None` when `timeout`, if any,
+    /// passed first. Fails with `CodexError::Transport` when the executor refused it or the
+    /// connection ended, at once for a request sent once it had.
     pub(super) async fn request_within(
         &self,
         method: &str,
         params: &serde_json::Value,
-        timeout: Duration,
+        timeout: impl Into<Option<Duration>>,
     ) -> Result<Option<Box<RawValue>>, CodexError> {
-        let id = format!(
-            "{RELAY_REQUEST_PREFIX}{}",
-            self.next_request.fetch_add(1, Ordering::Relaxed)
-        );
+        let id = self.next_relay_request_id();
         let (answer, answered) = oneshot::channel();
-        lock(&self.pending).insert(id.clone(), answer);
+        {
+            // Read under the waiters' lock, which the end clears after marking itself, so no
+            // waiter is kept once the end has passed.
+            let mut pending = lock(&self.pending);
+            if *self.ended.borrow() {
+                return Err(ended());
+            }
+            pending.insert(id.clone(), answer);
+        }
         let message = json!({ "id": id, "method": method, "params": params }).to_string();
         if let Err(error) = self.send_line(message).await {
             lock(&self.pending).remove(&id);
             return Err(error);
         }
-        let Ok(answer) = tokio::time::timeout(timeout, answered).await else {
-            lock(&self.pending).remove(&id);
-            return Ok(None);
+        let answer = match timeout.into() {
+            Some(timeout) => {
+                let Ok(answer) = tokio::time::timeout(timeout, answered).await else {
+                    lock(&self.pending).remove(&id);
+                    return Ok(None);
+                };
+                answer
+            }
+            None => answered.await,
         };
         match answer {
             Ok(Ok(result)) => Ok(Some(result)),
@@ -309,77 +521,57 @@ impl CodexExecutor {
         }
     }
 
-    // Routes one line the executor wrote.
-    async fn take_line(&self, line: String) {
-        let Ok(message) = serde_json::from_str::<RoutedMessage<'_>>(&line) else {
-            tracing::warn!(
-                length = line.len(),
-                "the Codex executor wrote a line that is no message"
-            );
-            return;
-        };
-        if message.method.is_none()
-            && let Some(id) = message
-                .id
-                .and_then(|id| serde_json::from_str::<String>(id.get()).ok())
-                .filter(|id| id.starts_with(RELAY_REQUEST_PREFIX))
-        {
-            let answer = match (message.result, message.error) {
-                (Some(result), _) => Ok(result.to_owned()),
-                (None, error) => Err(error
-                    .and_then(|error| error.message)
-                    .unwrap_or_else(|| "no reason given".to_owned())),
-            };
-            if let Some(waiting) = lock(&self.pending).remove(&id)
-                && waiting.send(answer).is_err()
-            {
-                tracing::debug!(id, "a relay request's caller stopped waiting");
-            }
-            return;
-        }
-        if message.method.is_none()
-            && let Some(id) = message.id
-        {
-            let is_refused = message.error.is_some();
-            lock(&self.ledger).answer_request(id.get(), is_refused);
-            if let Some(watching) = lock(&self.client_replies).remove(id.get()) {
-                // The relay's watch of an answer may have stopped waiting; the client still gets it.
-                let _unheard = watching.send(is_refused);
-            }
-        }
-        if message.id.is_none()
-            && let Some(kind) = message
-                .method
-                .as_deref()
-                .and_then(ProcessEventKind::from_method)
-            && let Some(named) = message
-                .params
-                .and_then(|params| serde_json::from_str::<ProcessNamed>(params.get()).ok())
-        {
-            lock(&self.ledger).record_event(&named.process_id, kind, named.seq, named.stream);
-            if kind != ProcessEventKind::Output {
-                let mut exits = lock(&self.exits);
-                if let Some(exit) = exits.get(&named.process_id) {
-                    record_end(exit, named.exit_code);
-                }
-                if kind == ProcessEventKind::Closed {
-                    exits.remove(&named.process_id);
-                }
-            }
-        }
-        self.answer_client(line).await;
+    // A new id for a request of the relay's own.
+    fn next_relay_request_id(&self) -> String {
+        format!(
+            "{RELAY_REQUEST_PREFIX}{}",
+            self.next_request.fetch_add(1, Ordering::Relaxed)
+        )
     }
 
-    // Marks the connection ended: no client request is kept after it, every waiting request fails
-    // and every watched process ends. The client stays attached, for what the end owes it.
+    // The `fs/close` of `handle` under a relay request id no one waits on, whose answer is
+    // dropped; a close cannot fail and runs on the executor's control lane, so none is awaited.
+    fn compose_file_close(&self, handle: &str) -> String {
+        json!({
+            "id": self.next_relay_request_id(),
+            "method": FS_CLOSE_METHOD,
+            "params": { "handleId": handle },
+        })
+        .to_string()
+    }
+
+    // Sends `own_lines`, the relay's own, to the executor in order on a task of their own, so the
+    // reader or the detach that composed them never waits on the executor's input; lines the
+    // ended connection no longer takes are dropped.
+    fn send_own_lines(&self, own_lines: Vec<String>) {
+        if own_lines.is_empty() {
+            return;
+        }
+        let lines = self.lines.clone();
+        tokio::spawn(async move {
+            for line in own_lines {
+                if lines.send(line).await.is_err() {
+                    tracing::debug!(
+                        "the Codex executor ended before the relay's own lines went out"
+                    );
+                    return;
+                }
+            }
+        });
+    }
+
+    // Marks the connection ended: every waiting request fails, every watched process ends and the
+    // connections' files and policy asks are forgotten. The connections stay attached, and their
+    // requests, processes, streamed bodies and watches kept, for what the end owes them.
     fn end(&self) {
-        lock(&self.ledger).end();
         self.ended.send_replace(true);
         lock(&self.pending).clear();
         lock(&self.client_replies).clear();
         for exit in lock(&self.exits).values() {
             record_end(exit, None);
         }
+        lock(&self.file_handles).clear();
+        lock(&self.policy_requests).clear();
     }
 }
 
@@ -434,7 +626,7 @@ async fn read_lines(output: impl AsyncRead + Send + Unpin, executor: Weak<CodexE
             return;
         };
         match read {
-            Ok(line) => executor.take_line(line).await,
+            Ok(line) => executor.take_line(&line),
             Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),

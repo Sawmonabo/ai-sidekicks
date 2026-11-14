@@ -1,5 +1,5 @@
 //! What the capture tests share: git answers read in a test, a repository with one commit, the
-//! bytes of a folder, and a turn-snapshot service over a test database.
+//! bytes of a folder, the inputs of a capture, and a turn-snapshot service over a test database.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -16,11 +17,13 @@ use super::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotCaptureInput, TurnSnapshotService,
 };
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, strip_line_end};
+use crate::git::turn_snapshot::capture::{CheckoutCaptureInput, GitFloorReports};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
+use crate::git::turn_snapshot::refs::RunSnapshotPoint;
 use crate::git::turn_snapshot::repack::CapturePacking;
 
-/// The second every test turn ends at.
-const TURN_ENDED_SECOND: i64 = 1_800_000_000;
+/// The second every test capture is taken at.
+const CAPTURED_SECOND: i64 = 1_800_000_000;
 
 /// What `call` printed, its line end dropped. Panics when git fails.
 pub(crate) async fn answer(git: &GitRunner, call: GitCall) -> String {
@@ -148,7 +151,31 @@ pub(crate) fn service_reading(
     packing: Arc<CapturePacking>,
 ) -> TurnSnapshotService {
     let reads = DatabaseReadPool::new(database.path(), TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY);
-    TurnSnapshotService::new(git, Arc::new(reads), checkout_lock, packing)
+    let floor_reports = Arc::new(GitFloorReports::default());
+    TurnSnapshotService::new(git, Arc::new(reads), checkout_lock, packing, floor_reports)
+}
+
+/// The checkout `repository`, its own top level, owned by `owner` and captured at the test's
+/// second.
+pub(crate) fn checkout_of(repository: &Path, owner: &Path) -> CheckoutCaptureInput {
+    CheckoutCaptureInput {
+        owner_folder: owner.to_path_buf(),
+        execution_root: repository.to_path_buf(),
+        checkout_root: repository.to_path_buf(),
+        captured_at: Timestamp::from_second(CAPTURED_SECOND).expect("the instant is in range"),
+    }
+}
+
+/// A snapshot at `point` of the checkout `repository`, owned by `owner`.
+pub(crate) fn point_of(
+    repository: &Path,
+    owner: &Path,
+    point: RunSnapshotPoint,
+) -> TurnSnapshotCaptureInput {
+    TurnSnapshotCaptureInput {
+        checkout: checkout_of(repository, owner),
+        point,
+    }
 }
 
 /// Turn `turn_ordinal` of `run_id` in epoch 0 at the checkout `repository`, owned by `owner`.
@@ -158,20 +185,22 @@ pub(crate) fn turn_of(
     run_id: RunId,
     turn_ordinal: u64,
 ) -> TurnSnapshotCaptureInput {
-    TurnSnapshotCaptureInput {
-        owner_folder: owner.to_path_buf(),
-        execution_root: repository.to_path_buf(),
-        checkout_root: repository.to_path_buf(),
+    let point = RunSnapshotPoint::Turn {
         run_id,
         epoch: 0,
-        turn_ordinal,
-        turn_ended_at: Timestamp::from_second(TURN_ENDED_SECOND).expect("the instant is in range"),
-    }
+        ordinal: turn_ordinal,
+    };
+    point_of(repository, owner, point)
 }
 
 /// A fresh run id.
 pub(crate) fn minted_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
+}
+
+/// A fresh workflow run id.
+pub(crate) fn minted_workflow_run_id() -> WorkflowRunId {
+    WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted UUID is a workflow run id")
 }
 
 /// The owner's capture folder for the repository at `repository`, which a capture made. Panics

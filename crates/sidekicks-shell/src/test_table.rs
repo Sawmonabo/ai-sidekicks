@@ -10,6 +10,7 @@ use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_platforms::{Spawner, create_private_folder};
+use sidekicks_provider::port::command_capture::unregistered_capture;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::working_folder::SessionWorkingFolder;
@@ -105,6 +106,7 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
             startup_folder,
             nonce_folder,
         },
+        command_capture: unregistered_capture(),
         shell_mode: CommandLine {
             program: scratch
                 .path()

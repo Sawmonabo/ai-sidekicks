@@ -1,7 +1,8 @@
 //! The terminal service's table as the daemon's start builds it: its shells' startup folders in
-//! the run folder, the start's orphan registry, and the three reads and writes the table
-//! calls out to, each a change of a shell's holder appended to its session's log, a session's
-//! working folder, and what a shell takes from the machine's settings file and its project.
+//! the run folder, the start's orphan registry, the providers' environment names and command
+//! capture, and the three reads and writes the table calls out to, each a change of a shell's
+//! holder appended to its session's log, a session's working folder, and what a shell takes from
+//! the machine's settings file and its project.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,7 +16,6 @@ use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_shell::control_lease::LeaseBroadcast;
 use sidekicks_shell::integration::injection::{ShellStartupError, prepare_shell_startup_folders};
 use sidekicks_shell::mode::SHELL_MODE;
@@ -37,12 +37,13 @@ use sidekicks_workspace::working_folder::{
 use tokio::runtime::Handle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
+use crate::daemon::process::providers::Providers;
 
 /// The folder of the run folder every shell's start writes its scripts and nonce files in.
 const SHELL_STARTUP_FOLDER_NAME: &str = "shell-startup";
 
 /// What the shell table is built from.
-pub(crate) struct ShellTableStart {
+pub(crate) struct ShellTableStart<'start> {
     /// The daemon's terminals.
     pub(crate) terminals: Arc<Terminals>,
     /// This machine's own device id, which a run's hold names.
@@ -55,10 +56,9 @@ pub(crate) struct ShellTableStart {
     pub(crate) settings: Arc<MachineSettingsFile>,
     /// The login shell's environment captured at the daemon's start.
     pub(crate) base_environment: Arc<[(String, String)]>,
-    /// The names a person's row may not set.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
-    /// The variables each provider reads as the screen-reader switch.
-    pub(crate) screen_reader_environment_names: Vec<&'static str>,
+    /// The providers: the names a person's row may not set, the variable each reads as the
+    /// screen-reader switch, and the command capture their ports register.
+    pub(crate) providers: &'start Providers,
     /// The daemon's run folder, where the shells' startup folders go.
     pub(crate) run_folder: PathBuf,
     /// The record of every child of the daemon, which the start opened over the data folder.
@@ -89,7 +89,7 @@ pub(crate) enum ShellTableStartError {
 /// Builds the shell table from `start`, holding no shell. Fails when the daemon's program cannot
 /// be named or the startup folders cannot be prepared. Runs inside the daemon's runtime.
 pub(crate) async fn build_shell_table(
-    start: ShellTableStart,
+    start: ShellTableStart<'_>,
 ) -> Result<ShellTable, ShellTableStartError> {
     let ShellTableStart {
         terminals,
@@ -98,8 +98,7 @@ pub(crate) async fn build_shell_table(
         appender,
         settings,
         base_environment,
-        reserved_names,
-        screen_reader_environment_names,
+        providers,
         run_folder,
         orphan_guard,
         daemon_program,
@@ -112,6 +111,17 @@ pub(crate) async fn build_shell_table(
             .await
             .map_err(ShellTableStartError::StartupFoldersInterrupted)?
             .map_err(ShellTableStartError::StartupFolders)?;
+    let registry = &providers.registry;
+    let screen_reader_environment_names = registry
+        .drivers()
+        .flat_map(|(provider, _)| {
+            registry
+                .descriptor(provider)
+                .expect("a provider the registry lists has a descriptor")
+                .screen_reader_environment_names()
+        })
+        .copied()
+        .collect();
     Ok(ShellTable::new(ShellTableDeps {
         terminals,
         machine_device_id,
@@ -120,9 +130,10 @@ pub(crate) async fn build_shell_table(
         read_working_folder: read_session_working_folder(Arc::clone(&reads)),
         read_shell_settings: read_shell_settings(reads, settings),
         base_environment: base_environment.to_vec(),
-        reserved_names,
+        reserved_names: Arc::clone(&providers.reserved_names),
         screen_reader_environment_names,
         startup_folders,
+        command_capture: Arc::clone(&providers.ports.command_capture),
         shell_mode,
         orphan_guard,
         runtime: Handle::current(),
