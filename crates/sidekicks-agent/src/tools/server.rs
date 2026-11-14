@@ -4,7 +4,9 @@
 //! listing shows each tool the way the spawn's provider loads it; a call is mapped to the run that
 //! made it, checked against its tool's schema before any handler runs, held with progress, and
 //! canceled when its caller goes away. On the daemon's hooks entry the spawn's driver lists the
-//! tools its hook rows call and answers each call itself.
+//! tools its hook rows call and answers each call itself. A client of the revision without a
+//! handshake hears a changed tool list on the `subscriptions/listen` request it holds open, as a
+//! client of an older one hears it on its standing stream, from the same marks.
 
 use std::error::Error;
 use std::fmt;
@@ -18,9 +20,9 @@ use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
     Extensions, Implementation, InitializeRequestParams, InitializeResult, JsonObject,
     ListToolsResult, MetaObject, PaginatedRequestParams, ProgressNotificationParam,
-    ServerCapabilities, Tool,
+    ServerCapabilities, SubscriptionFilter, Tool,
 };
-use rmcp::service::{MaybeSendFuture, RequestContext};
+use rmcp::service::{MaybeSendFuture, RequestContext, SubscriptionContext};
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::Value;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
@@ -40,7 +42,9 @@ use tokio::time::{Instant, interval_at};
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::admission::AnswerStream;
-use crate::tools::entries::{ToolServerEntries, ToolServerEntry};
+use crate::tools::entries::{
+    StandingStreamEvent, ToolServerClient, ToolServerEntries, ToolServerEntry,
+};
 use crate::tools::group::{AgentTool, AgentToolGroup, ToolGroupLoading};
 use crate::tools::session::rules::SHARED_RULES;
 
@@ -162,19 +166,11 @@ impl AgentToolServer {
     // parts, a path naming no tool server, a secret no live entry admits, or a provider no driver
     // answers.
     fn admitted(&self, extensions: &Extensions) -> Result<AdmittedRoute, McpError> {
-        let parts = extensions
-            .get::<Parts>()
-            .ok_or_else(|| McpError::invalid_request("the request came on no tool route", None))?;
-        let path = ToolServerPath::parse(parts.uri.path()).ok_or_else(|| {
-            McpError::invalid_request("the request's path names no tool server", None)
-        })?;
-        let authorization = parts
-            .headers
-            .get(AUTHORIZATION)
-            .map(http::HeaderValue::as_bytes);
-        let entry = self.entries.admitted(&path, authorization).ok_or_else(|| {
-            McpError::invalid_request("the request's secret admits no live spawn", None)
-        })?;
+        let (parts, path, authorization) = request_route(extensions)?;
+        let entry = self
+            .entries
+            .admitted(&path, authorization)
+            .ok_or_else(not_admitted)?;
         let descriptor = self
             .providers
             .descriptor(entry.provider())
@@ -185,6 +181,15 @@ impl AgentToolServer {
             descriptor,
             answer_stream: parts.extensions.get::<AnswerStream>().cloned(),
         })
+    }
+
+    // The client of a spawn's server the request whose `extensions` hold its HTTP parts presents.
+    // Fails as `admitted` does.
+    fn admitted_client(&self, extensions: &Extensions) -> Result<ToolServerClient, McpError> {
+        let (_, path, authorization) = request_route(extensions)?;
+        self.entries
+            .admitted_client(&path, authorization)
+            .ok_or_else(not_admitted)
     }
 
     // What the server answers on connection for `route`, the shared rules among it for a provider
@@ -405,6 +410,30 @@ impl AgentToolServer {
     }
 }
 
+// The HTTP parts the request whose `extensions` hold them came with, the tool server their path
+// names and their `Authorization` header. Fails for a request with no parts or a path naming no
+// tool server.
+fn request_route(
+    extensions: &Extensions,
+) -> Result<(&Parts, ToolServerPath, Option<&[u8]>), McpError> {
+    let parts = extensions
+        .get::<Parts>()
+        .ok_or_else(|| McpError::invalid_request("the request came on no tool route", None))?;
+    let path = ToolServerPath::parse(parts.uri.path()).ok_or_else(|| {
+        McpError::invalid_request("the request's path names no tool server", None)
+    })?;
+    let authorization = parts
+        .headers
+        .get(AUTHORIZATION)
+        .map(http::HeaderValue::as_bytes);
+    Ok((parts, path, authorization))
+}
+
+// The refusal of a request whose secret no live spawn admits.
+fn not_admitted() -> McpError {
+    McpError::invalid_request("the request's secret admits no live spawn", None)
+}
+
 // The refusal of a call naming a tool the entry does not offer.
 fn no_such_tool(name: &str) -> McpError {
     McpError::invalid_params(format!("the session offers no tool named {name}"), None)
@@ -412,11 +441,16 @@ fn no_such_tool(name: &str) -> McpError {
 
 impl ServerHandler for AgentToolServer {
     fn get_info(&self) -> InitializeResult {
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                DAEMON_TOOL_SERVER_NAME,
-                env!("CARGO_PKG_VERSION"),
-            ))
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_tool_list_changed()
+                .build(),
+        )
+        .with_server_info(Implementation::new(
+            DAEMON_TOOL_SERVER_NAME,
+            env!("CARGO_PKG_VERSION"),
+        ))
     }
 
     fn initialize(
@@ -466,6 +500,32 @@ impl ServerHandler for AgentToolServer {
         let is_cancelable = group.can_cancel(tool.description.name);
         let answer = self.answer_call(&route, tool, request, &context);
         Self::hold_call(&route, &context, is_cancelable, answer).await
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        _requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(SubscriptionFilter::builder().tools_list_changed().build())
+    }
+
+    async fn listen(&self, context: SubscriptionContext) -> Result<(), McpError> {
+        let client = self.admitted_client(&context.request_context().extensions)?;
+        let mut marks = client.open_standing_stream();
+        loop {
+            let event = tokio::select! {
+                () = context.cancelled() => return Ok(()),
+                event = client.next_standing_event(&mut marks) => event,
+            };
+            match event {
+                StandingStreamEvent::ToolsChanged => context
+                    .sink()
+                    .notify_tool_list_changed()
+                    .await
+                    .map_err(|error| McpError::internal_error(error.to_string(), None))?,
+                StandingStreamEvent::Closed => return Ok(()),
+            }
+        }
     }
 }
 

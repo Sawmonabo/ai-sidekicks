@@ -59,9 +59,10 @@ impl ToolServerAdmission {
 
 /// Answers `request` only when the live entry its path names admits its secret; a refusal is 401
 /// with no `WWW-Authenticate`, and a path naming no tool server is 404. rmcp checks the `Host` and
-/// `Origin` of every admitted request first; past them, a `GET` is answered with the server's
-/// standing stream, a `DELETE` ends it, and a `POST` is rmcp's to serve, carrying an
-/// [`AnswerStream`] that ends once its answer's event stream is dropped.
+/// `Origin` of every admitted request first; past them, a `GET` is answered with a standing stream
+/// of the client the path and secret name, a `DELETE` ends that client's streams alone, and a
+/// `POST` is rmcp's to serve, carrying an [`AnswerStream`] that ends once its answer's event
+/// stream is dropped.
 pub(super) async fn admit(
     State(admission): State<Arc<ToolServerAdmission>>,
     mut request: Request,
@@ -74,7 +75,7 @@ pub(super) async fn admit(
         .headers()
         .get(AUTHORIZATION)
         .map(HeaderValue::as_bytes);
-    let Some(entry) = admission.entries.admitted(&path, authorization) else {
+    let Some(client) = admission.entries.admitted_client(&path, authorization) else {
         return refusal();
     };
     let method = request.method().clone();
@@ -86,9 +87,9 @@ pub(super) async fn admit(
             return checked;
         }
         if method == Method::GET {
-            return standing_stream(entry, &path.server_name, admission.stop.clone());
+            return standing_stream(client, admission.stop.clone());
         }
-        entry.close_standing_streams(&path.server_name);
+        client.close_standing_streams();
         return StatusCode::OK.into_response();
     }
     // A client of a revision with a handshake sends no session id only at that handshake, and a

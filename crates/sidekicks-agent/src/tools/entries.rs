@@ -1,12 +1,13 @@
 //! The shared tool server's live entries, one per conversation spawn: the spawn's provider, the
 //! secret of each tool server it opened, the dispatcher bound to that spawn, the tools its hook
-//! rows call, and the marks each server's standing event stream waits on: a changed tool list and
-//! the stream's close.
+//! rows call, and the marks each server's standing event streams wait on: a changed tool list, and
+//! for each client the last change its streams announced and the closes it asked for.
 //! A spawn holds its entry's guard, so the entry leaves the table when the spawn drops, and every
 //! call and standing stream the spawn's process left open ends with it. A spawn that adopts a
 //! conversation the provider kept from an earlier start of the daemon also answers, while it holds
 //! its adoption, each other conversation of its session with no live entry whose request presents
-//! the secret the daemon's key derives for that conversation's path.
+//! the secret the daemon's key derives for that conversation's path; the adoption keeps those
+//! conversations' stream marks, so each is a client of its own.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -33,12 +34,30 @@ type EntryMap = Mutex<HashMap<SpawnKey, Arc<ToolServerEntry>>>;
 /// The live adoptions by the session each answers for.
 type AdoptionMap = Mutex<HashMap<SessionId, ToolServerAdoption>>;
 
+/// The stream marks of an adoption's earlier conversations, one row a conversation and server, made
+/// at its first standing stream or close.
+type AdoptedStreamMarks = Mutex<Vec<AdoptedClientMarks>>;
+
 /// A spawn that answers its session's earlier conversations on the servers it opened.
 struct ToolServerAdoption {
     /// The adopting spawn's entry, which answers them.
     entry: Arc<ToolServerEntry>,
     /// The key their secrets are derived from.
     key: Arc<ToolServerSecretKey>,
+    /// Their standing streams' marks.
+    stream_marks: Arc<AdoptedStreamMarks>,
+}
+
+/// Where one earlier conversation's standing streams on one server stand.
+struct AdoptedClientMarks {
+    /// The server's place among those the adopting spawn opened.
+    server: usize,
+    /// The earlier conversation.
+    conversation: ToolServerConversation,
+    /// The server's count of tool-list changes its streams last announced.
+    told: u32,
+    /// The closes it asked for.
+    closes: u32,
 }
 
 /// A tool server a spawn opened.
@@ -49,18 +68,47 @@ struct OpenedServer {
     token: BearerToken,
     /// Counts the times the server's tool list changed, which its standing streams announce.
     tools_changes: AtomicU32,
-    /// Counts the closes its client asked for, each ending the standing streams open before it.
+    /// The count of changes the spawn's own conversation's streams last announced.
+    told: AtomicU32,
+    /// Counts the closes the spawn's own conversation asked for, each ending its standing streams
+    /// open before it.
     stream_closes: AtomicU32,
 }
 
-/// Where a standing event stream of a spawn's server stands: what it announced and which close
-/// ends it.
-pub(crate) struct StandingStreamMarks {
+/// One client of a spawn's tool server, as a request's path and secret tell it: the spawn's own
+/// conversation, or an earlier conversation of its session the spawn's adoption answers.
+pub(crate) struct ToolServerClient {
+    /// The entry that answers the client.
+    entry: Arc<ToolServerEntry>,
     /// The server's place among those the spawn opened.
     server: usize,
-    /// The server's count of tool-list changes the stream announced.
+    /// Where the client's stream marks are kept.
+    marks: ClientMarksPlace,
+}
+
+/// Where a client's stream marks are kept.
+enum ClientMarksPlace {
+    /// On the entry's server: the spawn's own conversation.
+    OwnConversation,
+    /// On the adoption, under the earlier conversation the request names.
+    Adopted(AdoptedClient),
+}
+
+/// An earlier conversation an adoption answers, as a client of the adopting spawn's servers.
+struct AdoptedClient {
+    /// The earlier conversation.
+    conversation: ToolServerConversation,
+    /// The adoption's marks, which hold the conversation's rows.
+    stream_marks: Arc<AdoptedStreamMarks>,
+}
+
+/// Where a standing event stream stands: what it announced and which of its client's closes ends
+/// it.
+pub(crate) struct StandingStreamMarks {
+    /// The server's count of tool-list changes the stream announced, at its open the count its
+    /// client's streams last announced.
     tools_changes: u32,
-    /// The server's count of closes when the stream opened.
+    /// Its client's count of closes when the stream opened.
     stream_closes: u32,
 }
 
@@ -133,55 +181,114 @@ impl ToolServerEntry {
             .iter()
             .position(|server| server.name == server_name)
     }
+}
 
-    /// The marks of a standing stream opening now on the spawn's server `server_name`, which the
-    /// entry admitted the stream's request on.
-    pub(crate) fn standing_stream_marks(&self, server_name: &str) -> StandingStreamMarks {
-        let server = self
-            .server_index(server_name)
-            .expect("a stream opens only on a server its entry admitted");
-        let opened = &self.servers[server];
+impl ToolServerClient {
+    /// The marks of a standing stream the client opens now: a change its earlier streams did not
+    /// announce, such as one raised while it had none open, is announced at once.
+    pub(crate) fn open_standing_stream(&self) -> StandingStreamMarks {
+        let (told, stream_closes) = match &self.marks {
+            ClientMarksPlace::OwnConversation => {
+                let opened = &self.entry.servers[self.server];
+                (
+                    opened.told.load(Ordering::Acquire),
+                    opened.stream_closes.load(Ordering::Acquire),
+                )
+            }
+            ClientMarksPlace::Adopted(adopted) => {
+                adopted.with_row(self.server, |row| (row.told, row.closes))
+            }
+        };
         StandingStreamMarks {
-            server,
-            tools_changes: opened.tools_changes.load(Ordering::Acquire),
-            stream_closes: opened.stream_closes.load(Ordering::Acquire),
+            tools_changes: told,
+            stream_closes,
         }
     }
 
-    /// Waits for what the standing stream at `marks` sends next: one announcement for every
-    /// change since its last, however many arrived, or its end.
+    /// Waits for what the client's standing stream at `marks` sends next: one announcement for
+    /// every change since its last, however many arrived, or its end.
     pub(crate) async fn next_standing_event(
         &self,
         marks: &mut StandingStreamMarks,
     ) -> StandingStreamEvent {
-        let server = &self.servers[marks.server];
+        let server = &self.entry.servers[self.server];
         loop {
             // Made before the marks are read, so a change between the two still wakes it.
-            let woken = self.waiters.notified();
-            if self.has_ended.load(Ordering::Acquire)
-                || server.stream_closes.load(Ordering::Acquire) != marks.stream_closes
+            let woken = self.entry.waiters.notified();
+            if self.entry.has_ended.load(Ordering::Acquire)
+                || self.stream_closes() != marks.stream_closes
             {
                 return StandingStreamEvent::Closed;
             }
             let tools_changes = server.tools_changes.load(Ordering::Acquire);
             if tools_changes != marks.tools_changes {
                 marks.tools_changes = tools_changes;
+                self.record_told(tools_changes);
                 return StandingStreamEvent::ToolsChanged;
             }
             woken.await;
         }
     }
 
-    /// Ends every standing stream open on the spawn's server `server_name`, as its client asks
-    /// when it closes the connection.
-    pub(crate) fn close_standing_streams(&self, server_name: &str) {
-        let server = self
-            .server_index(server_name)
-            .expect("a close is admitted only on a server its entry opened");
-        self.servers[server]
-            .stream_closes
-            .fetch_add(1, Ordering::AcqRel);
-        self.waiters.notify_waiters();
+    /// Ends the client's standing streams open on the server, as it asks when it closes its
+    /// connection; another client's stay open.
+    pub(crate) fn close_standing_streams(&self) {
+        match &self.marks {
+            ClientMarksPlace::OwnConversation => {
+                self.entry.servers[self.server]
+                    .stream_closes
+                    .fetch_add(1, Ordering::AcqRel);
+            }
+            ClientMarksPlace::Adopted(adopted) => adopted.with_row(self.server, |row| {
+                row.closes = row.closes.wrapping_add(1);
+            }),
+        }
+        self.entry.waiters.notify_waiters();
+    }
+
+    // The closes the client asked for.
+    fn stream_closes(&self) -> u32 {
+        match &self.marks {
+            ClientMarksPlace::OwnConversation => self.entry.servers[self.server]
+                .stream_closes
+                .load(Ordering::Acquire),
+            ClientMarksPlace::Adopted(adopted) => adopted.with_row(self.server, |row| row.closes),
+        }
+    }
+
+    // Keeps `told` as the count of changes the client's streams last announced.
+    fn record_told(&self, told: u32) {
+        match &self.marks {
+            ClientMarksPlace::OwnConversation => self.entry.servers[self.server]
+                .told
+                .store(told, Ordering::Release),
+            ClientMarksPlace::Adopted(adopted) => {
+                adopted.with_row(self.server, |row| row.told = told);
+            }
+        }
+    }
+}
+
+impl AdoptedClient {
+    // Runs `read` on the client's row for the server at `server`, made at its first use.
+    fn with_row<T>(&self, server: usize, read: impl FnOnce(&mut AdoptedClientMarks) -> T) -> T {
+        let mut rows = lock(&self.stream_marks);
+        let found = rows
+            .iter()
+            .position(|row| row.server == server && row.conversation == self.conversation);
+        let row = if let Some(row) = found {
+            row
+        } else {
+            rows.reserve_exact(1);
+            rows.push(AdoptedClientMarks {
+                server,
+                conversation: self.conversation,
+                told: 0,
+                closes: 0,
+            });
+            rows.len() - 1
+        };
+        read(&mut rows[row])
     }
 }
 
@@ -210,6 +317,7 @@ impl ToolServerEntries {
                 name,
                 token,
                 tools_changes: AtomicU32::new(0),
+                told: AtomicU32::new(0),
                 stream_closes: AtomicU32::new(0),
             })
             .collect();
@@ -247,7 +355,14 @@ impl ToolServerEntries {
             session_id,
             entry: Arc::downgrade(&entry),
         };
-        lock(&self.adoptions).insert(session_id, ToolServerAdoption { entry, key });
+        lock(&self.adoptions).insert(
+            session_id,
+            ToolServerAdoption {
+                entry,
+                key,
+                stream_marks: Arc::default(),
+            },
+        );
         Some(guard)
     }
 
@@ -260,23 +375,50 @@ impl ToolServerEntries {
         path: &ToolServerPath,
         authorization: Option<&[u8]>,
     ) -> Option<Arc<ToolServerEntry>> {
+        self.admitted_client(path, authorization)
+            .map(|client| client.entry)
+    }
+
+    /// The client `path` and `authorization` present, admitted as [`Self::admitted`] admits: the
+    /// spawn's own conversation on its live entry, or an earlier conversation on its session's
+    /// adopting entry. `None` when neither admits it.
+    pub(crate) fn admitted_client(
+        &self,
+        path: &ToolServerPath,
+        authorization: Option<&[u8]>,
+    ) -> Option<ToolServerClient> {
         if let Some(entry) = lock(&self.entries).get(&(path.session_id, path.conversation))
             && let Some(server) = entry.server_index(&path.server_name)
         {
             return entry.servers[server]
                 .token
                 .admits(authorization)
-                .then(|| Arc::clone(entry));
+                .then(|| ToolServerClient {
+                    entry: Arc::clone(entry),
+                    server,
+                    marks: ClientMarksPlace::OwnConversation,
+                });
         }
         let adoptions = lock(&self.adoptions);
         let adoption = adoptions.get(&path.session_id)?;
-        (adoption.entry.server_index(&path.server_name).is_some()
-            && adoption.key.secret_of(path).admits(authorization))
-        .then(|| Arc::clone(&adoption.entry))
+        let server = adoption.entry.server_index(&path.server_name)?;
+        adoption
+            .key
+            .secret_of(path)
+            .admits(authorization)
+            .then(|| ToolServerClient {
+                entry: Arc::clone(&adoption.entry),
+                server,
+                marks: ClientMarksPlace::Adopted(AdoptedClient {
+                    conversation: path.conversation,
+                    stream_marks: Arc::clone(&adoption.stream_marks),
+                }),
+            })
     }
 
     /// Tells every live spawn of `session_id` that opened the tool server `server_name` that its
-    /// tool list there changed, which each standing stream open on it announces once.
+    /// tool list there changed, which each standing stream open on it announces once, and a client
+    /// with none open announces when its next one opens.
     pub fn raise_tools_changed(&self, session_id: SessionId, server_name: &str) {
         for ((entry_session, _), entry) in &*lock(&self.entries) {
             if *entry_session != session_id {
