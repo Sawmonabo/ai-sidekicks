@@ -15,6 +15,7 @@ import {
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
+import { useWindowTriggeredRead } from "#renderer/store/reads/hooks/useWindowTriggeredRead.js";
 import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
@@ -33,7 +34,6 @@ import type { WorkflowCommandTarget } from "../command-target.js";
 import { useWorkflowCommandTarget } from "./useWorkflowCommandTarget.js";
 import { useWorkflowCall, type WorkflowCallState } from "./useWorkflowCall.js";
 import { useWorkflowNoticeFeed } from "./useWorkflowNoticeFeed.js";
-import { useWorkflowRead } from "./useWorkflowRead.js";
 
 /**
  * What `Next waiting` stands on: the attention read in flight, the read refused, or the next run
@@ -150,8 +150,11 @@ export function useWorkflowsScreen(
   // One list read for the screen's life, asking what this ref holds when it reads: a new ask
   // refreshes it in place, so the rows already drawn stay until the new answer replaces them.
   const listAskRef = useRef(listAsk);
-  const { read: listRead, state: listState } = useWorkflowRead(bridge, sources, undefined, () =>
-    createRunListRead(sources, () => listAskRef.current),
+  const { read: listRead, state: listState } = useWindowTriggeredRead(
+    bridge.transportReconnect,
+    sources,
+    undefined,
+    () => createRunListRead(sources, () => listAskRef.current),
   );
   useEffect(() => {
     if (listAskRef.current === listAsk) {
@@ -162,22 +165,31 @@ export function useWorkflowsScreen(
   }, [listAsk, listRead]);
   // The count of every run, apart from the filtered list, so the tab's count never moves under
   // the filters.
-  const { state: runCountState } = useWorkflowRead(bridge, sources, undefined, () =>
-    createRunCountRead(sources),
+  const { state: runCountState } = useWindowTriggeredRead(
+    bridge.transportReconnect,
+    sources,
+    undefined,
+    () => createRunCountRead(sources),
   );
   // Read only while the Runs tab draws them; the key moving opens or drops each one.
   const runsTabKey = isOnRunsTab ? RUNS_TAB_KEY : undefined;
-  const { read: attentionRead, state: attentionState } = useWorkflowRead(
-    bridge,
+  const { read: attentionRead, state: attentionState } = useWindowTriggeredRead(
+    bridge.transportReconnect,
     sources,
     runsTabKey,
     () => (isOnRunsTab ? createAttentionRead(sources) : undefined),
   );
-  const { state: definitionsState } = useWorkflowRead(bridge, sources, runsTabKey, () =>
-    isOnRunsTab ? createDefinitionListRead(sources) : undefined,
+  const { state: definitionsState } = useWindowTriggeredRead(
+    bridge.transportReconnect,
+    sources,
+    runsTabKey,
+    () => (isOnRunsTab ? createDefinitionListRead(sources) : undefined),
   );
-  const { state: accountsState } = useWorkflowRead(bridge, sources, runsTabKey, () =>
-    isOnRunsTab ? createProviderAccountRead(bridge, clock) : undefined,
+  const { state: accountsState } = useWindowTriggeredRead(
+    bridge.transportReconnect,
+    sources,
+    runsTabKey,
+    () => (isOnRunsTab ? createProviderAccountRead(bridge, clock) : undefined),
   );
 
   const openRunId = workflowsRunId(route);

@@ -7,7 +7,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { parseInstant } from "#renderer/lib/instant.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { refusalWords } from "#renderer/lib/code-words.js";
+import { refusalCause } from "#renderer/lib/code-words.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
@@ -80,13 +80,13 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
       callDaemon(bridge, "workflow.run.rerun", {
         workflowRunId,
         clientIdempotencyKey: crypto.randomUUID(),
-      }),
+      }).then(readRefusalByItsWords),
     (started) => {
       props.onOpenRun(started.workflowRunId);
     },
   );
   const cancel = useWorkflowCall(() =>
-    callDaemon(bridge, "workflow.run.cancel", { workflowRunId }),
+    callDaemon(bridge, "workflow.run.cancel", { workflowRunId }).then(readRefusalByItsWords),
   );
   const resume = useWorkflowCall(() =>
     callDaemon(bridge, "workflow.run.resume", { workflowRunId }).then(readRefusalByItsWords),
@@ -254,14 +254,14 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
 
 /**
  * The reply with a refusal the service wrote read as its code's words, since the service's
- * sentences for a refused Resume name the run by its id.
+ * sentences for a refused Re-run, Cancel or Resume name the run by its id.
  */
 function readRefusalByItsWords<TValue>(reply: DaemonReply<TValue>): DaemonReply<TValue> {
   if (reply.status === "served") {
     return reply;
   }
-  const words = refusalWords(reply.refusal.code);
-  return words === undefined ? reply : { ...reply, refusal: { ...reply.refusal, detail: words } };
+  const { code, reason, detail } = reply.refusal;
+  return { ...reply, refusal: { ...reply.refusal, detail: refusalCause(code, reason, detail) } };
 }
 
 function Fact(props: {

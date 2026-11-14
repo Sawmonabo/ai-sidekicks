@@ -1,6 +1,7 @@
 // A pick makes the session: one `session.create` and nothing else, settled into the destination's
 // own start (the session's store opened, the list asked again, the screen on the session). A
-// refused create is said in the picker, and the same row picked again sends the same key.
+// refused create is said in the picker and asks the list again, and the same row picked again,
+// even after the picker was closed and opened, sends the same key.
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,7 +47,7 @@ async function press(name: string | RegExp): Promise<void> {
 describe("the New session picker", () => {
   afterEach(cleanup);
 
-  it("makes the session at the pick and opens it, after a refused create on the same key", async () => {
+  it("makes the session at the pick and opens it, after an unanswered create on the same key", async () => {
     let createCount = 0;
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) => {
       if (call.method !== "session.create") {
@@ -61,9 +62,13 @@ describe("the New session picker", () => {
     const navigations: unknown[] = [];
     const openedSessionIds: string[] = [];
     let directoryRechecks = 0;
-    const acts = sessionDestinationActs(contextWith({ navigations, openedSessionIds }), () => {
+    const recheckDirectory = (): void => {
       directoryRechecks += 1;
-    });
+    };
+    const acts = sessionDestinationActs(
+      contextWith({ navigations, openedSessionIds }),
+      recheckDirectory,
+    );
     const { container } = render(
       <LiveAnnouncerProvider>
         <NewSessionControl
@@ -71,6 +76,7 @@ describe("the New session picker", () => {
           lead={LEAD}
           recentProjects={[]}
           onSessionCreated={acts.settleStartedSession}
+          recheckDirectory={recheckDirectory}
         />
       </LiveAnnouncerProvider>,
     );
@@ -83,7 +89,13 @@ describe("the New session picker", () => {
       /^Couldn't start session · /u,
     );
     expect(navigations).toStrictEqual([]);
+    // The unanswered create may have made a session, so the list is asked again.
+    expect(directoryRechecks).toBe(1);
 
+    // Closing and opening the picker clears the line and keeps the row's key.
+    await press("New session");
+    await press("New session");
+    expect(container.querySelector(".meridian-refusal__message")).toBeNull();
     await press(JUST_CHAT);
 
     // One create per pick, a chat on the named lead, the second carrying the first one's key.
@@ -97,7 +109,7 @@ describe("the New session picker", () => {
     // Settled into the destination's start: the store the list merges opened, the list asked
     // again and the screen on the session; the picker closed with its line.
     expect(openedSessionIds).toStrictEqual([CREATED_SESSION_ID]);
-    expect(directoryRechecks).toBe(1);
+    expect(directoryRechecks).toBe(2);
     expect(navigations).toStrictEqual([{ kind: "session", sessionId: CREATED_SESSION_ID }]);
     expect(screen.queryByRole("button", { name: JUST_CHAT })).toBeNull();
     expect(container.querySelector(".meridian-refusal__message")).toBeNull();

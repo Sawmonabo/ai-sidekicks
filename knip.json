@@ -176,6 +176,8 @@
         "src/renderer/src/features/sessions/components/SessionListNothing.tsx",
         "src/renderer/src/features/sessions/components/SessionRowGroup.tsx",
         "src/renderer/src/features/sessions/rows/list-degradation.ts",
+        // The New session control and its picker, mounted by the sessions list.
+        "src/renderer/src/features/sessions/new-session/components/NewSessionControl.tsx",
         // The session header's title read and its fixture answer.
         "src/renderer/src/features/sessions/header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/services/daemon/session/identity.fixture.ts",

@@ -1,6 +1,6 @@
 // The props the new-session control takes, and what it hands back.
 //
-// The callback carries a session id and nothing else. What the app does with a session it just
+// The created callback carries a session id and nothing else. What the app does with a session it just
 // started (open its store, declare the session directory stale, navigate) is
 // `features/sessions/start.ts`, because each step names a store or a route the control does not
 // hold.
@@ -35,4 +35,9 @@ export interface NewSessionControlProps {
    * control reads the committed callback when the create settles.
    */
   readonly onSessionCreated: (sessionId: string) => void;
+  /**
+   * Declares the daemon's directory stale after a refused create, whose answer may have been lost
+   * while the session was made. Needs no stable identity, as `onSessionCreated`.
+   */
+  readonly recheckDirectory: () => void;
 }

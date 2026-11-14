@@ -1,8 +1,9 @@
 //! Values of the contract types whose wire form is written by hand, a `Serialize` or a
-//! `JsonSchema` impl of their own, each as serde writes it beside the schema the TypeScript reads
-//! it by. The contracts' test checks every value against its schema, so the two cannot drift
-//! apart where no derive ties them. A value that cannot be built is written as a fault the test
-//! reports, so one wrong sample never stops the emit.
+//! `JsonSchema` impl of their own or a rule a `#[schemars(transform = …)]` adds, each as serde
+//! writes it beside the schema the TypeScript reads it by. The contracts' test checks every value
+//! against its schema, so the two cannot drift apart where no derive ties them. A value that
+//! cannot be built is written as a fault the test reports, so one wrong sample never stops the
+//! emit.
 
 use std::collections::HashMap;
 
@@ -11,9 +12,17 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::AgentDefinitionListEntry;
+use sidekicks_contracts::agent::definition::requests::AgentDefinitionCreateRequest;
+use sidekicks_contracts::agent::methods::AgentConfigUpdateRequest;
+use sidekicks_contracts::agent::provider_binding::{
+    AgentBindingSwitchDisposition, AgentBindingSwitchTarget,
+    AgentProviderBindingChangeFailedPayload, AgentProviderBindingChangedPayload,
+};
 use sidekicks_contracts::artifacts::manifest::{ArtifactType, Extensible};
 use sidekicks_contracts::artifacts::operations::{ARTIFACT_REFUSAL_CODES, ArtifactRefusalCode};
 use sidekicks_contracts::browser::SiteOrigin;
+use sidekicks_contracts::command::AgentCommandWriteRequest;
 use sidekicks_contracts::daemon::config::RunTimeLimitMinutes;
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::version::EventEnvelopeVersion;
@@ -24,6 +33,7 @@ use sidekicks_contracts::jsonrpc::message::{JsonRpcId, JsonRpcMessage};
 use sidekicks_contracts::machine::settings::BranchNamePattern;
 use sidekicks_contracts::mcp::event::McpGovernanceEvent;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_contracts::mcp::server::inventory::{McpServerLegStatus, McpToolOverride};
 use sidekicks_contracts::preview::page::{
     PREVIEW_ZOOM_FACTORS, PreviewImageMediaType, PreviewZoomFactor,
 };
@@ -37,6 +47,7 @@ use sidekicks_contracts::schema::{close_composite_objects, generator};
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::draft::SessionAttachmentRefusedCode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::skill::{SkillCallFormReadRequest, SkillCreateRequest, SkillListEntry};
 use sidekicks_contracts::tag::{Tag, TagList};
 use sidekicks_contracts::transcript::run_facts::RUN_STATE_EVENT_TYPES;
 use sidekicks_contracts::trust_statement::{CoseAlgorithm, DeviceId};
@@ -143,6 +154,7 @@ pub(crate) fn serializer_samples(owners: &HashMap<String, &'static str>) -> Valu
     add_scalars(&mut samples);
     add_texts(&mut samples);
     add_records(&mut samples);
+    add_transformed(&mut samples);
     json!({ "samples": samples.samples, "faults": samples.faults })
 }
 
@@ -311,5 +323,145 @@ fn add_records(samples: &mut SerializerSamples<'_>) {
         "type": "mcp.server.added",
         "payload": {},
         "version": "1.0",
+    })));
+}
+
+/// The types a `#[schemars(transform = …)]` adds a rule to, each on the arm where its rule holds
+/// something: a plugin's or a provider's origin with its name, a project scope with its project, a
+/// failure with its reason, a model move with its window and a brief with its losses.
+fn add_transformed(samples: &mut SerializerSamples<'_>) {
+    let session_id = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e";
+    let agent_id = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8f";
+    let project_id = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d90";
+    let skill_create_uuid = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d93";
+    let claude = json!({
+        "providerName": "claude",
+        "modelId": "claude-opus-4-5",
+        "providerAccountId": null,
+        "effort": null,
+    });
+    let codex = json!({
+        "providerName": "codex",
+        "modelId": "gpt-5.1",
+        "providerAccountId": "account-1",
+        "effort": "high",
+    });
+    let brief_losses = json!(["conversationHistorySummarized", "providerPrivateReasoning"]);
+    samples.add(read::<McpServerLegStatus>(json!({
+        "sessionId": session_id,
+        "bindingId": "binding-1",
+        "status": "failed",
+        "failedReason": "commandNotRunnable",
+    })));
+    samples.add(read::<McpToolOverride>(json!({
+        "toolName": "search",
+        "approvalMode": "prompt",
+    })));
+    samples.add(read::<AgentDefinitionListEntry>(json!({
+        "definitionId": "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d91",
+        "name": "reviewer",
+        "description": "Reviews a change.",
+        "icon": null,
+        "accentHue": null,
+        "bindings": { "default": claude, "overrides": [] },
+        "instructions": "Review the change.",
+        "goal": null,
+        "toolAllowlist": null,
+        "turnCap": null,
+        "hooks": null,
+        "memoryScope": null,
+        "createdAt": "2026-11-14T10:00:00.000Z",
+        "updatedAt": "2026-11-14T10:00:00.000Z",
+        "origin": "plugin",
+        "pluginName": "review-kit",
+        "scope": "project",
+        "projectId": project_id,
+        "sourcePath": "/tmp/project/agents/reviewer.md",
+        "orphaned": false,
+        "disabledInProvider": false,
+        "loadError": null,
+    })));
+    samples.add(read::<AgentDefinitionCreateRequest>(json!({
+        "name": "reviewer",
+        "bindings": { "default": claude },
+        "scope": "project",
+        "projectId": project_id,
+    })));
+    samples.add(read::<AgentConfigUpdateRequest>(json!({
+        "agentId": agent_id,
+        "modelId": "claude-opus-4-5",
+        "largerWindow": 1_000_000,
+    })));
+    samples.add(read::<AgentBindingSwitchTarget>(json!({
+        "modelId": "gpt-5.1",
+        "largerWindow": null,
+    })));
+    samples.add(read::<AgentBindingSwitchDisposition>(json!({
+        "status": "degraded",
+        "switchId": "switch-1",
+        "continuity": "brief",
+        "declaredLosses": brief_losses,
+    })));
+    samples.add(read::<AgentBindingSwitchDisposition>(json!({
+        "status": "failed",
+        "switchId": "switch-1",
+        "reason": "accountUnavailable",
+        "accountState": "reauthRequired",
+    })));
+    samples.add(read::<AgentProviderBindingChangedPayload>(json!({
+        "switchId": "switch-1",
+        "declaredLosses": brief_losses,
+        "continuity": "brief",
+        "sessionId": session_id,
+        "agentId": agent_id,
+        "actor": "device-1",
+        "from": claude,
+        "to": codex,
+        "landedProviderAccountId": "account-1",
+    })));
+    samples.add(read::<AgentProviderBindingChangeFailedPayload>(json!({
+        "switchId": "switch-1",
+        "reason": "accountUnavailable",
+        "accountState": "reauthRequired",
+        "sessionId": session_id,
+        "agentId": agent_id,
+        "actor": "device-1",
+        "from": claude,
+        "attempted": { "providerAccountId": "account-2" },
+    })));
+    samples.add(read::<SkillListEntry>(json!({
+        "skillId": "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d92",
+        "name": "review",
+        "description": null,
+        "icon": null,
+        "origin": "provider",
+        "originProvider": "claude",
+        "scope": "project",
+        "projectId": project_id,
+        "folderPath": "/tmp/project/skills/review",
+        "files": [{ "path": "/tmp/project/skills/review/SKILL.md", "size": 120, "readable": true }],
+        "availability": [{ "provider": "claude", "available": true }],
+        "callForms": [{ "provider": "claude", "callForm": "/review" }],
+        "orphaned": false,
+        "disabledInProvider": [],
+        "loadError": null,
+    })));
+    samples.add(read::<SkillCreateRequest>(json!({
+        "name": "review",
+        "description": "Reviews a change.",
+        "body": "Read the diff.",
+        "scope": "project",
+        "projectId": project_id,
+        "clientIdempotencyKey": skill_create_uuid,
+    })));
+    samples.add(read::<SkillCallFormReadRequest>(json!({
+        "name": "review",
+        "scope": "project",
+        "projectId": project_id,
+    })));
+    samples.add(read::<AgentCommandWriteRequest>(json!({
+        "sessionId": session_id,
+        "commandId": "command-1",
+        "endOfInput": true,
     })));
 }

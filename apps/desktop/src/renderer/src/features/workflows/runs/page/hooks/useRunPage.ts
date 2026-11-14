@@ -7,7 +7,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
-import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
+import { useWindowTriggeredRead } from "#renderer/store/reads/hooks/useWindowTriggeredRead.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { createRunRead, type WorkflowReadSources } from "#renderer/features/workflows/reading.js";
 import { isPersonWaitCause, latestStepWith } from "../../steps.js";
@@ -48,8 +48,8 @@ export function useRunPage(options: {
   readonly onAnswered: () => void;
 }): RunPageHold {
   const { sources, workflowRunId, onRunMissing, onAnswered } = options;
-  const { read: runRead, state: runState } = useWorkflowRead(
-    sources.bridge,
+  const { read: runRead, state: runState } = useWindowTriggeredRead(
+    sources.bridge.transportReconnect,
     sources,
     workflowRunId,
     () => createRunRead(sources, workflowRunId as WorkflowRunId),

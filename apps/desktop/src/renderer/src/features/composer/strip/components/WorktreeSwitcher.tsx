@@ -28,7 +28,11 @@ import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import { useWorktreeStatus } from "../hooks/useWorktreeStatus.js";
+import {
+  useHeldWorktreeMove,
+  type MoveTarget,
+  type PickedRow,
+} from "../hooks/useHeldWorktreeMove.js";
 import { moveRefusalWords, type MovedTree } from "../move-refusal.js";
 import { NewWorktreeForm } from "./NewWorktreeForm.js";
 import { readWorktreeRow, type WorktreeRow } from "../worktrees.js";
@@ -52,38 +56,17 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const clock = useClock();
   const clockLocale = useClockLocale();
   const [isOpen, setIsOpen] = useState(false);
-  const [pendingMove, setPendingMove] = useState<PendingMove | undefined>(undefined);
   const [standIn, setStandIn] = useState<RowStandIn | undefined>(undefined);
   const [isMakingNew, setIsMakingNew] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
   const [moveRefusal, setMoveRefusal] = useState<MoveRefusal | undefined>(undefined);
-  // The move a pick asked for waits only until the session's listed branch is its target's, or,
-  // for a root picked before its branch was read, until the listing leaves the one it was picked
-  // from: the run boundary applied it.
-  const isMoveApplied =
-    pendingMove !== undefined &&
-    (pendingMove.branchName === undefined
-      ? pendingMove.fromName !== props.currentName
-      : pendingMove.branchName === props.currentName);
-  const pending = isMoveApplied ? undefined : pendingMove;
-  const { reading, readAgain } = useWorktreeStatus(
+  const { pending, holdMove, reading, readAgain } = useHeldWorktreeMove(
     props.bridge,
     props.project.projectId,
     props.sessionId,
     isOpen,
-    // A root picked before the read landed is named by that read, open or closed.
-    pending !== undefined && pending.branchName === undefined,
+    props.currentName,
   );
-  // A root picked before its branch was read takes that branch's name once a read gives it, so a
-  // fresh read on reopening leaves the chip on the name it last had.
-  if (
-    pending !== undefined &&
-    pending.branchName === undefined &&
-    reading.kind === "loaded" &&
-    pending.name !== reading.status.repoRoot.branchName
-  ) {
-    setPendingMove({ ...pending, name: reading.status.repoRoot.branchName });
-  }
   // `row` is the row pressed, where a refusal is said; `target` is the picked tree, or `undefined`
   // for a cancel, which leaves no move.
   const moveTo = (row: PickedRow, tree: MovedTree, target: MoveTarget | undefined): void => {
@@ -98,7 +81,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         return;
       }
       setMoveRefusal(undefined);
-      setPendingMove(
+      holdMove(
         reply.value.disposition === "pending" && target !== undefined
           ? { name: target.name, branchName: target.branchName, row, fromName }
           : undefined,
@@ -384,22 +367,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   );
 }
 
-/** A picked row: its name, and its branch, `undefined` for a root whose branch is not read yet. */
-interface MoveTarget {
-  readonly name: string;
-  readonly branchName: string | undefined;
-}
-
-/** The row a pick was pressed on: the repo root's, whichever path it was read with, or a tree's. */
-type PickedRow = { readonly kind: "root" } | { readonly kind: "worktree"; readonly path: string };
-
 const ROOT_ROW: PickedRow = { kind: "root" };
-
-/** A move the daemon holds until the run ends: its target, its row, and the tree it left. */
-interface PendingMove extends MoveTarget {
-  readonly row: PickedRow;
-  readonly fromName: string;
-}
 
 /** A move the daemon refused: the row it was pressed on, the refusal, and the words it reads. */
 interface MoveRefusal {

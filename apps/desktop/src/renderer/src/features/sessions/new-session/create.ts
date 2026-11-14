@@ -3,6 +3,7 @@
 
 import type { SessionCreateRequest, SessionLead } from "@ai-sidekicks/contracts/session/directory";
 
+import { refusalCause } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
 import type { DaemonResult } from "#shared/daemon/method-bindings.js";
@@ -26,9 +27,12 @@ export async function createPickedSession(
   return await callDaemon(bridge, "session.create", sessionCreateRequest(pick));
 }
 
-/** The line a refused create reads in the picker that asked, with the service's words as cause. */
+/**
+ * The line a refused create reads in the picker that asked, its cause the refusal code's words,
+ * since the service's sentence for a missing project names it by its id.
+ */
 export function refusedCreateLine(refusal: ExtendedRefusal): string {
-  return `Couldn't start session · ${refusal.detail}`;
+  return `Couldn't start session · ${refusalCause(refusal.code, refusal.reason, refusal.detail)}`;
 }
 
 /** The create, bound where the session works: the picked project, or a chat. */

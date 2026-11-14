@@ -62,11 +62,11 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
               ))}
             </>
           )}
-          {picker.refused === undefined ? null : (
+          {picker.refusal === undefined ? null : (
             <InlineRefusal
-              code={picker.refused.refusal.code}
-              detail={refusedCreateLine(picker.refused.refusal)}
-              attempt={picker.refused.refusal}
+              code={picker.refusal.code}
+              detail={refusedCreateLine(picker.refusal)}
+              attempt={picker.refusal}
             />
           )}
         </div>
