@@ -30,9 +30,7 @@ pub(super) fn read_claude_edit(
     cwd: Option<&str>,
     tool_use_id: Option<&str>,
 ) -> Option<EditCheckpointRequest> {
-    if ClaudeFileTool::of(tool_name).is_none() {
-        return None;
-    }
+    ClaudeFileTool::of(tool_name)?;
     let Some(path) = select_claude_edit_path(file_path, notebook_path) else {
         tracing::warn!(
             %session_id,
