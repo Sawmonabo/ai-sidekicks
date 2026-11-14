@@ -2,9 +2,9 @@
 //! when the live spawn entry its path names admits its secret, which is checked on every request,
 //! so a replaced or dropped spawn is refused at once. rmcp serves each `POST` on its own, keeping
 //! no session; the route answers the standing `GET` stream and the closing `DELETE` itself, and
-//! hands a client of the older handshake revision the session id that makes it open that stream.
-//! Each admitted `POST` carries word of when its answer's event stream closes, which rmcp itself
-//! does not give a call.
+//! hands a client of the older handshake revision the session id that makes it open that stream,
+//! the id carrying the client's listing mark, which its `GET` sends back. Each admitted `POST`
+//! carries word of when its answer's event stream closes, which rmcp itself does not give a call.
 
 use std::sync::Arc;
 
@@ -60,7 +60,8 @@ impl ToolServerAdmission {
 /// Answers `request` only when the live entry its path names admits its secret; a refusal is 401
 /// with no `WWW-Authenticate`, and a path naming no tool server is 404. rmcp checks the `Host` and
 /// `Origin` of every admitted request first; past them, a `GET` is answered with a standing stream
-/// of the client the path and secret name, a `DELETE` ends that client's streams alone, and a
+/// of the client the path and secret name, told of every change since the listing mark its
+/// session id carries, a `DELETE` ends that client's streams alone, and a
 /// `POST` is rmcp's to serve, carrying an [`AnswerStream`] that ends once its answer's event
 /// stream is dropped.
 pub(super) async fn admit(
@@ -80,6 +81,7 @@ pub(super) async fn admit(
     };
     let method = request.method().clone();
     if method == Method::GET || method == Method::DELETE {
+        let listing_mark = request.headers().get(HEADER_SESSION_ID).cloned();
         // rmcp serves only `POST` here: it answers 405 once the request's `Host` and `Origin`
         // pass, and refuses a request from a page or a foreign host before that.
         let checked = next.run(request).await;
@@ -87,7 +89,8 @@ pub(super) async fn admit(
             return checked;
         }
         if method == Method::GET {
-            return standing_stream(client, admission.stop.clone());
+            let listing_mark = listing_mark.as_ref().map(HeaderValue::as_bytes);
+            return standing_stream(client, listing_mark, admission.stop.clone());
         }
         client.close_standing_streams();
         return StatusCode::OK.into_response();
@@ -100,16 +103,21 @@ pub(super) async fn admit(
             .get(HEADER_MCP_PROTOCOL_VERSION)
             .and_then(|version| version.to_str().ok())
             .is_none_or(|version| version < ProtocolVersion::NO_INITIALIZE.as_str());
+    // Taken before the handshake is served, so the client's listing after it misses no change the
+    // mark leaves out.
+    let listing_mark = is_handshake.then(|| client.listing_mark());
     let answer_stream = CancellationToken::new();
     request
         .extensions_mut()
         .insert(AnswerStream(answer_stream.clone()));
     let mut response = guard_event_stream(next.run(request).await, answer_stream);
-    if is_handshake && response.status().is_success() {
-        // The conversation names the stream the id opens and carries no authority, so it is the
-        // id; no request is told from it.
-        let mcp_session = HeaderValue::try_from(path.conversation.to_string())
-            .expect("a conversation id is header text");
+    if let Some(listing_mark) = listing_mark
+        && response.status().is_success()
+    {
+        // The id carries no authority and no request is told from it, so the listing mark is the
+        // id, which the client's standing `GET` sends back.
+        let mcp_session =
+            HeaderValue::try_from(listing_mark).expect("a listing mark is header text");
         response
             .headers_mut()
             .insert(HEADER_SESSION_ID, mcp_session);

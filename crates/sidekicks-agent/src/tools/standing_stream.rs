@@ -2,9 +2,10 @@
 //! the older handshake revision keeps open to hear what the server says unasked. It is bound to
 //! the spawn's entry and sends `notifications/tools/list_changed` when the entry's tool list on
 //! that server changes, and nothing else: no keep-alive and no queue, since a change that arrives
-//! while one is unannounced is announced with it. A change raised while the client had no stream
-//! open is announced as its next one opens. It ends when its client closes it, the spawn drops or
-//! the daemon stops.
+//! while one is unannounced is announced with it. A change raised since the listing mark the
+//! client's `GET` sends back is announced as the stream opens, whichever stream on its path was
+//! told of it before. It ends when its client closes it or its connection, the spawn drops or the
+//! daemon stops.
 
 use std::convert::Infallible;
 
@@ -17,10 +18,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::tools::entries::{StandingStreamEvent, ToolServerClient};
 
-/// The standing stream `client` opens, which ends at `stop` too.
-pub(super) fn standing_stream(client: ToolServerClient, stop: CancellationToken) -> Response {
+/// The standing stream `client` opens, sending back `listing_mark`, its handshake's mark, where it
+/// has one; it ends at `stop` too, and once hyper drops its body as the connection closes.
+pub(super) fn standing_stream(
+    client: ToolServerClient,
+    listing_mark: Option<&[u8]>,
+    stop: CancellationToken,
+) -> Response {
     // Taken now, so a change raised once the answer's headers are out is announced.
-    let marks = client.open_standing_stream();
+    let marks = client.open_standing_stream(listing_mark);
     let events = futures::stream::unfold(
         (client, marks, stop),
         |(client, mut marks, stop)| async move {
@@ -60,6 +66,7 @@ mod tests {
 
     use reqwest::StatusCode;
     use reqwest::header::{CONTENT_TYPE, HeaderValue};
+    use rmcp::transport::common::http_header::HEADER_SESSION_ID;
     use serde_json::{Value, json};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_provider::port::tool_server_route::ToolServerConversation;
@@ -95,14 +102,17 @@ mod tests {
     }
 
     // A standing stream is refused without the spawn's secret; with it, a raised change reaches it
-    // as one `notifications/tools/list_changed`. A client's close ends its own stream and leaves
-    // another client's, here an earlier conversation the spawn adopted; a change raised while the
-    // first client has no stream open reaches its next one as it opens; the spawn's drop ends every
-    // stream. Killed by a stream that skips admission, a raise that wakes no stream, an event of
-    // another shape, a close that ends another client's stream or leaves its own open, a new stream
-    // that starts at the current count, and a stream that outlives its spawn.
+    // as one `notifications/tools/list_changed`. Two clients on one path, as a Codex thread and its
+    // helper, each hold their own handshake's mark: the helper's stream, opened after the parent's
+    // was told, is told at its open, and so is an earlier conversation's the spawn adopted, which
+    // holds no mark. A client's close ends every stream on its path and leaves the adopted one; a
+    // change raised with no stream open reaches the next one as it opens; the spawn's drop ends
+    // every stream. Killed by a stream that skips admission, a raise that wakes no stream, an event
+    // of another shape, a stream that starts at the count another stream on its path was told, a
+    // close that ends another client's stream or leaves its own open, and a stream that outlives
+    // its spawn.
     #[tokio::test]
-    async fn a_raised_change_reaches_each_clients_stream_or_its_next_one_until_it_closes() {
+    async fn a_raised_change_reaches_every_stream_and_the_next_one_opened_on_its_path() {
         let served = serve_stub().await;
         let (spawn, path, secret) = add_spawn(&served.entries, CODEX_SESSION);
         let session_id = SessionId::new(CODEX_SESSION).expect("the text is a UUID");
@@ -113,11 +123,19 @@ mod tests {
             .expect("an answer");
         assert_eq!(unadmitted.status(), StatusCode::UNAUTHORIZED);
 
-        let mut stream = open(&served, &path, &secret).await;
+        let parent = served.handshake(&path, &secret, REVISION).await;
+        let helper = served.handshake(&path, &secret, REVISION).await;
+        let mut parent_stream = open(&served, &path, &secret, Some(&parent)).await;
         served
             .entries
             .raise_tools_changed(session_id, DAEMON_TOOL_SERVER_NAME);
-        assert_eq!(next_event(&mut stream).await, Some(tools_changed()));
+        assert_eq!(next_event(&mut parent_stream).await, Some(tools_changed()));
+        let mut helper_stream = open(&served, &path, &secret, Some(&helper)).await;
+        assert_eq!(
+            next_event(&mut helper_stream).await,
+            Some(tools_changed()),
+            "a stream is told at its open of a change another stream on its path was told"
+        );
 
         let key = ToolServerSecretKey::of_bytes(1);
         let earlier = ToolServerPath {
@@ -134,11 +152,11 @@ mod tests {
                 Arc::new(key),
             )
             .expect("the spawn runs the session's own conversation");
-        let mut adopted = open(&served, &earlier.to_string(), &earlier_secret).await;
+        let mut adopted = open(&served, &earlier.to_string(), &earlier_secret, None).await;
         assert_eq!(
             next_event(&mut adopted).await,
             Some(tools_changed()),
-            "a client's first stream announces a change raised before it"
+            "a stream with no mark is told of a change since the entry was made"
         );
 
         let closed = close(&served, &path, REVISION)
@@ -147,11 +165,13 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(closed.status(), StatusCode::OK);
-        assert_eq!(
-            next_event(&mut stream).await,
-            None,
-            "the close ends the client's stream"
-        );
+        for stream in [&mut parent_stream, &mut helper_stream] {
+            assert_eq!(
+                next_event(stream).await,
+                None,
+                "the close ends the client's streams"
+            );
+        }
         served
             .entries
             .raise_tools_changed(session_id, DAEMON_TOOL_SERVER_NAME);
@@ -161,7 +181,7 @@ mod tests {
             "another client's stream outlives the close"
         );
 
-        let mut reopened = open(&served, &path, &secret).await;
+        let mut reopened = open(&served, &path, &secret, Some(&parent)).await;
         assert_eq!(
             next_event(&mut reopened).await,
             Some(tools_changed()),
@@ -176,13 +196,19 @@ mod tests {
         assert_eq!(next_event(&mut adopted).await, None);
     }
 
-    // The standing stream on `path` presenting `secret`, checked open as an event stream.
-    async fn open(served: &Served, path: &str, secret: &str) -> reqwest::Response {
-        let stream = standing_get(served, path, REVISION)
-            .bearer_auth(secret)
-            .send()
-            .await
-            .expect("an answer");
+    // The standing stream on `path` presenting `secret` and sending back `mark`, the session id
+    // its handshake was handed, checked open as an event stream.
+    async fn open(
+        served: &Served,
+        path: &str,
+        secret: &str,
+        mark: Option<&str>,
+    ) -> reqwest::Response {
+        let mut request = standing_get(served, path, REVISION).bearer_auth(secret);
+        if let Some(mark) = mark {
+            request = request.header(HEADER_SESSION_ID, mark);
+        }
+        let stream = request.send().await.expect("an answer");
         assert_eq!(stream.status(), StatusCode::OK);
         assert_eq!(
             stream

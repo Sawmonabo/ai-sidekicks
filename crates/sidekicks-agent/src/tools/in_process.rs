@@ -2,7 +2,9 @@
 //! one rmcp server per connection, fed the messages the channel carries and answering through it.
 //! Each request is stamped with the route and secret of the spawn that opened the connection, so
 //! the server admits it against that spawn's entry exactly as it admits a request on the listener,
-//! and a replaced spawn's connection is refused.
+//! and a replaced spawn's connection is refused. A connection that opens with a handshake is told
+//! of each change to the spawn's tool list on its own, since such a client opens no standing
+//! stream.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -11,13 +13,14 @@ use std::sync::{Arc, Mutex};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, ready};
 use futures::{FutureExt as _, SinkExt as _, StreamExt as _};
+use http::HeaderValue;
 use http::header::AUTHORIZATION;
 use http::request::Parts;
-use rmcp::ServiceExt as _;
 use rmcp::model::{
     ClientJsonRpcMessage, ClientNotification, GetExtensions as _, JsonRpcMessage, RequestId,
     ServerJsonRpcMessage,
 };
+use rmcp::{Peer, RoleServer, ServiceExt as _};
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_provider::bearer_token::BearerToken;
@@ -30,7 +33,10 @@ use sidekicks_provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::tools::entries::{ToolServerEntries, ToolServerEntryGuard};
+use crate::tools::entries::{
+    StandingStreamEvent, StandingStreamMarks, ToolServerClient, ToolServerEntries,
+    ToolServerEntryGuard,
+};
 use crate::tools::server::{AgentToolServer, ToolServerPath};
 
 /// Messages a connection holds in each direction before a sender waits: a bound in messages, not
@@ -76,9 +82,18 @@ impl InProcessToolServers for InProcessAgentToolServers {
         let entry = self
             .entries
             .insert(spawn, vec![(DAEMON_TOOL_SERVER_NAME, token)]);
+        // `None` only where another spawn of the conversation replaced this one already.
+        let client = self
+            .entries
+            .admitted_client(
+                &path,
+                route.headers.get(AUTHORIZATION).map(HeaderValue::as_bytes),
+            )
+            .map(Arc::new);
         Ok(Arc::new(SpawnToolServers {
             server: self.server.clone(),
             route,
+            client,
             connection: Mutex::new(None),
             _entry: entry,
         }))
@@ -91,6 +106,10 @@ struct SpawnToolServers {
     server: AgentToolServer,
     /// The route and secret stamped on each request, as the listener would hand them over.
     route: Parts,
+    /// The spawn's own conversation as a client of its server, whose tool-list changes a
+    /// handshake's connection is told of; `None` for a spawn replaced as it opened, whose
+    /// connection is refused.
+    client: Option<Arc<ToolServerClient>>,
     /// The connection, opened at the spawn's first message.
     connection: Mutex<Option<Connection>>,
     /// Keeps the spawn's entry in the table while the spawn holds its servers.
@@ -123,7 +142,7 @@ impl SpawnToolServers {
         {
             return (live.incoming.clone(), Arc::clone(&live.pending));
         }
-        let opened = open_connection(self.server.clone(), outbound);
+        let opened = open_connection(self.server.clone(), self.client.clone(), outbound);
         let handles = (opened.incoming.clone(), Arc::clone(&opened.pending));
         *connection = Some(opened);
         handles
@@ -244,18 +263,40 @@ impl Drop for OpenCall {
     }
 }
 
-// Starts one rmcp server on a pair of channels, with the task that routes what it writes.
+// Starts one rmcp server on a pair of channels, with the task that routes what it writes. Once a
+// handshake opened it, the connection is told of every change to `client`'s tool list made after
+// it opened, until it ends.
 fn open_connection(
     server: AgentToolServer,
+    client: Option<Arc<ToolServerClient>>,
     outbound: Arc<dyn InProcessToolServerOutbound>,
 ) -> Connection {
     let (incoming, from_provider) = mpsc::channel::<ClientJsonRpcMessage>(CONNECTION_BUFFER);
     let (to_provider, outgoing) = mpsc::channel::<ServerJsonRpcMessage>(CONNECTION_BUFFER);
     let pending = Arc::new(PendingCalls::default());
+    // Taken before the client can list, so no change its listing missed goes untold.
+    let watch = client.map(|client| {
+        let marks = client.open_standing_stream(Some(client.listing_mark().as_bytes()));
+        (client, marks)
+    });
     let serving = tokio::spawn(async move {
         match server.serve((to_provider, from_provider)).await {
             Ok(running) => {
-                if let Err(error) = running.waiting().await {
+                // Only a handshake gives the peer its info; a client that opens without one
+                // hears of changes on the standing stream it opens itself.
+                let handshake_watch = watch.filter(|_| running.peer().peer_info().is_some());
+                let ended = if let Some((client, marks)) = handshake_watch {
+                    let announcing = announce_tool_changes(&client, marks, running.peer().clone());
+                    let waiting = running.waiting();
+                    tokio::pin!(waiting);
+                    tokio::select! {
+                        ended = &mut waiting => ended,
+                        () = announcing => waiting.await,
+                    }
+                } else {
+                    running.waiting().await
+                };
+                if let Err(error) = ended {
                     tracing::warn!(
                         error = &error as &(dyn Error + 'static),
                         "an in-process tool server's connection ended abnormally"
@@ -274,6 +315,24 @@ fn open_connection(
         pending,
         _serving: AbortOnDropHandle::new(serving),
         _routing: AbortOnDropHandle::new(routing),
+    }
+}
+
+// Tells `peer` once of each run of changes to `client`'s tool list since `marks`, until the
+// spawn drops or the connection no longer takes a message.
+async fn announce_tool_changes(
+    client: &ToolServerClient,
+    mut marks: StandingStreamMarks,
+    peer: Peer<RoleServer>,
+) {
+    while let StandingStreamEvent::ToolsChanged = client.next_standing_event(&mut marks).await {
+        if let Err(error) = peer.notify_tool_list_changed().await {
+            tracing::debug!(
+                error = &error as &(dyn Error + 'static),
+                "an in-process tool server's connection took no tool-list change"
+            );
+            return;
+        }
     }
 }
 

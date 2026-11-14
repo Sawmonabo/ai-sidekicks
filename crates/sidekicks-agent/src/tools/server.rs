@@ -6,7 +6,8 @@
 //! canceled when its caller goes away. On the daemon's hooks entry the spawn's driver lists the
 //! tools its hook rows call and answers each call itself. A client of the revision without a
 //! handshake hears a changed tool list on the `subscriptions/listen` request it holds open, as a
-//! client of an older one hears it on its standing stream, from the same marks.
+//! client of an older one hears it on its standing stream: every change since the spawn's entry
+//! was made at the open, since such a client holds no listing mark, then each as it comes.
 
 use std::error::Error;
 use std::fmt;
@@ -193,9 +194,12 @@ impl AgentToolServer {
     }
 
     // What the server answers on connection for `route`, the shared rules among it for a provider
-    // that takes them there.
+    // that takes them there; the hooks entry takes none, since only hook rows call its tools.
     fn info_for(&self, route: &AdmittedRoute) -> InitializeResult {
         let info = self.get_info();
+        if route.path.server_name == DAEMON_HOOKS_TOOL_SERVER_NAME {
+            return info;
+        }
         match route.descriptor.agent_tool_instructions {
             AgentToolInstructions::OnConnection => info.with_instructions(SHARED_RULES),
             AgentToolInstructions::OnConversation => info,
@@ -511,7 +515,7 @@ impl ServerHandler for AgentToolServer {
 
     async fn listen(&self, context: SubscriptionContext) -> Result<(), McpError> {
         let client = self.admitted_client(&context.request_context().extensions)?;
-        let mut marks = client.open_standing_stream();
+        let mut marks = client.open_standing_stream(None);
         loop {
             let event = tokio::select! {
                 () = context.cancelled() => return Ok(()),
