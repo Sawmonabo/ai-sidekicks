@@ -6,13 +6,13 @@ use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::event::usage::UsageSightingSource;
 use sidekicks_contracts::event::usage::UsageSightingSource::{Export, File, Stream};
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_provider::account::usage_turns::sightings::{
-    release_account_sightings_statement, release_ended_run_sightings_statement,
-};
+use sidekicks_provider::account::usage_turns::sightings::release_account_sightings_statement;
 use sidekicks_provider::port::usage_sink::{MeteredUsageOwner, UsageSink};
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
 
 use super::{Harness, account};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 use crate::usage_record::reads::read_tally_seed;
 
 // The key every sighting of a case carries: its two requests, where it has two, are equal in it.
@@ -81,6 +81,17 @@ impl Harness {
             .reader()
             .query_row("SELECT count(*) FROM usage_sightings", [], |row| row.get(0))
             .expect("the sightings count")
+    }
+
+    // Moves the lead run into the state `entry` names, as the run engine writes it.
+    async fn move_lead_run(&self, entry: RunStateEntry) {
+        self.engine
+            .transition(
+                RunStateChange::new(self.lead_run_id, entry),
+                RunWriteCompanions::default(),
+            )
+            .await
+            .expect("the lead run moves");
     }
 
     // The tokens the lead run's count holds.
@@ -188,15 +199,23 @@ async fn a_hand_over_of_several_responses_takes_one_commit() {
     assert_eq!(harness.priced_rows(), 3);
 }
 
-// An account's removal keeps the record a live run counts, so the run's count read again after a
-// restart still holds the request a sighting on the session priced; once the run has ended, the
-// record goes. Killed by a removal that deletes every sighting of the account (the rebuilt count
-// at 0), and by an end that keeps the removed account's record (two sightings left).
+// An account's removal while the run is interrupted keeps the record the run counts, so once the
+// run is continued its count read again after a restart still holds the request a sighting on the
+// session priced; a second interrupt keeps the record too, and once the run ends for good it goes.
+// Killed by a removal that deletes every sighting of the account or reads an interrupt as the
+// run's end (no sightings left, the rebuilt count at 0), by an interrupt that lets the record go
+// (no sightings left after the second), and by a final state that keeps the removed account's
+// record (two sightings left).
 #[tokio::test]
 async fn an_accounts_removal_keeps_what_a_live_run_counts_until_the_run_ends() {
     let harness = Harness::new(Some(1_000_000), true).await;
+    let interrupted = || RunStateEntry::Interrupted {
+        intended_close: None,
+        trigger: None,
+    };
     harness.see(E_ON_SESSION).await;
     harness.see(S).await;
+    harness.move_lead_run(interrupted()).await;
 
     harness.run(&release_account_sightings_statement(&account()));
     harness
@@ -205,7 +224,20 @@ async fn an_accounts_removal_keeps_what_a_live_run_counts_until_the_run_ends() {
         .execute("DELETE FROM provider_accounts", [])
         .expect("the account's row is deleted");
 
+    assert_eq!(harness.sightings(), 2);
+    harness
+        .move_lead_run(RunStateEntry::Running {
+            execution_posture: None,
+        })
+        .await;
     assert_eq!(harness.seeded_run_tokens(), 110);
-    harness.run(&release_ended_run_sightings_statement(harness.lead_run_id));
+    harness.move_lead_run(interrupted()).await;
+    assert_eq!(harness.sightings(), 2);
+    harness
+        .move_lead_run(RunStateEntry::Stopped {
+            intended_close: None,
+            trigger: None,
+        })
+        .await;
     assert_eq!(harness.sightings(), 0);
 }

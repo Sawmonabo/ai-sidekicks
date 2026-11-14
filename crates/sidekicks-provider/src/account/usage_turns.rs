@@ -6,9 +6,11 @@
 //! written for a request no session owns, the observer's window-start turns and the requests a
 //! driver hands the repricing as an account's spend outside any session, carry no session, so a
 //! session's rebuild never clears them, are charged to the generation the account holds at the
-//! write, and are written held, since each is a whole request.
+//! write, and are written held, since each is a whole request; a driver's request with a sighting
+//! is written only where a session's sighting of it has not priced it already.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use serde::Deserialize as _;
@@ -16,7 +18,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::{
-    UsageCostSource, UsageCostUpdatedPayload, UsageTokenCountRecordedPayload,
+    UsageCostSource, UsageCostUpdatedPayload, UsageSighting, UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -63,6 +65,15 @@ SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @
   @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, @speed, @processing_region,
   credential_generation, @daemon_started_at, 1
 FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
+
+// As a turn no session owns above, written only where its sighting is not passed over.
+static INSERT_SIGHTED_SESSIONLESS_USAGE_TURN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{INSERT_SESSIONLESS_USAGE_TURN_SQL}
+  AND NOT {}",
+        sightings::SIGHTING_PASSED_OVER_CONDITION
+    )
+});
 
 // A turn's figure is set once: a priced row keeps its figure, and a row its account's removal
 // took is gone, so the row count is not checked.
@@ -241,7 +252,8 @@ pub fn mint_sessionless_turn_id() -> FreeFormText<EVENT_FIELD_MAX_LEN> {
 /// `provider_account_id`'s account at `occurred_at` under the daemon start `daemon_started_at`,
 /// processed in `processing_region`: held from the write, as a whole request, and charged to the
 /// account's generation as its row stands at the write. Refused by its row count for an account
-/// not registered.
+/// not registered; with `sighting`, written only where the sighting is not passed over, as
+/// [`sightings::sessionless_sighting_statements`] then decides it, and never refused.
 pub fn sessionless_usage_turn_statement(
     turn_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     provider_account_id: &ProviderAccountId,
@@ -249,27 +261,37 @@ pub fn sessionless_usage_turn_statement(
     daemon_started_at: &WireInstant,
     spend: &WindowTurnSpend,
     processing_region: Option<&BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    sighting: Option<&UsageSighting>,
 ) -> WriteStatement {
+    let mut bindings = vec![
+        text_binding("@turn_id", turn_id.as_str()),
+        text_binding("@account_id", provider_account_id.as_str()),
+        text_binding("@occurred_at", occurred_at.as_str()),
+        model_binding(spend.model_id.as_ref()),
+        count_binding("@input_tokens", spend.input_tokens),
+        count_binding("@output_tokens", spend.output_tokens),
+        count_binding("@cache_read_tokens", spend.cache_read_tokens),
+        count_binding("@cache_write_tokens", spend.cache_write_tokens),
+        count_binding("@reasoning_tokens", spend.reasoning_tokens),
+        nullable_text_binding("@speed", spend.speed.as_ref().map(BoundedText::as_str)),
+        nullable_text_binding(
+            "@processing_region",
+            processing_region.map(BoundedText::as_str),
+        ),
+        text_binding("@daemon_started_at", daemon_started_at.as_str()),
+    ];
+    let Some(sighting) = sighting else {
+        return WriteStatement {
+            sql: Cow::Borrowed(INSERT_SESSIONLESS_USAGE_TURN_SQL),
+            bindings: StatementBindings::Named(bindings),
+            expected_row_count: Some(1),
+        };
+    };
+    bindings.extend(sightings::sighting_bindings(sighting));
     WriteStatement {
-        sql: Cow::Borrowed(INSERT_SESSIONLESS_USAGE_TURN_SQL),
-        bindings: StatementBindings::Named(vec![
-            text_binding("@turn_id", turn_id.as_str()),
-            text_binding("@account_id", provider_account_id.as_str()),
-            text_binding("@occurred_at", occurred_at.as_str()),
-            model_binding(spend.model_id.as_ref()),
-            count_binding("@input_tokens", spend.input_tokens),
-            count_binding("@output_tokens", spend.output_tokens),
-            count_binding("@cache_read_tokens", spend.cache_read_tokens),
-            count_binding("@cache_write_tokens", spend.cache_write_tokens),
-            count_binding("@reasoning_tokens", spend.reasoning_tokens),
-            nullable_text_binding("@speed", spend.speed.as_ref().map(BoundedText::as_str)),
-            nullable_text_binding(
-                "@processing_region",
-                processing_region.map(BoundedText::as_str),
-            ),
-            text_binding("@daemon_started_at", daemon_started_at.as_str()),
-        ]),
-        expected_row_count: Some(1),
+        sql: Cow::Borrowed(INSERT_SIGHTED_SESSIONLESS_USAGE_TURN_SQL.as_str()),
+        bindings: StatementBindings::Named(bindings),
+        expected_row_count: None,
     }
 }
 

@@ -289,14 +289,16 @@ CREATE INDEX idx_provider_account_usage_turns_unpriced
 -- first one priced as a row and each later one, from another source, passed over as its mark.
 -- Record ids are given in the order the records are written. Each sighting carries its record's
 -- session and account, so a record leaves whole with a session's purge or an account's removal; a
--- record counting toward a run not yet ended leaves at that run's end once its account is gone.
+-- record counting toward a run not yet ended for good leaves at that run's final state once its
+-- account is gone. A record a request no session holds opened, charged as its account's spend
+-- outside any session, carries no session and leaves with its account.
 CREATE TABLE usage_sightings (
   sighting_id  INTEGER PRIMARY KEY,
   record_id    INTEGER NOT NULL,
   match_key    TEXT NOT NULL,     -- the key every sighting of one request carries alike
   source       TEXT NOT NULL,     -- the source's wire word
   sighting_key TEXT,              -- the source's own id of the request, where it has one
-  session_id   TEXT NOT NULL,     -- the session the record's first sighting was priced on
+  session_id   TEXT,              -- the session the record's first sighting was priced on
   account_id   TEXT NOT NULL,     -- the account it was charged to
   -- On a record's first sighting, the event of the row it priced, whose tokens the record counts.
   event_id     TEXT,

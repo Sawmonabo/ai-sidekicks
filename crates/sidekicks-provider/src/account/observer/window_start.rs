@@ -444,6 +444,7 @@ impl ObserverShared {
                     &self.daemon_started_at,
                     spend,
                     None,
+                    None,
                 )
             })
             .collect();

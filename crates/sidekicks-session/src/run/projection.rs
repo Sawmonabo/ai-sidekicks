@@ -399,7 +399,7 @@ impl SessionProjectionFold for RunsFold {
             }
         }
         statements.push(swap_run_state_statement(&swap));
-        if RunState::from(swap.new_state).is_terminal() {
+        if RunState::from(swap.new_state).is_final() {
             statements.push(release_ended_run_sightings_statement(swap.run_id));
         }
         Ok(())

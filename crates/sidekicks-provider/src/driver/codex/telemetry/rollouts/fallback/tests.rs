@@ -133,20 +133,31 @@ async fn a_stop_the_export_ends_before_the_fallback_looks_is_read_once() {
     assert!(!fallback.next_pass());
 }
 
-// A pass a settled turn named that leaves its session waiting on the turn's end asks for one wake,
-// which makes a pass due two intervals on with no export, settle or stop, and keeps the session
-// waiting for it; the wake's own pass, which no new settle named, arms nothing, so no pass comes
-// due again. Killed by a waiting session that asks no wake (no pass due), and by a wake armed again
-// by its own pass (a second pass due).
+// A turn that settles while a stop is read, past a pass before the stop's end, is judged at the
+// pass at that end, which names every file and keeps the session named; left waiting on its
+// turn's end, it asks for one wake, which makes a pass due two intervals on with no export, settle
+// or stop, and keeps the session waiting for it; the wake's own pass, which no new settle named,
+// arms nothing, so no pass comes due again. Killed by an end's pass that forgets the sessions
+// settled while the stop was read (no wake, so no pass due), by an every-file naming that drops
+// the settled sessions (the session not named at the end), and by a wake armed again by its own
+// pass (a second pass due).
 #[tokio::test(start_paused = true)]
 async fn a_waiting_session_is_read_at_one_wake_and_its_pass_arms_none() {
     let (tracker, rollouts, mut fallback) = launch();
     stop(&tracker).await;
-    export_without_responses(&tracker, &rollouts);
     assert!(fallback.next_pass());
     let session_id = new_session_id();
+    rollouts.turn_settled(session_id);
+    assert!(fallback.next_pass());
+    let mut named = std::mem::take(&mut fallback.named);
+    fallback.judge_settled(&mut named, false);
 
-    fallback.wait_for_turn_ends(HashSet::from([session_id]), &HashSet::from([session_id]));
+    export_without_responses(&tracker, &rollouts);
+    assert!(fallback.next_pass());
+    let mut named = std::mem::take(&mut fallback.named);
+    let newly_settled = fallback.judge_settled(&mut named, true);
+    assert!(named.settled().contains(&session_id));
+    fallback.wait_for_turn_ends(HashSet::from([session_id]), &newly_settled);
 
     let woken = tokio::time::timeout(INTERVAL * 3, fallback.wait_until_due()).await;
     assert!(matches!(woken, Ok(CodexFallbackDue::Pass)));

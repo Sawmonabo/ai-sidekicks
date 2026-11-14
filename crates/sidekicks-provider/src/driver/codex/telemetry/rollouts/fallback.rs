@@ -13,8 +13,9 @@
 //! turn it showed live at that export's newest record has ended, and let go, its offset kept, so no
 //! later stop reads it from its start. A pass that a settled turn named and that leaves a session
 //! waiting on its turn's end asks the export status for one wake two intervals out, whose pass
-//! reads that session's files once more and arms nothing; a turn still open after it waits for the
-//! next export, settle or stop. A file no export and no settled turn names costs a pass nothing. A
+//! reads that session's files once more and arms nothing; a turn settled while the stop was read
+//! is judged at the pass at its end, which names every file and still asks the wake. A turn still
+//! open after it waits for the next export, settle or stop. A file no export and no settled turn names costs a pass nothing. A
 //! stop an export ended before the fallback looked is read the same way. While the export arrives,
 //! the file of an off-stream thread an export's response was placed on is read on as the response
 //! is placed, so a search inside that request, which no export carries, is charged; it is kept
@@ -255,6 +256,8 @@ pub(crate) struct CodexRolloutFallback {
     // The sessions whose settled turn the files placed on them do not show ended yet, named again
     // at the next pass, since Codex may write a turn's end after its settle.
     unended_settled: HashSet<SessionId>,
+    // The sessions a turn settled on while the stop was read, judged at the pass at its end.
+    unjudged_settled: HashSet<SessionId>,
     files: HashMap<PathBuf, CodexFollowedRollout>,
     let_go: VecDeque<(PathBuf, CodexFollowedRollout)>,
     // The placed off-stream threads found with no rollout file, oldest first.
@@ -271,6 +274,7 @@ impl CodexRolloutFallback {
             reading: None,
             named: CodexNamedThreads::default(),
             unended_settled: HashSet::new(),
+            unjudged_settled: HashSet::new(),
             files: HashMap::new(),
             let_go: VecDeque::new(),
             fileless: VecDeque::new(),
@@ -384,9 +388,7 @@ impl CodexRolloutFallback {
             .ended(stop)
             .map(|ended| ended.newest_record_ms);
         let mut named = std::mem::take(&mut self.named);
-        // The sessions a turn settled on since the last pass, apart from those still waiting.
-        let newly_settled = named.settled().clone();
-        named.name_settled(std::mem::take(&mut self.unended_settled));
+        let newly_settled = self.judge_settled(&mut named, ended_ms.is_some());
         let is_past_end = ended_ms.is_some() && is_scanned;
         let found = if is_past_end {
             let followed: Vec<PathBuf> = self
@@ -491,6 +493,25 @@ impl CodexRolloutFallback {
             }
         }
         self.publish_unreadable();
+    }
+
+    // The sessions a turn settled on that this pass judges against the stop's end, named on `named`
+    // with those still waiting on their turn's end: the ones settled since the last pass and, once
+    // `is_ended`, the ones settled while the stop was read, which wait unjudged until then.
+    fn judge_settled(
+        &mut self,
+        named: &mut CodexNamedThreads,
+        is_ended: bool,
+    ) -> HashSet<SessionId> {
+        let mut newly_settled = named.settled().clone();
+        if is_ended {
+            newly_settled.extend(std::mem::take(&mut self.unjudged_settled));
+            named.name_settled(newly_settled.iter().copied());
+        } else {
+            self.unjudged_settled.extend(newly_settled.iter().copied());
+        }
+        named.name_settled(std::mem::take(&mut self.unended_settled));
+        newly_settled
     }
 
     // Keeps `waiting`, the sessions whose settled turn their files do not show ended yet, for the

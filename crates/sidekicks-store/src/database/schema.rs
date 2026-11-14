@@ -46,6 +46,17 @@ pub static RUN_TERMINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// The event types that enter a final run state, one no change leaves, as a SQL list of quoted
+/// words: a run with such an event has ended for good.
+pub static RUN_FINAL_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    sql_list_of(
+        RunStateEventType::VARIANTS
+            .iter()
+            .filter(|event_type| event_type.state().is_final())
+            .map(|event_type| event_type.session_event_type().as_str()),
+    )
+});
+
 /// One named piece of the database schema: the tables, indexes and triggers one module owns.
 #[derive(Clone, Debug)]
 pub struct SchemaPart {

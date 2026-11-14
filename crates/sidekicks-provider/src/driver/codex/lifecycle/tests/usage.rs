@@ -27,7 +27,7 @@ use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN, driver_holding};
 use crate::account::usage_turns::sightings::{
     is_sighting_passed_over, mark_sighting_statements, open_sighting_record_statement,
-    read_sighting_passed_over,
+    read_sighting_passed_over, sessionless_sighting_statements,
 };
 use crate::bounded_poll::poll_until;
 use crate::driver::codex::service::supervisor::test_service::{
@@ -56,7 +56,8 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 /// order as a row of its own, its sighting first decided by the usage record's own statements on a
 /// store test database, so a sighting passed over records no row; it counts each delta it was
 /// handed and each it decided, and keeps each row recorded, each priced request, each request
-/// handed to the repricing and each request no session owns handed to it.
+/// handed to the repricing and each request no session owns handed to it whose sighting the
+/// repricing's own statements, on the same database, find not passed over.
 pub(crate) struct GatedUsage {
     gate: watch::Receiver<bool>,
     handed: AtomicUsize,
@@ -158,7 +159,8 @@ impl GatedUsage {
     }
 }
 
-// The usage record's table of sightings on a store test database of its own, and its writer.
+// The usage record's table of sightings on a store test database of its own, beside the test's
+// account, and its writer.
 struct SightingRecord {
     writer: DatabaseWriter,
     database: TestDatabase,
@@ -170,6 +172,18 @@ impl SightingRecord {
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");
+        database
+            .reader()
+            .execute(
+                "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+                   billing_mode, created_at, updated_at)
+                 VALUES (?1, 'codex', '/homes/test', 'subscription', ?2, ?2)",
+                [
+                    test_provider_account_id().as_str(),
+                    "2026-01-01T00:00:00.000Z",
+                ],
+            )
+            .expect("the test's account is registered");
         Self { writer, database }
     }
 }
@@ -268,8 +282,26 @@ impl RequestHeldListener for GatedUsage {
         &self,
         requests: Vec<SessionlessRequest>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.sessionless).extend(requests);
-        async { Ok(()) }.boxed()
+        async move {
+            let record = self.sightings.get_or_init(SightingRecord::open).await;
+            for request in requests {
+                if let Some(sighting) = &request.sighting {
+                    let statements =
+                        sessionless_sighting_statements(sighting, &request.provider_account_id);
+                    let written = record
+                        .writer
+                        .write(Vec::from(statements))
+                        .await
+                        .expect("the sighting's statements write");
+                    if written.first().is_none_or(|opened| opened.row_count == 0) {
+                        continue;
+                    }
+                }
+                lock(&self.sessionless).push(request);
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 

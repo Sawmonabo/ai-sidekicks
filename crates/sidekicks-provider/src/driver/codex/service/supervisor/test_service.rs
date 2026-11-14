@@ -249,6 +249,7 @@ pub(crate) fn test_codex_service_dependencies(
         tasks: TaskTracker::new(),
     });
     let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
+    let request_held = Arc::new(PortRegistration::new("request held"));
     Arc::new(CodexServiceDependencies {
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -270,12 +271,16 @@ pub(crate) fn test_codex_service_dependencies(
         switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
         provider_accounts,
         telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
-        exports: Arc::new(CodexExports::new(Arc::new(Scheduler::start(
-            Arc::new(TestWallClock::default()),
-            None,
-            watch::channel(0).1,
-        )))),
-        request_held: Arc::new(PortRegistration::new("request held")),
+        exports: Arc::new(CodexExports::new(
+            Arc::new(Scheduler::start(
+                Arc::new(TestWallClock::default()),
+                None,
+                watch::channel(0).1,
+            )),
+            Arc::clone(&request_held),
+            TaskTracker::new(),
+        )),
+        request_held,
         raw_messages: Arc::new(PortRegistration::new("raw provider messages")),
     })
 }

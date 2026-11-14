@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::event::usage::UsageSighting;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -168,6 +169,9 @@ pub struct SessionlessRequest {
     pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     /// What it spent, at its model and tier.
     pub spend: WindowTurnSpend,
+    /// Its sighting, which a session's later sighting of the same request is passed over by, and
+    /// which passes it over where a session's sighting priced it first; `None` for none.
+    pub sighting: Option<UsageSighting>,
 }
 
 /// The repricing's intake of a request its driver left unpriced.
@@ -180,8 +184,9 @@ pub trait RequestHeldListener: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Writes each of `requests`, never empty, as a held usage row no session owns, all in one
-    /// write, then takes each one's key into the repricing; fails as the write fails, which writes
-    /// none of them, an account not registered among its refusals.
+    /// write, then takes each one's key into the repricing; a request whose sighting is passed
+    /// over writes no row and marks its sighting. Fails as the write fails, which writes none of
+    /// them, an account not registered among its refusals where the request has no sighting.
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,

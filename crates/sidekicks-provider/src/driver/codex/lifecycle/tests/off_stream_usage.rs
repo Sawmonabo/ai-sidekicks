@@ -1,9 +1,10 @@
 //! An exported response on a thread no session streams: a search its thread's rollout file states
 //! charged once while the export arrives, a search copied into a fork's file never, a thread no
-//! session will ever hold charged to its account, and a refused response counted on its session
-//! once its thread is listed, its file found wherever Codex keeps it.
+//! session will ever hold charged to its account, a held response counted on its session once its
+//! thread is listed, its file found wherever Codex keeps it, and a response kept as its launch ends
+//! charged to its account once, its file's line passed over.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +25,7 @@ use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, t
 use crate::driver::codex::telemetry::exports::tests::refused;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The thread of a fork below the session's thread, which the listing names.
 const LISTED_FORK_THREAD: &str = "fork-2";
@@ -157,7 +159,7 @@ const LATE_LISTED_THREAD: &str = "fork-3";
 
 impl ExportingSession {
     // Registers the session's usage record as its service's repricing intake.
-    fn register_repricing(&self) {
+    pub(super) fn register_repricing(&self) {
         let dependencies = self.live.scripted.service.dependencies();
         let repricing = Arc::clone(&self.usage);
         assert!(dependencies.request_held.register(repricing as _).is_ok());
@@ -255,21 +257,10 @@ async fn answer_region_read_and_lookup(scripted: &mut ScriptedCodexService, path
     }
 }
 
-// A response on a thread no listing names yet, which nothing joins but Codex keeps a file for, is
-// refused and never charged to the account: once a later response of the thread is listed below
-// the session's thread, its file, in a day folder older than the two around that response, is
-// found through Codex's lookup and counts the refused response once on the session. Killed by
-// charging a thread with a file to its account (a request handed as no session's), by a thread
-// remembered as fileless where the day folders miss it (the refused response on no receipt) and
-// by the lookup's file read pricing the exported response again (three rows).
-#[tokio::test]
-async fn a_refused_response_counts_once_on_its_session_once_its_thread_is_listed() {
-    let recorded = RecordedEvents::default();
-    let _recording = recorded.record_until_dropped();
-    let mut session = ExportingSession::start(&[TEST_TURN]).await;
-    session.register_repricing();
-    let now = read_unix_time_ms();
-    // The fork was made long before the response, so Codex keeps its file in an older day folder.
+// Writes the rollout file of the late-listed fork, made long before, so Codex keeps it in a day
+// folder older than the two around any response and only its lookup finds it: one request,
+// `response_id`, of 300 input and 20 output tokens, stamped at `at_ms`. Answers its path.
+fn write_late_listed_file(session: &ExportingSession, response_id: &str, at_ms: u64) -> PathBuf {
     let folder = session
         .live
         .scripted
@@ -284,7 +275,7 @@ async fn a_refused_response_counts_once_on_its_session_once_its_thread_is_listed
     let record = json!({
         "thread_id": LATE_LISTED_THREAD,
         "turn_id": "fork-turn",
-        "response_id": "response-refused",
+        "response_id": response_id,
         "usage": {
             "input_tokens": 300, "cached_input_tokens": 0, "output_tokens": 20,
             "reasoning_output_tokens": 0, "total_tokens": 320,
@@ -295,15 +286,57 @@ async fn a_refused_response_counts_once_on_its_session_once_its_thread_is_listed
     });
     let lines = [
         rollout_line(
-            now,
+            at_ms,
             "session_meta",
             &json!({"id": LATE_LISTED_THREAD, "forked_from_id": TEST_THREAD}),
         ),
-        rollout_line(now, "event_msg", &settings),
-        turn_context(now, "fork-turn"),
-        rollout_line(now, "token_usage_record", &record),
+        rollout_line(at_ms, "event_msg", &settings),
+        turn_context(at_ms, "fork-turn"),
+        rollout_line(at_ms, "token_usage_record", &record),
     ];
     std::fs::write(&path, lines.join("\n") + "\n").expect("the rollout file is written");
+    path
+}
+
+impl ExportingSession {
+    // Exports one response of `counts` on the late-listed fork at `observed_at_ms`, answers its
+    // walk with a listing that names it below the session's thread, then the recorder's region
+    // read and the lookup of its file at `path`, which the placement's read of the file makes.
+    async fn export_listed(&mut self, counts: &UsageAxisCounts, observed_at_ms: u64, path: &Path) {
+        self.export_records(vec![stamped_record(
+            LATE_LISTED_THREAD,
+            counts,
+            observed_at_ms,
+        )])
+        .await;
+        let list = self.live.scripted.next_request("thread/list").await;
+        self.live.scripted.script.answer(
+            &list,
+            &json!({
+                "data": [{"id": LATE_LISTED_THREAD, "parentThreadId": TEST_THREAD}],
+                "nextCursor": null,
+            }),
+        );
+        answer_region_read_and_lookup(&mut self.live.scripted, path).await;
+    }
+}
+
+// A response on a thread no listing names yet, which nothing joins but Codex keeps a file for, is
+// held and never charged to the account: once a later response of the thread is listed below the
+// session's thread, both go to the session, and the file, in a day folder older than the two
+// around that response, is found through Codex's lookup and prices the held response nothing
+// more. Killed by charging a thread with a file to its account (a request handed as no
+// session's), by a held response left out of its thread's later placement (one row), by a thread
+// looked up at its later response though its file was known (an unanswered request) and by the
+// file read pricing the held response again (three rows).
+#[tokio::test]
+async fn a_held_response_counts_once_on_its_session_once_its_thread_is_listed() {
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    session.register_repricing();
+    let now = read_unix_time_ms();
+    let path = write_late_listed_file(&session, "response-held", now);
 
     session
         .export_unlisted(LATE_LISTED_THREAD, now - 60_000)
@@ -313,27 +346,59 @@ async fn a_refused_response_counts_once_on_its_session_once_its_thread_is_listed
         &read,
         &json!({"thread": {"id": LATE_LISTED_THREAD, "path": path}}),
     );
-    poll_until(|| refused(&recorded), |count| *count >= 1).await;
-    session
-        .export_records(vec![stamped_record(
-            LATE_LISTED_THREAD,
-            &counts(200, 10),
-            now,
-        )])
-        .await;
-    let list = session.live.scripted.next_request("thread/list").await;
-    session.live.scripted.script.answer(
-        &list,
-        &json!({
-            "data": [{"id": LATE_LISTED_THREAD, "parentThreadId": TEST_THREAD}],
-            "nextCursor": null,
-        }),
-    );
-    answer_region_read_and_lookup(&mut session.live.scripted, &path).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    session.export_listed(&counts(200, 10), now, &path).await;
 
-    let mut rows = session.usage.rows_once_decided(2).await;
+    let mut rows = session.usage.rows_once_decided(3).await;
     rows.sort_unstable();
     assert_eq!(rows, [(Some(200), Some(10)), (Some(300), Some(20))]);
     assert_eq!(sessionless(&session), []);
-    assert_eq!(refused(&recorded), 1);
+    assert_eq!(refused(&recorded), 0);
+}
+
+// A response kept as its launch ends, its thread not placed yet, is charged once to its account as
+// its spend outside any session; the same response read later from its thread's file, once a
+// later response of the thread is listed, is passed over. Killed by a launch that refuses or
+// drops what it keeps (nothing handed), by a charge whose sighting the file's line does not meet
+// (the line priced as a second row) and by a launch's end that charges twice (two handed).
+#[tokio::test]
+async fn a_response_kept_as_its_launch_ends_is_charged_once_to_its_account() {
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+    let mut session = ExportingSession::start(&[TEST_TURN]).await;
+    session.register_repricing();
+    session
+        .export_records(vec![stamped_record(
+            LATE_LISTED_THREAD,
+            &counts(300, 20),
+            read_unix_time_ms(),
+        )])
+        .await;
+    let list = session.live.scripted.next_request("thread/list").await;
+    session
+        .live
+        .scripted
+        .script
+        .answer(&list, &json!({"data": [], "nextCursor": null}));
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert_eq!(sessionless(&session), [], "the response is kept");
+
+    session.relaunch();
+    poll_until(|| sessionless(&session).len(), |handed| *handed >= 1).await;
+    // Stamped past the new launch's start, from which its read of the file begins.
+    let later = read_unix_time_ms();
+    let path = write_late_listed_file(&session, "response-kept", later);
+    session.export_listed(&counts(200, 10), later, &path).await;
+
+    assert_eq!(
+        session.usage.rows_once_decided(2).await,
+        [(Some(200), Some(10))]
+    );
+    assert_eq!(sessionless(&session), [(Some(300), Some(20))]);
+    assert!(
+        lock(&session.usage.sessionless)
+            .iter()
+            .all(|request| request.provider_account_id == test_provider_account_id())
+    );
+    assert_eq!(refused(&recorded), 0);
 }

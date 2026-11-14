@@ -41,6 +41,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::account::errors::is_account_not_found;
+use crate::account::usage_turns::sightings::sessionless_sighting_statements;
 use crate::account::usage_turns::unpriced::{
     UnpricedPage, UnpricedPageCursor, UnpricedRequest, UnpricedUsageKey, held_mark_statement,
     read_unpriced_keys, read_unpriced_page,
@@ -558,7 +559,8 @@ impl RequestHeldListener for HeldRequestRepricing {
         async move { hand_off.await? }.boxed()
     }
 
-    // As a hand-off above: the rows' one write and the queuing run as one task of their own.
+    // As a hand-off above: the rows' one write and the queuing run as one task of their own. Each
+    // sighted row carries its record's statements after it, which see the store as the row did.
     fn sessionless_requests_held(
         &self,
         requests: Vec<SessionlessRequest>,
@@ -570,15 +572,20 @@ impl RequestHeldListener for HeldRequestRepricing {
         let hand_off = tokio::spawn(async move {
             let rows: Vec<_> = requests
                 .iter()
-                .map(|request| {
-                    sessionless_usage_turn_statement(
+                .flat_map(|request| {
+                    let row = sessionless_usage_turn_statement(
                         &mint_sessionless_turn_id(),
                         &request.provider_account_id,
                         &request.occurred_at,
                         &daemon_started_at,
                         &request.spend,
                         request.processing_region.as_ref(),
-                    )
+                        request.sighting.as_ref(),
+                    );
+                    let record = request.sighting.as_ref().map(|sighting| {
+                        sessionless_sighting_statements(sighting, &request.provider_account_id)
+                    });
+                    std::iter::once(row).chain(record.into_iter().flatten())
                 })
                 .collect();
             writer.write(rows).await?;

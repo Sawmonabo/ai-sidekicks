@@ -10,10 +10,12 @@ use rstest::rstest;
 use serde_json::json;
 use serde_json::value::to_raw_value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
 use tokio::time::Instant;
+use tokio_util::task::TaskTracker;
 
 use super::{CodexExportTag, CodexExports};
 use crate::bounded_poll::poll_until;
@@ -123,7 +125,11 @@ async fn a_launch_holds_one_export_check_only_while_request_turns_wait_for_an_ex
         None,
         watch::channel(0).1,
     ));
-    let exports = CodexExports::new(Arc::clone(&scheduler));
+    let exports = CodexExports::new(
+        Arc::clone(&scheduler),
+        Arc::new(PortRegistration::new("request held")),
+        TaskTracker::new(),
+    );
     let scripted = start_scripted_codex_service();
     let service_id = scripted.service.id();
     let mut turns = CodexThreadTurns::default();
@@ -200,11 +206,15 @@ impl TwoLaunches {
             None,
             watch::channel(0).1,
         ));
-        let exports = Arc::new(CodexExports::new(Arc::clone(&scheduler)));
+        let exports = Arc::new(CodexExports::new(
+            Arc::clone(&scheduler),
+            Arc::new(PortRegistration::new("request held")),
+            TaskTracker::new(),
+        ));
         let drain = exports
             .take_drain()
             .expect("the register's drain is untaken");
-        tokio::spawn(drain.run(tokio_util::task::TaskTracker::new()));
+        tokio::spawn(drain.run(TaskTracker::new()));
         let a = start_scripted_account_service_for(launch_a_account());
         let b_session = TestCodexSession::start_on(start_scripted_codex_service()).await;
         let tag_a = exports.launched(&a.service);

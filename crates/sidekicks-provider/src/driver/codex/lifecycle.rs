@@ -258,12 +258,16 @@ impl CodexDriver {
             askpass_program: command_askpass_program_path(&link_folder),
             tasks: tasks.clone(),
         });
-        let exports = Arc::new(CodexExports::new(Arc::clone(&services.scheduler)));
+        let export_tasks = TaskTracker::new();
+        let exports = Arc::new(CodexExports::new(
+            Arc::clone(&services.scheduler),
+            Arc::clone(&services.ports.request_held),
+            export_tasks.clone(),
+        ));
         // One drain takes every service's exported responses to their sessions.
         let drain = exports
             .take_drain()
             .expect("a new register's drain is untaken");
-        let export_tasks = TaskTracker::new();
         export_tasks.spawn(drain.run(export_tasks.clone()));
         let dependencies = Arc::new(CodexServiceDependencies {
             spawner: services.spawner.clone(),

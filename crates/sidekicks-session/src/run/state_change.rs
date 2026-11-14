@@ -486,16 +486,16 @@ impl RunWriter {
                     previous_state: run.state,
                     new_state,
                 };
-                // An ended run lets go of the sighting records its count kept past their
-                // account's removal.
+                // A run ended for good lets go of the sighting records its count kept past their
+                // account's removal; an interrupted one may run again, so it keeps them.
                 let mut prelude = if is_terminal {
-                    vec![
-                        no_terminal_record_statement(&run_id, swap.run_version),
-                        release_ended_run_sightings_statement(run_id),
-                    ]
+                    vec![no_terminal_record_statement(&run_id, swap.run_version)]
                 } else {
                     Vec::new()
                 };
+                if RunState::from(new_state).is_final() {
+                    prelude.push(release_ended_run_sightings_statement(run_id));
+                }
                 prelude.push(swap_run_state_statement(&swap));
                 let written = RunRead {
                     version: swap.run_version,

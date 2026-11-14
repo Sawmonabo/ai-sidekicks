@@ -105,6 +105,14 @@ impl ExportingSession {
             .await;
     }
 
+    // Relaunches the session's service, its old tag let go, and sweeps the register, which ends
+    // the old launch.
+    pub(super) fn relaunch(&mut self) {
+        let relaunch = self.exports.launched(&self.live.scripted.service);
+        drop(std::mem::replace(&mut self.tag, relaunch));
+        self.exports.is_exporting(self.live.scripted.service.id());
+    }
+
     pub(super) fn complete_turn(&self) {
         self.live
             .scripted
@@ -266,8 +274,8 @@ fn review_started(review_id: &str, turn_id: &str, started_at_ms: u64) -> Value {
 // refusing a not-listed bucket without the join (no rows), by the first window in place of the
 // latest (rows on `turn-0`) and by logging a record's attributes (the identity in a log line);
 // `live_turn_only` by refusing a bucket no window covers while a turn is live (no rows);
-// `listing_fails` by an unbounded keep (no refusal, and 1,001 refused with the launch) and by a
-// launch dropped silently (no refusals with it).
+// `listing_fails` by an unbounded keep (nothing charged) and by the oldest past the bound refused
+// or lost (nothing charged).
 #[rstest]
 #[case::latest_window(ReviewCover::LatestWindow)]
 #[case::live_turn_only(ReviewCover::LiveTurnOnly)]
@@ -290,6 +298,7 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     if let ReviewCover::ListingFails = cover {
+        session.register_repricing();
         let records = (0..=1_000)
             .map(|_| stamped_record(FORK_THREAD, &counts(10, 1), now))
             .collect();
@@ -300,20 +309,11 @@ async fn a_reviewer_fork_s_requests_cost_once_on_the_session_under_its_account(
             "id": list["id"],
             "error": { "code": -32603, "message": "the listing failed" },
         }));
-        poll_until(|| refused(&recorded), |count| *count >= 1).await;
+        let charged = || lock(&session.usage.sessionless).len();
+        poll_until(charged, |count| *count >= 1).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
-        assert_eq!(
-            refused(&recorded),
-            1,
-            "only the oldest past the bound is refused"
-        );
-        // A relaunch, the old tag let go, drops the launch with what it keeps, each refused.
-        let relaunch = session.exports.launched(&session.live.scripted.service);
-        drop(std::mem::replace(&mut session.tag, relaunch));
-        session
-            .exports
-            .is_exporting(session.live.scripted.service.id());
-        assert_eq!(refused(&recorded), 1 + 1_000);
+        assert_eq!(charged(), 1, "only the oldest past the bound is charged");
+        assert_eq!(refused(&recorded), 0);
         return;
     }
     let first = counts(300, 20);

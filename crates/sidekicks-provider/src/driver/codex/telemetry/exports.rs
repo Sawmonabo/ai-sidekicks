@@ -1,6 +1,7 @@
 //! The driver's register of its Codex launches' exports: the tag each exporting launch carries,
 //! its export status, placement state, copies' threads and rollout fallback, and the hand-off of
 //! each completed response its exports state, and of each request turn it settles, to the drain;
+//! the charge of the responses no session holds, which each launch's placement makes as it ends;
 //! and the tag of each one-shot exec that exports, with the responses its exports state, collected
 //! for the exec's caller.
 
@@ -13,20 +14,24 @@ use std::time::Duration;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::unix_time::read_unix_time_ms;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::side_questions::copy_turn::SessionUsageFiling;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
-use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, refuse_unplaced};
+use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, charge_unplaced};
 use crate::driver::codex::telemetry::rollouts::fallback::CodexLaunchRollouts;
+use crate::driver::codex::telemetry::sessionless_spend::CodexSessionlessSpend;
+use crate::driver::ports::RequestHeldListener;
 use crate::pricing::export_status::{ExportStatus, ExportStatusTracker};
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 
@@ -109,6 +114,7 @@ pub(crate) struct CodexExports {
     // The hand-off's far end, until the driver takes the drain to run.
     drain_items: Mutex<Option<mpsc::Receiver<CodexExportItem>>>,
     stop: CancellationToken,
+    sessionless: Arc<CodexSessionlessSpend>,
 }
 
 /// The responses one exec's exports stated, which its caller takes once the exec ended.
@@ -130,7 +136,7 @@ struct CodexExecExportEntry {
 
 // One launch: the service it started, its tag's guard and resource tag, its export status, how
 // many of its exports were read, where its off-stream threads were placed and the responses it
-// keeps, which go with it, and its rollout fallback's handles.
+// keeps and holds, charged as it goes, and its rollout fallback's handles.
 struct CodexLaunchExport {
     service_id: CodexServiceId,
     service: Weak<CodexService>,
@@ -197,11 +203,17 @@ impl CodexLaunchExports {
 }
 
 impl CodexExports {
-    /// A register whose launches' export checks run on `scheduler`.
-    pub(crate) fn new(scheduler: Arc<Scheduler>) -> Self {
+    /// A register whose launches' export checks run on `scheduler`, and whose responses no
+    /// session holds are handed to the repricing `request_held` registers, on a task of `tasks`.
+    pub(crate) fn new(
+        scheduler: Arc<Scheduler>,
+        request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
+        tasks: TaskTracker,
+    ) -> Self {
         let (hand_off, items) = mpsc::channel(CODEX_EXPORT_HAND_OFF_DEPTH);
         let stop = CancellationToken::new();
         Self {
+            sessionless: Arc::new(CodexSessionlessSpend::new(request_held, tasks)),
             scheduler,
             launches: Mutex::new(CodexLaunchExports {
                 next_number: 0,
@@ -215,14 +227,16 @@ impl CodexExports {
     }
 
     // Runs `read` on the live launches under the register's lock, first taking out every launch
-    // whose tag or service is gone, which drops past the lock, since each drop cancels its check
-    // on the scheduler and refuses what its placement kept.
+    // whose tag or service is gone, which is closed and dropped past the lock, since the close
+    // charges what its placement kept and held and the drop cancels its check on the scheduler.
     fn with_live<R>(&self, read: impl FnOnce(&mut CodexLaunchExports) -> R) -> R {
         let mut launches = lock(&self.launches);
         let gone = launches.take_gone();
         let answer = read(&mut launches);
         drop(launches);
-        drop(gone);
+        for launch in gone {
+            lock(&launch.placement).close();
+        }
         answer
     }
 
@@ -239,12 +253,24 @@ impl CodexExports {
             register: Arc::downgrade(self),
             items,
             stop: self.stop.clone(),
+            sessionless: Arc::clone(&self.sessionless),
         })
     }
 
-    /// Stops the drain, which refuses and counts the responses left in the hand-off.
+    /// Stops the drain, which charges the responses left in the hand-off, and closes every
+    /// launch's placement, which charges what it kept and held.
     pub(crate) fn stop(&self) {
         self.stop.cancel();
+        let placements = self.with_live(|launches| {
+            launches
+                .by_number
+                .values()
+                .map(|launch| Arc::clone(&launch.placement))
+                .collect::<Vec<_>>()
+        });
+        for placement in placements {
+            lock(&placement).close();
+        }
     }
 
     /// Registers an exporting launch of `service` under a new number, which its resource carries
@@ -269,7 +295,9 @@ impl CodexExports {
         ));
         let registered = Arc::new(());
         let rollouts = CodexLaunchRollouts::new(&tracker, read_unix_time_ms());
-        let placement: Arc<Mutex<CodexLaunchPlacement>> = Arc::default();
+        let placement = Arc::new(Mutex::new(CodexLaunchPlacement::new(Arc::clone(
+            &self.sessionless,
+        ))));
         // The launch's task follows its export status from its start, so its fallback reads as
         // the status turns stopped.
         let read_rollouts = CodexExportItem::ReadRollouts {
@@ -511,29 +539,24 @@ impl CodexExports {
         })
     }
 
-    /// Hands `item` to the drain without waiting; a response a full or closed hand-off refuses is
-    /// counted under its account. A refused retry loses nothing, since the launch's next export
-    /// retries what it keeps.
+    /// Hands `item` to the drain without waiting; the responses a full or closed hand-off cannot
+    /// take are charged as their accounts' spend outside any session. A refused retry loses
+    /// nothing, since the launch's next export retries what it keeps.
     pub(super) fn offer(&self, item: CodexExportItem) {
         match self.hand_off.try_send(item) {
             Ok(()) => {}
-            Err(TrySendError::Full(CodexExportItem::Responses { responses, .. })) => {
-                for response in responses {
-                    refuse_unplaced(
-                        &response.conversation_id,
-                        response.provider_account_id,
-                        "the daemon's hand-off of exported responses is full",
-                    );
-                }
-            }
-            Err(TrySendError::Closed(CodexExportItem::Responses { responses, .. })) => {
-                for response in responses {
-                    refuse_unplaced(
-                        &response.conversation_id,
-                        response.provider_account_id,
-                        "the daemon's drain of exported responses has stopped",
-                    );
-                }
+            Err(
+                TrySendError::Full(CodexExportItem::Responses {
+                    launch, responses, ..
+                })
+                | TrySendError::Closed(CodexExportItem::Responses {
+                    launch, responses, ..
+                }),
+            ) => {
+                tracing::warn!(
+                    "a codex launch's exported responses could not be handed to the drain; they                      are charged outside any session"
+                );
+                charge_unplaced(&self.sessionless, &launch, responses);
             }
             Err(
                 TrySendError::Full(CodexExportItem::Retry { .. })

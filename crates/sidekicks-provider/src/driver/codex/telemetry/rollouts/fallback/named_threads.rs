@@ -9,7 +9,9 @@ use super::{CodexFollowedRollout, CodexRolloutPlacement, ROLLOUTS_KEPT};
 
 /// The files the next pass past a stop's end reads on, as the exports and settled turns since the
 /// last pass named them: every file at a stop's end, which the stop's own passes may have left
-/// unread, and once more threads and sessions are named than a launch follows files.
+/// unread, and once more threads and sessions are named than a launch follows files. The sessions
+/// a turn settled on stay named beside every file, so the pass still finds the ones waiting on
+/// their turn's end.
 #[derive(Default)]
 pub(super) struct CodexNamedThreads {
     is_every: bool,
@@ -25,12 +27,10 @@ impl CodexNamedThreads {
         !self.is_every && self.exported.is_empty() && self.settled.is_empty()
     }
 
-    // Every file is named.
+    // Every file is named; the sessions a turn settled on stay named.
     pub(super) fn name_every(&mut self) {
-        *self = Self {
-            is_every: true,
-            ..Self::default()
-        };
+        self.is_every = true;
+        self.exported.clear();
     }
 
     // Names `threads`, an export's records'.
@@ -46,10 +46,10 @@ impl CodexNamedThreads {
         &self.settled
     }
 
-    // Names `sessions`, which a turn settled on.
+    // Names `sessions`, which a turn settled on, every file named or not.
     pub(super) fn name_settled(&mut self, sessions: impl IntoIterator<Item = SessionId>) {
+        self.settled.extend(sessions);
         if !self.is_every {
-            self.settled.extend(sessions);
             self.name_every_past_kept();
         }
     }

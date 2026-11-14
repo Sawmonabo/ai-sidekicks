@@ -5,10 +5,13 @@
 //! sighting takes is read first; each write's own statements decide again, so a write still queued
 //! when the store was read is never counted twice. A record's first sighting is linked to the event
 //! of the row it priced, and a later sighting on a run counts that row's tokens toward the run
-//! where the row was the session's own and no sighting counted it yet. The record is never cleared
-//! by a session's rebuild; it leaves with its session's purge or its account's removal, and a
-//! record that counts toward a run not yet ended outlives its account's removal until that run
-//! ends, so the run's count read after a restart still holds it.
+//! where the row was the session's own and no sighting counted it yet. A request no session holds,
+//! charged as its account's spend outside any session, opens its record on no session in its row's
+//! own write, or marks the record a session's sighting opened, so whichever comes second is passed
+//! over. The record is never cleared by a session's rebuild; it leaves with its session's purge or
+//! its account's removal, and a record that counts toward a run not yet ended for good outlives its
+//! account's removal until that run's final state, so the run's count read after a restart, an
+//! interrupted run continued included, still holds it.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -21,22 +24,42 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_store::database::schema::RUN_TERMINAL_EVENT_TYPES_SQL;
+use sidekicks_store::database::schema::RUN_FINAL_EVENT_TYPES_SQL;
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings, nullable_text_binding,
     text_binding,
 };
 
+/// Whether a sighting is passed over, as SQL over its `@match_key`, `@source` and
+/// `@sighting_key`: its source's own id is recorded already, or a record of its key holds no
+/// sighting from its source.
+pub(super) const SIGHTING_PASSED_OVER_CONDITION: &str = "(EXISTS (SELECT 1 FROM usage_sightings
+                                    WHERE sighting_key = @sighting_key)
+  OR EXISTS (SELECT 1 FROM usage_sightings WHERE match_key = @match_key
+             GROUP BY record_id HAVING SUM(source = @source) = 0))";
+
 // A new record for a sighting, the first of its request, on its session and account: one row,
-// unless its source's own id is recorded already or an older record of its key holds no sighting
-// from its source.
-const OPEN_SIGHTING_RECORD_SQL: &str = "INSERT INTO usage_sightings
+// unless the sighting is passed over.
+static OPEN_SIGHTING_RECORD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO usage_sightings
   (record_id, match_key, source, sighting_key, session_id, account_id)
 SELECT COALESCE((SELECT MAX(record_id) FROM usage_sightings), 0) + 1, @match_key, @source,
   @sighting_key, @session_id, @account_id
-WHERE NOT EXISTS (SELECT 1 FROM usage_sightings WHERE sighting_key = @sighting_key)
-  AND NOT EXISTS (SELECT 1 FROM usage_sightings WHERE match_key = @match_key
-                  GROUP BY record_id HAVING SUM(source = @source) = 0)";
+WHERE NOT {SIGHTING_PASSED_OVER_CONDITION}"
+    )
+});
+
+// As a new record above, on no session, and only while its account is registered and not being
+// removed, as the row it is written beside.
+static OPEN_SESSIONLESS_SIGHTING_RECORD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{}
+  AND EXISTS (SELECT 1 FROM provider_accounts
+              WHERE account_id = @account_id AND removal_intent = 0)",
+        *OPEN_SIGHTING_RECORD_SQL
+    )
+});
 
 // The mark of a sighting on the oldest record of its key that holds none from its source, on that
 // record's session and account, unless its source's own id is recorded already. It counts toward
@@ -64,8 +87,10 @@ WHERE sighting_id = (SELECT MAX(sighting_id) FROM usage_sightings
                      WHERE match_key = @match_key AND source = @source)
   AND event_id IS NULL";
 
-// An account's records, each whole, but for one with a sighting that counts toward a run no
-// terminal event has ended: that run's count, read again after a restart, reads the record's row.
+// An account's records, each whole, but for one with a sighting that counts toward a run that has
+// not ended for good: that run's count, read again after a restart, reads the record's row. A run
+// whose log holds a final state has ended, since no change leaves one; an interrupted run is
+// continued by a send, so its interrupt ends nothing.
 static RELEASE_ACCOUNT_SIGHTINGS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "DELETE FROM usage_sightings
@@ -77,7 +102,7 @@ WHERE account_id = @account_id
                       WHERE ended.category = '{}' AND ended.type IN ({})
                         AND ended.run_id = counted.run_id))",
         EventCategory::RunLifecycle.as_str(),
-        *RUN_TERMINAL_EVENT_TYPES_SQL
+        *RUN_FINAL_EVENT_TYPES_SQL
     )
 });
 
@@ -90,12 +115,9 @@ WHERE record_id IN (SELECT record_id FROM usage_sightings WHERE run_id = @run_id
 const SIGHTING_KEY_RECORDED_SQL: &str =
     "SELECT 1 FROM usage_sightings WHERE sighting_key = @sighting_key";
 
-// Whether a sighting is passed over: its source's own id is recorded already, or a record of its
-// key holds no sighting from its source.
-const SIGHTING_PASSED_OVER_SQL: &str = "SELECT
-  EXISTS (SELECT 1 FROM usage_sightings WHERE sighting_key = @sighting_key)
-  OR EXISTS (SELECT 1 FROM usage_sightings WHERE match_key = @match_key
-             GROUP BY record_id HAVING SUM(source = @source) = 0)";
+// Whether a sighting is passed over.
+static SIGHTING_PASSED_OVER_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT {SIGHTING_PASSED_OVER_CONDITION}"));
 
 /// Whether `sighting` is passed over as the store stands, read on `connection`: its source's own
 /// id recorded already, or a record of its key holding no sighting from its source, which
@@ -108,7 +130,7 @@ pub fn read_sighting_passed_over(
 ) -> rusqlite::Result<bool> {
     let bindings = sighting_bindings(sighting);
     connection
-        .prepare_cached(SIGHTING_PASSED_OVER_SQL)?
+        .prepare_cached(&SIGHTING_PASSED_OVER_SQL)?
         .query_row(named_bindings(&bindings).as_slice(), |row| row.get(0))
 }
 
@@ -127,10 +149,37 @@ pub fn open_sighting_record_statement(
         text_binding("@account_id", provider_account_id.as_str()),
     ]);
     WriteStatement {
-        sql: Cow::Borrowed(OPEN_SIGHTING_RECORD_SQL),
+        sql: Cow::Borrowed(OPEN_SIGHTING_RECORD_SQL.as_str()),
         bindings: StatementBindings::Named(bindings),
         expected_row_count: Some(1),
     }
+}
+
+/// The two statements a held row no session owns carries for `sighting` after the row, in the
+/// row's own write, the row charged to `provider_account_id`: the first opens the sighting's record
+/// on no session where the sighting is not passed over and the account is registered, as the row
+/// is then written, and answers a row where it did; the second marks the oldest record of its key
+/// that holds no sighting from its source, counting toward no run, where it is passed over. So a
+/// request a session's file read priced first is not charged again, and one charged here first
+/// passes a later file read over.
+pub fn sessionless_sighting_statements(
+    sighting: &UsageSighting,
+    provider_account_id: &ProviderAccountId,
+) -> [WriteStatement; 2] {
+    let mut bindings = sighting_bindings(sighting);
+    bindings.extend([
+        nullable_text_binding("@session_id", None),
+        text_binding("@account_id", provider_account_id.as_str()),
+    ]);
+    let [mark, _recorded] = mark_sighting_statements(sighting, None);
+    [
+        WriteStatement {
+            sql: Cow::Borrowed(OPEN_SESSIONLESS_SIGHTING_RECORD_SQL.as_str()),
+            bindings: StatementBindings::Named(bindings),
+            expected_row_count: None,
+        },
+        mark,
+    ]
 }
 
 /// The statement a priced row's live write carries after its event, as `event_id`, for the record
@@ -197,8 +246,8 @@ pub fn counted_record(marked: &[StatementResult]) -> Option<i64> {
 }
 
 /// The statement an account's removal writes beside the deletion of its row: it deletes the
-/// account's sighting records, but keeps each that counts toward a run not yet ended, which
-/// [`release_ended_run_sightings_statement`] deletes at that run's end.
+/// account's sighting records, but keeps each that counts toward a run not yet ended for good,
+/// which [`release_ended_run_sightings_statement`] deletes at that run's final state.
 pub fn release_account_sightings_statement(
     provider_account_id: &ProviderAccountId,
 ) -> WriteStatement {
@@ -212,8 +261,8 @@ pub fn release_account_sightings_statement(
     }
 }
 
-/// The statement a run's terminal change writes: it deletes the sighting records that count toward
-/// `run_id` whose account was removed while the run lived.
+/// The statement a run's change into a final state writes: it deletes the sighting records that
+/// count toward `run_id` whose account was removed while the run lived.
 pub fn release_ended_run_sightings_statement(run_id: RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RELEASE_ENDED_RUN_SIGHTINGS_SQL),
@@ -222,7 +271,8 @@ pub fn release_ended_run_sightings_statement(run_id: RunId) -> WriteStatement {
     }
 }
 
-fn sighting_bindings(sighting: &UsageSighting) -> Vec<(Cow<'static, str>, Value)> {
+/// The bindings of `sighting` that `SIGHTING_PASSED_OVER_CONDITION` reads.
+pub(super) fn sighting_bindings(sighting: &UsageSighting) -> Vec<(Cow<'static, str>, Value)> {
     vec![
         text_binding("@match_key", sighting.match_key.as_str()),
         text_binding("@source", sighting.source.into()),
