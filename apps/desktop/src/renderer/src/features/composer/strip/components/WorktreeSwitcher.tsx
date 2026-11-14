@@ -50,7 +50,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
   const clock = useClock();
   const clockLocale = useClockLocale();
   const [isOpen, setIsOpen] = useState(false);
-  const [pendingTarget, setPendingTarget] = useState<WorktreeRow | undefined>(undefined);
+  const [pendingMove, setPendingMove] = useState<PendingMove | undefined>(undefined);
   const [standIn, setStandIn] = useState<RowStandIn | undefined>(undefined);
   const [isMakingNew, setIsMakingNew] = useState(false);
   const [refusal, setRefusal] = useState<ExtendedRefusal | undefined>(undefined);
@@ -60,7 +60,9 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
     props.sessionId,
     isOpen,
   );
-  const moveTo = (path: string, target: WorktreeRow | undefined): void => {
+  // `target` is the picked row, or `undefined` for a cancel, which leaves no move.
+  const moveTo = (path: string, target: MoveTarget | undefined): void => {
+    const fromName = props.currentName;
     void callDaemon(props.bridge, "session.workingFolder.update", {
       sessionId: props.sessionId,
       path,
@@ -70,7 +72,11 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
         return;
       }
       setRefusal(undefined);
-      setPendingTarget(reply.value.disposition === "pending" ? target : undefined);
+      setPendingMove(
+        reply.value.disposition === "pending" && target !== undefined
+          ? { name: target.name, branchName: target.branchName, path, fromName }
+          : undefined,
+      );
     });
   };
   const remove = (worktreeId: WorktreeId, path: string, discard: boolean): void => {
@@ -98,9 +104,35 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       readAgain();
     });
   };
-  // The move a pick asked for waits only until the session's listed branch is its target's: the
-  // run boundary applied it.
-  const pending = pendingTarget?.branchName === props.currentName ? undefined : pendingTarget;
+  // The move a pick asked for waits only until the session's listed branch is its target's, or,
+  // for a root picked before its branch was read, until the listing leaves the one it was picked
+  // from: the run boundary applied it.
+  const isMoveApplied =
+    pendingMove !== undefined &&
+    (pendingMove.branchName === undefined
+      ? pendingMove.fromName !== props.currentName
+      : pendingMove.branchName === props.currentName);
+  const pending = isMoveApplied ? undefined : pendingMove;
+  const rootTarget: MoveTarget =
+    reading.kind === "loaded"
+      ? { name: reading.status.repoRoot.branchName, branchName: reading.status.repoRoot.branchName }
+      : { name: props.project.name, branchName: undefined };
+  const pendingLine = (path: string): React.JSX.Element | null =>
+    pending?.path === path && reading.kind === "loaded" ? (
+      <span className="meridian-composer-worktrees__faint">
+        switching when this run ends{" "}
+        <button
+          type="button"
+          className="meridian-clickable-word"
+          onClick={() => {
+            // Re-targeting the tree the session works in now cancels the move.
+            moveTo(currentPathIn(reading.status, props.sessionId), undefined);
+          }}
+        >
+          Cancel
+        </button>
+      </span>
+    ) : null;
   const chipWords =
     pending === undefined
       ? props.currentName
@@ -129,12 +161,15 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
           onClick={() => {
             moveTo(
               reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath,
-              undefined,
+              rootTarget,
             );
           }}
         >
-          {reading.kind === "loaded" ? reading.status.repoRoot.branchName : props.project.name}
+          {rootTarget.name}
         </button>
+        {pendingLine(
+          reading.kind === "loaded" ? reading.status.repoRoot.path : props.project.folderPath,
+        )}
         {isMakingNew && reading.kind === "loaded" && reading.status.newWorktree !== undefined ? (
           <NewWorktreeForm
             bridge={props.bridge}
@@ -249,7 +284,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                       {row.behind === undefined ? null : <span>{row.behind}</span>}
                       {reading.status.countsAsOf === undefined ? null : (
                         <span className="meridian-composer-worktrees__faint">
-                          {`Last updated ${formatZonedDateTime(reading.status.countsAsOf, clockLocale)}`}
+                          Last updated {formatZonedDateTime(reading.status.countsAsOf, clockLocale)}
                         </span>
                       )}
                       {row.uncommitted === undefined ? null : (
@@ -264,21 +299,7 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
                       )}
                     </span>
                   </button>
-                  {pending?.path === row.path ? (
-                    <span className="meridian-composer-worktrees__faint">
-                      switching when this run ends{" "}
-                      <button
-                        type="button"
-                        className="meridian-clickable-word"
-                        onClick={() => {
-                          // Re-targeting the tree the session works in now cancels the move.
-                          moveTo(currentPathIn(reading.status, props.sessionId), undefined);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </span>
-                  ) : null}
+                  {pendingLine(row.path)}
                   {row.removableWorktreeId === undefined ? null : (
                     <HoverLabel
                       text={
@@ -325,6 +346,18 @@ export function WorktreeSwitcher(props: WorktreeSwitcherProps): React.JSX.Elemen
       </OverlayPopoverPopup>
     </Popover.Root>
   );
+}
+
+/** A picked row: its name, and its branch, `undefined` for a root whose branch is not read yet. */
+interface MoveTarget {
+  readonly name: string;
+  readonly branchName: string | undefined;
+}
+
+/** A move the daemon holds until the run ends: its target, and the tree it was picked from. */
+interface PendingMove extends MoveTarget {
+  readonly path: string;
+  readonly fromName: string;
 }
 
 /** A row standing in for its tree while its removal is confirmed, or after it went. */

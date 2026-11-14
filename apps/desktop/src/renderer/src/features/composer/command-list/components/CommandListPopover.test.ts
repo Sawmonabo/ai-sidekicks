@@ -41,6 +41,28 @@ describe("CommandList — the service's skills", () => {
     expect(mounted.line.value).toMatch(/^[/$]codemod $/u);
   });
 
+  it("picks the active row on Enter in the line and sends nothing", async () => {
+    // Mutation: a Send that ignores the handled Enter also queues `/codem` in the same keystroke.
+    const sentMethods: string[] = [];
+    const { bridge } = bridgeAnswering(async (call, passThrough) => {
+      sentMethods.push(call.method);
+      return call.method === "skill.list" ? { skills: [CODEMOD_SKILL] } : await passThrough();
+    });
+    const mounted = await mountComposer({ bridge });
+    await typeIntoLine(mounted.line, "/codem");
+    expect(optionNames(mounted.container)).toContain("codemod");
+
+    await pressEnterInLine(mounted.line);
+
+    expect(mounted.line.value).toMatch(/^[/$]codemod $/u);
+    expect(sentMethods).not.toContain("agent.queueItem.create");
+
+    // Negative control: with more after the word the line's Enter is Send's, and it queues.
+    await typeIntoLine(mounted.line, "/codem the tree");
+    await pressEnterInLine(mounted.line);
+    expect(sentMethods).toContain("agent.queueItem.create");
+  });
+
   it("opens on `$` as the line's first character, filtered by the word after it", async () => {
     // Mutation: a list opened only by `/` stays shut on `$codem` and offers no `codemod` row.
     const { bridge } = bridgeAnswering(async (call, passThrough) =>
@@ -52,6 +74,14 @@ describe("CommandList — the service's skills", () => {
     expect(optionNames(mounted.container)).toContain("codemod");
   });
 });
+
+/** Press Enter on the message line itself, where both the list and Send listen. */
+async function pressEnterInLine(line: HTMLTextAreaElement): Promise<void> {
+  await act(async () => {
+    fireEvent.keyDown(line, { key: "Enter" });
+    await crossMacrotaskBoundary();
+  });
+}
 
 /** One skill of ours, available on both providers, as `skill.list` serves it. */
 const CODEMOD_SKILL = {

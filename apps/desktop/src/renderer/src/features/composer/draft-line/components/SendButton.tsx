@@ -90,7 +90,10 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
   );
 }
 
-/** Send on Enter in the region's line; Shift+Enter and a key an input method composes do not. */
+/**
+ * Send on Enter in the region's line; Shift+Enter, a key an input method composes and an Enter a
+ * listener before this one already handled (the command list picking its row) do not.
+ */
 function useSendOnEnter(
   region: React.RefObject<HTMLElement | null>,
   send: () => Promise<void>,
@@ -103,6 +106,7 @@ function useSendOnEnter(
     const onKeyDown = (event: KeyboardEvent): void => {
       if (
         event.key !== "Enter" ||
+        event.defaultPrevented ||
         event.shiftKey ||
         event.isComposing ||
         event.target !== element.querySelector("textarea")

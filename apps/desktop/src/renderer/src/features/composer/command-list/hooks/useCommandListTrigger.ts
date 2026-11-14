@@ -88,15 +88,14 @@ export function useCommandListTrigger(
         return;
       }
       if (event.key === "Enter" && !event.shiftKey) {
-        // While only the word is typed, the list may choose its row: stopped as well as prevented
-        // then, so Send does not also fire. A line with more after the word is Send's.
+        // While only the word is typed, the list may choose its row: prevented then, which Send
+        // reads as handled. A line with more after the word is Send's.
         if (
           isOpenRef.current &&
           splitFirstWord(readLineText()).rest.length === 0 &&
           lineEnterChoiceRef.current?.() === true
         ) {
           event.preventDefault();
-          event.stopPropagation();
           return;
         }
         setDismissedAtText(readLineText());
@@ -119,9 +118,11 @@ export function useCommandListTrigger(
         setStepIntoListToken((token) => token + 1);
       }
     };
-    element.addEventListener("keydown", onKeyDown);
+    // Capture, so these keys are read before Send's listener on the same region, whichever
+    // effect installed its listener first.
+    element.addEventListener("keydown", onKeyDown, { capture: true });
     return () => {
-      element.removeEventListener("keydown", onKeyDown);
+      element.removeEventListener("keydown", onKeyDown, { capture: true });
     };
   }, [region, readLineText, lineEnterChoiceRef]);
 

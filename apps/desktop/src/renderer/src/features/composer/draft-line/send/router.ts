@@ -59,7 +59,7 @@ export class ComposerSendRouter {
     extras: SessionDraftExtras,
   ): ComposerSendResolution {
     if (carriesNothing(text, extras)) {
-      return refused("empty-message", "There is nothing to send yet. Type a message.");
+      return refused("empty-message", "Nothing to send");
     }
     const slashOutcome = this.#resolveSlashPrefix(text);
     if (slashOutcome !== undefined) {

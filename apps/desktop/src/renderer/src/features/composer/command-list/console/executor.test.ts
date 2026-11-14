@@ -4,6 +4,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { COMMAND_FAILED_DETAIL } from "#renderer/registries/commands/refusal.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { createConsoleCommandExecutor } from "./executor.js";
@@ -52,6 +54,7 @@ afterEach(() => {
   for (const commandId of registeredIds.splice(0)) {
     commandRegistry.unregister(commandId);
   }
+  vi.restoreAllMocks();
 });
 
 describe("createConsoleCommandExecutor", () => {
@@ -61,6 +64,7 @@ describe("createConsoleCommandExecutor", () => {
       run: () => Promise.reject(new Error("the act did not complete")),
     });
     const executor = executorOverConsoleRegistry();
+    const recorded = vi.spyOn(windowDiagnosticCapture, "record");
 
     const outcome = await executor(commandLine(FAILING_COMMAND_ID));
 
@@ -69,7 +73,13 @@ describe("createConsoleCommandExecutor", () => {
       throw new Error("a rejected command must not report applied");
     }
     expect(outcome.refusal.code).toBe("command-failed");
-    expect(outcome.refusal.detail).toContain("the act did not complete");
+    // Fixed words on screen; the cause goes only to the window's diagnostic capture.
+    expect(outcome.refusal.detail).toBe(COMMAND_FAILED_DETAIL);
+    expect(recorded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: `${FAILING_COMMAND_ID}: the act did not complete`,
+      }),
+    );
   });
 });
 
@@ -111,6 +121,6 @@ describe("a command handler that fails", () => {
       throw new Error("a failed handler must not report applied");
     }
     expect(outcome.refusal.code).toBe("command-failed");
-    expect(outcome.refusal.detail).toContain("the wire went away");
+    expect(outcome.refusal.detail).toBe(COMMAND_FAILED_DETAIL);
   });
 });

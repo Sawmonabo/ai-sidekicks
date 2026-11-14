@@ -3,7 +3,8 @@
 // message a Stop put back. Every delivery is checked with the contract's generated check. A draft
 // that names staged files comes with what the daemon found for each, read off `session.read`'s
 // staged set, since the draft names a file only by its artifact; a draft naming only files the
-// last read found, as the echo of this window's own save does, reuses what it found. An unreadable
+// last read answered for, as the echo of this window's own save does, reuses its answer, a file it
+// did not find included, so an id the staged set never holds is not read again. An unreadable
 // delivery, a refused read and a stream the daemon refuses are handed on as the draft being lost.
 
 import {
@@ -51,6 +52,8 @@ class SessionDraftFollower {
   #filesRead: AbortController | undefined;
   // What the last completed staged-file read found for each file, by artifact.
   #found: ReadonlyMap<string, SessionAttachmentSummary> = new Map();
+  // Every artifact the last completed read answered for, the ones it did not find included.
+  #answered: ReadonlySet<string> = new Set();
 
   public constructor(
     bridge: PlatformBridge,
@@ -105,12 +108,8 @@ class SessionDraftFollower {
       return;
     }
     const named = payload.draft.extras.attachments ?? [];
-    const known = named.flatMap((artifactId) => {
-      const file = this.#found.get(artifactId);
-      return file === undefined ? [] : [file];
-    });
-    if (known.length === named.length) {
-      this.#onFrame({ kind: "held", held: payload, files: known });
+    if (named.every((artifactId) => this.#answered.has(artifactId))) {
+      this.#onFrame({ kind: "held", held: payload, files: this.#filesNamed(named) });
       return;
     }
     const filesRead = new AbortController();
@@ -130,11 +129,15 @@ class SessionDraftFollower {
       }
       const staged = reply.value.session.attachments;
       this.#found = new Map(staged.map((summary) => [summary.artifactId, summary]));
-      const files = named.flatMap((artifactId) => {
-        const file = this.#found.get(artifactId);
-        return file === undefined ? [] : [file];
-      });
-      this.#onFrame({ kind: "held", held: payload, files });
+      this.#answered = new Set([...this.#found.keys(), ...named]);
+      this.#onFrame({ kind: "held", held: payload, files: this.#filesNamed(named) });
+    });
+  }
+
+  #filesNamed(named: readonly string[]): readonly SessionAttachmentSummary[] {
+    return named.flatMap((artifactId) => {
+      const file = this.#found.get(artifactId);
+      return file === undefined ? [] : [file];
     });
   }
 }

@@ -48,7 +48,11 @@ export function ToolServersChip(props: ToolServersChipProps): React.JSX.Element 
   const row = (server: SessionMcpServer, isWorking: boolean): React.JSX.Element => (
     <li
       key={server.serverName}
-      className={`meridian-composer-tool-server${isWorking && server.enabled ? "" : " meridian-composer-tool-server--dim"}`}
+      className={
+        isWorking && server.enabled
+          ? "meridian-composer-tool-server"
+          : "meridian-composer-tool-server meridian-composer-tool-server--dim"
+      }
     >
       <span className="meridian-composer-tool-server__name">{server.serverName}</span>
       {isWorking ? null : (

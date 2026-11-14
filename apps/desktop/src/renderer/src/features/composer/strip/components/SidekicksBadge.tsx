@@ -33,10 +33,11 @@ export function SidekicksBadge(props: SidekicksBadgeProps): React.JSX.Element | 
   if (badge.kind === "hidden") {
     return null;
   }
+  const waitingClass = badge.isWaiting ? " meridian-composer-strip__badge--waiting" : "";
   return (
     <button
       type="button"
-      className={`meridian-composer-strip__badge${badge.isWaiting ? " meridian-composer-strip__badge--waiting" : ""}`}
+      className={`meridian-composer-strip__badge${waitingClass}`}
       aria-label={`Sidekicks ${String(badge.count)}`}
       onClick={props.openSidekicks}
     >

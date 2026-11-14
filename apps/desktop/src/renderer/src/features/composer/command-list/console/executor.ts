@@ -5,9 +5,16 @@
 // a `finally` with no `catch`, so an escaping rejection would show no refusal. A command that
 // does not run here settles as `send-as-typed`, so the provider answers the line, not the console.
 
-import { isErrorInstance, lossyStringify, readGuardedProperty } from "#renderer/lib/wire/errors.js";
+import {
+  COMMAND_FAILED_DETAIL,
+  recordCommandFailure,
+} from "#renderer/registries/commands/refusal.js";
 import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../../types.js";
-import { consoleCommandRefusal, recognizeConsoleCommand } from "./recognizer.js";
+import {
+  CONSOLE_COMMAND_REFUSAL_ORIGIN,
+  consoleCommandRefusal,
+  recognizeConsoleCommand,
+} from "./recognizer.js";
 import { type ComposerCommands } from "../registry-view.js";
 import { type ComposerCommandLineHandlers } from "../line-handlers.js";
 
@@ -76,23 +83,12 @@ async function settleInvocation(
 
 /**
  * The report a console command's own failure takes from either path into an act, so a failure
- * reads the same under the same code. The command's message is carried, not paraphrased. Not
- * `normalizeWireRejection`: the command ran in this window, so no wire code exists to preserve
- * and a thrown `code` must not widen the closed refusal vocabulary. The message is read
- * guardedly because an `Error` subclass may define an accessor over it, and a throw here
- * would hide the failure being reported.
+ * reads the same under the same code: the fixed failed line, its cause in the diagnostic capture.
  */
 function commandFailureRefusal(commandId: string, cause: unknown): CommandOutcome {
-  const thrownMessage = readGuardedProperty(cause, "message");
-  const failureMessage =
-    isErrorInstance(cause) && typeof thrownMessage === "string"
-      ? thrownMessage
-      : lossyStringify(cause);
+  recordCommandFailure(CONSOLE_COMMAND_REFUSAL_ORIGIN, commandId, cause);
   return {
     status: "refused",
-    refusal: consoleCommandRefusal(
-      "command-failed",
-      `${commandId} did not complete: ${failureMessage}`,
-    ),
+    refusal: consoleCommandRefusal("command-failed", COMMAND_FAILED_DETAIL),
   };
 }

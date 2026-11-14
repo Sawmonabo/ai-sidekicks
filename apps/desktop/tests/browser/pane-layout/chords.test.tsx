@@ -180,7 +180,7 @@ describe("browser — the pane moves' chords", () => {
               {
                 id: WORKSPACE_ID,
                 repoMountId: REPO_MOUNT_ID,
-                executionMode: "bound-root",
+                executionMode: "boundRoot",
                 state: "ready",
               },
             ],
