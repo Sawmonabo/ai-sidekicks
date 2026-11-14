@@ -189,6 +189,21 @@ export function useTranscriptFeedWindows(
     runWindowInputs,
     inputs.sessionStore.sessionId,
   );
+  // A find's step and a link's landing open what hides their row before they land on it.
+  const foldsOpenRunGroup = folds.openRunGroup;
+  const foldsOpenRunStretchAt = folds.openRunStretchAt;
+  const unfoldRow = useCallback(
+    (rowId: string) => {
+      const runGroup = runGroupFoldingAway(rowId, unfurledWindow, foldedWindow);
+      if (runGroup === undefined) {
+        return false;
+      }
+      foldsOpenRunGroup(runGroup.key);
+      foldsOpenRunStretchAt(runGroup, rowId, runWindowInputs.measureOf(unfurledWindow));
+      return true;
+    },
+    [unfurledWindow, foldedWindow, foldsOpenRunGroup, foldsOpenRunStretchAt, runWindowInputs],
+  );
   const drawsBody = inputs.drawsBody;
   const drawnWindow = useDrawnRows(foldedWindow, drawsBody, inputs.sessionStore.sessionId);
   // Over the unfurled window's system messages, which name the rows a fold hides as well.
@@ -249,7 +264,7 @@ export function useTranscriptFeedWindows(
     unfurledWindow,
     transcriptWindow,
     drawsRow,
-    openRunGroup: folds.openRunGroup,
+    unfoldRow,
   });
   // One reader of each for the mount, over the window, folds and reveal engine of the latest
   // render: a new reader would mint a new viewport, and the viewport's pass in this render reads
@@ -381,20 +396,6 @@ export function useTranscriptFeedWindows(
         ? undefined
         : runCallWindows.resolvedWindowOf(runGroupKey),
     [foldedRunGroupKeys, runCallWindows],
-  );
-  const foldsOpenRunGroup = folds.openRunGroup;
-  const foldsOpenRunStretchAt = folds.openRunStretchAt;
-  const unfoldRow = useCallback(
-    (rowId: string) => {
-      const runGroup = runGroupFoldingAway(rowId, unfurledWindow, foldedWindow);
-      if (runGroup === undefined) {
-        return false;
-      }
-      foldsOpenRunGroup(runGroup.key);
-      foldsOpenRunStretchAt(runGroup, rowId, runWindowInputs.measureOf(unfurledWindow));
-      return true;
-    },
-    [unfurledWindow, foldedWindow, foldsOpenRunGroup, foldsOpenRunStretchAt, runWindowInputs],
   );
   const openRunStretch = useOpenRunStretch({
     history,

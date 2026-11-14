@@ -108,12 +108,12 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
 }
 
 /**
- * The counter text. The position is of `matches.length`, the set the walk can reach, never
- * of the uncapped total.
+ * The counter text: none with nothing typed, else `N of M` or `No matches`. The position is of
+ * `matches.length`, the set the walk can reach, never of the uncapped total.
  */
 function matchCountText(result: FindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
-    return `${formatCount(result.searchedRowCount)} rows loaded`;
+    return "";
   }
   if (result.totalMatchCount === 0) {
     return "No matches";

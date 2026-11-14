@@ -111,7 +111,6 @@ describe("find — what a query matches", () => {
       const result = findInTranscript(searchWindow(), query, rollbackLine());
       expect(result.matches).toStrictEqual([]);
       expect(result.totalMatchCount).toBe(0);
-      expect(result.searchedRowCount).toBe(4);
     }
   });
 });
@@ -131,7 +130,6 @@ describe("find — the cap bounds the walk and never the count", () => {
     const result = findInTranscript(oversizedWindow(), "recurring", new Map());
     expect(result.matches).toHaveLength(FIND_MATCH_CAP);
     expect(result.totalMatchCount).toBe(FIND_MATCH_CAP + 5);
-    expect(result.searchedRowCount).toBe(FIND_MATCH_CAP + 5);
   });
 
   it("reads, held across a list growing past the cap, what a whole search reads", () => {

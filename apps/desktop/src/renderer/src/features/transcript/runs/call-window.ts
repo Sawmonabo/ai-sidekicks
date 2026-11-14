@@ -67,8 +67,11 @@ export class RunCallWindows {
     const lastCallIndex = walk.callIndexOf(held?.lastCallRowId);
     let firstCallIndex = walk.callIndexOf(held?.firstCallRowId);
     let endCallIndex: number;
+    // A kept end stays kept while both of the window's rows are in the log.
+    let isEndKept = false;
     if (lastCallIndex !== undefined && firstCallIndex !== undefined) {
       endCallIndex = lastCallIndex + 1;
+      isEndKept = held?.isEndKept === true;
     } else {
       endCallIndex = walk.callCount;
       const heightPx =
@@ -81,7 +84,7 @@ export class RunCallWindows {
         firstCallIndex = walk.firstIndexBefore(endCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS);
       }
     }
-    this.#hold(runGroup, walk, firstCallIndex, endCallIndex);
+    this.#hold(runGroup, walk, firstCallIndex, endCallIndex, isEndKept);
     const window = walk.windowOf(firstCallIndex, endCallIndex);
     this.#resolvedByKey.set(runGroup.key, window);
     return window;
@@ -101,7 +104,7 @@ export class RunCallWindows {
         TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
       );
       const endCallIndex = walk.endIndexAfter(firstCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS);
-      this.#hold(runGroup, walk, firstCallIndex, endCallIndex);
+      this.#hold(runGroup, walk, firstCallIndex, endCallIndex, false);
       return;
     }
     const endCallIndex = walk.endIndexAfter(
@@ -113,6 +116,7 @@ export class RunCallWindows {
       walk,
       walk.firstIndexBefore(endCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS),
       endCallIndex,
+      false,
     );
   }
 
@@ -120,6 +124,8 @@ export class RunCallWindows {
    * Move the window onto `rowId`, one of the run's drawn rows, when it stops short of that row: a
    * stretch of screens before the row and the retained share from there on, as a press on the
    * earlier edge opens. A window that holds the row stays as it is, so a short run keeps every row.
+   * A moved window keeps both ends until the next press, its newest call included, so no cut from
+   * the newest end as the run grows or its rows are measured can take the row back out.
    */
   public openStretchAt(runGroup: RunGroup, rowId: string, measure: RunWindowMeasure): void {
     const current = this.windowOf(runGroup, measure);
@@ -137,7 +143,7 @@ export class RunCallWindows {
       callIndex + 1,
       walk.endIndexAfter(firstCallIndex, TRANSCRIPT_RETAINED_SCREEN_HEIGHTS),
     );
-    this.#hold(runGroup, walk, firstCallIndex, endCallIndex);
+    this.#hold(runGroup, walk, firstCallIndex, endCallIndex, true);
   }
 
   /** The window the last `windowOf` resolved for a run group, by its key. */
@@ -193,14 +199,20 @@ export class RunCallWindows {
   }
 
   // An end at the newest call is held as none, so the window grows with the run; not while the
-  // store let go of calls after it, which come before any the run adds.
-  #hold(runGroup: RunGroup, walk: CallWalk, firstCallIndex: number, endCallIndex: number): void {
+  // store let go of calls after it, which come before any the run adds, nor while the end is kept.
+  #hold(
+    runGroup: RunGroup,
+    walk: CallWalk,
+    firstCallIndex: number,
+    endCallIndex: number,
+    isEndKept: boolean,
+  ): void {
+    const holdsNewest =
+      !isEndKept && endCallIndex >= walk.callCount && runGroup.releasedLater === undefined;
     this.#heldByKey.set(runGroup.key, {
       firstCallRowId: walk.rowIdOf(firstCallIndex),
-      lastCallRowId:
-        endCallIndex >= walk.callCount && runGroup.releasedLater === undefined
-          ? undefined
-          : walk.rowIdOf(endCallIndex - 1),
+      lastCallRowId: holdsNewest ? undefined : walk.rowIdOf(endCallIndex - 1),
+      isEndKept,
     });
   }
 }
@@ -267,6 +279,8 @@ const EDGE_KEY_SEPARATOR = "#window-";
 interface HeldWindow {
   readonly firstCallRowId: string;
   readonly lastCallRowId: string | undefined;
+  /** Whether the last row stays the end even at the newest call: a find step moved the window. */
+  readonly isEndKept: boolean;
 }
 
 /** One run group's drawn rows, walked in pixels of one measure. */

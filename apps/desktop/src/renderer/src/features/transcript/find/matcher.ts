@@ -43,8 +43,6 @@ export interface FindResult {
    * the counter's denominator: the walk is over `matches`.
    */
   readonly totalMatchCount: number;
-  /** Rows the query was actually run over. */
-  readonly searchedRowCount: number;
 }
 
 /**
@@ -55,7 +53,7 @@ export interface FindResult {
 export class FindMatchList {
   #rows: readonly ProjectedTranscriptRow[] = [];
   #systemMessageByRowId: ReadonlyMap<string, SystemMessageReading> = new Map();
-  #result: FindResult = emptyFindResult(0);
+  #result: FindResult = EMPTY_FIND_RESULT;
 
   /**
    * The result of `query` over `rows`, exactly as `findInTranscript` answers it. A row both lists
@@ -119,7 +117,6 @@ export class FindMatchList {
       // A copy of at most the capped list, so the result published before stays as it was.
       matches: appendedMatches.length === 0 ? held.matches : [...held.matches, ...appendedMatches],
       totalMatchCount,
-      searchedRowCount: rows.length,
     };
   }
 }
@@ -137,7 +134,7 @@ export function findInTranscript(
 ): FindResult {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) {
-    return emptyFindResult(rows.length);
+    return EMPTY_FIND_RESULT;
   }
   const needle = trimmedQuery.toLowerCase();
   const matches: FindMatch[] = [];
@@ -157,7 +154,6 @@ export function findInTranscript(
     query: trimmedQuery,
     matches,
     totalMatchCount,
-    searchedRowCount: rows.length,
   };
 }
 
@@ -184,11 +180,6 @@ export function stepFindMatch(
       : steppedIndexFrom(result.matches, selected, direction);
   const match = result.matches[index];
   return match === undefined ? undefined : { index, match };
-}
-
-/** The result an empty query produces: no matches over the rows searched. */
-function emptyFindResult(searchedRowCount: number): FindResult {
-  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
 }
 
 /** Whether the text a row draws holds `needle`, already lowercased. */
@@ -259,3 +250,8 @@ function liveIndexPast(
   const index = matches.findLastIndex((match) => match.sequence < sequence);
   return index < 0 ? matches.length - 1 : index;
 }
+
+/**
+ * What an empty query finds: one object, so a log moving under an empty field changes no result.
+ */
+const EMPTY_FIND_RESULT: FindResult = { query: "", matches: [], totalMatchCount: 0 };

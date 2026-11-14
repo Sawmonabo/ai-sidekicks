@@ -1,9 +1,9 @@
 // The row a link to a message lands on. The link names the message by its event cursor, which the
 // store's log carries on every event, streamed or read back. A message outside the window is
-// reached by asking the daemon for the page around it, which takes the window's place; one inside
-// a folded run group has the group opened first, once, so the row is drawn rather than hidden
-// under a header. An event the feed draws nothing for lands on the first row after it the feed
-// does draw.
+// reached by asking the daemon for the page around it, which takes the window's place; one a fold
+// hides has its run group opened and its long run's window moved onto it first, once, so the row
+// is drawn rather than hidden under a header or past an edge line. An event the feed draws nothing
+// for lands on the first row after it the feed does draw.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -16,7 +16,6 @@ import {
 } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
-import { runGroupFoldingAway } from "../run-group-fold.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type MessageReadBack } from "../../viewport/landing.js";
@@ -34,8 +33,11 @@ export interface MessageAnchorRowKeyInputs {
   readonly transcriptWindow: TranscriptWindowModel;
   /** Whether the feed draws a row at all. */
   readonly drawsRow: (row: ProjectedTranscriptRow) => boolean;
-  /** Open one run group, if it is folded. */
-  readonly openRunGroup: (runGroupKey: string) => void;
+  /**
+   * Opens what hides a row: its folded run group, and its long run's window where that stops short
+   * of it. Answers whether the row was hidden.
+   */
+  readonly unfoldRow: (rowId: string) => boolean;
 }
 
 /** Where a link to a message stands: the row it lands on, and how reading back toward it goes. */
@@ -71,19 +73,15 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
     [sessionStore, messageAnchorCursor, oldestEvent, newestDetachedEvent],
   );
   const readBack = useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
-  const foldedRunGroup = useMemo(
-    () => runGroupFoldingAway(eventId, unfurledWindow, transcriptWindow),
-    [eventId, unfurledWindow, transcriptWindow],
-  );
 
   const landingRowKey = useMemo(
     () => landingRowKeyFor(eventId, unfurledWindow, transcriptWindow, drawsRow),
     [eventId, unfurledWindow, transcriptWindow, drawsRow],
   );
 
-  // Settled once per link, when the row is first drawn or its group first opened, so a reader
+  // Settled once per link, when the row is first drawn or what hid it first opened, so a reader
   // who folds the group afterwards is not overruled on the next append.
-  const openRunGroup = inputs.openRunGroup;
+  const unfoldRow = inputs.unfoldRow;
   const settledCursor = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (messageAnchorCursor === undefined || settledCursor.current === messageAnchorCursor) {
@@ -93,11 +91,10 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): Messa
       settledCursor.current = messageAnchorCursor;
       return;
     }
-    if (foldedRunGroup !== undefined) {
+    if (eventId !== undefined && unfoldRow(eventId)) {
       settledCursor.current = messageAnchorCursor;
-      openRunGroup(foldedRunGroup.key);
     }
-  }, [landingRowKey, foldedRunGroup, messageAnchorCursor, openRunGroup]);
+  }, [landingRowKey, eventId, messageAnchorCursor, unfoldRow]);
 
   return { landingRowKey, readBack };
 }
