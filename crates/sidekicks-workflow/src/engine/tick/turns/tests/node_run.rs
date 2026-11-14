@@ -301,10 +301,10 @@ async fn run_this_node_runs_the_target_on_its_prior_input() {
 /// earlier step in this run's session when the earlier run lives in another session, and its refs
 /// kept as they are when both share the session; `A`'s skip records them and `B` runs on its
 /// items either way, with no other payload written. A restart then deletes only the payload a
-/// start stored under a run a stop left with no row, never a copy or an original a record names.
+/// start reserved under a run a stop left with no row, never a copy or an original a row names.
 /// Mutations: in `store_in_session`, keep the earlier refs whatever their session (no copy is
-/// written); store no input copy (`A`'s input stays the other session's); the reload's check of
-/// what names a payload dropped (the copies are deleted); its payload sweep dropped (the stranded
+/// written); store no input copy (`A`'s input stays the other session's); the run's write keeping
+/// its reservations (the copies are deleted); the reload's payload sweep dropped (the stranded
 /// payload stays).
 #[rstest]
 #[case::another_session(false)]
@@ -393,14 +393,12 @@ async fn a_reused_payload_of_another_session_is_stored_again(#[case] is_same_ses
             .expect("a run id no row holds"),
         ..earlier_key("T", 0)
     };
-    let stranded = write_step_payload(
-        harness.payloads.as_ref(),
-        this_session,
-        &stranded_key,
-        &large_items(),
-    )
-    .await
-    .expect("the stranded payload is stored");
+    // A start stores it under its reservation, and the stop comes before its run's row.
+    let stranded = harness
+        .start_payloads(stranded_key.workflow_run_id)
+        .store(&stranded_key, &large_items())
+        .await
+        .expect("the stranded payload is reserved and stored");
     let WorkflowPayloadRef::Artifact {
         artifact_id: stranded_id,
         ..

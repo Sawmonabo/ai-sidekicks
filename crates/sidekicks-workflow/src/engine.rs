@@ -2,13 +2,15 @@
 //! program implements and hands it, a run's start, a person's Cancel and Resume, the tick that
 //! walks, admits, dispatches and commits a run's steps, the waits of steps waiting on a person, a
 //! chain's question and its Keep going, the deadline clock over its waits, the results a finished
-//! run posts, a partial run's plan, and the record of its own decisions.
+//! run posts, a partial run's plan, the reservations of the payloads a run stores ahead of the
+//! write that names them, and the record of its own decisions.
 
 pub(crate) mod chain;
 pub(crate) mod controls;
 pub(crate) mod deadlines;
 pub(crate) mod event_record;
 pub(crate) mod partial_run;
+pub(crate) mod payload_reservations;
 pub mod ports;
 pub(crate) mod results;
 pub(crate) mod start;

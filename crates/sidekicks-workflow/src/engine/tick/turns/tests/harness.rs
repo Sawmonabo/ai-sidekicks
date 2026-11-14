@@ -67,7 +67,6 @@ use crate::runs::creation::{
 };
 use crate::runs::gate_resolution::WorkflowGateAnswer;
 use crate::runs::gate_resolution::tests::with_card_answer;
-use crate::runs::step_payload::write_step_payload;
 use crate::schema::schema_parts;
 use crate::test_rows::insert_workflow_version_body;
 
@@ -334,16 +333,18 @@ impl Harness {
         .expect("the test's graph builds");
         let started_at = WireInstant::now();
         let run_started_at = started_at.timestamp().expect("a stored instant reads");
+        let mut stored = StartPayloads::new(
+            &self.log.writer,
+            self.payloads.as_ref(),
+            base.session_id,
+            base.run_id,
+        );
         let (started_trigger, node_run) = match opening {
             Ok(items) => {
-                let input_ref = write_step_payload(
-                    self.payloads.as_ref(),
-                    base.session_id,
-                    &trigger_step_key(base.run_id, &trigger),
-                    &items,
-                )
-                .await
-                .expect("the trigger's input is stored");
+                let input_ref = stored
+                    .store(&trigger_step_key(base.run_id, &trigger), &items)
+                    .await
+                    .expect("the trigger's input is stored");
                 (Some(StartedTrigger { input_ref, items }), None)
             }
             Err((node_run, plan)) => (None, Some((node_run, plan(&self.rows, &graph)))),
@@ -352,12 +353,6 @@ impl Harness {
             .as_ref()
             .map(|started| started.input_ref.clone());
         let node_run_record = node_run.as_ref().map(|(node_run, _)| node_run.clone());
-        let mut stored = StartPayloads::new(
-            &self.log.writer,
-            self.payloads.as_ref(),
-            base.session_id,
-            base.run_id,
-        );
         let node_run = match node_run {
             Some((node_run, plan)) => {
                 let mut started = StartedNodeRun::from_plan(&graph, plan, self.payloads.as_ref())
@@ -459,8 +454,8 @@ impl Harness {
         cancel
     }
 
-    /// The payloads a start of `workflow_run_id` in the test's session stores and records, as a
-    /// start does before its run's write.
+    /// The payloads a start of `workflow_run_id` in the test's session stores and reserves, as
+    /// a start does before its run's write.
     pub(in crate::engine::tick::turns) fn start_payloads(
         &self,
         workflow_run_id: WorkflowRunId,

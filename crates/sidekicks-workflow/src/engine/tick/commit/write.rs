@@ -18,13 +18,15 @@ use super::{
 };
 use crate::definitions::kept_values::KeptArtifactReads;
 use crate::engine::event_record::{EngineDecision, RunEngineRecord};
+use crate::engine::payload_reservations::forget_run_statement;
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
     /// Commits the turn through `appender` in one write: its events, then the run event its
     /// status move or its ending implies as the last, and every statement ahead of the rows, the
-    /// run's own after the steps'. `live_steps` are the run's steps the tick keeps live after the
+    /// run's own after the steps', then the delete of the run's payload reservations where the
+    /// turn reserved any. `live_steps` are the run's steps the tick keeps live after the
     /// turn, which a resumption point names beside the steps this turn readied. Once it commits,
     /// each report that moved its step, each gate answer and the run's status go to `record`, and
     /// it answers the artifacts its write's own reads found the replaced kept values naming. A
@@ -205,6 +207,10 @@ impl RunTurnCommit {
             }
             None => (self.add_run_status_move(live_steps), None),
         };
+        if self.has_reserved {
+            // The rows the write stores name the turn's artifacts, so their reservations go.
+            self.statements.push(forget_run_statement(self.run_id));
+        }
         let Self {
             keys,
             run_id: _,
@@ -214,6 +220,9 @@ impl RunTurnCommit {
             status_before: _,
             person_wait,
             payloads: _,
+            writer: _,
+            reserved_ids: _,
+            has_reserved: _,
             events,
             statements,
             pending,

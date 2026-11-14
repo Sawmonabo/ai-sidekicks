@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use tokio::sync::Notify;
 
 use crate::engine::ports::{PortError, REFUSED_PORT_CALL, StepPayloadArtifacts};
 
@@ -26,8 +27,9 @@ pub(crate) struct KeptPayload {
 }
 
 /// A payload store that keeps what each write was given, or refuses every write past a count once
-/// told to, reads each kept artifact's bytes back, noting each read, and keeps each artifact
-/// deleted, one never written among them, or refuses every delete once told to.
+/// told to, or leaves every write past a count unanswered once told to, reads each kept artifact's
+/// bytes back, noting each read, and keeps each artifact deleted, one never written among them, or
+/// refuses every delete once told to.
 #[derive(Default)]
 pub(crate) struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
@@ -37,6 +39,10 @@ pub(crate) struct KeptPayloads {
     is_refusing_deletes: AtomicBool,
     /// How many writes it keeps in all before refusing the rest; `None` keeps every one.
     write_limit: Mutex<Option<usize>>,
+    /// How many writes it answers in all before keeping the rest unanswered; `None` answers each.
+    hold_limit: Mutex<Option<usize>>,
+    /// Woken when a write is kept unanswered.
+    held: Notify,
 }
 
 impl KeptPayloads {
@@ -70,6 +76,17 @@ impl KeptPayloads {
     pub(crate) fn refuse_writes_past(&self, count: usize) {
         *self.write_limit.lock().expect("the test's payloads lock") = Some(count);
     }
+
+    /// Keeps each write past `count` in all, those already kept among them, and never answers it,
+    /// as a store a stop cuts off before its caller hears back.
+    pub(crate) fn hold_writes_past(&self, count: usize) {
+        *self.hold_limit.lock().expect("the test's payloads lock") = Some(count);
+    }
+
+    /// Waits until a write is kept unanswered.
+    pub(crate) async fn held_write(&self) {
+        self.held.notified().await;
+    }
 }
 
 impl StepPayloadArtifacts for KeptPayloads {
@@ -82,6 +99,7 @@ impl StepPayloadArtifacts for KeptPayloads {
         item_count: u64,
     ) -> BoxFuture<'call, Result<(), PortError>> {
         let limit = *self.write_limit.lock().expect("the test's payloads lock");
+        let hold = *self.hold_limit.lock().expect("the test's payloads lock");
         let mut writes = self.writes.lock().expect("the test's payloads lock");
         if limit.is_some_and(|limit| writes.len() >= limit) {
             return Box::pin(async { Err(REFUSED_PORT_CALL.into()) });
@@ -93,6 +111,10 @@ impl StepPayloadArtifacts for KeptPayloads {
             item_count,
             artifact_id,
         });
+        if hold.is_some_and(|hold| writes.len() > hold) {
+            self.held.notify_one();
+            return Box::pin(std::future::pending());
+        }
         Box::pin(async { Ok(()) })
     }
 

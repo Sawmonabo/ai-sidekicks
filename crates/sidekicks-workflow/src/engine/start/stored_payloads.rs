@@ -1,52 +1,25 @@
-//! The payloads a start stores before its run's row: each kept as an artifact is recorded under its
-//! run, under an id minted for it, before it is stored, the records of payloads stored together in
-//! one write; the run's own write deletes the run's records, and a start that makes no run deletes
-//! each payload with its record. A record left is what a stop cut, which the restart reads by its
-//! session and deletes, its artifact or the lack of one alike.
-
-use std::borrow::Cow;
+//! The payloads a start stores before its run's row: each kept as an artifact is reserved under
+//! its run, under an id minted for it, before it is stored, the reservations of payloads stored
+//! together in one write; the run's own write deletes the run's reservations, and a start that
+//! makes no run deletes each payload with its reservation.
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::writer::DatabaseWriter;
 
+use crate::engine::payload_reservations::{
+    ReservedPayloadError, forget_payload, forget_run_statement, reserve_payload_ids,
+};
 use crate::engine::ports::{PortError, StepPayloadArtifacts};
 use crate::runs::step_payload::{
     PreparedStepPayload, StepPayloadWriteError, mint_payload_artifact_id, prepare_step_payload,
 };
 
-const RECORD_SQL: &str = "INSERT INTO workflow_start_payloads
-    (artifact_id, session_id, workflow_run_id)
-  VALUES (@artifact_id, @session_id, @workflow_run_id)";
-
-const FORGET_RUN_SQL: &str =
-    "DELETE FROM workflow_start_payloads WHERE workflow_run_id = @workflow_run_id";
-
-const FORGET_PAYLOAD_SQL: &str =
-    "DELETE FROM workflow_start_payloads WHERE artifact_id = @artifact_id";
-
-/// The payloads a stop left in a session, each with the run it was recorded under: those its
-/// starts recorded that no run's write or start's cleanup took back.
-pub(crate) const LEFT_PAYLOADS_SQL: &str =
-    "SELECT artifact_id, workflow_run_id FROM workflow_start_payloads WHERE session_id = ?1";
-
-/// Why a start's payload was not kept: its record under the run, written first, or its write
-/// after it, whose record the start's cleanup deletes.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum StartPayloadError {
-    /// The payload did not write.
-    #[error(transparent)]
-    Write(StepPayloadWriteError),
-    /// The record under the run was not written, so nothing was stored.
-    #[error("a payload of the start could not be recorded under its run")]
-    Record(#[source] WriteError),
-}
-
-/// The payloads one start stored, each kept as an artifact recorded under the start's run.
+/// The payloads one start stored, each kept as an artifact reserved under the start's run.
 pub(crate) struct StartPayloads<'start> {
     writer: &'start DatabaseWriter,
     payloads: &'start dyn StepPayloadArtifacts,
@@ -77,66 +50,58 @@ impl<'start> StartPayloads<'start> {
         self.payloads
     }
 
-    /// `items`, a payload of `step`, inline within the cap, else recorded under the start's run
-    /// and then stored in the start's session as an artifact. Fails as [`StartPayloadError`] says.
+    /// `items`, a payload of `step`, inline within the cap, else reserved under the start's run
+    /// and then stored in the start's session as an artifact. Fails as [`ReservedPayloadError`]
+    /// says.
     pub(crate) async fn store(
         &mut self,
         step: &WorkflowStepKey,
         items: &[WorkflowItem],
-    ) -> Result<WorkflowPayloadRef, StartPayloadError> {
-        let prepared = prepare_step_payload(items).map_err(StartPayloadError::Write)?;
-        self.record(prepared.artifact_id()).await?;
+    ) -> Result<WorkflowPayloadRef, ReservedPayloadError> {
+        let prepared = prepare_step_payload(items)?;
+        self.reserve(prepared.artifact_id()).await?;
         self.write(prepared, step).await
     }
 
-    /// `bytes`, holding `item_count` entries, recorded under the start's run and then stored under
-    /// `step` in the start's session as an artifact. Fails with [`StartPayloadError::Record`] when
-    /// its record is not written, and with [`StartPayloadError::Write`] when the store refuses it.
+    /// `bytes`, holding `item_count` entries, reserved under the start's run and then stored under
+    /// `step` in the start's session as an artifact. Fails with
+    /// [`ReservedPayloadError::Reservation`] when its reservation is not written, and with
+    /// [`ReservedPayloadError::Write`] when the store refuses it.
     pub(crate) async fn store_bytes(
         &mut self,
         step: &WorkflowStepKey,
         bytes: Vec<u8>,
         item_count: u64,
-    ) -> Result<ArtifactId, StartPayloadError> {
+    ) -> Result<ArtifactId, ReservedPayloadError> {
         let artifact_id = mint_payload_artifact_id();
-        self.record([artifact_id]).await?;
+        self.reserve([artifact_id]).await?;
         self.payloads
             .write(self.session_id, step, artifact_id, bytes, item_count)
             .await
-            .map_err(|error| StartPayloadError::Write(StepPayloadWriteError::Artifact(error)))?;
+            .map_err(StepPayloadWriteError::Artifact)?;
         Ok(artifact_id)
     }
 
     /// The reference of `prepared`, a payload of `step` whose artifact, if it names one, is
-    /// recorded, once that artifact is stored in the start's session. Fails with
-    /// [`StartPayloadError::Write`] when the store refuses it.
+    /// reserved, once that artifact is stored in the start's session. Fails with
+    /// [`ReservedPayloadError::Write`] when the store refuses it.
     pub(crate) async fn write(
         &self,
         prepared: PreparedStepPayload,
         step: &WorkflowStepKey,
-    ) -> Result<WorkflowPayloadRef, StartPayloadError> {
-        prepared
-            .write(self.payloads, self.session_id, step)
-            .await
-            .map_err(StartPayloadError::Write)
+    ) -> Result<WorkflowPayloadRef, ReservedPayloadError> {
+        Ok(prepared.write(self.payloads, self.session_id, step).await?)
     }
 
-    /// The statement the run's own write deletes the run's records with, which leaves its
+    /// The statement the run's own write deletes the run's reservations with, which leaves its
     /// payloads to the run.
     pub(crate) fn forget_statement(&self) -> WriteStatement {
-        WriteStatement {
-            sql: Cow::Borrowed(FORGET_RUN_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@workflow_run_id",
-                self.workflow_run_id.text().as_str(),
-            )]),
-            expected_row_count: None,
-        }
+        forget_run_statement(self.workflow_run_id)
     }
 
-    /// Deletes each payload recorded, with its record, for a start that made no run, one never
-    /// stored among them; answers each payload whose delete failed with the failure, its record
-    /// kept for the restart.
+    /// Deletes each payload reserved, with its reservation, for a start that made no run, one
+    /// never stored among them; answers each payload whose delete failed with the failure, its
+    /// reservation kept for the restart.
     pub(crate) async fn discard(self) -> Vec<(ArtifactId, PortError)> {
         let mut left = Vec::new();
         for artifact_id in self.stored {
@@ -152,52 +117,21 @@ impl<'start> StartPayloads<'start> {
         left
     }
 
-    /// Records each of `artifact_ids` under the start's run in one write, before any is stored,
-    /// each named for the cleanup first. Fails with [`StartPayloadError::Record`].
-    pub(crate) async fn record(
+    /// Reserves each of `artifact_ids` under the start's run in one write, before any is stored,
+    /// each named for the cleanup first. Fails with [`ReservedPayloadError::Reservation`].
+    pub(crate) async fn reserve(
         &mut self,
         artifact_ids: impl IntoIterator<Item = ArtifactId>,
-    ) -> Result<(), StartPayloadError> {
-        let statements = artifact_ids
-            .into_iter()
-            .map(|artifact_id| {
-                self.stored.push(artifact_id);
-                WriteStatement {
-                    sql: Cow::Borrowed(RECORD_SQL),
-                    bindings: StatementBindings::Named(vec![
-                        text_binding("@artifact_id", artifact_id.text().as_str()),
-                        text_binding("@session_id", self.session_id.text().as_str()),
-                        text_binding("@workflow_run_id", self.workflow_run_id.text().as_str()),
-                    ]),
-                    expected_row_count: Some(1),
-                }
-            })
-            .collect::<Vec<_>>();
-        if statements.is_empty() {
-            return Ok(());
-        }
-        self.writer
-            .write(statements)
-            .await
-            .map(drop)
-            .map_err(StartPayloadError::Record)
-    }
-}
-
-/// Deletes the record of `artifact_id`, a payload deleted since. Fails as the write fails.
-pub(crate) async fn forget_payload(
-    writer: &DatabaseWriter,
-    artifact_id: ArtifactId,
-) -> Result<(), WriteError> {
-    writer
-        .write(vec![WriteStatement {
-            sql: Cow::Borrowed(FORGET_PAYLOAD_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@artifact_id",
-                artifact_id.text().as_str(),
-            )]),
-            expected_row_count: None,
-        }])
+    ) -> Result<(), ReservedPayloadError> {
+        let first = self.stored.len();
+        self.stored.extend(artifact_ids);
+        reserve_payload_ids(
+            self.writer,
+            self.session_id,
+            self.workflow_run_id,
+            &self.stored[first..],
+        )
         .await
-        .map(drop)
+        .map_err(ReservedPayloadError::Reservation)
+    }
 }

@@ -12,7 +12,7 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::check::fill_start_items;
-use super::stored_payloads::{StartPayloadError, StartPayloads};
+use super::stored_payloads::StartPayloads;
 use super::{
     WorkflowRunStart, WorkflowRunStartError, WorkflowRunStarter, WorkflowStartOutcome,
     read_session_project,
@@ -21,6 +21,7 @@ use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::partial_run::{
     PartialRunPlan, ReplayedStep, plan_partial_run, read_settled_steps,
 };
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::{ReusedSeedStep, ReusedStepRecord, RunGraph};
 use crate::runs::step_payload::{
@@ -260,13 +261,13 @@ impl StartedNodeRun {
     /// Stores again in `session_id`, the run's session, through `stored`, each replayed input and
     /// output kept as an artifact of another session, since a session's purge erases only its own
     /// payloads: under the step that computed it, its copy then replayed in its place. Every copy's
-    /// id is minted and recorded under the run in one write before any is stored, a copy holding
+    /// id is minted and reserved under the run in one write before any is stored, a copy holding
     /// the items of a payload over the inline cap being one too; then each copy is read, written
     /// and dropped in turn, so one copy's bytes are held at a time. Fails with
-    /// [`WorkflowRunStartError::PayloadRecord`] when the copies' records cannot be written,
-    /// [`WorkflowRunStartError::ReusedOutput`] for an input that does not read back and
+    /// [`WorkflowRunStartError::PayloadReservation`] when the copies' reservations cannot be
+    /// written, [`WorkflowRunStartError::ReusedOutput`] for an input that does not read back and
     /// [`WorkflowRunStartError::ReusedOutputStore`] for the first copy that cannot be stored, the
-    /// recorded copies left for the start's cleanup.
+    /// reserved copies left for the start's cleanup.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.node.execute handler")
@@ -291,7 +292,7 @@ impl StartedNodeRun {
             }
         }
         stored
-            .record(copies.iter().map(|(_, _, artifact_id)| *artifact_id))
+            .reserve(copies.iter().map(|(_, _, artifact_id)| *artifact_id))
             .await
             .map_err(start_payload_error)?;
         for (place, is_output, artifact_id) in copies {
@@ -323,10 +324,12 @@ impl StartedNodeRun {
     }
 }
 
-// The start's error for a copy that could not be recorded or stored.
-fn start_payload_error(error: StartPayloadError) -> WorkflowRunStartError {
+// The start's error for a copy that could not be reserved or stored.
+fn start_payload_error(error: ReservedPayloadError) -> WorkflowRunStartError {
     match error {
-        StartPayloadError::Write(error) => WorkflowRunStartError::ReusedOutputStore(error),
-        StartPayloadError::Record(error) => WorkflowRunStartError::PayloadRecord(error),
+        ReservedPayloadError::Write(error) => WorkflowRunStartError::ReusedOutputStore(error),
+        ReservedPayloadError::Reservation(error) => {
+            WorkflowRunStartError::PayloadReservation(error)
+        }
     }
 }

@@ -17,9 +17,10 @@ use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 use super::WorkflowRunStartError;
-use super::stored_payloads::{StartPayloadError, StartPayloads};
+use super::stored_payloads::StartPayloads;
 use crate::definitions::content_hash::hash_canonical_json;
 use crate::definitions::stored_document::parse_stored_pin_data;
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::StepPayloadArtifacts;
 use crate::engine::tick::RunPin;
 use crate::runs::step_payload::{StepPayloadReadError, StepPayloadWriteError};
@@ -96,8 +97,8 @@ pub(crate) fn started_pin_data(
 
 /// The pins a run's started event carries for `pins`: inline at or under the inline cap's JSON
 /// bytes, else stored through `stored` under the trigger step `trigger_step` as one payload,
-/// recorded under the run as its start's other payloads are. Fails as the store or its record
-/// fails.
+/// reserved under the run as its start's other payloads are. Fails as the store or its
+/// reservation fails.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -123,13 +124,15 @@ pub(crate) async fn started_pins(
         .store_bytes(trigger_step, bytes, item_count.get())
         .await
         .map_err(|error| match error {
-            StartPayloadError::Write(StepPayloadWriteError::Json(error)) => {
+            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
                 WorkflowRunStartError::InputJson(error)
             }
-            StartPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
+            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
                 WorkflowRunStartError::Payload(error)
             }
-            StartPayloadError::Record(error) => WorkflowRunStartError::PayloadRecord(error),
+            ReservedPayloadError::Reservation(error) => {
+                WorkflowRunStartError::PayloadReservation(error)
+            }
         })?;
     Ok((
         None,

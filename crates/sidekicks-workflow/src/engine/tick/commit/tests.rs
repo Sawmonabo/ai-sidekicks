@@ -131,6 +131,7 @@ impl TurnHarness {
             counts,
             person_wait,
             Arc::clone(&self.payloads) as Arc<dyn StepPayloadArtifacts>,
+            Arc::clone(&self.writer),
         )
     }
 

@@ -37,6 +37,7 @@ use sidekicks_contracts::workflow::run::status::WorkflowStepStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_std::scheduler::armed_instant::InstantJob as _;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
@@ -110,6 +111,8 @@ pub(crate) struct EngineTickDependencies {
     pub(crate) recorder: Arc<EngineRecorder>,
     /// The store of a payload above the inline cap.
     pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
+    /// The writer a turn reserves its payloads' ids through, ahead of its write.
+    pub(crate) writer: Arc<DatabaseWriter>,
     /// The memory gate, weighed once per turn.
     pub(crate) admission: Arc<dyn StepAdmission>,
     /// The receiving end of the dispatch's report channel.
@@ -135,6 +138,7 @@ pub(crate) struct EngineTick {
     kinds: Arc<NodeKindTable>,
     recorder: Arc<EngineRecorder>,
     payloads: Arc<dyn StepPayloadArtifacts>,
+    writer: Arc<DatabaseWriter>,
     admission: Arc<dyn StepAdmission>,
     reports: mpsc::Receiver<StepReport>,
     inbox: mpsc::Receiver<EngineTickInput>,
@@ -243,6 +247,7 @@ impl EngineTick {
             kinds,
             recorder,
             payloads,
+            writer,
             admission,
             reports,
             inbox,
@@ -258,6 +263,7 @@ impl EngineTick {
             kinds,
             recorder,
             payloads,
+            writer,
             admission,
             reports,
             inbox,

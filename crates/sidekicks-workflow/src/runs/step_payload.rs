@@ -57,9 +57,10 @@ pub(crate) enum StepPayloadWriteError {
     Artifact(#[source] PortError),
 }
 
-/// `items`, a payload of `step` in `session_id`, as the reference its row stores: inline at or
-/// under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, else stored through `payloads` as
-/// one artifact. Fails as [`StepPayloadWriteError`] says, with nothing stored.
+/// `items`, a payload of `step` in `session_id` that a committed row names, as the reference its
+/// row stores, inline within the cap or else stored through `payloads` with no reservation, as a
+/// test sets up an earlier run's payloads. Fails as [`StepPayloadWriteError`] says.
+#[cfg(test)]
 pub(crate) async fn write_step_payload(
     payloads: &dyn StepPayloadArtifacts,
     session_id: SessionId,
@@ -73,24 +74,37 @@ pub(crate) async fn write_step_payload(
 
 /// `items` made ready to keep, inline at or under [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON
 /// bytes, else as the bytes of one artifact under an id minted before anything is written, so a
-/// caller can record the id first. Fails with [`StepPayloadWriteError::Json`].
+/// caller can reserve the id first. Fails with [`StepPayloadWriteError::Json`].
 pub(crate) fn prepare_step_payload(
     items: &[WorkflowItem],
 ) -> Result<PreparedStepPayload, StepPayloadWriteError> {
-    let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
-    if measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP {
-        return Ok(PreparedStepPayload {
-            reference: WorkflowPayloadRef::Inline {
-                items: items.to_vec(),
-            },
+    match inline_step_payload(items)? {
+        Some(reference) => Ok(PreparedStepPayload {
+            reference,
             bytes: None,
-        });
+        }),
+        None => prepare_artifact_payload(mint_payload_artifact_id(), items),
     }
-    prepare_artifact_payload(mint_payload_artifact_id(), items)
+}
+
+/// `items` as an inline reference when they measure at or under
+/// [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, `None` when they are kept as an artifact.
+/// Fails with [`StepPayloadWriteError::Json`].
+pub(crate) fn inline_step_payload(
+    items: &[WorkflowItem],
+) -> Result<Option<WorkflowPayloadRef>, StepPayloadWriteError> {
+    let measured_bytes = json_utf8_byte_length(&items).map_err(StepPayloadWriteError::Json)?;
+    Ok(
+        (measured_bytes <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP).then(|| {
+            WorkflowPayloadRef::Inline {
+                items: items.to_vec(),
+            }
+        }),
+    )
 }
 
 /// `items`, a payload over [`WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP`] JSON bytes, made ready to keep
-/// as the bytes of one artifact under `artifact_id`, an id the caller minted and may have recorded.
+/// as the bytes of one artifact under `artifact_id`, an id the caller minted and may have reserved.
 /// Fails with [`StepPayloadWriteError::Json`].
 pub(crate) fn prepare_artifact_payload(
     artifact_id: ArtifactId,

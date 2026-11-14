@@ -124,13 +124,13 @@ pub(crate) enum WorkflowRunStartError {
         expect(dead_code, reason = "the engine's run start handlers")
     )]
     Payload(#[source] PortError),
-    /// A payload of the start could not be recorded under its run, so nothing was stored.
-    #[error("a payload of the start could not be recorded under its run")]
+    /// A payload of the start could not be reserved under its run, so nothing was stored.
+    #[error("a payload of the start could not be reserved under its run")]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
     )]
-    PayloadRecord(#[source] WriteError),
+    PayloadReservation(#[source] WriteError),
     /// The pins the retried run's start stored as a payload did not read back.
     #[error("the pins the retried run started on did not read back")]
     #[cfg_attr(
@@ -235,7 +235,7 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::ReusedOutputStore(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)
-            | WorkflowRunStartError::PayloadRecord(_)
+            | WorkflowRunStartError::PayloadReservation(_)
             | WorkflowRunStartError::SourcePins(_)
             | WorkflowRunStartError::Draft(_)
             | WorkflowRunStartError::Append(_)

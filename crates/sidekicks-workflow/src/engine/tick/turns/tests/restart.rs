@@ -16,7 +16,9 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio::time::timeout;
 
 use super::harness::ports::OrderedCall;
-use super::harness::{Harness, WAIT, attempt_column, edge, item, node, retried, step_column};
+use super::harness::{
+    Harness, WAIT, attempt_column, edge, item, large_items, node, retried, step_column,
+};
 use crate::engine::ports::AgentStepOutcome;
 use crate::engine::tick::turns::resuming::tests::resume;
 use crate::engine::waits::PersonWaitAnswer;
@@ -27,6 +29,16 @@ use crate::test_rows::assert_rebuild_rewrites_session_rows;
 fn run_status(rows: &Connection) -> String {
     rows.query_row("SELECT status FROM workflow_runs", [], |row| row.get(0))
         .expect("the run's row reads")
+}
+
+/// How many payload reservations are stored.
+fn reservations(rows: &Connection) -> i64 {
+    rows.query_row(
+        "SELECT count(*) FROM workflow_payload_reservations",
+        [],
+        |row| row.get(0),
+    )
+    .expect("the reservations count")
 }
 
 /// Every payload of the stored events of `event_type` on the step of `node_id`, in log order.
@@ -450,10 +462,10 @@ async fn cut_run(harness: &mut Harness, cut: Cut) {
     }
 }
 
-/// The restart's sweep deletes what a start the stop cut recorded under its run, with the record,
-/// and leaves the artifact of a value a deleted run kept, which no record names. Mutations: the
-/// sweep reading every artifact of the session (the kept artifact is deleted); the sweep dropped
-/// (the start's payload and its record stay).
+/// The restart's sweep deletes what a start the stop cut reserved under its run, with the
+/// reservation, and leaves the artifact of a value a deleted run kept, which no reservation names.
+/// Mutations: the sweep reading every artifact of the session (the kept artifact is deleted); the
+/// sweep dropped (the start's payload and its reservation stay).
 #[tokio::test]
 async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values() {
     let mut harness = Harness::new(None).await;
@@ -501,30 +513,77 @@ async fn the_restart_sweep_deletes_what_a_cut_start_owns_and_keeps_kept_values()
         .start_payloads(cut_step.workflow_run_id)
         .store_bytes(&cut_step, b"[]".to_vec(), 0)
         .await
-        .expect("the cut start's payload is stored and recorded");
+        .expect("the cut start's payload is stored and reserved");
 
     harness.restart(Vec::new()).await;
     let deletes = harness.payloads.deletes();
     assert!(deletes.contains(&cut), "the cut start's payload is deleted");
     assert!(!deletes.contains(&kept), "the kept value's artifact stays");
-    let records: i64 = harness
-        .rows
-        .query_row("SELECT count(*) FROM workflow_start_payloads", [], |row| {
-            row.get(0)
-        })
-        .expect("the start records count");
     assert_eq!(
-        records, 0,
-        "the cut start's record is deleted with its payload"
+        reservations(&harness.rows),
+        0,
+        "the cut start's reservation is deleted with its payload"
     );
 }
 
-/// Leftovers a stop left that will not delete are kept with their records and recorded as faults
-/// on their run's one sequence, and the session's runs are still taken back: the waiting run
+/// A turn the stop cuts between storing a payload and its write leaves no artifact after the
+/// restart, and every artifact the start and a committed turn stored is kept. Mutations: a turn
+/// storing without reserving its id first (the cut artifact stays); the sweep reading every
+/// artifact of the session (a committed one is deleted); the turn's write keeping its run's
+/// reservations (a committed artifact is deleted).
+#[tokio::test]
+async fn a_turn_cut_before_its_write_leaves_no_artifact_and_committed_ones_stay() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("T", "test.trigger", 0, None),
+                node("L", "test.large", 1, None),
+            ],
+            &[edge("T", "L", 0)],
+            large_items(),
+            |_| {},
+        )
+        .await;
+    harness
+        .wait_until(|rows| step_column(rows, "L", "status").as_deref() == Some("running"))
+        .await;
+    harness.wait_for_earlier_turns().await;
+    let written = harness.payloads.writes();
+    assert!(
+        written.iter().any(|kept| kept.step.node_id.as_str() == "L"),
+        "the turn that readied L stored its input"
+    );
+    // L's settlement stores its output, and the stop comes before the turn's write.
+    harness.payloads.hold_writes_past(written.len());
+    harness.signal.release.notify_one();
+    timeout(WAIT, harness.payloads.held_write())
+        .await
+        .expect("L's output is stored");
+    let cut = harness.payloads.writes()[written.len()].artifact_id;
+
+    harness.restart(Vec::new()).await;
+    let deletes = harness.payloads.deletes();
+    assert!(deletes.contains(&cut), "the cut turn's artifact is deleted");
+    for kept in &written {
+        assert!(
+            !deletes.contains(&kept.artifact_id),
+            "an artifact a committed write names stays"
+        );
+    }
+    assert_eq!(
+        reservations(&harness.rows),
+        0,
+        "the cut turn's reservations are deleted"
+    );
+}
+
+/// Leftovers a stop left that will not delete are kept with their reservations and recorded as
+/// faults on their run's one sequence, and the session's runs are still taken back: the waiting run
 /// takes its reply and ends. Mutations: a failed leftover delete failing the reload (the restart
 /// panics); the run's sequence ended after each fault (both faults carry sequence 1).
 #[tokio::test]
-async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back() {
+async fn a_leftover_that_will_not_delete_keeps_its_reservation_and_the_runs_come_back() {
     let mut harness = Harness::new(None).await;
     harness
         .start(
@@ -550,7 +609,7 @@ async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back
         cut_payloads
             .store_bytes(&cut_step, b"[]".to_vec(), 0)
             .await
-            .expect("the cut start's payload is stored and recorded");
+            .expect("the cut start's payload is stored and reserved");
     }
     drop(cut_payloads);
     harness.payloads.refuse_deletes();
@@ -562,15 +621,10 @@ async fn a_leftover_that_will_not_delete_keeps_its_record_and_the_runs_come_back
     harness
         .wait_until(|rows| run_status(rows) == "succeeded")
         .await;
-    let records: i64 = harness
-        .rows
-        .query_row("SELECT count(*) FROM workflow_start_payloads", [], |row| {
-            row.get(0)
-        })
-        .expect("the start records count");
     assert_eq!(
-        records, 2,
-        "the leftovers' records are kept for the next restart"
+        reservations(&harness.rows),
+        2,
+        "the leftovers' reservations are kept for the next restart"
     );
     let kept = harness.record_lines("stopLeftoverKept");
     let cut_run = json!(cut_step.workflow_run_id.text().as_str());

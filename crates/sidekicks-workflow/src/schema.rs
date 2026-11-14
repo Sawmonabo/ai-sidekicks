@@ -261,20 +261,23 @@ CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, s
   WHERE finished_at IS NULL;
 
 -- ---------------------------------------------------------------------------
--- workflow_start_payloads: each payload a run's start stored before its run's
--- row, recorded as it is stored. The run's own write deletes its rows, and a
--- start that makes no run deletes each payload with its row, so a row left is
--- what a stop cut, which the restart deletes. Run ids are event-sourced, so no
--- foreign key.
+-- workflow_payload_reservations: each artifact id a run reserves before it
+-- stores a payload under it, ahead of the write that names the payload: a
+-- start's, before its run's row, and a turn's, before the turn's write. That
+-- write deletes the run's rows, and a start or turn whose write never lands
+-- deletes each payload with its row, so a row left is what a stop cut, which
+-- the restart deletes. Run ids are event-sourced, so no foreign key.
 -- ---------------------------------------------------------------------------
-CREATE TABLE workflow_start_payloads (
+CREATE TABLE workflow_payload_reservations (
   artifact_id               TEXT PRIMARY KEY,
   session_id                TEXT NOT NULL,
   workflow_run_id           TEXT NOT NULL
 ) STRICT;
 
-CREATE INDEX idx_workflow_start_payloads_session ON workflow_start_payloads(session_id);
-CREATE INDEX idx_workflow_start_payloads_run ON workflow_start_payloads(workflow_run_id);
+CREATE INDEX idx_workflow_payload_reservations_session
+  ON workflow_payload_reservations(session_id);
+CREATE INDEX idx_workflow_payload_reservations_run
+  ON workflow_payload_reservations(workflow_run_id);
 
 -- ---------------------------------------------------------------------------
 -- workflow_gate_resolutions: every answer to an approval node or a chain's

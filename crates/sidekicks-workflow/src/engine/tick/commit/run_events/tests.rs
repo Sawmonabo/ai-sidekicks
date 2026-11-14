@@ -473,6 +473,7 @@ async fn keep_going_moves_every_held_step_in_one_write() {
                 waiting_counts,
                 RunPersonWait::default(),
                 Arc::clone(&harness.payloads) as Arc<dyn StepPayloadArtifacts>,
+                Arc::clone(&harness.writer),
             ),
             harness.commit_with(waiting_counts, RunPersonWait::default()),
         ]

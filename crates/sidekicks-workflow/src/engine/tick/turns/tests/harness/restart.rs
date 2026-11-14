@@ -114,6 +114,7 @@ impl DaemonLife {
             kinds: Arc::clone(kinds),
             recorder: Arc::clone(recorder),
             payloads: Arc::clone(payloads) as Arc<dyn StepPayloadArtifacts>,
+            writer: Arc::clone(&log.writer),
             admission: gate,
             reports: received_reports,
             inbox: received,

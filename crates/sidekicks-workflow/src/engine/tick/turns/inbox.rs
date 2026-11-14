@@ -198,6 +198,7 @@ impl EngineTick {
                     live.counts,
                     live.person_wait.clone(),
                     Arc::clone(&self.payloads),
+                    Arc::clone(&self.writer),
                 ),
                 // A first run the tick does not drive writes no run event.
                 (None, Some(question)) => RunTurnCommit::new(
@@ -207,6 +208,7 @@ impl EngineTick {
                     RunStepCounts::default(),
                     RunPersonWait::default(),
                     Arc::clone(&self.payloads),
+                    Arc::clone(&self.writer),
                 ),
                 (None, None) => {
                     let _unheard = reply.send(Err(PersonWaitRefusal::NotWaiting));

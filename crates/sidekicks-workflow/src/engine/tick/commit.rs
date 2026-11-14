@@ -29,6 +29,7 @@ use sidekicks_contracts::workflow::run::step::events::{
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use super::run_status::{
@@ -38,12 +39,12 @@ use super::walk::{WalkReady, WalkSkip, WalkSkipReason};
 use super::{ParkedAgentRun, StepReport, StepReportKind};
 use crate::definitions::kept_values::KeptArtifactReads;
 use crate::engine::event_record::{EngineDecision, StepEnding, StepTransition};
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::{StepAdmissionTicket, StepPayloadArtifacts};
 use crate::engine::waits::OpenedPersonWait;
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonAsk, StepFailure};
 use crate::runs::gate_resolution::RunEventKeys;
-use crate::runs::step_payload::StepPayloadWriteError;
 use crate::runs::step_rows::{
     add_step_memory_wait, admit_step, hold_step, insert_pending_step, insert_skipped_step,
     record_step_start,
@@ -77,6 +78,7 @@ macro_rules! run_payload {
     };
 }
 
+mod payloads;
 mod run_events;
 mod settlement;
 mod write;
@@ -105,6 +107,12 @@ pub(crate) struct RunTurnCommit {
     person_wait: RunPersonWait,
     /// The store of a payload above the inline cap, written before the append.
     payloads: Arc<dyn StepPayloadArtifacts>,
+    /// The writer the turn reserves its payloads' ids through, ahead of the append.
+    writer: Arc<DatabaseWriter>,
+    /// The ids the turn reserved under its run and has not used yet.
+    reserved_ids: Vec<ArtifactId>,
+    /// Whether the turn reserved any id, so its write deletes the run's reservations.
+    has_reserved: bool,
     /// The turn's events, in write order.
     events: Vec<TurnEvent>,
     /// The turn's row statements, in the order handed.
@@ -284,9 +292,9 @@ pub(crate) enum SettlementAnswer {
 #[derive(Debug)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SettlementWriteFailure {
-    /// The payload write that failed.
-    pub(crate) error: StepPayloadWriteError,
-    /// Each artifact the settlement wrote before the failure, which no record names, for the tick
+    /// The payload write, or its reservation, that failed.
+    pub(crate) error: ReservedPayloadError,
+    /// Each artifact the settlement wrote before the failure, which no row names, for the tick
     /// to delete through the payload store.
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
@@ -324,7 +332,7 @@ pub(crate) type SessionEventId = FreeFormText<EVENT_FIELD_MAX_LEN>;
 pub(crate) struct RunTurnCommitFailure {
     /// The event that would not draft, or the append that was not kept.
     pub(crate) error: SessionEventEmitError,
-    /// Every artifact a payload ref of the write names, which no record now names, for the tick
+    /// Every artifact a payload ref of the write names, which no row now names, for the tick
     /// to delete through the payload store.
     pub(crate) artifact_ids: Vec<ArtifactId>,
 }
@@ -333,7 +341,7 @@ pub(crate) struct RunTurnCommitFailure {
 impl RunTurnCommit {
     /// An empty turn of the run `run_id`, whose events name `keys`, in its execution `epoch`, with
     /// its step counts and person-wait columns as the tick keeps them, storing a payload above the
-    /// inline cap through `payloads`.
+    /// inline cap through `payloads` under an id reserved through `writer`.
     pub(crate) fn new(
         keys: RunEventKeys,
         run_id: WorkflowRunId,
@@ -341,6 +349,7 @@ impl RunTurnCommit {
         counts: RunStepCounts,
         person_wait: RunPersonWait,
         payloads: Arc<dyn StepPayloadArtifacts>,
+        writer: Arc<DatabaseWriter>,
     ) -> Self {
         Self {
             keys,
@@ -351,6 +360,9 @@ impl RunTurnCommit {
             status_before: going_run_status(&counts),
             person_wait,
             payloads,
+            writer,
+            reserved_ids: Vec::new(),
+            has_reserved: false,
             events: Vec::new(),
             statements: Vec::new(),
             pending: Vec::new(),

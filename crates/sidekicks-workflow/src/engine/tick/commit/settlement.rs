@@ -31,6 +31,7 @@ use super::{
 };
 use crate::definitions::kept_values::kept_value_statements;
 use crate::engine::event_record::StepEnding;
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::run_status::whole_milliseconds_between;
 use crate::engine::tick::step_failure::{StepFailureRoute, route_step_failure, step_failure_error};
@@ -38,7 +39,7 @@ use crate::engine::tick::{ParkedAgentRun, StepSettlement};
 use crate::engine::waits::{open_person_wait, suspended_payload};
 use crate::kinds::step_context::{StepRecords, StepRunVariable};
 use crate::kinds::{PersonAsk, PersonWait, StepFailure};
-use crate::runs::step_payload::{StepPayloadWriteError, join_step_outputs, write_step_payload};
+use crate::runs::step_payload::{StepPayloadWriteError, join_step_outputs};
 use crate::runs::step_rows::{
     FailedStepRow, cancel_step, fail_step, succeed_step, wait_step_on_account, wait_step_on_person,
 };
@@ -326,13 +327,13 @@ impl RunTurnCommit {
     /// none, and each variable it keeps beside the reference a value above the inline cap is kept
     /// as, writing every artifact into `written`.
     async fn write_completed<'variables>(
-        &self,
+        &mut self,
         step: &WorkflowStepKey,
         outputs: &[Vec<WorkflowItem>],
         log_lines: Vec<String>,
         run_variables: &'variables BTreeMap<String, StepRunVariable>,
         written: &mut Vec<ArtifactId>,
-    ) -> Result<CompletedPayloads<'variables>, StepPayloadWriteError> {
+    ) -> Result<CompletedPayloads<'variables>, ReservedPayloadError> {
         let output_ref = self
             .write_payload(step, &join_step_outputs(outputs), written)
             .await?;
@@ -376,11 +377,11 @@ impl RunTurnCommit {
     /// The refs of the log lines and the run variables a parked step's `records` hold, each
     /// `None` where it holds none, writing every artifact into `written`.
     async fn write_parked_records(
-        &self,
+        &mut self,
         step: &WorkflowStepKey,
         records: &StepRecords,
         written: &mut Vec<ArtifactId>,
-    ) -> Result<ParkedRecordRefs, StepPayloadWriteError> {
+    ) -> Result<ParkedRecordRefs, ReservedPayloadError> {
         let log_ref = if records.log_lines.is_empty() {
             None
         } else {
@@ -398,11 +399,11 @@ impl RunTurnCommit {
     /// The ref of `run_variables`, one item each, `None` where there are none, writing any
     /// artifact into `written`.
     async fn write_run_variables(
-        &self,
+        &mut self,
         step: &WorkflowStepKey,
         run_variables: &BTreeMap<String, StepRunVariable>,
         written: &mut Vec<ArtifactId>,
-    ) -> Result<Option<WorkflowPayloadRef>, StepPayloadWriteError> {
+    ) -> Result<Option<WorkflowPayloadRef>, ReservedPayloadError> {
         if run_variables.is_empty() {
             return Ok(None);
         }
@@ -536,11 +537,11 @@ impl RunTurnCommit {
 
     /// `log_lines` as `step`'s log ref, one item per line.
     async fn write_log(
-        &self,
+        &mut self,
         step: &WorkflowStepKey,
         log_lines: Vec<String>,
         written: &mut Vec<ArtifactId>,
-    ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
+    ) -> Result<WorkflowPayloadRef, ReservedPayloadError> {
         let items: Vec<WorkflowItem> = log_lines
             .into_iter()
             .map(|line| WorkflowItem {
@@ -553,16 +554,15 @@ impl RunTurnCommit {
         self.write_payload(step, &items, written).await
     }
 
-    /// `items` as a payload ref of `step`, an artifact above the inline cap, whose id goes into
-    /// `written`.
+    /// `items` as a payload ref of `step`, an artifact above the inline cap under a reserved id,
+    /// which goes into `written`.
     async fn write_payload(
-        &self,
+        &mut self,
         step: &WorkflowStepKey,
         items: &[WorkflowItem],
         written: &mut Vec<ArtifactId>,
-    ) -> Result<WorkflowPayloadRef, StepPayloadWriteError> {
-        let payload =
-            write_step_payload(self.payloads.as_ref(), self.keys.session_id, step, items).await?;
+    ) -> Result<WorkflowPayloadRef, ReservedPayloadError> {
+        let payload = self.store_payload(step, items).await?;
         if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &payload {
             written.push(*artifact_id);
         }
@@ -633,7 +633,7 @@ fn cut_hold_milliseconds(last_hold_report_at: Option<&WireInstant>, at: &WireIns
 }
 
 /// The settlement's write failure, with each artifact it wrote before failing.
-fn write_failure(error: StepPayloadWriteError, written: Vec<ArtifactId>) -> SettlementWriteFailure {
+fn write_failure(error: ReservedPayloadError, written: Vec<ArtifactId>) -> SettlementWriteFailure {
     SettlementWriteFailure {
         error,
         artifact_ids: written,

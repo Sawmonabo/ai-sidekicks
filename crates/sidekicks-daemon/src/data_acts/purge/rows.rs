@@ -268,7 +268,7 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 45] = [
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
        (SELECT id FROM artifact_manifests WHERE session_id = @sessionId)",
     "DELETE FROM artifact_manifests WHERE session_id = @sessionId",
-    "DELETE FROM workflow_start_payloads WHERE session_id = @sessionId",
+    "DELETE FROM workflow_payload_reservations WHERE session_id = @sessionId",
     "DELETE FROM session_restores WHERE session_id = @sessionId",
     "DELETE FROM checkpoint_versions WHERE checkpoint_id IN
        (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",

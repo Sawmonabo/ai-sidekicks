@@ -77,6 +77,7 @@ impl EngineTick {
             counts,
             person_wait,
             Arc::clone(&self.payloads),
+            Arc::clone(&self.writer),
         );
         let now = WireInstant::now();
         let mut cards = Vec::new();

@@ -70,6 +70,7 @@ use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore}
 use crate::engine::chain::read_chain_question;
 use crate::engine::event_record::{EngineFault, EngineRecorder, RowlessRunFaults};
 use crate::engine::partial_run::PARTIAL_RUN_PLAN_STATEMENT_CAPACITY;
+use crate::engine::payload_reservations::ReservedPayloadError;
 use crate::engine::ports::{StepPayloadArtifacts, WorkflowRunLimits};
 use crate::engine::tick::{RunGraph, RunPin, RunScope};
 use crate::kinds::NodeKindTable;
@@ -94,7 +95,6 @@ pub(crate) use self::reload::{
     ReloadedRepin, ReloadedRun, ReloadedScope, ReloadedStep, ReplayedEvent,
 };
 use self::retry::RetriedRun;
-use self::stored_payloads::StartPayloadError;
 pub(crate) use self::stored_payloads::StartPayloads;
 pub(crate) use self::under_way::StartsUnderWay;
 
@@ -281,7 +281,7 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// The event log each start's write is appended to.
     pub(crate) event_log: Arc<EventLogService>,
-    /// The writer each payload a start stores is recorded under its run through.
+    /// The writer each payload a start stores is reserved under its run through.
     pub(crate) writer: Arc<DatabaseWriter>,
     /// The machine's registry, whose owner a trigger's fire is judged as.
     pub(crate) machines: Arc<MachineRegistry>,
@@ -590,7 +590,7 @@ impl WorkflowRunStarter {
     // with its chain's count for a joining run, the run it retries for a retry and the node run's
     // target, and its started event, naming every step it replays, whose instant is the row's
     // start. The scope is read first, so a failed read leaves no stored payload behind; each
-    // payload it stores, its pins past the inline cap among them, is recorded in `stored` under the
+    // payload it stores, its pins past the inline cap among them, is reserved in `stored` under the
     // run, which the run's write forgets and the start deletes when no run is made.
     #[cfg_attr(
         not(test),
@@ -626,14 +626,14 @@ impl WorkflowRunStarter {
                         .store(&trigger_step, items)
                         .await
                         .map_err(|error| match error {
-                            StartPayloadError::Write(StepPayloadWriteError::Json(error)) => {
+                            ReservedPayloadError::Write(StepPayloadWriteError::Json(error)) => {
                                 WorkflowRunStartError::InputJson(error)
                             }
-                            StartPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
+                            ReservedPayloadError::Write(StepPayloadWriteError::Artifact(error)) => {
                                 WorkflowRunStartError::Payload(error)
                             }
-                            StartPayloadError::Record(error) => {
-                                WorkflowRunStartError::PayloadRecord(error)
+                            ReservedPayloadError::Reservation(error) => {
+                                WorkflowRunStartError::PayloadReservation(error)
                             }
                         })?,
                 )
