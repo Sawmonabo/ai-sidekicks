@@ -16,6 +16,7 @@
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ResolvedAgent } from "@ai-sidekicks/contracts/run/queued";
+import { RUN_INITIAL_STATE, type RunState } from "@ai-sidekicks/contracts/run/state";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioBeat } from "../scenario.js";
@@ -59,8 +60,8 @@ interface RunTransitionInput {
   /** The daemon's progression counter for this run; increments per transition. */
   readonly runVersion: number;
   /** Absent only on the birth transition, which has no prior state. */
-  readonly previousState?: string;
-  readonly newState: string;
+  readonly previousState?: RunState;
+  readonly newState: RunState;
   /** The agent the run belongs to. Carried on the birth transition. */
   readonly agentId?: string;
   readonly actorId?: string;
@@ -144,9 +145,6 @@ export function newestBeatInstant(beats: readonly ScenarioBeat[]): string {
   return newest.event.occurredAt;
 }
 
-/** The one transition a run's linkage, resolved agent and admitting account ride. */
-const RUN_BIRTH_STATE = "queued";
-
 /** What one assistant-output beat says. */
 interface AssistantOutputInput {
   readonly atMs: number;
@@ -222,11 +220,11 @@ interface RunEntryBuilders {
  */
 export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
   const creation = creationRowMembers(input);
-  if (Object.keys(creation).length > 0 && input.newState !== RUN_BIRTH_STATE) {
+  if (Object.keys(creation).length > 0 && input.newState !== RUN_INITIAL_STATE) {
     throw new RangeError(
       `a run's linkage and resolved agent ride its birth beat, ` +
         `and this entry moves ${input.runId} into "${input.newState}". ` +
-        `They ride \`agent.run.${RUN_BIRTH_STATE}\` alone, ` +
+        `They ride \`agent.run.${RUN_INITIAL_STATE}\` alone, ` +
         "so a second beat carrying them would be a second record of one fact.",
     );
   }
@@ -242,7 +240,7 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
       newState: input.newState,
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
       ...creation,
-      ...(input.newState === RUN_BIRTH_STATE
+      ...(input.newState === RUN_INITIAL_STATE
         ? // Every scripted run is admitted under the signed-in work account; no scenario shows
           // a choice of account.
           { admittedProviderAccountId: WORK_ACCOUNT.accountId }

@@ -6,31 +6,29 @@
 // watching the shell is behind, and a behind pane declares it again on each open of the stream, so
 // a client helper started again hears it. It is stable for the shell, so the emulator is built once
 // per shell. Each open of the stream names the subscription a write or a take is bound to; what
-// is typed goes into the client helper's one queue for the shell through an input bound to it.
-// From a stream's end until its re-open, and until the ended one's input has handed back all it
-// held, the input binding holds what is typed, behind what came back unsent. A pane closed while
-// the binding holds anything keeps following the stream, drawing nothing, until the binding has
-// sent it all and closes the stream. A re-open refused because the shell or its session is gone
-// lets the held input go, drawn once as the refusal of a write to that shell. Sizes go to
+// is typed goes through the window's one input binding for the shell (`window-shells.ts`), which
+// holds it from a stream's end until its re-open, and until the ended one's input has handed back
+// all it held, behind what came back unsent. A pane closed meanwhile lets its stream go, and the
+// binding sends what waits once it may, or on this pane's next open if that comes first. A re-open
+// refused because the shell or its session is gone lets the held input go, drawn once as the
+// refusal of a write to that shell. The first frame ends the pane's loading line. Sizes go to
 // `terminal.resize`, the newest only while one is out.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
-import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
-import { openShellInput } from "#renderer/services/daemon/terminal/input.js";
 import {
   followShellOutput,
   type ShellOutputSubject,
 } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { TerminalGridSize } from "../../emulator/xterm/adapter.js";
-import { ShellInputBinding } from "../input-binding.js";
+import { isShellGone, type ShellInputBinding } from "../input-binding.js";
 import { ShellOutputWriter, type ShellOutputSink } from "../output-writer.js";
 import { ShellResizeQueue } from "../resize-queue.js";
 import { windowShellFor } from "../window-shells.js";
@@ -46,6 +44,8 @@ export interface ShellOutput {
    * while it is opened again; what is typed meanwhile waits for the new subscription.
    */
   readonly isFollowing: boolean;
+  /** Whether the feed's first frame, the shell's output and who holds it, has arrived. */
+  readonly hasOutput: boolean;
   /** Why the stream could not be opened again, or why the last write, size or flow was refused. */
   readonly refusal: Refusal | undefined;
   /** Send typed keys to the shell, in order. */
@@ -64,26 +64,9 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     `${sessionId} ${terminalId}`,
     () => UNOPENED_SHELL_OUTPUT,
   );
-
-  const inputBinding = useMemo(
-    () =>
-      new ShellInputBinding((outputSubscriptionId, handBack) =>
-        openShellInput(bridge, outputSubscriptionId, {
-          ...handBack,
-          onRefusal: (refusal) => {
-            // A write taken clears only a write's refusal; a size or flow refusal stands.
-            publish((current) =>
-              refusal !== undefined
-                ? { ...current, refusal, refusedCall: "write" }
-                : current.refusedCall === "write"
-                  ? { ...current, refusal: undefined, refusedCall: undefined }
-                  : current,
-            );
-          },
-        }),
-      ),
-    [bridge, publish],
-  );
+  // The window's binding for the shell, from the pane's open of its output to its close: what is
+  // typed reaches the shell only while the feed is followed.
+  const inputBindingRef = useRef<ShellInputBinding | undefined>(undefined);
 
   const resizeQueue = useMemo(
     () =>
@@ -103,6 +86,8 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
   const openOutput = useCallback(
     (sink: ShellOutputSink): Unsubscribe => {
       const shell = { sessionId, terminalId };
+      const windowShell = windowShellFor(bridge, shell);
+      const inputBinding = windowShell.inputBinding;
       const declareFlow = (paused: boolean): void => {
         void callDaemon(bridge, "terminal.flowControl.update", { ...shell, paused }).then(
           (reply) => {
@@ -117,61 +102,62 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
         );
       };
       const writer = new ShellOutputWriter(sink, (isBehind) => {
-        const paused = windowShellFor(bridge, shell).noteBehind(isBehind);
+        const paused = windowShell.noteBehind(isBehind);
         if (paused !== undefined) {
           declareFlow(paused);
         }
       });
-      // A closed pane's stream, still followed while its input sends what it held, drives only the
-      // input binding.
-      let isClosed = false;
-      // A close the pane is still waiting on lets go of its stream before this one opens.
-      inputBinding.reopen();
+      inputBinding.follow((refusal) => {
+        // A write taken clears only a write's refusal; a size or flow refusal stands.
+        publish((current) =>
+          refusal !== undefined
+            ? { ...current, refusal, refusedCall: "write" }
+            : current.refusedCall === "write"
+              ? { ...current, refusal: undefined, refusedCall: undefined }
+              : current,
+        );
+      });
+      inputBindingRef.current = inputBinding;
+      let hasFrame = false;
       const stopFollowing = followShellOutput(bridge, shell, (delivery) => {
         switch (delivery.kind) {
           case "opened":
             // The helper the stream now runs through may be a new one, which holds no pause.
-            if (!isClosed && writer.isBehind) {
+            if (writer.isBehind) {
               declareFlow(true);
             }
             inputBinding.bind(delivery.subscriptionId);
-            if (!isClosed) {
-              publish((current) => ({
-                ...current,
-                outputSubscriptionId: delivery.subscriptionId,
-                isFollowing: true,
-              }));
-            }
+            publish((current) => ({
+              ...current,
+              outputSubscriptionId: delivery.subscriptionId,
+              isFollowing: true,
+            }));
             return;
           case "ended":
             inputBinding.bind(undefined);
-            if (!isClosed) {
-              publish((current) => ({ ...current, outputSubscriptionId: undefined }));
-            }
+            publish((current) => ({ ...current, outputSubscriptionId: undefined }));
             return;
           case "frame":
-            if (!isClosed) {
-              writer.apply(delivery.frame);
+            writer.apply(delivery.frame);
+            if (!hasFrame) {
+              hasFrame = true;
+              publish((current) => ({ ...current, hasOutput: true }));
             }
             return;
           case "reopenRefusal": {
             // A gone shell takes nothing held for it, refused as a write to it is, once.
-            const isShellGone =
-              delivery.refusal !== undefined && SHELL_GONE_CODES.has(delivery.refusal.code);
-            const hadHeldInput = isShellGone && inputBinding.dropHeld();
-            if (!isClosed) {
-              publish((current) => ({
-                ...current,
-                refusal: delivery.refusal,
-                refusedCall: hadHeldInput ? "write" : "reopen",
-              }));
-            }
+            const hadHeldInput = isShellGone(delivery.refusal) && inputBinding.dropHeld();
+            publish((current) => ({
+              ...current,
+              refusal: delivery.refusal,
+              refusedCall: hadHeldInput ? "write" : "reopen",
+            }));
             return;
           }
         }
       });
       return () => {
-        isClosed = true;
+        inputBindingRef.current = undefined;
         writer.close();
         inputBinding.close(stopFollowing);
         publish((current) => ({
@@ -181,21 +167,15 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
         }));
       };
     },
-    [bridge, inputBinding, publish, sessionId, terminalId],
+    [bridge, publish, sessionId, terminalId],
   );
 
-  const typeKeys = useCallback(
-    (data: string) => {
-      inputBinding.type(data);
-    },
-    [inputBinding],
-  );
-  const pasteText = useCallback(
-    (text: string) => {
-      inputBinding.paste(text);
-    },
-    [inputBinding],
-  );
+  const typeKeys = useCallback((data: string) => {
+    inputBindingRef.current?.type(data);
+  }, []);
+  const pasteText = useCallback((text: string) => {
+    inputBindingRef.current?.paste(text);
+  }, []);
   const resizeShell = useCallback(
     (size: TerminalGridSize) => {
       resizeQueue.resize(size);
@@ -203,10 +183,11 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     [resizeQueue],
   );
 
-  const { outputSubscriptionId, isFollowing, refusal } = value;
+  const { outputSubscriptionId, isFollowing, hasOutput, refusal } = value;
   return {
     outputSubscriptionId,
     isFollowing,
+    hasOutput,
     refusal,
     openOutput,
     typeKeys,
@@ -216,25 +197,20 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
 }
 
 /**
- * The held part of the feed: the subscription, whether it is followed, the refusal, and the call
- * it answered.
+ * The held part of the feed: the subscription, whether it is followed and has drawn, the refusal,
+ * and the call it answered.
  */
 interface ShellOutputState extends Pick<
   ShellOutput,
-  "outputSubscriptionId" | "isFollowing" | "refusal"
+  "outputSubscriptionId" | "isFollowing" | "hasOutput" | "refusal"
 > {
   readonly refusedCall: "write" | "resize" | "flowControl" | "reopen" | undefined;
 }
 
-/** The refusals of a re-open that say the shell is gone, with its session or alone. */
-const SHELL_GONE_CODES: ReadonlySet<string> = new Set<RefusalCode>([
-  "terminal.notFound",
-  "session.notFound",
-]);
-
 const UNOPENED_SHELL_OUTPUT: ShellOutputState = {
   outputSubscriptionId: undefined,
   isFollowing: false,
+  hasOutput: false,
   refusal: undefined,
   refusedCall: undefined,
 };

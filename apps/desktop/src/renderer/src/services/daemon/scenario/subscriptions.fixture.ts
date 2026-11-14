@@ -48,10 +48,10 @@ const NO_HELD_DRAFT: HeldSessionDraft = { draft: { text: "", extras: {} }, revis
  * catches up on what follows that change alone (on the whole log after the start-of-log cursor),
  * and one this playback never delivered ends the subscription refused, as the daemon refuses a
  * cursor it cannot resolve. A bare event-type name carries only itself, one envelope per beat. The
- * two `run.*` streams send frames of registered projections (`RunStateChangeEvent |
- * RunRolledBackEvent` and `QueueItemSummary`) built by `projection.fixture.ts`, each at its beat's
- * cursor, with no catch-up because they are live; the envelope would teach subscribers a frame the
- * live bridge cannot send. A beat the projection
+ * run streams, `agent.run.subscribe` and `agent.queueItem.subscribe`, send frames of registered
+ * projections (`RunStateChangeEvent | AgentRunRolledBackEvent` and `QueueItemSummary`) built by
+ * `projection.fixture.ts`, each at its beat's cursor, with no catch-up because they are live; the
+ * envelope would teach subscribers a frame the live bridge cannot send. A beat the projection
  * cannot build throws, and `lib/emitter.ts` re-raises after every sink has run, so the authoring
  * error reaches whoever advanced the clock without silencing other subscribers. The presence
  * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
@@ -169,7 +169,8 @@ const RUN_QUEUE_ROW_READ = "agent.queueItem.list";
 /**
  * The row for one queue item in the scenario's scripted queue read of the session, or `undefined`
  * when the scenario scripts no such read, refuses it, or its rows do not include this item. A
- * computed read is asked as a call to it is, with the session's request.
+ * computed read is asked as a call to it is, with the session's request, but takes no ordinal, so
+ * a later call's answer does not depend on how many queue beats came first.
  */
 function scriptedQueueRowFor(
   engine: ScenarioEngine,
@@ -186,7 +187,7 @@ function scriptedQueueRowFor(
       : reply.resultFor(
           { sessionId },
           engine.clock.now(),
-          engine.nextComputedReplyOrdinal(RUN_QUEUE_ROW_READ),
+          engine.readNextComputedReplyOrdinal(RUN_QUEUE_ROW_READ),
           (...answeredCalls) => engine.answeredRequests(...answeredCalls),
           requestStampReaderFor(RUN_QUEUE_ROW_READ),
         );

@@ -14,7 +14,8 @@
 import { composeScriptBeats, newestBeatInstant, type ScriptEntry } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import { composeOpeningEntry } from "../data/opening-entries.js";
-import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
+import { SESSION_LIST_OPENING_NOTICES } from "../data/mcp-server-replies.js";
+import { SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
 import { CONCURRENT_STREAMING_LEAD, USER_YOU } from "./concurrent-streaming.js";
 import { composeConversationTurn } from "./long-conversation.js";

@@ -1,6 +1,7 @@
 // The reply chokepoint: a request that never left reads as unsendable and the service's refusal of
-// its params as that refusal, in its code's words, a rejection becomes a refusal and never an
-// exception, and a read whose owner has gone reads nothing from its reply.
+// its params as that refusal, in its code's words, each with the method in the diagnostic record,
+// a rejection becomes a refusal and never an exception, and a read whose owner has gone reads
+// nothing from its reply.
 // Every case drives the real `callDaemon` over the shipped fixture bridge. The helpers are
 // `reply.test-support.ts` beside this file and the shared `tests/helpers/fixture/bridge.ts`.
 
@@ -80,7 +81,7 @@ describe("callDaemon — a request that never left, and params the service refus
     expect(isRefusal(refusal)).toBe(true);
 
     const service = bridgeAnswering(async () => {
-      throw Object.assign(new Error("The params of presence.read break its contract"), {
+      throw Object.assign(new Error("the params break the method's contract"), {
         code: JsonRpcErrorCode.InvalidParams,
         data: {
           type: "request.paramsInvalid" satisfies RefusalCode,
@@ -94,9 +95,10 @@ describe("callDaemon — a request that never left, and params the service refus
     });
     const serviceRefusal = refusalOf(serviceReply ?? { status: "served", value: undefined });
     expect(serviceRefusal.code).toBe("request.paramsInvalid");
-    // Its message names the method, so it reads as its code's words and goes to the capture.
+    // The service's own sentence names no method: the refusal reads as its code's words, and the
+    // record names the method refused.
     expect(serviceRefusal.detail).toBe("Request params invalid");
-    expect(serviceDiagnostics).toContain("The params of presence.read break its contract");
+    expect(serviceDiagnostics).toContain("presence.read");
   });
 });
 

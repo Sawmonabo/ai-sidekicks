@@ -1,12 +1,12 @@
 // How a process's end reads on screen, in the renderer and in main alike: a signal in words, so its
-// name stays in the logs, and a provider process's exit code, signal or silence after the
-// provider's name. Any signal the system has can arrive; one no entry words reads as a system
-// signal.
+// name stays in the logs, a provider process's exit code, signal or silence after the provider's
+// name, and any process's end as a line of its own. Any signal the system has can arrive; one no
+// entry words reads as a system signal.
 
 /**
- * How a provider process ended under work it carried: exactly one of its exit code, the signal
- * that ended it and the silence the daemon ended it for, that silence already a figure in words
- * (`2 minutes`).
+ * How a process ended: exactly one of its exit code, the signal that ended it and, for a provider
+ * process under work it carried, the silence the daemon ended it for, that silence already a
+ * figure in words (`2 minutes`).
  */
 export type ProcessEnd =
   | { readonly kind: "exitCode"; readonly exitCode: number }
@@ -30,7 +30,16 @@ export function processEndWords(providerName: string, end: ProcessEnd): readonly
   return [`${providerName} ${happened}`, processEndCause(end)];
 }
 
-/** Why a provider process ended, in lower case: `exited with code 1`, `no reply for 2 minutes`. */
+/**
+ * A process's end as a line of its own, in sentence case: `Exited with code 1`, `Killed by the
+ * system`.
+ */
+export function processEndLine(end: ProcessEnd): string {
+  const cause = processEndCause(end);
+  return cause.charAt(0).toUpperCase() + cause.slice(1);
+}
+
+/** Why a process ended, in lower case: `exited with code 1`, `no reply for 2 minutes`. */
 export function processEndCause(end: ProcessEnd): string {
   switch (end.kind) {
     case "exitCode":

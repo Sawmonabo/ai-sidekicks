@@ -9,6 +9,7 @@
 /* The clip keeps the emulator inside its boundary; the margin lets the browser's focus
    mark on anything inside paint past that edge without moving the layout. */
 .meridian-terminal-mount-point {
+  position: relative;
   flex: 1 1 auto;
   min-block-size: 0;
   border: 1px solid var(--meridian-edge);
@@ -16,6 +17,15 @@
   background: var(--meridian-surface-sunken);
   overflow: clip;
   overflow-clip-margin: var(--meridian-space-1);
+}
+
+/* The loading line stands over the emulator, above the grid's own positioned layers, so the grid
+   keeps the size its fit reports while the line shows. */
+.meridian-terminal-mount-point__loading {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline: 0;
 }
 
 /* Typing focus sits in the emulator's input, which the emulator keeps off-screen, so the

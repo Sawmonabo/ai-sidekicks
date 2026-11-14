@@ -3,7 +3,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { signalWords } from "#shared/signal-words.js";
+import { processEndLine } from "#shared/signal-words.js";
 
 /**
  * The Error tab's table view: the failure's code in words with its reason, the item it failed on,
@@ -53,11 +53,11 @@ function failureLabel(
 }
 
 // The wire carries exactly one of the exit code and the signal. An exit code is a code, read as
-// it was sent, not a count; a signal reads in words, starting the line.
+// it was sent, not a count; a signal reads in words.
 function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
-  if (processExit.signal === undefined) {
-    return `Exited with code ${String(processExit.exitCode)}`;
-  }
-  const words = signalWords(processExit.signal);
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return processEndLine(
+    processExit.signal === undefined
+      ? { kind: "exitCode", exitCode: processExit.exitCode }
+      : { kind: "signal", signal: processExit.signal },
+  );
 }

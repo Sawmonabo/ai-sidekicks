@@ -226,9 +226,17 @@ export class ScenarioEngine {
    * stays replayable.
    */
   public nextComputedReplyOrdinal(call: string): number {
-    const ordinal = (this.#computedRepliesByCall.get(call) ?? 0) + 1;
+    const ordinal = this.readNextComputedReplyOrdinal(call);
     this.#computedRepliesByCall.set(call, ordinal);
     return ordinal;
+  }
+
+  /**
+   * The ordinal the next computed answer for `call` will take, without taking it: for a stand-in
+   * read that is no call, so the calls after it get the ordinals they would get without it.
+   */
+  public readNextComputedReplyOrdinal(call: string): number {
+    return (this.#computedRepliesByCall.get(call) ?? 0) + 1;
   }
 
   /**

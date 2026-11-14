@@ -1,6 +1,7 @@
-// One shell on screen: its lease line, its emulator fed with its live output, the line saying its
-// program exited, and the line saying why its stream, a write or a size was refused. A shell that
-// did not start draws only its cause with `Try again`. A shell this pane opened takes the focus.
+// One shell on screen: its lease line, its emulator fed with its live output, reading `Loading…`
+// until the first frame arrives unless a refusal stands, the line saying its program exited, and
+// the line saying why its stream, a write or a size was refused. A shell that did not start draws
+// only its cause with `Try again`. A shell this pane opened takes the focus.
 //
 // The write gate opens on the lease folded from the shell list's holder and the session's standing
 // events against this device's id, once the pane's own output feed is followed, since every write
@@ -15,6 +16,7 @@ import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TerminalListEntry } from "@ai-sidekicks/contracts/terminal";
 
+import { processEndLine } from "#shared/signal-words.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -116,6 +118,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
       <XtermMountPoint
         terminalId={terminalId}
         isWriteEnabled={canTypeIntoShell(lease.holder) && output.isFollowing && !hasExited}
+        isAwaitingOutput={!output.hasOutput && output.refusal === undefined}
         label={TERMINAL_OUTPUT_LABEL}
         clock={clock}
         onKeystroke={output.typeKeys}
@@ -125,7 +128,7 @@ function StartedShellBody(props: ShellBodyProps): React.JSX.Element {
       />
       {status.state === "exited" ? (
         <p className="meridian-terminal-pane__exit-line">
-          {`Exited with code ${String(status.exitCode)}`}
+          {processEndLine({ kind: "exitCode", exitCode: status.exitCode })}
         </p>
       ) : null}
       {output.refusal === undefined ? null : (

@@ -1,8 +1,10 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
 // The emulator's code arrives a commit after the mount (`loader.ts`), so the box reads
-// `Loading…` after the short delay until it lands, or `Couldn't load terminal` with `Retry`. This
-// component names the region and leaves the live text to xterm's own `aria-live` region, since
-// announcing the grid again would read every cell twice.
+// `Loading…` after the short delay until it lands, and on until the shell's first frame where the
+// pane awaits one, or `Couldn't load terminal` with `Retry`. The line stands over the emulator, so
+// the grid keeps its size and fit while it shows; one line serves both waits, so the delay runs
+// once. This component names the region and leaves the live text to xterm's own `aria-live`
+// region, since announcing the grid again would read every cell twice.
 
 import "./XtermMountPoint.css";
 
@@ -10,7 +12,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
+import { useChunkLoad } from "#renderer/hooks/useChunkLoad.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useRootFontSizePx } from "#renderer/hooks/useRootFontSizePx.js";
 import type { Clock } from "#renderer/lib/clock.js";
@@ -26,6 +28,8 @@ export interface XtermMountPointProps {
   readonly terminalId: string;
   /** Whether the lease says this user may type. Watch mode is `false`. */
   readonly isWriteEnabled: boolean;
+  /** Whether the shell's first frame is yet to arrive, so the box reads `Loading…` meanwhile. */
+  readonly isAwaitingOutput?: boolean | undefined;
   /** The terminal region's accessible name, supplied by the pane that mounted it. */
   readonly label: string;
   /** The window's clock, from `useClock()`, which delays the loading line. */
@@ -183,6 +187,12 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       data-renderer={rendererMode ?? "pending"}
       data-write-enabled={isWritable ? "true" : "false"}
     >
+      {emulator.status === "loading" ||
+      (emulator.status === "loaded" && props.isAwaitingOutput === true) ? (
+        <div className="meridian-terminal-mount-point__loading">
+          <LoadingNotice clock={props.clock} placement="block" title="Loading…" />
+        </div>
+      ) : null}
       {emulator.status === "loaded" ? (
         <div
           className="meridian-terminal-mount-point__mount-element"
@@ -190,35 +200,18 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
           role="group"
           aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
-      ) : (
-        renderEmulatorAbsence(emulator, props.clock, retryEmulator, emulatorAttempt)
-      )}
+      ) : emulator.status === "failed" ? (
+        <Nothing
+          kind="error"
+          placement="block"
+          title="Couldn't load terminal"
+          action={<TryAgainButton word="Retry" onPress={retryEmulator} />}
+          attempt={emulatorAttempt}
+        />
+      ) : null}
     </div>
   );
 }
 
 /** The adapter instance type, taken from the class the loader resolves. */
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
-
-/**
- * What stands in the box while the emulator's code is not there: one line once the fetch has run
- * past the short delay, and one line naming the pane with `Retry` when it failed.
- */
-function renderEmulatorAbsence(
-  emulator: Exclude<ChunkLoadState<TerminalEmulatorModule>, { status: "loaded" }>,
-  clock: Clock,
-  retry: () => void,
-  attempt: number,
-): React.JSX.Element {
-  return emulator.status === "loading" ? (
-    <LoadingNotice clock={clock} placement="block" title="Loading…" />
-  ) : (
-    <Nothing
-      kind="error"
-      placement="block"
-      title="Couldn't load terminal"
-      action={<TryAgainButton word="Retry" onPress={retry} />}
-      attempt={attempt}
-    />
-  );
-}

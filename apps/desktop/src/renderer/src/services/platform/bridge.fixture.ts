@@ -2,11 +2,11 @@
 // `services/daemon/scenario/wire.fixture.ts`; this assembles it with the host's other answers.
 //
 // Native calls refuse rather than pretend, so a view cannot ship a code path nobody ran against
-// the real dialog. The `app` meta is fixed so a rendered view does not shift with the machine. The
-// keyboard map is held in memory: the first read is empty and a write is read back, which is the
-// Keyboard page's whole contract with main. The appearance record is held the same way: the default
-// appearance at first, and a chosen one reaches every subscriber, as main carries it to every
-// window.
+// the real dialog; the editor list, a read that opens nothing, answers the scenario machine's. The
+// `app` meta is fixed so a rendered view does not shift with the machine. The keyboard map is held
+// in memory: the first read is empty and a write is read back, which is the Keyboard page's whole
+// contract with main. The appearance record is held the same way: the default appearance at
+// first, and a chosen one reaches every subscriber, as main carries it to every window.
 
 import type { AppFacts } from "#shared/app-facts.js";
 import { ClipboardPieces } from "#shared/clipboard-pieces.js";
@@ -28,6 +28,7 @@ import {
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "#renderer/services/daemon/scenario/wire.fixture.js";
+import { EDITOR_LIST } from "#fixtures/data/editor-list.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /** Fixed `app` meta, so a rendered view does not move with the machine. */
@@ -98,7 +99,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // live, where the page keeps the address beside the control either way.
       },
       openInEditor: () => refuseAbsentCapability("native.openInEditor"),
-      listEditors: () => refuseAbsentCapability("native.listEditors"),
+      listEditors: () => Promise.resolve([...EDITOR_LIST]),
       getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       copyToClipboard: async (_content, clipboard) => {
         // Nothing reads the result back, and a refusal would make every "copy id" affordance

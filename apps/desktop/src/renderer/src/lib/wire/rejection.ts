@@ -8,12 +8,16 @@
 // A `detail` is a sentence someone wrote, never a serialization of the rejection, which may hold
 // request values, paths or tokens. Every arm renders a producer-written string (a wire `message`,
 // a refusal's `detail`, an `Error` message, a thrown string), the caller's fallback sentence, or
-// `UNREPRESENTABLE_VALUE_TEXT`; a structure is never stringified.
+// `UNREPRESENTABLE_VALUE_TEXT`; a structure is never stringified. The service's refusal of a
+// request's params reads as its code's words on every arm, since its message says only that the
+// params broke a contract, and no screen draws a sentence the service wrote for its own log.
 //
 // The JSON-RPC arm comes first among the wire arms. `JsonRpcRemoteError`
 // (`packages/client-sdk/src/transport/json-rpc.ts`) carries a numeric JSON-RPC `code`,
 // while the project's dotted code rides at `data.type`, which the contracts say callers must
 // discriminate on. A top-level string `code` is the already-flattened form.
+
+import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 import {
   isErrorInstance,
@@ -22,7 +26,7 @@ import {
   readGuardedProperty,
   UNREPRESENTABLE_VALUE_TEXT,
 } from "./errors.js";
-
+import { codeWords } from "../code-words.js";
 import {
   readRefusalExtensions,
   wireDetailsExtension,
@@ -59,13 +63,18 @@ export function normalizeWireRejection(
 ): ExtendedRefusal {
   const classified = classifyRejection(origin, rejection, fallback);
   if (classified !== undefined) {
-    return classified;
+    return classified.code === SERVICE_PARAMS_REFUSAL_CODE
+      ? { ...classified, detail: codeWords(classified.code) }
+      : classified;
   }
   // Read guardedly: a subclass may define an accessor over `message`, and this arm is reached
   // when the value has already misbehaved.
   const terminalMessage = readGuardedProperty(rejection, "message");
   return refuse(origin, `${origin}-call-failed`, terminalDetail(rejection, terminalMessage));
 }
+
+/** The service's refusal of params that break their method's contract. */
+const SERVICE_PARAMS_REFUSAL_CODE = "request.paramsInvalid" satisfies RefusalCode;
 
 /**
  * The sentence a code-bearing wire arm renders. A missing or non-string `message` is a malformed

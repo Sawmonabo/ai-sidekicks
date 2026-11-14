@@ -157,7 +157,7 @@ export const BODY_BLOCKS: readonly string[] = [
 export const COMMAND_OUTPUT: string = [
   "\u001b[32m✓\u001b[0m transcript/viewport/window-cap.test.ts (24 tests) 112ms",
   "\u001b[32m✓\u001b[0m transcript/reveal/text-rope.test.ts (18 tests) 64ms",
-  "\u001b[31m✗\u001b[0m transcript/feed/structure-acts.test.ts > folds a terminal group",
+  "\u001b[31m✗\u001b[0m transcript/feed/run-group-fold.test.ts > folds a terminal group",
   "  expected 3 rows to be 2",
   "Test Files  1 failed | 2 passed (3)",
 ].join("\n");

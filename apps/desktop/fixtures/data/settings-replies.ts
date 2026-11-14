@@ -1,46 +1,23 @@
-// What the MCP servers and Providers settings pages are answered with: the machine's MCP
-// inventory and its provider-account registry, and the calls each page's controls send. Both
-// are the machine's, not a session's, so a scenario that plays a session spreads these into its
-// own replies.
+// What the MCP servers and Providers settings pages are answered with: the MCP page's replies
+// (`mcp-server-replies.ts`) and the machine's provider-account registry, with the calls the
+// Providers page's controls send. Both are the machine's, not a session's, so a scenario that plays
+// a session spreads these into its own replies.
 //
-// The inventory holds the rows the MCP page must draw: a connected binding whose tools read the
-// server's own settings beside ones set here, one needing authorization while one of its legs is
-// fine, one whose binding store could not be read, and a project's shared copy of that last one's
-// name, which the project does not use because its own copy takes its place.
 // The registry holds a Claude account the daemon observed signed in, with two limits on one window
 // length; a pasted-token Claude account whose token stopped working, marked the default, so its
 // readiness entry carries the paste-token remedy; and a Codex account whose folder holds no
 // credential, whose entry carries the sign-in remedy.
 //
-// The two pages' writes behave as the daemon's do: a switched binding reads back switched, and a
-// tool's facet reads back set here or, once cleared, the server's own, each announced on
-// `mcp.subscribe`; a sign-in the page started ends on its own a few seconds later, reported on
-// `provider.account.subscribe` unless it was canceled first (the first one fails with the
-// provider's reason, and every later one finishes), a checked account answers its current reading,
-// the first pasted token is one the provider does not accept, a re-supplied token keeps the
-// account it was pasted into and signs it back in, and the default moves to a signed-in account
-// while one whose sign-in is gone is refused with its own remedy. The registry read reflects every
-// answered write.
+// The Providers page's writes behave as the daemon's do: a sign-in the page started ends on its own
+// a few seconds later, reported on `provider.account.subscribe` unless it was canceled first (the
+// first one fails with the provider's reason, and every later one finishes), a checked account
+// answers its current reading, the first pasted token is one the provider does not accept, a
+// re-supplied token keeps the account it was pasted into and signs it back in, and the default
+// moves to a signed-in account while one whose sign-in is gone is refused with its own remedy. The
+// registry read reflects every answered write.
 
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
-import {
-  MCP_TOOL_OVERRIDE_FACETS,
-  type McpApplicationGrade,
-  type McpServerBindingId,
-  type McpServerBindingRef,
-  type McpServerConfigChangedNotice,
-  type McpServerInventoryEntry,
-  type McpServerListResponse,
-  type McpServerMutationResponse,
-  type McpServerSignInResponse,
-  type McpToolOverrideApplication,
-  type McpToolOverrideClearRequest,
-  type McpToolOverrideFacet,
-  type McpToolOverrideMutationResponse,
-  type McpToolOverrideUpdateRequest,
-  type McpToolReading,
-} from "@ai-sidekicks/contracts/mcp/server";
 import type {
   ProviderAccountNotification,
   ProviderAccount,
@@ -61,126 +38,22 @@ import {
   type ProviderAccountSignInAttemptCancelResponse,
   type ProviderAccountSignInResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
-import type { RuntimeBindingId } from "@ai-sidekicks/contracts/provider/driver/runtime-binding";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import type {
-  SessionListEntry,
-  SessionSubscribeResponse,
-} from "@ai-sidekicks/contracts/session/directory";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   AnsweredRequests,
   ScenarioNotice,
-  ScenarioOpeningNotice,
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
+import { MCP_SERVER_REPLIES } from "./mcp-server-replies.js";
 import { readMember } from "./requests.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
-const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;
-const SESSION_B = "019b79ee-0280-75e5-8510-ada11a5a22a5" as SessionId;
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 const TOKEN_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
 const CLAUDE = "claude" as ProviderId;
 const CODEX = "codex" as ProviderId;
-
-const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
-  {
-    provider: CLAUDE,
-    scope: "user",
-    serverName: "filesystem",
-    serverBindingId: "1".repeat(64) as McpServerBindingId,
-    config: {
-      transport: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem"],
-      envVarNames: ["FS_ROOT"],
-    },
-    status: "connected",
-    observedAt: OBSERVED_AT,
-    enabled: true,
-    tools: [
-      {
-        toolName: "read_file",
-        enabled: { value: true, source: "server" },
-        approvalMode: { value: "auto", source: "server" },
-        idempotencyClass: {
-          value: "idempotent",
-          source: "override",
-          serverValue: "manualReconcileOnly",
-        },
-      },
-      {
-        toolName: "write_file",
-        enabled: { value: true, source: "server" },
-        approvalMode: { value: "prompt", source: "override", serverValue: "auto" },
-        idempotencyClass: {
-          value: "compensable",
-          source: "override",
-          serverValue: "manualReconcileOnly",
-        },
-      },
-    ],
-  },
-  {
-    provider: CODEX,
-    scope: "project",
-    scopeRef: "/work/sidekicks",
-    serverName: "issue-tracker",
-    serverBindingId: "2".repeat(64) as McpServerBindingId,
-    config: {
-      transport: "http",
-      url: "https://issues.example.test/mcp",
-      headerNames: ["X-Workspace"],
-      bearerTokenEnvVar: "ISSUES_TOKEN",
-    },
-    status: "needsAuth",
-    observedAt: OBSERVED_AT,
-    legs: [
-      {
-        sessionId: SESSION_A,
-        bindingId: "leg-a" as RuntimeBindingId,
-        status: "needsAuth",
-        observedAt: OBSERVED_AT,
-      },
-      { sessionId: SESSION_B, bindingId: "leg-b" as RuntimeBindingId, status: "connected" },
-    ],
-    enabled: true,
-    tools: [
-      {
-        toolName: "create_issue",
-        enabled: { value: true, source: "server" },
-        approvalMode: { value: "writes", source: "server" },
-        idempotencyClass: { value: "manualReconcileOnly", source: "server" },
-      },
-    ],
-  },
-  {
-    provider: CLAUDE,
-    scope: "local",
-    scopeRef: "/work/sidekicks",
-    serverName: "scratchpad",
-    serverBindingId: "3".repeat(64) as McpServerBindingId,
-    config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
-    status: "unknown",
-    bindingStoreUnavailable: true,
-  },
-  {
-    provider: CLAUDE,
-    scope: "project",
-    scopeRef: "/work/sidekicks",
-    serverName: "scratchpad",
-    serverBindingId: "4".repeat(64) as McpServerBindingId,
-    config: { transport: "stdio", command: "npx", args: ["-y", "scratchpad-mcp"] },
-    status: "unknown",
-    supersededIn: [{ path: "/work/sidekicks" }],
-    enabled: true,
-    tools: [],
-  },
-];
 
 /**
  * An account the daemon observed and found signed in, not the default, so it can be made one. The
@@ -311,37 +184,7 @@ const DAEMON_STATUS: DaemonStatusReadResponse = {
 
 /** Every call the two machine-level settings pages make, and what each is answered with. */
 export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
-  // Computed, so a binding switched earlier in the playback reads back switched.
-  { call: "mcp.server.list", resultFor: answerMcpList },
-  // Computed, so the row that was pressed is the row the answer names.
-  {
-    call: "mcp.server.enabled.update",
-    afterMs: 200,
-    resultFor: answerMcpSetEnabled,
-    noticesFor: announceMcpEdit,
-  },
-  // Computed, so the tool that was pressed is the tool the answer names, each facet set here.
-  {
-    call: "mcp.toolOverride.update",
-    afterMs: 200,
-    resultFor: answerMcpToolWrite,
-    noticesFor: announceMcpEdit,
-  },
-  // Computed, so the facet cleared reads the server's own and the tool's others stand.
-  {
-    call: "mcp.toolOverride.clear",
-    afterMs: 200,
-    resultFor: answerMcpToolWrite,
-    noticesFor: announceMcpEdit,
-  },
-  // The server needing authorization hands back the page its provider opens in the browser.
-  {
-    call: "mcp.server.signIn",
-    afterMs: 200,
-    result: {
-      authorizationUrl: "https://issues.example.test/authorize",
-    } satisfies McpServerSignInResponse,
-  },
+  ...MCP_SERVER_REPLIES,
   // Computed, so a moved default and a re-supplied token read back applied.
   { call: "provider.account.list", resultFor: answerAccountList },
   { call: "daemon.status.read", result: DAEMON_STATUS },
@@ -360,219 +203,6 @@ export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   // Computed, so an account whose sign-in is gone is refused with its own remedy.
   { call: "provider.account.current.update", afterMs: 200, resultFor: answerSetCurrent },
 ];
-
-/**
- * The frame `session.subscribe` opens with: the list as it stands, naming the two running sessions
- * the inventory's legs belong to, both chats, so the daemon counts two.
- */
-export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
-  {
-    stream: "session.subscribe",
-    payloadAtOpen: (): SessionSubscribeResponse => ({
-      subscriptionId: "019b79ee-0280-7d11-8510-ada11a5a2300" as SubscriptionId,
-      sessions: [
-        runningChat(SESSION_A, "Fix login"),
-        runningChat(SESSION_B, "Refresh-token expiry"),
-      ],
-      chatCount: 2,
-      isComplete: true,
-    }),
-  },
-];
-
-function runningChat(sessionId: SessionId, name: string): SessionListEntry {
-  return {
-    sessionId,
-    name,
-    shape: "chat",
-    state: "active",
-    activity: "running",
-    activityRenewedAt: OBSERVED_AT,
-    muted: false,
-    lastActivityAt: OBSERVED_AT,
-  };
-}
-
-/**
- * The inventory, with each binding's newest answered `mcp.server.enabled.update` and every
- * answered tool override update and clear applied in the order they landed.
- */
-function answerMcpList(
-  _request: unknown,
-  _settledAtMilliseconds: number,
-  _computedReplyOrdinal: number,
-  answeredRequestsFor: AnsweredRequests,
-): McpServerListResponse {
-  const writes = answeredRequestsFor("mcp.server.enabled.update");
-  const toolWrites = answeredRequestsFor("mcp.toolOverride.update", "mcp.toolOverride.clear");
-  return {
-    servers: MCP_INVENTORY.map((entry) => {
-      const newestWrite = writes.findLast(
-        (request) => scriptedServerAddressedBy(request) === entry,
-      );
-      const enabled = enablementOf(newestWrite);
-      const switched = enabled === undefined ? entry : { ...entry, enabled };
-      return toolWrites
-        .filter((request) => scriptedServerAddressedBy(request) === entry)
-        .reduce(withToolWriteApplied, switched);
-    }),
-    failedProviders: [],
-  };
-}
-
-/**
- * The inventory row a `mcp.server.enabled.update` request addresses, with the enablement it asked
- * for, or `undefined` for a request naming no scripted row, which settles as an unscripted call
- * does.
- */
-function answerMcpSetEnabled(request: unknown): McpServerMutationResponse | undefined {
-  const server = scriptedServerAddressedBy(request);
-  const enabled = enablementOf(request);
-  if (server === undefined || enabled === undefined) {
-    return undefined;
-  }
-  return { server: { ...server, enabled }, applied: "nextRun" };
-}
-
-/**
- * The inventory row a `mcp.toolOverride.update` or `mcp.toolOverride.clear` request addresses,
- * with the write applied and each facet it touched graded as the provider takes it. A request
- * naming no scripted row settles as an unscripted call does.
- */
-function answerMcpToolWrite(request: unknown): McpToolOverrideMutationResponse | undefined {
-  const server = scriptedServerAddressedBy(request);
-  if (server === undefined) {
-    return undefined;
-  }
-  const write = toolWriteOf(request);
-  const touched = MCP_TOOL_OVERRIDE_FACETS.filter((facet) =>
-    "facet" in write ? write.facet === facet : write.override[facet] !== undefined,
-  );
-  return { server: withToolWriteApplied(server, request), applied: applicationOf(server, touched) };
-}
-
-/**
- * Where each touched facet takes effect: Claude Code's at the service's own approval layer at once,
- * Codex's switch and approval mode in its own settings, and an interrupted-call class always at
- * once.
- */
-function applicationOf(
-  entry: McpServerInventoryEntry,
-  facets: readonly McpToolOverrideFacet[],
-): McpToolOverrideApplication {
-  const providerGrade: McpApplicationGrade =
-    entry.provider === CLAUDE ? "daemonEnforced" : "userConfigWrite";
-  return {
-    ...(facets.includes("enabled") ? { enabled: providerGrade } : {}),
-    ...(facets.includes("approvalMode") ? { approvalMode: providerGrade } : {}),
-    ...(facets.includes("idempotencyClass") ? { idempotencyClass: "daemonEnforced" } : {}),
-  };
-}
-
-/**
- * An answered tool write as the page sent it. `callDaemon` sends only a request its method's
- * check accepts, so a request the playback answered for either call has that call's shape.
- */
-function toolWriteOf(request: unknown): McpToolOverrideUpdateRequest | McpToolOverrideClearRequest {
-  return request as McpToolOverrideUpdateRequest | McpToolOverrideClearRequest;
-}
-
-/**
- * A row with one answered tool write applied to the tool it names: each facet an update names
- * reads set here over the server's own value, the facet a clear names reads the server's own
- * value again, and every other facet stands.
- */
-function withToolWriteApplied(
-  entry: McpServerInventoryEntry,
-  request: unknown,
-): McpServerInventoryEntry {
-  if (entry.bindingStoreUnavailable === true) {
-    return entry;
-  }
-  const write = toolWriteOf(request);
-  const toolName = "facet" in write ? write.toolName : write.override.toolName;
-  const override = "facet" in write ? undefined : write.override;
-  const written = <Setting extends McpToolReading[McpToolOverrideFacet]>(
-    facet: McpToolOverrideFacet,
-    setting: Setting,
-    setValue: Setting["value"] | undefined,
-  ): Setting => {
-    const serverValue = setting.source === "server" ? setting.value : setting.serverValue;
-    if ("facet" in write) {
-      return (
-        write.facet === facet ? { source: "server", value: serverValue } : setting
-      ) as Setting;
-    }
-    return (
-      setValue === undefined ? setting : { source: "override", value: setValue, serverValue }
-    ) as Setting;
-  };
-  return {
-    ...entry,
-    tools: entry.tools.map(
-      (tool): McpToolReading =>
-        tool.toolName === toolName
-          ? {
-              ...tool,
-              enabled: written("enabled", tool.enabled, override?.enabled),
-              approvalMode: written("approvalMode", tool.approvalMode, override?.approvalMode),
-              idempotencyClass: written(
-                "idempotencyClass",
-                tool.idempotencyClass,
-                override?.idempotencyClass,
-              ),
-            }
-          : tool,
-    ),
-  };
-}
-
-/** The edit notice the daemon sends once it has applied a binding's enablement change. */
-function announceMcpEdit(request: unknown): readonly ScenarioNotice[] {
-  const server = scriptedServerAddressedBy(request);
-  if (server === undefined) {
-    return [];
-  }
-  const payload: McpServerConfigChangedNotice = {
-    ...bindingRefOf(server),
-    type: "mcp.server.config.changed",
-  };
-  return [{ stream: "mcp.subscribe", afterMs: 0, payloadAtDelivery: () => payload }];
-}
-
-/** The scripted inventory row a request's binding fields address, or `undefined`. */
-function scriptedServerAddressedBy(request: unknown): McpServerInventoryEntry | undefined {
-  return MCP_INVENTORY.find(
-    (entry) =>
-      entry.provider === readMember(request, "provider") &&
-      entry.scope === readMember(request, "scope") &&
-      entry.serverName === readMember(request, "serverName") &&
-      scopeRefOf(entry) === readMember(request, "scopeRef"),
-  );
-}
-
-/** The scope reference a row's scope carries, or `undefined` for a scope that names none. */
-function scopeRefOf(entry: McpServerInventoryEntry): string | undefined {
-  return "scopeRef" in entry ? entry.scopeRef : undefined;
-}
-
-/** The enablement a request or override asked for, or `undefined` for none. */
-function enablementOf(request: unknown): boolean | undefined {
-  const enabled = readMember(request, "enabled");
-  return typeof enabled === "boolean" ? enabled : undefined;
-}
-
-/** A row's binding address alone, as a notice carries it. */
-function bindingRefOf(entry: McpServerInventoryEntry): McpServerBindingRef {
-  const { provider, scope, serverName } = entry;
-  const scopeRef = scopeRefOf(entry);
-  // The row's own scope and reference, so the address is one of the row's own arms.
-  return (
-    scopeRef === undefined
-      ? { provider, scope, serverName }
-      : { provider, scope, scopeRef, serverName }
-  ) as McpServerBindingRef;
-}
 
 /**
  * A device-code sign-in whose attempt id is minted from the answer's ordinal, its code good for a

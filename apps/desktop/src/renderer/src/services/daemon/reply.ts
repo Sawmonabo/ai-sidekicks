@@ -8,8 +8,6 @@
 //
 // No request value reaches a refusal's detail, because it can be a user's message, a path or a
 // credential. The detail is a plain sentence; the method goes to the window's diagnostic capture.
-// The service's refusal of a request's params reads as its code's words, since its message names
-// the method; that message goes to the capture.
 //
 // A rejection goes to `normalizeWireRejection` (`lib/wire/rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
@@ -18,7 +16,6 @@
 // `call-rejected`.
 
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
-import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 import type {
   DaemonParams,
@@ -27,7 +24,6 @@ import type {
 } from "#shared/daemon/method-bindings.js";
 import { REQUEST_UNSENDABLE_CODE } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
-import { codeWords } from "#renderer/lib/code-words.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import { readGuardedProperty } from "#renderer/lib/wire/errors.js";
 import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
@@ -44,9 +40,6 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
 
 /** The subsystem every diagnostic record of a refused call names. */
 const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
-
-/** The service's refusal of params that break their method's contract. */
-const SERVICE_PARAMS_REFUSAL_CODE = "request.paramsInvalid" satisfies RefusalCode;
 
 /**
  * Why the app refused a call on its own side of the wire. None overlaps a daemon code: a
@@ -165,19 +158,13 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       rejection,
       CALL_REJECTED_FALLBACK,
     );
-    // The service's message for params it refused names the method, which the screen never
-    // shows: the refusal reads as its code's words, and the message goes to the capture.
-    const isParamsRefusal = normalized.code === SERVICE_PARAMS_REFUSAL_CODE;
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: normalized.code,
-      subject: isParamsRefusal ? normalized.detail : method,
+      subject: method,
       issues: refusedIssuesOf(rejection),
     });
-    const refusal = isParamsRefusal
-      ? { ...normalized, detail: codeWords(normalized.code) }
-      : normalized;
-    return { status: "refused", refusal };
+    return { status: "refused", refusal: normalized };
   }
 
   if (isReadAbandoned(signal)) {
