@@ -30,7 +30,7 @@ use super::{ClaudeMcpSignInSources, read_sign_in_entry};
 use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, ClaudeCredentialReadError, ClaudeSignInReader,
     ClaudeStoredClientSecrets, claude_credential_folder, environment_home,
-    read_claude_credential_file, read_secret,
+    read_claude_credential_file,
 };
 use crate::driver::claude::mcp::config::{ClaudeServerEntryReader, OAUTH_MEMBER, URL_MEMBER};
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
@@ -40,6 +40,7 @@ use crate::driver::claude::session::settings_file::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::McpServerAddressRead;
+use crate::driver::saved_secret::read_optional_secret;
 
 /// The member of an entry's `oauth` naming the client its owner issued.
 const CLIENT_ID_MEMBER: &str = "clientId";
@@ -328,7 +329,7 @@ async fn read_stored_client_secret(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HelperOutput {
-    #[serde(rename = "clientSecret", deserialize_with = "read_secret")]
+    #[serde(rename = "clientSecret", deserialize_with = "read_optional_secret")]
     client_secret: Option<SecretString>,
 }
 

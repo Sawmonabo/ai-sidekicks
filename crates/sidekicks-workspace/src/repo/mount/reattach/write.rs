@@ -2,7 +2,8 @@
 //! and the new mount's insert with its owed first verdict, the workspaces' and listed trees' move,
 //! the other trees' retirement, and for a move to a picked folder the project's folder and the
 //! workspaces' paths inside the old root carried to the new one, with the old common folder
-//! recorded for the carry of its captures; and what the committed write read back.
+//! recorded for the carry of its captures after those the old mount still carried; and what the
+//! committed write read back.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -162,12 +163,33 @@ const UPDATE_PROJECT_FOLDER_SQL: &str = "UPDATE projects
   WHERE id = (SELECT project_id FROM repo_mounts WHERE id = @new_repo_mount_id)
     AND folder_path <> @canonical_root";
 
-// A move records the common folder its captures are carried from until the carry clears it.
+// A move records the old common folder its captures are carried from until the carry clears it,
+// after the ones the old mount still carried, oldest first, so a carry a later move cut off is
+// finished by the newest mount's carry; a re-attach in place of a mount still carrying takes its
+// record forward the same way. Read before the old row's record is removed below.
 static RECORD_CAPTURES_MOVED_FROM_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE repo_mounts
-    SET metadata = json_set(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}', @captures_moved_from)
-  WHERE id = @new_repo_mount_id AND @captures_moved_from IS NOT NULL"
+    SET metadata = json_set(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}', json_insert(
+          json(coalesce(
+            (SELECT json_extract(old.metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}')
+               FROM repo_mounts AS old WHERE old.id = @repo_mount_id),
+            '[]')),
+          '$[#]', @old_common_dir))
+  WHERE id = @new_repo_mount_id
+    AND (@is_moved OR EXISTS (
+      SELECT 1 FROM repo_mounts AS old
+       WHERE old.id = @repo_mount_id
+         AND json_extract(old.metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}') IS NOT NULL))"
+    )
+});
+
+// The old mount's record, taken forward onto the new one above.
+static CLEAR_TAKEN_CARRY_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE repo_mounts
+    SET metadata = json_remove(metadata, '{CAPTURES_MOVED_FROM_METADATA_PATH}')
+  WHERE id = @repo_mount_id"
     )
 });
 
@@ -199,8 +221,9 @@ pub(super) struct ReattachBindings {
     pub(super) new_repo_mount_id: RepoMountId,
     /// The old mount's anchor, which the detach compares.
     pub(super) old_common_dir: String,
-    /// For a move, the old anchor, recorded on the new mount until its captures are carried.
-    pub(super) captures_moved_from: Option<String>,
+    /// Whether the root moved, so the old anchor is recorded on the new mount until its captures
+    /// are carried.
+    pub(super) is_moved: bool,
     /// The repository's common folder now, the new mount's anchor.
     pub(super) common_dir: String,
     /// The new mount's path as entered: the old one's for a re-attach in place.
@@ -308,7 +331,7 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
         ),
         statement(
             RETIRE_UNLISTED_WORKTREES_SQL.as_str(),
-            vec![mount, now.clone()],
+            vec![mount.clone(), now.clone()],
             None,
         ),
         statement(
@@ -320,13 +343,16 @@ pub(super) fn reattach_statements(bindings: &ReattachBindings) -> Vec<WriteState
             RECORD_CAPTURES_MOVED_FROM_SQL.as_str(),
             vec![
                 new_mount.clone(),
-                nullable_text_binding(
-                    "@captures_moved_from",
-                    bindings.captures_moved_from.as_deref(),
+                mount.clone(),
+                text_binding("@old_common_dir", &bindings.old_common_dir),
+                (
+                    "@is_moved".into(),
+                    Value::Integer(i64::from(bindings.is_moved)),
                 ),
             ],
             None,
         ),
+        statement(CLEAR_TAKEN_CARRY_SQL.as_str(), vec![mount], None),
     ];
     // Last, so every statement position named above holds.
     statements.extend(bindings.rebased_workspaces.iter().map(|rebased| {

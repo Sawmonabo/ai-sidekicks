@@ -71,7 +71,7 @@ use self::write::{
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::{ExecutionRootError, ExecutionRootService};
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::turn_snapshot::capture_folder::CaptureCarry;
+use crate::git::turn_snapshot::capture_folder::{CaptureCarry, real_path_name};
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::event_emitter::{EmitWorktreeEventInput, WorktreeEventEmitter};
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
@@ -416,7 +416,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         let bindings = ReattachBindings {
             repo_mount_id,
             new_repo_mount_id: new_repo_mount_id(),
-            captures_moved_from: is_moved.then(|| old_common_dir.clone()),
+            is_moved,
             old_common_dir,
             common_dir,
             local_path: target.local_path.to_string_lossy().into_owned(),
@@ -428,29 +428,37 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             rebased_workspaces: target.rebased_workspaces,
             now: WireInstant::now(),
         };
-        // Pending from before the write, so no capture folder opens at either name until it is
-        // carried, whatever runs between the write and the carry.
-        let carry = if is_moved {
-            let carry = CaptureCarry::new(old_anchor, &target.common_folder)
-                .await
-                .map_err(RepoMountReattachError::Folder)?;
-            self.packing.carries().expect(carry.clone());
-            Some(carry)
+        // Pending from before the write, so a capture folder of any name the move carries waits
+        // for the write and opens only once it is carried, whatever runs between the write and
+        // the carry. Nothing between here and the write's end takes a checkout lock or opens a
+        // capture folder, so an opener waiting on it holds up nothing the write needs.
+        let moved_from = if is_moved {
+            vec![old_anchor.to_path_buf()]
         } else {
-            None
+            Vec::new()
         };
+        let move_carry = CaptureCarry::new(&moved_from, &target.common_folder)
+            .await
+            .map_err(RepoMountReattachError::Folder)?;
+        let replaced_name = real_path_name(old_anchor)
+            .await
+            .map_err(RepoMountReattachError::Folder)?;
+        let carry_write = self
+            .packing
+            .carries()
+            .expect_write(replaced_name, move_carry);
         #[cfg(test)]
         self.write_pause.pass().await;
 
         let results = match self.writer.write(reattach_statements(&bindings)).await {
             Ok(results) => results,
             Err(error) => {
-                if let Some(carry) = &carry {
-                    self.packing.carries().finish(carry);
-                }
+                // A refused move renames nothing: its carry goes before any opener looks again.
+                drop(carry_write);
                 return Err(self.refusal_of_write(error, &bindings).await);
             }
         };
+        let carry = carry_write.written();
         self.attach_notice.raise();
         let new_repo_mount_id = bindings.new_repo_mount_id;
         let mut failures = Vec::new();
@@ -474,8 +482,8 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
 
         // The re-attach is committed: every follow-up is tried, and the failures answered together.
         // The captures go first, so a run admitted on the new mount finds them at the new name.
-        if let Some(carry) = &carry
-            && let Err(failure) = self.carry_captures(new_repo_mount_id, carry).await
+        if (is_moved || carry.is_rename())
+            && let Err(failure) = self.carry_captures(new_repo_mount_id, &carry).await
         {
             failures.push(RepoMountReattachFollowUpFailure::Captures(failure));
         }

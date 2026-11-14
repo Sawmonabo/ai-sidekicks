@@ -12,11 +12,12 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
 use super::ClaudeSignInError;
 use crate::driver::claude::account::credentials::{
-    ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file, read_secret,
+    ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file,
 };
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::sign_in::{BEARER_TOKEN_TYPE, ProviderSignInTakeover};
 use crate::driver::mcp_server::address::names_server_at;
+use crate::driver::saved_secret::read_optional_secret;
 
 /// Whether `stored` holds a sign-in with an access token for `name`.
 pub(super) fn holds_sign_in_for(stored: &ClaudeStoredCredentials, name: &McpServerName) -> bool {
@@ -84,9 +85,9 @@ pub(crate) struct ClaudeSavedSignIn {
     server_name: Option<String>,
     #[serde(default)]
     server_url: Option<String>,
-    #[serde(default, deserialize_with = "read_secret")]
+    #[serde(default, deserialize_with = "read_optional_secret")]
     access_token: Option<SecretString>,
-    #[serde(default, deserialize_with = "read_secret")]
+    #[serde(default, deserialize_with = "read_optional_secret")]
     refresh_token: Option<SecretString>,
     #[serde(default)]
     expires_at: Option<f64>,
@@ -94,7 +95,7 @@ pub(crate) struct ClaudeSavedSignIn {
     scope: Option<String>,
     #[serde(default)]
     client_id: Option<String>,
-    #[serde(default, deserialize_with = "read_secret")]
+    #[serde(default, deserialize_with = "read_optional_secret")]
     client_secret: Option<SecretString>,
     #[serde(default)]
     issuer: Option<String>,

@@ -15,8 +15,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use secrecy::{ExposeSecret, SecretString};
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer};
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{KeychainItemRefusal, PathRules, SignInMove, Spawner};
@@ -29,6 +29,7 @@ use zeroize::Zeroizing;
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::mcp::sign_in::saved_credentials::ClaudeSavedSignIn;
 use crate::driver::claude::spawn::environment::{claude_config_folder, claude_text_variable};
+use crate::driver::saved_secret::read_optional_secret;
 use crate::inbound_json::decode_inbound_json;
 
 /// The file in the credential folder Claude Code keeps a sign-in in where the keychain is not used.
@@ -365,15 +366,12 @@ pub(crate) struct ClaudeStoredClientSecrets {
 #[derive(Deserialize)]
 pub(crate) struct ClaudeStoredClientConfig {
     /// The secret, sent with the entry's `oauth.clientId`.
-    #[serde(rename = "clientSecret", default, deserialize_with = "read_secret")]
+    #[serde(
+        rename = "clientSecret",
+        default,
+        deserialize_with = "read_optional_secret"
+    )]
     pub(crate) client_secret: Option<SecretString>,
-}
-
-/// A text member read straight into a secret, for the `deserialize_with` of an optional member.
-pub(crate) fn read_secret<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<SecretString>, D::Error> {
-    Ok(Option::<String>::deserialize(deserializer)?.map(SecretString::from))
 }
 
 /// Why Claude Code's stored credentials could not be read. No case carries a stored value.

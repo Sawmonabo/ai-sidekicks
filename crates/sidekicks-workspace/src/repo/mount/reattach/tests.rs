@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,7 +19,6 @@ use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::settle_all::SettleFailures;
-use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
@@ -34,12 +32,9 @@ use super::{
 };
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
+use crate::git::process::test_git_runner;
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
-use crate::git::process::{GitCall, GitRunner, test_git_runner};
 use crate::git::turn_snapshot::capture::GitFloorReports;
-use crate::git::turn_snapshot::capture_folder::{
-    CAPTURES_SEGMENT, CaptureFolder, git_folder_argument, real_path_name,
-};
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::repo::root_resolver::RepoRootResolver;
@@ -470,6 +465,77 @@ async fn a_reattachs_refused_first_health_is_sent_once_by_the_next_health_pass()
     );
 }
 
+// A move made while the re-attach before it still owes its first health leaves the session one
+// health event of the newest mount, naming the oldest mount, whose health the session's log holds
+// and whose banner it shows, and no record on any mount of the chain. Killed by the event naming
+// the middle mount, whose health the session never heard, and by a record left on the ended one.
+#[tokio::test]
+async fn a_move_before_a_reattachs_first_health_names_the_mount_the_session_heard_of() {
+    let fixture = ReattachFixture::with_health_events(refusing_events).await;
+    let workspace_id = fixture.roots.bind().await;
+    fixture
+        .roots
+        .prepare(workspace_id, None)
+        .await
+        .expect("the workspace roots at the repository");
+    fixture.roots.replace_repository().await;
+    let events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(
+        &fixture.roots.log.service,
+    )));
+    fixture
+        .roots
+        .mount_health(Arc::clone(&events))
+        .reprobe()
+        .await
+        .expect("the session hears its folder is another repository");
+
+    let Err(RepoMountReattachError::FollowUpIncomplete {
+        repo_mount_id: middle,
+        ..
+    }) = fixture.reattach(MOUNT_ID).await
+    else {
+        panic!("the re-attach commits and its first health is refused");
+    };
+    let moved = fixture
+        .roots
+        .repository
+        .parent()
+        .expect("the repository sits in the scratch folder")
+        .join("moved");
+    std::fs::rename(&fixture.roots.repository, &moved).expect("the repository moves");
+    let Err(RepoMountReattachError::FollowUpIncomplete {
+        repo_mount_id: newest,
+        ..
+    }) = fixture.move_to(middle.text().as_str(), &moved).await
+    else {
+        panic!("the move commits and its first health is refused");
+    };
+
+    fixture
+        .roots
+        .mount_health(events)
+        .reprobe()
+        .await
+        .expect("the owed first health is sent");
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT group_concat(json_extract(payload, '$.repoMountId') || ' ' || \
+             coalesce(json_extract(payload, '$.replacedRepoMountId'), 'none')) \
+             FROM session_events WHERE session_id = '{SESSION_ID}' \
+             AND type = 'repoMount.health.changed' \
+             AND json_extract(payload, '$.repoMountId') <> '{MOUNT_ID}'"
+        )),
+        Some(format!("{newest} {MOUNT_ID}"))
+    );
+    assert_eq!(
+        fixture.roots.count(
+            "SELECT count(*) FROM repo_mounts \
+             WHERE json_extract(metadata, '$.replacedRepoMountId') IS NOT NULL"
+        ),
+        0
+    );
+}
+
 #[tokio::test]
 async fn a_run_that_starts_after_the_checks_refuses_the_write_naming_its_agent() {
     // Catches the running check's expected count of zero dropped from the write: the re-attach
@@ -664,171 +730,4 @@ async fn a_lost_mount_follows_its_repository_keeping_every_id_and_refuses_anothe
     }
 }
 
-// A capture taken before its repository moved is found and read at the new folder after the move,
-// its run's context naming the new common folder; and so it is after a stop cut the move between
-// its write and the carry, once the start's carry runs, whether the folder was renamed or not, and
-// when a turn captured at the new name before that carry. Killed by the move's carry dropped (no
-// folder at the new name), by the rows left unrewritten (the context names the old folder), by the
-// record of the carry left unwritten or uncleared, by an opener that makes a folder at the new
-// name while the carry is pending, and by a rename that replaces a folder already at the new name.
-#[tokio::test]
-async fn a_capture_taken_before_a_move_is_found_and_read_after_it() {
-    let fixture = ReattachFixture::new().await;
-    let git = &fixture.roots.git;
-    let workspace_id = fixture.roots.bind().await;
-    let repository = fixture.roots.repository.clone();
-    let head = git_in(git, &repository, &["rev-parse", "HEAD"]).await;
-    let root_commit = git_in(git, &repository, &["rev-list", "--max-parents=0", "HEAD"]).await;
-    let old_common = repository.join(".git");
-    fixture
-        .roots
-        .rows
-        .execute_batch(&format!(
-            "UPDATE repo_mounts SET metadata = json_set(metadata, '$.rootCommit', '{root_commit}') \
-             WHERE id = '{MOUNT_ID}';
-             INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, created_at, \
-             updated_at) VALUES ('branch-context', '{workspace_id}', 'main', 'main', \
-             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
-             INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
-             created_at, released_at) VALUES ('{RUN_ID}', '{SESSION_ID}', '{workspace_id}', \
-             'boundRoot', '{root}', '{root}', '{common}', 'branch-context', '{PARENT_ROWS_AT}', \
-             '{PARENT_ROWS_AT}')",
-            root = repository.to_string_lossy(),
-            common = old_common.to_string_lossy(),
-        ))
-        .expect("the mount records its first commit and a past run its context");
-    let owner = session_storage_folder(
-        &fixture.roots.scratch.path().join("data"),
-        &SessionId::new(SESSION_ID).expect("the id is a UUID"),
-    );
-    let captured_file = fixture.roots.scratch.path().join("captured.txt");
-    std::fs::write(&captured_file, "the captured words").expect("the file is written");
-    let packing = &fixture.packing;
-    let capture_folder = CaptureFolder::open_or_create(git, None, packing, &owner, &old_common)
-        .await
-        .expect("the capture folder is made");
-    let blob = capture_git(
-        git,
-        &capture_folder,
-        &["hash-object", "-w", &captured_file.to_string_lossy()],
-    )
-    .await;
-
-    let moved = repository
-        .parent()
-        .expect("the repository sits in the scratch folder")
-        .join("moved");
-    std::fs::rename(&repository, &moved).expect("the repository moves");
-    fixture
-        .move_to(MOUNT_ID, &moved)
-        .await
-        .expect("the mount follows its repository");
-    let new_common = moved.join(".git");
-    let context =
-        format!("SELECT git_common_dir FROM run_execution_contexts WHERE run_id = '{RUN_ID}'");
-    let record = "SELECT count(*) FROM repo_mounts \
-                  WHERE json_extract(metadata, '$.capturesMovedFrom') IS NOT NULL";
-    let new_name = real_path_name(&new_common)
-        .await
-        .expect("the new common folder resolves");
-
-    // As the move left it, then as a stop after its write leaves it, the folder renamed or not.
-    for is_folder_renamed_back in [None, Some(false), Some(true)] {
-        if let Some(is_folder_renamed_back) = is_folder_renamed_back {
-            fixture
-                .roots
-                .rows
-                .execute_batch(&format!(
-                    "UPDATE repo_mounts SET metadata = json_set(metadata, \
-                     '$.capturesMovedFrom', '{old}') WHERE state = 'attached';
-                     UPDATE run_execution_contexts SET git_common_dir = '{old}'",
-                    old = old_common.to_string_lossy(),
-                ))
-                .expect("the stop leaves the move's write alone");
-            if is_folder_renamed_back {
-                std::fs::rename(
-                    owner.join(CAPTURES_SEGMENT).join(&new_name),
-                    capture_folder.folder(),
-                )
-                .expect("the capture folder is as it was before the carry");
-            }
-            fixture
-                .service
-                .expect_moved_captures()
-                .await
-                .expect("the start holds the carry before anything captures");
-            // A turn captures at the new name before the start's carry runs.
-            let turn_folder =
-                CaptureFolder::open_or_create(git, None, packing, &owner, &new_common)
-                    .await
-                    .expect("the turn's capture folder opens");
-            assert_eq!(
-                capture_git(git, &turn_folder, &["cat-file", "-p", &blob]).await,
-                "the captured words"
-            );
-            fixture
-                .service
-                .carry_moved_captures()
-                .await
-                .expect("the start's carry finishes the move");
-        }
-        assert_eq!(
-            fixture.text(&context),
-            Some(new_common.to_string_lossy().into_owned())
-        );
-        assert_eq!(fixture.roots.count(record), 0);
-        let found = CaptureFolder::open_existing(packing, &owner, &new_common)
-            .await
-            .expect("the captures folder reads")
-            .expect("the capture folder is found at the new folder");
-        assert_eq!(
-            capture_git(git, &found, &["cat-file", "-p", &blob]).await,
-            "the captured words"
-        );
-        assert_eq!(
-            capture_git(git, &found, &["cat-file", "-t", &head]).await,
-            "commit"
-        );
-    }
-
-    // A folder already at the new name is never replaced.
-    std::fs::create_dir_all(capture_folder.folder()).expect("a folder takes the old name");
-    fixture
-        .roots
-        .rows
-        .execute(
-            "UPDATE repo_mounts SET metadata = json_set(metadata, '$.capturesMovedFrom', ?1) \
-             WHERE state = 'attached'",
-            params![old_common.to_string_lossy()],
-        )
-        .expect("a carry is owed again");
-    fixture
-        .service
-        .carry_moved_captures()
-        .await
-        .expect_err("the new name is taken");
-    assert_eq!(fixture.roots.count(record), 1);
-}
-
-// What git printed, trimmed, for `arguments` against the capture folder with the repository's
-// objects attached. Panics when git fails.
-async fn capture_git(
-    git: &GitRunner,
-    capture_folder: &CaptureFolder,
-    arguments: &[&str],
-) -> String {
-    let mut call = GitCall::read(
-        [git_folder_argument(capture_folder.folder())]
-            .into_iter()
-            .chain(arguments.iter().map(OsString::from)),
-    );
-    for (name, value) in capture_folder.write_environment() {
-        call = call.with_environment(name, value);
-    }
-    let output = git.run(None, call).await.expect("git answers");
-    String::from_utf8(output.stdout)
-        .expect("git prints UTF-8")
-        .trim()
-        .to_owned()
-}
+mod moved_captures;

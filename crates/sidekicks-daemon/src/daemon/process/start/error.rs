@@ -15,6 +15,7 @@ use sidekicks_shell::orphan::guard::OrphanGuardError;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduleError;
 use sidekicks_store::machine::local::LocalMachineError;
+use sidekicks_workspace::repo::mount::reattach::moved_captures::CaptureCarryError;
 use tokio::task::JoinError;
 
 use crate::bootstrap::SecureDefaultsError;
@@ -146,6 +147,10 @@ pub(crate) enum DaemonStartError {
     /// The run queues could not be read to deliver what a stop left waiting.
     #[error("the run queues could not be recovered")]
     QueueRecovery(#[source] Box<QueueError>),
+    /// The moved projects' captures a stop left uncarried could not be read or named, so nothing
+    /// may capture before they are.
+    #[error("the moved projects' captures still to carry could not be read")]
+    MovedCaptures(#[from] CaptureCarryError),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release

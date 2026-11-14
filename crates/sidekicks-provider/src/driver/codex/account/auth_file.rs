@@ -11,9 +11,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jiff::Timestamp;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserialize, Serializer};
 use subtle::ConstantTimeEq as _;
 use zeroize::Zeroizing;
+
+use crate::driver::saved_secret::{read_optional_secret, read_secret};
 
 /// The file Codex's `file` store writes in its home.
 const CODEX_AUTH_FILE_NAME: &str = "auth.json";
@@ -122,11 +124,11 @@ struct AuthFileMembers {
 
 #[derive(Deserialize)]
 struct TokenMembers {
-    #[serde(deserialize_with = "deserialize_secret")]
+    #[serde(deserialize_with = "read_secret")]
     access_token: SecretString,
     #[serde(default)]
     account_id: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_optional_secret")]
+    #[serde(default, deserialize_with = "read_optional_secret")]
     id_token: Option<SecretString>,
 }
 
@@ -147,20 +149,6 @@ struct IdentityClaims {
 struct IdentityAuthClaim {
     #[serde(default)]
     chatgpt_plan_type: Option<String>,
-}
-
-/// A text member read straight into a secret, for a `deserialize_with`.
-pub(crate) fn deserialize_secret<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<SecretString, D::Error> {
-    String::deserialize(deserializer).map(SecretString::from)
-}
-
-/// An optional text member read straight into a secret, for a `deserialize_with`.
-pub(crate) fn deserialize_optional_secret<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<SecretString>, D::Error> {
-    Option::<String>::deserialize(deserializer).map(|text| text.map(SecretString::from))
 }
 
 /// Reads `home`'s `auth.json`: `None` when the home has none. Fails when the file cannot be read,

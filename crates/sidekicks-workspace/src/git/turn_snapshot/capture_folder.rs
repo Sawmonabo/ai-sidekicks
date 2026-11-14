@@ -6,7 +6,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::place::Place;
@@ -18,6 +18,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::remove_tree_awaited;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
+use tokio::sync::OwnedMutexGuard;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitError, GitRunner};
@@ -137,9 +138,11 @@ impl CaptureFolder {
         Ok(is_present.then_some(located.capture_folder))
     }
 
-    // Where the capture folder of `owner` and `repository` is, made or not. A name either end of a
-    // carry `packing` holds is carried first, so no folder opens at the new name while the old one
-    // holds the repository's captures, and a stored old common folder reads the new one's objects.
+    // Where the capture folder of `owner` and `repository` is, made or not. A name on a carry
+    // `packing` holds is carried first, from each old name oldest first, so no folder opens at the
+    // new name while an old one holds the repository's captures, and a stored old common folder
+    // reads the newest one's objects. A name on a carry whose move's write is out waits for it, so
+    // nothing is renamed for a move that is then refused.
     async fn locate(
         packing: &CapturePacking,
         owner: &Path,
@@ -147,22 +150,34 @@ impl CaptureFolder {
     ) -> io::Result<LocatedCaptureFolder> {
         let name = real_path_name(repository).await?;
         let captures = owner.join(CAPTURES_SEGMENT);
-        let Some(carry) = packing.carries().pending(&name) else {
-            return Ok(LocatedCaptureFolder {
-                capture_folder: Self::new(captures.join(&name), &repository.join(OBJECTS_SEGMENT))?,
-                repository: repository.to_path_buf(),
-                name,
-            });
-        };
-        let to = captures.join(&carry.new_name);
-        packing
-            .move_capture_folder(&captures.join(&carry.old_name), &to)
-            .await?;
-        Ok(LocatedCaptureFolder {
-            capture_folder: Self::new(to, &carry.moved_to.join(OBJECTS_SEGMENT))?,
-            repository: carry.moved_to,
-            name: carry.new_name,
-        })
+        loop {
+            match packing.carries().pending(&name) {
+                None => {
+                    return Ok(LocatedCaptureFolder {
+                        capture_folder: Self::new(
+                            captures.join(&name),
+                            &repository.join(OBJECTS_SEGMENT),
+                        )?,
+                        repository: repository.to_path_buf(),
+                        name,
+                    });
+                }
+                Some(PendingCarry::Awaited(write)) => drop(write.lock().await),
+                Some(PendingCarry::Written(carry)) => {
+                    let to = captures.join(&carry.new_name);
+                    for old_name in &carry.old_names {
+                        packing
+                            .move_capture_folder(&captures.join(old_name), &to)
+                            .await?;
+                    }
+                    return Ok(LocatedCaptureFolder {
+                        capture_folder: Self::new(to, &carry.moved_to.join(OBJECTS_SEGMENT))?,
+                        repository: carry.moved_to,
+                        name: carry.new_name,
+                    });
+                }
+            }
+        }
     }
 
     // The capture folder at the git folder `folder`, attaching the object folder
@@ -318,35 +333,45 @@ struct LocatedCaptureFolder {
     name: String,
 }
 
-/// One moved repository's capture folders still to be renamed from its old common folder's name to
-/// its new one's.
+/// One moved repository's capture folders still to be renamed from each of its old common folders'
+/// names to its newest one's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CaptureCarry {
-    /// The old common folder's name.
-    old_name: String,
-    /// The new common folder's name.
+    /// The old common folders' names, oldest first, the newest name never among them.
+    old_names: Vec<String>,
+    /// The newest common folder's name.
     new_name: String,
-    /// The new common folder.
+    /// The newest common folder.
     moved_to: PathBuf,
 }
 
 impl CaptureCarry {
-    /// The carry of the repository whose common git folder moved from `moved_from` to `moved_to`.
-    /// Fails as resolving either path does.
-    pub(crate) async fn new(moved_from: &Path, moved_to: &Path) -> io::Result<Self> {
+    /// The carry of the repository whose common git folder moved from each of `moved_from` in turn,
+    /// oldest first, to `moved_to`; a folder resolving to the newest name, as one moved back does,
+    /// is no old one. Fails as resolving a path does.
+    pub(crate) async fn new(moved_from: &[PathBuf], moved_to: &Path) -> io::Result<Self> {
+        let new_name = real_path_name(moved_to).await?;
+        let mut old_names: Vec<String> = Vec::with_capacity(moved_from.len());
+        for folder in moved_from {
+            let name = real_path_name(folder).await?;
+            if name != new_name && !old_names.contains(&name) {
+                old_names.push(name);
+            }
+        }
         Ok(Self {
-            old_name: real_path_name(moved_from).await?,
-            new_name: real_path_name(moved_to).await?,
+            old_names,
+            new_name,
             moved_to: moved_to.to_path_buf(),
         })
     }
 
-    /// The old common folder's name, which each owner's capture folder is renamed from.
-    pub(crate) fn old_name(&self) -> &str {
-        &self.old_name
+    /// The old common folders' names, oldest first, which each owner's capture folder is renamed
+    /// from.
+    pub(crate) fn old_names(&self) -> &[String] {
+        &self.old_names
     }
 
-    /// The new common folder's name, which each owner's capture folder is renamed to.
+    /// The newest common folder's name, which each owner's capture folder is renamed to.
     pub(crate) fn new_name(&self) -> &str {
         &self.new_name
     }
@@ -354,47 +379,206 @@ impl CaptureCarry {
     /// Whether the folders are renamed: a checkout that moved within its repository, whose common
     /// folder stayed, keeps its capture folders' names.
     pub(crate) fn is_rename(&self) -> bool {
-        self.old_name != self.new_name
+        !self.old_names.is_empty()
     }
 
-    /// The new common folder, which the stored rows are rewritten to.
+    /// The newest common folder, which the stored rows are rewritten to.
     pub(crate) fn moved_to(&self) -> &Path {
         &self.moved_to
+    }
+
+    // Whether `name` is an end of the carry, old or new.
+    fn holds_name(&self, name: &str) -> bool {
+        self.new_name == name || self.old_names.iter().any(|old_name| old_name == name)
+    }
+
+    // Whether every name of `other` is one of this carry's.
+    fn covers(&self, other: &Self) -> bool {
+        self.holds_name(&other.new_name) && other.old_names.iter().all(|name| self.holds_name(name))
     }
 }
 
 /// The carries this daemon run holds pending, each from before its move's write until the write
-/// that ends it: a capture folder named for either end of one opens only once its owner's folder
-/// is renamed to the new name.
+/// that ends it: a capture folder named for an end of one opens only once its owner's folder is
+/// renamed to the newest name, and one named for a carry whose move's write is out waits for that
+/// write's end.
 #[derive(Debug, Default)]
 pub(crate) struct CaptureCarries {
-    /// The carries pending, at most one from each old name.
-    pending: Mutex<Vec<CaptureCarry>>,
+    /// The carries pending, each written carry the one chain of its repository's moves.
+    pending: Mutex<Vec<HeldCarry>>,
+}
+
+// A pending carry, and while its move's write is out, that write.
+#[derive(Debug)]
+struct HeldCarry {
+    carry: CaptureCarry,
+    write: Option<MoveWrite>,
+}
+
+// A move's write still out: the name of the common folder of the mount it ends, whose written
+// carry it takes forward, and the lock it holds until it ends.
+#[derive(Debug)]
+struct MoveWrite {
+    replaced_name: String,
+    lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+// What an opener finds pending for a capture folder name.
+enum PendingCarry {
+    // A carry whose write committed, to carry before opening.
+    Written(CaptureCarry),
+    // The lock of a move's write still out, to wait on before looking again.
+    Awaited(Arc<tokio::sync::Mutex<()>>),
 }
 
 impl CaptureCarries {
-    /// Holds `carry` pending, in place of one from the same old name; a carry that renames nothing
-    /// is never held, since no folder of its name waits for it.
+    /// Holds `carry`, whose move's write committed in an earlier run, pending in place of every
+    /// carry it covers; a carry that renames nothing is never held, since no folder waits for it.
     pub(crate) fn expect(&self, carry: CaptureCarry) {
         if !carry.is_rename() {
             return;
         }
         let mut pending = lock(&self.pending);
-        pending.retain(|held| held.old_name != carry.old_name);
-        pending.push(carry);
+        pending.retain(|held| held.write.is_some() || !carry.covers(&held.carry));
+        pending.push(HeldCarry { carry, write: None });
     }
 
-    /// Ends `carry`, once the rows name the new folder or its move's write failed.
+    /// Holds `carry` pending while the write of its move, which ends the mount whose common folder
+    /// is named `replaced_name`, is out: a capture folder named for an end of it, or of the written
+    /// carry ending at `replaced_name`, waits until the answer is written or dropped, so nothing is
+    /// renamed for a write that is refused.
+    pub(crate) fn expect_write(
+        &self,
+        replaced_name: String,
+        carry: CaptureCarry,
+    ) -> CaptureCarryWrite<'_> {
+        let write_lock = Arc::new(tokio::sync::Mutex::new(()));
+        let hold = Arc::clone(&write_lock)
+            .try_lock_owned()
+            .expect("a lock no one else holds yet is free");
+        lock(&self.pending).push(HeldCarry {
+            carry: carry.clone(),
+            write: Some(MoveWrite {
+                replaced_name: replaced_name.clone(),
+                lock: Arc::clone(&write_lock),
+            }),
+        });
+        CaptureCarryWrite {
+            carries: self,
+            carry,
+            replaced_name,
+            write: Some((write_lock, hold)),
+        }
+    }
+
+    /// Ends every written carry `carry` covers, once the rows name the newest folder.
     pub(crate) fn finish(&self, carry: &CaptureCarry) {
-        lock(&self.pending).retain(|held| held != carry);
+        lock(&self.pending).retain(|held| held.write.is_some() || !carry.covers(&held.carry));
     }
 
-    // The pending carry from or to the capture folder name `name`.
-    fn pending(&self, name: &str) -> Option<CaptureCarry> {
-        lock(&self.pending)
+    // What is pending for the capture folder name `name`: the lock of a move's write still out
+    // that it waits on, or else the written carry it is an end of.
+    fn pending(&self, name: &str) -> Option<PendingCarry> {
+        let pending = lock(&self.pending);
+        let is_written_on = |replaced_name: &str| {
+            pending.iter().any(|held| {
+                held.write.is_none()
+                    && held.carry.new_name == replaced_name
+                    && held.carry.holds_name(name)
+            })
+        };
+        let awaited = pending.iter().find_map(|held| {
+            let write = held.write.as_ref()?;
+            (held.carry.holds_name(name)
+                || write.replaced_name == name
+                || is_written_on(&write.replaced_name))
+            .then(|| Arc::clone(&write.lock))
+        });
+        if let Some(write_lock) = awaited {
+            return Some(PendingCarry::Awaited(write_lock));
+        }
+        pending
             .iter()
-            .find(|carry| carry.old_name == name || carry.new_name == name)
-            .cloned()
+            .find(|held| held.write.is_none() && held.carry.holds_name(name))
+            .map(|held| PendingCarry::Written(held.carry.clone()))
+    }
+
+    // Takes the move's write `write_lock` names out of the pending carries.
+    fn remove_write(pending: &mut Vec<HeldCarry>, write_lock: &Arc<tokio::sync::Mutex<()>>) {
+        pending.retain(|held| {
+            !held
+                .write
+                .as_ref()
+                .is_some_and(|write| Arc::ptr_eq(&write.lock, write_lock))
+        });
+    }
+}
+
+/// A move's carry held pending while its write is out. [`written`](Self::written) once the write
+/// commits; dropped otherwise, which withdraws it. Either way an opener waiting on it looks again
+/// only once the pending carries say what the write did.
+pub(crate) struct CaptureCarryWrite<'a> {
+    /// The pending carries it is held in.
+    carries: &'a CaptureCarries,
+    /// The move's own carry.
+    carry: CaptureCarry,
+    /// The name of the ended mount's common folder.
+    replaced_name: String,
+    /// The write's lock and its hold, until the write's end is known.
+    write: Option<(Arc<tokio::sync::Mutex<()>>, OwnedMutexGuard<()>)>,
+}
+
+impl CaptureCarryWrite<'_> {
+    /// Ends the wait as the move's write committed: the written carry ending at the ended mount's
+    /// name is taken into this one, as the write took its record forward, and the chain is held
+    /// pending as one written carry unless it renames nothing. Answers that chain, the carry the
+    /// move runs.
+    pub(crate) fn written(mut self) -> CaptureCarry {
+        let write = self.write.take();
+        let mut pending = lock(&self.carries.pending);
+        if let Some((write_lock, _)) = &write {
+            CaptureCarries::remove_write(&mut pending, write_lock);
+        }
+        let mut old_names = Vec::new();
+        pending.retain(|held| {
+            let is_taken = held.write.is_none() && held.carry.new_name == self.replaced_name;
+            if is_taken {
+                old_names.extend(held.carry.old_names.iter().cloned());
+                old_names.push(held.carry.new_name.clone());
+            }
+            !is_taken
+        });
+        old_names.extend(self.carry.old_names.iter().cloned());
+        let mut chain_names: Vec<String> = Vec::with_capacity(old_names.len());
+        for name in old_names {
+            if name != self.carry.new_name && !chain_names.contains(&name) {
+                chain_names.push(name);
+            }
+        }
+        let chain = CaptureCarry {
+            old_names: chain_names,
+            new_name: self.carry.new_name.clone(),
+            moved_to: self.carry.moved_to.clone(),
+        };
+        if chain.is_rename() {
+            pending.push(HeldCarry {
+                carry: chain.clone(),
+                write: None,
+            });
+        }
+        drop(pending);
+        // Released only now, so an opener waiting on the write finds the chain.
+        drop(write);
+        chain
+    }
+}
+
+impl Drop for CaptureCarryWrite<'_> {
+    fn drop(&mut self) {
+        if let Some((write_lock, hold)) = self.write.take() {
+            CaptureCarries::remove_write(&mut lock(&self.carries.pending), &write_lock);
+            drop(hold);
+        }
     }
 }
 

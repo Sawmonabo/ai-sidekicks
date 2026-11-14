@@ -38,7 +38,9 @@ interface RepoMountHealthChangedPayload {
   // ended mount's sessions, so the banner drawn for the ended mount ends on this fact. The commit's
   // write records the first verdict as owed, and a pass whose send fails or that a stop cuts off
   // leaves it owed, so a later pass sends it to each session whose log holds no health of the new
-  // mount. Absent on every other verdict.
+  // mount. Where the ended mount was itself made by a re-attach or a move whose first verdict a
+  // session never got, it names, for that session, the nearest earlier mount on that chain whose
+  // health its log holds, the one its banner was drawn for. Absent on every other verdict.
   replacedRepoMountId?: RepoMountId;
 }
 

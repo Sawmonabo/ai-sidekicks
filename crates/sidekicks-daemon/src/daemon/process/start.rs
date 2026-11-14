@@ -479,7 +479,7 @@ impl DaemonProcess {
         self.workspace_work
             .insert(inputs.workspace_work)
             .expect_moved_captures()
-            .await;
+            .await?;
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;

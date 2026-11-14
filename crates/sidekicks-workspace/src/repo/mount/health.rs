@@ -590,10 +590,9 @@ impl RepoMountHealthReprobe {
                 .get(&repo_mount_id)
                 .and_then(|memory| memory.heard.get(&session_id).copied())
                 .unwrap_or(MountVerdict::ASSUMED);
-            // A session owed the first verdict is sent it whatever it holds.
-            let replaced_repo_mount_id = mount
-                .replaced_repo_mount_id
-                .filter(|_| owed.contains(&session_id));
+            // A session owed the first verdict is sent it whatever it holds, naming the replaced
+            // mount it heard of.
+            let replaced_repo_mount_id = owed.get(&session_id).copied();
             if heard == verdict && replaced_repo_mount_id.is_none() {
                 continue;
             }

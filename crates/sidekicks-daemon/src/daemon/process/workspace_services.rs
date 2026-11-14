@@ -54,6 +54,7 @@ use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::project::service::ProjectService;
+use sidekicks_workspace::repo::mount::reattach::moved_captures::CaptureCarryError;
 use sidekicks_workspace::repo::mount::reattach::{
     RepoMountReattachService, RepoMountReattachServiceDeps,
 };
@@ -577,14 +578,10 @@ pub(crate) struct WorkspaceWork {
 impl WorkspaceWork {
     /// Holds pending the carry of each moved mount's captures a stop cut off, so nothing captured
     /// before the carry runs opens a capture folder of theirs uncarried. Called before anything
-    /// captures; a failure is logged, and the carry the start begins reads the same rows again.
-    pub(crate) async fn expect_moved_captures(&self) {
-        if let Err(error) = self.reattach.expect_moved_captures().await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a moved project's captures could not be held for their carry to its new folder"
-            );
-        }
+    /// captures. Fails as the pending carries cannot be read, which fails the start, so no capture
+    /// folder opens before they are known.
+    pub(crate) async fn expect_moved_captures(&self) -> Result<(), CaptureCarryError> {
+        self.reattach.expect_moved_captures().await
     }
 
     /// Begins in the background the finish of the creates, the removal of the copies and the carry

@@ -33,7 +33,6 @@ use url::Url;
 use self::callback::{CodexCallbackSettings, resolve_codex_sign_in_callback};
 use self::login_failure::read_codex_login_failure;
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::account::auth_file::{deserialize_optional_secret, deserialize_secret};
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::config::plugins::{CodexPluginServer, read_plugin_server_entries};
@@ -54,6 +53,7 @@ use crate::driver::error_causes::provider_failure_refusal;
 use crate::driver::mcp_server::address::names_server_at;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 use crate::driver::mcp_server::write::ENTRY_SWITCH_MEMBER;
+use crate::driver::saved_secret::{read_optional_secret, read_secret};
 
 /// The request that starts a login to one of the home's MCP servers.
 const OAUTH_LOGIN_METHOD: &str = "mcpServer/oauth/login";
@@ -597,11 +597,11 @@ struct CodexSavedSignIn {
     #[serde(default)]
     issuer: Option<String>,
     client_id: String,
-    #[serde(deserialize_with = "deserialize_secret")]
+    #[serde(deserialize_with = "read_secret")]
     access_token: SecretString,
     #[serde(default)]
     expires_at: Option<u64>,
-    #[serde(default, deserialize_with = "deserialize_optional_secret")]
+    #[serde(default, deserialize_with = "read_optional_secret")]
     refresh_token: Option<SecretString>,
     #[serde(default)]
     scopes: Vec<String>,

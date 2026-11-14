@@ -79,6 +79,7 @@ pub mod registry;
 pub(crate) mod reorder_buffer;
 pub mod rewind;
 pub mod run_control;
+pub(crate) mod saved_secret;
 pub mod schema;
 pub mod session_control;
 pub mod session_inspector;
