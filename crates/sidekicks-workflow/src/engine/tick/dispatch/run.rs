@@ -139,7 +139,7 @@ pub(super) async fn execute(
         let goes_on = match failure {
             StepFailure::Failed(_) => is_last_try,
             StepFailure::Declined { .. } => true,
-            StepFailure::EndsRun(_) => false,
+            StepFailure::EndsRun(_) | StepFailure::Crashed(_) => false,
         };
         match kept_inputs.filter(|_| goes_on) {
             Some(call_inputs) => {

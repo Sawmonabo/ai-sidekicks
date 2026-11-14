@@ -26,7 +26,8 @@ use crate::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 pub const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 2;
 
 // A workspace's checkout is its working tree's top level, which the execution-root service records
-// in the workspace's metadata; a workspace without that key works at its root.
+// in the workspace's metadata; a workspace without that key works at its root. A run-owned
+// workspace stands for no session; its run stands in the folder through its context.
 static STANDING_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     let archived = <&'static str>::from(WorkspaceState::Archived);
     let live_worktree = live_worktree_state_predicate("wt");
@@ -43,7 +44,8 @@ static STANDING_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
           FROM workspaces AS w
          WHERE w.repo_mount_id = :repo_mount_id
            AND w.state <> '{archived}'
-           AND w.fs_root IS NOT NULL) AS standing
+           AND w.fs_root IS NOT NULL
+           AND w.workflow_run_id IS NULL) AS standing
   JOIN sessions AS s ON s.id = standing.session_id
  ORDER BY standing.created_at, standing.session_id"
     )

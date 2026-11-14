@@ -255,8 +255,8 @@ pub(super) fn test_node(settings: &Value) -> WorkflowNode {
 pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value {
     assert_eq!(&report.step, step);
     match &report.kind {
-        StepReportKind::WaitingOnPool { hold_started_at } => {
-            json!({ "waitingOnPool": hold_started_at })
+        StepReportKind::WaitingOnMemory { hold_started_at } => {
+            json!({ "waitingOnMemory": hold_started_at })
         }
         StepReportKind::Admitted { hold_started_at } => json!({ "admitted": hold_started_at }),
         StepReportKind::Started {
@@ -271,7 +271,7 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             json!({ "started": started })
         }
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling
+        StepReportKind::Canceling { .. }
         | StepReportKind::BranchesCanceled { .. }
         | StepReportKind::ResumeDue { .. }
         | StepReportKind::RunCapped { .. } => {
@@ -310,6 +310,10 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
                 StepFailure::EndsRun(error) => {
                     let error = serde_json::to_value(error).expect("a step failure writes");
                     json!({ "endsRun": error })
+                }
+                StepFailure::Crashed(error) => {
+                    let error = serde_json::to_value(error).expect("a step failure writes");
+                    json!({ "crashed": error })
                 }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };
@@ -386,7 +390,7 @@ async fn run_step(
         if report == json!("progressed") {
             probe.release.notify_one();
         }
-        if let Some(gate) = gate.filter(|_gate| report.get("waitingOnPool").is_some()) {
+        if let Some(gate) = gate.filter(|_gate| report.get("waitingOnMemory").is_some()) {
             gate.admit();
         }
         sent.push(report);

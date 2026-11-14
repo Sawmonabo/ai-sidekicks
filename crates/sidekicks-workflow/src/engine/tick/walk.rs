@@ -13,11 +13,12 @@
 mod first_to_arrive;
 mod graph;
 mod lineage;
+mod reuse;
 mod round;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -29,10 +30,11 @@ use sidekicks_contracts::workflow::run::step::record::{
     WorkflowPayloadRef, WorkflowStepKey, WorkflowStepSource,
 };
 
-use self::first_to_arrive::FirstToArriveWin;
+use self::first_to_arrive::{DecidedWin, FirstToArriveWin};
 use self::graph::SlotTarget;
 pub(crate) use self::graph::{RunGraph, RunGraphError};
 use self::lineage::StepLineage;
+pub(crate) use self::reuse::{KeptStep, ReusedSeedStep};
 use self::round::{NodeRounds, Round, RoundSlot, SlotOpenings};
 use crate::expressions::lineage::{StepKey, StepOutputs};
 
@@ -87,31 +89,24 @@ pub(crate) enum WalkSkipReason {
     /// Its node is disabled, so its input passes on.
     Disabled,
     /// An earlier step's data stands in for it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the walk's seed of reused steps")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     Reused(ReusedStepRecord),
 }
 
-/// The earlier step a reused skip carries the data of, as its row and event record it.
+/// The earlier step a reused skip carries the data of, as its row and event record it, with the
+/// items its outputs hold, which the run's later steps read.
 #[derive(Debug)]
 pub(crate) struct ReusedStepRecord {
     /// The step and the version its run executed.
     pub(crate) from: WorkflowReusedStep,
+    /// That step's input, which the skip records as its own.
+    pub(crate) input_ref: WorkflowPayloadRef,
     /// That step's output, which the skip passes on.
     pub(crate) output_ref: WorkflowPayloadRef,
     /// The hash of the pin that step ran on, where it recorded one.
     pub(crate) pin_hash: Option<WorkflowContentHash>,
-}
-
-/// A first-to-arrive win the walk decided: the node that won and which places lost.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-struct DecidedWin {
-    /// The won node's place.
-    place: usize,
-    /// Whether each place, by place, is on a losing branch of the win.
-    is_losing: Arc<[bool]>,
+    /// Its main outputs' items, in output order, which move into the run's outputs as it replays.
+    pub(crate) outputs: Vec<Vec<WorkflowItem>>,
 }
 
 /// A step the walk readied and that has not settled.
@@ -131,7 +126,10 @@ struct LiveStep {
 }
 
 /// The walk of one run over its graph: the steps live, each node's open rounds, the feeds its
-/// disabled skips passed on, the first-to-arrive wins decided, and the next execution index.
+/// disabled skips passed on, the first-to-arrive wins decided, the next execution index, for a
+/// partial run the places it covers and the earlier steps it replays, and for a walk rebuilt on
+/// another version the steps it keeps and the attempts its steps run again carry. A node run's
+/// walk also seals its target, whose outputs feed nothing.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunWalk {
     /// The run's graph.
@@ -140,6 +138,18 @@ pub(crate) struct RunWalk {
     run_id: WorkflowRunId,
     /// The execution index the next step takes.
     next_execution_index: u64,
+    /// Whether each place, by place, may be readied: `None` for a whole run, which covers all.
+    covered: Option<Arc<[bool]>>,
+    /// For a node run, its target's place, whose outputs feed nothing: not even its own loop.
+    sealed: Option<usize>,
+    /// The earlier steps still to replay at each place, by place, in their run's execution order.
+    reused: BTreeMap<usize, VecDeque<ReusedSeedStep>>,
+    /// For a walk rebuilt on another version, the run's own steps still to settle again under
+    /// their own keys at each place, by place, in execution order.
+    kept: BTreeMap<usize, VecDeque<KeptStep>>,
+    /// For a walk rebuilt on another version, the attempt each place's next step readied to run
+    /// takes, by place, in order: a step run again keeps counting its tries.
+    carried_attempts: BTreeMap<usize, VecDeque<SafeInt<1>>>,
     /// The steps readied and not yet settled, by execution index.
     live: BTreeMap<u64, LiveStep>,
     /// Each node's rounds, by its place in the graph.
@@ -176,6 +186,11 @@ impl RunWalk {
             graph,
             run_id,
             next_execution_index: 0,
+            covered: None,
+            sealed: None,
+            reused: BTreeMap::new(),
+            kept: BTreeMap::new(),
+            carried_attempts: BTreeMap::new(),
             live: BTreeMap::new(),
             rounds,
             passed_on: BTreeMap::new(),
@@ -209,12 +224,24 @@ impl RunWalk {
     /// the slots it feeds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn settle(&mut self, step: &WorkflowStepKey, output_lengths: &[usize]) -> WalkTurn {
+        let mut turn = WalkTurn::default();
+        self.settle_into(step, output_lengths, &mut turn);
+        turn
+    }
+
+    /// Settles `step` as [`RunWalk::settle`] does, adding what that readies or skips to `turn`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn settle_into(
+        &mut self,
+        step: &WorkflowStepKey,
+        output_lengths: &[usize],
+        turn: &mut WalkTurn,
+    ) {
         let execution_index = step.execution_index;
         let settled = self
             .live
             .remove(&execution_index.get())
             .expect("a settle names a step the walk readied and has not settled");
-        let mut turn = WalkTurn::default();
         let fed = self.feed(
             settled.place,
             execution_index,
@@ -222,8 +249,7 @@ impl RunWalk {
             output_lengths,
             &settled.lineage,
         );
-        self.visit(fed, &mut turn);
-        turn
+        self.visit(fed, turn);
     }
 
     /// Readies the next attempt of the live `step` under the next execution index, with the same
@@ -262,6 +288,24 @@ impl RunWalk {
         self.live
             .remove(&step.execution_index.get())
             .expect("a dropped step is one the walk readied and has not settled");
+    }
+
+    /// Each step the walk readied and has not settled, in execution order, as it was readied.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn unsettled(&self) -> impl Iterator<Item = WalkReady> + '_ {
+        self.live.values().map(|live_step| WalkReady {
+            step: live_step.step.clone(),
+            run_index: live_step.run_index,
+            sources: live_step.sources.clone(),
+        })
+    }
+
+    /// Whether `step` is one the walk readied and has not settled.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn is_unsettled(&self, step: &WorkflowStepKey) -> bool {
+        self.live
+            .get(&step.execution_index.get())
+            .is_some_and(|live_step| live_step.step == *step)
     }
 
     /// Decides what waits once no step is live: each open round not won, its unfilled slots read
@@ -387,16 +431,16 @@ impl RunWalk {
 
     /// Puts one feed of `count` items from `source`, the step at `source_place`, of `lineage`, into
     /// `target`'s slot and answers the run index of the round it entered, or `None` for a feed
-    /// dropped: an empty one while the node has an open round, one a win of the node overtook that
-    /// no round of that win takes, or one from a place in the body of a loop node whose body holds
-    /// the node of a win that overtook it, so an overtaken step never restarts its own loop. A step
-    /// outside that body keeps its feed into the loop node, even when the win reached it through
-    /// its direct edge into the won node: its feed into that node enters the won round, and its
-    /// feed into the loop node starts the next pass. Items enter the lowest open round of the
-    /// feed's loop passes admitting it whose slot is unfilled or settled empty; an empty feed the
-    /// lowest admitting one whose slot is unfilled; with no such round the feed opens one. A won
-    /// round admits only the feeds its win overtook, so the winner never runs again on its own
-    /// pass.
+    /// dropped: one into a place the run does not cover, one out of a node run's target, an empty
+    /// one while the node has an open round, one a win of the node overtook that no round of that
+    /// win takes, or one from a place in the body of a loop node whose body holds the node of a win
+    /// that overtook it, so an overtaken step never restarts its own loop. A step outside that body
+    /// keeps its feed into the loop node, even when the win reached it through its direct edge into
+    /// the won node: its feed into that node enters the won round, and its feed into the loop node
+    /// starts the next pass. Items enter the lowest open round of the feed's loop passes admitting
+    /// it whose slot is unfilled or settled empty; an empty feed the lowest admitting one whose
+    /// slot is unfilled; with no such round the feed opens one. A won round admits only the feeds
+    /// its win overtook, so the winner never runs again on its own pass.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn fill(
         &mut self,
@@ -406,6 +450,14 @@ impl RunWalk {
         count: usize,
         lineage: &StepLineage,
     ) -> Option<u64> {
+        if self.sealed == Some(source_place)
+            || self
+                .covered
+                .as_ref()
+                .is_some_and(|covered| !covered[target.node])
+        {
+            return None;
+        }
         let graph = &self.graph;
         if graph.is_in_loop_body(source_place, target.node)
             && lineage
@@ -539,149 +591,7 @@ impl RunWalk {
             self.cancel_round(place, run_index, &round, turn);
             return;
         }
-        let sources = round
-            .sources()
-            .into_iter()
-            .enumerate()
-            .map(|(slot, source)| source.filter(|_| slot == winning_slot))
-            .collect();
-        let lineage = round.lineage.clone();
-        let is_losing = self.losing_places_of(place, winning_slot);
-        let is_reached = self.reached_places_of(place, winning_slot);
-        let win = self.wins.len();
-        self.wins.push(DecidedWin {
-            place,
-            is_losing: Arc::clone(&is_losing),
-        });
-        let passes = &lineage.passes;
-        let mut losers: Vec<WorkflowStepKey> = self
-            .live
-            .values()
-            .filter(|live_step| {
-                is_losing[live_step.place] && passes.is_same_as(&live_step.lineage.passes)
-            })
-            .map(|live_step| live_step.step.clone())
-            .collect();
-        losers.retain(|loser| {
-            let Some(position) = turn.ready.iter().position(|ready| ready.step == *loser) else {
-                return true;
-            };
-            self.live.remove(&loser.execution_index.get());
-            turn.canceled.push(turn.ready.remove(position));
-            false
-        });
-        for live_step in self.live.values_mut() {
-            if is_reached[live_step.place] && passes.is_same_as(&live_step.lineage.passes) {
-                live_step.lineage.overtaken_by.insert(win);
-            }
-        }
-        for (other_place, rounds) in self.rounds.iter_mut().enumerate() {
-            for (&other_run_index, round) in &mut rounds.open {
-                if (other_place, other_run_index) != (place, run_index)
-                    && is_reached[other_place]
-                    && passes.is_same_as(&round.lineage.passes)
-                {
-                    round.lineage.overtaken_by.insert(win);
-                }
-            }
-        }
-        let round = self.rounds[place]
-            .open
-            .get_mut(&run_index)
-            .expect("the round being decided is open");
-        round.won = Some(win);
-        if self.is_spent(place, &self.rounds[place].open[&run_index]) {
-            self.take_round(place, run_index);
-        }
-        let step = self.take_step(place);
-        turn.wins.push(FirstToArriveWin {
-            deciding: step.clone(),
-            losers,
-        });
-        self.ready(place, step, run_index, sources, lineage, turn);
-    }
-
-    /// Whether the `round` of the node at `place`, which a win won or overtook, can take no more
-    /// feeds: every slot not yet fed is fed only from places on a losing branch of such a win,
-    /// whose steps of the round's pass that win cancels. A slot settled empty counts as not yet
-    /// fed while a feeder of it has a live step on the round's pass, whose items it still takes.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn is_spent(&self, place: usize, round: &Round) -> bool {
-        let wins = round.won.iter().chain(&round.lineage.overtaken_by);
-        round
-            .slots
-            .iter()
-            .zip(&self.graph.node(place).slots)
-            .all(|(slot, input)| {
-                let is_fed = match slot {
-                    RoundSlot::Unfilled => false,
-                    RoundSlot::Filled { count, .. } => {
-                        *count > 0
-                            || !self.live.values().any(|live_step| {
-                                input.feeders.contains(&live_step.place)
-                                    && round.lineage.passes.is_same_as(&live_step.lineage.passes)
-                            })
-                    }
-                };
-                is_fed
-                    || input
-                        .feeders
-                        .iter()
-                        .all(|&feeder| wins.clone().any(|&win| self.wins[win].is_losing[feeder]))
-            })
-    }
-
-    /// Whether the node at `place` is on a losing branch of one of the wins `overtaken_by`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn is_overtaken_loser(&self, place: usize, overtaken_by: &BTreeSet<usize>) -> bool {
-        overtaken_by
-            .iter()
-            .any(|&win| self.wins[win].is_losing[place])
-    }
-
-    /// Which places, by place, a win of the node at `place` on `winning_slot` reaches: the node,
-    /// every losing place, and every place that leads into the node without passing a loop node
-    /// whose body holds it, through whose steps the late feeds into the node run. A place that
-    /// leads into the node only through such a loop node is not reached, since its feeds into that
-    /// loop node start the loop's next pass rather than straggle on this one; a loop node before
-    /// the node that does not hold it is reached like any other place.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn reached_places_of(&mut self, place: usize, winning_slot: usize) -> Arc<[bool]> {
-        let is_losing = self.losing_places_of(place, winning_slot);
-        let graph = &self.graph;
-        Arc::clone(
-            self.reached_places
-                .entry((place, winning_slot))
-                .or_insert_with(|| {
-                    let mut is_reached = vec![false; is_losing.len()];
-                    is_reached[place] = true;
-                    first_to_arrive::mark_ancestors(
-                        graph,
-                        graph.forward_feeders(place).iter().copied(),
-                        |ancestor| !graph.is_in_loop_body(place, ancestor),
-                        &mut is_reached,
-                    );
-                    // Losing places join after the walk, so it passes through them to the places
-                    // that lead into the node only through a losing one.
-                    for (reached, &losing) in is_reached.iter_mut().zip(is_losing.iter()) {
-                        *reached |= losing;
-                    }
-                    is_reached.into()
-                }),
-        )
-    }
-
-    /// Which places lose when the node at `place` wins on `winning_slot`, by place.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn losing_places_of(&mut self, place: usize, winning_slot: usize) -> Arc<[bool]> {
-        let graph = &self.graph;
-        Arc::clone(
-            self.losing_places
-                .entry((place, winning_slot))
-                .or_insert_with(|| {
-                    first_to_arrive::losing_places(graph, place, winning_slot).into()
-                }),
-        )
+        self.decide_win(place, run_index, winning_slot, turn);
     }
 
     /// Runs a decided `round` of the node at `place`: one on a losing branch of a win it was
@@ -760,10 +670,13 @@ impl RunWalk {
             .expect("a round taken is open")
     }
 
-    /// Readies `step` of the node at `place`, of `lineage`, making it live. A loop node's step
-    /// belongs to the passes around its loop, not its own; it starts a new pass of what it leads
-    /// to, so it closes the rounds of earlier passes nothing can fill, and no win at a node its
-    /// body holds reaches it: such a win's pass is over, and the new pass's feeds open new rounds.
+    /// Readies `step` of the node at `place`, of `lineage`, making it live, or, where the place
+    /// keeps a step of the run's own, settles that step again in its stead, writing nothing, or,
+    /// where it has an earlier step left to replay, settles it at once as that step. A loop node's
+    /// step belongs to the passes around its loop, not its own; it starts a new pass of what it
+    /// leads to, so it closes the rounds of earlier passes nothing can fill, and no win at a node
+    /// its body holds reaches it: such a win's pass is over, and the new pass's feeds open new
+    /// rounds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
@@ -782,6 +695,20 @@ impl RunWalk {
                 .retain(|&win| !graph.is_in_loop_body(wins[win].place, place));
             self.close_passed_rounds(place, turn);
         }
+        if let Some(kept) = self.take_kept(place, &step) {
+            self.live.insert(
+                kept.step.execution_index.get(),
+                LiveStep {
+                    step: kept.step.clone(),
+                    place,
+                    run_index,
+                    sources,
+                    lineage,
+                },
+            );
+            self.settle_into(&kept.step, &kept.output_lengths, turn);
+            return;
+        }
         self.live.insert(
             step.execution_index.get(),
             LiveStep {
@@ -792,46 +719,13 @@ impl RunWalk {
                 lineage,
             },
         );
-        turn.ready.push(WalkReady {
-            step,
-            run_index,
-            sources,
-        });
-    }
-
-    /// Closes the open rounds at the places in the body of the loop node at `loop_place` that a win
-    /// at such a place won or overtook and that nothing can fill any more: every slot still unfed
-    /// waits only on such a win's losers. A round still waiting on a live step of its own pass
-    /// stays open, and the pass check keeps the new pass's feeds out of it. A won round closes
-    /// silently; any other is decided as the flush decides it, so a loser's is canceled.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn close_passed_rounds(&mut self, loop_place: usize, turn: &mut WalkTurn) {
-        let walk = &*self;
-        let graph = &walk.graph;
-        let is_passed = |win: usize| graph.is_in_loop_body(walk.wins[win].place, loop_place);
-        let passed: Vec<(usize, u64)> = (0..graph.node_count())
-            .filter(|&place| graph.is_in_loop_body(place, loop_place))
-            .flat_map(|place| {
-                walk.rounds[place]
-                    .open
-                    .iter()
-                    .filter(move |(_, round)| {
-                        round
-                            .won
-                            .into_iter()
-                            .chain(round.lineage.overtaken_by.iter().copied())
-                            .any(is_passed)
-                            && walk.is_spent(place, round)
-                    })
-                    .map(move |(&run_index, _)| (place, run_index))
-            })
-            .collect();
-        for (place, run_index) in passed {
-            let mut round = self.take_round(place, run_index);
-            if !round.is_won() {
-                round.settle_unfilled();
-                self.decide_flushed(place, run_index, &round, turn);
-            }
+        if !self.replay_reused(place, &step, run_index, &sources, turn) {
+            let step = self.carry_attempt(place, step);
+            turn.ready.push(WalkReady {
+                step,
+                run_index,
+                sources,
+            });
         }
     }
 

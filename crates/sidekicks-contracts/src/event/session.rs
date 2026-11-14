@@ -17,7 +17,6 @@ use crate::approval::events::{
     ApprovalResolvedPayload, ApprovalReviewerDeniedPayload, ApprovalRuleRememberedPayload,
     ApprovalRuleRevokedPayload,
 };
-use crate::approval::holder::ApprovalHolder;
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
 use crate::command::AgentCommandEndedPayload;
@@ -45,7 +44,10 @@ use crate::plan::{
     PlanAcceptedPayload, PlanHandOffFailedPayload, PlanHandedOffPayload, PlanHoldEndedPayload,
     PlanKeptPayload, PlanProposedPayload,
 };
-use crate::question::{QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload};
+use crate::question::{
+    QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload,
+    QuestionWaitSettledPayload,
+};
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
@@ -63,7 +65,6 @@ use crate::run::events::{
     AgentTurnFailedPayload, AgentTurnInterruptedPayload, AgentTurnStartedPayload,
     AgentTurnSteeredPayload,
 };
-use crate::run::id::RunId;
 use crate::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
@@ -76,8 +77,8 @@ use crate::run::queued::AgentRunQueuedPayload;
 use crate::run::subagent::SubagentLifecyclePayload;
 use crate::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
-    ApprovalReviewerFlaggedPayload, SessionNotice, SessionNoticePostedPayload,
-    SessionSideQuestionAnsweredPayload, SessionSpendLimitReachedPayload,
+    ApprovalReviewerFlaggedPayload, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
+    SessionSpendLimitReachedPayload,
 };
 use crate::session::convert::SessionConvertedPayload;
 use crate::session::events::{
@@ -90,22 +91,25 @@ use crate::session::recovery::SessionDamagedEventsSkippedPayload;
 use crate::session::restore::SessionRestoreCompletedPayload;
 use crate::terminal::control::TerminalControlChangedPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
-use crate::wire::integer::SafeInt;
 use crate::workflow::definition::events::{
     WorkflowTriggerArmedPayload, WorkflowTriggerFiredPayload, WorkflowVersionCreatedPayload,
 };
 use crate::workflow::run::events::{
-    WorkflowGateReachedPayload, WorkflowResultsPostedPayload, WorkflowRunCanceledPayload,
-    WorkflowRunCompletedPayload, WorkflowRunDeletedPayload, WorkflowRunFailedPayload,
-    WorkflowRunResumedPayload, WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
+    WorkflowChainRunJoinedPayload, WorkflowGateReachedPayload, WorkflowResultsPostedPayload,
+    WorkflowRunCanceledPayload, WorkflowRunCancelingPayload, WorkflowRunCompletedPayload,
+    WorkflowRunCrashedPayload, WorkflowRunDeletedPayload, WorkflowRunFailedPayload,
+    WorkflowRunFailingPayload, WorkflowRunKeepChangedPayload, WorkflowRunResumedPayload,
+    WorkflowRunStartedPayload, WorkflowRunWaitingPayload,
 };
+use crate::workflow::run::id::WorkflowRunId;
+use crate::workflow::run::step::events::suspended::WorkflowPhaseSuspendedPayload;
 use crate::workflow::run::step::events::{
     WorkflowGateResolvedPayload, WorkflowParallelJoinBranchesCanceledPayload,
     WorkflowPhaseAdmittedPayload, WorkflowPhaseCancelingPayload, WorkflowPhaseCompletedPayload,
     WorkflowPhaseFailedPayload, WorkflowPhaseProgressedPayload, WorkflowPhaseResumedPayload,
-    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseSuspendedPayload,
-    WorkflowPhaseWaitingOnPoolPayload, WorkflowStepCanceledPayload, WorkflowStepCompletedPayload,
-    WorkflowStepFailedPayload, WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
+    WorkflowPhaseRetriedPayload, WorkflowPhaseStartedPayload, WorkflowPhaseWaitingOnMemoryPayload,
+    WorkflowStepCanceledPayload, WorkflowStepCompletedPayload, WorkflowStepFailedPayload,
+    WorkflowStepSkippedPayload, WorkflowStepStartedPayload,
 };
 use crate::worktree::events::{
     SessionBranchChangedPayload, SessionSweptToCheckoutPayload, WorktreeCreatedPayload,
@@ -113,65 +117,13 @@ use crate::worktree::events::{
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
 
-/// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
-/// where it carries them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventRun {
-    /// The run.
-    pub run_id: RunId,
-    /// The run's progression counter the event was written at.
-    pub run_version: Option<SafeInt<0>>,
-    /// The turn's number within its run, on a turn's start and its end.
-    pub turn_number: Option<SafeInt<1>>,
-}
+use self::run::{
+    EventRun, agent_output_run, approval_canceled_run, approval_requested_run,
+    approval_resolved_run, event_run, event_workflow_run, git_settled_run, phase_suspended_run,
+    question_asked_run, run_queued_run, session_notice_run,
+};
 
-/// One arm of [`SessionEvent::run`]: the pattern that binds the payload where its run is read,
-/// then the run read from it, as the arm's rule in the registration table says: `versioned` for a
-/// `runId` and a `runVersion`, `turn` for those and a `turnNumber`, `required` for a `runId`
-/// alone, `optional` for an optional `runId`, `read(function)` for a payload union whose arms
-/// differ, and no rule for no run.
-macro_rules! event_run {
-    (@binding $payload:ident) => {
-        _
-    };
-    (@binding $payload:ident $rule:ident $(($read:ident))?) => {
-        $payload
-    };
-    ($payload:ident) => {
-        None
-    };
-    ($payload:ident versioned) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: Some($payload.run_version),
-            turn_number: None,
-        })
-    };
-    ($payload:ident turn) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: Some($payload.run_version),
-            turn_number: Some($payload.turn_number),
-        })
-    };
-    ($payload:ident required) => {
-        Some(EventRun {
-            run_id: $payload.run_id,
-            run_version: None,
-            turn_number: None,
-        })
-    };
-    ($payload:ident optional) => {
-        $payload.run_id.map(|run_id| EventRun {
-            run_id,
-            run_version: None,
-            turn_number: None,
-        })
-    };
-    ($payload:ident read($read:ident)) => {
-        $read($payload)
-    };
-}
+pub mod run;
 
 /// Asks whether a payload type is a [`MachineContentDescriptor`] for a payload named in a macro:
 /// the probe's own method applies only to such a payload, and method lookup falls back to its
@@ -198,13 +150,16 @@ impl<Payload> DeclaresNoContent for &ContentProbe<Payload> {}
 
 /// Declares [`SessionEvent`] from one registration table: each row is an arm named as its
 /// [`SessionEventType`] variant, its payload (with `#[garde(dive)]` where the payload has checks),
-/// its wire name and, after `=>`, the rule its run is read by (see `event_run!`). The same table
-/// lists [`SESSION_EVENT_TYPES`].
+/// its wire name, after `=>` the rule its agent run is read by (see `event_run!`) and after `in`
+/// the rule its workflow run is read by (see `event_workflow_run!`), which every `workflow.*` row
+/// states, `in none` where no workflow run owns it, so each says whether a run's keyed read of its
+/// own events takes it. The same table lists [`SESSION_EVENT_TYPES`].
 macro_rules! session_events {
     ($(
         $(#[doc = $doc:literal])+
         $variant:ident($(#[$check:meta])? $payload:ty) = $name:literal
-            $(=> $rule:ident $(($read:ident))?)?,
+            $(=> $rule:ident $(($read:ident))?)?
+            $(in $workflow_run:ident $(($workflow_read:ident))?)?,
     )+) => {
         /// Every session event with a registered payload variant: its `type` and its payload,
         /// discriminated on `type`. Its category is its type's own, checked when it is read from
@@ -231,6 +186,18 @@ macro_rules! session_events {
                 match self {
                     $(Self::$variant(event_run!(@binding payload $($rule $(($read))?)?)) => {
                         event_run!(payload $($rule $(($read))?)?)
+                    })+
+                }
+            }
+
+            /// The workflow run of the event's own session that the event belongs to, where it is
+            /// one of that run's own events.
+            pub fn workflow_run_id(&self) -> Option<WorkflowRunId> {
+                match self {
+                    $(Self::$variant(event_workflow_run!(
+                        @binding payload $($workflow_run $(($workflow_read))?)?
+                    )) => {
+                        event_workflow_run!(payload $($workflow_run $(($workflow_read))?)?)
                     })+
                 }
             }
@@ -379,6 +346,8 @@ session_events! {
     QuestionOpened(QuestionOpenedPayload) = "question.opened",
     /// Emitted when an open question, or one waiting for its run, ends unanswered.
     QuestionCanceled(QuestionCanceledPayload) = "question.canceled",
+    /// Emitted in the write that ends a workflow form or reply wait, settling its question.
+    QuestionWaitSettled(QuestionWaitSettledPayload) = "question.wait.settled",
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.
@@ -526,74 +495,103 @@ session_events! {
     TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload)
         = "terminal.control.changed",
     /// Emitted when a workflow run starts.
-    WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) = "workflow.run.started",
+    WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) =
+        "workflow.run.started" in workflow_run,
     /// Emitted when a workflow run resumes.
-    WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
+    WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) =
+        "workflow.run.resumed" in workflow_run,
+    /// Emitted when a person's cancel of a workflow run is taken and its steps wind down.
+    WorkflowRunCanceling(#[garde(dive)] WorkflowRunCancelingPayload) =
+        "workflow.run.canceling" in workflow_run,
+    /// Emitted when a failure decides a workflow run's end and its other steps wind down.
+    WorkflowRunFailing(#[garde(dive)] WorkflowRunFailingPayload) =
+        "workflow.run.failing" in workflow_run,
     /// Emitted when a workflow run is canceled.
-    WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) = "workflow.run.canceled",
+    WorkflowRunCanceled(#[garde(dive)] WorkflowRunCanceledPayload) =
+        "workflow.run.canceled" in workflow_run,
+    /// Emitted when the next start's sweep ends a run the daemon's stop left with nothing to go
+    /// on with.
+    WorkflowRunCrashed(#[garde(dive)] WorkflowRunCrashedPayload) =
+        "workflow.run.crashed" in workflow_run,
     /// Emitted when the person deletes a workflow run.
-    WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted",
+    WorkflowRunDeleted(WorkflowRunDeletedPayload) = "workflow.run.deleted" in workflow_run,
+    /// Emitted when the person sets or clears a workflow run's Keep mark.
+    WorkflowRunKeepChanged(WorkflowRunKeepChangedPayload) =
+        "workflow.run.keepChanged" in workflow_run,
+    /// Emitted in a chain's first run's session when a run joins that chain.
+    WorkflowChainRunJoined(WorkflowChainRunJoinedPayload) = "workflow.chain.runJoined" in none,
     /// Emitted when a finished run's results land as a row in the asking session.
-    WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted",
+    WorkflowResultsPosted(WorkflowResultsPostedPayload) = "workflow.results.posted" in none,
     /// Emitted when a workflow step starts waiting, with what it waits on.
     WorkflowPhaseSuspended(#[garde(dive)] WorkflowPhaseSuspendedPayload) =
-        "workflow.phase.suspended",
+        "workflow.phase.suspended" in workflow_run(phase_suspended_run),
     /// Emitted when a workflow step's phase fails, saying whether a sibling branch's failure
     /// canceled it.
-    WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase.failed",
+    WorkflowPhaseFailed(WorkflowPhaseFailedPayload) = "workflow.phase.failed" in workflow_run,
     /// Emitted when the memory gate holds a step before it starts, and every 30 seconds while it
     /// holds it.
-    WorkflowPhaseWaitingOnPool(WorkflowPhaseWaitingOnPoolPayload) =
-        "workflow.phase.waitingOnPool",
+    WorkflowPhaseWaitingOnMemory(WorkflowPhaseWaitingOnMemoryPayload) =
+        "workflow.phase.waitingOnMemory" in workflow_run,
     /// Emitted when a workflow step starts, with the input it ran on.
-    WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) = "workflow.step.started",
+    WorkflowStepStarted(#[garde(dive)] WorkflowStepStartedPayload) =
+        "workflow.step.started" in workflow_run,
     /// Emitted when a workflow step finishes, with its output and log.
-    WorkflowStepCompleted(#[garde(dive)] WorkflowStepCompletedPayload) = "workflow.step.completed",
+    WorkflowStepCompleted(#[garde(dive)] WorkflowStepCompletedPayload) =
+        "workflow.step.completed" in workflow_run,
     /// Emitted when a workflow step fails, with its error.
-    WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) = "workflow.step.failed",
+    WorkflowStepFailed(#[garde(dive)] WorkflowStepFailedPayload) =
+        "workflow.step.failed" in workflow_run,
     /// Emitted when a running or waiting step ends because its run ended failed or canceled, or
     /// when a first-to-arrive merge cancels a branch once another branch arrived.
-    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) = "workflow.step.canceled",
+    WorkflowStepCanceled(#[garde(dive)] WorkflowStepCanceledPayload) =
+        "workflow.step.canceled" in workflow_run,
     /// Emitted when a workflow step is skipped.
-    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) = "workflow.step.skipped",
+    WorkflowStepSkipped(#[garde(dive)] WorkflowStepSkippedPayload) =
+        "workflow.step.skipped" in workflow_run,
     /// Emitted when a workflow gate is answered.
-    WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved",
+    WorkflowGateResolved(WorkflowGateResolvedPayload) = "workflow.gate.resolved" in workflow_run,
     /// Emitted when a workflow is authored or a new version of it is written.
-    WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created",
+    WorkflowVersionCreated(WorkflowVersionCreatedPayload) = "workflow.version.created" in none,
     /// Emitted when a workflow run reaches a gate that must be answered before it goes on.
-    WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached",
+    WorkflowGateReached(WorkflowGateReachedPayload) = "workflow.gate.reached" in workflow_run,
     /// Emitted when a workflow run ends on a failure.
-    WorkflowRunFailed(WorkflowRunFailedPayload) = "workflow.run.failed",
+    WorkflowRunFailed(WorkflowRunFailedPayload) = "workflow.run.failed" in workflow_run,
     /// Emitted when a workflow run reaches its last steps and succeeds.
-    WorkflowRunCompleted(WorkflowRunCompletedPayload) = "workflow.run.completed",
+    WorkflowRunCompleted(WorkflowRunCompletedPayload) = "workflow.run.completed" in workflow_run,
     /// Emitted when a workflow run starts waiting, on a person, its chain's question or a spent
     /// provider account.
-    WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting",
+    WorkflowRunWaiting(WorkflowRunWaitingPayload) = "workflow.run.waiting" in workflow_run,
     /// Emitted when a workflow's schedule is armed.
-    WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule.armed",
+    WorkflowScheduleArmed(WorkflowTriggerArmedPayload) = "workflow.schedule.armed" in none,
     /// Emitted when an armed schedule fires, starting a run.
-    WorkflowScheduleFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.schedule.fired",
+    WorkflowScheduleFired(#[garde(dive)] WorkflowTriggerFiredPayload) =
+        "workflow.schedule.fired" in none,
     /// Emitted when a workflow's file watch, webhook or session-event filter is armed.
-    WorkflowTriggerArmed(WorkflowTriggerArmedPayload) = "workflow.trigger.armed",
+    WorkflowTriggerArmed(WorkflowTriggerArmedPayload) = "workflow.trigger.armed" in none,
     /// Emitted when an armed trigger other than a schedule fires, starting a run.
-    WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) = "workflow.trigger.fired",
+    WorkflowTriggerFired(#[garde(dive)] WorkflowTriggerFiredPayload) =
+        "workflow.trigger.fired" in none,
     /// Emitted when the memory gate admits a workflow step, which may start.
-    WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase.admitted",
+    WorkflowPhaseAdmitted(WorkflowPhaseAdmittedPayload) = "workflow.phase.admitted" in workflow_run,
     /// Emitted when an admitted workflow phase begins.
-    WorkflowPhaseStarted(WorkflowPhaseStartedPayload) = "workflow.phase.started",
+    WorkflowPhaseStarted(WorkflowPhaseStartedPayload) = "workflow.phase.started" in workflow_run,
     /// Emitted when a workflow phase reports progress.
-    WorkflowPhaseProgressed(WorkflowPhaseProgressedPayload) = "workflow.phase.progressed",
+    WorkflowPhaseProgressed(WorkflowPhaseProgressedPayload) =
+        "workflow.phase.progressed" in workflow_run,
     /// Emitted when a workflow phase is asked to stop and is winding down.
-    WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) = "workflow.phase.canceling",
+    WorkflowPhaseCanceling(WorkflowPhaseCancelingPayload) =
+        "workflow.phase.canceling" in workflow_run,
     /// Emitted when a failed workflow phase is retried as a new attempt.
-    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) = "workflow.phase.retried",
+    WorkflowPhaseRetried(#[garde(dive)] WorkflowPhaseRetriedPayload) =
+        "workflow.phase.retried" in workflow_run,
     /// Emitted when a waiting workflow step resumes.
-    WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed",
+    WorkflowPhaseResumed(WorkflowPhaseResumedPayload) = "workflow.phase.resumed" in workflow_run,
     /// Emitted when a workflow phase finishes.
-    WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) = "workflow.phase.completed",
+    WorkflowPhaseCompleted(WorkflowPhaseCompletedPayload) =
+        "workflow.phase.completed" in workflow_run,
     /// Emitted once per wave of running sibling branches a join cancels.
     WorkflowParallelJoinBranchesCanceled(WorkflowParallelJoinBranchesCanceledPayload) =
-        "workflow.parallelJoin.branchesCanceled",
+        "workflow.parallelJoin.branchesCanceled" in workflow_run,
     /// Emitted when a backup run writes a backup.
     DaemonBackupCompleted(DaemonBackupCompletedPayload) = "daemon.backup.completed",
     /// Emitted when a backup run does not finish.
@@ -653,96 +651,6 @@ session_events! {
     AgentInterventionExpired(AgentInterventionExpiredPayload) = "agent.intervention.expired",
     /// Emitted when an intervention's dispatch throws, so it ends without a driver verdict.
     AgentInterventionFailed(AgentInterventionFailedPayload) = "agent.intervention.failed",
-}
-
-/// The run of an agent row: a run's row names it, a voice call's answer names none.
-fn agent_output_run(payload: &AgentOutputPayload) -> Option<EventRun> {
-    match payload {
-        AgentOutputPayload::Run(output) => Some(EventRun {
-            run_id: output.run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        AgentOutputPayload::Voice(_) => None,
-    }
-}
-
-/// The run that holds an ask; a workflow wait's card names none.
-fn approval_holder_run(holder: &ApprovalHolder) -> Option<EventRun> {
-    holder.run_id().map(|run_id| EventRun {
-        run_id,
-        run_version: None,
-        turn_number: None,
-    })
-}
-
-/// The run that holds a raised ask.
-fn approval_requested_run(payload: &ApprovalRequestedPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that held an answered ask.
-fn approval_resolved_run(payload: &ApprovalResolvedPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that held a canceled ask.
-fn approval_canceled_run(payload: &ApprovalCanceledPayload) -> Option<EventRun> {
-    approval_holder_run(&payload.holder)
-}
-
-/// The run that holds a question; a workflow wait's question names none.
-fn question_asked_run(payload: &QuestionAskedPayload) -> Option<EventRun> {
-    match payload {
-        QuestionAskedPayload::Run(question) => Some(EventRun {
-            run_id: question.run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        QuestionAskedPayload::Wait(_) => None,
-    }
-}
-
-/// The run behind a commit or an opened pull request, where it names one.
-fn git_settled_run(payload: &GitSettledPayload) -> Option<EventRun> {
-    match payload {
-        GitSettledPayload::Committed { run_id, .. }
-        | GitSettledPayload::PullRequestOpened { run_id, .. } => run_id.map(|run_id| EventRun {
-            run_id,
-            run_version: None,
-            turn_number: None,
-        }),
-        GitSettledPayload::Pushed { .. }
-        | GitSettledPayload::Pulled { .. }
-        | GitSettledPayload::ReviewPosted { .. } => None,
-    }
-}
-
-/// The run queued, at the version it was queued at.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "every run rule that reads its payload answers an Option"
-)]
-fn run_queued_run(payload: &AgentRunQueuedPayload) -> Option<EventRun> {
-    Some(EventRun {
-        run_id: payload.run_id(),
-        run_version: Some(payload.run_version()),
-        turn_number: None,
-    })
-}
-
-/// The run a notice is about: only the run that asked for fast output it lacks.
-fn session_notice_run(payload: &SessionNoticePostedPayload) -> Option<EventRun> {
-    let SessionNoticePostedPayload::Notice(SessionNotice::FastOutputUnavailable { run_id, .. }) =
-        payload
-    else {
-        return None;
-    };
-    Some(EventRun {
-        run_id: *run_id,
-        run_version: None,
-        turn_number: None,
-    })
 }
 
 /// Why a stored envelope does not read as a [`SessionEvent`]. The envelope itself stays valid

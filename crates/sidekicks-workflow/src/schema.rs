@@ -22,6 +22,7 @@ use sidekicks_contracts::workflow::run::gate_resolution::{
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
+use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseCancellationReason;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_contracts::workflow::secret::WorkflowSecretScope;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
@@ -29,9 +30,10 @@ use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 use crate::runs::record::GOING_RUN_STATUSES_SQL;
 
-/// The workflow part of the daemon's schema: the definitions, their versions, the runs, the gate
-/// answers, the form drafts, the steps, the triggers, the webhook tokens, the node state, the
-/// secrets' records and the builder drafts, in foreign-key order.
+/// The workflow part of the daemon's schema: the definitions, their versions, the runs, the
+/// payloads a start stored before its run's row, the gate answers, the form drafts, the steps, the
+/// triggers, the webhook tokens, the node state, the secrets' records and the builder drafts, in
+/// foreign-key order.
 pub(crate) static WORKFLOW_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workflow_schema_sql);
 
 /// The workspaces' list, whose run execution contexts a run's deletion clears, and the workflow
@@ -52,6 +54,7 @@ fn workflow_schema_sql() -> String {
     let waiting_run = <&'static str>::from(WorkflowRunStatus::Waiting);
     let going_run_statuses = &*GOING_RUN_STATUSES_SQL;
     let run_modes = sql_list_of_every::<WorkflowRunMode>();
+    let retry_mode = <&'static str>::from(WorkflowRunMode::Retry);
     let gate_kinds = sql_list_of_every::<WorkflowGateKind>();
     let human_approval = <&'static str>::from(WorkflowGateKind::HumanApproval);
     let approval_categories = sql_list_of_every::<WorkflowGateApprovalCategory>();
@@ -61,6 +64,8 @@ fn workflow_schema_sql() -> String {
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let failed = <&'static str>::from(WorkflowStepStatus::Failed);
     let skipped = <&'static str>::from(WorkflowStepStatus::Skipped);
+    let canceled = <&'static str>::from(WorkflowStepStatus::Canceled);
+    let cancellation_reasons = sql_list_of_every::<WorkflowPhaseCancellationReason>();
     let wait_causes = sql_list_of_every::<WorkflowWaitCause>();
     let account = <&'static str>::from(WorkflowWaitCause::Account);
     let person_wait_causes = sql_list_of(
@@ -194,6 +199,13 @@ CREATE TABLE workflow_runs (
   -- JSON: which trigger node started the run and with what.
   trigger_json              TEXT NOT NULL DEFAULT '{{}}'
                             CHECK(json_valid(trigger_json)),
+  -- JSON: the node a node run targets and what it covers; NULL on a whole run.
+  node_run_json             TEXT
+                            CHECK(node_run_json IS NULL OR json_valid(node_run_json)),
+  -- The run a retry retries, which its trigger kind and whether it posts its results are read
+  -- from; NULL on every run that is not a retry. Run ids are event-sourced, so no foreign key.
+  retried_run_id            TEXT
+                            CHECK((mode = '{retry_mode}') = (retried_run_id IS NOT NULL)),
   -- JSON: who or what started the run.
   started_by                TEXT NOT NULL
                             CHECK(json_valid(started_by)),
@@ -244,6 +256,31 @@ CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);
 -- The engine's deadline clock reads every unfinished run's cap, a failed park among them.
 CREATE INDEX idx_workflow_runs_unfinished ON workflow_runs(started_at)
   WHERE finished_at IS NULL;
+-- The restart reads a session's unfinished runs alone, oldest first.
+CREATE INDEX idx_workflow_runs_session_unfinished ON workflow_runs(session_id, started_at, id)
+  WHERE finished_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- workflow_payload_reservations: each artifact id a run reserves before it
+-- stores a payload under it, ahead of the write that names the payload: a
+-- start's, before its run's row, and a turn's, before the turn's write. A
+-- start's run write deletes the run's rows and a turn's write those of its
+-- ids, but an artifact's that may be stored and that no row names; a start or
+-- turn whose write never lands deletes each payload with its row, keeping the
+-- row of one that will not delete. A row left is what a stop cut or a cleanup
+-- could not finish, which the restart deletes once its run is not under way.
+-- Run ids are event-sourced, so no foreign key.
+-- ---------------------------------------------------------------------------
+CREATE TABLE workflow_payload_reservations (
+  artifact_id               TEXT PRIMARY KEY,
+  session_id                TEXT NOT NULL,
+  workflow_run_id           TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_workflow_payload_reservations_session
+  ON workflow_payload_reservations(session_id);
+CREATE INDEX idx_workflow_payload_reservations_run
+  ON workflow_payload_reservations(workflow_run_id);
 
 -- ---------------------------------------------------------------------------
 -- workflow_gate_resolutions: every answer to an approval node or a chain's
@@ -383,9 +420,16 @@ CREATE TABLE workflow_steps (
   -- failed it, from its workflow.step.failed. NULL on every other step and on a
   -- bare decline.
   decline_reason    TEXT,
+  -- Why a canceled step was canceled, from its workflow.step.canceled: a sibling's failure, the
+  -- run's cancel or a first-to-arrive merge's win. NULL on every other step and on a cancel with
+  -- no recorded cause.
+  cancellation_reason TEXT
+                    CHECK(cancellation_reason IS NULL
+                      OR (status = '{canceled}'
+                        AND cancellation_reason IN ({cancellation_reasons}))),
   -- The milliseconds the memory gate held the step, summed over its holds.
-  total_pool_wait_ms INTEGER NOT NULL DEFAULT 0
-                    CHECK(total_pool_wait_ms >= 0),
+  total_memory_wait_ms INTEGER NOT NULL DEFAULT 0
+                    CHECK(total_memory_wait_ms >= 0),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
   UNIQUE(workflow_run_id, execution_index),

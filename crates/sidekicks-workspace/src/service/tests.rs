@@ -42,6 +42,7 @@ async fn open_service(database: &TestDatabase) -> (Arc<WorkspaceService>, Connec
         )),
         events: Arc::new(WorkspaceEventEmitter::new(log.service)),
         resolver: RepoRootResolver::new(test_git_runner()),
+        writer: log.writer,
     });
     let rows = database.reader();
     insert_session_row(&rows, SESSION_ID, None, None);
