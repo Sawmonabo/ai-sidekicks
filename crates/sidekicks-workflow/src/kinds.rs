@@ -195,6 +195,9 @@ pub(crate) enum StepFailure {
     /// the output its node's `onError` passes on cannot be stored either. It is never retried, its
     /// node's `onError` does not apply, and the run ends.
     EndsRun(Box<WorkflowStepError>),
+    /// The daemon stopped while the step ran, so the next start's sweep failed it: it is never
+    /// retried, its node's `onError` does not apply, and the run parks for a Resume.
+    Crashed(Box<WorkflowStepError>),
     /// The person declined the step's own card: the step fails and is never retried.
     Declined {
         /// The `why not` words, where the person typed any.
@@ -212,7 +215,7 @@ impl StepFailure {
     )]
     pub(crate) fn error_mut(&mut self) -> Option<&mut WorkflowStepError> {
         match self {
-            Self::Failed(error) | Self::EndsRun(error) => Some(error),
+            Self::Failed(error) | Self::EndsRun(error) | Self::Crashed(error) => Some(error),
             Self::Declined { .. } => None,
         }
     }

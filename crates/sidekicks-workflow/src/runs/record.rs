@@ -16,6 +16,7 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
+use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{
     GOING_RUN_STATUSES, WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
@@ -33,9 +34,26 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
-use sidekicks_workspace::run_setup_gates::execution_root::context::release_run_context_statement;
+use sidekicks_workspace::run_setup_gates::execution_root::context::{
+    archive_run_workspace_statement, release_run_context_statement,
+};
 
 use crate::runs::spent_account::SpentAccountColumns;
+
+/// A scalar subquery answering how the run `@run_id`, or the first run before it that is not a
+/// retry, followed back through each retry's retried run, was started; `NULL` for a chain of
+/// retries whose first run is gone.
+pub(crate) static FIRST_NON_RETRY_MODE_SQL: LazyLock<String> = LazyLock::new(|| {
+    let retry = <&'static str>::from(WorkflowRunMode::Retry);
+    format!(
+        "(WITH RECURSIVE retried(mode, retried_run_id) AS (
+         SELECT mode, retried_run_id FROM workflow_runs WHERE id = @run_id
+       UNION ALL
+         SELECT earlier.mode, earlier.retried_run_id
+           FROM workflow_runs AS earlier JOIN retried ON earlier.id = retried.retried_run_id)
+     SELECT mode FROM retried WHERE mode <> '{retry}' LIMIT 1)"
+    )
+});
 
 /// One run as its row stores it. `finished_at` once present is when the run ended, and `error`
 /// says why a failed, canceled or crashed run ended.
@@ -55,6 +73,8 @@ pub(crate) struct StoredWorkflowRun {
     pub(crate) mode: WorkflowRunMode,
     /// The kind of trigger node that started it.
     pub(crate) trigger_kind: WorkflowTriggerKind,
+    /// The node a node run targets and what it covers; `None` on a whole run.
+    pub(crate) node_run: Option<WorkflowNodeRun>,
     /// Who or what started it.
     pub(crate) started_by: WorkflowStartedBy,
     /// Its Keep mark.
@@ -173,30 +193,43 @@ static END_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
 /// The statements that end run `workflow_run_id`: first its row, `status`, ended at `finished_at`
 /// with `error`, its open wait on people closed into its total, expecting one row, so the write is
 /// refused, changing nothing, for a run that has already finished or that no row answers to; then
-/// its execution context released at the same instant, which changes no row for a run with none.
+/// its execution context released and the workspace it owns archived at the same instant, each
+/// changing no row for a run with none.
 pub(crate) fn end_run_statements(
     workflow_run_id: WorkflowRunId,
     status: WorkflowRunStatus,
     finished_at: &WireInstant,
     error: Option<&WorkflowStepError>,
-) -> [WriteStatement; 2] {
+) -> [WriteStatement; 3] {
+    let run_id = workflow_run_id.text();
+    [
+        end_run_row_statement(workflow_run_id, status, finished_at, error),
+        release_run_context_statement(run_id.as_str(), finished_at),
+        archive_run_workspace_statement(run_id.as_str(), finished_at),
+    ]
+}
+
+/// The first of [`end_run_statements`], the run's own row, which a rebuild of the runs writes from
+/// the run's ending event alone: its execution context and its workspace are no projection.
+pub(crate) fn end_run_row_statement(
+    workflow_run_id: WorkflowRunId,
+    status: WorkflowRunStatus,
+    finished_at: &WireInstant,
+    error: Option<&WorkflowStepError>,
+) -> WriteStatement {
     let error_json = error.map(|error| {
         serde_json::to_string(error).expect("a step error writes as JSON, holding only text")
     });
-    let run_id = workflow_run_id.text();
-    [
-        WriteStatement {
-            sql: Cow::Borrowed(END_RUN_SQL.as_str()),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@status", <&'static str>::from(status)),
-                text_binding("@finished_at", finished_at.as_str()),
-                nullable_text_binding("@error_json", error_json.as_deref()),
-                text_binding("@workflow_run_id", run_id.as_str()),
-            ]),
-            expected_row_count: Some(1),
-        },
-        release_run_context_statement(run_id.as_str(), finished_at),
-    ]
+    WriteStatement {
+        sql: Cow::Borrowed(END_RUN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@status", <&'static str>::from(status)),
+            text_binding("@finished_at", finished_at.as_str()),
+            nullable_text_binding("@error_json", error_json.as_deref()),
+            text_binding("@workflow_run_id", workflow_run_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
 }
 
 /// How far a run has come: still going, a failed run parked on its failed step, or finished.
@@ -315,7 +348,8 @@ fn millisecond_ceiling(instant: &WireInstant) -> Option<jiff::Timestamp> {
 pub(crate) const RUN_COLUMNS: &str = "run.id AS run_id, run.session_id AS run_session_id,
   version.definition_id AS run_definition_id, run.workflow_version_id AS run_workflow_version_id,
   run.status AS run_status, run.mode AS run_mode,
-  json_extract(run.trigger_json, '$.kind') AS run_trigger_kind, run.started_by AS run_started_by,
+  json_extract(run.trigger_json, '$.kind') AS run_trigger_kind, run.node_run_json AS run_node_run,
+  run.started_by AS run_started_by,
   run.started_at AS run_started_at, run.finished_at AS run_finished_at,
   run.error_json AS run_error_json, run.summary AS run_summary, run.kept AS run_kept";
 
@@ -338,6 +372,7 @@ pub(crate) fn stored_run_from_row(row: &Row<'_>) -> rusqlite::Result<StoredWorkf
         status: text_column(row, column(row, "run_status")?, closed_word)?,
         mode: text_column(row, column(row, "run_mode")?, closed_word)?,
         trigger_kind: text_column(row, column(row, "run_trigger_kind")?, closed_word)?,
+        node_run: optional_json_column(row, "run_node_run")?,
         started_by: json_column(row, "run_started_by")?,
         keep: row.get(column(row, "run_kept")?)?,
         started_at: text_column(row, column(row, "run_started_at")?, WireInstant::try_from)?,

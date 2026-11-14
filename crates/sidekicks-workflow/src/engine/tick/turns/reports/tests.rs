@@ -9,10 +9,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::time::timeout;
 
 use crate::engine::ports::AgentStepOutcome;
-use crate::engine::tick::turns::EngineTickInput;
+use crate::engine::tick::turns::resuming::tests::{
+    resume, run_version, store_versions, target_version,
+};
 use crate::engine::tick::turns::tests::harness::{
     Harness, QUIET, WAIT, attempt_column, edge, item, node, retried, step_column,
 };
+use crate::engine::tick::turns::{EngineTickInput, RepinRefusal, RunResumeRefusal};
+use crate::test_rows::{assert_rebuild_rewrites_session_rows, stored_rows};
 
 /// The sequence and instant of the event of `event_type` on attempt `attempt` of `node_id`.
 fn attempt_event(
@@ -105,8 +109,10 @@ async fn a_retry_runs_its_next_attempt_after_its_wait(#[case] is_run_canceled: b
 }
 
 /// M takes A's items first while B still runs: A settles only once B runs, so the cancel lands on
-/// a running step. Mutations: the wave written before B settles; B's own completion written; a
-/// `siblingFailure` on a merge loser; the wave's event dropped because M settled first.
+/// a running step; a rebuild from the log writes the run's rows byte-identical. Mutations: the
+/// wave written before B settles; B's own completion written; a `siblingFailure` on a merge loser;
+/// the wave's event dropped because M settled first; the fold's `workflow.step.canceled` arm
+/// adding no row move for B (the rebuilt rows differ).
 #[tokio::test]
 async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
     let mut harness = Harness::new(None).await;
@@ -167,7 +173,7 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
     );
     assert_eq!(
         waves_recorded(&harness, "M"),
-        [(json!("firstToArrive"), json!(1))]
+        [(json!("mergeFirstToArrive"), json!(1))]
     );
     let b_events: Vec<String> = harness
         .events()
@@ -185,6 +191,8 @@ async fn a_won_merge_cancels_its_running_loser_in_one_wave() {
             .iter()
             .any(|event_type| event_type == "workflow.step.completed")
     );
+    harness.wait_for_earlier_turns().await;
+    assert_rebuild_rewrites_session_rows(&harness.rows, harness.scope.session_id.text().as_str());
 }
 
 /// Y is readied in the walk turn that X's completion wins M on, on M's losing input. Mutations: Y
@@ -472,8 +480,9 @@ fn cap_lines(harness: &Harness, record: &str) -> Vec<Map<String, Value>> {
 
 /// The run cap passing while A waits on its spent account fails A `timedOut` `runCap`, stops its
 /// kept run, ends the run `failed` with the cap's error, records the cap's clear, and leaves
-/// nothing of the run armed. Kills: caps read only for running runs; the ending leaving the cap
-/// armed.
+/// nothing of the run armed; a Resume after it is not taken, so A's run is never taken again.
+/// Kills: caps read only for running runs; the ending leaving the cap armed; the ended run kept
+/// live, its account wait lifted by the Resume.
 #[tokio::test]
 async fn the_cap_passing_during_an_account_park_ends_the_run() {
     let mut harness = Harness::new(None).await;
@@ -528,6 +537,11 @@ async fn the_cap_passing_during_an_account_park_ends_the_run() {
     let cleared = cap_lines(&harness, "deadlineCleared");
     assert_eq!(cleared.len(), 1, "the ending clears the cap");
     assert_eq!(cleared[0]["at"], json!(cap_at));
+    assert!(matches!(
+        resume(&harness, None).await,
+        Err(RunResumeRefusal::NotHeld)
+    ));
+    assert_eq!(harness.agents.resumes(), 0);
     assert_eq!(harness.armed(), None, "nothing of the run stays armed");
 }
 
@@ -597,6 +611,107 @@ async fn a_parked_step_resumes_once_its_reset_passes() {
         1,
         "one driver takes the run again"
     );
+}
+
+/// A re-pin while A waits on its spent account is refused as an attempt in flight, naming A, with
+/// the rows and A's armed resume as they were; the armed resume then takes A's run again on the
+/// pinned version, its `workflow.run.resumed` naming no version pair. Kills: the refused re-pin
+/// clearing the armed resume; the armed resume moving the run to the version a refused re-pin
+/// named.
+#[tokio::test]
+async fn a_scheduled_resume_never_repins() {
+    let mut harness = Harness::new(None).await;
+    let pinned = harness.scope.workflow_version_id;
+    let nodes = [
+        node("trigger", "test.trigger", 0, None),
+        node("A", "test.agent", 1, None),
+    ];
+    let edges = [edge("trigger", "A", 0)];
+    let mut changed_a = node("A", "test.agent", 1, None);
+    changed_a.params =
+        serde_json::from_value(json!({ "changed": true })).expect("the test's params read");
+    let target_nodes = [node("trigger", "test.trigger", 0, None), changed_a];
+    store_versions(&harness, (&nodes, &edges), (&target_nodes, &edges));
+    let resets_at = park_until_a_minute_from_now(&mut harness).await;
+    let before = stored_rows(&harness.rows);
+
+    let refused = resume(&harness, Some(target_version()))
+        .await
+        .expect_err("the re-pin is refused");
+    harness.wait_for_earlier_turns().await;
+
+    assert!(
+        matches!(
+            &refused,
+            RunResumeRefusal::Repin(RepinRefusal::AttemptInFlight(step))
+                if step.node_id.as_str() == "A"
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(stored_rows(&harness.rows), before);
+    assert_eq!(harness.armed(), Some(wall_instant(&resets_at)));
+    harness
+        .clock
+        .set_now(wall_instant(&resets_at) + Duration::from_secs(1));
+    timeout(WAIT, harness.agents.wait_for_resume())
+        .await
+        .expect("A's kept run is taken again");
+    let (_, _, _, resumed) = harness
+        .events()
+        .into_iter()
+        .find(|(_, event_type, _, _)| event_type == "workflow.run.resumed")
+        .expect("the run resumes");
+    assert_eq!(resumed.get("repinnedToWorkflowVersionId"), None);
+    assert_eq!(resumed["workflowVersionId"], json!(pinned));
+    assert_eq!(run_version(&harness.rows), pinned.text().as_str());
+}
+
+/// A person's Resume while A waits on its spent account, its reset a minute away, and W waits on
+/// a reply lifts A's wait now: its row back to `running` with its resume cleared, its kept run
+/// taken again, while W keeps waiting. Kills: the Resume refused until the reset passes; W's wait
+/// lifted with A's; the kept run never taken again.
+#[tokio::test]
+async fn a_resume_lifts_an_account_park_ahead_of_its_reset_and_leaves_a_person_wait() {
+    let mut harness = Harness::new(None).await;
+    harness
+        .start(
+            vec![
+                node("trigger", "test.trigger", 0, None),
+                node("A", "test.agent", 1, None),
+                node("W", "test.ask", 2, None),
+            ],
+            &[edge("trigger", "A", 0), edge("trigger", "W", 0)],
+            vec![item(json!({}))],
+            |_| {},
+        )
+        .await;
+    timeout(WAIT, harness.agents.wait_for_request())
+        .await
+        .expect("A asks for its run");
+    harness
+        .agents
+        .end(spent(Some(instant_after(Timestamp::now(), 60_000))));
+    harness
+        .wait_until(|rows| {
+            step_column(rows, "A", "status").as_deref() == Some("waiting")
+                && step_column(rows, "W", "status").as_deref() == Some("waiting")
+        })
+        .await;
+    harness.wait_for_earlier_turns().await;
+
+    assert_eq!(
+        resume(&harness, None).await.expect("the Resume is taken"),
+        None
+    );
+    timeout(WAIT, harness.agents.wait_for_resume())
+        .await
+        .expect("A's kept run is taken again");
+
+    assert_eq!(harness.status("A").as_deref(), Some("running"));
+    assert_eq!(step_column(&harness.rows, "A", "resume_at"), None);
+    assert_eq!(harness.status("W").as_deref(), Some("waiting"));
+    assert_eq!(resume_lines(&harness, "deadlineCleared").len(), 1);
+    assert_eq!(harness.agents.resumes(), 1);
 }
 
 /// A person's cancel of the run while A's resume is armed cancels A, stops its kept run, empties

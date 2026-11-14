@@ -18,14 +18,16 @@ use super::{
 };
 use crate::definitions::kept_values::KeptArtifactReads;
 use crate::engine::event_record::{EngineDecision, RunEngineRecord};
+use crate::engine::payload_reservations::forget_payloads_statement;
 use crate::engine::tick::run_status::{RunPersonWait, RunStepCounts};
 
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 impl RunTurnCommit {
     /// Commits the turn through `appender` in one write: its events, then the run event its
     /// status move or its ending implies as the last, and every statement ahead of the rows, the
-    /// run's own after the steps'. `live_steps` are the run's steps the tick keeps live after the
-    /// turn, which a resumption point names beside the steps this turn readied. Once it commits,
+    /// run's own after the steps', then the delete of each payload reservation the turn made and
+    /// did not keep. `live_steps` are the run's steps the tick keeps live after the turn, which a
+    /// resumption point names beside the steps this turn readied. Once it commits,
     /// each report that moved its step, each gate answer and the run's status go to `record`, and
     /// it answers the artifacts its write's own reads found the replaced kept values naming. A
     /// turn with nothing writes nothing. Fails with [`RunTurnCommitFailure`], nothing of the turn
@@ -41,6 +43,7 @@ impl RunTurnCommit {
             mut drafts,
             statements,
             artifact_ids,
+            reserved_ids,
             kept_reads,
             answer,
         } = self.drafted(live_steps)?;
@@ -65,6 +68,7 @@ impl RunTurnCommit {
             Err(error) => Err(RunTurnCommitFailure {
                 error: error.into(),
                 artifact_ids,
+                reserved_ids,
             }),
         }
     }
@@ -88,14 +92,17 @@ impl RunTurnCommit {
         let mut drafted = Vec::with_capacity(writes.len());
         let mut draft_error = None;
         let mut artifact_ids = Vec::new();
+        let mut reserved_ids = Vec::new();
         for (commit, live_steps, record) in writes {
             match commit.drafted(live_steps) {
                 Ok(turn) => {
                     artifact_ids.extend(turn.artifact_ids.iter().copied());
+                    reserved_ids.extend(turn.reserved_ids.iter().copied());
                     drafted.push((turn, record));
                 }
                 Err(failure) => {
                     artifact_ids.extend(failure.artifact_ids);
+                    reserved_ids.extend(failure.reserved_ids);
                     draft_error.get_or_insert(failure.error);
                 }
             }
@@ -104,6 +111,7 @@ impl RunTurnCommit {
             return Err(RunTurnCommitFailure {
                 error,
                 artifact_ids,
+                reserved_ids,
             });
         }
         // Each session's turns, by their place in `drafted`, in the order the sessions first come.
@@ -149,6 +157,7 @@ impl RunTurnCommit {
                 return Err(RunTurnCommitFailure {
                     error: error.into(),
                     artifact_ids,
+                    reserved_ids,
                 });
             }
         };
@@ -205,13 +214,23 @@ impl RunTurnCommit {
             }
             None => (self.add_run_status_move(live_steps), None),
         };
+        // The rows the write stores name the turn's artifacts, so their reservations go.
+        if !self.reserved_ids.is_empty() {
+            self.statements
+                .push(forget_payloads_statement(&self.reserved_ids));
+        }
         let Self {
             keys,
             run_id: _,
+            epoch: _,
+            resumed_event: _,
             counts,
             status_before: _,
             person_wait,
             payloads: _,
+            writer: _,
+            spare_ids: _,
+            reserved_ids,
             events,
             statements,
             pending,
@@ -237,6 +256,7 @@ impl RunTurnCommit {
                 drafts,
                 statements,
                 artifact_ids,
+                reserved_ids,
                 kept_reads,
                 answer: TurnAnswer {
                     pending,
@@ -251,19 +271,22 @@ impl RunTurnCommit {
             Err(error) => Err(RunTurnCommitFailure {
                 error,
                 artifact_ids,
+                reserved_ids,
             }),
         }
     }
 }
 
 /// A turn drafted for its write: its session, its events and statements, the artifacts its
-/// payload refs name, where its statements' results name the kept-value artifacts no row names
-/// once it commits, and what it answers once the write commits.
+/// payload refs name, the ids whose reservations its statements delete, where its statements'
+/// results name the kept-value artifacts no row names once it commits, and what it answers once the
+/// write commits.
 struct DraftedTurn {
     session_id: SessionId,
     drafts: Vec<SessionEventDraft>,
     statements: Vec<WriteStatement>,
     artifact_ids: Vec<ArtifactId>,
+    reserved_ids: Vec<ArtifactId>,
     kept_reads: KeptArtifactReads,
     answer: TurnAnswer,
 }
@@ -296,8 +319,9 @@ impl TurnAnswer {
     }
 
     /// The answer of a turn whose events committed at `event_sequences` under `event_ids`, both in
-    /// write order, and whose write replaced the kept values naming `dropped_kept_artifact_ids`,
-    /// once each move, gate answer and status move went to `record`, where there is one.
+    /// write order, and whose write left `dropped_kept_artifact_ids` unnamed: each one a kept value
+    /// it replaced named, or one it stored for a value it could not keep, its workflow deleted
+    /// meanwhile; once each move, gate answer and status move went to `record`, where there is one.
     async fn recorded(
         self,
         event_sequences: Vec<SafeInt<0>>,

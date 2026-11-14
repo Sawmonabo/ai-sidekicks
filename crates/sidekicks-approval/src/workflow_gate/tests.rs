@@ -1,7 +1,8 @@
 //! A workflow gate's card over the approval and workflow tables: raised once per wait, refused for
 //! an ended workflow run, a chain whose question no longer waits or another session, answered
-//! through the registered waits, left standing by its session's close and canceled at a restart
-//! once no step holds its wait or its chain's question stopped waiting.
+//! through the registered waits, withdrawn with its run's other cards in one commit, left standing
+//! by its session's close and canceled at a restart once no step holds its wait or its chain's
+//! question stopped waiting.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -468,4 +469,59 @@ async fn a_session_s_close_leaves_a_wait_s_card() {
 
     assert_eq!(card_state(&fixture, run_card), "canceled");
     assert_eq!(card_state(&fixture, wait_card), "pending");
+}
+
+// A run's cards withdrawn together: the one answered first stays answered, the other two are
+// canceled in one commit, and a wait with no card writes nothing. Killed by awaiting each cancel
+// before the next is queued, which commits them one by one, and by dropping both the open-card
+// read's pending filter and the cancel's guard, which overwrites the answer.
+#[tokio::test]
+async fn a_run_s_cards_are_withdrawn_in_one_commit_and_an_answered_one_stays_answered() {
+    let fixture = gate_fixture().await;
+    let mut cards = Vec::new();
+    for execution_index in 1..=3 {
+        let ask = step_card(&fixture, RUN_ID, wait_id(execution_index));
+        cards.push(
+            fixture
+                .service
+                .raise_workflow_gate(ask)
+                .await
+                .expect("the card is raised"),
+        );
+    }
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE approval_requests SET state = 'approved' WHERE id = ?1",
+            [cards[1].text().as_str()],
+        )
+        .expect("the test answers the second card");
+    let commits = fixture.writer.follow_commits();
+    let commits_before = *commits.borrow();
+
+    let withdrawn = fixture
+        .service
+        .withdraw_workflow_gates(fixture.session_id, [1, 2, 3, 9].map(wait_id).to_vec())
+        .await
+        .expect("the open cards read");
+
+    assert_eq!(*commits.borrow() - commits_before, 1);
+    assert_eq!(withdrawn.len(), 4);
+    assert!(
+        withdrawn.iter().all(Result::is_ok),
+        "every card answers kept"
+    );
+    let states: Vec<String> = cards
+        .iter()
+        .map(|&card| card_state(&fixture, card))
+        .collect();
+    assert_eq!(states, ["canceled", "approved", "canceled"]);
+    assert_eq!(
+        count(
+            &fixture,
+            "SELECT count(*) FROM session_events WHERE type = 'approval.canceled'"
+        ),
+        2
+    );
 }

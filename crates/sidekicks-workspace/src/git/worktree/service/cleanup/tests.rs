@@ -5,10 +5,12 @@ use std::sync::{Arc, Mutex};
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
+use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
@@ -186,8 +188,35 @@ impl CleanupFixture {
     }
 }
 
-// Kills: a removal while an agent runs in the tree, a folder holding new work deleted rather than
-// kept aside, and a pass that stops at its first failure.
+// A session whose workspace on `mount` is bound to a folder below `tree`, its checkout `tree`;
+// answers the workspace's id.
+fn stand_below(connection: &Connection, mount: &str, tree: &Path) -> String {
+    let session_id = new_id();
+    insert_session_row(connection, &session_id, None, None);
+    let workspace_id = new_id();
+    connection
+        .execute(
+            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
+             state, metadata, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, json_object('checkoutRoot', ?7), ?8, ?8)",
+            params![
+                workspace_id,
+                session_id,
+                mount,
+                <&'static str>::from(ExecutionMode::ProvisionedWorktree),
+                tree.join("nested").to_string_lossy(),
+                <&'static str>::from(WorkspaceState::Ready),
+                tree.to_string_lossy(),
+                PARENT_ROWS_AT,
+            ],
+        )
+        .expect("the workspace is stored");
+    workspace_id
+}
+
+// Kills: a removal while a run works in the tree or a session's checkout is the tree, each found
+// only below its folder, a folder holding new work deleted rather than kept aside, and a pass that
+// stops at its first failure.
 #[tokio::test]
 async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_failure() {
     let fixture = CleanupFixture::new(test_git_runner()).await;
@@ -197,12 +226,14 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
         &fixture.mount,
     );
     let tree_at = |name: &str| fixture.tree_at(name);
-    for name in ["busy", "clean", "kept"] {
+    for name in ["busy", "standing", "clean", "kept"] {
         fixture.add_tree(name).await;
     }
     std::fs::write(tree_at("kept").join("new.txt"), "new work\n").expect("the new work is written");
     let connection = fixture.database.reader();
     let busy = store_retired_tree(&connection, mount, &tree_at("busy"));
+    let standing = store_retired_tree(&connection, mount, &tree_at("standing"));
+    let standing_workspace = stand_below(&connection, mount, &tree_at("standing"));
     let clean = store_retired_tree(&connection, mount, &tree_at("clean"));
     let kept = store_retired_tree(&connection, mount, &tree_at("kept"));
     let outside = [
@@ -242,9 +273,14 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert_eq!(failed, expected_failed);
     assert!(
         tree_at("busy").exists(),
-        "a tree an agent runs in keeps its folder"
+        "a tree a run works in keeps its folder"
     );
     assert_eq!(cleaned_at(&connection, &busy), None);
+    assert!(
+        tree_at("standing").exists(),
+        "a tree a session stands in keeps its folder"
+    );
+    assert_eq!(cleaned_at(&connection, &standing), None);
     assert!(
         !tree_at("clean").exists(),
         "a tree with nothing to lose is removed"
@@ -260,13 +296,22 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     );
     assert_eq!(*keeper.kept.lock().expect("the keeper's list"), [kept]);
 
-    // Once the run ends, the deferred tree is cleaned on the next pass.
+    // Once the run ends and the session leaves, the deferred trees are cleaned on the next pass.
     connection
         .execute(
             "UPDATE run_execution_contexts SET released_at = ?1 WHERE run_id = ?2",
             params![PARENT_ROWS_AT, run_id],
         )
         .expect("the run is released");
+    connection
+        .execute(
+            "UPDATE workspaces SET state = ?1 WHERE id = ?2",
+            params![
+                <&'static str>::from(WorkspaceState::Archived),
+                standing_workspace
+            ],
+        )
+        .expect("the session's workspace is archived");
     for worktree_id in &outside {
         connection
             .execute(
@@ -279,9 +324,14 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
         .cleanup_pass(&keeper, &[], &CancellationToken::new())
         .await
         .expect("the second pass succeeds");
-    assert_eq!(second.cleaned, [busy]);
+    let mut cleaned = second.cleaned;
+    cleaned.sort_by_key(ToString::to_string);
+    let mut expected_cleaned = vec![busy, standing];
+    expected_cleaned.sort_by_key(ToString::to_string);
+    assert_eq!(cleaned, expected_cleaned);
     assert_eq!(second.kept, [kept]);
     assert!(!tree_at("busy").exists());
+    assert!(!tree_at("standing").exists());
 }
 
 // Kills ending a tree's processes after it is kept aside or deleted, and dropping their hold

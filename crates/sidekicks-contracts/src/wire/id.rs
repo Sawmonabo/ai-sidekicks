@@ -101,6 +101,12 @@ impl UuidText {
     }
 }
 
+impl fmt::Debug for UuidText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), formatter)
+    }
+}
+
 /// A UUID whose brand another contract declares: the same accept set as every UUID id, written
 /// lowercase, read as a plain string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

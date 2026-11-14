@@ -82,6 +82,7 @@ use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEM
 use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::removed_store::REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::rows::UNRELEASED_RUNS_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::status::WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
@@ -212,4 +213,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     - 5 * RUN_STANDING_STATEMENT_CAPACITY
     // The turn capture's and the command windows' sets each hold the read of a run's checkout,
     // which is counted once.
-    - RUN_CHECKOUT_STATEMENT_CAPACITY;
+    - RUN_CHECKOUT_STATEMENT_CAPACITY
+    // The worktree service's and the working folders' sets each hold the read of every unreleased
+    // run, which is counted once.
+    - UNRELEASED_RUNS_STATEMENT_CAPACITY;

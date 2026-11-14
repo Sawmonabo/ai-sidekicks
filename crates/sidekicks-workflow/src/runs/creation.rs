@@ -1,17 +1,22 @@
 //! Creating a run's row: the statements the engine's run start writes in one unit of work with the
 //! run's started event, whose instant is the run's start, so a run, its place in its chain and its
-//! execution context are stored together or not at all.
+//! execution context are stored together or not at all. A rebuild of the runs writes the run's row
+//! and its trigger step's row through the same statements, and a joining run's count on its
+//! chain's first run through the same count.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
+use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
@@ -25,13 +30,6 @@ use sidekicks_store::database::statement::{
 use crate::runs::step_rows::insert_pending_step;
 
 /// Everything a new run's row is written from; the run reads `new` until the engine admits it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes them with the run's started event"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct WorkflowRunCreation {
     /// The run.
@@ -50,24 +48,29 @@ pub(crate) struct WorkflowRunCreation {
     pub(crate) chain: WorkflowRunChainPlace,
     /// The guarded write of the run's execution context row, present only for a run that works in
     /// a project's repository; refused, changing nothing, when its workspace's state changed since
-    /// it was bound.
+    /// it was bound. A rebuild writes none: the context's row is no projection.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run engine's start, which writes the context with the run's row"
+        )
+    )]
     pub(crate) execution_context: Option<WriteStatement>,
     /// The workflow's provider as the run started; `None` when the workflow names none.
     pub(crate) provider: Option<ProviderId>,
     /// When the request, fire or call that started it did so, in the stored form.
     pub(crate) started_at: WireInstant,
-    /// The input its trigger step starts on.
-    pub(crate) trigger_input: WorkflowPayloadRef,
+    /// The input its trigger step starts on; `None` on a node run that reuses its trigger's step,
+    /// which writes no trigger row.
+    pub(crate) trigger_input: Option<WorkflowPayloadRef>,
+    /// The node a node run targets and what it covers; `None` on a whole run.
+    pub(crate) node_run: Option<WorkflowNodeRun>,
+    /// The run a retry retries; `None` on every run that is not a retry.
+    pub(crate) retried_run_id: Option<WorkflowRunId>,
 }
 
 /// The key of the step the run's trigger runs as: its first attempt, the run's first execution.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes the trigger step's row with the run's"
-    )
-)]
 pub(crate) fn trigger_step_key(
     workflow_run_id: WorkflowRunId,
     trigger: &WorkflowRunTrigger,
@@ -80,17 +83,38 @@ pub(crate) fn trigger_step_key(
     }
 }
 
+// A start's run row, `new`; a run id already stored is refused.
 static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     let new_run = <&'static str>::from(WorkflowRunStatus::New);
     format!(
         "INSERT INTO workflow_runs (
-    id, workflow_version_id, session_id, provider, status, mode, trigger_json, started_by,
-    chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept, started_at
+    id, workflow_version_id, session_id, provider, status, mode, trigger_json, node_run_json,
+    retried_run_id, started_by, chain_root_run_id, chain_from_error, chain_run_count,
+    chain_kept_going, kept, started_at
   ) VALUES (
     @id, @workflow_version_id, @session_id, @provider, '{new_run}', @mode, @trigger_json,
-    @started_by, @chain_root_run_id, @chain_from_error, @chain_run_count, @chain_kept_going, 0,
-    @started_at
+    @node_run_json, @retried_run_id, @started_by, @chain_root_run_id, @chain_from_error,
+    @chain_run_count, @chain_kept_going, 0, @started_at
   )"
+    )
+});
+
+// A rebuild's run row: the start's, written over a row its clear kept, one a gate answer or a form
+// draft names, every column as the run's start left it.
+static REBUILT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{insert}
+  ON CONFLICT(id) DO UPDATE SET
+    workflow_version_id = excluded.workflow_version_id, session_id = excluded.session_id,
+    provider = excluded.provider, status = excluded.status, mode = excluded.mode,
+    trigger_json = excluded.trigger_json, node_run_json = excluded.node_run_json,
+    retried_run_id = excluded.retried_run_id, started_by = excluded.started_by,
+    started_at = excluded.started_at, finished_at = NULL, error_json = NULL, summary = NULL,
+    chain_root_run_id = excluded.chain_root_run_id,
+    chain_from_error = excluded.chain_from_error, chain_run_count = excluded.chain_run_count,
+    chain_kept_going = excluded.chain_kept_going, kept = excluded.kept,
+    person_wait_since = NULL, person_wait_ms = 0",
+        insert = INSERT_RUN_SQL.as_str(),
     )
 });
 
@@ -120,11 +144,26 @@ pub(crate) const CHAIN_COUNT_STATEMENT_INDEX: usize = 2;
 const CHAIN_ROOT_CHECK_SQL: &str = "SELECT 1 FROM workflow_runs
   WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL";
 
-// Counts the run unless the chain has reached its limit and the person has not answered Keep
-// going; a `NULL` limit never asks.
-const COUNT_CHAIN_RUN_SQL: &str = "UPDATE workflow_runs SET chain_run_count = chain_run_count + 1
-  WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL
-    AND (@ask_after IS NULL OR chain_kept_going = 1 OR chain_run_count < @ask_after)";
+// Whether a stored first run's chain takes one more run: below its limit, or the person answered
+// Keep going; a `NULL` limit never asks.
+const CHAIN_HAS_ROOM_CONDITION: &str =
+    "(@ask_after IS NULL OR chain_kept_going = 1 OR chain_run_count < @ask_after)";
+
+// Counts the run unless the chain has no room for it.
+static COUNT_CHAIN_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE workflow_runs SET chain_run_count = chain_run_count + 1
+  WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL AND {CHAIN_HAS_ROOM_CONDITION}"
+    )
+});
+
+// A stored first run whose chain has no room for one more run.
+static FULL_CHAIN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM workflow_runs
+  WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL AND NOT {CHAIN_HAS_ROOM_CONDITION}"
+    )
+});
 
 /// Where the run's write holds its execution context's row, right after its chain's statements: a
 /// refusal at this statement is a workspace that left `ready`, a mount detached or a checkout
@@ -149,7 +188,8 @@ pub(crate) fn execution_context_statement_index(chain: &WorkflowRunChainPlace) -
 /// [`CHAIN_COUNT_STATEMENT_INDEX`], which refuses it once the chain has started `chain_ask_after`
 /// runs and the person has not answered Keep going, `None` never; its execution context's row
 /// where it has one, at [`execution_context_statement_index`]; and, last, its trigger step's
-/// `pending` row on its trigger input, at the run's start. A first run's own row counts itself.
+/// `pending` row on its trigger input, at the run's start, unless a node run reuses its trigger's
+/// step. A first run's own row counts itself.
 #[cfg_attr(
     not(test),
     expect(
@@ -161,6 +201,95 @@ pub(crate) fn workflow_run_creation_statements(
     creation: &WorkflowRunCreation,
     chain_ask_after: Option<WorkflowChainAskAfterRuns>,
 ) -> Vec<WriteStatement> {
+    let mut statements = vec![run_row_statement(creation, INSERT_RUN_SQL.as_str())];
+    if let WorkflowRunChainPlace::Joins {
+        chain_root_run_id, ..
+    } = &creation.chain
+    {
+        statements.push(WriteStatement {
+            sql: Cow::Borrowed(CHAIN_ROOT_CHECK_SQL),
+            bindings: StatementBindings::Named(vec![text_binding(
+                "@chain_root_run_id",
+                chain_root_run_id.text().as_str(),
+            )]),
+            expected_row_count: Some(1),
+        });
+        statements.push(count_chain_run_statement(
+            chain_root_run_id,
+            chain_ask_after,
+        ));
+    }
+    if let Some(context) = &creation.execution_context {
+        statements.push(context.clone());
+    }
+    statements.extend(trigger_step_statement(creation));
+    statements
+}
+
+/// The statement that counts a run joining the chain whose first run is `chain_root_run_id` on
+/// that first run's row, expecting one row: refused once the chain has started `chain_ask_after`
+/// runs and the person has not answered Keep going, `None` never, and for a root that is not a
+/// stored first run. A rebuild counts each `workflow.chain.runJoined` through it, with no limit.
+pub(crate) fn count_chain_run_statement(
+    chain_root_run_id: &WorkflowRunId,
+    chain_ask_after: Option<WorkflowChainAskAfterRuns>,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(COUNT_CHAIN_RUN_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@chain_root_run_id", chain_root_run_id.text().as_str()),
+            (
+                Cow::Borrowed("@ask_after"),
+                chain_ask_after.map_or(Value::Null, |runs| Value::Integer(i64::from(runs.get()))),
+            ),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// Whether the chain whose first run is `chain_root_run_id` has no room for one more run under
+/// `chain_ask_after`, as [`count_chain_run_statement`] reads it, on `connection`: a start that
+/// joins it is held before it binds anything, while the count still holds one the chain fills
+/// meanwhile. False for a root that is not a stored first run, which the write refuses.
+pub(crate) fn is_chain_full(
+    connection: &Connection,
+    chain_root_run_id: &WorkflowRunId,
+    chain_ask_after: Option<WorkflowChainAskAfterRuns>,
+) -> rusqlite::Result<bool> {
+    connection
+        .prepare_cached(FULL_CHAIN_SQL.as_str())?
+        .query_row(
+            named_params! {
+                "@chain_root_run_id": chain_root_run_id.text().as_str(),
+                "@ask_after": chain_ask_after.map(|runs| i64::from(runs.get())),
+            },
+            |_row| Ok(()),
+        )
+        .optional()
+        .map(|full| full.is_some())
+}
+
+/// The trigger step's `pending` row on the run's trigger input, at the run's start; `None` for a
+/// run that reuses its trigger's step and so has no trigger input.
+pub(crate) fn trigger_step_statement(creation: &WorkflowRunCreation) -> Option<WriteStatement> {
+    creation.trigger_input.as_ref().map(|trigger_input| {
+        insert_pending_step(
+            &trigger_step_key(creation.workflow_run_id, &creation.trigger),
+            &[],
+            trigger_input,
+            &creation.started_at,
+        )
+    })
+}
+
+/// The run's row as its start writes it, `new`, as a rebuild writes it over a row its clear kept.
+/// A first run's own row counts itself.
+pub(crate) fn rebuilt_run_row_statement(creation: &WorkflowRunCreation) -> WriteStatement {
+    run_row_statement(creation, REBUILT_RUN_SQL.as_str())
+}
+
+// The run's row as its start writes it, `new`, through `sql`. A first run's own row counts itself.
+fn run_row_statement(creation: &WorkflowRunCreation, sql: &'static str) -> WriteStatement {
     let run_id = creation.workflow_run_id.text();
     let session_id = creation.session_id.text();
     let started_at = creation.started_at.as_str();
@@ -168,6 +297,10 @@ pub(crate) fn workflow_run_creation_statements(
         .expect("a trigger writes as JSON, holding only text");
     let started_by = serde_json::to_string(&creation.started_by)
         .expect("a run's starter writes as JSON, holding only text and ids");
+    let retried_run_id = creation.retried_run_id.as_ref().map(WorkflowRunId::text);
+    let node_run_json = creation.node_run.as_ref().map(|node_run| {
+        serde_json::to_string(node_run).expect("a node run writes as JSON, holding only text")
+    });
     let (chain_root_run_id, is_from_error) = match &creation.chain {
         WorkflowRunChainPlace::Starts {} => (run_id, false),
         WorkflowRunChainPlace::Joins {
@@ -180,8 +313,8 @@ pub(crate) fn workflow_run_creation_statements(
         WorkflowRunChainPlace::Starts {} => Value::Integer(value),
         WorkflowRunChainPlace::Joins { .. } => Value::Null,
     };
-    let mut statements = vec![WriteStatement {
-        sql: Cow::Borrowed(INSERT_RUN_SQL.as_str()),
+    WriteStatement {
+        sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", run_id.as_str()),
             text_binding(
@@ -195,6 +328,11 @@ pub(crate) fn workflow_run_creation_statements(
             ),
             text_binding("@mode", <&'static str>::from(creation.mode)),
             text_binding("@trigger_json", &trigger_json),
+            nullable_text_binding("@node_run_json", node_run_json.as_deref()),
+            nullable_text_binding(
+                "@retried_run_id",
+                retried_run_id.as_ref().map(UuidText::as_str),
+            ),
             text_binding("@started_by", &started_by),
             text_binding("@chain_root_run_id", chain_root_run_id.as_str()),
             (
@@ -206,49 +344,20 @@ pub(crate) fn workflow_run_creation_statements(
             text_binding("@started_at", started_at),
         ]),
         expected_row_count: None,
-    }];
-    if let WorkflowRunChainPlace::Joins { .. } = creation.chain {
-        statements.push(WriteStatement {
-            sql: Cow::Borrowed(CHAIN_ROOT_CHECK_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@chain_root_run_id",
-                chain_root_run_id.as_str(),
-            )]),
-            expected_row_count: Some(1),
-        });
-        statements.push(WriteStatement {
-            sql: Cow::Borrowed(COUNT_CHAIN_RUN_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@chain_root_run_id", chain_root_run_id.as_str()),
-                (
-                    Cow::Borrowed("@ask_after"),
-                    chain_ask_after
-                        .map_or(Value::Null, |runs| Value::Integer(i64::from(runs.get()))),
-                ),
-            ]),
-            expected_row_count: Some(1),
-        });
     }
-    if let Some(context) = &creation.execution_context {
-        statements.push(context.clone());
-    }
-    statements.push(insert_pending_step(
-        &trigger_step_key(creation.workflow_run_id, &creation.trigger),
-        &[],
-        &creation.trigger_input,
-        &creation.started_at,
-    ));
-    statements
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use rusqlite::{Connection, OptionalExtension, params};
+    use serde_json::json;
     use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+    use sidekicks_contracts::workflow::run::control::WorkflowNodeExecuteScope;
+    use sidekicks_contracts::workflow::run::events::WorkflowNodeRun;
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::step::record::WorkflowPayloadRef;
     use sidekicks_contracts::workflow::run::trigger::{
@@ -287,7 +396,9 @@ mod tests {
             execution_context: None,
             provider: None,
             started_at: WireInstant::try_from(STARTED_AT.to_owned()).expect("an instant"),
-            trigger_input: WorkflowPayloadRef::Inline { items: Vec::new() },
+            trigger_input: Some(WorkflowPayloadRef::Inline { items: Vec::new() }),
+            node_run: None,
+            retried_run_id: None,
         }
     }
 
@@ -349,7 +460,9 @@ mod tests {
         Refused(usize),
     }
 
-    /// Every stored run's trigger step is `pending` at the run's start. Mutations: `<=` for `<` in
+    /// Every stored run's trigger step is `pending` at the run's start, and a start never writes
+    /// over a stored run. Mutations: the start's insert taking the rebuild's conflict arm, which
+    /// writes the first run again; `<=` for `<` in
     /// the count's limit; the Keep going answer ignored; a `NULL` limit read as a limit; the
     /// count's or the root check's expected 1 dropped; the root check dropped, so a missing root
     /// reads as a chain at its limit; the trigger step's row written before the chain's statements,
@@ -405,6 +518,13 @@ mod tests {
                 ))
                 .await
                 .expect("a chain's first run is stored");
+            let again = writer
+                .write(workflow_run_creation_statements(
+                    &creation(ROOT_RUN_ID, WorkflowRunChainPlace::Starts {}),
+                    None,
+                ))
+                .await;
+            assert!(again.is_err(), "a start never writes over a stored run");
             // A first run's own row counts itself and has no answer yet.
             assert_eq!(
                 chain_columns(&rows, ROOT_RUN_ID),
@@ -482,5 +602,44 @@ mod tests {
                 assert_eq!(chain_columns(&rows, ROOT_RUN_ID), root_before);
             }
         }
+    }
+
+    /// A node run that reuses its trigger's step stores its row naming its target and writes no
+    /// trigger row. Mutation: push the trigger step's row whatever the trigger input, which leaves
+    /// a `pending` trigger step behind.
+    #[tokio::test]
+    async fn a_node_run_reusing_its_trigger_stores_its_target_and_no_trigger_row() {
+        let database = TestDatabase::new(schema_parts());
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens the test database");
+        let rows = database.reader();
+        insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Node run");
+        let node_run = WorkflowRunCreation {
+            trigger_input: None,
+            node_run: Some(WorkflowNodeRun {
+                node_id: WorkflowNodeId::new("ask".to_owned()).expect("a node id"),
+                scope: WorkflowNodeExecuteScope::FromHere,
+            }),
+            ..creation(NEW_RUN_ID, WorkflowRunChainPlace::Starts {})
+        };
+
+        writer
+            .write(workflow_run_creation_statements(&node_run, None))
+            .await
+            .expect("the node run is stored");
+
+        let stored: String = rows
+            .query_row(
+                "SELECT node_run_json FROM workflow_runs WHERE id = ?1",
+                [NEW_RUN_ID],
+                |row| row.get(0),
+            )
+            .expect("the node run's row is stored");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&stored).expect("the column holds JSON"),
+            json!({"nodeId": "ask", "scope": "fromHere"})
+        );
+        assert_eq!(trigger_step(&rows, NEW_RUN_ID), None);
     }
 }

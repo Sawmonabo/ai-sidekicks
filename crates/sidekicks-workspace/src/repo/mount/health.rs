@@ -102,7 +102,7 @@ static SELECT_SESSIONS_ON_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT DISTINCT session_id
    FROM workspaces
-  WHERE repo_mount_id = @repo_mount_id AND state <> '{}'
+  WHERE repo_mount_id = @repo_mount_id AND state <> '{}' AND workflow_run_id IS NULL
   ORDER BY session_id",
         <&'static str>::from(WorkspaceState::Archived)
     )
