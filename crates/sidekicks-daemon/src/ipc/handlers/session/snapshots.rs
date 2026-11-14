@@ -1,7 +1,7 @@
-//! `session.snapshot.list`: the inspector's list of a project session's snapshots, one per prompt
-//! that started a turn, each the checkpoint standing before that prompt and named `Before` and the
-//! prompt's first words. The session's row, its checkpoints and their prompts come from one
-//! database read; a chat has none.
+//! `session.snapshot.list`: the inspector's list of a project session's snapshots, one per prompt a
+//! run took, a turn's opening or a steer, each the checkpoint standing before that prompt and named
+//! `Before` and the prompt's first words; a turn's start that no new prompt opened has no row. The
+//! session's row, its checkpoints and their prompts come from one database read; a chat has none.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_session::auto_title::first_words_of;
-use sidekicks_session::checkpoints::store::list_checkpoints;
+use sidekicks_session::checkpoints::store::kept::list_checkpoints;
 use sidekicks_session::run::superseded::SupersededTurnsReadError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -67,7 +67,7 @@ enum SnapshotListError {
     // A checkpoint's prompt is stored as an event that does not read.
     #[error("a checkpoint's prompt does not read as an event")]
     Event(#[from] SessionEventReadError),
-    // The event at a checkpoint's sequence is no message of the person's.
+    // The event at a checkpoint's sequence is neither a message of the person's nor a turn's start.
     #[error("the event at checkpoint {sequence}'s sequence is no prompt")]
     NotAPrompt {
         // The sequence the checkpoint names.
@@ -105,8 +105,10 @@ pub(crate) fn register_session_snapshots(
 }
 
 // The session's snapshots in one read: none for a chat, else one per checkpoint no later rollback
-// took back whose prompt the log reads, oldest prompt first. A prompt the log does not read, one
-// at or past a damaged session's read bound or in a range it skipped, leaves its checkpoint out.
+// took back whose prompt the log reads, oldest prompt first; the checkpoint of a turn's start no
+// new prompt opened is reached through an undo to a steer into that turn, never listed. A prompt
+// the log does not read, one at or past a damaged session's read bound or in a range it skipped,
+// leaves its checkpoint out.
 async fn list_snapshots(
     sources: &SessionSnapshotSources,
     session_id: SessionId,
@@ -160,7 +162,11 @@ fn read_snapshots(
         let Some(envelope) = prompts.remove(&sequence) else {
             continue;
         };
-        let SessionEvent::UserMessageSent(prompt) = SessionEvent::from_envelope(&envelope)? else {
+        let event = SessionEvent::from_envelope(&envelope)?;
+        if let SessionEvent::AgentTurnStarted(_) = event {
+            continue;
+        }
+        let SessionEvent::UserMessageSent(prompt) = event else {
             return Err(SnapshotListError::NotAPrompt { sequence });
         };
         let name = NonEmptyText::new(format!(
@@ -258,11 +264,20 @@ mod tests {
 
         /// Appends the person's `message` to `session_id`'s log and answers its sequence.
         async fn send(&self, session_id: SessionId, message: &str) -> SafeInt<0> {
-            let event: SessionEvent = serde_json::from_value(json!({
-                "type": "user.message.sent",
-                "payload": { "sessionId": session_id, "actor": "person", "message": message },
-            }))
-            .expect("the test writes a user message");
+            self.append(
+                session_id,
+                json!({
+                    "type": "user.message.sent",
+                    "payload": { "sessionId": session_id, "actor": "person", "message": message },
+                }),
+            )
+            .await
+        }
+
+        /// Appends the event `event` describes to `session_id`'s log and answers its sequence.
+        async fn append(&self, session_id: SessionId, event: Value) -> SafeInt<0> {
+            let event: SessionEvent =
+                serde_json::from_value(event).expect("the test writes a session event");
             let envelope = test_envelope(session_id, &event);
             let row = SessionEventRow {
                 payload: serde_json::to_string(envelope.payload())
@@ -290,6 +305,7 @@ mod tests {
                 session_id,
                 message_sequence,
                 run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+                turn_number: SafeInt::new(1).expect("a turn number"),
                 turn: EpochPosition {
                     epoch: SourceEpoch(SafeInt::ZERO),
                     position: SourcePosition(message_sequence),
@@ -361,7 +377,8 @@ mod tests {
 
     // Killed by a name taken from another prompt (the steer between the two prompts, or the
     // other checkpoint's), by an id that is not the checkpoint's, by a time that is not the
-    // checkpoint's own, and by rows out of prompt order (the later checkpoint is written first).
+    // checkpoint's own, by rows out of prompt order (the later checkpoint is written first), and
+    // by the checkpoint of a turn's start that no prompt opened failing the list or listed.
     #[tokio::test]
     async fn a_project_lists_each_checkpoint_named_for_its_own_prompt_oldest_first() {
         let fixture = Fixture::new().await;
@@ -369,6 +386,23 @@ mod tests {
         fixture.hold_session(session_id, SessionShape::Project);
         let first_prompt = fixture.send(session_id, "Rename\tthe  config loader").await;
         fixture.send(session_id, "Also check the docs").await;
+        let answer_turn = fixture
+            .append(
+                session_id,
+                json!({
+                    "type": "agent.turn.started",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+                        "runVersion": 1,
+                        "turnNumber": 2,
+                    },
+                }),
+            )
+            .await;
+        fixture
+            .record(session_id, answer_turn, "2026-10-20T09:02:00.000Z")
+            .await;
         let second_prompt = fixture
             .send(
                 session_id,

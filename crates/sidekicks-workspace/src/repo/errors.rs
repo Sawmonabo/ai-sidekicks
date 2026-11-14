@@ -9,7 +9,6 @@
 //! failed read, which names no path either.
 
 use serde_json::json;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName, WslPlace};
 use sidekicks_contracts::project::ProjectId;
@@ -24,6 +23,7 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use sidekicks_platforms::PathRules;
 
@@ -79,7 +79,8 @@ pub enum RepoRefusal {
         /// Its project, `None` for a chat's managed workspace.
         conflicting_project_id: Option<ProjectId>,
     },
-    /// A detach while an agent runs anywhere in the project (`repoMount.detachConflict`).
+    /// A detach while a run, an agent's or a workflow's, is live anywhere in the project
+    /// (`repoMount.detachConflict`).
     #[error(
         "repo detach refused: session {} is running in the project",
         .running_session_id
@@ -106,17 +107,18 @@ pub enum RepoRefusal {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
     },
-    /// A re-attach while an agent runs anywhere in the project (`repoMount.reattachConflict`).
+    /// A re-attach while a run, an agent's or a workflow's, is live anywhere in the project
+    /// (`repoMount.reattachConflict`).
     #[error(
-        "repo re-attach refused: agent {} is running in session {}",
-        .running_agent_id,
+        "repo re-attach refused: {} is running in session {}",
+        .running_holder,
         .running_session_id
     )]
     ReattachConflict {
-        /// The session the agent runs in.
+        /// The session the run is in.
         running_session_id: SessionId,
-        /// The agent running.
-        running_agent_id: AgentId,
+        /// The run.
+        running_holder: RunningHolder,
     },
     /// The folder's WSL distribution runs on WSL 1, where no session runs
     /// (`repoMount.distributionNeedsWsl2`); it names the distribution, never the path.
@@ -238,12 +240,12 @@ impl From<RepoRefusal> for DomainError {
             ),
             RepoRefusal::ReattachConflict {
                 running_session_id,
-                running_agent_id,
+                running_holder,
             } => (
                 RefusalCode::RepoMountReattachConflict,
                 Some(refusal_fields(RepoMountReattachConflictDetails {
                     running_session_id,
-                    running_agent_id,
+                    running_holder,
                 })),
             ),
             RepoRefusal::DistributionNeedsWsl2 { distro } => (

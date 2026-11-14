@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::{QuestionAnswer, QuestionDefault};
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -8,12 +9,15 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 
 use super::ClaudeRequestSession;
 use super::answers::{ClaudeQuestionRoute, compose_claude_question_refusal};
+use crate::driver::claude::delivery::stream::tests::session_with_open_window;
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::driver::claude::session::scripted::{ScriptedSession, binding_id, settle};
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::contract::params_and_results::ProviderRequestAnswer;
+use crate::port::command_capture::{CaptureCall, CommandWindowEnd, next_call, no_call};
+use crate::port::permission_ask::ProviderPermissionAnswer;
 use crate::port::question::QuestionPort;
 use crate::port::question::test_card::QuestionCard;
 
@@ -416,4 +420,85 @@ async fn an_unknown_helpers_ask_stays_pending_at_the_provider() {
         |write| matches!(write, ScriptedWrite::Answer { request_id, .. } if request_id == "ask"),
     );
     assert!(!is_answered, "the ask stays pending at the provider");
+}
+
+/// How a case settles the call whose window is open.
+#[derive(Clone, Copy, Debug)]
+enum AskSettlement {
+    Refused,
+    Allowed,
+    DeniedInAutoMode,
+}
+
+// No frame is fed, so each close is the path under test's own. Killed by the refusal taking an
+// after-capture, by the allow closing the window, and by the auto mode denial without its close.
+#[rstest]
+#[case::refused(AskSettlement::Refused, Some(CommandWindowEnd::Unrun))]
+#[case::allowed(AskSettlement::Allowed, None)]
+#[case::denied_in_auto_mode(AskSettlement::DeniedInAutoMode, Some(CommandWindowEnd::Unrun))]
+#[tokio::test(start_paused = true)]
+async fn a_call_that_never_ran_closes_its_window_unrun(
+    #[case] settlement: AskSettlement,
+    #[case] expected: Option<CommandWindowEnd>,
+) {
+    let (session, mut called) = session_with_open_window(None).await;
+    let answer = match settlement {
+        AskSettlement::DeniedInAutoMode => {
+            let tool_server_calls = ClaudeToolServerCalls::default();
+            let request_session = ClaudeRequestSession {
+                stream: &session.stream,
+                dialog: claude_dialog_session(&session.live, "opus"),
+                channel: Arc::clone(&session.live.channel),
+                level: None,
+                tool_server_calls: &tool_server_calls,
+                tool_servers: None,
+            };
+            let denied = json!({
+                "subtype": "hook_callback",
+                "callback_id": "sidekicks-permission-denied",
+                "input": {"hook_event_name": "PermissionDenied", "tool_use_id": "call-2"},
+            });
+            session
+                .requests
+                .take_request(&request_session, session.read_request("denied", &denied))
+                .await;
+            assert_eq!(session.channel.answer_to("denied").await, json!({}));
+            None
+        }
+        AskSettlement::Refused | AskSettlement::Allowed => {
+            session.request("ask", &tool_ask("call-2"));
+            settle().await;
+            let answer = if matches!(settlement, AskSettlement::Refused) {
+                ProviderPermissionAnswer::Refuse {
+                    reason: Some("not now".to_owned()),
+                    made_rule: None,
+                }
+            } else {
+                ProviderPermissionAnswer::Allow {
+                    correction: None,
+                    made_rule: None,
+                    answered_by_rule: None,
+                }
+            };
+            session
+                .requests
+                .respond(
+                    &session.live,
+                    "ask",
+                    ProviderRequestAnswer::Permission(answer),
+                )
+                .await
+                .expect("the answer is written");
+            Some(session.channel.answer_to("ask").await)
+        }
+    };
+
+    if let Some(answer) = answer {
+        let behavior = if expected.is_some() { "deny" } else { "allow" };
+        assert_eq!(answer["behavior"], behavior);
+    }
+    if let Some(end) = expected {
+        assert_eq!(next_call(&mut called).await, CaptureCall::Close(1, end));
+    }
+    no_call(&mut called, "a window closed by an allow, or twice").await;
 }

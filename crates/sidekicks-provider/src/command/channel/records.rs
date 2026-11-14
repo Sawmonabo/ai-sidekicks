@@ -1,12 +1,14 @@
 //! What a conversation's channel records do to its session's running set: a wrapper's start pairs
-//! it with its row and is acknowledged at once, then answered `go` once the capture window of its
-//! line's command is open, or at once where it gets none, the file its command's standard output
-//! writes to is tailed as that row's output once it pairs, its terminal's readings feed the row's
-//! waiting checks, its exit settles the row's exit code and closes its window, and an askpass's
-//! prompt opens on the row of the wrapper above it, answered empty at once where no wrapper is. A
-//! wrapper started under another is answered `go` and pairs with nothing. A wrapper is let go at
-//! its exit, or at its process's end where it died before saying so or is nested; an askpass at its
-//! process's end, which closes its prompt where no one answered it.
+//! it with its row and with the provider's noted tool call of its line, which its capture window
+//! names, and is acknowledged at once, then answered `go` once that window is open, or at once
+//! where it gets none, the file its command's standard output writes to is tailed as that row's
+//! output once it pairs, its terminal's readings feed the row's waiting checks, its exit settles
+//! the row's exit code and closes its window, and an askpass's prompt opens on the row of the
+//! wrapper above it, answered empty at once where no wrapper is. A wrapper started under another,
+//! or relaying a command, is answered `go` and pairs with no noted call; one under another pairs
+//! with nothing. A wrapper is let go at its exit, or at its process's end where it died before
+//! saying so or is nested; an askpass at its process's end, which closes its prompt where no one
+//! answered it.
 
 use std::collections::HashMap;
 use std::io::{self, ErrorKind};
@@ -14,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::command::ExitCode;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
@@ -76,11 +79,29 @@ struct FollowedAskpass {
 /// A followed party whose process ended: its id and which following of that id it was.
 type EndedParty = (PartyId, u64);
 
+/// The provider's tool calls noted before the wrapper that runs each one starts, which a line's
+/// start pairs with.
+pub(crate) trait NotedWrapperCalls: Send + Sync {
+    /// Removes the session `session_id`'s oldest noted call whose line is `line` and answers its
+    /// tool call; `None` where no note of the line is left.
+    fn pair_started_wrapper(&self, session_id: SessionId, line: &str) -> Option<ToolCallId>;
+}
+
+/// How a channel's lines are captured: the capture each line's command opens a window on, once
+/// registered, and the provider's noted calls each line's start pairs with, `None` where the
+/// provider notes none.
+#[derive(Clone)]
+pub(crate) struct LineCapture {
+    /// The capture each line's command opens a window on.
+    pub(crate) capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    /// The calls each line's start pairs with.
+    pub(crate) noted_calls: Option<Arc<dyn NotedWrapperCalls>>,
+}
+
 /// Follows `channel`'s records, which `watch` made before the provider started reports, into
 /// `session_id`'s rows in `set` of the process the channel serves, the one that runs `apart_run`
 /// alone or, for `None`, the session's own, the waiting checks reading through `waits` and each
-/// line's command captured through `capture` once it is registered, until the watch fails, with
-/// its error.
+/// line paired and captured through `line_capture`, until the watch fails, with its error.
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
     apart_run: Option<RunId>,
@@ -88,8 +109,9 @@ pub(crate) async fn follow_channel_records(
     mut watch: FolderArrivalWatch,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
-    capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    line_capture: LineCapture,
 ) -> io::Result<()> {
+    set.channel_followed(session_id, apart_run, &channel);
     // Bounded by the parties followed: each sends its end once, and its watch is stopped when an
     // `Exited` lets it go first.
     let (process_ended, mut ended_parties) = mpsc::unbounded_channel();
@@ -99,7 +121,7 @@ pub(crate) async fn follow_channel_records(
         channel,
         set,
         waits,
-        capture,
+        line_capture,
         wrappers: HashMap::new(),
         askpasses: HashMap::new(),
         process_ended,
@@ -127,8 +149,8 @@ struct RecordFollower {
     channel: Arc<CommandChannel>,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
-    /// The capture each line's command opens a window on, once registered.
-    capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    /// How each line is paired and captured.
+    line_capture: LineCapture,
     wrappers: HashMap<PartyId, FollowedWrapper>,
     askpasses: HashMap<PartyId, FollowedAskpass>,
     /// Takes each followed party whose process ended, at most one entry per party followed.
@@ -149,22 +171,28 @@ impl RecordFollower {
                 process,
             } => {
                 send_request(&self.channel, party, &DaemonRequest::Acknowledged {}).await;
-                // Only an agent's own line is captured: a relayed command is captured by its relay,
-                // and a wrapper under another runs part of that one's command.
-                let capture = self
-                    .capture
-                    .port()
-                    .filter(|_| !received.is_nested && process.is_none());
+                // Only an agent's own line pairs and is captured: a relayed command is captured by
+                // its relay, and a wrapper under another runs part of that one's command.
+                let is_line = !received.is_nested && process.is_none();
+                // Paired whether or not a capture is registered, so no paired note outlives its
+                // start; the line names no tool call, so the window names the call it paired with.
+                let tool_call_id = match &self.line_capture.noted_calls {
+                    Some(noted_calls) if is_line => {
+                        noted_calls.pair_started_wrapper(session_id, &command)
+                    }
+                    _ => None,
+                };
+                let capture = self.line_capture.capture.port().filter(|_| is_line);
                 let window = if let Some(capture) = capture {
                     Some(open_window(
                         Arc::clone(capture),
                         CommandWindowStart {
                             session_id,
                             apart_run: self.apart_run,
-                            party,
                             command: command.clone(),
-                            stdout_path: stdout_path.clone(),
+                            tool_call_id,
                         },
+                        party,
                         Arc::clone(&self.channel),
                     ))
                 } else {
@@ -401,19 +429,20 @@ impl RecordFollower {
     }
 }
 
-// Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
-// settled, opened or not, then makes the window's calls in the order they are sent, and closes it
-// untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close. The
-// open has no bound of its own: one that never settles holds the wrapper at its wait for `go` until
-// the daemon stops or the wrapper is killed, and this task until the daemon stops.
+// Opens `start`'s capture window on a task of its own, which answers `party`, the wrapper, `go`
+// once the open settled, opened or not, then makes the window's calls in the order they are sent,
+// and closes it untold where they end unclosed. Bounded by the wrapper's records: one `Began` and
+// one close. The open has no bound of its own: one that never settles holds the wrapper at its
+// wait for `go` until the daemon stops or the wrapper is killed, and this task until the daemon
+// stops.
 fn open_window(
     capture: Arc<dyn CommandCapture>,
     start: CommandWindowStart,
+    party: PartyId,
     channel: Arc<CommandChannel>,
 ) -> mpsc::UnboundedSender<WindowCall> {
     let (calls, mut waiting_calls) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        let party = start.party;
         let opened = capture.open_window(start).await;
         send_request(&channel, party, &DaemonRequest::Go {}).await;
         let window = match opened {

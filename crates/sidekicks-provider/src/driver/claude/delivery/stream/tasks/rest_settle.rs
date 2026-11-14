@@ -3,11 +3,9 @@
 use sidekicks_contracts::session::id::SessionId;
 
 use super::rebuilt_opening;
-use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
 use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeHeldCallSettle, ClaudeKeptCalls};
 use crate::driver::claude::delivery::stream::ClaudeDeliveryStream;
-use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::held_tool_calls::HeldToolCall;
 
 impl ClaudeDeliveryStream {
@@ -22,35 +20,22 @@ impl ClaudeDeliveryStream {
         kept: &ClaudeKeptCalls,
         settle: ClaudeHeldCallSettle,
     ) {
-        for call in calls {
-            if call.end_cause.is_some() {
-                continue;
-            }
-            let Some((outcome, text)) = kept
-                .call(call.tool_call_id.as_str(), call.task_id.as_str())
-                .into_end(settle)
-            else {
-                continue;
-            };
-            let end = ClaudeHeldCallEnd {
-                opened: rebuilt_opening(&call),
-                tool_use_id: call.tool_call_id.into_string(),
-                outcome,
-                text,
-                notification: None,
-            };
-            let Some(close) = self.held_call_close(session_id, end) else {
-                continue;
-            };
-            // No stream is open and the close pairs with nothing, so it goes straight out; no
-            // account is at hand, and a refusal's diagnostic names the binding.
-            let delivery = close.row.into_inbound(close.binding_id, None, close.body);
-            dispatch_delivery(
-                &*self.dependencies.dispatch,
-                claude_delivery_origin(None, None),
-                delivery,
-            )
-            .await;
-        }
+        let ends = calls
+            .into_iter()
+            .filter(|call| call.end_cause.is_none())
+            .filter_map(|call| {
+                let (outcome, text) = kept
+                    .call(call.tool_call_id.as_str(), call.task_id.as_str())
+                    .into_end(settle)?;
+                Some(ClaudeHeldCallEnd {
+                    opened: rebuilt_opening(&call),
+                    tool_use_id: call.tool_call_id.into_string(),
+                    outcome,
+                    text,
+                    notification: None,
+                })
+            })
+            .collect();
+        self.close_held_calls_directly(session_id, ends).await;
     }
 }

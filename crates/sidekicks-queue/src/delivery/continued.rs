@@ -6,9 +6,10 @@
 //! it. After the daemon's restart, when no hand is remembered, a resumed run's record settles the
 //! waiting messages the same way: one it holds admitted, and when it is unreadable every one ended
 //! not delivered in the run's own write, or alone where the run is left as it is. An item an
-//! undo's release reserved as the run's opening goes first. A paused run continued in a session no
-//! process of this daemon holds since its restart has the session opened first, as its first
-//! admission would. A paused run continued while the restart still holds its session's lead, a
+//! undo's release reserved as the run's opening goes first; while an undo holds the session the
+//! read answers held, reading nothing, and the run is owed a resume at the undo's release. A paused
+//! run continued in a session no process of this daemon holds since its restart has the session
+//! opened first, as its first admission would. A paused run continued while the restart still holds its session's lead, a
 //! helper beneath it or the lead itself, keeps its messages for the lead's continue, which carries
 //! them as that run's words and has them delivered with it once the provider took it.
 
@@ -24,7 +25,7 @@ use sidekicks_provider::driver::attachments::{compose_message_text, resolve_mess
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::WaitingMessage;
 use sidekicks_provider::port::run_pause::{
-    ContinuedMessages, ContinuedMessagesError, SessionOpening,
+    ContinuedMessages, ContinuedMessagesError, ContinuedRead, SessionOpening,
 };
 use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 use sidekicks_session::run::state_change::RunWriteCompanions;
@@ -40,20 +41,20 @@ impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
     // read again (one a resume keeps excepted), each marked handed by the continue to a provider
     // that takes messages as `handing` says, in the queue's order, the item an undo's release
-    // reserved first. Under an undo's hold nothing is read and the reservation stays for the
-    // release's own resume. Called under the session's queue lock, which the hold is set under.
+    // reserved first. Under an undo's hold it answers held, nothing read, the reservation left
+    // for the release's own resume and the run owed a resume at the release. Called under the
+    // session's queue lock, which the hold is set under.
     async fn read_continued(
         &self,
         session_id: SessionId,
         run_id: RunId,
         handing: MessageHanding,
-    ) -> Result<Vec<WaitingMessage>, DeliveryError> {
+    ) -> Result<ContinuedRead, DeliveryError> {
+        if self.lock_state().owe_resume_after_undo(session_id, run_id) {
+            return Ok(ContinuedRead::HeldForUndo);
+        }
         // Taken before the read, which leaves a reserved item out as an opening.
-        let reserved = if self.is_held_for_undo(session_id) {
-            None
-        } else {
-            self.shared.deps.openings.take_reserved(run_id)
-        };
+        let reserved = self.shared.deps.openings.take_reserved(run_id);
         let waiting = self.lead_messages(self.read_waiting(run_id).await?);
         let lead_waiting = reordered_of(&waiting, reserved).unwrap_or(waiting);
         let process = self.shared.deps.processes.process_identity(&session_id);
@@ -67,21 +68,22 @@ impl QueueDelivery {
             state.mark_handed(&items, run_id, route, process);
             items
         };
-        Ok(items
-            .iter()
-            .map(|item| {
-                let message = item
-                    .body
-                    .as_message()
-                    .expect("a continue gathers only messages, never a review or a plan message");
-                WaitingMessage {
-                    id: item.id,
-                    attachments: message.attachment_ids(),
-                    skills: message.skills.clone().unwrap_or_default(),
-                    content: message.content.clone(),
-                }
-            })
-            .collect())
+        Ok(ContinuedRead::Messages(
+            items
+                .iter()
+                .map(|item| {
+                    let message = item.body.as_message().expect(
+                        "a continue gathers only messages, never a review or a plan message",
+                    );
+                    WaitingMessage {
+                        id: item.id,
+                        attachments: message.attachment_ids(),
+                        skills: message.skills.clone().unwrap_or_default(),
+                        content: message.content.clone(),
+                    }
+                })
+                .collect(),
+        ))
     }
 
     // Admits the messages this resume of `run_id` read; one an earlier resume keeps waits for its
@@ -357,7 +359,7 @@ impl ContinuedMessages for QueueDelivery {
         hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
         handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>> {
+    ) -> BoxFuture<'_, Result<ContinuedRead, ContinuedMessagesError>> {
         let session_id = *hold.key();
         Box::pin(async move { Ok(self.read_continued(session_id, run_id, handing).await?) })
     }

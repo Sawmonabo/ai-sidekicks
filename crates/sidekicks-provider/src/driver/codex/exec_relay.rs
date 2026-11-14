@@ -1,17 +1,24 @@
 //! The daemon's relay between a Codex service and the executor that runs its commands. Each
 //! account's service gets one relay for its life: the executor, `codex exec-server`, is the
 //! daemon's own child on standard input and output, and the service reaches it through a loopback
-//! WebSocket the relay serves under a token minted at every start of the service. Every message
-//! passes unchanged but two: a command's start, rewritten to run under the command wrapper, and a
-//! terminate, held until the wrapper ended the command.
+//! WebSocket the relay serves under a token minted at every start of the service. The relay serves
+//! many connections onto its one executor: it answers each one's `initialize` from its own, and
+//! sends each one's requests, processes, open files and http requests on under ids of its own, so
+//! every connection's answers and the executor's messages naming its ids come back to it alone
+//! under its own ids; every connection's missing-path watch joins one on the executor. It refuses
+//! what the executor does not serve, so no connection's message closes the executor's one
+//! connection. Every other message passes unchanged but two: a command's start, rewritten to run
+//! under the command wrapper, and a terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items. Once the executor ends, the relay
-//! answers its client itself, as `executor_end` says, and asks its service to start again.
+//! answers its connections itself, as `executor_end` says, and asks its service to start again.
 
 mod command_acts;
 mod endpoint;
 mod executor;
 mod executor_end;
+mod message;
+mod methods;
 mod start_rewrite;
 mod terminate_hold;
 
@@ -21,10 +28,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use serde::Deserialize;
 use serde_json::json;
-use serde_json::value::RawValue;
 use sidekicks_contracts::command::{CommandId, ExitCode};
+use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::Spawner;
@@ -32,13 +38,17 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::endpoint::RelayEndpoint;
-use self::executor::{CodexExecutor, ProcessEnd};
+use self::executor::{CodexExecutor, ProcessEnd, RelayConnectionId};
 use self::executor_end::compose_executor_ended_answer;
+use self::message::{MessageHead, RoutedMessage, text_of};
+use self::methods::{ClientMethod, INITIALIZED_METHOD};
 use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
+use crate::command::channel::records::LineCapture;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::codex::app_server_protocol::EnvironmentAddParams;
@@ -61,12 +71,6 @@ pub(crate) fn compose_codex_executor_arguments(kind: &CodexHomeKind) -> Vec<Stri
 
 /// The folder under a session's channel folder that its relayed commands' channel opens in.
 const RELAY_CHANNEL_FOLDER: &str = "codex-relay";
-
-/// The handshake every executor connection opens with.
-const INITIALIZE_METHOD: &str = "initialize";
-const INITIALIZED_METHOD: &str = "initialized";
-const PROCESS_START_METHOD: &str = "process/start";
-const PROCESS_TERMINATE_METHOD: &str = "process/terminate";
 
 /// The channel folder of `session_id`'s relayed commands under `command_channel_root`, which the
 /// session's command sandbox lets commands write.
@@ -121,7 +125,7 @@ pub(crate) struct RelayedCommand {
     pub(crate) session_id: SessionId,
     /// The conversation that ran it.
     pub(crate) thread_id: String,
-    /// The executor's handle on its process.
+    /// The executor's handle on its process, the relay's own id for it.
     pub(crate) executor_process_id: String,
     /// Codex's own id for its process, which its background terminal carries.
     pub(crate) terminal_process_id: String,
@@ -150,23 +154,6 @@ impl Drop for SessionChannel {
     fn drop(&mut self) {
         self.follower.abort();
     }
-}
-
-// The members of a client's message the relay routes by.
-#[derive(Deserialize)]
-struct ClientMessage<'message> {
-    #[serde(borrow)]
-    id: Option<&'message RawValue>,
-    method: Option<String>,
-    #[serde(borrow)]
-    params: Option<&'message RawValue>,
-}
-
-// The process a start names.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StartedProcess {
-    process_id: String,
 }
 
 /// One service's relay.
@@ -284,6 +271,19 @@ impl CodexExecRelay {
         lock(&self.commands)
             .get(command_id.as_str())
             .filter(|record| record.command.session_id == session_id && record.end.is_none())
+            .map(|record| record.command.clone())
+    }
+
+    /// The command the relay started for `session_id` under the call `command_id` whose process
+    /// has exited while its item is still open; `None` for any other.
+    pub(crate) fn exited_command(
+        &self,
+        session_id: SessionId,
+        command_id: &CommandId,
+    ) -> Option<RelayedCommand> {
+        lock(&self.commands)
+            .get(command_id.as_str())
+            .filter(|record| record.command.session_id == session_id && record.end.is_some())
             .map(|record| record.command.clone())
     }
 
@@ -407,8 +407,8 @@ impl CodexExecRelay {
     }
 
     // Makes `executor` the relay's: every open channel admits the parties under it, and its end
-    // starts the service again and settles the client. The former executor's commands end as its
-    // connection did.
+    // starts the service again and settles its connections. The former executor's commands end as
+    // its connection did.
     fn take_executor(&self, executor: Arc<CodexExecutor>) {
         if let Some(process_id) = executor.process_id() {
             for channel in lock(&self.channels).values().filter_map(|cell| cell.get()) {
@@ -429,65 +429,135 @@ impl CodexExecRelay {
             tasks.spawn(async move {
                 on_executor_ended();
                 if let Some(executor) = watched.upgrade() {
-                    executor.settle_client().await;
+                    executor.settle_clients();
                 }
             });
         });
         *lock(&self.executor) = Some(executor);
     }
 
-    /// Makes `client` the connection the executor answers; `None` while no executor runs.
-    fn attach_client(&self, client: mpsc::Sender<String>) -> Option<Arc<CodexExecutor>> {
+    /// Attaches `client`, a connection's queue, onto the running executor, answering the
+    /// executor and the connection's id; `None` while no executor runs. `closed` is cancelled once
+    /// the queue falls a full queue behind, for the connection to close.
+    fn attach_client(
+        &self,
+        client: mpsc::Sender<String>,
+        closed: CancellationToken,
+    ) -> Option<(Arc<CodexExecutor>, RelayConnectionId)> {
         let executor = lock(&self.executor).clone()?;
-        executor.attach_client(client);
-        Some(executor)
+        let connection = executor.attach_client(client, closed)?;
+        Some((executor, connection))
     }
 
-    /// Carries one of the client's messages to `executor`: an `initialize` is answered with the
-    /// executor's own, an `initialized` is already sent, a request once the executor ended is
-    /// answered with the error naming its end, a start and a terminate go through their tasks, and
-    /// everything else passes as it came.
-    async fn take_client_message(&self, executor: &Arc<CodexExecutor>, text: String) {
+    /// Carries one of the connection `connection`'s messages to `executor`: an `initialize` is
+    /// answered to that connection with the executor's own, a missing-path watch joins the
+    /// executor's one on a task of its own, every other request the executor serves goes on under
+    /// a relay id and the relay's id for any process, file or http request it names, a start and a
+    /// terminate through their tasks, and an answer only to a request asked of the connection. A
+    /// request the executor does not serve is answered `-32601`, a line that is no message
+    /// `-32600`, and a relayed request once the executor ended the error naming its end; a
+    /// notification is dropped, since the relay sent its own `initialized` and the executor closes
+    /// its one connection at any other.
+    async fn take_client_message(
+        &self,
+        executor: &Arc<CodexExecutor>,
+        connection: RelayConnectionId,
+        text: String,
+    ) {
         let line = one_line(text);
-        let Ok(message) = serde_json::from_str::<ClientMessage<'_>>(&line) else {
-            forward(executor, line).await;
+        let Some(message) = RoutedMessage::read(&line) else {
+            refuse_unreadable(executor, connection, &line);
             return;
         };
         let Some(relay) = self.me.upgrade() else {
             return;
         };
-        let (Some(id), Some(method)) = (message.id, message.method.as_deref()) else {
-            if message.method.as_deref() != Some(INITIALIZED_METHOD) {
-                forward(executor, line).await;
+        let (id, method) = match (message.id, message.method.as_deref()) {
+            (Some(id), Some(name)) => {
+                let Some(method) = ClientMethod::of(name) else {
+                    let refusal = json!({ "id": id, "error": {
+                        "code": JsonRpcErrorCode::MethodNotFound.code(),
+                        "message": format!("The Codex executor does not serve {name}."),
+                    }});
+                    executor.answer_connection(connection, refusal.to_string());
+                    return;
+                };
+                (id, method)
             }
+            (Some(id), None) => {
+                if executor.takes_client_answer(connection, id) {
+                    forward(executor, line).await;
+                } else {
+                    tracing::debug!("a Codex relay client answered a request not asked of it");
+                }
+                return;
+            }
+            // The relay sent its own `initialized`, and the executor closes its one connection at
+            // any other notification.
+            (None, Some(name)) => {
+                if name != INITIALIZED_METHOD {
+                    tracing::debug!(
+                        method = name,
+                        "a Codex relay client's notification was dropped"
+                    );
+                }
+                return;
+            }
+            (None, None) => {
+                refuse_unreadable(executor, connection, &line);
+                return;
+            }
+        };
+        if method == ClientMethod::Initialize {
+            let answer = json!({ "id": id, "result": executor.initialize_result() });
+            executor.answer_connection(connection, answer.to_string());
+            return;
+        }
+        if method == ClientMethod::WatchMissing {
+            tokio::spawn(executor.join_missing_watch(connection, id, message.params.as_ref()));
+            return;
+        }
+        let own_process_id = message
+            .params
+            .as_ref()
+            .and_then(|params| params.process_id)
+            .filter(|_started| method == ClientMethod::ProcessStart)
+            .and_then(text_of);
+        let Some((line, is_minted)) =
+            executor.relay_client_request(connection, &line, id, method, message.params.as_ref())
+        else {
+            executor.answer_connection(connection, compose_executor_ended_answer(id.get()));
             return;
         };
-        if method == INITIALIZE_METHOD {
-            let answer = json!({ "id": id, "result": executor.initialize_result() });
-            executor.answer_client(answer.to_string()).await;
-            return;
-        }
-        let started_process = message
-            .params
-            .filter(|_params| method == PROCESS_START_METHOD)
-            .and_then(|params| serde_json::from_str::<StartedProcess>(params.get()).ok())
-            .map(|started| started.process_id);
-        if !executor.open_client_request(id.get(), started_process) {
-            executor
-                .answer_client(compose_executor_ended_answer(id.get()))
-                .await;
-            return;
-        }
         match method {
-            PROCESS_START_METHOD => {
+            ClientMethod::ProcessStart => {
                 #[cfg(test)]
                 self.process_starts.fetch_add(1, Ordering::Relaxed);
-                tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
+                match own_process_id {
+                    Some(own_process_id) => {
+                        tokio::spawn(relay.forward_process_start(
+                            Arc::clone(executor),
+                            line,
+                            own_process_id,
+                            is_minted,
+                        ));
+                    }
+                    None => forward(executor, line).await,
+                }
             }
-            PROCESS_TERMINATE_METHOD => {
+            ClientMethod::ProcessTerminate => {
                 tokio::spawn(relay.forward_terminate(Arc::clone(executor), line));
             }
-            _ => forward(executor, line).await,
+            // An `initialized` sent as a request is the executor's to refuse.
+            ClientMethod::Initialize
+            | ClientMethod::Initialized
+            | ClientMethod::ProcessNamed
+            | ClientMethod::FileOpen
+            | ClientMethod::FileNamed
+            | ClientMethod::FileClose
+            | ClientMethod::HttpRequest
+            | ClientMethod::WatchMissing
+            | ClientMethod::Passed => forward(executor, line).await,
         }
     }
 
@@ -595,7 +665,10 @@ impl CodexExecRelay {
             watch,
             sets,
             Arc::clone(&self.dependencies.input_waits),
-            Arc::clone(&self.dependencies.command_capture),
+            LineCapture {
+                capture: Arc::clone(&self.dependencies.command_capture),
+                noted_calls: None,
+            },
         );
         let follower = tokio::spawn(async move {
             // The watch failing ends the following; the rows keep what Codex reports of them.
@@ -622,6 +695,25 @@ fn one_line(text: String) -> String {
     } else {
         text
     }
+}
+
+// Answers the connection `connection`'s `line` the relay cannot read: a request whose id and
+// method read but whose params do not, under its own id as params the executor refuses, so its
+// caller is not left waiting; any other as the executor answers a line that is no JSON-RPC
+// message, under the id -1.
+fn refuse_unreadable(executor: &CodexExecutor, connection: RelayConnectionId, line: &str) {
+    let request_id = MessageHead::read(line).and_then(|head| head.id.zip(head.method));
+    let refusal = match request_id {
+        Some((id, _method)) => json!({ "id": id, "error": {
+            "code": JsonRpcErrorCode::InvalidParams.code(),
+            "message": "The request's params cannot be read.",
+        }}),
+        None => json!({ "id": -1, "error": {
+            "code": JsonRpcErrorCode::InvalidRequest.code(),
+            "message": "The message is no JSON-RPC message.",
+        }}),
+    };
+    executor.answer_connection(connection, refusal.to_string());
 }
 
 // Passes `line` on to the executor as it came.

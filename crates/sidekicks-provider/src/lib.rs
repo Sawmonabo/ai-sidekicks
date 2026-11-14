@@ -1,9 +1,10 @@
 //! Providers: the driver interface and the table of providers, a driver's reports and requests to
 //! the run engine and the ports it reaches the daemon through, a run's execution posture,
 //! background work, the record of each provider's builds, what the daemon keeps per provider
-//! account, each provider's command in each place it runs, the code every provider shares, and
-//! each provider's own driver. It sits over std, store, ipc, workspace and policy and is taken by
-//! mcp, shell, session, approval, queue, artifact, recovery and the program.
+//! account, each provider's command in each place it runs, the code every provider shares (a
+//! bounded run of a helper program to its end among it), and each provider's own driver. It sits
+//! over std, store, ipc, workspace and policy and is taken by mcp, shell, session, approval,
+//! queue, artifact, recovery and the program.
 
 pub mod account;
 pub mod background_work;
@@ -36,6 +37,7 @@ pub mod pricing;
 pub mod process_exit;
 pub mod process_identity;
 pub mod process_registry;
+pub(crate) mod program_run;
 pub(crate) mod project_rule_folders;
 pub mod record_readers;
 pub mod run;

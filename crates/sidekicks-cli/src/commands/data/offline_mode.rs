@@ -134,6 +134,7 @@ mod tests {
                     exit_code,
                     argument_record: None,
                 },
+                first_call_wait: None,
             },
         )
         .expect("the stand-in is written");

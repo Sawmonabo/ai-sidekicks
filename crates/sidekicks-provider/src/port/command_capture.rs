@@ -1,13 +1,21 @@
-//! The capture of what an agent's command changes, as a command channel's follower reaches it: a
-//! window opened for each command a wrapper is about to run, before the wrapper is told to go, told
-//! whether the command began covered, and closed at the command's end.
+//! The capture of what an agent's command changes, as each leg that runs one reaches it: a window
+//! opened for each command an agent is about to run, before the command is let go, told whether
+//! the command began covered, and closed at the command's end.
 
 use std::error::Error;
-use std::path::PathBuf;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::{
+    CaptureCall, held_capture, held_capture_with_starts, next_call, no_call, register_held_capture,
+    unregistered_capture,
+};
 
 /// One window, as the capture that opened it names it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -25,36 +33,41 @@ impl CommandWindowId {
     }
 }
 
-/// A command a wrapper is about to run, as its `Starting` tells it.
+/// A command an agent is about to run, as the leg that runs it tells it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandWindowStart {
     /// The session whose agent runs the command.
     pub session_id: SessionId,
-    /// The run the channel's process runs alone; `None` for the session's own process.
+    /// The run whose process runs the command alone; `None` for the session's own process.
     pub apart_run: Option<RunId>,
-    /// The wrapper's process id, which names it on the channel while it runs.
-    pub party: u32,
-    /// The command line the provider gave the wrapper.
+    /// The command line the provider gave.
     pub command: String,
-    /// The file the command's standard output writes to, where it is a file.
-    pub stdout_path: Option<PathBuf>,
+    /// The provider's tool call that ran the command, `None` where the leg has none; the wrapper
+    /// leg names the call its wrapper paired with.
+    pub tool_call_id: Option<ToolCallId>,
 }
 
 /// How a window's command ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandWindowEnd {
-    /// The wrapper told its command's end: its exit code, or the signal number that ended it.
+    /// The leg told its command's end: the wrapper its exit code or the signal number that ended
+    /// it, a shell its end mark's exit code, Claude Code's post-tool hooks zero on success and
+    /// otherwise the failure's exit code.
     Exited {
         /// The command's exit code, absent for a signal's end.
         exit_code: Option<i32>,
         /// The signal that ended the command.
         signal: Option<i32>,
     },
-    /// The wrapper ended before its command began, by the daemon's stop, a signal or a kill while
-    /// it waited for its `Go`, so the command never ran.
+    /// The leg ended before its command began, so the command never ran: the wrapper by the
+    /// daemon's stop, a signal or a kill while it waited for its `Go`; a shell whose write failed,
+    /// or that marked its prompt or exited with no command started; Claude Code's call refused
+    /// before it ran, by an ask's refusal, a denial in auto mode or a refusal its stream names.
     Unrun,
-    /// The wrapper's process ended after its command began, or its channel stopped being followed,
-    /// without telling the command's end.
+    /// The leg ended after its command began without telling the command's end: the wrapper's
+    /// process ended or its channel stopped being followed; a shell marked its next prompt with no
+    /// end mark, or exited; Claude Code's failure hook named no exit code, or its call's result,
+    /// its background task's end or its caller's end came with no post hook.
     Untold,
 }
 
@@ -80,12 +93,12 @@ pub enum CommandWindowRefusal {
     NoCheckout,
 }
 
-/// The capture around every command an agent runs through the wrapper's line form. A channel's
-/// follower makes each call from a task of the window's own, in order, so no call holds up the
-/// channel's other records.
+/// The capture around every command an agent runs. Each leg makes a window's calls in order, so no
+/// call holds up another window's; it calls `command_began` once it let the command go after an
+/// open, and only the wrapper leg, whose command can start before its `Go`, tells it uncovered.
 pub trait CommandCapture: Send + Sync {
-    /// Opens a window for `start`, once the wrapper's `Starting` is read; the wrapper is told to
-    /// go once this answers, either way, and a command whose open failed runs with no window.
+    /// Opens a window for `start`, before the leg lets the command go; the command is let go once
+    /// this answers, either way, and a command whose open failed runs with no window.
     /// Answers the window opened where the session's capture can cover the command. Fails
     /// `Refused`, recording nothing, for a session with no checkpoint or a run with no checkout,
     /// where there is no coverage to lose and nothing an undo could put back. Fails `CaptureFailed`
@@ -98,12 +111,17 @@ pub trait CommandCapture: Send + Sync {
         start: CommandWindowStart,
     ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>>;
 
-    /// Tells `window` its command began, covered where the wrapper had its `Go` first, once the
-    /// wrapper's `Began` is read after the open.
+    /// Tells `window` its command began, covered where it was let go after the open; the wrapper
+    /// leg tells it once its `Began` is read.
     fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()>;
 
-    /// Closes `window` as `end` says: at the wrapper's `Exited`, at its `Stopped`, or at its
-    /// process's end where it told neither, unrun where any of these came before the command
-    /// began. Called once per window, last.
+    /// Closes `window` as `end` says, at the command's end as its leg reads it, unrun where the
+    /// leg ended before the command began. Called once per window, last.
     fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()>;
+
+    /// Records a command that ran with no window as run uncovered, under the session's newest
+    /// checkpoint and at the time of this call. Records nothing for a session with no checkpoint
+    /// or a run with no checkout, as an open is refused; where the record cannot be written, marks
+    /// the session's capture failed. Answers at once.
+    fn record_uncovered_command(&self, start: CommandWindowStart) -> BoxFuture<'_, ()>;
 }

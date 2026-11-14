@@ -66,7 +66,7 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::lock::DataFolderLock;
-use sidekicks_store::data_folder::{data_folder, program_link_folder};
+use sidekicks_store::data_folder::{data_folder, program_link_folder, tools_folder};
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
@@ -78,16 +78,19 @@ use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
 use crate::daemon::artifact_methods::{ArtifactMethodsDeps, register_artifact_methods};
+use crate::daemon::backup::git_folders::BackupGitFolders;
 use crate::daemon::backup::roots::mirror_roots_reader;
 use crate::daemon::backup::run::{
     BackupDeps, Backups, backup_folder, backup_manifest_facts, default_backup_folder,
 };
+use crate::daemon::bun::BunInstall;
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{crash_monitor_socket_path, remove_dead_monitor_sockets};
 use crate::daemon::keep_awake::{KeepAwakeDeps, keep_machine_awake};
@@ -360,6 +363,10 @@ impl DaemonProcess {
             })?;
         }
         let data_folder = data_folder(home_folder);
+        let bun = Arc::new(
+            BunInstall::for_release(&tools_folder(&data_folder))
+                .map_err(DaemonStartError::BunClient)?,
+        );
         prepare_run_folder(run_folder).await?;
         remove_dead_monitor_sockets(&run_folder.folder_path).await;
         let session_token = mint_session_token().map_err(DaemonStartError::SessionToken)?;
@@ -592,6 +599,17 @@ impl DaemonProcess {
                 Arc::clone(&reads),
                 Arc::clone(&providers.registry),
             ),
+            git_folders: Arc::new(BackupGitFolders::new(
+                Arc::clone(
+                    &self
+                        .repo
+                        .as_ref()
+                        .expect("the repository services are built before the backups")
+                        .packing,
+                ),
+                git.clone(),
+                Handle::current(),
+            )),
             manifest_facts: backup_manifest_facts(version.clone()),
         });
         hydrate_capabilities(&providers).await;
@@ -648,6 +666,7 @@ impl DaemonProcess {
                 settings: Arc::clone(&settings),
                 configuration: Arc::clone(&configuration),
                 backups: Arc::clone(&backups),
+                bun: Arc::clone(&bun),
                 list_feed,
                 plan_holds: Arc::new(StoredPlanHolds),
                 orphan_guard,
@@ -758,6 +777,21 @@ impl DaemonProcess {
             .expect("the session services are built before their follows begin");
         // Attached before the recovery pass, whose resumes end runs on the bindings they open.
         let binding_cursors = follow_binding_cursors(session, &followers);
+        // Before the recovery pass, whose resumes and the socket's first writes are the first calls
+        // that can run a command, so every open window it reads is the last run's.
+        match session.command_windows.settle_open_windows().await {
+            Ok(settled) if settled > 0 => {
+                tracing::info!(
+                    settled,
+                    "the command windows the last stop left open closed uncovered"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the command windows the last stop left open could not be settled"
+            ),
+        }
         // Before the recovery pass too, so a turn its resumes end is captured.
         self.turn_capturing = Some(session.turn_capture.start(&followers));
         // Settles what the last stop left before any other follow of the log or any folder watch
@@ -807,7 +841,9 @@ impl DaemonProcess {
                 data_folder,
                 settings,
                 backups,
+                bun,
                 version,
+                checkpoint_sweep: Arc::clone(&session.checkpoint_sweep),
             },
         )
         .await?;

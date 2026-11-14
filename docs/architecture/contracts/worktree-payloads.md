@@ -21,7 +21,7 @@ interface WorkspaceExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
   branchName?: string; // optional in the schema, required in practice: a wire prepare has no run to derive a name from, so omitting it draws the typed workspace.branchNameRequired refusal before any git call
   baseRef?: string; // worktree base; default = mount HEAD branch; detached HEAD without baseRef → typed refusal; a leading dash is refused before git
-  carryUncommitted?: boolean; // carry the session's uncommitted work, untracked files included, onto the new tree; refused unless the new base is the branch the work sits on
+  carryUncommitted?: boolean; // carry the session's uncommitted work, untracked files included, onto the new tree; refused unless the new base is the branch the work sits on, and refused worktree.createFailed (reason carryCheckoutRunning, with runningSessionId and runningHolder) while another session's run, an agent's or a workflow's, is live in the checkout it would be carried from
 }
 interface WorkspaceExecutionRootPrepareResponse {
   executionRoot: string; // at most FILE_PATH_MAX_LEN; a prepare resolves a root or refuses with a typed error, never a partial success
@@ -76,7 +76,7 @@ type WorktreeStatusRecord = (
       baseBranchName: string; // the branch it was cut from (`off <base>`)
       state: Exclude<WorktreeState, "retired">;
       createdBySessionId: SessionId;
-      createdByRunId?: RunId; // absent for a tree prepared before any run
+      createdByRunId?: RunId; // absent for a tree prepared before any run or made by a workflow run's start, whose context row records it
       createdAt: string;
       updatedAt: string;
     }

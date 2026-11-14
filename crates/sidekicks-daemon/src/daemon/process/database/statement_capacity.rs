@@ -30,6 +30,9 @@ use sidekicks_session::attention::{
 };
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
+use sidekicks_session::checkpoints::command_windows::COMMAND_WINDOWS_STATEMENT_CAPACITY;
+use sidekicks_session::checkpoints::edits::EDIT_CHECKPOINTS_STATEMENT_CAPACITY;
+use sidekicks_session::checkpoints::sweep::CHECKPOINT_SWEEP_STATEMENT_CAPACITY;
 use sidekicks_session::conversations::SESSION_CONVERSATIONS_STATEMENT_CAPACITY;
 use sidekicks_session::convert::SESSION_CONVERSION_STATEMENT_CAPACITY;
 use sidekicks_session::create::SESSION_CREATION_STATEMENT_CAPACITY;
@@ -46,6 +49,7 @@ use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
+use sidekicks_session::run::checkout::RUN_CHECKOUT_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_session::run::held_tool_calls::HELD_TOOL_CALLS_STATEMENT_CAPACITY;
@@ -112,13 +116,16 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     // The attention service's set holds the attention read's.
     + ATTENTION_SERVICE_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
+    + CHECKPOINT_SWEEP_STATEMENT_CAPACITY
     + CLONE_REQUESTS_STATEMENT_CAPACITY
+    + COMMAND_WINDOWS_STATEMENT_CAPACITY
     + SESSION_CONVERSATIONS_STATEMENT_CAPACITY
     + DAEMON_CONFIGURATION_STATEMENT_CAPACITY
     + DAMAGED_HISTORY_STATEMENT_CAPACITY
     + DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY
     + DRIVER_METHODS_STATEMENT_CAPACITY
     + DRIVERS_STATEMENT_CAPACITY
+    + EDIT_CHECKPOINTS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
@@ -202,4 +209,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEME
     // The session service's, the run engine's, the binding cursors', the turn capture's, the event
     // log's and the usage record's sets each hold the read of where a run stands, which is counted
     // once.
-    - 5 * RUN_STANDING_STATEMENT_CAPACITY;
+    - 5 * RUN_STANDING_STATEMENT_CAPACITY
+    // The turn capture's and the command windows' sets each hold the read of a run's checkout,
+    // which is counted once.
+    - RUN_CHECKOUT_STATEMENT_CAPACITY;

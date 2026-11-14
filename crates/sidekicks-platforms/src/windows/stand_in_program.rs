@@ -24,8 +24,20 @@ pub(crate) fn write_stand_in_script(
     for (first_argument, answer) in &program.answers_by_first_argument {
         answers.insert(first_argument.clone(), answer_value(answer)?);
     }
+    let marker = folder.join(format!("{name}.first-call"));
+    let first_call_wait = json!({
+        "marker": script_path_text(&marker)?,
+        "ms": program
+            .first_call_wait
+            .map_or(0, |wait| u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)),
+    });
     let script = format!(
         "const fs = require(\"fs\");\n\
+         const firstCallWait = {};\n\
+         if (firstCallWait.ms > 0 && !fs.existsSync(firstCallWait.marker)) {{\n\
+           fs.writeFileSync(firstCallWait.marker, \"\");\n\
+           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, firstCallWait.ms);\n\
+         }}\n\
          const answers = {};\n\
          const otherwise = {};\n\
          const args = process.argv.slice(2);\n\
@@ -34,6 +46,7 @@ pub(crate) fn write_stand_in_script(
          if (answer.record !== null) fs.appendFileSync(answer.record, record);\n\
          fs.writeSync(1, answer.output);\n\
          process.exitCode = answer.code;\n",
+        first_call_wait,
         Value::Object(answers),
         answer_value(&program.otherwise)?,
     );

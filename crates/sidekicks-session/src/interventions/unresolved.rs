@@ -210,7 +210,7 @@ pub(crate) fn settle_unresolved(
 }
 
 // A person's choice for the waiting messages as their interrupt's record stores it; `None` for
-// the daemon's own at a limit, which holds no queue.
+// the daemon's own, at a limit and for an undo, which holds no queue.
 fn choice_of(record: &InterruptInterventionRecord) -> Option<InterruptChoice> {
     match record {
         InterruptInterventionRecord::Person(PersonInterruptRecord::NextTurn {
@@ -226,6 +226,6 @@ fn choice_of(record: &InterruptInterventionRecord) -> Option<InterruptChoice> {
                 deliver_first: None,
             })
         }
-        InterruptInterventionRecord::Limit(_) => None,
+        InterruptInterventionRecord::Limit(_) | InterruptInterventionRecord::Undo(_) => None,
     }
 }

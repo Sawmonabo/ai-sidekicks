@@ -6,6 +6,8 @@ use notify::NullWatcher;
 use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::repo::folders::RepoMountRequest;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -13,8 +15,10 @@ use sidekicks_contracts::session::directory::{
     SessionWorkingFolderDisposition, SessionWorkingFolderUpdateRequest,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::worktree::lifecycle::WorktreeId;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::worktree::lifecycle::{RunningHolder, WorktreeId};
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
@@ -23,16 +27,18 @@ use sidekicks_workspace::execution_root::test_fixture::{
     ExecutionRootFixture, MOUNT_ID, SESSION_ID,
 };
 use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::worktree::creation::{LiveRunFolder, LiveRunFolderReader};
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::removal::{WorktreeSessionSweep, WorktreeSweep};
-use sidekicks_workspace::project::list_feed::ProjectListFeed;
-use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::repo::mount::reattach::{
     RepoMountReattachService, RepoMountReattachServiceDeps,
 };
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use sidekicks_workspace::run_setup_gates::execution_root::context::{
+    SessionRunBinder, context_statement,
+};
 use sidekicks_workspace::run_setup_gates::execution_root::{
-    ExecutionRootSetupGate, ExecutionRootSetupGateDeps, SessionFolderMoves,
+    ExecutionRootSetupGate, SessionFolderMoves,
 };
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunTerminalContext};
 
@@ -55,6 +61,9 @@ const REACH_BOUND: Duration = Duration::from_secs(1);
 // A workspace the session does not work in.
 const OTHER_WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb1";
 
+// A workflow run of the session, which the run engine's runs table never holds.
+const WORKFLOW_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb2";
+
 /// The working folders and the run setup gate over the execution roots' fixture, its database
 /// holding the runs table and its mount recording the repository's common folder.
 struct Fixture {
@@ -66,49 +75,16 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let roots = ExecutionRootFixture::with(schema_parts(), test_git_runner()).await;
-        roots
-            .rows
-            .execute(
-                "UPDATE repo_mounts SET metadata = json_set(metadata, '$.commonDir', ?1) \
-                 WHERE id = ?2",
-                params![roots.repository.join(".git").to_string_lossy(), MOUNT_ID],
-            )
-            .expect("the mount records its anchor");
         let folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
             reads: Arc::clone(&roots.reads),
             writer: Arc::clone(&roots.log.writer),
             execution_roots: Arc::clone(&roots.service),
             worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
         }));
-        let reattach = Arc::new(RepoMountReattachService::new(
-            RepoMountReattachServiceDeps {
-                writer: Arc::clone(&roots.log.writer),
-                reads: Arc::clone(&roots.reads),
-                workspaces: Arc::clone(&roots.workspaces),
-                execution_roots: Arc::clone(&roots.service),
-                events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service))),
-                worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(
-                    &roots.log.service,
-                ))),
-                resolver: RepoRootResolver::new(test_git_runner()),
-                agents: Arc::new(SessionLiveRunFolders::new(Arc::clone(&roots.reads))),
-            },
-        ));
-        let records = Arc::new(ProjectRecords::new(
-            Arc::clone(&roots.reads),
+        let gate = roots.setup_gate(
+            Arc::clone(&folders) as _,
             Arc::new(ProjectSessionActivityReader::new(&NoPlanHolds)),
-        ));
-        let gate = ExecutionRootSetupGate::new(ExecutionRootSetupGateDeps {
-            writer: Arc::clone(&roots.log.writer),
-            reads: Arc::clone(&roots.reads),
-            git: test_git_runner(),
-            workspaces: Arc::clone(&roots.workspaces),
-            execution_roots: Arc::clone(&roots.service),
-            reattach,
-            moves: Arc::clone(&folders) as _,
-            checkout_lock: Arc::new(KeyedLock::new()),
-            list_feed: Arc::new(ProjectListFeed::new(records, &roots.log.followers)),
-        });
+        );
         Self {
             roots,
             folders,
@@ -157,6 +133,22 @@ impl Fixture {
         .expect("the binding never waits on its own hold")
         .expect("the run binds");
         run_id
+    }
+
+    /// The workflow run [`WORKFLOW_RUN_ID`] of the session bound by the gate, its context written
+    /// as the start's write does.
+    async fn bind_workflow_run(&self) {
+        let binding = self
+            .gate
+            .bind_session_run(session_id(), WORKFLOW_RUN_ID, "Nightly")
+            .await
+            .expect("the workflow run binds");
+        self.roots
+            .log
+            .writer
+            .write(vec![context_statement(&binding, &WireInstant::now())])
+            .await
+            .expect("the workflow run's context is written");
     }
 
     /// Ends the run `completed` and runs the gate's end under the test's own hold of the session's
@@ -315,6 +307,33 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     assert_eq!(moved.state, "ready");
     assert_eq!(moved.bound_root, Some(path_text(&feature)));
     assert_eq!(fixture.pending(SESSION_ID), None);
+}
+
+/// A live workflow run holds no move: the session moves at once, and the run's context keeps the
+/// root it recorded. Mutation: the live-run read counting a workflow run's context, which holds the
+/// move pending.
+#[tokio::test]
+async fn a_live_workflow_run_never_holds_its_sessions_move() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.ready_at_repository().await;
+    let feature = fixture.roots.add_tree("feature").await;
+    fixture.bind_workflow_run().await;
+
+    assert_eq!(
+        fixture.set(&feature).await,
+        SessionWorkingFolderDisposition::Applied
+    );
+    assert_eq!(
+        fixture.roots.workspace(workspace_id).bound_root,
+        Some(path_text(&feature))
+    );
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT execution_root FROM run_execution_contexts WHERE run_id = '{WORKFLOW_RUN_ID}' \
+             AND released_at IS NULL"
+        )),
+        Some(path_text(&fixture.roots.repository))
+    );
 }
 
 #[tokio::test]
@@ -577,4 +596,112 @@ async fn a_removed_trees_sweep_passes_over_a_bound_session_until_its_run_ends() 
         vec![true],
         "a cleared move is swept once"
     );
+}
+
+/// A live workflow run is read as what it is: a carry from its checkout is refused naming it, and
+/// a re-attach of its project is refused `repoMount.reattachConflict` naming it, never failing.
+/// Mutation: every live context read as an agent run, whose agent the session's log never names
+/// for a workflow run (both reads fail).
+#[tokio::test]
+async fn a_live_workflow_run_is_named_by_a_carrys_and_a_reattachs_refusal() {
+    let fixture = Fixture::new().await;
+    fixture.ready_at_repository().await;
+    fixture.bind_workflow_run().await;
+    let holders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&fixture.roots.reads)));
+    let workflow_run = RunningHolder::WorkflowRun {
+        run_id: WorkflowRunId::new(WORKFLOW_RUN_ID).expect("the id is a UUID"),
+    };
+
+    let live_runs = holders
+        .read_other_sessions_live_runs(&SessionId::new(OTHER_SESSION_ID).expect("a session id"))
+        .await
+        .expect("the live runs are read");
+    assert_eq!(
+        live_runs,
+        vec![LiveRunFolder {
+            session_id: session_id(),
+            holder: workflow_run,
+            folder: fixture.roots.repository.clone(),
+        }]
+    );
+
+    let roots = &fixture.roots;
+    let reattach = RepoMountReattachService::new(RepoMountReattachServiceDeps {
+        writer: Arc::clone(&roots.log.writer),
+        reads: Arc::clone(&roots.reads),
+        workspaces: Arc::clone(&roots.workspaces),
+        execution_roots: Arc::clone(&roots.service),
+        events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service))),
+        worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
+        resolver: RepoRootResolver::new(test_git_runner()),
+        holders,
+    });
+    roots.replace_repository().await;
+    let refused = reattach
+        .reattach(&RepoMountRequest {
+            repo_mount_id: RepoMountId::new(MOUNT_ID).expect("the id is a UUID"),
+        })
+        .await
+        .expect_err("the workflow run holds the project");
+    let HandlerError::Refused(refusal) = HandlerError::from(refused) else {
+        panic!("the re-attach is refused, not failed");
+    };
+    assert_eq!(refusal.code, RefusalCode::RepoMountReattachConflict);
+    assert_eq!(
+        refusal
+            .detail
+            .map(|detail| serde_json::Value::Object(*detail)),
+        Some(json!({
+            "runningSessionId": SESSION_ID,
+            "runningHolder": { "kind": "workflowRun", "runId": WORKFLOW_RUN_ID },
+        }))
+    );
+}
+
+/// A removed tree's sweep passes over a workflow run's live context there: the session is swept
+/// back to the repository at once, since only an agent run holds it. Mutation: the bound-run read
+/// counting a workflow run's context, which keeps the session in the removed tree.
+#[tokio::test]
+async fn a_removed_trees_sweep_moves_a_session_whose_workflow_run_is_live_there() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.roots.bind().await;
+    fixture
+        .roots
+        .prepare(workspace_id, Some("feature"))
+        .await
+        .expect("the tree is made");
+    let (worktree_id, tree): (String, String) = fixture
+        .roots
+        .rows
+        .query_row("SELECT id, fs_root FROM worktrees", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the tree is stored");
+    fixture.bind_workflow_run().await;
+    fixture
+        .roots
+        .rows
+        .execute(
+            "UPDATE worktrees SET state = 'retired' WHERE id = ?1",
+            [&worktree_id],
+        )
+        .expect("the tree is removed");
+
+    fixture
+        .folders
+        .sweep_to_repo_root(&WorktreeSweep {
+            repo_mount_id: RepoMountId::new(MOUNT_ID).expect("the id is a UUID"),
+            worktree_id: WorktreeId::new(&worktree_id).expect("the id is a UUID"),
+            folder: wire_path(&PathBuf::from(tree)),
+        })
+        .await
+        .expect("the sweep lands");
+
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"
+        )),
+        Some(path_text(&fixture.roots.repository))
+    );
+    assert_eq!(fixture.sweeps_of(SESSION_ID), vec![false]);
 }

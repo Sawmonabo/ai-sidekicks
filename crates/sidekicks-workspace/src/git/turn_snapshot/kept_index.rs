@@ -12,7 +12,9 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 
 use crate::git::process::GitCall;
 use crate::git::turn_snapshot::capture_folder::real_path_name;
-use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, joined};
+use crate::git::turn_snapshot::capture_steps::{
+    CaptureStepError, SnapshotCheckout, index_lock_path, joined,
+};
 
 /// The extension of the file beside a kept index that records the HEAD it was seeded at.
 const SEEDED_HEAD_EXTENSION: &str = "head";
@@ -55,7 +57,7 @@ pub(crate) async fn open_kept_index(
     let seeded_head = indexes.join(format!("{name}.{SEEDED_HEAD_EXTENSION}"));
     // A git cut at its time bound, or a daemon crash, leaves this lock, which would fail every
     // later stage into the index; under the checkout's lock no live git holds it.
-    tokio::fs::remove_file(indexes.join(format!("{name}.lock")))
+    tokio::fs::remove_file(index_lock_path(&path))
         .await
         .none_if_missing()
         .map_err(CaptureStepError::KeptIndex)?;

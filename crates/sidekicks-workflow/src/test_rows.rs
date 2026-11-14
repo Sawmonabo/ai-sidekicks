@@ -347,3 +347,58 @@ fn insert_step_row(connection: &Connection, run_id: &str, row: &StepRow<'_>) {
         )
         .expect("the test stores a step");
 }
+
+/// Stores a live execution context of run `run_id` in session `session_id`'s workspace on a
+/// project's mount of its own, as a project session's start records it; once per database.
+#[cfg(test)]
+pub(crate) fn insert_live_execution_context(
+    connection: &Connection,
+    run_id: &str,
+    session_id: &str,
+) {
+    const MOUNT_ID: &str = "00000000-0000-7000-8000-0000000000c1";
+    for row in sidekicks_workspace::test_rows::project_and_mount_rows(MOUNT_ID, None) {
+        connection
+            .execute_batch(&row)
+            .expect("the test stores the project and its mount");
+    }
+    connection
+        .execute(
+            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
+             state, created_at, updated_at) VALUES ('workspace', ?1, ?2, 'boundRoot', \
+             '/repos/app', 'ready', ?3, ?3)",
+            params![session_id, MOUNT_ID, CREATED_AT],
+        )
+        .expect("the test stores the session's workspace");
+    connection
+        .execute(
+            "INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
+             created_at, updated_at) VALUES ('branch', 'workspace', 'main', 'main', ?1, ?1)",
+            [CREATED_AT],
+        )
+        .expect("the test stores the workspace's branch context");
+    connection
+        .execute(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, \
+             branch_context_id, created_at) VALUES (?1, ?2, 'workspace', 'boundRoot', \
+             '/repos/app', '/repos/app', '/repos/app/.git', 'branch', ?3)",
+            params![run_id, session_id, CREATED_AT],
+        )
+        .expect("the test stores the run's execution context");
+}
+
+/// When run `run_id`'s execution context was released, `None` while it is live.
+#[cfg(test)]
+pub(crate) fn execution_context_released_at(
+    connection: &Connection,
+    run_id: &str,
+) -> Option<String> {
+    connection
+        .query_row(
+            "SELECT released_at FROM run_execution_contexts WHERE run_id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )
+        .expect("the test reads the run's execution context")
+}

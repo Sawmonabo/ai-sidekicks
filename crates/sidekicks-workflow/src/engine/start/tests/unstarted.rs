@@ -2,28 +2,40 @@
 //! held start does when it cannot clean up.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_workspace::execution_root::test_fixture::MOUNT_ID;
+use sidekicks_workspace::git::process::test_repository::make_test_repository;
+use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 
 use super::{
     Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, git_node, item, joins_root,
     refusal, runs_folders, shell_node, start,
 };
 use crate::engine::ports::REFUSED_PORT_CALL;
-use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
+use crate::engine::start::{WorkflowRunStartError, WorkflowStartArrival, WorkflowStartOutcome};
 
 /// How a start that writes nothing ends.
 #[derive(Clone, Copy, Debug)]
 enum NothingWritten {
     UnknownSession,
     UnknownVersion,
+    ProjectOnProjectSession,
+    BindingFailed,
+    NoLiveWorkspace,
+    RepositoryMismatch,
+    ContextWriteRefused,
     InputLeftOut,
     RepositoryRequired,
     ProviderRequired,
@@ -32,7 +44,11 @@ enum NothingWritten {
     HeldOnChain,
 }
 
-/// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
+/// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; a
+/// project named beside a project session let through; a project session's run written before its
+/// binding, or its binding's failure dropped (the run starts); a binding's refusal answered as a
+/// fault (a detached project's session, a checkout of another repository); the context write's
+/// refusal read at a wrong statement, or not read as the binding's (a fault, not a refusal); the
 /// inputs left unchecked (the run starts); a step that needs a repository started in a session
 /// with no project's repository, or refused with a wrong detail; a step that runs in a sandbox
 /// started with no provider, refused with a wrong detail, or a disabled one counted; a version
@@ -43,6 +59,11 @@ enum NothingWritten {
 #[rstest]
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
+#[case::project_on_project_session(NothingWritten::ProjectOnProjectSession)]
+#[case::binding_failed(NothingWritten::BindingFailed)]
+#[case::no_live_workspace(NothingWritten::NoLiveWorkspace)]
+#[case::repository_mismatch(NothingWritten::RepositoryMismatch)]
+#[case::context_write_refused(NothingWritten::ContextWriteRefused)]
 #[case::input_left_out(NothingWritten::InputLeftOut)]
 #[case::repository_required(NothingWritten::RepositoryRequired)]
 #[case::provider_required(NothingWritten::ProviderRequired)]
@@ -54,6 +75,14 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
     let session = match case {
         NothingWritten::UnknownSession => TestSession::Unknown,
+        // A project session whose workspace is not bound yet, so its binding finds none.
+        NothingWritten::ProjectOnProjectSession | NothingWritten::BindingFailed => {
+            TestSession::ProjectWithoutWorkspace
+        }
+        NothingWritten::NoLiveWorkspace => TestSession::DetachedProject,
+        NothingWritten::RepositoryMismatch | NothingWritten::ContextWriteRefused => {
+            TestSession::Project
+        }
         NothingWritten::UnknownVersion
         | NothingWritten::InputLeftOut
         | NothingWritten::RepositoryRequired
@@ -84,6 +113,11 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         }
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
+        | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::BindingFailed
+        | NothingWritten::NoLiveWorkspace
+        | NothingWritten::RepositoryMismatch
+        | NothingWritten::ContextWriteRefused
         | NothingWritten::InputLeftOut
         | NothingWritten::HeldOnChain => json!([]),
     };
@@ -107,6 +141,11 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::InputLeftOut => Vec::new(),
         NothingWritten::UnknownSession
         | NothingWritten::UnknownVersion
+        | NothingWritten::ProjectOnProjectSession
+        | NothingWritten::BindingFailed
+        | NothingWritten::NoLiveWorkspace
+        | NothingWritten::RepositoryMismatch
+        | NothingWritten::ContextWriteRefused
         | NothingWritten::RepositoryRequired
         | NothingWritten::ProviderRequired
         | NothingWritten::NodeKindUnavailable
@@ -122,11 +161,39 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         request.workflow_version_id =
             WorkflowVersionId::new(UNKNOWN_VERSION_ID).expect("a version id");
     }
+    if let NothingWritten::ProjectOnProjectSession = case {
+        request.project_id = Some(ProjectId::new(MOUNT_ID).expect("the project's id"));
+    }
     if let NothingWritten::HeldOnChain = case {
         fixture.store_chain_root(25);
         request.chain = joins_root();
     }
+    // The session's workspace works in another repository's checkout while its mount reads
+    // healthy.
+    if let NothingWritten::RepositoryMismatch = case {
+        let scratch = fixture
+            .roots
+            .repository
+            .parent()
+            .expect("the repository sits in the scratch folder");
+        let other = make_test_repository(&fixture.roots.git, scratch, "other").await;
+        fixture
+            .rows
+            .execute(
+                "UPDATE workspaces SET fs_root = ?1, \
+                 metadata = json_set(metadata, '$.boundRoot', ?1, '$.checkoutRoot', ?1)",
+                [other.to_string_lossy()],
+            )
+            .expect("the workspace works in another repository");
+    }
+    if let NothingWritten::ContextWriteRefused = case {
+        fixture
+            .binder
+            .archives_after_binding
+            .store(true, Ordering::SeqCst);
+    }
     let stored_runs = fixture.count("SELECT COUNT(*) FROM workflow_runs");
+    let stored_events = fixture.count("SELECT COUNT(*) FROM session_events");
 
     let outcome = fixture.starter.start(request).await;
 
@@ -154,6 +221,46 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         NothingWritten::UnknownVersion => {
             let refusal = refusal(outcome.expect_err("the start is refused"));
             assert_eq!(refusal.code, RefusalCode::WorkflowVersionNotFound);
+        }
+        NothingWritten::ProjectOnProjectSession => {
+            let refusal = refusal(outcome.expect_err("the start is refused"));
+            assert_eq!(
+                refusal.code,
+                RefusalCode::WorkflowRunProjectOnProjectSession
+            );
+        }
+        NothingWritten::BindingFailed => {
+            let error = outcome.expect_err("the binding fails");
+            assert!(matches!(
+                error,
+                WorkflowRunStartError::Binding(RunSetupGateError::Failed(_))
+            ));
+            assert!(matches!(
+                HandlerError::from(error),
+                HandlerError::Internal(_)
+            ));
+        }
+        NothingWritten::NoLiveWorkspace => {
+            assert_eq!(
+                unresolved_cause(outcome.expect_err("the start is refused")),
+                Some(RefusalCode::WorkspaceNotFound.as_str().to_owned())
+            );
+        }
+        NothingWritten::RepositoryMismatch => {
+            assert_eq!(
+                unresolved_cause(outcome.expect_err("the start is refused")),
+                Some(
+                    RefusalCode::RepoMountRootResolutionFailed
+                        .as_str()
+                        .to_owned()
+                )
+            );
+        }
+        NothingWritten::ContextWriteRefused => {
+            assert_eq!(
+                unresolved_cause(outcome.expect_err("the start is refused")),
+                Some(RefusalCode::WorkspaceRootUnavailable.as_str().to_owned())
+            );
         }
         NothingWritten::InputLeftOut => {
             let refusal = refusal(outcome.expect_err("the start is refused"));
@@ -203,7 +310,10 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         fixture.count("SELECT COUNT(*) FROM workflow_runs"),
         stored_runs
     );
-    assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
+    assert_eq!(
+        fixture.count("SELECT COUNT(*) FROM session_events"),
+        stored_events
+    );
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     let written: Vec<ArtifactId> = fixture
         .payloads
@@ -258,4 +368,13 @@ async fn a_held_start_that_cannot_clean_up_is_still_held() {
         serde_json::from_value(fixture.records.lines()[0]["workflowRunId"].clone())
             .expect("the fault names the held start's run");
     assert!(!fixture.starter.recorder.has_sequence(held_run_id));
+}
+
+// The cause code of the `workspace.executionRoot.unresolved` refusal a start answers.
+fn unresolved_cause(error: WorkflowRunStartError) -> Option<String> {
+    let DomainError { code, detail, .. } = refusal(error);
+    assert_eq!(code, RefusalCode::WorkspaceExecutionRootUnresolved);
+    detail
+        .and_then(|detail| detail.get("causeCode").cloned())
+        .and_then(|cause_code| cause_code.as_str().map(str::to_owned))
 }

@@ -10,7 +10,6 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::repo::mount::{
     LifecycleActor, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -32,8 +31,8 @@ const RUNNING_RUN_STATEMENT: usize = 0;
 const ARCHIVABLE_DEPENDENTS_STATEMENT: usize = 1;
 const DETACH_MOUNT_STATEMENT: usize = 3;
 
-// True while an agent runs anywhere in the project `@repo_mount_id` serves: a run whose execution
-// root is unreleased, in a workspace on any of the project's mounts. A predicate over the
+// True while a run, an agent's or a workflow's, is live anywhere in the project `@repo_mount_id`
+// serves: a run whose execution root is unreleased, in a workspace on any of the project's mounts. A predicate over the
 // `run_context` alias of `run_execution_contexts`.
 const RUN_IN_PROJECT_PREDICATE: &str = "run_context.released_at IS NULL
    AND run_context.workspace_id IN (
@@ -102,13 +101,14 @@ pub(crate) struct RepoMountDetachOutcome {
     pub(crate) archived_workspace_ids: Vec<WorkspaceId>,
 }
 
-/// An agent's run in a project: what a detach's and a re-attach's running check finds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A live run in a project, an agent's or a workflow's: what a detach's and a re-attach's running
+/// check finds.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RunningRun {
     /// The session the run is in.
     pub(crate) session_id: SessionId,
-    /// The run.
-    pub(crate) run_id: RunId,
+    /// The run's id, an agent run's or a workflow run's.
+    pub(crate) run_id: String,
 }
 
 // How one try of a detach's write ended.
@@ -134,8 +134,8 @@ impl RepoMountService {
     /// Detaches a mount and archives its workspaces (nothing changes when it is not `attached`),
     /// running `following_statements` (the project writer's forgetting of the record) in the same
     /// write after the flip. Refuses `repoMount.managed` for a chat's managed mount,
-    /// `repoMount.detachConflict` naming the running session while an agent runs anywhere in its
-    /// project, and `repoMount.notFound`. A run that ends between the running check and the read
+    /// `repoMount.detachConflict` naming the running session while a run, an agent's or a
+    /// workflow's, is live anywhere in its project, and `repoMount.notFound`. A run that ends between the running check and the read
     /// of its session is no conflict, so the detach is tried once more, and a second such race
     /// fails with the write's refusal. Fails with
     /// [`RepoMountServiceError::DetachNotificationIncomplete`] when it committed but an event
@@ -333,7 +333,7 @@ fn conversion_failure(
 }
 
 /// The run [`SELECT_RUNNING_RUN_SQL`] finds in the project `repo_mount_id` serves, `None` when no
-/// agent runs there. Fails as the read fails, and for a stored id the contracts refuse.
+/// run is live there. Fails as the read fails, and for a stored id the contracts refuse.
 pub(crate) fn read_running_run(
     connection: &Connection,
     repo_mount_id: RepoMountId,
@@ -345,7 +345,7 @@ pub(crate) fn read_running_run(
             |row| {
                 Ok(RunningRun {
                     session_id: text_column(row, 0, |text| SessionId::new(&text))?,
-                    run_id: text_column(row, 1, |text| RunId::new(&text))?,
+                    run_id: row.get(1)?,
                 })
             },
         )

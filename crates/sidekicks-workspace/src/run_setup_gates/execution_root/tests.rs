@@ -1,16 +1,12 @@
-use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use notify::NullWatcher;
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceId};
 use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
@@ -18,25 +14,15 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
-use super::{ExecutionRootSetupGate, ExecutionRootSetupGateDeps, SessionFolderMoves};
-use crate::event_emitter::WorkspaceEventEmitter;
-use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
-use crate::execution_root::{ExecutionRootService, WorkspacePreparationHold};
-use crate::git::process::test_git_runner;
-use crate::git::process::test_repository::{git_in, make_test_repository};
-use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::project::list_feed::ProjectListFeed;
-use crate::project::records::ProjectRecords;
-use crate::project::test_doubles::NoSessions;
-use crate::repo::mount::reattach::{
-    RepoMountReattachService, RepoMountReattachServiceDeps, RunAgentLookup, RunAgentLookupError,
+use super::ExecutionRootSetupGate;
+use crate::execution_root::test_fixture::{
+    ExecutionRootFixture, MOUNT_ID, SESSION_ID, StandInMoves,
 };
-use crate::repo::root_resolver::RepoRootResolver;
+use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::project::test_doubles::NoSessions;
 use crate::run_setup_gates::{
     ParentRun, RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
@@ -46,71 +32,12 @@ const OTHER_WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea0";
 // A second repository's mount, since a session holds one live workspace on each mount.
 const OTHER_MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea2";
 const OTHER_BRANCH_CONTEXT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea3";
-const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4ea1";
 
 // Far past any git call these tests make, so only a binding waiting on its own hold reaches it.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
 
 // When another of the session's runs bound itself after a helper's parent.
 const SIBLING_BOUND_AT: &str = "2026-10-14T09:31:00.000Z";
-
-/// Answers every run's agent; no test here re-attaches, so it is never asked.
-struct AnyRunAgent;
-
-impl RunAgentLookup for AnyRunAgent {
-    fn read_run_agent<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-        _run_id: &'a RunId,
-    ) -> BoxFuture<'a, Result<AgentId, RunAgentLookupError>> {
-        async { Ok(AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID")) }.boxed()
-    }
-}
-
-/// Stands in for the session's working-folder moves: a pending move is applied under the gate's
-/// hold through the execution roots' held move, as the session crate applies one; sweeps are
-/// counted.
-struct StandInMoves {
-    execution_roots: Arc<ExecutionRootService<NullWatcher>>,
-    pending: Mutex<Option<PathBuf>>,
-    sweeps: AtomicUsize,
-}
-
-impl SessionFolderMoves for StandInMoves {
-    fn apply_pending_held<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-        hold: &'a WorkspacePreparationHold<'_>,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        let pending = lock(&self.pending).take();
-        async move {
-            if let Some(folder) = pending {
-                self.execution_roots
-                    .move_to_folder_held(hold, &folder, None)
-                    .await?;
-            }
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn apply_pending<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-        _hold: Option<&'a SessionAppendHold>,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
-    }
-
-    fn sweep_from_removed_tree<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-        _hold: Option<&'a SessionAppendHold>,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        self.sweeps.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
-    }
-}
 
 /// The gate over the execution roots' fixture, whose mount records the repository's common folder
 /// as its anchor.
@@ -123,48 +50,8 @@ struct GateFixture {
 impl GateFixture {
     async fn new() -> Self {
         let roots = ExecutionRootFixture::new().await;
-        roots
-            .rows
-            .execute(
-                "UPDATE repo_mounts SET metadata = json_set(metadata, '$.commonDir', ?1) \
-                 WHERE id = ?2",
-                params![roots.repository.join(".git").to_string_lossy(), MOUNT_ID],
-            )
-            .expect("the mount records its anchor");
-        let reattach = Arc::new(RepoMountReattachService::new(
-            RepoMountReattachServiceDeps {
-                writer: Arc::clone(&roots.log.writer),
-                reads: Arc::clone(&roots.reads),
-                workspaces: Arc::clone(&roots.workspaces),
-                execution_roots: Arc::clone(&roots.service),
-                events: Arc::new(WorkspaceEventEmitter::new(Arc::clone(&roots.log.service))),
-                worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(
-                    &roots.log.service,
-                ))),
-                resolver: RepoRootResolver::new(test_git_runner()),
-                agents: Arc::new(AnyRunAgent),
-            },
-        ));
-        let moves = Arc::new(StandInMoves {
-            execution_roots: Arc::clone(&roots.service),
-            pending: Mutex::new(None),
-            sweeps: AtomicUsize::new(0),
-        });
-        let records = Arc::new(ProjectRecords::new(
-            Arc::clone(&roots.reads),
-            Arc::new(NoSessions),
-        ));
-        let gate = ExecutionRootSetupGate::new(ExecutionRootSetupGateDeps {
-            writer: Arc::clone(&roots.log.writer),
-            reads: Arc::clone(&roots.reads),
-            git: test_git_runner(),
-            workspaces: Arc::clone(&roots.workspaces),
-            execution_roots: Arc::clone(&roots.service),
-            reattach,
-            moves: Arc::clone(&moves) as _,
-            checkout_lock: Arc::new(KeyedLock::new()),
-            list_feed: Arc::new(ProjectListFeed::new(records, &roots.log.followers)),
-        });
+        let moves = roots.stand_in_moves();
+        let gate = roots.setup_gate(Arc::clone(&moves) as _, Arc::new(NoSessions));
         Self { roots, moves, gate }
     }
 
