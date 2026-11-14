@@ -12,11 +12,11 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
-    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\" && cargo fmt --all",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\" && node tools/format-rust.mjs",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "prepare": "lefthook install",
     "structure:dead-code": "knip --treat-config-hints-as-errors --treat-tag-hints-as-errors",
-    "test:mutation": "pnpm --filter './packages/*' --workspace-concurrency=1 --no-bail exec stryker run ../../stryker.config.json"
+    "test:mutation": "pnpm --filter './packages/*' --filter '!./packages/control-plane' --filter '!./packages/crypto-paseto' --filter '!./packages/runtime-daemon' --filter '!./packages/search-index' --workspace-concurrency=1 --no-bail exec stryker run ../../stryker.config.json"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

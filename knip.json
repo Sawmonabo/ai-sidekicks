@@ -35,6 +35,15 @@
   // nothing catches it: it is removed by reading.
   "tags": ["-consumedBy"],
 
+  // The packages the Rust port replaces, unchecked until the change that deletes each one.
+  "ignoreWorkspaces": [
+    "apps/cli",
+    "packages/control-plane",
+    "packages/crypto-paseto",
+    "packages/runtime-daemon",
+    "packages/search-index"
+  ],
+
   // The root workspace is declared with empty globs on purpose: knip then reads its manifest for
   // dependency resolution while contributing no findings of its own.
   "workspaces": {
@@ -215,9 +224,8 @@
 
     // The packages declare no source `entry`: knip reads each one's entries from its own manifest
     // (`exports`, whose `@ai-sidekicks/source` condition points at `src/`), and its plugins add the
-    // rest: every package's `vitest.config.ts` test files, and the control plane's worker entry
-    // from `wrangler.toml`. Each ignore below names a dependency knip cannot see being used, with
-    // the reason.
+    // rest: every package's `vitest.config.ts` test files. Each ignore below names a dependency
+    // knip cannot see being used, with the reason.
     "packages/contracts": {
       // The conditional-type tests beside the contracts; `tsc -p tsconfig.test.json` checks
       // them, and nothing imports them.
@@ -231,16 +239,6 @@
       // A same-file consumer counts as a consumer: a schema, closed set or type that only its own
       // module's exported shapes reference is still part of the contract those shapes describe.
       "ignoreExportsUsedInFile": true
-    },
-    // The command line declares no `entry`: knip's rolldown plugin reads `src/main.ts` from
-    // `rolldown.config.ts`, and its Vitest plugin reads the tests beside their subjects.
-    "apps/cli": {},
-    "packages/crypto-paseto": {},
-    "packages/search-index": {
-      // The package's loader is the file its addon build writes, not source: its fallbacks name
-      // the per-platform packages napi-rs publishes for other projects, and this one publishes
-      // none. The negation drops it from the entries `exports` adds.
-      "entry": ["!index.js"]
     },
     "packages/search-ranking": {},
     "packages/markdown-parser": {
@@ -260,107 +258,6 @@
         "@simplewebauthn/server",
         // The file-watch trigger's glob patterns.
         "picomatch"
-      ]
-    },
-    "packages/control-plane": {
-      // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
-      // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
-      // Postgres client the control plane's stores are built on, not imported until the stores
-      // land.
-      "ignoreDependencies": [
-        "wrangler",
-        "pg",
-        "@types/pg",
-        // Not a package: the rate-limit Durable Object imports `cloudflare:workers`, and the tests
-        // that run inside workerd import it and `cloudflare:test`. The Workers runtime and its
-        // Vitest integration supply them, the way Node supplies `node:` modules, and knip reads the
-        // `cloudflare:` scheme as an unlisted package named `cloudflare`.
-        "cloudflare",
-        // The push senders that present the person's own credentials: the signed headers of a
-        // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
-        "web-push",
-        "apns2",
-        "google-auth-library"
-      ]
-    },
-    "packages/runtime-daemon": {
-      // Files started by path, which knip cannot follow: the database writer's, the search's, the
-      // type detection's and the colorer's worker threads, the database file's copy process and the
-      // search index's build process, each by its file's URL, the askpass program git runs, the
-      // program Codex runs as the daemon's pre-tool and post-tool hooks, the detectors tests hand
-      // the type detection thread and the line hook a test hands the colorer's thread, by their URLs.
-      "entry": [
-        "src/database/worker.ts",
-        "src/artifacts/detection/worker.ts",
-        "src/artifacts/__fixtures__/never-returning-detector.ts",
-        "src/artifacts/__fixtures__/allocating-detector.ts",
-        "src/artifacts/__fixtures__/sleeping-detector.ts",
-        "src/highlight/worker.ts",
-        "src/highlight/__fixtures__/stuck-line-hook.ts",
-        "src/recovery/database-file/child.ts",
-        "src/session/search/thread/worker.ts",
-        "src/session/search/index/child.ts",
-        "src/workspace/clone/askpass/program.ts",
-        "src/provider/driver/codex/hooks/program.ts"
-      ],
-      // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
-      // test runs to check it; `mkfifo` makes the named pipes tests put where a file belongs, which
-      // a read or an open waits on or skips; both ship with the operating system, never as a
-      // package dependency.
-      "ignoreBinaries": ["scutil", "mkfifo"],
-      "ignoreDependencies": [
-        // Libraries installed ahead of the code that imports them, each with what will import it.
-        // The sandbox a workflow code step, and a person's own tool server at Sandboxed, runs in on
-        // Claude Code.
-        "@anthropic-ai/sandbox-runtime",
-        // Laying out a workflow an agent wrote with no layout of its own.
-        "@dagrejs/dagre",
-        // Sealing a push notice to a linked device's push key.
-        "@hpke/core",
-        "@hpke/hybridkem-x-wing",
-        // Drawing the first page of an attached PDF.
-        "@hyzyla/pdfium",
-        // The daemon's own connections to the tool servers a session uses.
-        "@modelcontextprotocol/client",
-        // The daemon's shared tool server that hands sessions their session, workflow and
-        // browser tools.
-        "@modelcontextprotocol/server",
-        // Hosting Playwright's browser tool server for Preview and an agent's browser tools.
-        "@modelcontextprotocol/sdk",
-        "playwright-core",
-        // Running a workflow code step's JavaScript or TypeScript, and locking its packages.
-        "bun",
-        // A workflow schedule's next run in its timezone.
-        "croner",
-        // A workflow's expressions, and the regular-expression engine they run on.
-        "jsonata",
-        "re2js",
-        // The email digest of what needs the person's attention.
-        "nodemailer",
-        // A short workflow code step run in its own memory-bounded engine.
-        "quickjs-emscripten",
-        // The picture of an attachment's first page and its covered copy.
-        "sharp",
-        // Encrypting a Web Push notice on this machine before the relay sends it.
-        "web-push",
-        // A workflow step that parses YAML.
-        "yaml"
-      ],
-      "ignoreFiles": [
-        // The machine's `presence.read` binding, which nothing registers until Remote Control
-        // reports the devices connected to this machine.
-        "src/ipc/handlers/presence/read.ts",
-        // The input schemas of the workflow agent tools, read by their handlers once the daemon
-        // serves them.
-        "src/workflow/agent-tools/inputs.ts",
-        // The version chain and version difference reads, served by the workflow definition
-        // handlers.
-        "src/workflow/definitions/versions/history.ts",
-        // The structural difference between two versions, read by the version chain and difference
-        // reads above.
-        "src/workflow/definitions/versions/difference.ts",
-        // A step's input, output or log read, served by the workflow step read handler.
-        "src/workflow/runs/step-payload.ts"
       ]
     }
   }

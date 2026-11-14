@@ -22,11 +22,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:coverage": "vitest run --project=node --coverage"
+    "build": "tsc -b"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",

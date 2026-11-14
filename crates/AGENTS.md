@@ -26,7 +26,7 @@ Binding for every change under `crates/`, on top of the [root `AGENTS.md`](../AG
 
 ## Commands
 
-`cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features`, `cargo nextest run --workspace`, `cargo test --workspace --doc`, `cargo doc --workspace --no-deps`, `cargo shear`, `cargo deny check advisories bans sources`, `typos`, `tombi format`. CI sets `CARGO_BUILD_WARNINGS=deny`, so any lint warning fails it, rustdoc's included, and runs each Cargo command with `--keep-going` so every crate reports. `turbo run build lint test` drives Cargo beside the pnpm packages; the root `turbo.json` names `CARGO_BUILD_WARNINGS` in `globalEnv`, which Turbo otherwise withholds.
+`pnpm format`; with `--workspace --exclude search-index --exclude sidecar-rust-pty`: `cargo clippy --all-targets --all-features`, `cargo nextest run`, `cargo test --doc`, `cargo doc --no-deps`; `cargo shear`, `cargo deny check advisories bans sources`, `typos`, `tombi format`. CI sets `CARGO_BUILD_WARNINGS=deny`, so any warning fails it, rustdoc's included, and runs clippy with `--keep-going` so every crate reports. `turbo run build lint test` drives Cargo beside the pnpm packages; the root `turbo.json` names `CARGO_BUILD_WARNINGS` in `globalEnv`, which Turbo otherwise withholds.
 
 ## Format and lints
 

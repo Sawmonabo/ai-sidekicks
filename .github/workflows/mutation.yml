@@ -8,8 +8,7 @@
 # or covering tests changed since the saved results, and skips static mutants (module-level code,
 # which re-runs the whole suite per mutant). The nightly run and a manual run mutate every file,
 # static mutants included, and the merge job saves the combined results. A cold full run is hours
-# of runner time (the daemon alone is over three hours on a fast laptop), hence the long time
-# limit, which only stops a hung job.
+# of runner time, hence the long time limit, which only stops a hung job.
 #
 # A called workflow reads the caller's `github` context, so the event checks below are `ci.yml`'s
 # event. It sets no `concurrency`: its group would name the caller's workflow, the group of the run
@@ -37,9 +36,9 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     env:
-      # Shards per package, sized from the measured full-run cost and kept to
-      # 19 jobs in all, under the 20 jobs a free plan runs at once.
-      MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 3, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 12}'
+      # Shards per package, sized from the measured full-run cost, under the
+      # 20 jobs a free plan runs at once.
+      MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 3}'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -112,19 +111,6 @@ jobs:
           path: packages/*/.stryker/incremental.json
           key: stryker-incremental-${{ github.sha }}
           restore-keys: stryker-incremental-
-
-      # The daemon's unit tests load the session search's addon, which its build compiles from
-      # Rust. The WebAssembly target `rust-toolchain.toml` lists for the compression module is
-      # installed here, so Cargo finds it installed.
-      - name: Set up Rust
-        if: matrix.package == 'runtime-daemon'
-        uses: ./.github/actions/setup-rust
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Build the session search's addon
-        if: matrix.package == 'runtime-daemon'
-        run: pnpm --filter @ai-sidekicks/search-index run build
 
       # A pull request's summary lists the surviving mutants in the files it
       # changed; a full run's summary is the score table.

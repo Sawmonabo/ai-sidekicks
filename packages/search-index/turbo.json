@@ -21,10 +21,6 @@
       // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
       // which Turborepo's strict environment mode would otherwise withhold.
       "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
-    },
-    // The tests are the crate's own, compiled and run by Cargo.
-    "test": {
-      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     }
   }
 }

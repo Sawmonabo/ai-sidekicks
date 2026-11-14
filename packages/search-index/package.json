@@ -36,8 +36,7 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release --esm",
-    "test": "cargo test"
+    "build": "napi build --platform --release --esm"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.10.8"

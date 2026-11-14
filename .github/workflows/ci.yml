@@ -9,9 +9,9 @@
 # a filter let through is found within a day.
 #
 # A pull request into `develop` runs only the fast jobs, so its checks finish within about ten
-# minutes. The slow jobs (mutation testing, the desktop end-to-end tier, and the native prebuild
-# matrix) run on the nightly schedule, on pull requests into `main`, and on a manual run; `changes`
-# sets `slow-jobs` for those events.
+# minutes. The slow jobs (mutation testing and the desktop end-to-end tier) run on the nightly
+# schedule, on pull requests into `main`, and on a manual run; `changes` sets `slow-jobs` for those
+# events.
 #
 # The full-repo `eslint .` and `prettier --check .` steps close the `git commit --no-verify` bypass.
 # They do not go through lefthook, because lint-staged reads the git index, which is empty in CI.
@@ -61,8 +61,6 @@ jobs:
       # scheduled run reports every filter changed and runs unfiltered.
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
-      deps: ${{ steps.filter.outputs.deps || 'true' }}
-      search-index: ${{ steps.filter.outputs.search-index || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
       - uses: actions/checkout@v7
@@ -118,28 +116,6 @@ jobs:
               - 'lefthook.yml'
               - '.github/workflows/ci.yml'
               - '.github/workflows/mutation.yml'
-            deps:
-              - 'pnpm-lock.yaml'
-              - '**/package.json'
-              - '.npmrc'
-              # `allowBuilds` for `better-sqlite3` lives here, and denying its
-              # implicit build is what the native-prebuild matrix asserts.
-              - 'pnpm-workspace.yaml'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/native-prebuilds.yml'
-              - '.github/actions/assert-native-prebuild/**'
-              # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
-              - 'packages/runtime-daemon/sqlite-shell/**'
-              - 'packages/runtime-daemon/src/recovery/database-file/**'
-            # The session search's addon crate, the Cargo workspace files and toolchain it builds
-            # under, this workflow and the one that runs its macOS tests.
-            search-index:
-              - 'packages/search-index/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/macos-crates.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -189,7 +165,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # One OS and one Node version, the floor; `native-prebuilds` covers the other platforms.
+        # One OS and one Node version, the floor.
         os: [ubuntu-latest]
         node: ${{ fromJSON(needs.node-version.outputs.major-minor) }}
     steps:
@@ -216,9 +192,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Assert better-sqlite3 loads a bundled Node-API prebuild
-        uses: ./.github/actions/assert-better-sqlite3-prebuild
 
       # Backs Turborepo's remote cache with the GitHub Actions cache (no third-party service).
       # SHA-pinned.
@@ -255,34 +228,42 @@ jobs:
           toolchain: 1.95.0
           targets: wasm32-wasip1-threads
 
-      # Two Rust crates build here with this Rust: the session search's addon, which the tests
-      # also run through Cargo, and the compression module, built for WebAssembly. The action
-      # installs the newest stable Rust with that target once, before Turbo runs both builds at the
-      # same time; left to `rust-toolchain.toml`, each Cargo run would install it and the two would
-      # collide. The crates' tests run through `cargo nextest`, which the action installs too.
+      # Two Rust crates build here with this Rust: the session search's addon, which the desktop's
+      # typecheck builds with the TypeScript daemon it starts, and the compression module, built for
+      # WebAssembly. The action installs the newest stable Rust with that target once, before Turbo
+      # runs both builds at the same time; left to `rust-toolchain.toml`, each Cargo run would
+      # install it and the two would collide. The crates' tests run through `cargo nextest`, which
+      # the action installs too.
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
           nextest: "true"
 
-      # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
-      # its filter names changes, so building it here too would build it twice.
+      # Every workspace but two kinds. The desktop: the `desktop` job's bundle leg builds it
+      # whenever a file its filter names changes, so building it here too would build it twice. The
+      # packages the Rust port replaces, two crates among them: Turbo builds one only for a package
+      # that still depends on it, and `--continue` with the later steps' `!cancelled()` keeps a red
+      # build of one from stopping the checks of the packages that do not depend on it.
       - name: Build (excluding desktop)
-        run: pnpm turbo run build --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+        run: pnpm turbo run build --continue --filter='!@ai-sidekicks/desktop' --filter='!@ai-sidekicks/runtime-daemon' --filter='!@ai-sidekicks/cli' --filter='!@ai-sidekicks/crypto-paseto' --filter='!@ai-sidekicks/search-index' --filter='!@ai-sidekicks/control-plane' --filter='!search-index' --filter='!sidecar-rust-pty' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck
-        run: pnpm turbo run typecheck ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run typecheck --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Lint per-package
-        run: pnpm turbo run lint ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run lint --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Install zsh and fish for the shell-mark tests
+        if: ${{ !cancelled() }}
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
 
       # The worktree cleanup's test starts git's file-watch daemon and proves the cleanup stops it;
       # Ubuntu's own git has no daemon on Linux, so the git maintainers' release takes its place.
       - name: Install a git with its file-watch daemon
+        if: ${{ !cancelled() }}
         run: |
           sudo add-apt-repository -y ppa:git-core/ppa
           sudo apt-get update -qq
@@ -292,14 +273,17 @@ jobs:
       # Ubuntu's own zshrc runs compinit, which stops at a question when a completion folder is
       # writable by others, as some on the runner image are; this closes them as a machine would.
       - name: Close zsh's completion folders to other accounts
+        if: ${{ !cancelled() }}
         run: zsh -fc 'autoload -Uz compaudit; compaudit' | tee /dev/stderr | xargs -r sudo chmod go-w
 
       # The desktop package runs in the `desktop` matrix job, one tier per runner. Under turbo's
       # default concurrency (10), `@ai-sidekicks/desktop#test:smoke`, the one project that spawns a
       # full Electron tree and asserts a wall-clock boot deadline, would share a 4-vCPU runner with
-      # `runtime-daemon#test`, `client-sdk#test` and the renderer suite.
+      # `client-sdk#test` and the renderer suite. A filtered run tests each selected crate by
+      # itself, so the two crates the Rust port replaces are left out by name.
       - name: Test (excluding desktop)
-        run: pnpm turbo run test --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run test --continue --filter='!@ai-sidekicks/desktop' --filter='!search-index' --filter='!sidecar-rust-pty' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation of the workspace libraries, run against the packed tarball so it
       # sees what a consumer would install:
@@ -311,14 +295,19 @@ jobs:
       #     dynamic-import) while node16-from-ESM and bundler stay enforced.
       #
       # Libraries are found from `packages/*/package.json`, so a new package needs no list edit;
-      # `apps/*` are applications and out of scope.
+      # `apps/*` are applications and out of scope, and the packages the Rust port replaces are
+      # skipped.
       - name: Validate package public surface (publint + attw)
+        if: ${{ !cancelled() }}
         run: |
           fail=0
           tmp=$(mktemp -d)
           for pj in packages/*/package.json; do
             dir=$(dirname "$pj")
             pkg=$(basename "$dir")
+            case "$pkg" in
+              control-plane | crypto-paseto | runtime-daemon | search-index) continue ;;
+            esac
             echo "::group::$pkg — publint --strict + attw (esm-only)"
             ( cd "$dir" && pnpm exec publint --strict ) || { echo "::error::publint failed for $pkg"; fail=1; }
             ( cd "$dir" && pnpm pack --pack-destination "$tmp" >/dev/null ) || { echo "::error::pnpm pack failed for $pkg"; fail=1; }
@@ -345,6 +334,7 @@ jobs:
       # The pattern stays a glob: a bare directory argument fails on Node 24.18.0 but exits 0 having
       # run nothing on Node 26.10.0 (measured).
       - name: Run plan-execution skill tests (Layer 1 + Layer 2)
+        if: ${{ !cancelled() }}
         run: node tools/run-node-tests.mjs --min-files=3 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 
       # Hook guard tests: `worktree-occupancy.py` and `worktree.sh` driven as subprocesses from
@@ -355,6 +345,7 @@ jobs:
       # Same fail-closed wrapper as above. No `--min-files`: the tree holds one test file, so a
       # floor of 1 would only repeat the wrapper's zero-match check.
       - name: Run hook guard tests
+        if: ${{ !cancelled() }}
         run: node tools/run-node-tests.mjs '.claude/hooks/__tests__/**/*.test.mjs'
 
       # Every test under `tools/`, run through the fail-closed runner, so the tool that guards the
@@ -362,6 +353,7 @@ jobs:
       # exercises the nested-invocation path. The glob is `tools/**` so a test kept beside its tool
       # still runs; the runner skips `node_modules`.
       - name: Run test-runner tool tests
+        if: ${{ !cancelled() }}
         run: node tools/run-node-tests.mjs 'tools/**/*.test.mjs'
 
   # The desktop tiers, one per runner. The three build flavors (`build`, `build:smoke`,
@@ -759,46 +751,20 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-  # The daemon's native prebuild on every platform the product ships to, in its own workflow.
-  # Five runners across three operating systems. Only the dependency graph (the lockfile, a
-  # package.json, or the npm client config) can change which binding resolves, and only the
-  # shell's build or the code that runs it can change the repair each leg proves. It runs only
-  # where `slow-jobs` is set; there a pull request touching none of those files skips it, and
-  # `ci-gate` reads the skip as success. The nightly and manual runs run it unconditionally.
-  native-prebuilds:
-    name: native prebuilds
-    needs: [changes]
-    if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.deps == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/native-prebuilds.yml
-
-  # The Rust crates' tests on macOS, in their own workflow: the search addon's crate when it, the
-  # Cargo workspace files or that workflow change, and the operating-system crate on every run.
+  # The Rust crates' tests on macOS, in their own workflow: the operating-system crate on every
+  # run.
   macos-crates:
     name: macOS crates
     needs: [changes]
     permissions:
       contents: read
     uses: ./.github/workflows/macos-crates.yml
-    with:
-      run-search-index: ${{ needs.changes.outputs.search-index == 'true' }}
 
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
     needs:
-      [
-        changes,
-        node-version,
-        test,
-        desktop,
-        desktop-slow,
-        desktop-macos,
-        structure,
-        native-prebuilds,
-        macos-crates,
-      ]
+      [changes, node-version, test, desktop, desktop-slow, desktop-macos, structure, macos-crates]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -833,7 +799,6 @@ jobs:
           check desktop-slow "${{ needs.desktop-slow.result }}"
           check desktop-macos "${{ needs.desktop-macos.result }}"
           check structure "${{ needs.structure.result }}"
-          check native-prebuilds "${{ needs.native-prebuilds.result }}"
           check macos-crates "${{ needs.macos-crates.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped"

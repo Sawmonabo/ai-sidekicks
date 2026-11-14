@@ -17,7 +17,7 @@ Features: [README.md](README.md). What is left to build and in what order: [`doc
 pnpm 10.33.2, Node ≥ 24.21, and the Rust toolchain `rust-toolchain.toml` pins, which rustup installs. Never `npm` (the workspace uses pnpm's `catalog:` protocol, which npm cannot read).
 
 - `pnpm install` (also installs the git hooks)
-- `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format` — Turbo runs `build`, `lint` and `test` over `crates/` through Cargo beside the pnpm packages, and `pnpm format` also runs `cargo fmt --all`
+- `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format` — Turbo runs `build`, `lint` and `test` over `crates/` through Cargo beside the pnpm packages, and `pnpm format` also runs `cargo fmt` over the crates that stay (`tools/format-rust.mjs`); none of them checks a package the Rust port replaces, which is built only for a package that depends on it
 - On a development machine every `cargo` command runs through `mbx`, the shared compile cache and scheduler, whose policy is the tracked `.mbx.toml`; CI builds through plain Cargo. The setup is [the Rust build cache runbook](docs/operations/rust-build-cache-runbook.md)
 
 ## How work lands

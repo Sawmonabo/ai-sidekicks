@@ -24,11 +24,6 @@
   ],
   "scripts": {
     "build": "rolldown -c rolldown.config.ts",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.sqlite-shell.json",
-    "lint": "eslint src tests sqlite-shell rolldown.config.ts",
-    "test": "vitest run --project=unit",
-    "test:coverage": "vitest run --project=unit --coverage",
-    "test:endurance": "vitest run --project=endurance",
     "postinstall": "node --experimental-strip-types sqlite-shell/compile.ts"
   },
   "dependencies": {

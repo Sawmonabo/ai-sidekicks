@@ -1,6 +1,6 @@
 # The Rust crates' tests on macOS, called by `ci.yml` as its `macos-crates` job, which `ci-gate`
-# needs: the session search's addon crate on an Intel Mac, and the operating-system crate, whose
-# macOS caller read rests on a private system call, so a macOS that changes or drops it fails here.
+# needs: the operating-system crate, whose macOS caller read rests on a private system call, so a
+# macOS that changes or drops it fails here.
 #
 # A called workflow reads the caller's `github` context, so the event check below is `ci.yml`'s
 # event.
@@ -9,11 +9,6 @@ name: macOS crates
 
 on:
   workflow_call:
-    inputs:
-      run-search-index:
-        description: Whether the addon crate, the Cargo workspace files or this workflow changed.
-        type: boolean
-        required: true
 
 permissions:
   contents: read
@@ -24,32 +19,6 @@ env:
   SWEEP_REF: ${{ github.event_name == 'schedule' && 'refs/heads/develop' || '' }}
 
 jobs:
-  # The addon crate's tests on x64 macOS, which the `test` job's Linux runner does not cover.
-  search-index-intel-mac:
-    name: search index (macOS x64)
-    if: inputs.run-search-index
-    runs-on: macos-26-intel
-    permissions:
-      contents: read
-    env:
-      # Any Cargo warning fails the build, rustdoc's included, without discarding Cargo's cache.
-      CARGO_BUILD_WARNINGS: deny
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      # The newest stable Rust, with the WebAssembly target `rust-toolchain.toml` lists for the
-      # compression module, so Cargo finds it installed.
-      - name: Set up Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Test the addon's crate
-        run: cargo test -p search-index --locked
-
   platforms-macos:
     name: platforms (macOS)
     runs-on: macos-latest

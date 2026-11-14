@@ -6,8 +6,14 @@
     "signature": true
   },
   // The Cargo workspace joins the task graph beside the pnpm packages, and a task can name its own
-  // command. Turbo's Cargo support is experimental, so `turbo` is pinned exact.
-  "futureFlags": { "experimentalCargoWorkspaces": true, "experimentalTaskCommand": true },
+  // command. Turbo's Cargo support is experimental, so `turbo` is pinned exact. A package with no
+  // script for a task is no entrypoint of it, so `turbo run test` neither lists that package nor
+  // builds what its task would depend on.
+  "futureFlags": {
+    "experimentalCargoWorkspaces": true,
+    "experimentalTaskCommand": true,
+    "strictTaskEntrypointSelection": true
+  },
   "globalDependencies": ["tsconfig.base.json", "tsconfig.node.json", "eslint.config.mjs"],
   // Strict environment mode withholds anything not named; Cargo reads this one.
   "globalEnv": ["CARGO_BUILD_WARNINGS"],
@@ -45,14 +51,19 @@
       "cache": false,
       "persistent": true
     },
-    // The Cargo workspace's own checks, once for every crate. The daemon embeds the grammars its
-    // engines' package builds, so every Cargo task waits for that build.
+    // The Cargo workspace's own checks, once for every crate but the two the Rust port replaces.
+    // The daemon embeds the grammars its engines' package builds, so every Cargo task waits for
+    // that build.
     "sidekicks-crates#lint": {
       "dependsOn": ["@ai-sidekicks/daemon-engines#build"],
       "command": [
         "cargo",
         "clippy",
         "--workspace",
+        "--exclude",
+        "search-index",
+        "--exclude",
+        "sidecar-rust-pty",
         "--all-targets",
         "--all-features",
         "--locked",
@@ -63,12 +74,34 @@
     "sidekicks-crates#test": {
       "dependsOn": ["sidekicks-crates#test:doc", "@ai-sidekicks/daemon-engines#build"],
       "cache": false,
-      "command": ["cargo", "nextest", "run", "--workspace", "--all-features", "--locked"]
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--workspace",
+        "--exclude",
+        "search-index",
+        "--exclude",
+        "sidecar-rust-pty",
+        "--all-features",
+        "--locked"
+      ]
     },
     "sidekicks-crates#test:doc": {
       "dependsOn": ["@ai-sidekicks/daemon-engines#build"],
       "cache": false,
-      "command": ["cargo", "test", "--workspace", "--doc", "--all-features", "--locked"]
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--exclude",
+        "search-index",
+        "--exclude",
+        "sidecar-rust-pty",
+        "--doc",
+        "--all-features",
+        "--locked"
+      ]
     },
     // The daemon embeds the grammars its colorer runs, which its engines' package builds.
     "sidekicks-daemon#build": {

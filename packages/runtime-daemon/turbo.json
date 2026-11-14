@@ -6,16 +6,6 @@
     "build": {
       "inputs": ["$TURBO_EXTENDS$", "rolldown.config.ts"],
       "outputs": ["dist/**"]
-    },
-    // The tests and the bundle's config are type-checked with the source, and the install script
-    // that builds the daemon's SQLite shell on its own. `tsc -b` writes only its build info.
-    "typecheck": {
-      "inputs": ["$TURBO_EXTENDS$", "tests/**", "rolldown.config.ts", "sqlite-shell/*.ts"],
-      "outputs": [".tsbuildinfo"]
-    },
-    // The root inputs plus the tests and the SQLite shell's install script.
-    "lint": {
-      "inputs": ["$TURBO_EXTENDS$", "tests/**", "sqlite-shell/*.ts"]
     }
   }
 }

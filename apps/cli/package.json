@@ -12,11 +12,7 @@
     "sidekicks": "./dist/main.js"
   },
   "scripts": {
-    "build": "rolldown -c rolldown.config.ts",
-    "typecheck": "tsc -p tsconfig.json",
-    "lint": "eslint src rolldown.config.ts vitest.config.ts eslint.config.mjs",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "build": "rolldown -c rolldown.config.ts"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
