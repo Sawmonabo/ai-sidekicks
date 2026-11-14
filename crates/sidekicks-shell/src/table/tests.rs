@@ -328,7 +328,7 @@ async fn a_command_s_end_mark_reaches_the_list_and_a_printed_or_empty_end_does_n
     let record = fixture
         .table
         .shared
-        .find_shell(&session(), &terminal_id)
+        .held_shell(&session(), &terminal_id)
         .expect("the shell is held");
     let table = Arc::clone(&fixture.table);
     let mut feed =

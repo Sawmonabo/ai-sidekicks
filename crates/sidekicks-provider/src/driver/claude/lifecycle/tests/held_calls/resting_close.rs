@@ -20,7 +20,7 @@ use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::held_calls::{
-    Ending, closes, held_call, helper_started, logged_held_calls, record, write_kept_files,
+    Ending, held_call, helper_started, logged_held_calls, record, write_kept_files,
 };
 use crate::driver::claude::session::scripted::settle;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
