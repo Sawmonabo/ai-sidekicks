@@ -1,8 +1,8 @@
 //! Where a provider's metered usage, the price of each request it metered, and its account's quota
 //! windows go, a turn's push and an account read's whole set alike, and the sums the daemon already
 //! reported for a thread a resumed session meters on from. Recording a reading answers the event it
-//! became, so a priced request can name its rows; a request read from a provider's own usage file
-//! is checked against the rows already held. The usage service registers it once it runs; until
+//! became, so a priced request can name its rows, or nothing where the reading's sighting was
+//! passed over as a later sighting of a request already priced. The usage service registers it once it runs; until
 //! then a reading meters against a zero base and its delta goes nowhere.
 
 use std::error::Error;
@@ -110,8 +110,9 @@ pub struct PricedUsageRow {
 pub trait UsageSink: Send + Sync {
     /// Records one metered per-turn delta, stamped with its account's credential generation as
     /// the accounts store holds it at the write, and answers the row's event and the run, account
-    /// and helper it was charged to; `None` where the dispatch wrote nothing. Fails as the binding
-    /// cannot be read or the row cannot be written.
+    /// and helper it was charged to; `None` where the dispatch wrote nothing or the delta's
+    /// sighting was passed over, its mark written on the request's record. Fails as the binding
+    /// cannot be read or the row or the mark cannot be written.
     fn record_metered(
         &self,
         metered: MeteredUsage,
@@ -156,15 +157,6 @@ pub trait UsageSink: Send + Sync {
         session_id: SessionId,
         thread_id: String,
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>>;
-
-    /// Whether `provider_account_id`'s account already holds a row of the request the provider
-    /// keys `request_key`, so a request read a second time is not counted again. Fails when the
-    /// record is unreadable.
-    fn is_request_recorded(
-        &self,
-        provider_account_id: ProviderAccountId,
-        request_key: String,
-    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>>;
 
     /// The thread tier of `session_id`'s latest row that carries one at or before `at`, the tier
     /// a helper's request made then is priced at; `None` where no such row carries one. Fails when

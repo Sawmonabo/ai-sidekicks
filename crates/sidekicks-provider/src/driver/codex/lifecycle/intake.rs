@@ -23,6 +23,7 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
+use sidekicks_contracts::event::usage::UsageSightingSource;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -70,6 +71,7 @@ use crate::driver::codex::session::thread_turns::{
     CodexEndedTurn, CodexSettledTurn, CodexThreadTurns, TurnFrame,
 };
 use crate::driver::codex::telemetry::held_responses::{CodexExportedResponse, CodexHeldResponses};
+use crate::driver::codex::telemetry::sighting::compose_codex_sighting;
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -298,7 +300,6 @@ impl CodexSessionIntake {
 
     async fn handle_frame(&mut self, method: String, params: Box<RawValue>) {
         let parts = Arc::clone(&self.parts);
-        self.note_exporting();
         // Before a side question's divert, so the hold knows its copy's turns too.
         let ended = self.thread_turns.observe(&method, &params, Instant::now());
         // The session's own live turn, which an unplaced reviewer request may be given to; a
@@ -318,12 +319,15 @@ impl CodexSessionIntake {
             );
         }
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
-            if let Some(usage) = diverted.usage
-                && self
-                    .routing
-                    .streamed_responses()
-                    .record(&usage.delta.thread_id, usage.delta.axis_deltas)
-            {
+            if let Some(mut usage) = diverted.usage {
+                // A live side question's export twin reaches the session, so its stream reading
+                // is a sighting too.
+                usage.delta.sighting = compose_codex_sighting(
+                    UsageSightingSource::Stream,
+                    &usage.delta.thread_id,
+                    &usage.delta.axis_deltas,
+                    None,
+                );
                 // The copy's turn made the request, so its settle below arms an export check.
                 if let (Some(settled), Some(record)) = (
                     self.thread_turns.request_made(&usage.delta.thread_id),
@@ -378,18 +382,6 @@ impl CodexSessionIntake {
         }
     }
 
-    // Whether the session's launch exports, read before each frame and call, so the stream keeps
-    // a ledger of its responses only while an export's twin can arrive.
-    fn note_exporting(&mut self) {
-        if let Some(record) = &self.record {
-            let exports = &record.service.dependencies().exports;
-            let is_exporting = exports.is_exporting(record.service.id());
-            self.routing
-                .streamed_responses()
-                .set_exporting(is_exporting);
-        }
-    }
-
     // A turn a frame ended: the responses held on it may be decided and the ledger's priced ones
     // filed on it expire; a settled one's settle, as it stands once its released frames applied,
     // goes to the export status, which a replaced one never reported, and ends its place in the
@@ -401,9 +393,6 @@ impl CodexSessionIntake {
             None => return,
         };
         self.held.turn_settled(&thread_id, &turn_id);
-        self.routing
-            .streamed_responses()
-            .turn_settled(&thread_id, &turn_id);
         let Some(record) = &self.record else {
             return;
         };
@@ -600,7 +589,6 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
 
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
         async move {
-            self.note_exporting();
             if matches!(call, CodexSessionCall::DropTurns { .. }) {
                 // The process that ran the session's turns ended, so none of them settles.
                 let ended_at_ms = read_unix_time_ms();
@@ -608,9 +596,6 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
                     self.thread_turns.take_live_turns().collect();
                 for (thread_id, turn_id) in live_turns {
                     self.held.turn_settled(&thread_id, &turn_id);
-                    self.routing
-                        .streamed_responses()
-                        .turn_settled(&thread_id, &turn_id);
                     if let Some(record) = &self.record {
                         let exports = &record.service.dependencies().exports;
                         exports.turn_ended(

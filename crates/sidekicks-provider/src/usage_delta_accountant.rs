@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
+use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource, UsageSighting};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
@@ -224,6 +224,10 @@ pub struct MeteredUsageDelta {
     pub diagnostic_band: UsageDiagnosticBand,
     /// The request the change belongs to and what prices it.
     pub request: UsageRequestFacts,
+    /// The sighting of the request the change came from, where its provider sees one request
+    /// more than once, so a later sighting of it is passed over; `None` for a provider that does
+    /// not.
+    pub sighting: Option<UsageSighting>,
 }
 
 impl MeteredUsageDelta {
@@ -424,6 +428,7 @@ impl UsageDeltaAccountant {
                 cache_write_tokens_delta: axis_deltas.cache_write_input.unwrap_or(0),
             },
             request: reading.request,
+            sighting: None,
         })
     }
 

@@ -131,14 +131,6 @@ impl UsageSink for GatedUsage {
         async { Ok(UsageAxisCounts::default()) }.boxed()
     }
 
-    fn is_request_recorded(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _request_key: String,
-    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
-        async { Ok(false) }.boxed()
-    }
-
     fn read_thread_speed_at(
         &self,
         _session_id: SessionId,

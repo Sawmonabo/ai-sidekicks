@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
-use super::check_rollout_response;
+use super::read_rollout_filing;
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
 use crate::driver::codex::telemetry::held_responses::{CodexExportedResponse, CodexRolloutFacts};
 use crate::driver::test_registry::new_session_id;
@@ -30,11 +30,10 @@ const PRIORITY_FROM_MS: u64 = 1_000_000;
 /// When the rollout record was written, after the root's tier turned.
 const RECORD_AT_MS: u64 = 1_500_000;
 
-// A session's stored rows as the rollout check reads them: the request keys its account holds,
-// the run its rows name, its root thread's tiers by the time each took hold, and every instant a
-// row was read at; or a record that cannot be read.
+// A session's stored rows as the rollout filing reads them: the run its rows name, its root
+// thread's tiers by the time each took hold, and every instant a row was read at; or a record that
+// cannot be read.
 struct StoredRows {
-    recorded_keys: Vec<String>,
     run: Option<RunId>,
     root_tiers: Vec<(u64, &'static str)>,
     is_unreadable: bool,
@@ -101,14 +100,6 @@ impl UsageSink for StoredRows {
         unreachable!("the rollout check reads no prior counts")
     }
 
-    fn is_request_recorded(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        request_key: String,
-    ) -> Answer<'_, bool> {
-        self.read(self.recorded_keys.contains(&request_key))
-    }
-
     fn read_thread_speed_at(
         &self,
         _session_id: SessionId,
@@ -155,20 +146,17 @@ fn rollout_response(is_root_tier: bool) -> CodexExportedResponse {
     }
 }
 
-// A rollout response already recorded under its account is passed over before any other read; an
-// unrecorded one is filed on the run the stored rows name at its record's time, a spawned
+// A rollout response is filed on the run the stored rows name at its record's time, a spawned
 // helper's at the root tier those rows carry then and any other at its own; a record that cannot
-// be read refuses it. Killed by skipping the stored-key check (priced twice), by reading the run
-// or the tier at any time but the record's (the helper's own start reads the standard tier), by
-// keeping a helper's own tier, by dropping the run read, and by pricing past a failed read.
+// be read refuses it. Killed by reading the run or the tier at any time but the record's (the
+// helper's own start reads the standard tier), by keeping a helper's own tier, by dropping the
+// run read, and by pricing past a failed read.
 #[rstest]
-#[case::already_recorded(&["response-1"], true, false, false, None)]
-#[case::helper_at_the_root_tier(&[], true, false, true, Some("priority"))]
-#[case::own_thread_at_its_own_tier(&[], false, false, true, Some("flex"))]
-#[case::unreadable_record(&[], true, true, false, None)]
+#[case::helper_at_the_root_tier(true, false, true, Some("priority"))]
+#[case::own_thread_at_its_own_tier(false, false, true, Some("flex"))]
+#[case::unreadable_record(true, true, false, None)]
 #[tokio::test]
-async fn a_rollout_response_is_checked_against_the_stored_rows_at_its_record_s_time(
-    #[case] recorded_keys: &[&str],
+async fn a_rollout_response_is_filed_from_the_stored_rows_at_its_record_s_time(
     #[case] is_root_tier: bool,
     #[case] is_unreadable: bool,
     #[case] is_priced: bool,
@@ -176,7 +164,6 @@ async fn a_rollout_response_is_checked_against_the_stored_rows_at_its_record_s_t
 ) {
     let run = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let rows = StoredRows {
-        recorded_keys: recorded_keys.iter().map(|key| (*key).to_owned()).collect(),
         run: Some(run),
         root_tiers: vec![(0, "default"), (PRIORITY_FROM_MS, "priority")],
         is_unreadable,
@@ -184,20 +171,10 @@ async fn a_rollout_response_is_checked_against_the_stored_rows_at_its_record_s_t
     };
     let mut exported = rollout_response(is_root_tier);
 
-    let answer = check_rollout_response(
-        &rows,
-        new_session_id(),
-        &test_provider_account_id(),
-        &mut exported,
-    )
-    .await;
+    let answer = read_rollout_filing(&rows, new_session_id(), &mut exported).await;
 
     assert_eq!(answer, is_priced);
     if !is_priced {
-        assert!(
-            lock(&rows.read_at_ms).is_empty(),
-            "nothing past the key is read"
-        );
         return;
     }
     assert!(

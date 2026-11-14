@@ -172,14 +172,6 @@ impl UsageSink for CostRecord {
         async { Err("the cost record keeps no sum".into()) }.boxed()
     }
 
-    fn is_request_recorded(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _request_key: String,
-    ) -> BoxedAnswer<'_, bool> {
-        async { Ok(false) }.boxed()
-    }
-
     fn read_thread_speed_at(
         &self,
         _session_id: SessionId,

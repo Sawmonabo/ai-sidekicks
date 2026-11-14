@@ -283,6 +283,23 @@ CREATE INDEX idx_provider_account_usage_turns_session_time
 CREATE INDEX idx_provider_account_usage_turns_unpriced
   ON provider_account_usage_turns(cost_usd_micros, provider, account_id, model_id, speed,
                                   processing_region, request_key, turn_id);
+
+-- Each sighting of a request a provider sees more than once, kept apart from the usage rows, which
+-- a session's rebuild clears and writes again: a record is the sightings sharing a record id, the
+-- first one priced as a row and each later one, from another source, passed over as its mark.
+-- Record ids are given in the order the records are written.
+CREATE TABLE usage_sightings (
+  sighting_id  INTEGER PRIMARY KEY,
+  record_id    INTEGER NOT NULL,
+  match_key    TEXT NOT NULL,     -- the key every sighting of one request carries alike
+  source       TEXT NOT NULL,     -- the source's wire word
+  sighting_key TEXT,              -- the source's own id of the request, where it has one
+  UNIQUE (record_id, source)
+) STRICT;
+-- A key's records in their order, and a source's own id once, each found without a scan.
+CREATE INDEX idx_usage_sightings_match ON usage_sightings(match_key, record_id);
+CREATE UNIQUE INDEX idx_usage_sightings_key ON usage_sightings(sighting_key)
+  WHERE sighting_key IS NOT NULL;
 "
     )
 }

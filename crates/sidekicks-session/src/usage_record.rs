@@ -22,7 +22,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
     UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent, UsageRateLimitUpdatedPayload,
-    UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
+    UsageRateLimitWindowKey, UsageSighting, UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
@@ -40,6 +40,7 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_provider::account::usage_turns::sightings::mark_sighting_statements;
 use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
@@ -53,26 +54,27 @@ use sidekicks_provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCou
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
 use crate::run::engine::RunEngine;
 use crate::run::engine::usage_tallies::{RunUsageTally, RunUsageTallySlot, TokenLimitStop};
-use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
+use crate::run::inbound::{InboundDispatchError, RunInboundDispatch, SIGHTING_GUARD_INDEX};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
     MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
-    read_prior_emitted, read_request_recorded, read_run_at, read_stored_windows, read_tally_seed,
-    read_thread_speed_at, read_turn_opening,
+    read_prior_emitted, read_run_at, read_stored_windows, read_tally_seed, read_thread_speed_at,
+    read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
 /// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
 /// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
-/// and turns before it, a thread's prior counts, whether an account holds a request, and a
-/// session's thread tier and run at an instant.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 14;
+/// and turns before it, a thread's prior counts, and a session's thread tier and run at an
+/// instant.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 13;
 
 // The windows of an account's whole set, as each window's row carries them.
 type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
@@ -110,6 +112,9 @@ pub(crate) enum UsageRecordError {
     /// The row's event was neither written nor absorbed.
     #[error(transparent)]
     Dispatch(#[from] InboundDispatchError),
+    /// A sighting's mark was not written.
+    #[error("a usage sighting's mark was not written")]
+    Mark(#[from] WriteError),
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("the usage record could not be read")]
     Read(#[from] rusqlite::Error),
@@ -121,9 +126,21 @@ pub(crate) enum UsageRecordError {
     TurnOpening(#[from] TurnAttributionError),
 }
 
+// How a usage row's write with its sighting ended.
+enum SightingWrite {
+    // The row's event was written, or absorbed.
+    Appended(InboundOutcome),
+    // The sighting was its request's second or later, so no row was written.
+    PassedOver,
+    // The request's record moved between the refused row and the mark; the row is tried again.
+    Moved,
+}
+
 /// The usage record: the drivers' usage sink, which the daemon's start registers on their ports.
 pub struct UsageRecord {
     pool: Arc<DatabaseReadPool>,
+    // Where a sighting passed over writes its mark.
+    writer: Arc<DatabaseWriter>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     dispatch: Arc<RunInboundDispatch>,
     engine: Arc<RunEngine>,
@@ -133,16 +150,18 @@ pub struct UsageRecord {
 
 impl UsageRecord {
     /// A record reading through `pool`, a damaged session's log only before its damage as
-    /// `read_damaged_from_sequence` answers, writing through `dispatch` and stopping runs through
-    /// `engine`.
+    /// `read_damaged_from_sequence` answers, writing rows through `dispatch` and a passed-over
+    /// sighting's mark through `writer`, and stopping runs through `engine`.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
         dispatch: Arc<RunInboundDispatch>,
         engine: Arc<RunEngine>,
     ) -> Self {
         Self {
             pool,
+            writer,
             read_damaged_from_sequence,
             dispatch,
             engine,
@@ -209,13 +228,24 @@ impl UsageRecord {
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
             // The session's own spend, counted toward no run.
-            let outcome = self
-                .dispatch
-                .dispatch(InboundDelivery::SessionEvent {
-                    row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload)),
-                })
-                .await?;
-            return Ok(recorded_usage(&outcome, target, helper));
+            loop {
+                let delivered = self
+                    .dispatch
+                    .dispatch(InboundDelivery::SessionEvent {
+                        row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                    })
+                    .await;
+                match self
+                    .settle_sighting(delivered, payload.sighting.as_ref())
+                    .await?
+                {
+                    SightingWrite::Appended(outcome) => {
+                        return Ok(recorded_usage(&outcome, target, helper));
+                    }
+                    SightingWrite::PassedOver => return Ok(None),
+                    SightingWrite::Moved => {}
+                }
+            }
         };
         let slot = self.engine.run_usage_tally(run_id);
         let mut tally = slot.lock().await;
@@ -240,17 +270,28 @@ impl UsageRecord {
             }
         }
         let row_tokens = row_token_count(&payload);
-        let outcome = self
-            .dispatch
-            .dispatch(InboundDelivery::SessionRow {
-                binding: DeliveryBinding {
-                    binding_id,
-                    operation: None,
-                },
-                row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload)),
-                content: None,
-            })
-            .await?;
+        let outcome = loop {
+            let delivered = self
+                .dispatch
+                .dispatch(InboundDelivery::SessionRow {
+                    binding: DeliveryBinding {
+                        binding_id: binding_id.clone(),
+                        operation: None,
+                    },
+                    row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload.clone())),
+                    content: None,
+                })
+                .await;
+            match self
+                .settle_sighting(delivered, payload.sighting.as_ref())
+                .await?
+            {
+                SightingWrite::Appended(outcome) => break outcome,
+                // A sighting passed over adds nothing to its run's count.
+                SightingWrite::PassedOver => return Ok(None),
+                SightingWrite::Moved => {}
+            }
+        };
         let recorded = recorded_usage(&outcome, target, helper.clone());
         // A run that has ended is stopped by no limit.
         let Some(tally) = tally.as_mut() else {
@@ -259,6 +300,34 @@ impl UsageRecord {
         tally.token_count = tally.token_count.saturating_add(row_tokens);
         self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
         Ok(recorded)
+    }
+
+    // What a usage row's write did: `delivered` as it is, unless the row's sighting refused it as
+    // not its request's first, when the sighting's mark is written in a write of its own: passed
+    // over where it marked the request's record or its source's id was recorded already, else the
+    // record moved since the refusal and the row's write is tried again.
+    async fn settle_sighting(
+        &self,
+        delivered: Result<InboundOutcome, InboundDispatchError>,
+        sighting: Option<&UsageSighting>,
+    ) -> Result<SightingWrite, UsageRecordError> {
+        match (delivered, sighting) {
+            (Ok(outcome), _) => Ok(SightingWrite::Appended(outcome)),
+            (Err(InboundDispatchError::Append(error)), Some(sighting))
+                if error.refused_statement_index() == Some(SIGHTING_GUARD_INDEX) =>
+            {
+                let marked = self
+                    .writer
+                    .write(Vec::from(mark_sighting_statements(sighting)))
+                    .await?;
+                Ok(if marked.iter().any(|result| result.row_count > 0) {
+                    SightingWrite::PassedOver
+                } else {
+                    SightingWrite::Moved
+                })
+            }
+            (Err(error), _) => Err(error.into()),
+        }
     }
 
     // Writes one `usage.cost.updated` per account `request`'s rows name, in the order the accounts
@@ -508,22 +577,6 @@ impl UsageSink for UsageRecord {
         .boxed()
     }
 
-    fn is_request_recorded(
-        &self,
-        provider_account_id: ProviderAccountId,
-        request_key: String,
-    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
-        async move {
-            self.pool
-                .read(ReadLength::Short, move |reader| {
-                    read_request_recorded(reader, provider_account_id.as_str(), &request_key)
-                })
-                .await
-                .map_err(Into::into)
-        }
-        .boxed()
-    }
-
     fn read_thread_speed_at(
         &self,
         session_id: SessionId,
@@ -590,6 +643,7 @@ fn usage_row(
         thread_speed: delta.request.thread_speed.clone(),
         source_epoch: None,
         source_position: None,
+        sighting: delta.sighting.clone(),
     })
 }
 

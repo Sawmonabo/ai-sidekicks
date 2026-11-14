@@ -30,7 +30,7 @@ pub(crate) struct CodexExportedResponse {
 }
 
 /// What a response read from its rollout file carries beside its counts: the key its rows are
-/// stored under, which an account holding it already passes over, whether its tier is its root
+/// stored under, which passes over the line read a second time, whether its tier is its root
 /// thread's, and the run it is filed on, both read from the session's stored rows at its record's
 /// time as it is decided.
 #[derive(Clone)]

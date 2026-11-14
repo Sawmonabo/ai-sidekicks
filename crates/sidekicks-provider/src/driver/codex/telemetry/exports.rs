@@ -426,8 +426,9 @@ impl CodexExports {
             .collect()
     }
 
-    /// Whether `service_id`'s service has an exporting launch, whose responses the session's
-    /// stream keeps a ledger of.
+    /// Whether `service_id`'s service has an exporting launch; the read sweeps the launches whose
+    /// tag or service is gone, as every read does.
+    #[cfg(test)]
     pub(crate) fn is_exporting(&self, service_id: CodexServiceId) -> bool {
         self.with_live(|launches| launches.newest_of(service_id).is_some())
     }

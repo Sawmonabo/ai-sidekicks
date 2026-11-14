@@ -114,11 +114,6 @@ static SELECT_TURN_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Whether one account holds a row of one request, found by the account and key index.
-const SELECT_REQUEST_RECORDED_SQL: &str = "SELECT EXISTS (
-  SELECT 1 FROM provider_account_usage_turns
-   WHERE account_id = @account_id AND request_key = @request_key)";
-
 // The thread tier of a session's latest row carrying one at or before an instant, found by the
 // session and time index; the stored instants share one fixed-width form, so text orders them.
 const SELECT_THREAD_SPEED_AT_SQL: &str = "SELECT thread_speed FROM provider_account_usage_turns
@@ -412,24 +407,6 @@ pub(super) fn read_prior_emitted(
             },
         )?;
     Ok(sums)
-}
-
-/// Whether `account_id`'s account holds a row of the request keyed `request_key`.
-pub(super) fn read_request_recorded(
-    reader: &Connection,
-    account_id: &str,
-    request_key: &str,
-) -> Result<bool, UsageRecordError> {
-    let is_recorded = reader
-        .prepare_cached(SELECT_REQUEST_RECORDED_SQL)?
-        .query_row(
-            named_params! {
-                "@account_id": account_id,
-                "@request_key": request_key,
-            },
-            |row| row.get(0),
-        )?;
-    Ok(is_recorded)
 }
 
 /// The thread tier of `session_id`'s latest row that carries one at or before `at`, in the stored

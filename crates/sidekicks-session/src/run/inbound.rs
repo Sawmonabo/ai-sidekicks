@@ -25,6 +25,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::declared_variants::AgentOutputPayload;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
@@ -33,6 +34,7 @@ use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPay
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::account::usage_turns::sightings::open_sighting_record_statement;
 use sidekicks_provider::port::inbound_dispatch::InboundDispatch;
 use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
 use sidekicks_provider::run::delivery::{
@@ -161,6 +163,10 @@ const PIECE_RUN_LIVE_GUARD_INDEX: usize = 0;
 // The prelude statement that refuses an after-run row's write once a rollback of its run lands
 // that the read of its opening's turn did not take.
 const AFTER_RUN_ROLLBACK_GUARD_INDEX: usize = 0;
+
+/// The prelude statement that refuses a usage row's write where its sighting is not its request's
+/// first, so the usage record marks the request's record instead.
+pub(crate) const SIGHTING_GUARD_INDEX: usize = 0;
 
 // A delivery on a binding that is absorbed when it comes from before a cut.
 enum Absorbable {
@@ -439,11 +445,15 @@ impl RunInboundDispatch {
                 } else {
                     None
                 };
+                let transactional_prelude = late_row_statements(&row);
                 let (session_id, event, source) = row.into_event(possible_source(attribution));
                 return Ok(Attributed::Append(Box::new(PendingAppend {
                     session_id,
                     event,
-                    linkage: body_linkage(content),
+                    linkage: SessionEventLinkage {
+                        transactional_prelude,
+                        ..body_linkage(content)
+                    },
                     source,
                     preceding_events: Vec::new(),
                     piece_of,
@@ -689,13 +699,44 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
             payload.advisor_model.as_ref().map(FreeFormText::as_str),
             payload.at.as_str(),
         )],
+        SessionScopedRow::UsageTokenCountRecorded(payload) => sighting_statements(payload),
         SessionScopedRow::SideQuestionAnswered(_)
-        | SessionScopedRow::UsageTokenCountRecorded(_)
         | SessionScopedRow::UsageCostUpdated(_)
         | SessionScopedRow::OutputStyleChanged(_)
         | SessionScopedRow::GoalUpdated(_)
         | SessionScopedRow::GoalCleared(_) => Vec::new(),
     }
+}
+
+// The statements a run's row commits with its event: a usage row's sighting opens its request's
+// record, or refuses the write where the request has one.
+fn late_row_statements(row: &LateAppendableRow) -> Vec<WriteStatement> {
+    match row {
+        LateAppendableRow::UsageTokenCountRecorded(payload) => sighting_statements(payload),
+        LateAppendableRow::AgentMessageSent(_)
+        | LateAppendableRow::AgentToolCallInvoked(_)
+        | LateAppendableRow::AgentToolCallBackgrounded(_)
+        | LateAppendableRow::AgentToolCallCompleted(_)
+        | LateAppendableRow::AgentToolCallFailed(_)
+        | LateAppendableRow::AgentCommandEnded(_)
+        | LateAppendableRow::AgentSubagentStarted(_)
+        | LateAppendableRow::AgentSubagentCompleted(_)
+        | LateAppendableRow::SessionProviderStatusReported(_)
+        | LateAppendableRow::UsageContextWindowUpdated(_)
+        | LateAppendableRow::UsageApiRequestRetried(_)
+        | LateAppendableRow::AgentRunContextCompacted(_)
+        | LateAppendableRow::AgentTurnRerouted(_) => Vec::new(),
+    }
+}
+
+// The guard a usage row's sighting carries at `SIGHTING_GUARD_INDEX`; none for a row with none.
+fn sighting_statements(payload: &UsageTokenCountRecordedPayload) -> Vec<WriteStatement> {
+    payload
+        .sighting
+        .as_ref()
+        .map(open_sighting_record_statement)
+        .into_iter()
+        .collect()
 }
 
 // The pair a row of `attribution` is stamped with: none for the current execution; a row that may

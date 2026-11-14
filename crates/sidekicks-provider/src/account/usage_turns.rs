@@ -36,6 +36,7 @@ use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
 use crate::driver::contract::account::WindowTurnSpend;
 
+pub mod sightings;
 pub mod unpriced;
 
 // The provider column is the account's own, so a row is written only while its account is held:

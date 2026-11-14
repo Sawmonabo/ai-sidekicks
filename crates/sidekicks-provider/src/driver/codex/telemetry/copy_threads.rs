@@ -64,14 +64,11 @@ impl CodexCopyThreads {
         {
             refuse_unfiled(&dropped, "its launch keeps too many copies' threads");
         }
-        let mut ledger = CodexStreamedResponses::default();
-        // A copy is registered only on a launch that exports.
-        ledger.set_exporting(true);
         self.copies.push_back(CodexCopyThread {
             thread_id,
             filing,
             folder,
-            ledger,
+            ledger: CodexStreamedResponses::default(),
             unclaimed: Vec::new(),
             ended_at: None,
         });
