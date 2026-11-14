@@ -23,6 +23,7 @@ import type { SessionStore } from "#renderer/store/session/store.js";
 import type { DismissedSessionNotices } from "#renderer/store/session/open/dismissed-notices.js";
 
 import { useLostFolderPaths } from "../hooks/useLostFolderPaths.js";
+import { useSettingsFilePlaces } from "../hooks/useSettingsFilePlaces.js";
 import {
   foldSessionNoticeBanners,
   refusedLine,
@@ -87,6 +88,14 @@ function NoticeBannerRows(
     banner.kind === "folderLost" ? [banner.repoMountId] : [],
   );
   const folderPaths = useLostFolderPaths(bridge, lostMountIds, props.onFolderReadRefused);
+  const settingsPlaces = useSettingsFilePlaces(
+    bridge,
+    sessionId,
+    props.banners.some(
+      (banner) =>
+        banner.kind === "settingsIgnored" && banner.file !== undefined && banner.line === undefined,
+    ),
+  );
 
   return (
     <>
@@ -95,6 +104,7 @@ function NoticeBannerRows(
           banner,
           banner.kind === "folderLost" ? "" : providerNameOf(sections, banner.provider),
           banner.kind === "folderLost" ? folderPaths.get(banner.repoMountId) : undefined,
+          settingsPlaces,
         );
         if (words.length === 0) {
           return null;

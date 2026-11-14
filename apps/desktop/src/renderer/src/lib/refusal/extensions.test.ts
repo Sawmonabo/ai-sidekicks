@@ -12,7 +12,7 @@ import { normalizeWireRejection } from "../wire/rejection.js";
 /** A refusal widened by the registered member, plus a member that is not registered. */
 function widenedRefusal(): Refusal & Record<string, unknown> {
   return {
-    ...refuse("sessions", "session.not_found", "The session is gone."),
+    ...refuse("sessions", "session.notFound", "The session is gone."),
     status: "unavailable",
     retry: { afterSeconds: 30 },
   };

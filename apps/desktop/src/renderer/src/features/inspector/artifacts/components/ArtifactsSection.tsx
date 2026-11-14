@@ -105,9 +105,7 @@ function renderPanelBody(
   visibleRows: readonly ArtifactManifestRow[],
 ): React.JSX.Element {
   if (props.state.kind === "loading") {
-    return (
-      <Nothing kind="not-loaded" placement="block" title="Loading this session's artifacts…" />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading artifacts…" />;
   }
   if (props.state.rows.length === 0) {
     return <Nothing kind="empty" placement="block" title="Nothing made here yet." />;

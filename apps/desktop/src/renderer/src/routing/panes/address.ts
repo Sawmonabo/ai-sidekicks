@@ -2,7 +2,7 @@
 // is the one declaration; the static `PaneAddress` union and the runtime table that
 // `parse-address.ts` reads both derive from it, so they cannot drift.
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./kinds.js";

@@ -14,10 +14,11 @@
 // `terminal.output.subscribe` (a session's shells), `agent.subscribe` (a session's agents),
 // `session.draft.subscribe` (a session's unsent draft), and `skill.subscribe`,
 // `agent.command.subscribe` and `session.mcpServer.subscribe` (the skills, a session's running
-// commands and its tool servers). The last fourteen are
-// not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
-// row: the settings page reads it through the bridge's own `machineSettings` member. The table
-// and each row are frozen because a mutation would re-route every subscription in the renderer.
+// commands and its tool servers). Only the session log and its two narrowed projections are
+// session-event streams; every other row is still a `daemon.subscribe` name. The machine settings
+// feed has no row: the settings page reads it through the bridge's own `machineSettings` member.
+// The table and each row are frozen because a mutation would re-route every subscription in the
+// renderer.
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {

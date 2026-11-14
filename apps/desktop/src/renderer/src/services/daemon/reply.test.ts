@@ -124,9 +124,9 @@ describe("callDaemon — a request the contract does not admit is never sent", (
 });
 
 describe("callDaemon — a rejection becomes a refusal and never an exception", () => {
-  it("keeps the daemon's own code and category off a JSON-RPC rejection", async () => {
-    // A daemon refusal carries the JSON-RPC numeric as `code`, and the refusal's code and
-    // category at `data.type` and `data.category`, so a caller guarding on `{ code: string }`
+  it("keeps the daemon's own code off a JSON-RPC rejection", async () => {
+    // A daemon refusal carries the JSON-RPC numeric as `code`, and the refusal's code at
+    // `data.type`, so a caller guarding on `{ code: string }`
     // would render every daemon refusal as one generic app code.
     const remote = Object.assign(new Error("no such session on this node"), {
       code: JsonRpcErrorCode.DomainRefusal,
@@ -142,7 +142,6 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("session.notFound");
-    expect(refusal.category).toBe("notFound");
     expect(refusal.detail).toBe("no such session on this node");
     // A `{ code: string }` guard would land on the generic app code.
     expect(refusal.code).not.toBe("call-rejected");

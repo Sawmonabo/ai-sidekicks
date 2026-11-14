@@ -14,11 +14,10 @@ export const APPROVAL_COMMAND_GROUP = "Approvals";
 
 /** What a category is called on screen, in words; the wire token is rendered beside it, in mono. */
 export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>> = {
-  tool_execution: "Run a tool",
-  file_write: "Write to a file",
-  network_access: "Reach the network",
-  destructive_git: "Change git history",
-  plan_approval: "Approve a plan",
+  toolExecution: "Run a tool",
+  fileWrite: "Write to a file",
+  networkAccess: "Reach the network",
+  destructiveGit: "Change git history",
   gate: "Pass a gate",
 };
 

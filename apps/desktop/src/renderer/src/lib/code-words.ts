@@ -4,9 +4,9 @@
 // of its own reading as that word.
 //
 // Only a code the other side registered reads as words above a refusal's message. Registered
-// codes are wire names, two to four lowerCamelCase segments joined by dots (`mcp.server.notFound`),
-// a segment's words sometimes joined by `_`; the app's own codes are kebab-case, and a
-// refusal the app wrote reads as its sentence alone, never as the name of what failed.
+// codes are wire names, two to four lowerCamelCase segments joined by dots (`mcp.server.notFound`);
+// the app's own codes are kebab-case, and a refusal the app wrote reads as its sentence alone,
+// never as the name of what failed.
 
 import { CONNECTION_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE } from "@ai-sidekicks/contracts/provider/account/methods";
@@ -39,8 +39,8 @@ const CODE_LABELS: Readonly<Record<string, string>> = {
   "repoMount.rootResolutionFailed": "Repository root resolution failed",
 };
 
-/** The form the error contract registers a code in: a wire name, words joined by case or `_`. */
-const REGISTERED_CODE_FORM = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*(?:_[a-z0-9]+)*){1,3}$/;
+/** The form the error contract registers a code in: a wire name, its words joined by case. */
+const REGISTERED_CODE_FORM = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*){1,3}$/;
 
 /**
  * A code, status or kind and its listed reason as one line of words, the code first and the
@@ -69,10 +69,11 @@ export function refusalSentence(code: string, reason: string | undefined, messag
   return words === undefined ? message : `${words}. ${message}`;
 }
 
-// Its label, or its words split at `.`, `_` and `-` and where a lowercase letter or digit meets a
-// capital (`startFailed` reads `Start failed`, and a run of capitals stays one word): a root before
-// a `.` reads as its screen word, cased as written, and every other word in lower case, the line's
-// first letter capitalized.
+// Its label, or its words split at `.`, `_` and `-`, where a lowercase letter or digit meets a
+// capital, and before the last capital of a run a lowercase letter follows (`startFailed` reads
+// `Start failed`, `notARepository` reads `Not a repository`, and `MCP` stays one word): a root
+// before a `.` reads as its screen word, cased as written, and every other word in lower case, the
+// line's first letter capitalized.
 function wordsOf(code: string): string {
   const label = readFrozenRecord(CODE_LABELS, code);
   if (label !== undefined) {
@@ -84,7 +85,7 @@ function wordsOf(code: string): string {
   const words = [
     ...(rootWord === undefined ? [] : [rootWord]),
     ...rest
-      .split(/[._-]|(?<=[a-z0-9])(?=[A-Z])/)
+      .split(/[._-]|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/)
       .filter((word) => word.length > 0)
       .map((word) => word.toLowerCase()),
   ].join(" ");

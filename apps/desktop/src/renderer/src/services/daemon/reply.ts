@@ -13,7 +13,7 @@
 // A rejection goes to `normalizeWireRejection` (`lib/wire/rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
 // rejection with no machine-readable code; a private copy would misread a JSON-RPC rejection
-// (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
+// (whose numeric `code` hides the dotted code at `data.type`) and turn `session.notFound` into
 // `call-rejected`.
 
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";

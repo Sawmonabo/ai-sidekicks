@@ -188,7 +188,7 @@ describe("the Agents pane's dispatched sidekicks", () => {
     let isRefusing = true;
     const { bridge, calls, clock } = paneBridge(() => {
       if (isRefusing) {
-        throw { code: "session.not_found", message: "That session is gone." };
+        throw { code: "session.notFound", message: "That session is gone." };
       }
       return TREE;
     });
@@ -196,7 +196,7 @@ describe("the Agents pane's dispatched sidekicks", () => {
     await settleReads(clock);
 
     const tree = screen.getByRole("group", { name: "Dispatched sidekicks" });
-    expect(tree.textContent).toBe("Couldn't load dispatched sidekicksTry again");
+    expect(tree.textContent).toBe("Couldn't load sidekicksTry again");
     expect(linkReads(calls)).toBe(1);
 
     isRefusing = false;

@@ -1,5 +1,5 @@
-// The artifact payload section: a fetch is an act a person asks for, the bytes decode by the
-// encoding the reply declared, one fetch is outstanding at a time, and a binding re-addressed to
+// The artifact payload section: a fetch is an act a person asks for, the bytes read as strict
+// UTF-8, one fetch is outstanding at a time, and a binding re-addressed to
 // a second artifact does not keep the first artifact's payload. Mounted through the reader's own
 // binding, not a hand-written reading.
 
@@ -11,8 +11,8 @@ import { handAnsweredCall } from "#test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
+  SERVED_SUMMARY,
   artifactOperations,
-  inlineRead,
   readThrough,
   settleAct,
 } from "#test/helpers/artifact-list-readers.js";
@@ -23,8 +23,12 @@ import {
   renderArtifactPayloadSection,
 } from "#test/helpers/render-artifact-payload-section.js";
 
-// "diff --git a/one b/one" in RFC 4648 base64.
-const DIFF_PAYLOAD_BASE64 = "ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==";
+const DIFF_PAYLOAD = new TextEncoder().encode("diff --git a/one b/one");
+
+/** A served read of the row the section opens on, its bytes inline. */
+function inlineRead(payload: Uint8Array): ArtifactReadResponse {
+  return { manifest: SERVED_SUMMARY, versionNumber: 1, versionCount: 1, payload };
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -38,7 +42,7 @@ describe("artifact payload — fetching is an act", () => {
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch on mount would spend the user's
     // link on a section they merely passed through.
-    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
+    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD));
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
@@ -48,7 +52,7 @@ describe("artifact payload — fetching is an act", () => {
   });
 
   it("asks the read for the bytes, by the member the wire discriminates on", async () => {
-    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
+    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD));
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
@@ -63,11 +67,11 @@ describe("artifact payload — fetching is an act", () => {
     });
   });
 
-  it("previews inline bytes as text, decoding by the encoding the reply declared", async () => {
+  it("previews inline bytes as text", async () => {
     const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
-        readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
+        readArtifact: async () => inlineRead(DIFF_PAYLOAD),
       }),
     );
     const { container, getByRole } = renderArtifactPayloadSection(subject);
@@ -85,7 +89,7 @@ describe("artifact payload — fetching is an act", () => {
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
         // Two bytes that are not valid UTF-8.
-        readArtifact: async () => inlineRead("//8=", "base64"),
+        readArtifact: async () => inlineRead(new Uint8Array([0xff, 0xff])),
       }),
     );
     const { container, getByRole } = renderArtifactPayloadSection(subject);
@@ -121,7 +125,7 @@ describe("artifact payload — fetching is an act", () => {
     await settleAct();
     expect(artifactRead).toHaveBeenCalledTimes(1);
 
-    readCall.open(inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
+    readCall.open(inlineRead(DIFF_PAYLOAD));
     await settleAct();
     expect(control).toHaveProperty("disabled", false);
   });
@@ -134,7 +138,7 @@ describe("artifact payload — the reader is stamped to its subject", () => {
     const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
-        readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
+        readArtifact: async () => inlineRead(DIFF_PAYLOAD),
       }),
     );
     const { container, getByRole, rerender } = renderArtifactPayloadSection(subject);

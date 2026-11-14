@@ -13,7 +13,7 @@ describe("isRefusal — recognition across a layer boundary", () => {
     // Without these, a guard whose body was `return true` would pass every positive case.
     expect(isRefusal(null)).toBe(false);
     expect(isRefusal(undefined)).toBe(false);
-    expect(isRefusal("sessions: session.not_found: detail")).toBe(false);
+    expect(isRefusal("sessions: session.notFound: detail")).toBe(false);
     expect(isRefusal(42)).toBe(false);
     expect(isRefusal({})).toBe(false);
     expect(isRefusal([])).toBe(false);

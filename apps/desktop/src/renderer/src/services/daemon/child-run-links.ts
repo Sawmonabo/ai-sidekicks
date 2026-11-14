@@ -48,7 +48,7 @@ export async function readChildRunLinks(
 }
 
 /**
- * The session's child links and refusal fold, refreshed by the two kinds that move it.
+ * The session's child links and refusal fold, refreshed by the event kinds that move it.
  * A burst of queued children costs one read: the shared scheduler coalesces them.
  */
 export function createChildRunLinks(

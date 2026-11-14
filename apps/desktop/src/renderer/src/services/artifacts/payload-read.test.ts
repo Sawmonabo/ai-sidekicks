@@ -49,7 +49,7 @@ describe("reading an artifact's payload window by window", () => {
 
 /**
  * An `artifact.read` over `bytes` at version 3: the first reply hands back a key, each ranged
- * read answers its window in base64, short by `shortBy` bytes. Every request lands in `requests`.
+ * read answers its window's bytes, short by `shortBy` bytes. Every request lands in `requests`.
  */
 function windowedRead(
   bytes: Uint8Array,
@@ -71,15 +71,7 @@ function windowedRead(
     const window = bytes.subarray(offset, offset + length - shortBy);
     return {
       status: "served",
-      value: { ...facts, payload: base64Of(window), payloadEncoding: "base64" },
+      value: { ...facts, payload: window },
     };
   };
-}
-
-function base64Of(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
 }

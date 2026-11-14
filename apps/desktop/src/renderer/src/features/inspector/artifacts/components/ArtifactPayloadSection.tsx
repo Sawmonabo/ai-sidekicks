@@ -4,7 +4,6 @@
 
 import "./ArtifactPayloadSection.css";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 
@@ -35,20 +34,14 @@ function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
     case "opaque":
       return (
         <p className="meridian-artifact-payload__note">
-          {payload.reason === "not-utf8"
-            ? "These bytes are not text, so there is nothing to preview. They " +
-              "arrived whole and are unchanged."
-            : "These bytes did not decode under the encoding the reply " +
-              "declared, so there is nothing to preview."}{" "}
-          <WireFigure value={payload.encoding} />
+          These bytes are not text, so there is nothing to preview. They arrived whole and are
+          unchanged.
         </p>
       );
     case "text":
       return (
         <>
-          <p className="meridian-artifact-payload__note">
-            The whole payload. <WireFigure value={payload.encoding} />
-          </p>
+          <p className="meridian-artifact-payload__note">The whole payload.</p>
           <ArtifactPayloadPreview text={payload.text} />
         </>
       );

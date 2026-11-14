@@ -116,7 +116,6 @@ describe("accessibility — the overlay scrollbar", () => {
           payload={{
             status: "text",
             artifactId: "artifact-overlay-scrollbar" as ArtifactId,
-            encoding: "utf8",
             text: "a payload line\n".repeat(200),
           }}
         />
@@ -179,7 +178,6 @@ describe("accessibility — the overlay scrollbar", () => {
           payload={{
             status: "text",
             artifactId: "artifact-overlay-scrollbar" as ArtifactId,
-            encoding: "utf8",
             text: "a payload line\n".repeat(200),
           }}
         />

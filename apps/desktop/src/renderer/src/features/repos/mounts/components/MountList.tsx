@@ -53,7 +53,7 @@ function renderMounts(props: MountListProps): React.JSX.Element {
     );
   }
   if (reading.status === "reading") {
-    return <Nothing kind="computing" placement="block" title="Loading the repo mounts…" />;
+    return <Nothing kind="computing" placement="block" title="Loading repositories…" />;
   }
   if (reading.status === "read") {
     // An answered read that found none is `empty`, never `not-checked`.

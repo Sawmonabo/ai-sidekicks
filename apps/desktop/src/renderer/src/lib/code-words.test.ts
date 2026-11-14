@@ -24,10 +24,10 @@ import { refusalWords } from "./code-words.js";
 
 describe("refusalWords — a code and its reason as the screen reads them", () => {
   it("reads each worded code exactly, the reason after a middle dot", () => {
-    expect(refusalWords("agent.resolution_refused", "account_unavailable")).toBe(
+    expect(refusalWords("agent.resolutionRefused", "accountUnavailable")).toBe(
       "Sidekick resolution refused · Account unavailable",
     );
-    expect(refusalWords("workflow.start_denied")).toBe("Workflow start denied");
+    expect(refusalWords("workflow.startDenied")).toBe("Workflow start denied");
     expect(
       refusalWords(WORKFLOW_STEP_THREAD_FAILED_CODE, WORKFLOW_STEP_THREAD_FAILED_REASONS[0]),
     ).toBe("Step thread failed · Start failed");
@@ -41,11 +41,11 @@ describe("refusalWords — a code and its reason as the screen reads them", () =
   });
 
   it("writes each root's screen word as cased, and the rest in sentence case", () => {
-    expect(refusalWords("mcp.config_invalid")).toBe("MCP config invalid");
-    expect(refusalWords("daemon.environment_name_refused")).toBe(
+    expect(refusalWords("mcp.configInvalid")).toBe("MCP config invalid");
+    expect(refusalWords("daemon.environmentNameRefused")).toBe(
       "Background service environment name refused",
     );
-    expect(refusalWords("queue.change_refused", "order_mismatch")).toBe(
+    expect(refusalWords("queue.changeRefused", "orderMismatch")).toBe(
       "Queue change refused · Order mismatch",
     );
   });
@@ -57,6 +57,9 @@ describe("refusalWords — a code and its reason as the screen reads them", () =
     expect(refusalWords(AGENT_QUEUE_ITEM_NOT_FOUND_CODE)).toBe("Sidekick queue item not found");
     expect(refusalWords(PREVIEW_ADDRESS_REFUSED_CODE, PREVIEW_ADDRESS_REFUSED_REASONS[1])).toBe(
       "Preview address refused · Not an address",
+    );
+    expect(refusalWords("repoMount.attachRefused", "notARepository")).toBe(
+      "Repo mount attach refused · Not a repository",
     );
   });
 

@@ -31,7 +31,7 @@ export interface SessionCatchUpLineProps {
 }
 
 /**
- * `Catching up…`, `Couldn't catch up · Try again` or `Could not load this session · Try again`, or
+ * `Catching up…`, `Couldn't catch up · Try again` or `Couldn't load session · Try again`, or
  * nothing while the window is whole.
  */
 export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.Element | null {
@@ -96,7 +96,7 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
 const FAILURE_WORDS: Readonly<Record<CatchUpWords, string | undefined>> = {
   "catching-up": undefined,
   "could-not-catch-up": "Couldn't catch up",
-  "could-not-load": "Could not load this session",
+  "could-not-load": "Couldn't load session",
 };
 
 /** What the line's words are decided from. */

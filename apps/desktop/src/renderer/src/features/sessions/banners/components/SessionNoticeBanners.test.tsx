@@ -39,8 +39,9 @@ interface BannersUnderTest {
 function renderBanners(): BannersUnderTest {
   const daemonCalls: string[] = [];
   let answerRestart = (): void => undefined;
-  // The banners reach only the daemon's calls.
+  // The banners reach only the daemon's calls and the transport's reconnects.
   const bridge = {
+    transportReconnect: { subscribe: () => () => undefined },
     daemon: {
       call: (method: string) => {
         daemonCalls.push(method);

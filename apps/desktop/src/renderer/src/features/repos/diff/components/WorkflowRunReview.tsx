@@ -13,7 +13,7 @@ import type { WorkflowRunDiffRequest } from "../workflow-run-read.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 
 /** The loading line of a run's Review, drawn once its read has run past the short delay. */
-export const RUN_DIFF_LOADING_TITLE = "Loading the changes…";
+export const RUN_DIFF_LOADING_TITLE = "Loading changes…";
 
 /** What the run's Review is drawn from: the daemon and the comparison to read. */
 export interface WorkflowRunReviewProps {
@@ -41,7 +41,7 @@ export function WorkflowRunReview(props: WorkflowRunReviewProps): React.JSX.Elem
         <Nothing
           kind="error"
           placement="block"
-          title="Could not load the changes"
+          title="Couldn't load changes"
           detail={state.refusal.detail}
           action={<TryAgainButton onPress={readAgain} />}
           attempt={state.refusal}

@@ -14,9 +14,7 @@ import { type RowsReadPhase } from "#renderer/lib/reads/rows-phase.js";
  */
 export function RulesSection(props: RulesSectionProps): React.JSX.Element {
   if (props.phase.status === "loading") {
-    return (
-      <Nothing kind="not-loaded" placement="block" title="Loading your standing permissions…" />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading permissions…" />;
   }
   return (
     <RememberedRules

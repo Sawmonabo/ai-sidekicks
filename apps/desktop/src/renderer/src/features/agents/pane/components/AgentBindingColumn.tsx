@@ -34,13 +34,13 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   return (
     <>
       {agentListState.status === "reading" ? (
-        <Nothing kind="not-loaded" title="Loading this session's sidekicks…" />
+        <Nothing kind="not-loaded" title="Loading sidekicks…" />
       ) : null}
       {agentListState.status === "failed" ? (
         <Nothing
           kind="error"
           placement="block"
-          title="Couldn't load this session's sidekicks"
+          title="Couldn't load sidekicks"
           action={<TryAgainButton onPress={props.reopenAgentList} />}
           attempt={agentListState.refusal}
         />

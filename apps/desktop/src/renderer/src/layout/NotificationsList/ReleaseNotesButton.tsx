@@ -18,9 +18,10 @@ export function ReleaseNotesButton(props: { readonly address: string }): React.J
         className="meridian-attention__link"
         onClick={() => {
           setRefusal(undefined);
-          // The rejection's own message crosses IPC with the channel's name in it, so it is not
-          // shown.
-          bridge.native.openExternal(props.address).catch(() => {
+          // The rejection's own message crosses IPC with the channel's name in it, so it goes to
+          // the console for diagnosis and the screen shows the refusal instead.
+          bridge.native.openExternal(props.address).catch((failure: unknown) => {
+            console.error("[ai-sidekicks/desktop] the release notes did not open:", failure);
             setRefusal(RELEASE_NOTES_UNOPENED);
           });
         }}

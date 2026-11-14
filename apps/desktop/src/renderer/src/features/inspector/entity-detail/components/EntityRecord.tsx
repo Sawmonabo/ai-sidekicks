@@ -55,7 +55,7 @@ export interface EntityRecordProps {
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();
   if (!props.isInitialized) {
-    return <Nothing kind="not-loaded" placement="block" title={`Loading the ${subject} record…`} />;
+    return <Nothing kind="not-loaded" placement="block" title={`Loading ${subject} record…`} />;
   }
   if (props.degradedCause !== undefined) {
     return (

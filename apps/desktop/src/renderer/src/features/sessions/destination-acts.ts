@@ -8,8 +8,7 @@
 // heuristic standing in for it.
 
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
-import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionAttentionItem } from "#renderer/store/attention/summary.js";
 import { settleSessionStart } from "./start.js";
 
 /** Every act the sessions destination performs, already bound to its context. */
@@ -52,6 +51,3 @@ export function sessionDestinationActs(
     recheckSessionDirectory: recheckDirectory,
   };
 }
-
-// An attention entry about a session; a provider's build names none and opens no session.
-type SessionAttentionItem = Extract<AttentionItem, { readonly sessionId: SessionId }>;

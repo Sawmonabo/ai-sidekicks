@@ -1,7 +1,7 @@
 // One file's rows as the conversation's flow draws them: its lines, a quiet separator wherever the
 // file's lines are skipped between hunks, and no file or hunk header; a file with no lines keeps
-// its header alone, and a patch this version cannot read is drawn under it as sent. The flow's gutter numbers each line once, by the new file, so its width is read
-// off the same walk.
+// its header alone, and a patch this version cannot read is drawn under it as sent. The flow's
+// gutter numbers each line once, by the new file, so its width is read off the same walk.
 
 import { DIFF_FLOW_FILE_BLOCK_SCREENS, DIFF_FLOW_SHARE_DIVISOR } from "../measures.js";
 import {
@@ -96,8 +96,9 @@ export function diffFlowCutRowCount(flowHeightPx: number, rowHeightPx: number): 
 /**
  * How many of a call's files draw a block: as many as two screens of the flow hold, each block
  * reckoned at its rows of `rowHeightPx` up to the cut, a row for its notes where it has no lines,
- * the lines of a patch shown as sent up to the cut, its footer where it has one and the space under it, and always the first. A count of files, so
- * it never changes how any one block is drawn; it builds the rows of the files it reckons only.
+ * the lines of a patch shown as sent up to the cut, its footer where it has one and the space
+ * under it, and always the first. A count of files, so it never changes how any one block is
+ * drawn; it builds the rows of the files it reckons only.
  */
 export function diffFlowDrawnFileCount(
   rowsByFile: DiffFlowRowsByFile,

@@ -95,8 +95,8 @@ export class ArtifactPayloadFetches {
     if (read.status === "refused") {
       throw new RefusalError(read.refusal);
     }
-    const { reply, encoding, content } = read.value;
-    const payload = artifactPayloadReadingFrom(artifactId, encoding, content);
+    const { reply, content } = read.value;
+    const payload = artifactPayloadReadingFrom(artifactId, content);
     const reading = this.#publisher.currentReading();
     this.#publisher.publish({
       ...reading,

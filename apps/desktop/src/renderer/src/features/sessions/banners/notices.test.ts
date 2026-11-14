@@ -10,10 +10,13 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 
 import { foldSessionNoticeBanners, sessionNoticeBannerWords } from "./notices.js";
 
-const SESSION_ID = "session-banners";
+const SESSION_ID = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+const MOUNT_ID = "019b7b30-0280-7c3d-8110-cca0117a0171";
+const NEW_MOUNT_ID = "019b7b30-0280-7c3d-8110-cca0117a0172";
 const CONFIG_FILE = "/Users/me/.codex/config.toml";
 const CONFIG_FILE_REF = "file-ref-config" as FilePathRef;
-const SETTINGS_FILE = "/Users/me/project/.claude/settings.json";
+const SESSION_FOLDER = "/Users/me/project";
+const SETTINGS_FILE = `${SESSION_FOLDER}/.claude/settings.json`;
 
 function notice(
   sequence: number,
@@ -30,7 +33,7 @@ function notice(
 function mountHealth(
   sequence: number,
   health: Readonly<Record<string, unknown>>,
-  repoMountId = "mount-1",
+  repoMountId = MOUNT_ID,
 ) {
   return eventOfKind(SESSION_ID, "repoMount.health.changed", sequence, {
     repoMountId,
@@ -38,13 +41,14 @@ function mountHealth(
   });
 }
 
-// Each banner's words as drawn, the provider named from its section and the lost folder's path
-// as its mount read gave it.
+// Each banner's words as drawn, the provider named from its section, the lost folder's path as
+// its mount read gave it, and a settings file named from the session's folder and the home folder.
 function drawn(events: readonly ProjectedSessionEvent[]): readonly string[] {
   return foldSessionNoticeBanners(events).map((banner) =>
-    sessionNoticeBannerWords(banner, banner.kind === "folderLost" ? "" : "Codex", "/work/app").join(
-      " · ",
-    ),
+    sessionNoticeBannerWords(banner, banner.kind === "folderLost" ? "" : "Codex", "/work/app", {
+      sessionFolder: SESSION_FOLDER,
+      homeFolder: "/Users/me",
+    }).join(" · "),
   );
 }
 
@@ -82,7 +86,7 @@ describe("the banners a session's standing notices raise", () => {
     const endedBy = (signal: string) =>
       drawn([notice(1, { kind: "providerCrashLoop", provider: "codex", signal })]);
 
-    expect(endedBy("SIGTERM")).toStrictEqual(["Codex ended unexpectedly · stopped by the system"]);
+    expect(endedBy("SIGTERM")).toStrictEqual(["Codex ended unexpectedly · told to stop"]);
     expect(endedBy("SIGSEGV")).toStrictEqual([
       "Codex ended unexpectedly · crashed on a memory error",
     ]);
@@ -100,12 +104,15 @@ describe("the banners a session's standing notices raise", () => {
     expect(drawn([ignored({ file: CONFIG_FILE, line: 4, text: words })])).toStrictEqual([
       "Codex ignored its config file · line 4 of config.toml",
     ]);
-    // A dropped key or file names the file as the notice carries it.
+    // A dropped key or file names the file from the session's folder, else from `~`, else whole.
     expect(drawn([ignored({ file: SETTINGS_FILE, key: "permissions.defaultMode" })])).toStrictEqual(
-      [`Codex ignored ${SETTINGS_FILE} · permissions.defaultMode`],
+      ["Codex ignored .claude/settings.json · permissions.defaultMode"],
     );
-    expect(drawn([ignored({ file: SETTINGS_FILE, text: words })])).toStrictEqual([
-      `Codex ignored ${SETTINGS_FILE}`,
+    expect(
+      drawn([ignored({ file: "/Users/me/.claude/settings.json", text: words })]),
+    ).toStrictEqual(["Codex ignored ~/.claude/settings.json"]);
+    expect(drawn([ignored({ file: "/etc/claude/settings.json" })])).toStrictEqual([
+      "Codex ignored /etc/claude/settings.json",
     ]);
     expect(drawn([ignored({ text: words })])).toStrictEqual([
       `Codex ignored its settings · ${words}`,
@@ -135,13 +142,15 @@ describe("the banners a session's standing notices raise", () => {
   it("takes the old mount's banner away once a re-attach's new mount reads healthy", () => {
     const mismatched = mountHealth(1, { status: "identityMismatch", isRepository: true });
 
-    expect(drawn([mismatched, mountHealth(2, { status: "healthy" }, "mount-2")])).toStrictEqual([]);
+    expect(drawn([mismatched, mountHealth(2, { status: "healthy" }, NEW_MOUNT_ID)])).toStrictEqual(
+      [],
+    );
     // Only the newest health speaks, whichever mount it names.
     expect(
       foldSessionNoticeBanners([
-        mountHealth(1, { status: "healthy" }, "mount-2"),
+        mountHealth(1, { status: "healthy" }, NEW_MOUNT_ID),
         mountHealth(2, { status: "identityMismatch", isRepository: false }),
       ]),
-    ).toMatchObject([{ kind: "folderLost", repoMountId: "mount-1", isRepository: false }]);
+    ).toMatchObject([{ kind: "folderLost", repoMountId: MOUNT_ID, isRepository: false }]);
   });
 });

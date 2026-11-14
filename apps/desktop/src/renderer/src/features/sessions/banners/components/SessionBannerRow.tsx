@@ -1,7 +1,7 @@
 // One banner under the session header, in the header's banner shape: a sunken strip of muted
-// words parted by ` · `, the banner's one act where it has one, and the × that puts it away at its
-// right end where it can be put away. A refused act says so beside its word, and the word can be
-// pressed again.
+// words parted by ` · `, the banner's one act where it has one, and the × that puts it away at
+// its right end where it can be put away. A refused act says so beside its word, and the word can
+// be pressed again.
 
 import { Fragment, useState } from "react";
 
@@ -40,7 +40,8 @@ export function SessionBannerRow(props: {
       politeness="assertive"
     >
       {props.words.map((part, index) => (
-        <Fragment key={part}>
+        // A banner's words stand in a fixed order, and two parts may read the same.
+        <Fragment key={`${String(index)} ${part}`}>
           {index > 0 ? (
             <span className="meridian-session-screen__banner-separator" aria-hidden="true">
               ·

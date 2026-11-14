@@ -643,7 +643,6 @@ function textPayload(text: string): ArtifactPayloadReading {
   return {
     status: "text",
     artifactId: "artifact-overlay-scrollbar" as ArtifactId,
-    encoding: "utf8",
     text,
   };
 }

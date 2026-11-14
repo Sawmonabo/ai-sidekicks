@@ -51,7 +51,7 @@ describe("the empty and short reads", () => {
     // Rows this build could not read are of unknown existence, so the reassuring claim is
     // unavailable.
     renderGrants({ rules: [], unreadableCount: 3 });
-    expect(screen.getByText("Couldn't load your standing permissions")).not.toBeNull();
+    expect(screen.getByText("Couldn't load permissions")).not.toBeNull();
     expect(
       screen.getByText(/not known to be none/u, { ignore: OUTSIDE_LIVE_REGIONS }),
     ).not.toBeNull();
@@ -63,7 +63,7 @@ describe("the empty and short reads", () => {
     // unreadable.
     renderGrants({ rules: [] });
     expect(screen.getByText("No rules yet")).not.toBeNull();
-    expect(screen.queryByText("Couldn't load your standing permissions")).toBeNull();
+    expect(screen.queryByText("Couldn't load permissions")).toBeNull();
   });
 
   it("says the list is short when the reply carried rows it could not read", () => {

@@ -101,7 +101,7 @@ describe("the page's port to the client helper", () => {
     // The stream's owner keeps the last cursor it drew and reopens after it once the stream ends.
     const open = (): void => {
       client.subscribe(
-        "session.subscribe",
+        "session.event.subscribe",
         keptCursor === undefined ? { sessionId: "s" } : { sessionId: "s", afterCursor: keptCursor },
         (value) => {
           drawn.push(value);
@@ -135,7 +135,7 @@ describe("the page's port to the client helper", () => {
     });
     expect(helperEnds[1]?.received[0]).toMatchObject({
       kind: "stream.open",
-      method: "session.subscribe",
+      method: "session.event.subscribe",
       params: { sessionId: "s", afterCursor: "c-7" },
     });
     expect(drawn).toStrictEqual([{ cursor: "c-7" }]);

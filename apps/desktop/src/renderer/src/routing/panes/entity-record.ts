@@ -3,7 +3,7 @@
 // written as scalar members beside the entity's kind and id, and read back as the candidate the
 // address parse checks.
 
-import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/git/local";
 
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { WorkflowRunComparisonRef } from "./address.js";

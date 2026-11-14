@@ -9,8 +9,6 @@
 // an absent member and a hostile value contributes nothing. `code`, `detail` and `origin` are not
 // here: they are the refusal itself, and `wire/rejection.ts` classifies on them.
 
-import type { RefusalCategory } from "@ai-sidekicks/contracts/jsonrpc/refusal";
-
 import { readGuardedProperty } from "../wire/errors.js";
 
 import { parseInstant } from "../instant.js";
@@ -61,14 +59,9 @@ export interface RefusalExtensions {
   readonly cause?: string;
   /**
    * Registered by `wire/rejection.ts`: which of the code's listed reasons applies, such as
-   * `account_unavailable`; a refusal shape reads it as words after the code's.
+   * `accountUnavailable`; a refusal shape reads it as words after the code's.
    */
   readonly reason?: string;
-  /**
-   * Registered by `wire/rejection.ts`: what the caller can do about a daemon refusal, which the
-   * daemon sends beside its code so a code newer than this build is still acted on.
-   */
-  readonly category?: RefusalCategory;
   /** Registered by `wire/rejection.ts`: who stands in the way, from the ids the refusal named. */
   readonly holder?: RefusalHolder;
 }
@@ -117,15 +110,6 @@ export function wireRetryExtension(source: unknown): RefusalExtensions {
   return retry === undefined ? {} : { retry };
 }
 
-/**
- * The category a daemon refusal carries (`data.category` on JSON-RPC), as an extension. A category
- * the wire did not send is an absent member.
- */
-export function wireCategoryExtension(source: unknown): RefusalExtensions {
-  const category = readCategory(readGuardedProperty(source, "category"));
-  return category === undefined ? {} : { category };
-}
-
 /** Assembles a hint from two candidate numbers, or none. Shared by both hint readers. */
 function retryHintOf(
   afterSeconds: unknown,
@@ -153,11 +137,6 @@ function readRemedy(remedy: unknown): WireRefusalRemedy | undefined {
   return typeof kind === "string" && typeof accountId === "string"
     ? { kind, accountId }
     : undefined;
-}
-
-/** A category where it is a non-empty string, or `undefined`. */
-function readCategory(category: unknown): RefusalCategory | undefined {
-  return typeof category === "string" && category.length > 0 ? category : undefined;
 }
 
 /** A cause where it is a string, or `undefined`. */
@@ -195,8 +174,8 @@ function carriedHolder(candidate: unknown): RefusalHolder | undefined {
   });
 }
 
-/** A listed reason is one snake_case word list; anything else is not one and is left behind. */
-const LISTED_REASON_SHAPE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+/** A listed reason is one lowerCamelCase word, as the wire names it; nothing else is one. */
+const LISTED_REASON_SHAPE = /^[a-z][a-zA-Z0-9]*$/;
 
 /**
  * A reason where it has the listed-reason shape, or `undefined`, so a free-text value such as a
@@ -226,7 +205,6 @@ const REFUSAL_EXTENSION_READERS: {
   remedy: (candidate) => readRemedy(readGuardedProperty(candidate, "remedy")),
   cause: (candidate) => readCause(readGuardedProperty(candidate, "cause")),
   reason: (candidate) => readListedReason(readGuardedProperty(candidate, "reason")),
-  category: (candidate) => readCategory(readGuardedProperty(candidate, "category")),
   holder: carriedHolder,
 };
 

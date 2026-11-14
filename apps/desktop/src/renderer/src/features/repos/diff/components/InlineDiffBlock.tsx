@@ -81,6 +81,10 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   const isWindowed = isOpen && viewport !== undefined;
 
   const cutRowCount = diffFlowCutRowCount(flowHeightPx, rowHeightPx);
+  // A cut patch shown as sent mounts only the lines the cut can show: each takes a row's height
+  // at least, so the lines past them are under the cut however they wrap.
+  const drawnRawPatch =
+    rawPatch === undefined || isOpen ? rawPatch : leadingLinesOf(rawPatch, cutRowCount);
   // Opening draws the rows to a screen past the screen at once, so a scroll that follows the
   // press meets rows rather than the block's end coming up early.
   const mountedRowCount = useRowsMountedInSteps(
@@ -94,7 +98,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
     cutElement,
     cutHeightPx,
     flowRows.lineCount,
-    rawPatch === undefined && !isWindowed && drawnRowCount < rowCount,
+    rawPatch === undefined ? !isWindowed && drawnRowCount < rowCount : drawnRawPatch !== rawPatch,
   );
   const rowsCutHeightPx = rawPatch === undefined ? cutHeightPx : undefined;
 
@@ -172,7 +176,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
           tabIndex={-1}
           style={cutHeightPx === undefined ? undefined : { maxBlockSize: cutHeightPx }}
         >
-          {rawPatch}
+          {drawnRawPatch}
         </pre>
       )}
       {flowRows.hasFooter ? (
@@ -216,6 +220,18 @@ function gutterStyleOf(flowRows: DiffFlowRows): React.CSSProperties {
   return {
     "--meridian-diff-gutter-digits": String(flowRows.gutterDigitCount),
   } as React.CSSProperties;
+}
+
+/** The first `lineCount` lines of `text`, one or more, or `text` itself when it holds no more. */
+function leadingLinesOf(text: string, lineCount: number): string {
+  let lineEnd = -1;
+  for (let line = 0; line < lineCount; line += 1) {
+    lineEnd = text.indexOf("\n", lineEnd + 1);
+    if (lineEnd === -1) {
+      return text;
+    }
+  }
+  return lineEnd === text.length - 1 ? text : text.slice(0, lineEnd);
 }
 
 /** The row after step `step`'s last, of a block drawing `rowCount` rows. */

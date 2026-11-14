@@ -47,7 +47,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
     const wireSessionId = readSessionId(sessionId);
     if (wireSessionId === undefined) {
       throw new RefusalError(
-        refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
+        refuse(SESSION_READ_ORIGIN, "session-unreadable", "Couldn't load session"),
       );
     }
     const record = unwrapDaemonReply(
@@ -142,7 +142,7 @@ function openableCursor(
 ): EventCursor {
   if (refusedCursors.has(cursor)) {
     throw new RefusalError(
-      refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
+      refuse(SESSION_READ_ORIGIN, "session-unreadable", "Couldn't load session"),
     );
   }
   return cursor;

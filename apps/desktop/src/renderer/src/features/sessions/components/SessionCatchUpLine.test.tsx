@@ -301,7 +301,7 @@ describe("SessionCatchUpLine", () => {
     }
     fireEvent.click(tryAgain);
 
-    expect(drawnOnTheFailure).toBe("Could not load this session · Try again");
+    expect(drawnOnTheFailure).toBe("Couldn't load session · Try again");
     expect(rereads).toStrictEqual([SESSION_ID]);
   });
 
@@ -335,8 +335,8 @@ describe("SessionCatchUpLine", () => {
         detail: `session ${SESSION_ID}: read-failed`,
       }),
     ]);
-    expect(drawnText(container)).toBe("Could not load this session · Try again");
-    expect(liveRegionText(container, "assertive")).toBe("Could not load this session");
+    expect(drawnText(container)).toBe("Couldn't load session · Try again");
+    expect(liveRegionText(container, "assertive")).toBe("Couldn't load session");
     expect(container.textContent).not.toContain("read-failed");
   });
 });

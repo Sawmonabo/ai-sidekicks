@@ -31,15 +31,15 @@
 // `services/transport/observed-subscription.ts`, which every daemon subscription goes through, so
 // a window whose every stream ended with the service still sees it come back.
 //
-// Each session gets its own `session.subscribe`, and deliveries are still checked against that
-// session because the stream comes from another process. A delivery is a frame: a batch of
+// Each session gets its own `session.event.subscribe`, and deliveries are still checked against
+// that session because the stream comes from another process. A delivery is a frame: a batch of
 // changes oldest first, or the far-behind frame. The daemon never drops a change for a slow
 // reader; it reads each frame from its record at the reader's pace, and a stream too far behind
-// the record's head is sent one frame with no changes, marked behind, carrying the head cursor. The
-// stream is then closed and the store marked degraded, and its one repair read takes a snapshot,
-// the session's record and the window at the log's newest rows, which replaces the window whole
-// and reopens the stream after the window's newest row, so nothing between the old position and
-// the head is drawn, and nothing is drawn twice.
+// the record's head is sent one frame with no changes, marked behind, carrying the head cursor.
+// The stream is then closed and the store marked degraded, and its one repair read takes a
+// snapshot, the session's record and the log's newest rows, which the store lays after the rows
+// it holds, and reopens the stream after the newest of them, so nothing between the old position
+// and the head is drawn, and nothing is drawn twice.
 // Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
 // tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
@@ -511,8 +511,8 @@ export class SessionEventSubscriber {
   /**
    * Takes a stream marked far behind its head past the changes it would have sent: the stream is
    * closed and its position forgotten, and the session told it lost the stream, so its snapshot
-   * read replaces the window and opens the stream again after it. Retained meanwhile, so a
-   * returning edge asks again when that read could not reach the daemon.
+   * read lays the log's newest rows after the window and opens the stream again after them.
+   * Retained meanwhile, so a returning edge asks again when that read could not reach the daemon.
    */
   #snapshotPastHead(sessionId: string, binding: StreamBinding): void {
     this.#releaseBinding(sessionId, binding);

@@ -1,19 +1,21 @@
 // The lost-folder banner's `Re-attach`: the call that attaches the folder fresh under the same
 // project, and the line a refusal draws at the word. A refusal names what stands in the way by id,
 // so the line reads the names behind them: the project of the mount that holds the repository,
-// or the agent whose run is live in the project. A folder holding its own repository again draws
-// no line, and any other refusal draws the daemon's words.
+// the agent whose run is live in the project, read off the agent list every view of that session
+// shares, or the workflow whose run is. A folder holding its own repository again draws no line,
+// and any other refusal draws the daemon's words.
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import type { ExtendedRefusal, RefusalHolder } from "#renderer/lib/refusal/extensions.js";
 import { agentListFeedFor } from "#renderer/services/daemon/agent-list.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { agentNameOf, type SessionAgentListState } from "#renderer/store/agents/list.js";
+import { agentNameOf, sessionAgentLists } from "#renderer/store/agents/list.js";
 
 import { refusedLine } from "./notices.js";
 
@@ -39,15 +41,15 @@ export async function reattachFolder(
 }
 
 // A re-attach refusal that names what stands in the way: the folder and the project its repository
-// is already attached to (`null` when a chat's own workspace holds it), or the agent running in the
-// project (`null` for a workflow's run).
+// is already attached to (`null` when a chat's own workspace holds it), or the agent or workflow
+// whose run is live in the project.
 type ReattachRefusal =
   | {
       readonly code: "repoMount.alreadyAttached";
       readonly folder: string;
       readonly projectName: string | null;
     }
-  | { readonly code: "repoMount.reattachConflict"; readonly agentName: string | null };
+  | { readonly code: "repoMount.reattachConflict"; readonly runnerName: string };
 
 // The words a re-attach refusal is drawn in, inline at the `Re-attach` that was pressed.
 function reattachRefusalWords(refusal: ReattachRefusal): string {
@@ -57,9 +59,7 @@ function reattachRefusalWords(refusal: ReattachRefusal): string {
         refusal.projectName ?? "a chat"
       }`;
     case "repoMount.reattachConflict":
-      return refusal.agentName === null
-        ? "Could not re-attach while a workflow is running. Stop the run first."
-        : `Could not re-attach while ${refusal.agentName} is running. Stop the run first.`;
+      return `Could not re-attach while ${refusal.runnerName} is running. Stop the run first.`;
   }
 }
 
@@ -88,45 +88,71 @@ async function nameReattachRefusal(
         : undefined;
     }
     case "repoMount.reattachConflict": {
-      if (holder.workflowRunId !== undefined) {
-        return { code: "repoMount.reattachConflict", agentName: null };
-      }
-      if (holder.sessionId === undefined || holder.agentId === undefined) {
-        return undefined;
-      }
-      const agentName = await readAgentName(bridge, holder.sessionId, holder.agentId);
-      return agentName === undefined
+      const runnerName =
+        holder.workflowRunId !== undefined
+          ? await readWorkflowName(bridge, holder.workflowRunId)
+          : holder.sessionId !== undefined && holder.agentId !== undefined
+            ? await readAgentName(bridge, holder.sessionId, holder.agentId)
+            : undefined;
+      return runnerName === undefined
         ? undefined
-        : { code: "repoMount.reattachConflict", agentName };
+        : { code: "repoMount.reattachConflict", runnerName };
     }
     default:
       return undefined;
   }
 }
 
-// The name of one agent of `sessionId`, read off the session's agent list once it arrives.
+// The name of the workflow a run belongs to, from the run's definition.
+async function readWorkflowName(
+  bridge: PlatformBridge,
+  workflowRunId: string,
+): Promise<string | undefined> {
+  const run = await callDaemon(bridge, "workflow.run.read", {
+    workflowRunId: heldIdAsWireId<WorkflowRunId>(workflowRunId),
+  });
+  if (run.status === "refused") {
+    return undefined;
+  }
+  const definition = await callDaemon(bridge, "workflow.definition.read", {
+    definitionId: run.value.definitionId,
+  });
+  return definition.status === "served" ? definition.value.name : undefined;
+}
+
+// The name of one agent of `sessionId`, read off the session's shared agent list once it has
+// settled; the list's feed opens again when its stream ends, so a list or its loss always comes.
 function readAgentName(
   bridge: PlatformBridge,
   sessionId: string,
   agentId: string,
 ): Promise<string | undefined> {
+  const feed = agentListFeedFor(bridge);
+  const session = heldIdAsWireId<SessionId>(sessionId);
+  const agent = heldIdAsWireId<AgentId>(agentId);
   return new Promise((resolve) => {
-    let isSettled = false;
-    const release = agentListFeedFor(bridge)(heldIdAsWireId<SessionId>(sessionId), (frame) => {
-      // One agent alone is no list to name it from; the list or its loss settles the read.
-      if (isSettled || frame.kind === "agent") {
-        return;
+    const settleIfRead = (): boolean => {
+      const state = sessionAgentLists.stateOf(feed, session);
+      if (state.status === "reading") {
+        return false;
       }
-      isSettled = true;
-      // The list may arrive while the feed opens, before `release` is assigned.
-      queueMicrotask(() => {
-        release();
-      });
-      const state: SessionAgentListState =
-        frame.kind === "list"
-          ? { status: "served", agents: frame.agents }
-          : { status: "failed", refusal: frame.refusal };
-      resolve(agentNameOf(state, heldIdAsWireId<AgentId>(agentId)));
+      resolve(agentNameOf(state, agent));
+      return true;
+    };
+    let release: (() => void) | undefined;
+    release = sessionAgentLists.watch(feed, session, () => {
+      if (settleIfRead()) {
+        // The list may settle while the watch opens, before `release` is assigned.
+        queueMicrotask(() => {
+          release?.();
+          release = undefined;
+        });
+      }
     });
+    // A list another view of the session already holds is read at once.
+    if (settleIfRead()) {
+      release();
+      release = undefined;
+    }
   });
 }

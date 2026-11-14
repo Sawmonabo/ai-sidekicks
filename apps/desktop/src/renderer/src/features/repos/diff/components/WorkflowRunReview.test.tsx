@@ -120,7 +120,7 @@ describe("Review over a workflow run", () => {
         return passThrough();
       },
       () => {
-        expect(screen.getByText("Could not load the changes")).toBeDefined();
+        expect(screen.getByText("Couldn't load changes")).toBeDefined();
       },
     );
 
@@ -134,6 +134,6 @@ describe("Review over a workflow run", () => {
       expect(screen.getByRole("button", { name: /reviews\/pr-412\.md/u })).toBeDefined();
     });
     expect(calls.filter((call) => call.method === "git.diff.read")).toHaveLength(2);
-    expect(screen.queryByText("Could not load the changes")).toBeNull();
+    expect(screen.queryByText("Couldn't load changes")).toBeNull();
   });
 });

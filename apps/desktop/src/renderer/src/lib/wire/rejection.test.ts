@@ -11,7 +11,7 @@ import { normalizeWireRejection } from "./rejection.js";
 
 describe("normalizeWireRejection — the refusing side's own code survives", () => {
   it("keeps a refusal's own author, code and sentence, on an object of its own", () => {
-    const original = refuse("sessions", "session.not_found", "No session answers to this id.");
+    const original = refuse("sessions", "session.notFound", "No session answers to this id.");
     const normalized = normalizeWireRejection("repos", original);
     expect(normalized).toStrictEqual(original);
     // Rebuilt, not returned: handing the candidate back would let a hostile one reach the renderer.
@@ -31,10 +31,10 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
     // `data.type`, which callers must discriminate on. The negative control below reads `code`.
     const remote = Object.assign(new Error("That session is not on this node."), {
       code: -32603,
-      data: { type: "session.not_found" },
+      data: { type: "session.notFound" },
     });
     const refusal = normalizeWireRejection("sessions", remote);
-    expect(refusal.code).toBe("session.not_found");
+    expect(refusal.code).toBe("session.notFound");
     expect(refusal.detail).toBe("That session is not on this node.");
     expect(refusal.origin).toBe("sessions");
     expect(refusal.code).not.toBe("sessions-call-failed");
@@ -103,8 +103,8 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
       code: -32603,
       message: { notAString: true },
       data: {
-        type: "repo.root_resolution_failed",
-        fields: { path: PLANTED_REQUEST_VALUE, reason: "not_a_repository" },
+        type: "repoMount.rootResolutionFailed",
+        fields: { path: PLANTED_REQUEST_VALUE, reason: "notARepository" },
       },
       toString(): string {
         return `repo read failed for ${PLANTED_REQUEST_VALUE}`;
@@ -114,12 +114,12 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
 
   it("keeps the dotted code and renders the constant rather than the envelope", () => {
     const refusal = normalizeWireRejection("repos", envelopeCarryingContent());
-    expect(refusal.code).toBe("repo.root_resolution_failed");
+    expect(refusal.code).toBe("repoMount.rootResolutionFailed");
     expect(refusal.detail).toBe(UNREPRESENTABLE_VALUE_TEXT);
     // The whole answer, not only the sentence: no rejection member reaches the renderer except
     // the listed reason the screen reads as words.
     expect(JSON.stringify(refusal)).not.toContain(PLANTED_REQUEST_VALUE);
-    expect(refusal.reason).toBe("not_a_repository");
+    expect(refusal.reason).toBe("notARepository");
   });
 
   it("drops a reason that is not a listed reason, such as a system error code", () => {

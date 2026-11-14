@@ -37,14 +37,14 @@ export function ChildRunTree(props: ChildRunTreeProps): React.JSX.Element {
   );
 
   if (state.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" placement="block" title="Loading dispatched sidekicks…" />;
+    return <Nothing kind="not-loaded" placement="block" title="Loading sidekicks…" />;
   }
   if (state.kind === "failed") {
     return (
       <Nothing
         kind="error"
         placement="block"
-        title="Couldn't load dispatched sidekicks"
+        title="Couldn't load sidekicks"
         action={<TryAgainButton onPress={readAgain} />}
         attempt={state.refusal}
       />

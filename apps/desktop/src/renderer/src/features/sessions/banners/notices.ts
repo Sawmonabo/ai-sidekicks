@@ -2,18 +2,21 @@
 // loop until the person's restart brings it back, a provider that started without part of its
 // settings, and a folder the session works in that is lost. Each is read from the newest event of
 // its kind the session store keeps standing, so a banner outlasts the transcript window it arrived
-// in. Pure: the events in, the banners out, and their words from the provider's name and the
-// folder's path the caller read, and the line a refused press draws. A signal reads in words; its
-// name stays in the daemon's log.
+// in. Pure: the events in, the banners out, and their words from the provider's name, the
+// folder's path and the places a settings file is named from that the caller read, and the line a
+// refused press draws. A signal reads in words; its name stays in the daemon's log.
 
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
+import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionNoticePostedPayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { FilePathRef } from "#shared/preload-api.js";
 
 import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
-import { isWireRecord } from "#renderer/lib/wire/record.js";
-import { readWireString } from "#renderer/lib/wire/strings.js";
+import { signalWords } from "#renderer/lib/signal-words.js";
 import { formatWholeDuration, formatWireString } from "#renderer/lib/wire/figures.js";
+import { readRepoMountHealthChangedPayload } from "#renderer/services/daemon/payload/repo-mount-health-changed.js";
+import { readSessionNoticePostedPayload } from "#renderer/services/daemon/payload/session-notice-posted.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   MOUNT_HEALTH_EVENT_KIND,
@@ -33,6 +36,7 @@ export type SessionNoticeBanner =
       readonly eventId: string;
       readonly provider: ProviderId;
       readonly file: string | undefined;
+      /** The bad line, where the notice names one; a file named without one is named by path. */
       readonly line: number | undefined;
       readonly key: string | undefined;
       readonly text: string | undefined;
@@ -52,6 +56,16 @@ export type SessionNoticeBanner =
     };
 
 /**
+ * Where a settings file the session's provider ignored is named from: inside the session's folder
+ * by its path there, inside the home folder from `~`, anywhere else whole. A place whose read was
+ * refused is absent, so a file in it reads whole.
+ */
+export interface SettingsFilePlaces {
+  readonly sessionFolder?: string;
+  readonly homeFolder?: string;
+}
+
+/**
  * The banners `standingEvents` raise, in the order their events arrived. A crash loop stands until
  * a later `providerRestarted` of its provider; a later crash loop raises its banner again. A
  * session works in one folder, so only its newest mount health speaks: a re-attach moves it onto
@@ -66,15 +80,14 @@ export function foldSessionNoticeBanners(
     if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
       newestMountHealthSequence = Math.max(newestMountHealthSequence, event.sequence);
     }
-    const provider = readWireString(event.payload?.["provider"]);
-    if (
-      event.kind === SESSION_NOTICE_EVENT_KIND &&
-      event.payload?.["kind"] === "providerRestarted" &&
-      provider !== undefined
-    ) {
+    const notice =
+      event.kind === SESSION_NOTICE_EVENT_KIND
+        ? readSessionNoticePostedPayload(event.payload)
+        : undefined;
+    if (notice?.kind === "providerRestarted") {
       restartedAtByProvider.set(
-        provider,
-        Math.max(restartedAtByProvider.get(provider) ?? -1, event.sequence),
+        notice.provider,
+        Math.max(restartedAtByProvider.get(notice.provider) ?? -1, event.sequence),
       );
     }
   }
@@ -97,18 +110,20 @@ export function foldSessionNoticeBanners(
 
 /**
  * A banner's words in reading order, parted by ` · ` when drawn: `providerName` names the notice's
- * provider, and `folder` the lost folder's path, which a lost-folder banner waits for.
+ * provider, `folder` the lost folder's path, which a lost-folder banner waits for, and
+ * `settingsPlaces` where a settings file named by path is named from, which that banner waits for.
  */
 export function sessionNoticeBannerWords(
   banner: SessionNoticeBanner,
   providerName: string,
   folder: string | undefined,
+  settingsPlaces: SettingsFilePlaces | undefined,
 ): readonly string[] {
   switch (banner.kind) {
     case "crashLoop":
       return crashLoopWords(banner.cause, providerName);
     case "settingsIgnored":
-      return settingsIgnoredWords(banner, providerName);
+      return settingsIgnoredWords(banner, providerName, settingsPlaces);
     case "folderLost":
       if (folder === undefined) {
         return [];
@@ -125,43 +140,43 @@ export function refusedLine(refusal: ExtendedRefusal): string {
 }
 
 function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | undefined {
-  const payload = event.payload;
   if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
-    const repoMountId = readWireString(payload?.["repoMountId"]);
-    const health = payload?.["health"];
-    const status = isWireRecord(health) ? readWireString(health["status"]) : undefined;
-    return repoMountId !== undefined && (status === "unreachable" || status === "identityMismatch")
-      ? {
+    const changed = readRepoMountHealthChangedPayload(event.payload);
+    if (changed === undefined) {
+      return undefined;
+    }
+    const { health } = changed;
+    return health.status === "healthy"
+      ? undefined
+      : {
           kind: "folderLost",
           eventId: event.id,
-          repoMountId,
-          health: status,
-          isRepository: isWireRecord(health) && health["isRepository"] === true,
-        }
+          repoMountId: changed.repoMountId,
+          health: health.status,
+          isRepository: health.status === "identityMismatch" && health.isRepository,
+        };
+  }
+  const notice =
+    event.kind === SESSION_NOTICE_EVENT_KIND
+      ? readSessionNoticePostedPayload(event.payload)
       : undefined;
-  }
-  const provider = readWireString(payload?.["provider"]) as ProviderId | undefined;
-  if (event.kind !== SESSION_NOTICE_EVENT_KIND || provider === undefined) {
-    return undefined;
-  }
-  switch (payload?.["kind"]) {
+  switch (notice?.kind) {
     case "providerCrashLoop": {
-      const cause = readCrashLoopCause(payload);
+      const cause = readCrashLoopCause(notice);
       return cause === undefined
         ? undefined
-        : { kind: "crashLoop", eventId: event.id, provider, cause };
+        : { kind: "crashLoop", eventId: event.id, provider: notice.provider, cause };
     }
     case "settingsIgnored": {
-      const file = readWireString(payload["file"]);
-      const line = payload["line"];
+      const { file } = notice;
       return {
         kind: "settingsIgnored",
         eventId: event.id,
-        provider,
+        provider: notice.provider,
         file,
-        line: typeof line === "number" ? line : undefined,
-        key: readWireString(payload["key"]),
-        text: readWireString(payload["text"]),
+        line: notice.line,
+        key: notice.key,
+        text: notice.text,
         fileRef: file === undefined ? undefined : event.fileRefs?.[file],
       };
     }
@@ -170,23 +185,22 @@ function readNoticeBanner(event: ProjectedSessionEvent): SessionNoticeBanner | u
   }
 }
 
+// The one cause a crash loop's notice carries, whichever of the four it is.
 function readCrashLoopCause(
-  payload: Readonly<Record<string, unknown>>,
+  notice: Extract<SessionNoticePostedPayload, { readonly kind: "providerCrashLoop" }>,
 ): CrashLoopCause | undefined {
-  const exitCode = payload["exitCode"];
-  if (typeof exitCode === "number") {
-    return { kind: "exitCode", exitCode };
+  if (notice.exitCode !== undefined) {
+    return { kind: "exitCode", exitCode: notice.exitCode };
   }
-  const signal = readWireString(payload["signal"]);
-  if (signal !== undefined) {
-    return { kind: "signal", signal };
+  if (notice.signal !== undefined) {
+    return { kind: "signal", signal: notice.signal };
   }
-  const silentSeconds = payload["silentSeconds"];
-  if (typeof silentSeconds === "number") {
-    return { kind: "silence", silentSeconds };
+  if (notice.silentSeconds !== undefined) {
+    return { kind: "silence", silentSeconds: notice.silentSeconds };
   }
-  const startFailure = readWireString(payload["startFailure"]);
-  return startFailure === undefined ? undefined : { kind: "startFailure", startFailure };
+  return notice.startFailure === undefined
+    ? undefined
+    : { kind: "startFailure", startFailure: notice.startFailure };
 }
 
 function crashLoopWords(cause: CrashLoopCause, providerName: string): readonly string[] {
@@ -209,6 +223,7 @@ function crashLoopWords(cause: CrashLoopCause, providerName: string): readonly s
 function settingsIgnoredWords(
   banner: Extract<SessionNoticeBanner, { readonly kind: "settingsIgnored" }>,
   providerName: string,
+  settingsPlaces: SettingsFilePlaces | undefined,
 ): readonly string[] {
   // A bad line names the file by its name; its full path is behind `Open the file`.
   if (banner.file !== undefined && banner.line !== undefined) {
@@ -217,10 +232,13 @@ function settingsIgnoredWords(
       `line ${String(banner.line)} of ${fileNameOf(banner.file)}`,
     ];
   }
-  // A dropped key or file names the file as the notice carries it.
+  // A dropped key or file names the file from the nearest place it sits in, once those are read.
   if (banner.file !== undefined) {
+    if (settingsPlaces === undefined) {
+      return [];
+    }
     return [
-      `${providerName} ignored ${banner.file}`,
+      `${providerName} ignored ${shownSettingsPath(banner.file, settingsPlaces)}`,
       ...(banner.key === undefined ? [] : [banner.key]),
     ];
   }
@@ -229,28 +247,30 @@ function settingsIgnoredWords(
   return [`${providerName} ignored its settings`, ...(named === undefined ? [] : [named])];
 }
 
-// How a process a signal ended reads, by the signal's name as the daemon sends it (`SIGKILL`); a
-// signal no entry words reads as a system signal.
-function signalWords(signal: string): string {
-  return SIGNAL_WORDS.get(signal) ?? "stopped by a system signal";
+// A settings file's path from the session's folder, else from `~` for the home folder, else whole.
+function shownSettingsPath(file: string, places: SettingsFilePlaces): string {
+  const inSession = pathInside(file, places.sessionFolder);
+  if (inSession !== undefined) {
+    return inSession.rest;
+  }
+  const inHome = pathInside(file, places.homeFolder);
+  return inHome === undefined ? file : `~${inHome.separator}${inHome.rest}`;
 }
 
-// The signals that end a process unasked, in words. The daemon names any signal the system has.
-const SIGNAL_WORDS: ReadonlyMap<string, string> = new Map([
-  ["SIGKILL", "killed by the system"],
-  ["SIGTERM", "stopped by the system"],
-  ["SIGINT", "interrupted"],
-  ["SIGHUP", "its terminal closed"],
-  ["SIGQUIT", "told to quit"],
-  ["SIGABRT", "stopped on an internal error"],
-  ["SIGSEGV", "crashed on a memory error"],
-  ["SIGBUS", "crashed on a memory error"],
-  ["SIGILL", "crashed on an invalid instruction"],
-  ["SIGFPE", "crashed on an arithmetic error"],
-  ["SIGPIPE", "its output was closed"],
-  ["SIGXCPU", "ran past its processor time limit"],
-  ["SIGXFSZ", "ran past its file size limit"],
-]);
+// The part of `path` past `folder` and the separator after it, or `undefined` outside it.
+function pathInside(
+  path: string,
+  folder: string | undefined,
+): { readonly separator: string; readonly rest: string } | undefined {
+  if (folder === undefined) {
+    return undefined;
+  }
+  const root = folder.replace(/[/\\]+$/, "");
+  const separator = path.charAt(root.length);
+  return path.startsWith(root) && (separator === "/" || separator === "\\")
+    ? { separator, rest: path.slice(root.length + 1) }
+    : undefined;
+}
 
 // The last segment of a path, on either separator.
 function fileNameOf(path: string): string {
@@ -265,4 +285,4 @@ type CrashLoopCause =
   | { readonly kind: "silence"; readonly silentSeconds: number };
 
 // How a lost folder is lost: gone from reach, or holding another repository.
-type LostFolderHealth = "unreachable" | "identityMismatch";
+type LostFolderHealth = Exclude<RepoMountHealth["status"], "healthy">;

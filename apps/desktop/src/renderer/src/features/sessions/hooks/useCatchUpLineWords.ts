@@ -11,7 +11,7 @@ export const CATCH_UP_LINE_DWELL_MS = 400;
 
 /**
  * What the catching-up line says: `Catching up…`, `Couldn't catch up · Try again`, or, before the
- * session's first read has landed, `Could not load this session · Try again`.
+ * session's first read has landed, `Couldn't load session · Try again`.
  */
 export type CatchUpWords = "catching-up" | "could-not-catch-up" | "could-not-load";
 

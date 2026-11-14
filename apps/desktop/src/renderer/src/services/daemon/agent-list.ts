@@ -46,11 +46,7 @@ const agentListFeeds = new AgentListFeeds();
 /** What a delivery the contract's checks refuse is handed on as. */
 const UNREADABLE_AGENT_LIST: SessionAgentListFrame = {
   kind: "lost",
-  refusal: refuse(
-    "agent-list",
-    "agent-list-unreadable",
-    "This session's sidekicks could not be read.",
-  ),
+  refusal: refuse("agent-list", "agent-list-unreadable", "Couldn't load sidekicks"),
 };
 
 function agentListFeedOver(bridge: PlatformBridge): SessionAgentListFeed {
