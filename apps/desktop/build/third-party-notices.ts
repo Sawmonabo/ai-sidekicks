@@ -2,10 +2,10 @@
 // bundle holds, with its license and notice text as the package ships them, and, for a package that
 // itself carries other projects' compiled code, the notices and license files it ships for them.
 // The workspace's own packages are the app's own code and are left out, unless one carries other
-// projects' compiled code. Each bundle writes its own file under `out/third-party-notices/`, which
-// electron-builder copies beside the app's archive.
+// projects' compiled code into the bundle. Each bundle writes its own file under
+// `out/third-party-notices/`, which electron-builder copies beside the app's archive.
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,11 @@ interface BundledNoticeSource {
   readonly licensesDirectory: string;
   /** What a carried project's license obliges a binary to say about where its source is, if any. */
   readonly sourceOffer?: (version: string) => string;
+  /**
+   * The one module, by its path in the package, that holds the carried code, when the package's
+   * other modules hold none; a bundle without it carries none of the package's notices.
+   */
+  readonly carrierModule?: string;
 }
 
 /**
@@ -60,6 +65,8 @@ const BUNDLED_NOTICE_SOURCES: Readonly<Record<string, BundledNoticeSource>> = {
   "@ai-sidekicks/contracts": {
     noticesFile: "dist/THIRD_PARTY_NOTICES.md",
     licensesDirectory: "dist/THIRD_PARTY_LICENSES",
+    // The workflow checks' glue; main and the preload import the package's types and checks alone.
+    carrierModule: "dist/workflow-check.js",
   },
   "@ai-sidekicks/markdown-parser": {
     noticesFile: "dist/THIRD_PARTY_NOTICES.md",
@@ -86,6 +93,8 @@ export function thirdPartyNoticesPlugins(
   nameBundle: (entryModuleIds: readonly string[]) => string,
 ): BuildPlugin[] {
   let bundleName: string | undefined;
+  /** Every module the bundle's chunks hold, read as the bundle is generated. */
+  const bundledModules = new Set<string>();
   const naming: BuildPlugin = {
     name: "third-party-notices-bundle-name",
     buildStart(options) {
@@ -94,6 +103,17 @@ export function thirdPartyNoticesPlugins(
         throw new Error("a bundle's notices need an entry, and it has none");
       }
       bundleName = nameBundle(entries);
+      bundledModules.clear();
+    },
+    // Runs before the notices plugin's own, which it is listed ahead of.
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk") {
+          for (const moduleId of output.moduleIds) {
+            bundledModules.add(moduleId);
+          }
+        }
+      }
     },
   };
   const notices = license({
@@ -108,8 +128,16 @@ export function thirdPartyNoticesPlugins(
         }
         const thirdParty = dependencies.filter((dependency) => {
           const name = dependency.name ?? "";
+          if (!name.startsWith(WORKSPACE_PACKAGE_SCOPE)) {
+            return true;
+          }
+          const bundled = BUNDLED_NOTICE_SOURCES[name];
           return (
-            !name.startsWith(WORKSPACE_PACKAGE_SCOPE) || BUNDLED_NOTICE_SOURCES[name] !== undefined
+            bundled !== undefined &&
+            (bundled.carrierModule === undefined ||
+              bundledModules.has(
+                realpathSync(path.join(PACKAGE_MODULES_DIRECTORY, name, bundled.carrierModule)),
+              ))
           );
         });
         mkdirSync(THIRD_PARTY_NOTICES_DIRECTORY, { recursive: true });

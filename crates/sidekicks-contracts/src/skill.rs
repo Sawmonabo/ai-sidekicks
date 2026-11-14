@@ -66,6 +66,7 @@ pub struct SkillProviderAvailability {
 
 impl ListKey for SkillProviderAvailability {
     type Key = ProviderId;
+    const KEY_MEMBER: Option<&'static str> = Some("provider");
 
     fn list_key(&self) -> ProviderId {
         self.provider.clone()
@@ -94,6 +95,7 @@ pub struct SkillProviderCallForm {
 
 impl ListKey for SkillProviderCallForm {
     type Key = ProviderId;
+    const KEY_MEMBER: Option<&'static str> = Some("provider");
 
     fn list_key(&self) -> ProviderId {
         self.provider.clone()

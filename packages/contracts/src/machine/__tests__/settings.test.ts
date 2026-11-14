@@ -28,14 +28,15 @@ const machineSettingsCases = readCaseTable(
   "machine-settings.json",
 );
 
-const readSettings = machineSettingsCases.settingsFiles.flatMap(({ file, settings }) =>
-  settings === null ? [] : [{ fileText: JSON.stringify(file), file, settings }],
-);
+const settingsFiles = machineSettingsCases.settingsFiles.map(({ file, settings }) => ({
+  fileText: JSON.stringify(file),
+  file,
+  settings,
+}));
 
 describe("parseMachineSettingsFile", () => {
-  // Only the rows the service reads: the generated check still takes a file naming one place twice,
-  // which the service refuses.
-  it.each(readSettings)("reads $fileText as the service does", ({ file, settings }) => {
+  // A refused file, one naming a place twice among them, answers `null`, as the service refuses it.
+  it.each(settingsFiles)("reads $fileText as the service does", ({ file, settings }) => {
     expect(parseMachineSettingsFile(file)).toStrictEqual(settings);
   });
 });

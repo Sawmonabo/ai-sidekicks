@@ -27,7 +27,6 @@ import {
   type NativeImage,
 } from "electron";
 
-import { daemonStatusFilePath, endDaemon } from "@ai-sidekicks/client-sdk";
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import { appFactsSwitches } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
@@ -53,10 +52,6 @@ import { ClientHelperProcess } from "./services/daemon/client/process.js";
 import { isTokenPresented, startClientHelper } from "./services/daemon/client/start.js";
 import { DaemonSupervisor } from "./services/daemon/supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
-import {
-  endServiceProcess,
-  readServiceProcessIdentity,
-} from "./services/daemon/service/process.js";
 import { resolveServiceProgram } from "./services/daemon/service/program.js";
 import { startServiceDetached } from "./services/daemon/service/start.js";
 import { readServiceStatusFile } from "./services/daemon/service/status-file.js";
@@ -352,10 +347,13 @@ function startApplication(): void {
         helper: helperProcess,
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
-        endDaemon: (request) => endDaemon(request, isTokenPresented()),
-        endServiceProcess,
-        readProcessIdentity: readServiceProcessIdentity,
-        readServiceStatus: () => readServiceStatusFile(daemonStatusFilePath()),
+        readServiceStatus: async () => {
+          const { statusFile } = await helperProcess.facts();
+          if ("error" in statusFile) {
+            throw new Error(statusFile.error);
+          }
+          return readServiceStatusFile(statusFile.path);
+        },
         log,
       });
       installBridgeHandlers({
@@ -419,7 +417,7 @@ function startApplication(): void {
       if (fixtureLaunch === undefined) {
         supervisor.start();
         installQuitFlush(app, () => supervisor.flushAtQuit(), {
-          flushWaitMs: helperProcess.flushWaitMs,
+          flushWaitMs: () => helperProcess.flushWaitMs,
           log,
           reportUnwrittenLog: (message) => {
             console.error(message);

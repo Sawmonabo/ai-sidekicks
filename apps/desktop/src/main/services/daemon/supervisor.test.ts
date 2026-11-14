@@ -1,14 +1,13 @@
-// The supervisor over a scripted service behind a fake client helper, a fake of the addon's ending
-// and a fake clock. It probes once and starts the service only when no socket answers, then hands
+// The supervisor over a scripted service behind a fake client helper and a fake clock. It probes once and starts the service only when no socket answers, then hands
 // the wait to the client; a found service still writing its token or repairing is waited for and
 // never started over. A started service that exits before it answers ends the wait with how it
 // exited, and one still running once the client's wait ran out is ended by its identity. A link
-// that dies ends its service at once by the identity it reported, and the next start waits for that
-// ending. Lost links come back at the backoff's waits, five failed starts give up, `Retry` starts
-// afresh, and nothing starts once the quit lets go. The handshake's answer and the status file's
-// cannot-start reach the status topic.
+// that stopped answering ends its service at once by the identity it reported, and the next start
+// waits for that ending; one whose socket dropped is left to the client. Lost links come back at
+// the backoff's waits, five failed starts give up, a service that cannot start over its saved
+// sessions is not started again, `Retry` starts afresh, and nothing starts once the quit lets go.
+// The handshake's answer and the status file's cannot-start reach the status topic.
 
-import { HANDSHAKE_DEADLINE_MS } from "@ai-sidekicks/client-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
@@ -18,6 +17,7 @@ import type { DaemonSupervisor } from "./supervisor.js";
 import {
   ENDING_MS,
   FOUND_SERVICE_PROCESS_ID,
+  HANDSHAKE_DEADLINE_MS,
   linkToRunningService,
   linkToStartedService,
   supervisorOverScriptedService,
@@ -169,17 +169,30 @@ describe("starting the service", () => {
     });
   });
 
-  it("puts the status file's cannot-start on the topic once a start fails", async () => {
+  it("says why from the status file and starts no service over saved sessions it cannot open", async () => {
     service.afterStart = undefined;
     service.statusFile = { cannotStart: { reason: "savedSessionsFromAnotherVersion" } };
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(link.state.cannotStart).toStrictEqual({ reason: "savedSessionsFromAnotherVersion" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.startTimes).toStrictEqual([0]);
+    expect(link.state.connection.kind).toBe("degraded");
   });
 });
 
 describe("watching the link", () => {
+  it("leaves a link the client is bringing back after its socket dropped, ending nothing", async () => {
+    await linkToRunningService(under);
+
+    supervisor.linkStateChanged("reconnecting");
+
+    expect(service.endings).toStrictEqual([]);
+    expect(service.links[0]?.isClosedByMain()).toBe(false);
+    expect(link.state.connection).toStrictEqual({ kind: "connected" });
+  });
+
   it("ends the service of a link that died at once, by the identity it reported", async () => {
     await linkToRunningService(under);
     service.connectAnswer = { kind: "absent" };

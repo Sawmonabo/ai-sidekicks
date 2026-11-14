@@ -2,12 +2,16 @@
 // refusal codes, types, checks and method tables, formatted by the repository's Prettier.
 import { fileURLToPath } from "node:url";
 
-import type { Ajv2020 } from "ajv/dist/2020.js";
 import { format, resolveConfig } from "prettier";
 
 import type { ContractModule, MethodTable, RefusalCodes } from "./emit-folder.ts";
 import { ModuleImports, parseTypeReference, type TypeReference } from "./module-imports.ts";
-import { SCHEMA_CHECK_MODULE, checkName, generateChecks } from "./schema-checks.ts";
+import {
+  SCHEMA_CHECK_MODULE,
+  type CheckCompiler,
+  checkName,
+  generateChecks,
+} from "./schema-checks.ts";
 import { generateTypes } from "./type-declarations.ts";
 
 const GENERATED_HEADER =
@@ -54,7 +58,7 @@ function methodTypeReferences(module: ContractModule): TypeReference[] {
  * The names of this module's definitions that get a check: listed ones and every one a method
  * table names, in this module or another, since a table imports its checks from their owner.
  */
-function checkedDefinitions(
+export function checkedDefinitions(
   module: ContractModule,
   allModules: readonly ContractModule[],
 ): string[] {
@@ -117,13 +121,13 @@ function writeMethodTable(
 /**
  * The complete, formatted file for `module`. `allModules` holds every module, for references and
  * method tables across modules; `refusalCodes` is written here when this module owns them; the
- * checks compile with `checkCompiler`, the run's one Ajv.
+ * checks come from `checkCompiler`, the run's one compile of every check.
  */
 export async function writeModuleFile(
   module: ContractModule,
   allModules: readonly ContractModule[],
   refusalCodes: RefusalCodes,
-  checkCompiler: Ajv2020,
+  checkCompiler: CheckCompiler,
 ): Promise<string> {
   const definitions = Object.keys((module.schema["$defs"] ?? {}) as Record<string, unknown>);
   const checked = checkedDefinitions(module, allModules);
@@ -134,17 +138,25 @@ export async function writeModuleFile(
   }
   const localNames = new Set([
     ...definitions,
-    ...checked.map(checkName),
+    ...definitions.map(checkName),
     ...module.constants.map((constant) => constant.name),
     ...module.methodTables.flatMap((table) => [table.name, tableTypeName(table)]),
     ...(refusalCodes.module === module.path ? [refusalCodes.name] : []),
   ]);
   const imports = new ModuleImports(module.path, localNames);
 
-  const constants = module.constants.map(
-    (constant) =>
-      `${docComment(constant.doc)}\nexport const ${constant.name} = ${JSON.stringify(constant.value)} as const;`,
-  );
+  const constants = module.constants.map((constant) => {
+    const head = `${docComment(constant.doc)}\nexport const ${constant.name}`;
+    const value = JSON.stringify(constant.value);
+    if (constant.typeName === undefined) {
+      return `${head} = ${value} as const;`;
+    }
+    const type = parseTypeReference(constant.typeName, module.path);
+    if (type.module !== undefined) {
+      imports.addFromModule(type.module, type.name, "type");
+    }
+    return `${head}: Readonly<${type.name}> = ${value};`;
+  });
   const refusals =
     refusalCodes.module === module.path
       ? [
@@ -154,7 +166,7 @@ export async function writeModuleFile(
         ]
       : [];
   const types = await generateTypes(module.schema, imports);
-  const checks = generateChecks(module, checked, checkCompiler, imports);
+  const checks = generateChecks(module, checkCompiler, imports);
   const tables = module.methodTables.map((table) => writeMethodTable(table, module, imports));
 
   const source = [

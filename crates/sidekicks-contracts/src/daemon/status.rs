@@ -151,6 +151,7 @@ pub struct DaemonWslDistribution {
 
 impl ListKey for DaemonWslDistribution {
     type Key = DistroName;
+    const KEY_MEMBER: Option<&'static str> = Some("distro");
 
     fn list_key(&self) -> DistroName {
         self.distro.clone()

@@ -40,20 +40,17 @@ export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
     // Opened after the guard: a dropped press must not end the read already in flight.
     const round = readScope.openRound();
     setReading({ status: "reading" });
-    void callDaemon(
-      bridge,
-      "transcript.reasoningSurfaceRead",
-      { runId },
-      { signal: round.signal },
-    ).then((reply) => {
-      round.settle(() => {
-        setReading(
-          reply.status === "served"
-            ? { status: "read", response: reply.value }
-            : { status: "refused", refusal: reply.refusal },
-        );
-      });
-    });
+    void callDaemon(bridge, "transcript.reasoning.read", { runId }, { signal: round.signal }).then(
+      (reply) => {
+        round.settle(() => {
+          setReading(
+            reply.status === "served"
+              ? { status: "read", response: reply.value }
+              : { status: "refused", refusal: reply.refusal },
+          );
+        });
+      },
+    );
   }, [bridge, readScope, reading.status, runId]);
 
   return { reading, expand };

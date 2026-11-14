@@ -20,6 +20,7 @@ import {
   type ClientHelperDaemonClient,
   type ClientHelperWindowPort,
 } from "../services/daemon/client/helper.js";
+import { scriptedAddon } from "../services/daemon/client/helper.test-support.js";
 import type {
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
@@ -154,7 +155,10 @@ function inProcessHelper(client: ClientHelperDaemonClient): {
         });
       },
     },
-    { connect: () => Promise.resolve(connected), waitForDaemon: () => Promise.resolve(connected) },
+    scriptedAddon({
+      connect: () => Promise.resolve(connected),
+      waitForDaemon: () => Promise.resolve(connected),
+    }),
   );
   const exit = (): void => {
     if (hasExited) {

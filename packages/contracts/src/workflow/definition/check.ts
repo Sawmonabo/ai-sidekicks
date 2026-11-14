@@ -16,7 +16,8 @@ import type {
   WorkflowNodeParamsCheckInput,
   WorkflowParamIssue,
 } from "../../generated/workflow/definition/params.js";
-// The glue `wasm-bindgen` writes beside the module in `dist/`, the same file from `src/` and `dist/`.
+// The glue `wasm-bindgen` writes beside the module in `dist/`, the same file from `src/` and
+// `dist/`.
 import * as workflowCheckModule from "../../../dist/workflow-check.js";
 
 const listeners = new Set<() => void>();
@@ -54,6 +55,8 @@ export function subscribeToWorkflowCheckModule(listener: () => void): () => void
 /**
  * The graph check's findings for a document, empty when its graph is accepted. Throws before the
  * module arrives, and when the module traps, after starting it again for the next call.
+ *
+ * @consumedBy the builder's validation strip, listing the refusals it computes before a save
  */
 export function checkWorkflowGraph(input: WorkflowGraphCheckInput): WorkflowDefinitionFinding[] {
   return JSON.parse(
@@ -78,6 +81,8 @@ export function checkWorkflowConnection(
 /**
  * Each parameter value a node's kind refuses, empty when every value is accepted. Throws as
  * `checkWorkflowGraph` does.
+ *
+ * @consumedBy the builder's validation strip, listing a node's missing or refused parameters
  */
 export function checkWorkflowNodeParams(input: WorkflowNodeParamsCheckInput): WorkflowParamIssue[] {
   return JSON.parse(

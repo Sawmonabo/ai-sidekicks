@@ -22,7 +22,6 @@ sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-tracing.workspace = true
 
 [build-dependencies]
 napi-build.workspace = true

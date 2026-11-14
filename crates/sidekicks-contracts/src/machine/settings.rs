@@ -114,7 +114,7 @@ ts_constants! {
     /// Every [`SettingsFileRepairCause`].
     SETTINGS_FILE_REPAIR_CAUSES = SettingsFileRepairCause::VARIANTS;
     /// What each value is before anybody has chosen.
-    MACHINE_SETTINGS_DEFAULTS = MachineSettings::default();
+    MACHINE_SETTINGS_DEFAULTS: MachineSettings = MachineSettings::default();
 }
 
 /// Why a row's name is refused at save.

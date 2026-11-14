@@ -640,9 +640,9 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        BodyBlockCut, BodyReadOffsetRefused, BodyWindow, StoredRowBody, TranscriptBodyReadResponse,
-        TranscriptPatchFile, TranscriptRowContent, stored_body_content_of,
-        transcript_row_content_of,
+        BlockCutFailure, BodyBlockCut, BodyBlockStart, BodyReadOffsetRefused, BodyWindow,
+        StoredRowBody, TranscriptBodyReadResponse, TranscriptPatchFile, TranscriptRowContent,
+        stored_body_content_of, transcript_row_content_of,
     };
     use crate::wire::integer::SafeInt;
 
@@ -702,56 +702,137 @@ mod tests {
         }
     }
 
-    /// Reads `body` part by part from `offset` until a part names no next one, answering the parts
-    /// joined and how many there were.
-    fn read_from(body: &str, offset: u64) -> Result<(String, usize), BodyReadOffsetRefused> {
+    /// The body-part table the client's content readers' suite reads too.
+    const PART_CASES: &str = include_str!("../../tests/fixtures/transcript/body-parts.json");
+
+    /// One block start of a case's cut.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct BlockStartCase {
+        stored_offset: usize,
+        drawn_offset: u32,
+    }
+
+    /// A case's markdown cut: its starts, or why it failed.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    enum BlockCutCase {
+        Starts(Vec<BlockStartCase>),
+        Failed(BlockCutFailure),
+    }
+
+    /// A read's parts joined back into the body from its offset: how many, the drawn block starts
+    /// they carry and the cut failure every part says.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct PartsRead {
+        part_count: usize,
+        #[serde(default)]
+        block_starts: Vec<u32>,
+        block_cut_failure: Option<BlockCutFailure>,
+    }
+
+    /// One case: a body, `repeat` times over, read from `offset` with its cut, and what the read
+    /// answers or the whole body's UTF-8 length its refusal names.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct PartsCase {
+        note: String,
+        body: String,
+        repeat: Option<usize>,
+        offset: u64,
+        block_cut: Option<BlockCutCase>,
+        read: Option<PartsRead>,
+        refused_body_length: Option<usize>,
+    }
+
+    /// A read part by part: the parts joined, their count, drawn block starts and cut failures.
+    #[derive(Debug, PartialEq)]
+    struct ReadParts {
+        joined: String,
+        part_count: usize,
+        drawn_starts: Vec<u32>,
+        failures: Vec<Option<BlockCutFailure>>,
+    }
+
+    /// Reads `body` part by part from `offset` until a part names no next one.
+    fn read_parts(
+        body: &str,
+        offset: u64,
+        block_cut: BodyBlockCut<'_>,
+    ) -> Result<ReadParts, BodyReadOffsetRefused> {
         let mut joined = String::new();
         let mut part_count = 0;
+        let mut drawn_starts = Vec::new();
+        let mut failures = Vec::new();
         let mut next = Some(offset);
         while let Some(offset) = next {
             let TranscriptBodyReadResponse::Available {
-                body, next_offset, ..
-            } = stored_body_content_of(
-                None,
-                Some(BodyWindow::whole(body)),
-                offset,
-                BodyBlockCut::NotCut,
-            )?
+                body: part,
+                next_offset,
+                block_starts,
+                block_cut_failure,
+                ..
+            } = stored_body_content_of(None, Some(BodyWindow::whole(body)), offset, block_cut)?
             else {
                 panic!("a stored body is available");
             };
-            joined.push_str(body.as_str());
+            joined.push_str(part.as_str());
             part_count += 1;
+            drawn_starts.extend(block_starts.iter().flat_map(|starts| {
+                let (whole_starts, _) = starts.as_bytes().as_chunks::<4>();
+                whole_starts.iter().map(|start| u32::from_le_bytes(*start))
+            }));
+            failures.push(block_cut_failure);
             next = next_offset.map(SafeInt::get);
         }
-        Ok((joined, part_count))
+        Ok(ReadParts {
+            joined,
+            part_count,
+            drawn_starts,
+            failures,
+        })
     }
 
-    #[rstest]
-    // Each control character takes six JSON bytes, so 200,000 of them span two pages.
-    #[case::over_one_page("\u{1}".repeat(200_000), 0, Some(2))]
-    #[case::from_a_later_offset("a\u{e9}b".to_owned(), 3, Some(1))]
-    #[case::at_the_end("ab".to_owned(), 2, Some(1))]
-    #[case::inside_a_character("a\u{e9}b".to_owned(), 2, None)]
-    #[case::past_the_end("ab".to_owned(), 3, None)]
-    fn a_body_read_in_parts_joins_back_whole_from_any_character_boundary(
-        #[case] body: String,
-        #[case] offset: u64,
-        #[case] part_count: Option<usize>,
-    ) {
-        let read = read_from(&body, offset);
-        match part_count {
-            Some(part_count) => {
-                let start = usize::try_from(offset).expect("a test offset fits usize");
-                assert_eq!(read, Ok((body[start..].to_owned(), part_count)));
-            }
-            None => assert_eq!(
-                read,
-                Err(BodyReadOffsetRefused {
+    #[test]
+    fn a_body_read_in_parts_joins_back_whole_from_any_character_boundary() {
+        let cases: Vec<PartsCase> = serde_json::from_str(PART_CASES).expect("the cases read");
+        for case in cases {
+            let body = case.body.repeat(case.repeat.unwrap_or(1));
+            let starts: Vec<BodyBlockStart>;
+            let block_cut = match &case.block_cut {
+                None => BodyBlockCut::NotCut,
+                Some(BlockCutCase::Failed(failure)) => BodyBlockCut::Failed(*failure),
+                Some(BlockCutCase::Starts(cases)) => {
+                    starts = cases
+                        .iter()
+                        .map(|start| BodyBlockStart {
+                            stored_offset: start.stored_offset,
+                            drawn_offset: start.drawn_offset,
+                        })
+                        .collect();
+                    BodyBlockCut::Starts(&starts)
+                }
+            };
+            let read = read_parts(&body, case.offset, block_cut);
+            if let Some(body_length) = case.refused_body_length {
+                let offset = case.offset;
+                let refused = Err(BodyReadOffsetRefused {
                     offset,
-                    body_length: body.len()
-                })
-            ),
+                    body_length,
+                });
+                assert_eq!(read, refused, "{}", case.note);
+                continue;
+            }
+            let expected = case.read.expect("a case reads or is refused");
+            let start = usize::try_from(case.offset).expect("a test offset fits usize");
+            let parts = ReadParts {
+                joined: body[start..].to_owned(),
+                part_count: expected.part_count,
+                drawn_starts: expected.block_starts,
+                failures: vec![expected.block_cut_failure; expected.part_count],
+            };
+            assert_eq!(read, Ok(parts), "{}", case.note);
         }
     }
 

@@ -160,8 +160,8 @@ mod tests {
         );
     }
 
-    /// The run-folder table the TypeScript resolver's suite reads too.
-    const CASES: &str = include_str!("../../../sidekicks-contracts/tests/fixtures/run-folder.json");
+    /// The run-folder case table, one file for every system's cases.
+    const CASES: &str = include_str!("../../tests/fixtures/run-folder.json");
 
     /// A local application data folder, a user's id as SDDL text, and the run folder and named
     /// pipe they resolve.

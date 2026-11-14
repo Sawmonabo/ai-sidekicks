@@ -62,7 +62,7 @@ afterEach(() => {
 
 function install(app: Parameters<typeof installQuitFlush>[0], flush: () => Promise<void>): void {
   installQuitFlush(app, flush, {
-    flushWaitMs: FLUSH_WAIT_MS,
+    flushWaitMs: () => FLUSH_WAIT_MS,
     log,
     reportUnwrittenLog: (message) => {
       unwrittenReports.push(message);

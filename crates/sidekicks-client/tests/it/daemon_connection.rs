@@ -306,7 +306,11 @@ async fn any_frame_from_the_daemon_reports_a_quiet_link_open_and_keeps_it() {
     let late_frame_at = Instant::now();
     wait_for_state(&mut states, ConnectionState::Open).await;
     assert_waited(framed_at.elapsed(), Duration::from_secs(20));
-    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    wait_for_state(
+        &mut states,
+        ConnectionState::Reconnecting { was_silent: true },
+    )
+    .await;
     assert_waited(late_frame_at.elapsed(), Duration::from_secs(20));
 }
 
@@ -325,7 +329,11 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
 
     // The first loss: the daemon accepts the first attempt and never answers its handshake.
     drop(daemon);
-    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    wait_for_state(
+        &mut states,
+        ConnectionState::Reconnecting { was_silent: false },
+    )
+    .await;
     let lost_at = Instant::now();
     let held = call("through the reopen");
     let (mut silent, first_attempt_at) = daemons.accept().await;
@@ -352,12 +360,19 @@ async fn a_lost_link_reopens_on_the_schedule_until_its_window_passes_then_only_a
     daemons.listen(false);
     drop(silent);
     drop(daemon);
-    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    wait_for_state(
+        &mut states,
+        ConnectionState::Reconnecting { was_silent: false },
+    )
+    .await;
     let lost_at = Instant::now();
     let attempted_before = daemons.attempted_at().len();
     let mut held = Box::pin(call("until down"));
     tokio::time::sleep(LINK_REOPEN_WINDOW / 2).await;
-    assert_eq!(connection.state(), ConnectionState::Reconnecting);
+    assert_eq!(
+        connection.state(),
+        ConnectionState::Reconnecting { was_silent: false }
+    );
     assert!((&mut held).now_or_never().is_none(), "the call is held");
     assert!(
         matches!(held.await, Err(ClientError::Unavailable { .. })),
@@ -425,7 +440,11 @@ async fn a_close_while_an_attempt_runs_ends_the_attempt_and_starts_no_other() {
     let mut states = connection.state_changes();
 
     drop(daemon);
-    wait_for_state(&mut states, ConnectionState::Reconnecting).await;
+    wait_for_state(
+        &mut states,
+        ConnectionState::Reconnecting { was_silent: false },
+    )
+    .await;
     // The daemon takes the attempt's stream and never answers its handshake.
     let (mut silent, _attempt_at) = daemons.accept().await;
     silent.next_message().await;

@@ -1,30 +1,43 @@
-// The client helper: the desktop's one connection to the daemon, run in its own utility process.
-// Main's requests come over the parentPort and each window's over the port main hands the helper
-// for it; each passes its channel's method allowlist and the method's params check before the
-// addon. A window's call to a method that carries file paths has its tokens swapped for their paths
-// by asking main, which keeps them, and main mints tokens for the paths a reply offers, and for
-// those a window's stream frame offers, the frame held back until they come so frames keep their
-// order. A window port that closes cancels every call and stream it left open. Main connects the link and closes
-// it; a request waits for the connect under way, and one made once the link is closed fails. A
-// connect main closed before it settled is dropped, its link closed unused. The link's state, and
-// a starting daemon's answers that it is repairing, go to main as the addon reports them; the addon
-// pings, times and retries the link itself, so the helper keeps no timer.
+// The client helper: the desktop's one use of the daemon client's addon, run in its own utility
+// process. Main's requests come over the parentPort and each window's over the port main hands the
+// helper for it; each passes its channel's method allowlist and the method's params check before
+// the addon. A window's call to a method that carries file paths has its tokens swapped for their
+// paths by asking main, which keeps them, and main mints tokens for the paths a reply offers, and
+// for those a window's stream frame offers, the frame held back until they come so frames keep
+// their order. A window port that closes cancels every call and stream it left open. Main connects
+// the link and closes it; a request waits for the connect under way, and one made once the link is
+// closed fails. A connect main closed before it settled is dropped, its link closed unused. The
+// link's state, and a starting daemon's answers that it is repairing, go to main as the addon
+// reports them; the addon pings, times and retries the link itself, so the helper keeps no timer.
+// Main alone asks the helper to end the service and to read a process's identity, and hears the
+// client's bounds and the status file's place once, at start.
 
-import type { DaemonClient, StreamEvent, WireReply } from "@ai-sidekicks/client-sdk";
+import type {
+  DaemonClient,
+  DaemonEndingOutcome,
+  DaemonEndingRequest,
+  StreamEvent,
+  WireReply,
+} from "@ai-sidekicks/client-sdk";
 import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
+import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-status";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import { FILE_PATH_METHODS, mayOfferPathsToOpen } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { describeFailure } from "#shared/failure-message.js";
 
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
 import type {
   ClientHelperLinkState,
+  ClientHelperServiceAnswer,
+  ClientHelperServiceAsk,
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
@@ -36,16 +49,21 @@ export type ClientHelperDaemonClient = Pick<
   "call" | "cancelCall" | "subscribe" | "cancelStream" | "close"
 >;
 
-/** A connect's answer from the addon: the client and the daemon's handshake answer, or the error. */
+/**
+ * A connect's answer from the addon: the client and the daemon's handshake answer, or the error
+ * and, when the failure says, why the service cannot start.
+ */
 export interface ClientHelperConnectAnswer {
   readonly client?: ClientHelperDaemonClient;
   readonly initializeResponse?: ConnectionInitializeResponse;
   readonly error?: JsonRpcError;
+  readonly cannotStart?: DaemonCannotStart;
 }
 
 /**
- * What the helper uses of the addon: its one connect, and its wait for a daemon that is starting,
- * which hands each answer that the daemon is repairing to `onRepairing`.
+ * What the helper uses of the addon: its one connect, its wait for a daemon that is starting, which
+ * hands each answer that the daemon is repairing to `onRepairing`, the client's ending, the read of
+ * a process's identity, the status file's place, and the client's two bounds.
  */
 export interface ClientHelperAddon {
   connect(
@@ -57,6 +75,15 @@ export interface ClientHelperAddon {
     onState: (state: string) => void,
     onRepairing: (details: DaemonRepairingDetails) => void,
   ): Promise<ClientHelperConnectAnswer>;
+  endDaemon(request: DaemonEndingRequest, presentsToken: boolean): Promise<DaemonEndingOutcome>;
+  /** Takes the identity as the JSON the addon reads. */
+  endDaemonProcess(processIdentityJson: string): Promise<DaemonEndingOutcome>;
+  /** The identity as JSON, or `null` when no process holds the id; throws the system's error. */
+  readProcessIdentity(processId: number): string | null;
+  /** Throws when this system has no run folder. */
+  daemonStatusFilePath(): string;
+  readonly HANDSHAKE_DEADLINE_MS: number;
+  readonly DAEMON_FLUSH_WAIT_MS: number;
 }
 
 /** A window's port as the helper serves it: Electron's `MessagePortMain`. */
@@ -89,6 +116,21 @@ export function serveClientHelper(
   parentPort.on("message", ({ data, ports }) => {
     helper.receiveFromMain(data, ports);
   });
+  parentPort.postMessage({
+    kind: "helper.started",
+    handshakeDeadlineMs: addon.HANDSHAKE_DEADLINE_MS,
+    flushWaitMs: addon.DAEMON_FLUSH_WAIT_MS,
+    statusFile: statusFileOf(addon),
+  });
+}
+
+/** Where the service's status file is, or why this system has none. */
+function statusFileOf(addon: ClientHelperAddon): { path: string } | { error: string } {
+  try {
+    return { path: addon.daemonStatusFilePath() };
+  } catch (failure) {
+    return { error: describeFailure(failure) };
+  }
 }
 
 /**
@@ -185,6 +227,11 @@ class ClientHelper {
           this.#serveWindow(message.windowId, port);
         }
         return;
+      case "daemon.end":
+      case "daemon.endProcess":
+      case "process.identityRead":
+        void this.#answerServiceAsk(message);
+        return;
       case "filePaths.swapped":
       case "filePaths.swapRefused":
       case "filePaths.minted": {
@@ -196,6 +243,46 @@ class ClientHelper {
       default:
         this.#receive(this.#mainChannel, message);
     }
+  }
+
+  /** Answers one of main's service asks through the addon, which runs the ending's whole sequence. */
+  async #answerServiceAsk(ask: ClientHelperServiceAsk): Promise<void> {
+    let answer: ClientHelperServiceAnswer;
+    switch (ask.kind) {
+      case "daemon.end":
+        answer = {
+          kind: "daemon.ended",
+          askId: ask.askId,
+          outcome: await this.#addon.endDaemon(ask.request, ask.presentsToken),
+        };
+        break;
+      case "daemon.endProcess":
+        answer = {
+          kind: "daemon.ended",
+          askId: ask.askId,
+          outcome: await this.#addon.endDaemonProcess(JSON.stringify(ask.identity)),
+        };
+        break;
+      case "process.identityRead":
+        answer = this.#processIdentityAnswer(ask.askId, ask.processId);
+        break;
+    }
+    this.#parentPort.postMessage(answer);
+  }
+
+  #processIdentityAnswer(askId: number, processId: number): ClientHelperServiceAnswer {
+    let identity: string | null;
+    try {
+      identity = this.#addon.readProcessIdentity(processId);
+    } catch (failure) {
+      return { kind: "process.identityRefused", askId, error: describeFailure(failure) };
+    }
+    return {
+      kind: "process.identity",
+      askId,
+      // The addon writes the contract's own identity.
+      identity: identity === null ? undefined : (JSON.parse(identity) as ProcessIdentity),
+    };
   }
 
   /**
@@ -219,7 +306,7 @@ class ClientHelper {
     const isCurrent = (): boolean => generation === this.#linkGeneration;
     const onState = (state: string): void => {
       if (isCurrent()) {
-        // The addon reports only the four states it names.
+        // The addon reports only the five states it names.
         this.#parentPort.postMessage({ kind: "link.state", state: state as ClientHelperLinkState });
       }
     };
@@ -238,7 +325,11 @@ class ClientHelper {
     this.#isConnecting = false;
     if (connected.client === undefined) {
       const error = wireErrorOf(connected.error);
-      this.#parentPort.postMessage({ kind: "link.connectFailed", error });
+      this.#parentPort.postMessage({
+        kind: "link.connectFailed",
+        error,
+        ...(connected.cannotStart === undefined ? {} : { cannotStart: connected.cannotStart }),
+      });
       this.#settleLink({ error });
       return;
     }

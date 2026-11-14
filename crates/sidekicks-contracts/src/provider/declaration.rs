@@ -73,6 +73,7 @@ pub struct ProviderPlaceSwitch {
 
 impl ListKey for ProviderPlaceSwitch {
     type Key = Option<Place>;
+    const KEY_MEMBER: Option<&'static str> = Some("place");
 
     fn list_key(&self) -> Option<Place> {
         self.place.clone()
@@ -151,6 +152,7 @@ pub struct ProviderActionPlace {
 
 impl ListKey for ProviderActionPlace {
     type Key = Option<Place>;
+    const KEY_MEMBER: Option<&'static str> = Some("place");
 
     fn list_key(&self) -> Option<Place> {
         self.place.clone()
@@ -493,6 +495,7 @@ impl ProviderSessionOption {
 
 impl ListKey for ProviderSessionOption {
     type Key = ProviderDeclarationId;
+    const KEY_MEMBER: Option<&'static str> = Some("id");
 
     fn list_key(&self) -> ProviderDeclarationId {
         self.id.clone()
@@ -515,6 +518,7 @@ pub struct ProviderOptionSetting {
 
 impl ListKey for ProviderOptionSetting {
     type Key = ProviderDeclarationId;
+    const KEY_MEMBER: Option<&'static str> = Some("id");
 
     fn list_key(&self) -> ProviderDeclarationId {
         self.id.clone()
@@ -540,6 +544,7 @@ pub struct ObservedProviderOption {
 
 impl ListKey for ObservedProviderOption {
     type Key = ProviderDeclarationId;
+    const KEY_MEMBER: Option<&'static str> = Some("id");
 
     fn list_key(&self) -> ProviderDeclarationId {
         self.id.clone()

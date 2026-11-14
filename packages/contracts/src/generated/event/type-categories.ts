@@ -20,6 +20,7 @@ export const SESSION_EVENT_CATEGORY_RECORD = {
   "agent.run.rolledBack": "runLifecycle",
   "agent.run.providerInitialized": "runLifecycle",
   "agent.turn.started": "runLifecycle",
+  "agent.turn.steered": "runLifecycle",
   "agent.turn.completed": "runLifecycle",
   "agent.turn.interrupted": "runLifecycle",
   "agent.children.stopped": "runLifecycle",

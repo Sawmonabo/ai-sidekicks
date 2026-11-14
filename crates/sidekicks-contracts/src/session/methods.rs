@@ -199,6 +199,7 @@ pub struct SessionAddress {
 
 impl ListKey for SessionAddress {
     type Key = Option<Place>;
+    const KEY_MEMBER: Option<&'static str> = Some("place");
 
     fn list_key(&self) -> Option<Place> {
         self.place.clone()

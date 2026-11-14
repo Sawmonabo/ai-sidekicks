@@ -1,7 +1,7 @@
 // Writes a module's TypeScript types from its schema with json-schema-to-typescript. A member
-// carrying `tsType` (a brand, `Uint8Array` for bytes, the type of an Ajv `$data` value) becomes
-// that type as written, and a reference names its definition's type: imported from another module,
-// declared once in this one.
+// carrying `tsType` (a brand, `Uint8Array` for bytes) becomes that type as written, a keyword
+// whose value is an Ajv `$data` pointer is left to the check, and a reference names its
+// definition's type: imported from another module, declared once in this one.
 import type { SchemaObject } from "ajv/dist/2020.js";
 import { compile, type JSONSchema } from "json-schema-to-typescript";
 
@@ -32,17 +32,30 @@ function isConditionalRule(arm: unknown): boolean {
   );
 }
 
-/** Whether every arm of `arms` only restricts `schema`'s own shape, naming no member it lacks. */
+/** Keywords that name an arm's own type, so the arm is a type of the union and not only a rule. */
+const SHAPE_KEYWORDS = ["$ref", "enum", "const", "tsType"] as const;
+
+/**
+ * Whether every arm of `arms` only restricts `schema`'s own shape: it names no member `schema`
+ * lacks and states no shape of its own.
+ */
 function isRuleOnShape(schema: Record<string, unknown>, arms: unknown[]): boolean {
   const members = new Set(Object.keys((schema["properties"] ?? {}) as object));
   return (
     "type" in schema &&
-    arms.every((arm) =>
-      Object.keys(((arm as Record<string, unknown>)["properties"] ?? {}) as object).every(
-        (member) => members.has(member),
-      ),
-    )
+    arms.every((arm) => {
+      const rule = arm as Record<string, unknown>;
+      return (
+        SHAPE_KEYWORDS.every((keyword) => !(keyword in rule)) &&
+        Object.keys((rule["properties"] ?? {}) as object).every((member) => members.has(member))
+      );
+    })
   );
+}
+
+/** Whether `value` is an Ajv `$data` pointer, which a check reads from the data at run time. */
+function isDataPointer(value: unknown): boolean {
+  return value !== null && typeof value === "object" && "$data" in value;
 }
 
 /**
@@ -137,6 +150,8 @@ function prepareForTypes(node: unknown, imports: ModuleImports): unknown {
       .filter(([, value]) => value !== undefined)
       // A title would make the generator name the type after it instead of its definition.
       .filter(([key]) => key !== "title")
+      // A `$data` pointer is a rule on the data, which the type generator would write as a member.
+      .filter(([, value]) => !isDataPointer(value))
       .map(([key, value]) => [key, prepareKeyword(key, value, imports)]),
   );
 }

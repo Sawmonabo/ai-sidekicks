@@ -3,8 +3,8 @@
 
 // The usage-limit signal and the spent-retries signal a driver hands over with a turn's end, which a failed run's cause carries.
 
-import type { SchemaCheck } from "../../../schema-check.js";
-import type { WireInstant } from "../../internal/wire-scalars.js";
+import type { CompiledSchemaCheck } from "../../../schema-check.js";
+import { type WireInstant, validateWireInstant } from "../../internal/wire-scalars.js";
 import type { CredentialGeneration, ProviderAccountId } from "../account/record.js";
 
 /** Every usage-limit cause. */
@@ -62,23 +62,14 @@ export interface ProviderSpentRetriesSignal {
 }
 
 // prettier-ignore
-const schema2882: any = {"description":"Why a provider refused for spend, on an axis apart from the recovery condition. Only the plan's\nallowance for a rolling window clears on its own; a spent credit balance, a payment fault or a\nspending ceiling needs a person, so such a turn ends on the driver's ordinary failure path.","type":"string","enum":["planAllowanceExhausted"]};
-// prettier-ignore
-function validate1532(this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderUsageLimitCause {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validate1532.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validate1532.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!(data === "planAllowanceExhausted")){validate1532.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema2882.enum}}];return false;}validate1532.errors = vErrors;return errors === 0;}
-// prettier-ignore
-validate1532.errors = null as any[] | null;
-// prettier-ignore
-validate1532.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-const pattern5 = new RegExp("^(?:(?:[0-9][0-9][2468][048]|[0-9][0-9][13579][26]|[0-9][0-9]0[48]|[02468][048]00|[13579][26]00)-02-29|[0-9]{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)|(?:02)-(?:0[1-9]|1[0-9]|2[0-8])))T(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:Z|([+-](?:[01][0-9]|2[0-3]):[0-5][0-9])))$", "u");
-// prettier-ignore
-function validate1533(this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderUsageLimitResetBoundary {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validate1533.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.resetsAt === undefined) && (missing0 = "resetsAt")){validate1533.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "resetsAt")){validate1533.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.resetsAt !== undefined){let data0: any = data.resetsAt;const _errs3: any = errors;if(errors === _errs3){if(typeof data0 === "string"){if(!pattern5.test(data0)){validate1533.errors = [{instancePath:instancePath+"/resetsAt",schemaPath:"sidekicks-contracts:internal/wire-scalars#/$defs/WireInstant/pattern",keyword:"pattern",params:{pattern: "^(?:(?:[0-9][0-9][2468][048]|[0-9][0-9][13579][26]|[0-9][0-9]0[48]|[02468][048]00|[13579][26]00)-02-29|[0-9]{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)|(?:02)-(?:0[1-9]|1[0-9]|2[0-8])))T(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?(?:Z|([+-](?:[01][0-9]|2[0-3]):[0-5][0-9])))$"}}];return false;}}else {validate1533.errors = [{instancePath:instancePath+"/resetsAt",schemaPath:"sidekicks-contracts:internal/wire-scalars#/$defs/WireInstant/type",keyword:"type",params:{type: "string"}}];return false;}}}}}}else {validate1533.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validate1533.errors = vErrors;return errors === 0;}
-// prettier-ignore
-validate1533.errors = null as any[] | null;
-// prettier-ignore
-validate1533.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+const schema994: any = {"description":"Why a provider refused for spend, on an axis apart from the recovery condition. Only the plan's\nallowance for a rolling window clears on its own; a spent credit balance, a payment fault or a\nspending ceiling needs a person, so such a turn ends on the driver's ordinary failure path.","type":"string","enum":["planAllowanceExhausted"]};
 /** Checks that a value is a {@link ProviderUsageLimitCause}. */
-export const validateProviderUsageLimitCause: SchemaCheck<ProviderUsageLimitCause> = validate1532;
+// prettier-ignore
+export const validateProviderUsageLimitCause: CompiledSchemaCheck<ProviderUsageLimitCause> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderUsageLimitCause {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderUsageLimitCause.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validateProviderUsageLimitCause.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!(data === "planAllowanceExhausted")){validateProviderUsageLimitCause.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema994.enum}}];return false;}validateProviderUsageLimitCause.errors = vErrors;return errors === 0;};
+// prettier-ignore
+validateProviderUsageLimitCause.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
 /** Checks that a value is a {@link ProviderUsageLimitResetBoundary}. */
-export const validateProviderUsageLimitResetBoundary: SchemaCheck<ProviderUsageLimitResetBoundary> =
-  validate1533;
+// prettier-ignore
+export const validateProviderUsageLimitResetBoundary: CompiledSchemaCheck<ProviderUsageLimitResetBoundary> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is ProviderUsageLimitResetBoundary {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateProviderUsageLimitResetBoundary.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.resetsAt === undefined) && (missing0 = "resetsAt")){validateProviderUsageLimitResetBoundary.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "resetsAt")){validateProviderUsageLimitResetBoundary.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.resetsAt !== undefined){if(!(validateWireInstant.call(this, data.resetsAt, {instancePath:instancePath+"/resetsAt",parentData:data,parentDataProperty:"resetsAt",rootData,dynamicAnchors}))){vErrors = vErrors === null ? validateWireInstant.errors : vErrors.concat(validateWireInstant.errors);errors = vErrors.length;}}}}}else {validateProviderUsageLimitResetBoundary.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateProviderUsageLimitResetBoundary.errors = vErrors;return errors === 0;};
+// prettier-ignore
+validateProviderUsageLimitResetBoundary.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;

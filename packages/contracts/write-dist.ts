@@ -1,7 +1,8 @@
-// Lays out the package's WebAssembly half of `dist/` from a Cargo build of `crates/sidekicks-contracts`'
-// workflow checks, whose JSON messages arrive on standard input: `wasm-bindgen` links the module and
-// writes its JavaScript glue, and `dist/` takes the module as `workflow-check.wasm`, the glue as
-// `workflow-check.js` and `workflow-check.d.ts`, and the notices of the crates compiled into it.
+// Lays out the package's WebAssembly half of `dist/` from a Cargo build of
+// `crates/sidekicks-contracts`' workflow checks, whose JSON messages arrive on standard input:
+// `wasm-bindgen` links the module and writes its JavaScript glue, and `dist/` takes the module as
+// `workflow-check.wasm`, the glue as `workflow-check.js` and `workflow-check.d.ts`, and the
+// notices of the crates compiled into it.
 // The glue's format belongs to the `wasm-bindgen` crate the workspace locks, so the tool must be
 // that crate's release; a lock bump without its matching tool stops here.
 

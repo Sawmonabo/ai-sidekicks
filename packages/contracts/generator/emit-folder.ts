@@ -9,11 +9,15 @@ import { Ajv2020, type SchemaObject, type ValidateFunction } from "ajv/dist/2020
 /** The scheme of every contract module schema's `$id`: `sidekicks-contracts:<module path>`. */
 export const MODULE_ID_SCHEME = "sidekicks-contracts:";
 
-/** A constant a TypeScript client reads as a value, written as `export const NAME = … as const`. */
+/**
+ * A constant a TypeScript client reads as a value: declared as the contract type `typeName` names,
+ * a local definition or `<module>#<Name>`, else written `as const`.
+ */
 export interface ContractConstant {
   readonly name: string;
   readonly doc: string;
   readonly value: unknown;
+  readonly typeName?: string;
 }
 
 /** One method of a method table, its types named as a local definition or `<module>#<Name>`. */
@@ -89,6 +93,7 @@ const MODULE_FILE_SCHEMA = {
           name: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]*$" },
           doc: DOC,
           value: true,
+          typeName: { type: "string", pattern: TYPE_REFERENCE },
         },
       },
     },

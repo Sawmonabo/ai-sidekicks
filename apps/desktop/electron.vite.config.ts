@@ -364,7 +364,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
               if (chunk.facadeModuleId === null) {
                 throw new Error(`the worker entry chunk ${chunk.name} has no entry module`);
               }
-              return `assets/${workerBundleNameOf(chunk.facadeModuleId)}-[hash].js`;
+              return `assets/${workerBundleNameOf([chunk.facadeModuleId])}-[hash].js`;
             },
           },
         },

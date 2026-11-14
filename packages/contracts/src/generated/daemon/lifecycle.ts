@@ -3,7 +3,7 @@
 
 // The service's lifecycle verbs: stop, restart, the flush at quit and the ping on a quiet link.
 
-import type { SchemaCheck } from "../../schema-check.js";
+import type { CompiledSchemaCheck, SchemaCheck } from "../../schema-check.js";
 import { type EmptyPayload, validateEmptyPayload } from "../method-descriptor.js";
 
 /**
@@ -39,22 +39,16 @@ export interface DaemonFlushResponse {
   flushed: true;
 }
 
-// prettier-ignore
-function validate347(this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonFlushResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validate347.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.flushed === undefined) && (missing0 = "flushed")){validate347.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "flushed")){validate347.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.flushed !== undefined){let data0: any = data.flushed;if(typeof data0 !== "boolean"){validate347.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validate347.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validate347.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validate347.errors = vErrors;return errors === 0;}
-// prettier-ignore
-validate347.errors = null as any[] | null;
-// prettier-ignore
-validate347.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-// prettier-ignore
-function validate348(this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonLifecycleAccepted {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validate348.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.accepted === undefined) && (missing0 = "accepted")){validate348.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "accepted")){validate348.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.accepted !== undefined){let data0: any = data.accepted;if(typeof data0 !== "boolean"){validate348.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validate348.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validate348.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validate348.errors = vErrors;return errors === 0;}
-// prettier-ignore
-validate348.errors = null as any[] | null;
-// prettier-ignore
-validate348.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
-/** Checks that a value is a {@link DaemonFlushResponse}. */
-export const validateDaemonFlushResponse: SchemaCheck<DaemonFlushResponse> = validate347;
 /** Checks that a value is a {@link DaemonLifecycleAccepted}. */
-export const validateDaemonLifecycleAccepted: SchemaCheck<DaemonLifecycleAccepted> = validate348;
+// prettier-ignore
+export const validateDaemonLifecycleAccepted: CompiledSchemaCheck<DaemonLifecycleAccepted> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonLifecycleAccepted {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDaemonLifecycleAccepted.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.accepted === undefined) && (missing0 = "accepted")){validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "accepted")){validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.accepted !== undefined){let data0: any = data.accepted;if(typeof data0 !== "boolean"){validateDaemonLifecycleAccepted.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validateDaemonLifecycleAccepted.errors = [{instancePath:instancePath+"/accepted",schemaPath:"#/properties/accepted/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validateDaemonLifecycleAccepted.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateDaemonLifecycleAccepted.errors = vErrors;return errors === 0;};
+// prettier-ignore
+validateDaemonLifecycleAccepted.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
+/** Checks that a value is a {@link DaemonFlushResponse}. */
+// prettier-ignore
+export const validateDaemonFlushResponse: CompiledSchemaCheck<DaemonFlushResponse> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is DaemonFlushResponse {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateDaemonFlushResponse.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(errors === 0){if(data && typeof data == "object" && !Array.isArray(data)){let missing0: any;if((data.flushed === undefined) && (missing0 = "flushed")){validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0}}];return false;}else {const _errs1: any = errors;for(const key0 in data){if(!(key0 === "flushed")){validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0}}];return false;break;}}if(_errs1 === errors){if(data.flushed !== undefined){let data0: any = data.flushed;if(typeof data0 !== "boolean"){validateDaemonFlushResponse.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/type",keyword:"type",params:{type: "boolean"}}];return false;}if(true !== data0){validateDaemonFlushResponse.errors = [{instancePath:instancePath+"/flushed",schemaPath:"#/properties/flushed/const",keyword:"const",params:{allowedValue: true}}];return false;}}}}}else {validateDaemonFlushResponse.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"}}];return false;}}validateDaemonFlushResponse.errors = vErrors;return errors === 0;};
+// prettier-ignore
+validateDaemonFlushResponse.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false} as any;
 
 /** The methods of {@link DAEMON_LIFECYCLE_METHOD_DESCRIPTORS}, each with its checks. */
 export interface DaemonLifecycleMethodDescriptors {

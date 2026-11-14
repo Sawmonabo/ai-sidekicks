@@ -209,6 +209,7 @@ pub struct BackupKeptDistributionPart {
 
 impl ListKey for BackupKeptDistributionPart {
     type Key = DistroName;
+    const KEY_MEMBER: Option<&'static str> = Some("distro");
 
     fn list_key(&self) -> DistroName {
         self.distro.clone()

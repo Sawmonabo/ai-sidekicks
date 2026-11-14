@@ -17,7 +17,7 @@ pub struct TypeScriptModule {
     pub doc: &'static str,
     /// The types this module owns; each becomes one `$defs` entry and one exported type.
     pub definitions: &'static [Definition],
-    /// The constants written as `export const NAME = … as const`.
+    /// The constants written as `export const NAME`, each typed as its contract or `as const`.
     pub constants: &'static [TsConstant],
     /// The method tables written under their `*_METHOD_DESCRIPTORS` names.
     pub method_tables: &'static [&'static MethodTable],
@@ -96,17 +96,26 @@ pub struct TsConstant {
     pub doc: &'static str,
     /// The value as JSON; fails only where the value's own `Serialize` fails.
     pub value: fn() -> serde_json::Result<serde_json::Value>,
+    /// The contract type the value is declared as in TypeScript; without one it is written
+    /// `as const`.
+    pub type_name: Option<TypeName>,
 }
 
 /// Declares a module's constants and its `TS_CONSTANTS` table in one place, so each constant's
 /// doc is written once. `pub const NAME: T = value;` declares a Rust constant and lists it;
 /// `NAME = expression;` lists a value TypeScript reads that Rust holds in another form, such as an
-/// enum's variants. Every entry carries a `///` doc.
+/// enum's variants; `NAME: T = expression;` lists one TypeScript declares as the contract type `T`.
+/// Every entry carries a `///` doc.
 macro_rules! ts_constants {
-    (@table [$(($name:ident, $doc:expr, $value:expr))*]) => {
+    (@table [$(($name:ident, $doc:expr, $value:expr, $type_name:expr))*]) => {
         /// The constants this module's generated TypeScript exports, in order.
         pub(crate) const TS_CONSTANTS: &[$crate::typescript::TsConstant] = &[$(
-            $crate::typescript::TsConstant { name: stringify!($name), doc: $doc, value: $value },
+            $crate::typescript::TsConstant {
+                name: stringify!($name),
+                doc: $doc,
+                value: $value,
+                type_name: $type_name,
+            },
         )*];
     };
     (
@@ -118,7 +127,28 @@ macro_rules! ts_constants {
         $(#[doc = $doc])+
         pub const $name: $type = $value;
         $crate::typescript::ts_constants!(
-            @table [$($table)* ($name, concat!($($doc, "\n"),+), || serde_json::to_value($name))]
+            @table [$($table)* (
+                $name,
+                concat!($($doc, "\n"),+),
+                || serde_json::to_value($name),
+                None
+            )]
+            $($rest)*
+        );
+    };
+    (
+        @table [$($table:tt)*]
+        $(#[doc = $doc:literal])+
+        $name:ident: $type:ty = $value:expr;
+        $($rest:tt)*
+    ) => {
+        $crate::typescript::ts_constants!(
+            @table [$($table)* (
+                $name,
+                concat!($($doc, "\n"),+),
+                || serde_json::to_value::<$type>($value),
+                Some($crate::typescript::TypeName::of::<$type>())
+            )]
             $($rest)*
         );
     };
@@ -129,7 +159,12 @@ macro_rules! ts_constants {
         $($rest:tt)*
     ) => {
         $crate::typescript::ts_constants!(
-            @table [$($table)* ($name, concat!($($doc, "\n"),+), || serde_json::to_value($value))]
+            @table [$($table)* (
+                $name,
+                concat!($($doc, "\n"),+),
+                || serde_json::to_value($value),
+                None
+            )]
             $($rest)*
         );
     };

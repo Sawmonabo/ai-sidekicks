@@ -96,8 +96,16 @@ jobs:
               - '.nvmrc'
               - '.npmrc'
               - 'pnpm-workspace.yaml'
-              # The compression crate the desktop's build compiles to WebAssembly, the Cargo
-              # workspace files it builds under, and the toolchain that names its target.
+              # The crates the desktop's build compiles: the compression module, the matcher and the
+              # workflow checks to WebAssembly, and the client's addon with the crates it links.
+              - 'crates/sidekicks-compression/**'
+              - 'crates/sidekicks-search/**'
+              - 'crates/sidekicks-contracts/**'
+              - 'crates/sidekicks-client-addon/**'
+              - 'crates/sidekicks-client/**'
+              - 'crates/sidekicks-platforms/**'
+              - 'crates/sidekicks-std/**'
+              # The Cargo workspace files they build under, and the toolchain that names the target.
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -265,6 +273,33 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
           nextest: "true"
+
+      # The contracts' build links the workflow checks' WebAssembly with the `wasm-bindgen` tool of
+      # the release `Cargo.lock` holds for the `wasm-bindgen` crate, which the build checks: that
+      # release's prebuilt tool for the runner, checked against its published SHA-256. Every job
+      # that builds `@ai-sidekicks/contracts` repeats this step through the anchor.
+      - &wasm-bindgen-tool
+        name: Install the wasm-bindgen tool
+        shell: bash
+        run: |
+          VERSION="$(awk '$0 == "name = \"wasm-bindgen\"" { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
+          case "$RUNNER_OS-$(uname -m)" in
+            Linux-x86_64) TARGET="x86_64-unknown-linux-musl" ;;
+            Linux-aarch64) TARGET="aarch64-unknown-linux-musl" ;;
+            macOS-arm64) TARGET="aarch64-apple-darwin" ;;
+            macOS-x86_64) TARGET="x86_64-apple-darwin" ;;
+            *)
+              echo "::error::no wasm-bindgen release for $RUNNER_OS $(uname -m)"
+              exit 1
+              ;;
+          esac
+          ASSET="wasm-bindgen-${VERSION}-${TARGET}"
+          RELEASE="https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${VERSION}"
+          curl -fsSL "${RELEASE}/${ASSET}.tar.gz" -o "${RUNNER_TEMP}/${ASSET}.tar.gz"
+          SHA256="$(curl -fsSL "${RELEASE}/${ASSET}.tar.gz.sha256sum" | cut -d ' ' -f 1)"
+          echo "${SHA256}  ${RUNNER_TEMP}/${ASSET}.tar.gz" | shasum -a 256 -c -
+          tar -xzf "${RUNNER_TEMP}/${ASSET}.tar.gz" -C "${CARGO_HOME:-$HOME/.cargo}/bin" --strip-components 1 "${ASSET}/wasm-bindgen"
+          wasm-bindgen --version
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -457,6 +492,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      # The wasm-bindgen tool the contracts' build links with (see the `test` job).
+      - *wasm-bindgen-tool
+
       # A window manager on that display, for the leg that runs the end-to-end tier. Bare Xvfb has
       # none, and without one a window never minimizes, so the end-to-end check that minimizes a
       # window could only fail here. Openbox is one small package. Readiness comes from openbox
@@ -584,6 +622,9 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
+
+      # The wasm-bindgen tool the contracts' build links with (see the `test` job).
+      - *wasm-bindgen-tool
 
       - name: Build the fixture bundle
         run: pnpm turbo run build:fixtures --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
@@ -720,6 +761,9 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
+
+      # The wasm-bindgen tool the contracts' build links with (see the `test` job).
+      - *wasm-bindgen-tool
 
       # The builds the coverage run depends on, read off Turbo's own plan for it, at the default
       # concurrency.

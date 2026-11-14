@@ -380,6 +380,7 @@ type WorkflowHumanFormPathAnswers = UniqueList<WorkflowHumanFormPathAnswer, 0, {
 
 impl ListKey for WorkflowHumanFormPathAnswer {
     type Key = String;
+    const KEY_MEMBER: Option<&'static str> = Some("field");
 
     fn list_key(&self) -> String {
         self.field.as_str().to_owned()

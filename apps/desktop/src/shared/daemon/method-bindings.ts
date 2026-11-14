@@ -5,8 +5,10 @@
 //
 // The calls and the streams are split by each descriptor's `procedureType`: `DAEMON_METHOD_BINDINGS`
 // holds the queries and mutations, and `DaemonStreamMethod` names the subscriptions, which have no
-// reply to bind and which `streams.ts` names. The daemon's stop and restart are not here: they go
-// through main's supervisor, which flushes first.
+// reply to bind and which `streams.ts` names. What only main sends is not here: the daemon's stop
+// and restart, which go through main's supervisor; the app's diagnostics, which main redacts and
+// rate-limits; the machine's settings, which main relays to each window; and the presence
+// heartbeat, which main sends for the app.
 
 import {
   AGENT_METHOD_DESCRIPTORS,
@@ -21,10 +23,6 @@ import {
   type CommandMethodDescriptors,
 } from "@ai-sidekicks/contracts/command";
 import {
-  DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
-  type DaemonAppDiagnosticMethodDescriptors,
-} from "@ai-sidekicks/contracts/daemon/app-diagnostic";
-import {
   DAEMON_STATUS_METHOD_DESCRIPTORS,
   type DaemonStatusMethodDescriptors,
 } from "@ai-sidekicks/contracts/daemon/status";
@@ -36,10 +34,6 @@ import {
   HIGHLIGHT_METHOD_DESCRIPTORS,
   type HighlightMethodDescriptors,
 } from "@ai-sidekicks/contracts/highlight";
-import {
-  MACHINE_SETTINGS_METHOD_DESCRIPTORS,
-  type MachineSettingsMethodDescriptors,
-} from "@ai-sidekicks/contracts/machine/settings";
 import {
   MCP_EVENT_METHOD_DESCRIPTORS,
   type McpEventMethodDescriptors,
@@ -144,15 +138,13 @@ import {
 type WindowMethodTables = AgentMethodDescriptors &
   ArtifactMethodDescriptors &
   CommandMethodDescriptors &
-  DaemonAppDiagnosticMethodDescriptors &
   DaemonStatusMethodDescriptors &
   GitMethodDescriptors &
   HighlightMethodDescriptors &
-  MachineSettingsMethodDescriptors &
   McpEventMethodDescriptors &
   McpMethodDescriptors &
   OrchestrationMethodDescriptors &
-  PresenceMethodDescriptors &
+  Omit<PresenceMethodDescriptors, "presence.heartbeat.send"> &
   ProviderAccountMethodDescriptors &
   ProviderDriverMethodDescriptors &
   ProviderMethodDescriptors &
@@ -239,15 +231,14 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
     ...AGENT_METHOD_DESCRIPTORS,
     ...ARTIFACT_METHOD_DESCRIPTORS,
     ...COMMAND_METHOD_DESCRIPTORS,
-    ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
     ...DAEMON_STATUS_METHOD_DESCRIPTORS,
     ...GIT_METHOD_DESCRIPTORS,
     ...HIGHLIGHT_METHOD_DESCRIPTORS,
-    ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
     ...MCP_EVENT_METHOD_DESCRIPTORS,
     ...MCP_METHOD_DESCRIPTORS,
     ...ORCHESTRATION_METHOD_DESCRIPTORS,
-    ...PRESENCE_METHOD_DESCRIPTORS,
+    "presence.read": PRESENCE_METHOD_DESCRIPTORS["presence.read"],
+    "presence.subscribe": PRESENCE_METHOD_DESCRIPTORS["presence.subscribe"],
     ...PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
     ...PROVIDER_DRIVER_METHOD_DESCRIPTORS,
     ...PROVIDER_METHOD_DESCRIPTORS,

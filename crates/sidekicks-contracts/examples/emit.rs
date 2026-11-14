@@ -158,7 +158,17 @@ fn write_module(
         .iter()
         .map(|constant| {
             let value = (constant.value)()?;
-            Ok(json!({ "name": constant.name, "doc": doc_text(constant.doc), "value": value }))
+            let mut entry =
+                json!({ "name": constant.name, "doc": doc_text(constant.doc), "value": value });
+            if let Some(type_name) = constant.type_name {
+                entry["typeName"] = json!(type_reference(
+                    type_name,
+                    module.path,
+                    owners,
+                    constant.name
+                )?);
+            }
+            Ok(entry)
         })
         .collect::<EmitResult<Vec<_>>>()?;
 
@@ -207,23 +217,33 @@ fn point_references_at_owners(
     }
 }
 
+/// `type_name` as `module.json` names it from `module_path`: locally, or as `<module>#Name`;
+/// refuses a type no module lists, naming `user`, the table or constant that names it.
+fn type_reference(
+    type_name: TypeName,
+    module_path: &str,
+    owners: &HashMap<String, &'static str>,
+    user: &str,
+) -> EmitResult<String> {
+    let name = (type_name.0)().into_owned();
+    let owner = owners
+        .get(&name)
+        .ok_or_else(|| format!("{user}: type {name} is listed by no module"))?;
+    Ok(if *owner == module_path {
+        name
+    } else {
+        format!("{owner}#{name}")
+    })
+}
+
 /// One method table as `module.json` lists it, each type named locally or as `<module>#Name`.
 fn method_table_json(
     table: &MethodTable,
     module_path: &str,
     owners: &HashMap<String, &'static str>,
 ) -> EmitResult<Value> {
-    let reference = |type_name: TypeName| -> EmitResult<String> {
-        let name = (type_name.0)().into_owned();
-        let owner = owners
-            .get(&name)
-            .ok_or_else(|| format!("{}: method type {name} is listed by no module", table.name))?;
-        Ok(if *owner == module_path {
-            name
-        } else {
-            format!("{owner}#{name}")
-        })
-    };
+    let reference =
+        |type_name: TypeName| type_reference(type_name, module_path, owners, table.name);
     let methods = table
         .methods
         .iter()

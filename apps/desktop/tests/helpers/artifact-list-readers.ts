@@ -9,10 +9,7 @@ import { type Mock, vi } from "vitest";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
-import type {
-  ArtifactPayloadEncoding,
-  ArtifactReadResponse,
-} from "@ai-sidekicks/contracts/artifacts/operations";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
@@ -59,34 +56,39 @@ export const SERVED_SUMMARY: ArtifactManifest = {
 };
 
 /**
- * The version facts every served read of the row above carries: its one version, in view,
- * written when the row was.
+ * The version facts every served read of the row above carries: its one version, in view, whose
+ * manifest's `createdAt` says when it was written.
  */
-export const SERVED_VERSION: Pick<
-  ArtifactReadResponse,
-  "versionNumber" | "versionCount" | "versionWrittenAt"
-> = { versionNumber: 1, versionCount: 1, versionWrittenAt: "2026-09-02T07:00:00.000Z" };
+export const SERVED_VERSION: Pick<ArtifactReadResponse, "versionNumber" | "versionCount"> = {
+  versionNumber: 1,
+  versionCount: 1,
+};
 
 /** One served list of exactly the row above. */
 export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
 
-/** A served payload read on the inline arm, with the bytes and the encoding to read them by. */
-export function inlineRead(
-  payload: string,
-  encoding: ArtifactPayloadEncoding,
-): ArtifactReadResponse {
-  return { manifest: SERVED_SUMMARY, ...SERVED_VERSION, payload, payloadEncoding: encoding };
+/**
+ * A served payload read on the inline arm, its bytes written as `text` in `form`: base64 for
+ * bytes that are no text, UTF-8 for text.
+ */
+export function inlineRead(text: string, form: "base64" | "utf8"): ArtifactReadResponse {
+  return { manifest: SERVED_SUMMARY, ...SERVED_VERSION, payload: bytesOf(text, form) };
 }
 
-/** One served inline utf8 payload for a named artifact. */
+/** One served inline payload of `text` for a named artifact. */
 export function inlinePayloadRead(artifactId: string, text: string): ArtifactReadResponse {
   return {
     manifest: { ...SERVED_SUMMARY, id: artifactId as ArtifactId },
     ...SERVED_VERSION,
     payloadHandle: "sha256:2b4c",
-    payloadEncoding: "utf8",
-    payload: text,
+    payload: bytesOf(text, "utf8"),
   };
+}
+
+function bytesOf(text: string, form: "base64" | "utf8"): Uint8Array {
+  return form === "utf8"
+    ? new TextEncoder().encode(text)
+    : Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
 }
 
 /**

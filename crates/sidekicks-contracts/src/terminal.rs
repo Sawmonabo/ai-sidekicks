@@ -577,6 +577,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 impl ListKey for TerminalListEntry {
     type Key = TerminalId;
+    const KEY_MEMBER: Option<&'static str> = Some("terminalId");
 
     fn list_key(&self) -> TerminalId {
         self.terminal_id.clone()

@@ -4,17 +4,13 @@
 // retries while a started service binds its socket, the flush bound and the ending's signals. Main
 // decides only when to start and how long to back off. It never owns the service's life: a quit
 // sends `daemon.flush` alone and ends the helper, leaving the service, every run and every shell
-// running. Only the person's `Stop` and `Restart` end it, through the client's one ending; a
-// service whose link died, or that this app started and never answered, is ended by its process
-// identity at once. What the supervisor knows, the service's status file included, is published
-// on main's `DaemonLink`.
+// running. Only the person's `Stop` and `Restart` end it, through the client's one ending, which
+// the helper runs; a service that stopped answering, whose link is down, or that this app started
+// and never answered, is ended by its process identity at once. A service that cannot start over
+// its saved sessions is not started again until the person's `Retry`. What the supervisor knows,
+// the service's status file included, is published on main's `DaemonLink`.
 
-import {
-  HANDSHAKE_DEADLINE_MS,
-  type DaemonEnded,
-  type DaemonEndingOutcome,
-  type DaemonEndingRequest,
-} from "@ai-sidekicks/client-sdk";
+import type { DaemonEnded } from "@ai-sidekicks/client-sdk";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   DAEMON_REPAIRING_CODE,
@@ -22,7 +18,10 @@ import {
   type DaemonRepairingDetails,
   type DaemonRepairProgress,
 } from "@ai-sidekicks/contracts/daemon/recovery";
-import type { ServiceStatusFile } from "@ai-sidekicks/contracts/daemon/service-status";
+import type {
+  DaemonCannotStart,
+  ServiceStatusFile,
+} from "@ai-sidekicks/contracts/daemon/service-status";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
   CONNECTION_UNAVAILABLE_CODE,
@@ -61,22 +60,25 @@ const LOG_SOURCE = "main/services/daemon";
 export interface DaemonSupervisorOptions {
   /** Where the supervisor publishes the service's state and the connected client. */
   readonly link: DaemonLink;
-  /** The client helper, which holds the one connection to the service. */
+  /**
+   * The client helper, which holds the one connection to the service and runs the client's
+   * ending and its process identity reads.
+   */
   readonly helper: Pick<
     ClientHelperProcess,
-    "connect" | "closeLink" | "dispose" | "listen" | "call" | "subscribe"
+    | "connect"
+    | "closeLink"
+    | "dispose"
+    | "listen"
+    | "call"
+    | "subscribe"
+    | "facts"
+    | "endDaemon"
+    | "endDaemonProcess"
+    | "readProcessIdentity"
   >;
   /** Starts the service detached; rejects when it cannot start. */
   readonly startService: () => Promise<StartedService>;
-  /**
-   * Ends the service through the client's ending: the flush, `request`, the drain bound, then the
-   * terminate signal and the kill. Resolves once the service has ended, or with the error.
-   */
-  readonly endDaemon: (request: DaemonEndingRequest) => Promise<DaemonEndingOutcome>;
-  /** Ends the service process `identity` names at once, as one that stopped answering. */
-  readonly endServiceProcess: (identity: ProcessIdentity) => Promise<DaemonEndingOutcome>;
-  /** The identity the process `processId` names now; `undefined` when none holds it. */
-  readonly readProcessIdentity: (processId: number) => ProcessIdentity | undefined;
   /** The fact the service's status file holds; `undefined` when it wrote none. */
   readonly readServiceStatus: () => Promise<ServiceStatusFile | undefined>;
   readonly log: Pick<MainDiagnosticLog, "write">;
@@ -121,8 +123,10 @@ export class DaemonSupervisor implements ClientHelperListener {
   #isBringingBack = false;
   #lastError: string | undefined;
   #isStopRequested = false;
-  /** Why the service cannot start, as its status file last said. */
+  /** Why the service cannot start, as its status file or the last connect's failure said. */
   #cannotStart: MainProcessState["cannotStart"];
+  /** Why the service cannot start, as the last failed connect of a start said. */
+  #connectCannotStart: DaemonCannotStart | undefined;
   /** Why the person's last `Stop` did not happen. */
   #cannotStop: ServiceCannotStop | undefined;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -162,11 +166,12 @@ export class DaemonSupervisor implements ClientHelperListener {
   }
 
   /**
-   * The link died or is down: its service is ended as one that stopped answering, unless an ending
-   * is already under way, and main brings it back through its own start.
+   * The service stopped answering or the link is down: the service is ended as one that stopped
+   * answering, unless an ending is already under way, and main brings it back through its own
+   * start. A link the client is bringing back after its socket dropped is left to the client.
    */
   public linkStateChanged(state: ClientHelperLinkState): void {
-    if (this.#phase !== "linked" || (state !== "reconnecting" && state !== "down")) {
+    if (this.#phase !== "linked" || (state !== "silent" && state !== "down")) {
       return;
     }
     const identity = this.#current?.identity;
@@ -207,7 +212,7 @@ export class DaemonSupervisor implements ClientHelperListener {
     // Set before anything is sent, so a loss that lands before the ending settles reads as the stop.
     this.#isStopRequested = isStop;
     this.#cannotStop = undefined;
-    const ending = this.#options.endDaemon(isStop ? "stop" : "restart");
+    const ending = this.#helper.endDaemon(isStop ? "stop" : "restart");
     this.#trackEnding(ending.then(() => undefined));
     const outcome = await ending;
     if (isStop) {
@@ -276,12 +281,14 @@ export class DaemonSupervisor implements ClientHelperListener {
     const started = this.#liveStartedService();
     let identity: ProcessIdentity | undefined;
     try {
+      // The helper reported its bounds before it connected.
+      const { handshakeDeadlineMs } = await this.#helper.facts();
       // Bounded by the handshake deadline, so a service that answers it and then nothing fails.
-      const linked = await settleWithin(this.#linkedIdentity(started), HANDSHAKE_DEADLINE_MS);
+      const linked = await settleWithin(this.#linkedIdentity(started), handshakeDeadlineMs);
       if (!linked.isSettled) {
         throw new Error(
           `The background service did not answer daemon.status.read within ` +
-            `${String(HANDSHAKE_DEADLINE_MS / 1000)} seconds`,
+            `${String(handshakeDeadlineMs / 1000)} seconds`,
         );
       }
       identity = linked.value;
@@ -328,6 +335,7 @@ export class DaemonSupervisor implements ClientHelperListener {
    * service exited before it answered.
    */
   async #connectOrStart(): Promise<ConnectionInitializeResponse> {
+    this.#connectCannotStart = undefined;
     const probe = await this.#helper.connect(false);
     if (!("error" in probe)) {
       return probe.initializeResponse;
@@ -336,7 +344,7 @@ export class DaemonSupervisor implements ClientHelperListener {
       if (probe.error.data?.type === DAEMON_REPAIRING_CODE && !this.#isBringingBack) {
         this.#reportUnlinked({ kind: "repairing", progress: this.#repairProgressOf(probe.error) });
       }
-      return linkedOrThrow(await this.#helper.connect(true));
+      return this.#linkedOrThrow(await this.#helper.connect(true));
     }
     // A quit that began while the probe ran starts nothing.
     if (this.#isLettingGo()) {
@@ -366,7 +374,19 @@ export class DaemonSupervisor implements ClientHelperListener {
       // later start.
       this.#endStartedService();
     }
-    return linkedOrThrow(waited);
+    return this.#linkedOrThrow(waited);
+  }
+
+  /**
+   * The handshake answer of a connect that linked; rejects with the refusal of one that did not,
+   * keeping why the service cannot start when the failure says.
+   */
+  #linkedOrThrow(outcome: ClientHelperConnectOutcome): ConnectionInitializeResponse {
+    if ("error" in outcome) {
+      this.#connectCannotStart = outcome.cannotStart;
+      throw new DaemonRefusal(outcome.error);
+    }
+    return outcome.initializeResponse;
   }
 
   /**
@@ -388,7 +408,7 @@ export class DaemonSupervisor implements ClientHelperListener {
       });
       return started === undefined
         ? undefined
-        : this.#options.readProcessIdentity(started.processId);
+        : await this.#helper.readProcessIdentity(started.processId);
     }
   }
 
@@ -438,33 +458,35 @@ export class DaemonSupervisor implements ClientHelperListener {
     return started !== undefined && !started.hasExited() ? started : undefined;
   }
 
-  /** End the service this app started, if it still runs, as one that never answered. */
+  /**
+   * End the service this app started, if it still runs, as one that never answered. The ending is
+   * held from now, its identity read included, so the next start waits for both.
+   */
   #endStartedService(): void {
     const started = this.#liveStartedService();
     if (started === undefined) {
       return;
     }
-    let identity: ProcessIdentity | undefined;
-    try {
-      identity = this.#options.readProcessIdentity(started.processId);
-    } catch (failure) {
-      this.#logEndingFailure(failure);
-      return;
-    }
-    if (identity !== undefined) {
-      this.#endProcess(identity);
-    }
+    this.#trackEnding(
+      this.#helper.readProcessIdentity(started.processId).then(async (identity) => {
+        if (identity !== undefined) {
+          await this.#endingOf(identity);
+        }
+      }),
+    );
   }
 
   /** End the service process `identity` names at once; the next start waits for it. */
   #endProcess(identity: ProcessIdentity): void {
-    this.#trackEnding(
-      this.#options.endServiceProcess(identity).then((outcome) => {
-        if (outcome.error !== undefined) {
-          this.#logEndingFailure((outcome.error as JsonRpcError).message);
-        }
-      }),
-    );
+    this.#trackEnding(this.#endingOf(identity));
+  }
+
+  /** The helper's ending of the process `identity` names; an ending that failed is logged. */
+  async #endingOf(identity: ProcessIdentity): Promise<void> {
+    const outcome = await this.#helper.endDaemonProcess(identity);
+    if (outcome.error !== undefined) {
+      this.#logEndingFailure((outcome.error as JsonRpcError).message);
+    }
   }
 
   /** Hold `ending` until it settles, so the next start and the quit wait for it; a failure is logged. */
@@ -510,11 +532,16 @@ export class DaemonSupervisor implements ClientHelperListener {
     }
   }
 
-  /** Why the service cannot start, as its status file says, kept for every state reported. */
+  /**
+   * Why the service cannot start, kept for every state reported: as its status file says, or else
+   * as the start's failed connect said.
+   */
   async #readCannotStart(): Promise<void> {
     const status = await this.#readStatusFile();
     this.#cannotStart =
-      status !== undefined && "cannotStart" in status ? status.cannotStart : undefined;
+      status !== undefined && "cannotStart" in status
+        ? status.cannotStart
+        : this.#connectCannotStart;
   }
 
   /** The status file's fact; a file that cannot be read counts as none, and is logged. */
@@ -542,7 +569,12 @@ export class DaemonSupervisor implements ClientHelperListener {
       source: LOG_SOURCE,
       message: `The background service did not start: ${this.#lastError}`,
     });
-    if (this.#consecutiveFailedStarts >= SERVICE_START_BACKOFF_MS.length) {
+    // Saved sessions the service cannot open stay so until the person acts, so it is not started
+    // again until `Retry`.
+    if (
+      this.#consecutiveFailedStarts >= SERVICE_START_BACKOFF_MS.length ||
+      isOverSavedSessions(this.#cannotStart)
+    ) {
       this.#phase = "degraded";
       this.#reportUnlinked({
         kind: "degraded",
@@ -625,12 +657,12 @@ function negotiationOf(response: ConnectionInitializeResponse): MainProcessNegot
   };
 }
 
-/** The handshake answer of a connect that linked; rejects with the refusal of one that did not. */
-function linkedOrThrow(outcome: ClientHelperConnectOutcome): ConnectionInitializeResponse {
-  if ("error" in outcome) {
-    throw new DaemonRefusal(outcome.error);
-  }
-  return outcome.initializeResponse;
+/** Whether the service cannot start over its saved sessions, which no later start mends. */
+function isOverSavedSessions(cannotStart: DaemonCannotStart | undefined): boolean {
+  return (
+    cannotStart?.reason === "savedSessionsUnrepaired" ||
+    cannotStart?.reason === "savedSessionsFromAnotherVersion"
+  );
 }
 
 /**

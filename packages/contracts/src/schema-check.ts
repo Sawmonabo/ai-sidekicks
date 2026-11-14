@@ -1,7 +1,7 @@
 // What a generated schema check needs at run time: the type every check has, the context that
 // carries a message's byte attachments, the `format` rules no JSON Schema keyword states, the
-// byte measure of a value's byte cap, and the two Ajv helpers the checks call. The checks are
-// generated from the Rust contracts.
+// byte measure of a value's byte cap, the repeat a keyed list refuses, and the two Ajv helpers the
+// checks call. The checks are generated from the Rust contracts.
 import type { ErrorObject } from "ajv";
 import ajvEqualModule from "ajv/dist/runtime/equal.js";
 import ajvUcs2lengthModule from "ajv/dist/runtime/ucs2length.js";
@@ -25,6 +25,24 @@ export interface SchemaCheckContext {
 export interface SchemaCheck<T> {
   (this: SchemaCheckContext | void, value: unknown): value is T;
   errors?: ErrorObject[] | null;
+}
+
+/**
+ * A generated check as the generated modules hold and call one another's: also called with Ajv's
+ * own context, and carrying what Ajv reads off a check it calls. It is a {@link SchemaCheck}.
+ */
+export interface CompiledSchemaCheck<T> {
+  (this: unknown, value: unknown, context?: object): value is T;
+  errors?: ErrorObject[] | null;
+  evaluated?: CheckEvaluation;
+}
+
+/** What a check records it evaluated, which a check that calls it reads for `unevaluated*`. */
+export interface CheckEvaluation {
+  props?: true | Record<string, true>;
+  items?: true | number;
+  dynamicProps: boolean;
+  dynamicItems: boolean;
 }
 
 /** Whether `address`, trimmed, parses as an `https:` address. */
@@ -127,3 +145,16 @@ export const ucs2length: (text: string) => number = commonJsDefault(ajvUcs2lengt
 export const deepEqual: (left: unknown, right: unknown) => boolean = commonJsDefault(
   ajvEqualModule,
 ) as (left: unknown, right: unknown) => boolean;
+
+/**
+ * Whether two of `items` hold equal values at `member`, a member absent from both counting as
+ * equal: the repeated key a list keyed by one member refuses.
+ */
+export function repeatsItemKey(items: readonly unknown[], member: string): boolean {
+  const keys = items.map((item) =>
+    item !== null && typeof item === "object" && Object.hasOwn(item, member)
+      ? (item as Record<string, unknown>)[member]
+      : undefined,
+  );
+  return keys.some((key, index) => keys.slice(0, index).some((earlier) => deepEqual(earlier, key)));
+}

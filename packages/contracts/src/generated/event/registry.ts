@@ -24,6 +24,7 @@ export type SessionEventType =
   | "agent.run.rolledBack"
   | "agent.run.providerInitialized"
   | "agent.turn.started"
+  | "agent.turn.steered"
   | "agent.turn.completed"
   | "agent.turn.interrupted"
   | "agent.children.stopped"

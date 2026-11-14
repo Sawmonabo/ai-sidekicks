@@ -386,6 +386,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 
 impl ListKey for RunningCommand {
     type Key = CommandId;
+    const KEY_MEMBER: Option<&'static str> = Some("commandId");
 
     fn list_key(&self) -> CommandId {
         self.command_id.clone()

@@ -1,14 +1,17 @@
 // Main's side of the client helper: the utility process main forks, connects and closes, the calls
-// and streams main makes over its parentPort, the file-path asks it answers for a window, and the
-// window ports it hands over. A fork is made when main connects with no helper running, so a
-// helper that exits comes back on the supervisor's next start, at its backoff, and each window
-// asks for a new port once its old one closes. Every call and stream main holds fails once the
-// helper exits.
+// and streams main makes over its parentPort, the service's ending and the process identity reads
+// it asks the helper for, the file-path asks it answers for a window, and the window ports it
+// hands over. A fork is made when main connects or asks with no helper running, so a helper that
+// exits comes back on the supervisor's next start, at its backoff, or before main's next ask, and
+// each window asks for a new port once its old one closes. Every call, stream and ask main holds
+// fails once the helper exits. Main loads no addon: the helper reports the client's bounds.
 
-import { DAEMON_FLUSH_WAIT_MS } from "@ai-sidekicks/client-sdk";
+import type { DaemonEndingOutcome, DaemonEndingRequest } from "@ai-sidekicks/client-sdk";
 import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
+import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-status";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
 import type { FilePathRefOwner } from "#main/bridge/file-path/refs.js";
@@ -18,7 +21,9 @@ import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import type { ClientHelperAnswer } from "#shared/daemon/port-message.js";
 
 import type {
+  ClientHelperFacts,
   ClientHelperLinkState,
+  ClientHelperServiceAsk,
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
@@ -96,10 +101,13 @@ export interface ClientHelperListener {
   exited(): void;
 }
 
-/** A connect's outcome: the daemon's answer to the handshake once the link is up, or the error. */
+/**
+ * A connect's outcome: the daemon's answer to the handshake once the link is up, or the error and,
+ * when the failure says, why the service cannot start.
+ */
 export type ClientHelperConnectOutcome =
   | { readonly initializeResponse: ConnectionInitializeResponse }
-  | { readonly error: JsonRpcError };
+  | { readonly error: JsonRpcError; readonly cannotStart?: DaemonCannotStart };
 
 /** What the helper's side in main is built over. */
 export interface ClientHelperProcessOptions {
@@ -132,20 +140,81 @@ export class ClientHelperProcess implements MainDaemonClient {
   #pendingConnect: PromiseWithResolvers<ClientHelperConnectOutcome> | undefined;
   readonly #calls = new Map<number, PendingCall>();
   readonly #streams = new Map<number, OpenStream>();
+  /** The endings main asked for and the helper has yet to answer, by ask id. */
+  readonly #endings = new Map<number, PromiseWithResolvers<DaemonEndingOutcome>>();
+  /** The process identity reads main asked for and the helper has yet to answer, by ask id. */
+  readonly #identityReads = new Map<number, PromiseWithResolvers<ProcessIdentity | undefined>>();
+  /** What the first helper reported at start; the client's bounds never change. */
+  #facts: ClientHelperFacts | undefined;
+  #pendingFacts: PromiseWithResolvers<ClientHelperFacts> | undefined;
   /** Every window that handed main a port, by id, for the file-path asks its calls make. */
   readonly #windows = new Map<number, FilePathRefOwner>();
   /** A window's port held while no helper runs, handed over at the next fork. */
   readonly #heldPorts = new Map<number, ClientHelperPortTransfer>();
   #nextRequestId = 0;
+  #nextAskId = 0;
   #isDisposed = false;
 
   public constructor(options: ClientHelperProcessOptions) {
     this.#options = options;
   }
 
-  /** How long a flush may take before a quit, a stop or a restart goes ahead without it, in ms. */
+  /**
+   * How long a flush may take before a quit goes ahead without it, in ms. Before the helper first
+   * reports, no link has been up and no ending runs, so a quit then has nothing to wait for.
+   */
   public get flushWaitMs(): number {
-    return DAEMON_FLUSH_WAIT_MS;
+    return this.#facts?.flushWaitMs ?? 0;
+  }
+
+  /**
+   * The client's bounds and the status file's place, as the helper reported them at start; forks
+   * the helper when none has reported yet. Rejects when it exits first.
+   */
+  public facts(): Promise<ClientHelperFacts> {
+    if (this.#facts !== undefined) {
+      return Promise.resolve(this.#facts);
+    }
+    this.#runningHelper();
+    this.#pendingFacts ??= Promise.withResolvers<ClientHelperFacts>();
+    return this.#pendingFacts.promise;
+  }
+
+  /**
+   * End the service through the client's one ending: the flush, `request`, the drain bound, then
+   * the terminate signal and the kill. Resolves once the service has ended, or with the error.
+   */
+  public endDaemon(request: DaemonEndingRequest): Promise<DaemonEndingOutcome> {
+    return this.#askService(this.#endings, (askId) => ({
+      kind: "daemon.end",
+      askId,
+      request,
+      presentsToken: this.#options.presentsToken,
+    }));
+  }
+
+  /**
+   * End the service process `identity` names at once, as one whose link died or that never
+   * answered: the terminate signal, and the kill once the drain bound and its grace have passed.
+   */
+  public endDaemonProcess(identity: ProcessIdentity): Promise<DaemonEndingOutcome> {
+    return this.#askService(this.#endings, (askId) => ({
+      kind: "daemon.endProcess",
+      askId,
+      identity,
+    }));
+  }
+
+  /**
+   * The identity of the process `processId` names now, or `undefined` when no process holds it.
+   * Rejects with the system's error.
+   */
+  public readProcessIdentity(processId: number): Promise<ProcessIdentity | undefined> {
+    return this.#askService(this.#identityReads, (askId) => ({
+      kind: "process.identityRead",
+      askId,
+      processId,
+    }));
   }
 
   /** Hear the link's state and the helper's exit; one listener, the supervisor. */
@@ -269,6 +338,22 @@ export class ClientHelperProcess implements MainDaemonClient {
     };
   }
 
+  /**
+   * Sends the helper the ask `askOf` builds, forking it first when none runs, and holds it in
+   * `pending` until the helper answers or exits.
+   */
+  #askService<Answer>(
+    pending: Map<number, PromiseWithResolvers<Answer>>,
+    askOf: (askId: number) => ClientHelperServiceAsk,
+  ): Promise<Answer> {
+    const helper = this.#runningHelper();
+    const askId = this.#nextAskId++;
+    const answered = Promise.withResolvers<Answer>();
+    pending.set(askId, answered);
+    helper.postMessage(askOf(askId));
+    return answered.promise;
+  }
+
   /** The helper running now, forked when none is. */
   #runningHelper(): ClientHelperUtilityProcess {
     if (this.#helper !== undefined) {
@@ -314,7 +399,27 @@ export class ClientHelperProcess implements MainDaemonClient {
         this.#settleConnect({ initializeResponse: message.initializeResponse });
         return;
       case "link.connectFailed":
-        this.#settleConnect({ error: message.error });
+        this.#settleConnect(
+          message.cannotStart === undefined
+            ? { error: message.error }
+            : { error: message.error, cannotStart: message.cannotStart },
+        );
+        return;
+      case "helper.started": {
+        this.#facts ??= message;
+        const pending = this.#pendingFacts;
+        this.#pendingFacts = undefined;
+        pending?.resolve(this.#facts);
+        return;
+      }
+      case "daemon.ended":
+        takeAsk(this.#endings, message.askId)?.resolve(message.outcome);
+        return;
+      case "process.identity":
+        takeAsk(this.#identityReads, message.askId)?.resolve(message.identity);
+        return;
+      case "process.identityRefused":
+        takeAsk(this.#identityReads, message.askId)?.reject(new Error(message.error));
         return;
       case "link.state":
         this.#listener?.linkStateChanged(message.state);
@@ -369,6 +474,15 @@ export class ClientHelperProcess implements MainDaemonClient {
     const pendingConnect = this.#pendingConnect;
     this.#pendingConnect = undefined;
     pendingConnect?.reject(new Error("The client helper exited before it connected."));
+    const pendingFacts = this.#pendingFacts;
+    this.#pendingFacts = undefined;
+    pendingFacts?.reject(new Error("The client helper exited before it started."));
+    const asks = [...this.#endings.values(), ...this.#identityReads.values()];
+    this.#endings.clear();
+    this.#identityReads.clear();
+    for (const ask of asks) {
+      ask.reject(new Error("The client helper exited before it answered."));
+    }
     const calls = [...this.#calls.values()];
     this.#calls.clear();
     for (const call of calls) {
@@ -383,6 +497,16 @@ export class ClientHelperProcess implements MainDaemonClient {
       this.#listener?.exited();
     }
   }
+}
+
+/** Takes the ask `askId` out of `pending`, which holds it until the helper answers. */
+function takeAsk<Answer>(
+  pending: Map<number, PromiseWithResolvers<Answer>>,
+  askId: number,
+): PromiseWithResolvers<Answer> | undefined {
+  const ask = pending.get(askId);
+  pending.delete(askId);
+  return ask;
 }
 
 /**

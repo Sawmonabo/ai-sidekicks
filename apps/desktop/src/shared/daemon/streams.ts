@@ -3,7 +3,10 @@
 // machine settings feed from here.
 //
 // The names are written as strings so the sandboxed preload loads none of the generated checks;
-// each is checked against the generated method tables, so it must be one of their subscriptions.
+// each is checked against the generated method tables, so it must be one of their subscriptions:
+// a window's, or for the machine settings feed, which only main opens, the settings table.
+
+import type { MachineSettingsMethodDescriptors } from "@ai-sidekicks/contracts/machine/settings";
 
 import type { DaemonStreamMethod } from "./method-bindings.js";
 
@@ -68,9 +71,14 @@ export const SKILL_LIST_STREAM: Subscription<"skill.subscribe"> = "skill.subscri
 export const RUNNING_COMMAND_STREAM: Subscription<"agent.command.subscribe"> =
   "agent.command.subscribe";
 
-/** The subscription name for the machine's settings file: the file, then each written change. */
-export const MACHINE_SETTINGS_STREAM: Subscription<"machine.settings.subscribe"> =
-  "machine.settings.subscribe";
+/**
+ * The subscription name for the machine's settings file: the file, then each written change. Main
+ * opens it on its own channel and relays it to each window under the same name.
+ */
+export const MACHINE_SETTINGS_STREAM: Extract<
+  keyof MachineSettingsMethodDescriptors,
+  "machine.settings.subscribe"
+> = "machine.settings.subscribe";
 
 /** One daemon subscription the app opens, each a subscription of the generated method tables. */
 export type DaemonStream =

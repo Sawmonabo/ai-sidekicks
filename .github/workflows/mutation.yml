@@ -38,8 +38,8 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
     env:
       # Shards per package, sized from the measured full-run cost and kept to
-      # 19 jobs in all, under the 20 jobs a free plan runs at once.
-      MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 3, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 12}'
+      # 18 jobs in all, under the 20 jobs a free plan runs at once.
+      MUTATION_SHARDS: '{"contracts": 3, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 12}'
     steps:
       - name: Checkout
         uses: actions/checkout@v7

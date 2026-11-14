@@ -2,11 +2,11 @@
 // value of the registered shape.
 //
 // All four claims are about a `ScenarioReply`: the entry can be reached, the call it answers
-// exists, the delay it scripts can be spent, and a value it scripts outright parses against the
-// method's response schema. A scenario failing any of them has a reply no transport would give,
+// exists, the delay it scripts can be spent, and a value it scripts outright passes the method's
+// generated response check. A scenario failing any of them has a reply no transport would give,
 // and it shows up only as a view that never leaves its loading state or one trained on a frame
 // the daemon cannot send. A computed answer exists only once a request is in hand, so the fixture
-// daemon holds it to the same schema when it settles.
+// daemon holds it to the same check when it settles.
 //
 // The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
 // to make up as to transcribe: a scenario answering `workflow.runsList` renders a view that looks
@@ -61,7 +61,7 @@ export function findReplyDefects(scenario: Scenario): readonly ScenarioContractD
 }
 
 /**
- * A scripted value its method's response schema refuses, or `undefined` when it parses, the reply
+ * A scripted value its method's response check refuses, or `undefined` when it passes, the reply
  * computes or refuses instead, or the call is unregistered (reported by its own check).
  */
 function describeResultDefect(reply: ScenarioReply): string | undefined {
@@ -69,12 +69,13 @@ function describeResultDefect(reply: ScenarioReply): string | undefined {
   if (binding === undefined || reply.refusal !== undefined || reply.resultFor !== undefined) {
     return undefined;
   }
-  const parsed = binding.responseSchema.safeParse(reply.result);
-  if (parsed.success) {
+  // A scripted value carries no byte attachments.
+  const check = binding.responseCheck;
+  if (check.call({ attachments: [] }, reply.result)) {
     return undefined;
   }
-  const issues = parsed.error.issues
-    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+  const issues = (check.errors ?? [])
+    .map((fault) => `${fault.instancePath || "(root)"}: breaks the "${fault.keyword}" rule`)
     .join("; ");
   return (
     `it scripts a value the registered response for "${reply.call}" refuses (${issues}). ` +

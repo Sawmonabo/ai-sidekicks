@@ -12,6 +12,7 @@ import {
   type ClientHelperParentPort,
   type ClientHelperWindowPort,
 } from "./helper.js";
+import { scriptedAddon } from "./helper.test-support.js";
 import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
@@ -71,10 +72,10 @@ function servedHelper() {
         toMain.push(message);
       },
     },
-    {
+    scriptedAddon({
       connect: () => Promise.resolve(connected),
       waitForDaemon: () => Promise.resolve(connected),
-    },
+    }),
   );
   const sendFromMain = (data: MainToClientHelperMessage, ports: ClientHelperWindowPort[] = []) => {
     fromMain!({ data, ports });
@@ -306,7 +307,10 @@ describe("the client helper", () => {
           toMain.push(message);
         },
       },
-      { connect: () => new Promise(() => undefined), waitForDaemon: () => waited.promise },
+      scriptedAddon({
+        connect: () => new Promise(() => undefined),
+        waitForDaemon: () => waited.promise,
+      }),
     );
     fromMain!({
       data: { kind: "link.connect", presentsToken: true, waitsForStart: true },
@@ -318,6 +322,6 @@ describe("the client helper", () => {
     await vi.waitFor(() => {
       expect(daemon.client.close).toHaveBeenCalledOnce();
     });
-    expect(toMain).toStrictEqual([]);
+    expect(toMain.filter((message) => message.kind !== "helper.started")).toStrictEqual([]);
   });
 });

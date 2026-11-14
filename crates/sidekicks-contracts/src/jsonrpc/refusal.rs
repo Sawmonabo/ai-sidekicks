@@ -1,12 +1,13 @@
 //! The refusal codes: every `data.type` a refusal carries, each with its category, the
 //! `data.category` a client acts on when it does not know the code, and the HTTP status a control
-//! plane route answers it with. TypeScript gets the codes as one string union.
+//! plane route answers it with. TypeScript gets the codes as one string union and each code's
+//! category as a record.
 
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 
 pub mod category;
 
@@ -877,6 +878,15 @@ refusal_codes! {
     WorktreeRetireIncomplete = "worktree.retireIncomplete" (FailedPrecondition, 409);
 }
 
+ts_constants! {
+    /// Each refusal code's category, keyed by the code, so a client that refuses on the daemon's
+    /// behalf answers the category the daemon would.
+    REFUSAL_CODE_CATEGORIES = RefusalCode::ALL
+        .iter()
+        .map(|code| (code.as_str(), code.known_category().as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+}
+
 /// The TypeScript module that owns the refusal union.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: RefusalCode::TYPESCRIPT_MODULE_PATH,
@@ -885,6 +895,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<KnownRefusalCategory>(),
         Definition::read::<RefusalCategory>(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[],
 };

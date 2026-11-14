@@ -44,6 +44,9 @@ pub enum DaemonCannotStart {
     },
     /// The saved sessions are from another version of the service, which this one never migrates.
     SavedSessionsFromAnotherVersion {},
+    /// The run folder holds no token file once the service's start deadline passed, so no client
+    /// can be let in: a client reads this itself, since the service never got as far as writing it.
+    TokenFileMissing {},
 }
 
 /// A step of the service's stop that a `stopping` record names while its wait runs.

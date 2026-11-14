@@ -159,8 +159,12 @@ pub enum ConnectionState {
     /// The link is open but no frame came for a while; a `daemon.ping` is out.
     Quiet,
     /// The link was lost and is being opened again on the schedule, for the whole reopen window;
-    /// calls are held for it.
-    Reconnecting,
+    /// calls are held for it. `was_silent` holds where the link was dropped because the daemon
+    /// sent nothing for as long as the link watch allows, a daemon that is running but hung.
+    Reconnecting {
+        /// Whether the link ended for the daemon's silence rather than a closed socket.
+        was_silent: bool,
+    },
     /// The reopen window passed with every attempt failed; calls settle `connection.unavailable`
     /// at once until `retry`.
     Down,
@@ -274,7 +278,7 @@ impl DaemonConnection {
             if *state != ConnectionState::Down {
                 return false;
             }
-            *state = ConnectionState::Reconnecting;
+            *state = ConnectionState::Reconnecting { was_silent: false };
             self.client.hold_calls();
             true
         });
@@ -367,7 +371,9 @@ async fn supervise<C: DaemonConnector>(
     let mut link = first_link;
     loop {
         let fault = watch_link(&client, &link, &state).await;
-        state.send_replace(ConnectionState::Reconnecting);
+        state.send_replace(ConnectionState::Reconnecting {
+            was_silent: matches!(fault, LinkFault::Silent),
+        });
         link = loop {
             if let Some(reopened) = reopen_on_schedule(&client, &connector).await {
                 break reopened;

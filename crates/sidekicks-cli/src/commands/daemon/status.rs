@@ -309,6 +309,11 @@ pub(crate) fn describe_cannot_start(cannot_start: &DaemonCannotStart) -> String 
             "Saved sessions are from another version".to_owned(),
             "Open the app version that saved them, or restore a backup.".to_owned(),
         ],
+        DaemonCannotStart::TokenFileMissing {} => vec![
+            "The background service cannot start because it wrote no token file to let the app \
+             in. Restart it with `sidekicks daemon restart`."
+                .to_owned(),
+        ],
     };
     ended_lines(&lines)
 }

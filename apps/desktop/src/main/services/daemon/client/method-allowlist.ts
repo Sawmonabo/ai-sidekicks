@@ -1,16 +1,20 @@
 // The daemon methods the desktop calls and opens, one list per channel, and the check every request
 // takes before the addon sees it: a method off its channel's list, or called as the other kind, is
 // refused as `request.methodNotAllowed`, and params that fail the method's generated check as
-// `request.paramsInvalid`, each in the wire's error shape a daemon refusal takes. A window's list
-// is the bindings' tables and holds none of the daemon's lifecycle: stopping, restarting and
-// flushing go through main's supervisor. The addon checks the params against the method's
-// whole contract again as the last line.
+// `request.paramsInvalid`, each in the wire's error shape a daemon refusal takes, under the
+// category the contracts file each code in. A window's list is the bindings' tables and holds
+// nothing only main sends: the daemon's lifecycle, which goes through main's supervisor, the app's
+// diagnostics, the machine's settings and the presence heartbeat. The addon checks the params
+// against the method's whole contract again as the last line.
 
+import { DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
-import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
+import { REFUSAL_CODE_CATEGORIES, type RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
+import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
+import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 
 import { issuePathOf } from "#shared/daemon/fault-path.js";
 import {
@@ -24,10 +28,16 @@ export type ClientHelperChannelKind = "main" | "window";
 /** Every method a window calls or opens: the generated tables the window's bindings name. */
 const WINDOW_METHODS: Readonly<Record<string, WindowMethodDescriptor>> = WINDOW_METHOD_DESCRIPTORS;
 
-/** Every method main calls or opens: a window's, and the daemon's lifecycle, which only main sends. */
+/**
+ * Every method main calls or opens: a window's, and those only main sends, the daemon's lifecycle,
+ * the app's diagnostics, the machine's settings and the presence heartbeat.
+ */
 const MAIN_METHODS: Readonly<Record<string, WindowMethodDescriptor>> = Object.freeze({
   ...WINDOW_METHODS,
   ...DAEMON_LIFECYCLE_METHOD_DESCRIPTORS,
+  ...DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
+  ...MACHINE_SETTINGS_METHOD_DESCRIPTORS,
+  ...PRESENCE_METHOD_DESCRIPTORS,
 });
 
 /** Each channel's list. */
@@ -85,22 +95,17 @@ export function paramsRefusal(method: string, issues: readonly Issue[]): JsonRpc
   );
 }
 
-/**
- * A refusal in the wire's error shape. Both codes this module raises the daemon files under
- * `invalidArgument`, which the generated contracts carry only as a type.
- */
+/** A refusal in the wire's error shape, under the category the contracts file `type` in. */
 function refusal(
   code: number,
   type: Extract<RefusalCode, "request.methodNotAllowed" | "request.paramsInvalid">,
   message: string,
   fields?: Readonly<Record<string, unknown>>,
 ): JsonRpcError {
+  const category = REFUSAL_CODE_CATEGORIES[type];
   return {
     code,
     message,
-    data:
-      fields === undefined
-        ? { type, category: "invalidArgument" }
-        : { type, category: "invalidArgument", fields: { ...fields } },
+    data: fields === undefined ? { type, category } : { type, category, fields: { ...fields } },
   };
 }

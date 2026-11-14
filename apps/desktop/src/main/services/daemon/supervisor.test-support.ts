@@ -1,6 +1,6 @@
-// A background service played by a test behind a fake client helper and a fake of the addon's
-// ending, for the supervisor's suites: what each connect meets, how each call is answered, the
-// processes main starts and the endings it asks for, each ending settling a second after it began.
+// A background service played by a test behind a fake client helper, for the supervisor's suites:
+// what each connect meets, how each call is answered, the processes main starts and the endings it
+// asks the helper for, each ending settling a second after it began.
 
 import type { DaemonEndingOutcome, DaemonEndingRequest } from "@ai-sidekicks/client-sdk";
 import {
@@ -37,8 +37,11 @@ import { DaemonSupervisor, type DaemonSupervisorOptions } from "./supervisor.js"
 /** The process id of the service the supervisor finds running. */
 export const FOUND_SERVICE_PROCESS_ID = 3000;
 
-/** How long each ending the fake addon runs takes to settle, as the process ends. */
+/** How long each ending the fake helper runs takes to settle, as the process ends. */
 export const ENDING_MS = 1_000;
+
+/** The handshake deadline the fake helper reports. */
+export const HANDSHAKE_DEADLINE_MS = 8_000;
 
 /** One link a connect opened: the methods main called on it, and whether main closed it. */
 export interface ScriptedLink {
@@ -127,6 +130,17 @@ export class ScriptedService {
     },
     call: <Response>(method: MainCallMethod<Response>) => this.#call(method.method),
     subscribe: () => () => undefined,
+    facts: () =>
+      Promise.resolve({
+        kind: "helper.started",
+        handshakeDeadlineMs: HANDSHAKE_DEADLINE_MS,
+        flushWaitMs: ENDING_MS,
+        statusFile: { path: "status.json" },
+      }),
+    endDaemon: (request: DaemonEndingRequest) => this.#ending(request),
+    endDaemonProcess: (identity: ProcessIdentity) =>
+      this.#ending(`process ${String(identity.processId)}`),
+    readProcessIdentity: (processId: number) => Promise.resolve(identityOf(processId)),
   };
 
   public startService = (): Promise<StartedService> => {
@@ -152,15 +166,6 @@ export class ScriptedService {
     });
   };
 
-  public endDaemon = (request: DaemonEndingRequest): Promise<DaemonEndingOutcome> =>
-    this.#ending(request);
-
-  public endServiceProcess = (identity: ProcessIdentity): Promise<DaemonEndingOutcome> =>
-    this.#ending(`process ${String(identity.processId)}`);
-
-  public readProcessIdentity = (processId: number): ProcessIdentity | undefined =>
-    identityOf(processId);
-
   public readServiceStatus = (): Promise<ServiceStatusFile | undefined> =>
     Promise.resolve(this.statusFile);
 
@@ -170,7 +175,7 @@ export class ScriptedService {
   }
 
   /** The open link is lost: the client fails the calls on it and reports it `state`. */
-  public loseLink(state: "reconnecting" | "down" = "reconnecting"): void {
+  public loseLink(state: "silent" | "down" = "silent"): void {
     this.#failUnanswered();
     this.#listener?.linkStateChanged(state);
   }
@@ -346,9 +351,6 @@ export function supervisorOverScriptedService(): SupervisorUnderTest {
     link,
     helper: service.helper,
     startService: service.startService,
-    endDaemon: service.endDaemon,
-    endServiceProcess: service.endServiceProcess,
-    readProcessIdentity: service.readProcessIdentity,
     readServiceStatus: service.readServiceStatus,
     log,
   });

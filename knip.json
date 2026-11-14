@@ -210,8 +210,9 @@
     // from `wrangler.toml`. Each ignore below names a dependency knip cannot see being used, with
     // the reason.
     "packages/contracts": {
-      // Every contracts module is a package entry (`exports` maps `./*` onto `src/`), so without
-      // this an export no other workspace imports would never be reported.
+      // Every contracts module is a package entry (`exports` maps `./*` onto `src/generated/` and
+      // each hand-written module's own key onto its file under `src/`), so without this an export
+      // no other workspace imports would never be reported.
       "includeEntryExports": true,
       // The generator writes every wire type the Rust contracts declare into `src/generated/`,
       // including the ones only the Rust daemon reads, so their unused exports are not reported.

@@ -3,7 +3,7 @@
 
 // The statuses every workflow run method and event shares: the run's, each step's, and what a waiting step waits on.
 
-import type { SchemaCheck } from "../../../schema-check.js";
+import type { CompiledSchemaCheck } from "../../../schema-check.js";
 
 /** Every run status, in the order a screen lists them. */
 export const WORKFLOW_RUN_STATUSES = [
@@ -69,12 +69,9 @@ export type WorkflowStepStatus =
 export type WorkflowWaitCause = "approval" | "form" | "reply" | "account" | "chain";
 
 // prettier-ignore
-const schema4653: any = {"description":"A run's status; no screen shows any other. `waiting` covers a run held by a person, a chain's\nquestion or a spent provider account; it is never swept to `crashed` when the daemon starts and\nnever pruned, so a waiting run survives a restart.","type":"string","enum":["new","running","waiting","succeeded","failed","canceled","crashed"]};
-// prettier-ignore
-function validate2753(this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is WorkflowRunStatus {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validate2753.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validate2753.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!(((((((data === "new") || (data === "running")) || (data === "waiting")) || (data === "succeeded")) || (data === "failed")) || (data === "canceled")) || (data === "crashed"))){validate2753.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema4653.enum}}];return false;}validate2753.errors = vErrors;return errors === 0;}
-// prettier-ignore
-validate2753.errors = null as any[] | null;
-// prettier-ignore
-validate2753.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;
+const schema1468: any = {"description":"A run's status; no screen shows any other. `waiting` covers a run held by a person, a chain's\nquestion or a spent provider account; it is never swept to `crashed` when the daemon starts and\nnever pruned, so a waiting run survives a restart.","type":"string","enum":["new","running","waiting","succeeded","failed","canceled","crashed"]};
 /** Checks that a value is a {@link WorkflowRunStatus}. */
-export const validateWorkflowRunStatus: SchemaCheck<WorkflowRunStatus> = validate2753;
+// prettier-ignore
+export const validateWorkflowRunStatus: CompiledSchemaCheck<WorkflowRunStatus> = function (this: any, data: any, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}: any = {}): data is WorkflowRunStatus {let vErrors: any = null;let errors: any = 0;const evaluated0: any = validateWorkflowRunStatus.evaluated;if(evaluated0.dynamicProps){evaluated0.props = undefined;}if(evaluated0.dynamicItems){evaluated0.items = undefined;}if(typeof data !== "string"){validateWorkflowRunStatus.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"}}];return false;}if(!(((((((data === "new") || (data === "running")) || (data === "waiting")) || (data === "succeeded")) || (data === "failed")) || (data === "canceled")) || (data === "crashed"))){validateWorkflowRunStatus.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema1468.enum}}];return false;}validateWorkflowRunStatus.errors = vErrors;return errors === 0;};
+// prettier-ignore
+validateWorkflowRunStatus.evaluated = {"dynamicProps":false,"dynamicItems":false} as any;

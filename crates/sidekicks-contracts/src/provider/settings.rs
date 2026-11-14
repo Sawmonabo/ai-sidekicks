@@ -149,6 +149,7 @@ pub struct ProviderPlaceReading {
 
 impl ListKey for ProviderPlaceReading {
     type Key = Option<Place>;
+    const KEY_MEMBER: Option<&'static str> = Some("place");
 
     fn list_key(&self) -> Option<Place> {
         self.place.clone()
@@ -242,6 +243,7 @@ pub struct ProviderPlanWord {
 
 impl ListKey for ProviderPlanWord {
     type Key = FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN>;
+    const KEY_MEMBER: Option<&'static str> = Some("plan");
 
     fn list_key(&self) -> FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN> {
         self.plan.clone()
@@ -264,6 +266,7 @@ pub struct ProviderBuiltInTool {
 
 impl ListKey for ProviderBuiltInTool {
     type Key = FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>;
+    const KEY_MEMBER: Option<&'static str> = Some("name");
 
     fn list_key(&self) -> FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN> {
         self.name.clone()

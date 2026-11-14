@@ -49,7 +49,7 @@ beforeEach(() => {
 
 describe("the machine's settings through main", () => {
   it("reads the file, writes a change answered with the file as written, and returns a refusal", async () => {
-    const written = { ...MACHINE_SETTINGS_DEFAULTS, editorId: "zed" };
+    const written = { ...MACHINE_SETTINGS_DEFAULTS, editorId: "sublime-text" };
     let isRefusing = false;
     const daemon = scriptedDaemon((request) => {
       if (request.method === "machine.settings.read") {
@@ -62,17 +62,21 @@ describe("the machine's settings through main", () => {
     await expect(bridge.machineSettings.read()).resolves.toEqual({
       settings: MACHINE_SETTINGS_DEFAULTS,
     });
-    await expect(bridge.machineSettings.write({ editorId: "zed" })).resolves.toEqual(written);
+    await expect(bridge.machineSettings.write({ editorId: "sublime-text" })).resolves.toEqual(
+      written,
+    );
     isRefusing = true;
-    await expect(bridge.machineSettings.write({ editorId: "zed" })).rejects.toEqual(REFUSAL);
+    await expect(bridge.machineSettings.write({ editorId: "sublime-text" })).rejects.toEqual(
+      REFUSAL,
+    );
     // A change off its contract is refused at the helper, before the service.
     await expect(bridge.machineSettings.write({ editorId: 7 } as never)).rejects.toMatchObject({
       data: { type: "request.paramsInvalid" },
     });
     expect(daemon.requests).toEqual([
       { method: "machine.settings.read", params: {} },
-      { method: "machine.settings.update", params: { change: { editorId: "zed" } } },
-      { method: "machine.settings.update", params: { change: { editorId: "zed" } } },
+      { method: "machine.settings.update", params: { change: { editorId: "sublime-text" } } },
+      { method: "machine.settings.update", params: { change: { editorId: "sublime-text" } } },
     ]);
   });
 

@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readContractEmit } from "./emit-folder.ts";
-import { writeModuleFile } from "./module-file.ts";
+import { checkedDefinitions, writeModuleFile } from "./module-file.ts";
 import { GENERATED_FOLDER } from "./module-imports.ts";
 import { createCheckCompiler } from "./schema-checks.ts";
 
@@ -29,8 +29,11 @@ try {
     );
   }
   const emit = readContractEmit(emitFolder);
-  const checkCompiler = createCheckCompiler(emit.modules.map((module) => module.schema));
-  // Every file is written in memory first, so a failed run leaves the folder as it was.
+  const checkCompiler = createCheckCompiler(emit.modules, (module) =>
+    checkedDefinitions(module, emit.modules),
+  );
+  // Every file is generated in memory before the folder is touched, so a run that fails while
+  // generating leaves the folder as it was; a failure while writing leaves it part written.
   const files = new Map<string, string>();
   for (const module of emit.modules) {
     files.set(

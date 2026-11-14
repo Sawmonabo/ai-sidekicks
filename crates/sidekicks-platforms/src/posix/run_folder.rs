@@ -149,8 +149,8 @@ mod tests {
             & 0o777
     }
 
-    /// The run-folder table the TypeScript resolver's suite reads too.
-    const CASES: &str = include_str!("../../../sidekicks-contracts/tests/fixtures/run-folder.json");
+    /// The run-folder case table, one file for every system's cases.
+    const CASES: &str = include_str!("../../tests/fixtures/run-folder.json");
 
     /// A system, its runtime-folder variable (`null` where unset), the home folder and the run
     /// folder they resolve.

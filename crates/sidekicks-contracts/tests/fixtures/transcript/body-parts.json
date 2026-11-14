@@ -1,0 +1,73 @@
+[
+  {
+    "note": "a body over one page reads in two parts",
+    "body": "\u0001",
+    "repeat": 200000,
+    "offset": 0,
+    "read": {
+      "partCount": 2
+    }
+  },
+  {
+    "note": "a read from a later offset reads the rest",
+    "body": "a\u00e9b",
+    "offset": 3,
+    "read": {
+      "partCount": 1
+    }
+  },
+  {
+    "note": "a read at the end reads nothing more",
+    "body": "ab",
+    "offset": 2,
+    "read": {
+      "partCount": 1
+    }
+  },
+  {
+    "note": "an offset inside a character is refused",
+    "body": "a\u00e9b",
+    "offset": 2,
+    "refusedBodyLength": 4
+  },
+  {
+    "note": "an offset past the end is refused",
+    "body": "ab",
+    "offset": 3,
+    "refusedBodyLength": 2
+  },
+  {
+    "note": "a part carries the block starts that fall in it",
+    "body": "a\u00e9b\n\nc",
+    "offset": 3,
+    "blockCut": {
+      "starts": [
+        {
+          "storedOffset": 0,
+          "drawnOffset": 0
+        },
+        {
+          "storedOffset": 6,
+          "drawnOffset": 5
+        }
+      ]
+    },
+    "read": {
+      "partCount": 1,
+      "blockStarts": [5]
+    }
+  },
+  {
+    "note": "every part says the cut failed",
+    "body": "\u0001",
+    "repeat": 200000,
+    "offset": 0,
+    "blockCut": {
+      "failed": "stalled"
+    },
+    "read": {
+      "partCount": 2,
+      "blockCutFailure": "stalled"
+    }
+  }
+]

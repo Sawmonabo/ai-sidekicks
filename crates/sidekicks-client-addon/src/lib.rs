@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::pending;
+use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -35,6 +36,7 @@ use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest}
 use sidekicks_client::transport::subscription::Subscription;
 use sidekicks_client::untyped_call;
 use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
+use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::message::JsonRpcError;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::process_identity::ProcessIdentity;
@@ -72,7 +74,7 @@ pub struct CallOutcome {
 }
 
 /// A connect's outcome: the connection and the daemon's answer to its handshake, or its error in
-/// the wire's shape.
+/// the wire's shape, with why the service cannot start where the failure says.
 #[napi(object, object_from_js = false)]
 pub struct ConnectOutcome {
     /// The connection, when the handshake completed.
@@ -82,6 +84,8 @@ pub struct ConnectOutcome {
     pub initialize_response: Option<Value>,
     /// The error, when it failed.
     pub error: Option<Value>,
+    /// The `DaemonCannotStart` the failure means, when it means one: no token file to present.
+    pub cannot_start: Option<Value>,
 }
 
 /// A subscribe's outcome: the stream's id and its acknowledgment, or its error in the wire's shape.
@@ -158,7 +162,8 @@ pub struct DaemonEndingOutcome {
 
 /// Connects to the daemon on this machine and completes its handshake, presenting the token file's
 /// token when `presents_token` holds and none otherwise; `on_state` hears `open`, `quiet`,
-/// `reconnecting` and `down` as the connection changes. Answers the error in the wire's shape when
+/// `reconnecting`, `silent` (reconnecting after a daemon that stopped answering) and `down` as the
+/// connection changes, until it no longer takes them. Answers the error in the wire's shape when
 /// the daemon cannot be reached or refuses the handshake.
 #[napi]
 pub async fn connect(
@@ -171,7 +176,7 @@ pub async fn connect(
     };
     match DaemonConnection::connect(endpoint).await {
         Ok(connection) => connected(connection, on_state),
-        Err(error) => connect_refused(wire_error(&error)),
+        Err(error) => connect_failed(&error),
     }
 }
 
@@ -192,10 +197,9 @@ pub async fn wait_for_daemon(
     };
     let repairing = move |details: DaemonRepairingDetails| {
         let details = serde_json::to_value(details).expect("a repair's count writes as JSON");
-        let status = on_repairing.call(details, ThreadsafeFunctionCallMode::NonBlocking);
-        if status != napi::Status::Ok {
-            tracing::warn!(?status, "The page did not take the daemon's repair count");
-        }
+        // A count the helper no longer takes has no one left to tell; the wait goes on for the
+        // connect's own answer.
+        let _status = on_repairing.call(details, ThreadsafeFunctionCallMode::NonBlocking);
     };
     match wait_for_handshake(
         endpoint,
@@ -207,11 +211,12 @@ pub async fn wait_for_daemon(
     {
         Ok(HandshakeWaitEnd::Connected(connection)) => connected(connection, on_state),
         Ok(HandshakeWaitEnd::Ended(never)) => match never {},
-        Err(error) => connect_refused(wire_error(&error)),
+        Err(error) => connect_failed(&error),
     }
 }
 
-/// A connect's outcome for `connection`, whose state changes go to `on_state` from now on.
+/// A connect's outcome for `connection`, whose state changes go to `on_state` from now on, until
+/// the helper no longer takes them.
 fn connected(
     connection: DaemonConnection,
     on_state: ThreadsafeFunction<String, (), String, napi::Status, false>,
@@ -222,12 +227,13 @@ fn connected(
             let state = match *states.borrow_and_update() {
                 ConnectionState::Open => "open",
                 ConnectionState::Quiet => "quiet",
-                ConnectionState::Reconnecting => "reconnecting",
+                ConnectionState::Reconnecting { was_silent: false } => "reconnecting",
+                ConnectionState::Reconnecting { was_silent: true } => "silent",
                 ConnectionState::Down => "down",
             };
             let status = on_state.call(state.to_owned(), ThreadsafeFunctionCallMode::NonBlocking);
             if status != napi::Status::Ok {
-                tracing::warn!(?status, "The page did not take the connection's state");
+                break;
             }
         }
     });
@@ -243,6 +249,7 @@ fn connected(
         }),
         initialize_response: Some(initialize_response),
         error: None,
+        cannot_start: None,
     }
 }
 
@@ -252,6 +259,23 @@ fn connect_refused(error: Value) -> ConnectOutcome {
         client: None,
         initialize_response: None,
         error: Some(error),
+        cannot_start: None,
+    }
+}
+
+/// A connect's outcome for the client's `error`: a token file still missing once the wait is over
+/// means the service cannot start.
+fn connect_failed(error: &ClientError) -> ConnectOutcome {
+    let is_token_missing = matches!(
+        error,
+        ClientError::Token { source, .. } if source.kind() == io::ErrorKind::NotFound
+    );
+    ConnectOutcome {
+        cannot_start: is_token_missing.then(|| {
+            serde_json::to_value(DaemonCannotStart::TokenFileMissing {})
+                .expect("a reason the service cannot start writes as JSON")
+        }),
+        ..connect_refused(wire_error(error))
     }
 }
 
@@ -384,11 +408,9 @@ impl DaemonClient {
         let (input, mut failures) = ShellInput::new(self.client.clone(), target);
         tokio::spawn(async move {
             while let Some(failure) = failures.recv().await {
-                if let Err(error) = on_failure.call_async(wire_error(&failure)).await {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "The page did not take a failed write to a shell"
-                    );
+                // A pane that no longer takes its failures is gone, and so is anyone to tell.
+                if on_failure.call_async(wire_error(&failure)).await.is_err() {
+                    break;
                 }
             }
         });
@@ -587,11 +609,8 @@ async fn forward_stream(
                 error: None,
             },
         };
-        if let Err(error) = on_event.call_async(event).await {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "The page did not take a stream's value; the stream is canceled"
-            );
+        // A page that no longer takes the stream's values is gone: the stream is canceled.
+        if on_event.call_async(event).await.is_err() {
             break cancel_subscription(&subscription).await;
         }
     };
@@ -600,10 +619,8 @@ async fn forward_stream(
         is_end: true,
         error: end_error,
     };
-    let status = on_event.call(end, ThreadsafeFunctionCallMode::NonBlocking);
-    if status != napi::Status::Ok {
-        tracing::warn!(?status, "The page did not take a stream's end");
-    }
+    // An end the page no longer takes has no one left to tell.
+    let _status = on_event.call(end, ThreadsafeFunctionCallMode::NonBlocking);
 }
 
 /// Cancels `subscription` on the daemon, answering the cancel's failure in the wire's shape.

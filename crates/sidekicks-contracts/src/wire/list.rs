@@ -106,6 +106,11 @@ pub trait ListKey {
     /// The compared value.
     type Key: Eq + std::hash::Hash;
 
+    /// The item's wire member the key is, where it is one member as written, so the list's schema
+    /// refuses a repeated key too; `None` where the key is the whole item, which `uniqueItems`
+    /// covers, or is computed from it, which only the garde check holds.
+    const KEY_MEMBER: Option<&'static str> = None;
+
     /// The item's key.
     fn list_key(&self) -> Self::Key;
 
@@ -151,7 +156,8 @@ pub(crate) use closed_list_key;
 
 /// A list of `MIN..=MAX` items no two of which share their [`ListKey`]; its check reports each
 /// repeat at the repeat's index, as Zod's does, until the report holds [`ISSUES_MAX`] entries. Its
-/// schema states `uniqueItems`, which refuses equal items only, so the key check stays garde's.
+/// schema states `uniqueItems`, and `uniqueItemKey` naming the member where the key is one
+/// ([`ListKey::KEY_MEMBER`]); a computed key is held by the garde check alone.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct UniqueList<T, const MIN: usize, const MAX: usize>(BoundedVec<T, MIN, MAX>);
@@ -168,7 +174,9 @@ impl<T, const MIN: usize, const MAX: usize> UniqueList<T, MIN, MAX> {
     }
 }
 
-impl<T: JsonSchema, const MIN: usize, const MAX: usize> JsonSchema for UniqueList<T, MIN, MAX> {
+impl<T: JsonSchema + ListKey, const MIN: usize, const MAX: usize> JsonSchema
+    for UniqueList<T, MIN, MAX>
+{
     fn inline_schema() -> bool {
         true
     }
@@ -180,6 +188,9 @@ impl<T: JsonSchema, const MIN: usize, const MAX: usize> JsonSchema for UniqueLis
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         let mut schema = BoundedVec::<T, MIN, MAX>::json_schema(generator);
         schema.insert("uniqueItems".into(), true.into());
+        if let Some(member) = T::KEY_MEMBER {
+            schema.insert("uniqueItemKey".into(), member.into());
+        }
         schema
     }
 }

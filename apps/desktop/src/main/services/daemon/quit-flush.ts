@@ -6,7 +6,7 @@
 // asked for while the flush runs waits on that same flush. The flush is raced against the quit's
 // wait, so a service that never answers cannot keep the app open; the wait's timer is cleared once
 // the race settles and is `unref()`'d so it never keeps the event loop alive. The wait is the
-// daemon client's own flush bound, which the caller reads from the client. The one wait bounds
+// daemon client's own flush bound, read from the client at each quit. The one wait bounds
 // the flush and the wait for a service a stop is ending together. Main's log is drained before the
 // quit goes on, so its last lines reach the file, and a log that stopped writing is reported.
 
@@ -26,15 +26,15 @@ const LOG_SOURCE = "main/services/daemon";
  * that could not be.
  */
 export interface QuitFlushOptions {
-  /** The daemon client's flush bound, in milliseconds. */
-  readonly flushWaitMs: number;
+  /** The daemon client's flush bound as it stands at the quit, in milliseconds. */
+  readonly flushWaitMs: () => number;
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
   /** Told once when the log stopped writing; main passes `console.error`. */
   readonly reportUnwrittenLog: DiagnosticLogFailureReporter;
 }
 
 /**
- * Hold every quit until `flush` settles or `options.flushWaitMs` passes and main's log has
+ * Hold every quit until `flush` settles or the flush bound passes and main's log has
  * drained, then quit. A flush that rejects is recorded and the quit still goes ahead, so a person
  * is never left in an app that will not close.
  */
@@ -58,12 +58,13 @@ export function installQuitFlush(
     isFlushing = true;
 
     void (async (): Promise<void> => {
+      const flushWaitMs = options.flushWaitMs();
       let waitTimer: NodeJS.Timeout | undefined;
       try {
         const waitEnded = new Promise<"wait-ended">((resolve) => {
           waitTimer = setTimeout(() => {
             resolve("wait-ended");
-          }, options.flushWaitMs).unref();
+          }, flushWaitMs).unref();
         });
         if ((await Promise.race([flush(), waitEnded])) === "wait-ended") {
           options.log.write({
@@ -71,7 +72,7 @@ export function installQuitFlush(
             source: LOG_SOURCE,
             message:
               `The background service's flush did not answer within ` +
-              `${String(options.flushWaitMs / 1000)} seconds; the app quit without it.`,
+              `${String(flushWaitMs / 1000)} seconds; the app quit without it.`,
           });
         }
       } catch (failure: unknown) {
