@@ -46,6 +46,7 @@ use crate::driver::claude::spawn::settings::private_file::{
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
+use crate::driver::contract::known_names::{KnownNamesParams, ProviderKnownNames};
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
@@ -509,6 +510,13 @@ impl ProviderDriver for ClaudeDriver {
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
         self.list_provider_commands(params).boxed()
+    }
+
+    fn list_known_names(
+        &self,
+        params: KnownNamesParams,
+    ) -> BoxFuture<'_, Result<ProviderKnownNames, DriverError>> {
+        self.list_known_names(params).boxed()
     }
 
     fn stop_command(

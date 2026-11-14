@@ -22,7 +22,9 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::capabilities::resolve_claude_model_catalog;
+use crate::driver::claude::capabilities::{
+    CLAUDE_DEFAULT_MODEL_POINTER, resolve_claude_model_catalog,
+};
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::errors::{
@@ -67,10 +69,6 @@ use crate::driver::session_control::{
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod mcp_sign_in;
-
-/// The model a read of the build's own choices runs on: Claude Code's pointer to its recommended
-/// model, which every account's catalog lists.
-const CLAUDE_DEFAULT_MODEL: &str = "default";
 
 /// The key of an account home's own output style in Claude Code's settings.
 const OUTPUT_STYLE_KEY: &str = "outputStyle";
@@ -578,7 +576,8 @@ impl ClaudeDriver {
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),
-            model: CLAUDE_DEFAULT_MODEL.to_owned(),
+            // The pointer to the recommended model, which every account's catalog lists.
+            model: CLAUDE_DEFAULT_MODEL_POINTER.to_owned(),
             provider_account_id,
         };
         let (choices, settings) = tokio::join!(

@@ -35,6 +35,7 @@ use crate::command::channel::stop::StoppedCommandParties;
 use crate::driver::agent_tools::AgentToolCaller;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
+use crate::driver::contract::known_names::{KnownNamesParams, ProviderKnownNames};
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
@@ -87,6 +88,7 @@ use crate::pricing::rule::RequestPricer;
 
 pub mod account;
 pub mod error;
+pub mod known_names;
 pub mod params_and_results;
 pub mod plan_verdict;
 pub mod sign_in;
@@ -500,6 +502,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
+
+    /// Every name the bound session knows on its provider, which a seed crossing to another
+    /// provider is cleaned of (gated on `providerCommands`): the entries `list_provider_commands`
+    /// would list, live or at rest, and the agents the session offers. It reads the provider once
+    /// and holds nothing.
+    fn list_known_names(
+        &self,
+        params: KnownNamesParams,
+    ) -> BoxFuture<'_, Result<ProviderKnownNames, DriverError>>;
 
     /// Stops the agent's running command `params` names for its cause, telling the run that
     /// started it only for the person's stop, and answers once the provider acknowledged the stop,

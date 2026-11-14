@@ -201,6 +201,8 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
 
   // Insertion-ordered, so the catalog keeps the provider's ordering (its recommended model first).
   const byResolvedModel = new Map<string, { model: ProviderModel; fromPointer: boolean }>();
+  // The model the first `default` pointer resolves to, its window mark as the catalog writes it.
+  let defaultModel: string | undefined;
   for (const rawEntry of rawModels) {
     if (typeof rawEntry !== "object" || rawEntry === null) {
       throw claudeCatalogUnreadable("a `models` entry is not an object");
@@ -215,6 +217,9 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
       throw claudeCatalogUnreadable(`model '${resolvedModel}' has no \`displayName\``);
     }
     const fromPointer = entry["value"] === CLAUDE_DEFAULT_MODEL_POINTER;
+    if (fromPointer && defaultModel === undefined) {
+      defaultModel = resolvedModel;
+    }
     const existing = byResolvedModel.get(resolvedModel);
     // Keyed by `resolvedModel`, not `value`: `value` is often a short alias, and a provider switch
     // validates against this list. A row that names the model beats the reserved `default` pointer.
@@ -234,6 +239,8 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
       fast: supportsFastMode === true,
       // Read from the id alone, never the label, which is display text.
       largerWindow: hasClaudeLargerWindowMark(resolvedModel),
+      // Marked once the whole catalog is read, since the pointer may follow its named row.
+      isDefault: false,
     };
     // Effort levels are copied, never defaulted; absent means the model has no effort selection.
     const effortLevels = entry["supportedEffortLevels"];
@@ -250,7 +257,12 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
     byResolvedModel.set(resolvedModel, { model, fromPointer });
   }
 
-  return [...byResolvedModel.values()].map((held) => held.model);
+  // The row of the model the pointer resolves to is marked, the pointer's own row where no named
+  // row lists that model.
+  return [...byResolvedModel.values()].map((held) => ({
+    ...held.model,
+    isDefault: held.model.id === defaultModel,
+  }));
 }
 
 /**

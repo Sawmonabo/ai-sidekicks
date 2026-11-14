@@ -32,6 +32,7 @@ use crate::port::bun_program::BunProgram;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::edit_checkpoint::EditCheckpoint;
+use crate::port::file_tool_write::FileToolWritePort;
 use crate::port::held_tool_calls::HeldToolCallReads;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
@@ -305,6 +306,10 @@ pub struct DriverPorts {
     /// The tool-trace bucket, which each driver hands every tool call it delivers with its result;
     /// a call delivered before it is registered is not recorded.
     pub tool_traces: Arc<PortRegistration<Arc<dyn ToolTraces>>>,
+    /// A chat's versions' intake of each write its agent's own file tool makes, which each driver
+    /// opens a call on and settles. Until it is registered a chat's versions come from its
+    /// workspace's watch alone, and a driver's open and settle are dropped.
+    pub file_tool_writes: Arc<PortRegistration<Arc<dyn FileToolWritePort>>>,
 }
 
 impl Default for DriverPorts {
@@ -366,6 +371,7 @@ impl DriverPorts {
             bun_program: Arc::new(PortRegistration::new("bun program")),
             raw_provider_messages: Arc::new(PortRegistration::new("raw provider messages")),
             tool_traces: Arc::new(PortRegistration::new("tool traces")),
+            file_tool_writes: Arc::new(PortRegistration::new("file tool writes")),
         }
     }
 }
