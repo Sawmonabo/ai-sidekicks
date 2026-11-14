@@ -15,9 +15,9 @@ import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { PreloadApi } from "#shared/preload-api.js";
+import type { ClientHelperDaemonClient } from "../services/daemon/client/addon.js";
 import {
   serveClientHelper,
-  type ClientHelperDaemonClient,
   type ClientHelperWindowPort,
 } from "../services/daemon/client/helper.js";
 import { scriptedAddon } from "../services/daemon/client/helper.test-support.js";
@@ -86,6 +86,9 @@ export function scriptedDaemon(
       };
     },
     cancelStream: () => undefined,
+    openShellInput: () => {
+      throw new Error("No suite over the scripted daemon types into a shell.");
+    },
     close: () => Promise.resolve(),
   };
   return {

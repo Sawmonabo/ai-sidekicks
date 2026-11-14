@@ -6,14 +6,14 @@ import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negoti
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ClientHelperDaemonClient } from "./addon.js";
 import {
   serveClientHelper,
-  type ClientHelperDaemonClient,
   type ClientHelperParentPort,
   type ClientHelperWindowPort,
 } from "./helper.js";
 import { scriptedAddon } from "./helper.test-support.js";
-import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type { ClientHelperRequest, ClientHelperWindowAnswer } from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
 import type { ClientHelperToMainMessage, MainToClientHelperMessage } from "./messages.js";
@@ -45,6 +45,9 @@ function fakeDaemonClient() {
         }),
     ),
     cancelStream: vi.fn<(addonStreamId: number) => void>(),
+    openShellInput: vi.fn(() => {
+      throw new Error("No case of the helper's calls and streams types into a shell.");
+    }),
     close: vi.fn(() => Promise.resolve()),
   } satisfies ClientHelperDaemonClient;
   return { client, calls, callAnswers };
@@ -84,7 +87,7 @@ function servedHelper() {
 
   /** Hands the helper one more window's port, answering what that window is told and sends. */
   const openWindow = (windowId: number) => {
-    const toWindow: ClientHelperAnswer[] = [];
+    const toWindow: ClientHelperWindowAnswer[] = [];
     let fromWindow: ((messageEvent: { data: unknown }) => void) | undefined;
     let closeWindow: (() => void) | undefined;
     const port: ClientHelperWindowPort = {

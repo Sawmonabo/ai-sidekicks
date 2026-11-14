@@ -9,7 +9,8 @@
 // Raw `ipcRenderer`, `require`, `process` and Node built-ins never appear.
 //
 // The daemon's calls and subscriptions ride a port the preload hands the page, straight to the
-// client helper, and are typed by the generated method tables `daemon/method-bindings.ts` binds.
+// client helper, and are typed by the generated method tables `daemon/method-bindings.ts` binds; a
+// pane's typing into a shell rides the same port to the helper's queue for that shell.
 // Every other shape is declared here or beside this file in `src/shared/`, with no dependency on
 // the `electron` package.
 //
@@ -26,6 +27,7 @@ import type {
   MachineSettingsReading,
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine/settings";
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { Place } from "@ai-sidekicks/contracts/place";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -402,10 +404,10 @@ export interface ServedDaemonCall<Value> {
 }
 
 /**
- * The daemon's own wire as the page holds it: its calls, and its subscriptions, each opened with
- * the request its method registers. A call the daemon or the client helper refuses rejects with
- * the wire error itself (`{code, message, data}`), and any other failed call, one cut off by a
- * helper that exited among them, with an `Error`.
+ * The daemon's own wire as the page holds it: its calls, its subscriptions, each opened with the
+ * request its method registers, and a pane's typing into a shell. A call the daemon or the client
+ * helper refuses rejects with the wire error itself (`{code, message, data}`), and any other
+ * failed call, one cut off by a helper that exited among them, with an `Error`.
  */
 export interface DaemonWire {
   call<M extends RegisteredDaemonMethod>(
@@ -433,11 +435,38 @@ export interface DaemonWire {
     onOpened?: (subscriptionId: SubscriptionId) => void,
   ): Unsubscribe;
   /**
+   * Type into one shell through the client helper, whose client keeps one queue for the shell that
+   * every pane's input shares, each input bound to `outputSubscriptionId`, the typing pane's own
+   * open output subscription. `onAnswer` hears what the pane is told of its writes until the input
+   * is closed.
+   */
+  openShellInput(
+    outputSubscriptionId: SubscriptionId,
+    onAnswer: (answer: ShellWriteAnswer) => void,
+  ): ShellInput;
+  /**
    * Start the background service again with a full set of attempts: the boot card's `Retry`.
    * Resolves once main has begun; the service's state reports how the start goes.
    */
   requestStart(): Promise<void>;
 }
+
+/** A pane's typing into one shell, in order; `close` stops its answers. */
+export interface ShellInput {
+  typeKeys(data: string): void;
+  pasteText(text: string): void;
+  close(): void;
+}
+
+/**
+ * What a pane is told of its writes to a shell: one refused, in the wire's error shape; one taken,
+ * for its first write and for the first after a refusal; or input the client helper could not send
+ * because the output subscription it named had already ended.
+ */
+export type ShellWriteAnswer =
+  | { readonly kind: "refused"; readonly refusal: JsonRpcError }
+  | { readonly kind: "taken" }
+  | { readonly kind: "unsent" };
 
 /**
  * The preload's daemon members, from which the page builds its `DaemonWire`: the port to the

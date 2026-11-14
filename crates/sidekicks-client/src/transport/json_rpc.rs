@@ -26,6 +26,7 @@ use self::calls::{Answer, CallKey, ClientShared};
 use super::link::{self, Link, LinkShared};
 use super::subscription::{Subscription, read_raw_value, read_typed_value};
 use crate::error::{ClientError, LinkFault, RemoteError, ReplyError, RequestError};
+use crate::terminal_write::ShellQueues;
 
 /// A request as sent: the method's contract, its params' JSON, and the params' attachments.
 #[derive(Clone, Debug)]
@@ -74,6 +75,11 @@ impl JsonRpcClient {
     /// The handle over `shared`.
     pub(crate) fn from_shared(shared: Arc<ClientShared>) -> Self {
         Self { shared }
+    }
+
+    /// The shells' write queues every clone of this client shares.
+    pub(crate) fn shell_queues(&self) -> &ShellQueues {
+        &self.shared.shell_queues
     }
 
     /// Opens a link over `stream`: sends `connection.initialize` first (no envelope

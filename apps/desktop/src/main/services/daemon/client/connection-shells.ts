@@ -1,19 +1,11 @@
-// What the client helper keeps for each shell on its one daemon connection, which every window
-// speaks over. The daemon holds one pause state and one count of waiting writes per connection and
-// shell, so the helper counts across windows: the connection is declared behind while any window
-// watching the shell is behind, the daemon hearing a change only when that crosses zero, and a
-// write waits here while the connection's writes to the shell fill the cap. A window that goes
+// What the client helper keeps for each shell's output flow on its one daemon connection, which
+// every window speaks over. The daemon holds one pause state per connection and shell, so the
+// helper counts across windows: the connection is declared behind while any window watching the
+// shell is behind, the daemon hearing a change only when that crosses zero. A window that goes
 // takes its marks with it, and a new connection is told every shell still behind. What the daemon
 // was told is noted as an update goes and put back when the daemon refuses it.
 
-import {
-  TERMINAL_WRITES_WAITING_LIMIT,
-  TERMINAL_WRITES_WAITING_PER_SHELL,
-  type TerminalFlowControlUpdateRequest,
-  type TerminalWriteRequest,
-} from "@ai-sidekicks/contracts/terminal";
-
-import { carriesSignalKey } from "#shared/terminal-signal-keys.js";
+import type { TerminalFlowControlUpdateRequest } from "@ai-sidekicks/contracts/terminal";
 
 /**
  * A flow update the daemon is to be told: the state to send, and the act that puts back what the
@@ -90,52 +82,6 @@ export class ConnectionShells<Asker> {
     }
   }
 
-  /**
-   * Wait until the connection may send `write`, in the order writes came: while fewer than
-   * `TERMINAL_WRITES_WAITING_PER_SHELL` of its writes to the shell wait, or fewer than
-   * `TERMINAL_WRITES_WAITING_LIMIT` for a write carrying a signal key and every write before it.
-   * Resolves with the release, called once the daemon answered or the write was not sent.
-   */
-  public takeWriteRoom(write: TerminalWriteRequest): Promise<() => void> {
-    const key = shellKeyOf(write);
-    const shell = this.#shellFor(key, write);
-    const isSignal = write.kind === "keys" && carriesSignalKey(write.data);
-    if (isSignal) {
-      // The writes typed before the signal go ahead of it, so they take its room too.
-      for (const held of shell.heldWrites) {
-        held.cap = TERMINAL_WRITES_WAITING_LIMIT;
-      }
-    }
-    const room = Promise.withResolvers<() => void>();
-    shell.heldWrites.push({
-      cap: isSignal ? TERMINAL_WRITES_WAITING_LIMIT : TERMINAL_WRITES_WAITING_PER_SHELL,
-      admit: room.resolve,
-    });
-    this.#admitWrites(key, shell);
-    return room.promise;
-  }
-
-  #admitWrites(key: string, shell: ConnectionShell<Asker>): void {
-    for (
-      let next = shell.heldWrites[0];
-      next !== undefined && shell.writesWaitingCount < next.cap;
-      next = shell.heldWrites[0]
-    ) {
-      shell.heldWrites.shift();
-      shell.writesWaitingCount += 1;
-      let isReleased = false;
-      next.admit(() => {
-        if (isReleased) {
-          return;
-        }
-        isReleased = true;
-        shell.writesWaitingCount -= 1;
-        this.#admitWrites(key, shell);
-        this.#forgetWhenIdle(key, shell);
-      });
-    }
-  }
-
   // Notes `paused` as told; its put-back holds only while the connection is the same one and
   // nothing told the shell anything since.
   #tell(key: string, shell: ConnectionShell<Asker>, paused: boolean): FlowTelling {
@@ -172,29 +118,22 @@ export class ConnectionShells<Asker> {
       behindAskers: new Set(),
       isToldPaused: false,
       toldRevision: 0,
-      writesWaitingCount: 0,
-      heldWrites: [],
     };
     this.#shells.set(key, created);
     return created;
   }
 
   #forgetWhenIdle(key: string, shell: ConnectionShell<Asker>): void {
-    if (
-      shell.behindAskers.size === 0 &&
-      !shell.isToldPaused &&
-      shell.writesWaitingCount === 0 &&
-      shell.heldWrites.length === 0
-    ) {
+    if (shell.behindAskers.size === 0 && !shell.isToldPaused) {
       this.#shells.delete(key);
     }
   }
 }
 
-/** The session and shell a flow update or a write names. */
+/** The session and shell a flow update names. */
 type ShellSubject = Pick<TerminalFlowControlUpdateRequest, "sessionId" | "terminalId">;
 
-/** One shell on the connection, kept while an asker is behind on it or a write waits. */
+/** One shell on the connection, kept while an asker is behind on it or the daemon was told so. */
 interface ConnectionShell<Asker> {
   readonly subject: ShellSubject;
   readonly behindAskers: Set<Asker>;
@@ -202,10 +141,6 @@ interface ConnectionShell<Asker> {
   isToldPaused: boolean;
   /** Counts each telling and put-back, so a stale put-back changes nothing. */
   toldRevision: number;
-  /** The connection's writes to the shell sent and not yet answered. */
-  writesWaitingCount: number;
-  /** Writes waiting for room, oldest first, each with the count it may be sent below. */
-  readonly heldWrites: { cap: number; readonly admit: (release: () => void) => void }[];
 }
 
 function shellKeyOf(subject: ShellSubject): string {

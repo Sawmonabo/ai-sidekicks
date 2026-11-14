@@ -5,9 +5,10 @@
 // up; the window is declared behind with `terminal.flowControl.update` while any pane in it
 // watching the shell is behind, and a behind pane declares it again on each open of the stream, so
 // a client helper started again hears it. It is stable for the shell, so the emulator is built once
-// per shell. Each open of the stream names the subscription a write or a take is bound to;
-// between a stream's end and its re-open the input queue holds what is typed and sends it bound to
-// the new subscription. Sizes go to `terminal.resize`, the newest only while one is out.
+// per shell. Each open of the stream names the subscription a write or a take is bound to; what
+// is typed goes into the client helper's one queue for the shell through an input bound to it,
+// and between a stream's end and its re-open the input binding holds it for the new subscription.
+// Sizes go to `terminal.resize`, the newest only while one is out.
 
 import { useCallback, useMemo } from "react";
 
@@ -17,13 +18,14 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
+import { openShellInput } from "#renderer/services/daemon/terminal/input.js";
 import {
   followShellOutput,
   type ShellOutputSubject,
 } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { TerminalGridSize } from "../../emulator/xterm/adapter.js";
-import { ShellInputQueue } from "../input-queue.js";
+import { ShellInputBinding } from "../input-binding.js";
 import { ShellOutputWriter, type ShellOutputSink } from "../output-writer.js";
 import { ShellResizeQueue } from "../resize-queue.js";
 import { windowShellFor } from "../window-shells.js";
@@ -58,28 +60,21 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
     () => UNOPENED_SHELL_OUTPUT,
   );
 
-  const inputQueue = useMemo(
+  const inputBinding = useMemo(
     () =>
-      new ShellInputQueue(
-        () => windowShellFor(bridge, { sessionId, terminalId }),
-        async (write, outputSubscriptionId) => {
-          const reply = await callDaemon(bridge, "terminal.write", {
-            ...write,
-            sessionId,
-            terminalId,
-            outputSubscriptionId,
-          });
-          // A write that goes through clears only a write's refusal; a size or flow refusal stands.
+      new ShellInputBinding((outputSubscriptionId) =>
+        openShellInput(bridge, outputSubscriptionId, (refusal) => {
+          // A write taken clears only a write's refusal; a size or flow refusal stands.
           publish((current) =>
-            reply.status === "refused"
-              ? { ...current, refusal: reply.refusal, refusedCall: "write" }
+            refusal !== undefined
+              ? { ...current, refusal, refusedCall: "write" }
               : current.refusedCall === "write"
                 ? { ...current, refusal: undefined, refusedCall: undefined }
                 : current,
           );
-        },
+        }),
       ),
-    [bridge, publish, sessionId, terminalId],
+    [bridge, publish],
   );
 
   const resizeQueue = useMemo(
@@ -126,7 +121,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
             if (writer.isBehind) {
               declareFlow(true);
             }
-            inputQueue.bind(delivery.subscriptionId);
+            inputBinding.bind(delivery.subscriptionId);
             publish((current) => ({
               ...current,
               outputSubscriptionId: delivery.subscriptionId,
@@ -134,7 +129,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
             }));
             return;
           case "ended":
-            inputQueue.bind(undefined);
+            inputBinding.bind(undefined);
             publish((current) => ({ ...current, outputSubscriptionId: undefined }));
             return;
           case "frame":
@@ -152,7 +147,7 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
       return () => {
         stopFollowing();
         writer.close();
-        inputQueue.bind(undefined);
+        inputBinding.bind(undefined);
         publish((current) => ({
           ...current,
           outputSubscriptionId: undefined,
@@ -160,20 +155,20 @@ export function useShellOutput(bridge: PlatformBridge, subject: ShellOutputSubje
         }));
       };
     },
-    [bridge, inputQueue, publish, sessionId, terminalId],
+    [bridge, inputBinding, publish, sessionId, terminalId],
   );
 
   const typeKeys = useCallback(
     (data: string) => {
-      inputQueue.type(data);
+      inputBinding.type(data);
     },
-    [inputQueue],
+    [inputBinding],
   );
   const pasteText = useCallback(
     (text: string) => {
-      inputQueue.paste(text);
+      inputBinding.paste(text);
     },
-    [inputQueue],
+    [inputBinding],
   );
   const resizeShell = useCallback(
     (size: TerminalGridSize) => {

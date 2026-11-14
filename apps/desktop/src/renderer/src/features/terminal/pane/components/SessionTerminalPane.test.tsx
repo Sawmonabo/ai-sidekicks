@@ -2,8 +2,9 @@
 // middle-click closes one, a session read empty opens one shell and no more; a close of a shell
 // another device holds is asked first and forced on the answer, and a moved tab sends its order; an
 // exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
-// holding pane tells the shell its grid's size; a paste goes as one paste; and keys typed while the
-// output stream is opened again go once the new subscription is acknowledged.
+// holding pane tells the shell its grid's size; a paste goes into the shell's input as one paste;
+// and keys typed while the output stream is opened again go once the new subscription is
+// acknowledged.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -145,7 +146,7 @@ describe("the shell's input and size", () => {
     });
   });
 
-  it("sends a paste as one paste, with its line breaks as carriage returns", async () => {
+  it("types a paste as one paste, with its line breaks as carriage returns", async () => {
     const wire = new RecordedShellWire();
     const { container } = mountPane(wire);
     listShells(wire, [shellEntry("terminal-1")]);
@@ -157,16 +158,8 @@ describe("the shell's input and size", () => {
     });
     textareaOf(container).dispatchEvent(paste);
     await waitFor(() => {
-      expect(wire.paramsOf("terminal.write")).toStrictEqual([
-        {
-          kind: "paste",
-          sessionId: SESSION_ID,
-          terminalId: "terminal-1",
-          outputSubscriptionId: FIRST_SUBSCRIPTION_ID,
-          data: "echo one\recho two",
-          pasteId: expect.any(String) as unknown,
-          isLastPart: true,
-        },
+      expect(wire.shellInputs).toStrictEqual([
+        { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "paste", data: "echo one\recho two" },
       ]);
     });
   });
@@ -278,12 +271,11 @@ async function openOutputAs(
   });
 }
 
-/** Each keys write sent: its text and the subscription it was bound to. */
+/** Each run of keys typed into the shell: its text and the subscription it was bound to. */
 function writtenKeys(wire: RecordedShellWire): (readonly [string, SubscriptionId])[] {
-  return wire.paramsOf("terminal.write").flatMap((params) => {
-    const write = params as { kind: string; data: string; outputSubscriptionId: SubscriptionId };
-    return write.kind === "keys" ? [[write.data, write.outputSubscriptionId] as const] : [];
-  });
+  return wire.shellInputs.flatMap((input) =>
+    input.kind === "keys" ? [[input.data, input.outputSubscriptionId] as const] : [],
+  );
 }
 
 function textareaOf(container: HTMLElement): HTMLTextAreaElement {

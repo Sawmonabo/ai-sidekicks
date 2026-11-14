@@ -1,7 +1,7 @@
 // The addon as the client helper's suites play it: their own connect and wait, the client's bounds
 // and a status file's place; none of these suites ends the service or reads a process's identity.
 
-import type { ClientHelperAddon } from "./helper.js";
+import type { ClientHelperAddon } from "./addon.js";
 
 const NO_ENDING = "No suite of the helper's link ends the service.";
 

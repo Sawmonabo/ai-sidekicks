@@ -1,5 +1,6 @@
 // A fake daemon wire for the shell suites: it records each stream it opens, with the ends a case
-// drives, and each call, answered from the case's table or with `null`.
+// drives, each call, answered from the case's table or with `null`, and each input typed or
+// pasted into a shell, answered with nothing.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -12,6 +13,7 @@ import { TransportReconnectSignal } from "../../transport/reconnect.js";
 export class RecordedShellWire {
   readonly opens: StreamOpen[] = [];
   readonly calls: RecordedCall[] = [];
+  readonly shellInputs: RecordedShellInput[] = [];
   readonly bridge: PlatformBridge;
 
   /** `answers` serves a method's calls; a method it does not name is served `null`. */
@@ -42,8 +44,17 @@ export class RecordedShellWire {
       this.calls.push({ method, params });
       return Promise.resolve({ value: answers[method]?.(params) ?? null });
     }) as DaemonWire["call"];
+    const openShellInput: DaemonWire["openShellInput"] = (outputSubscriptionId) => ({
+      typeKeys: (data) => {
+        this.shellInputs.push({ outputSubscriptionId, kind: "keys", data });
+      },
+      pasteText: (text) => {
+        this.shellInputs.push({ outputSubscriptionId, kind: "paste", data: text });
+      },
+      close: () => undefined,
+    });
     this.bridge = {
-      daemon: { subscribe, call },
+      daemon: { subscribe, call, openShellInput },
       transportReconnect: new TransportReconnectSignal(),
     } as unknown as PlatformBridge;
   }
@@ -76,6 +87,13 @@ interface StreamOpen {
   readonly end: (end: DaemonSubscriptionEnd) => void;
   readonly opened: (subscriptionId: SubscriptionId) => void;
   isClosed: boolean;
+}
+
+/** One input a pane typed or pasted into a shell, and the subscription it was bound to. */
+interface RecordedShellInput {
+  readonly outputSubscriptionId: SubscriptionId;
+  readonly kind: "keys" | "paste";
+  readonly data: string;
 }
 
 /** One call the page made. */

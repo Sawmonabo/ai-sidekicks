@@ -23,6 +23,7 @@ use tokio::sync::oneshot;
 
 use super::{RawReply, RawRequest, typed_request};
 use crate::error::{ClientError, LinkFault, RemoteError, ReplyError, RequestError};
+use crate::terminal_write::ShellQueues;
 use crate::transport::link::LinkShared;
 use crate::transport::subscription::{
     OpenedSubscription, SubscriptionHandle, SubscriptionShared, probe_subscription_id,
@@ -216,6 +217,8 @@ pub(crate) struct ClientShared {
     next_id: AtomicU64,
     next_generation: AtomicU64,
     state: Mutex<ClientState>,
+    /// The shells' write queues, one per shell, which every pane typing over this client shares.
+    pub(crate) shell_queues: ShellQueues,
 }
 
 impl ClientShared {

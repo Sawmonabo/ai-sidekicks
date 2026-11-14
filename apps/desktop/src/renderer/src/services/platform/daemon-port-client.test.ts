@@ -8,13 +8,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DAEMON_PORT_MESSAGE } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
-import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type { ClientHelperAnswer, ClientHelperWindowRequest } from "#shared/daemon/port-message.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { DaemonPortClient, type DaemonPort, type DaemonPortWindow } from "./daemon-port-client.js";
 
 /** The helper's end of one port: what the page sent on it, how to answer, and its close. */
 interface HelperEnd {
-  readonly received: ClientHelperRequest[];
+  readonly received: ClientHelperWindowRequest[];
   answer(answer: ClientHelperAnswer): void;
   /** The helper exits: the page's end closes. */
   close(): void;
@@ -34,7 +34,7 @@ function pageWithHelper(): {
     },
   };
   const openPort = vi.fn(() => {
-    const received: ClientHelperRequest[] = [];
+    const received: ClientHelperWindowRequest[] = [];
     const port: DaemonPort = {
       onmessage: null,
       onclose: null,

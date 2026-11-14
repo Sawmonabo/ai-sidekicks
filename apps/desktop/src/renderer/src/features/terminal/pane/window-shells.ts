@@ -1,7 +1,7 @@
-// What every pane in one window shares about one shell. The window declares one flow state per
-// shell, behind while any of its panes watching the shell is behind, and its panes' waiting writes
-// share one count. The client helper counts the same across every window on the daemon connection,
-// so the daemon hears a change only when the whole connection's state changes.
+// What every pane in one window shares about one shell's output flow. The window declares one flow
+// state per shell, behind while any of its panes watching the shell is behind. The client helper
+// counts the same across every window on the daemon connection, so the daemon hears a change only
+// when the whole connection's state changes.
 
 import type { ShellOutputSubject } from "#renderer/services/daemon/terminal/output.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -10,16 +10,9 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 export class WindowShell {
   readonly #onForgotten: () => void;
   #behindPaneCount = 0;
-  #writesWaitingCount = 0;
-  readonly #onWriteAnswered = new Set<() => void>();
 
   public constructor(onForgotten: () => void) {
     this.#onForgotten = onForgotten;
-  }
-
-  /** The writes to this shell from every pane in this window that wait for the daemon's answer. */
-  public get writesWaitingCount(): number {
-    return this.#writesWaitingCount;
   }
 
   /**
@@ -34,35 +27,8 @@ export class WindowShell {
     return wasBehind === isWindowBehind ? undefined : isWindowBehind;
   }
 
-  /** Count one write sent; `answerWrite` uncounts it. */
-  public sendWrite(): void {
-    this.#writesWaitingCount += 1;
-  }
-
-  /** Uncount one answered write and tell every pane waiting for room. */
-  public answerWrite(): void {
-    this.#writesWaitingCount -= 1;
-    for (const listener of [...this.#onWriteAnswered]) {
-      listener();
-    }
-    this.#forgetWhenIdle();
-  }
-
-  /** Be told each time a write is answered, until the handle stops it. */
-  public followWriteAnswers(listener: () => void): () => void {
-    this.#onWriteAnswered.add(listener);
-    return () => {
-      this.#onWriteAnswered.delete(listener);
-      this.#forgetWhenIdle();
-    };
-  }
-
   #forgetWhenIdle(): void {
-    if (
-      this.#behindPaneCount === 0 &&
-      this.#writesWaitingCount === 0 &&
-      this.#onWriteAnswered.size === 0
-    ) {
+    if (this.#behindPaneCount === 0) {
       this.#onForgotten();
     }
   }

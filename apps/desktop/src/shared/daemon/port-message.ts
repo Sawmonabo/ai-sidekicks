@@ -1,11 +1,13 @@
 // The messages a window and main exchange with the client helper: the requests each makes and the
-// answers it gets, on the window's port or main's parentPort. Everything crosses by structured
-// clone: a reply's JSON stays the text the daemon sent, parsed once by whoever reads it, and bytes
-// cross as `Uint8Array` straight to the window that asked, never through main.
+// answers it gets, on the window's port or main's parentPort, and a window's typing into a shell
+// with what it is told of the writes. Everything crosses by structured clone: a reply's JSON stays
+// the text the daemon sent, parsed once by whoever reads it, and bytes cross as `Uint8Array`
+// straight to the window that asked, never through main.
 
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { FilePathRef } from "../preload-api.js";
+import type { FilePathRef, ShellWriteAnswer } from "../preload-api.js";
 import type { DaemonSubscriptionEnd } from "./forwarding.js";
 
 /**
@@ -67,4 +69,33 @@ export type ClientHelperAnswer =
       readonly kind: "stream.ended";
       readonly streamId: number;
       readonly end: DaemonSubscriptionEnd;
+    };
+
+/**
+ * What a window types or pastes into a shell, bound to the typing pane's open output subscription,
+ * which the helper sends through the client's one queue for that shell.
+ */
+export type ClientHelperShellInput =
+  | {
+      readonly kind: "shell.keys";
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly data: string;
+    }
+  | {
+      readonly kind: "shell.paste";
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly text: string;
+    };
+
+/** What a window sends the helper: a request main makes too, or a pane's input to a shell. */
+export type ClientHelperWindowRequest = ClientHelperRequest | ClientHelperShellInput;
+
+/** What the helper sends a window: an answer main gets too, or what a pane is told of its writes. */
+export type ClientHelperWindowAnswer =
+  | ClientHelperAnswer
+  | {
+      readonly kind: "shell.writeAnswered";
+      /** The output subscription of the pane whose write it answers. */
+      readonly outputSubscriptionId: SubscriptionId;
+      readonly answer: ShellWriteAnswer;
     };

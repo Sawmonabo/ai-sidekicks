@@ -5,7 +5,8 @@
 // what they held from the cursors they kept; only main's `daemon.status` topic, which rides IPC,
 // says whether the service can be reached. Bytes cross beside the JSON: each `Uint8Array` in the
 // params is sent as a `{"$bytes": n}` member and its bytes, and a reply's or a value's bytes come
-// back beside it for its check to read.
+// back beside it for its check to read. A pane's typing into a shell rides the same port, and what
+// it is told of its writes comes back by its output subscription.
 
 import {
   type SubscriptionId,
@@ -14,13 +15,18 @@ import {
 
 import { DAEMON_PORT_MESSAGE } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
-import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type {
+  ClientHelperWindowAnswer,
+  ClientHelperWindowRequest,
+} from "#shared/daemon/port-message.js";
 import { DAEMON_STATUS_TOPIC, NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import type {
   DaemonPreload,
   DaemonWire,
   FilePathRef,
   ServedDaemonCall,
+  ShellInput,
+  ShellWriteAnswer,
   Unsubscribe,
 } from "#shared/preload-api.js";
 import { withBytesTaken } from "../daemon/wire/attachments.js";
@@ -29,7 +35,7 @@ import { withBytesTaken } from "../daemon/wire/attachments.js";
 export interface DaemonPort {
   onmessage: ((event: { readonly data: unknown }) => void) | null;
   onclose: (() => void) | null;
-  postMessage(message: ClientHelperRequest): void;
+  postMessage(message: ClientHelperWindowRequest): void;
   start(): void;
 }
 
@@ -51,9 +57,11 @@ export class DaemonPortClient {
   #port: DaemonPort | undefined;
   #isPortAsked = false;
   /** Requests made while no port was held, sent in order once one arrives. */
-  readonly #waiting: ClientHelperRequest[] = [];
+  readonly #waiting: ClientHelperWindowRequest[] = [];
   readonly #calls = new Map<number, PendingCall>();
   readonly #streams = new Map<number, OpenStream>();
+  /** Each open shell input's listener, by the output subscription it is bound to. */
+  readonly #shellAnswers = new Map<SubscriptionId, (answer: ShellWriteAnswer) => void>();
   #nextId = 0;
 
   public constructor(preload: Pick<DaemonPreload, "openPort">, page: DaemonPortWindow) {
@@ -116,7 +124,31 @@ export class DaemonPortClient {
     };
   }
 
-  #send(request: ClientHelperRequest): void {
+  /**
+   * Type into the shell `outputSubscriptionId` follows, telling `onAnswer` what the helper says of
+   * the input's writes until it is closed.
+   */
+  public openShellInput(
+    outputSubscriptionId: SubscriptionId,
+    onAnswer: (answer: ShellWriteAnswer) => void,
+  ): ShellInput {
+    this.#shellAnswers.set(outputSubscriptionId, onAnswer);
+    return {
+      typeKeys: (data) => {
+        this.#send({ kind: "shell.keys", outputSubscriptionId, data });
+      },
+      pasteText: (text) => {
+        this.#send({ kind: "shell.paste", outputSubscriptionId, text });
+      },
+      close: () => {
+        if (this.#shellAnswers.get(outputSubscriptionId) === onAnswer) {
+          this.#shellAnswers.delete(outputSubscriptionId);
+        }
+      },
+    };
+  }
+
+  #send(request: ClientHelperWindowRequest): void {
     if (this.#port !== undefined) {
       this.#port.postMessage(request);
       return;
@@ -136,7 +168,7 @@ export class DaemonPortClient {
     this.#port = port;
     this.#isPortAsked = false;
     port.onmessage = (event) => {
-      this.#receive(event.data as ClientHelperAnswer);
+      this.#receive(event.data as ClientHelperWindowAnswer);
     };
     port.onclose = () => {
       this.#closed(port);
@@ -147,7 +179,7 @@ export class DaemonPortClient {
     }
   }
 
-  #receive(answer: ClientHelperAnswer): void {
+  #receive(answer: ClientHelperWindowAnswer): void {
     switch (answer.kind) {
       case "call.served": {
         const pending = this.#takeCall(answer.callId);
@@ -188,6 +220,9 @@ export class DaemonPortClient {
         stream?.onEnded?.(answer.end);
         return;
       }
+      case "shell.writeAnswered":
+        this.#shellAnswers.get(answer.outputSubscriptionId)?.(answer.answer);
+        return;
     }
   }
 
@@ -228,6 +263,8 @@ export function createDaemonPortWire(preload: DaemonPreload, page: DaemonPortWin
       event === DAEMON_STATUS_TOPIC
         ? preload.subscribeStatus(handler as (state: unknown) => void)
         : client.subscribe(event, params, handler as StreamDelivery, onEnded, onOpened),
+    openShellInput: (outputSubscriptionId, onAnswer) =>
+      client.openShellInput(outputSubscriptionId, onAnswer),
     requestStart: () => preload.requestStart(),
   };
 }

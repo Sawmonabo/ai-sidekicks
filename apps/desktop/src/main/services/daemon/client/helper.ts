@@ -9,38 +9,36 @@
 // closed fails. A connect main closed before it settled is dropped, its link closed unused. The
 // link's state, and a starting daemon's answers that it is repairing, go to main as the addon
 // reports them; the addon pings, times and retries the link itself, so the helper keeps no timer.
-// A shell's flow state and its waiting writes are counted over every window on the connection
-// (`connection-shells.ts`), as the daemon counts them per connection. Main alone asks the helper
+// A shell's flow state is counted over every window on the connection (`connection-shells.ts`), as
+// the daemon counts it per connection, and a window's typing goes into the addon's one queue for
+// its shell, which keeps every rule for its writes (`shell-inputs.ts`). Main alone asks the helper
 // to end the service and to read a process's identity, and hears the client's bounds and the
 // status file's place once, at start.
 
-import type {
-  DaemonClient,
-  DaemonEndingOutcome,
-  DaemonEndingRequest,
-  StreamEvent,
-  WireReply,
-} from "@ai-sidekicks/client-sdk";
-import type { DaemonRepairingDetails } from "@ai-sidekicks/contracts/daemon/recovery";
-import type { DaemonCannotStart } from "@ai-sidekicks/contracts/daemon/service-status";
+import type { StreamEvent, WireReply } from "@ai-sidekicks/client-sdk";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import type {
   TerminalFlowControlUpdateRequest,
   TerminalFlowControlUpdateResponse,
-  TerminalWriteRequest,
 } from "@ai-sidekicks/contracts/terminal";
 
 import { FILE_PATH_METHODS, mayOfferPathsToOpen } from "#main/bridge/file-path/relay.js";
 import { pageSafeMessage } from "#main/bridge/page-safe-message.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { TERMINAL_OUTPUT_STREAM } from "#shared/daemon/streams.js";
 import { describeFailure } from "#shared/failure-message.js";
 
-import type { ClientHelperAnswer, ClientHelperRequest } from "#shared/daemon/port-message.js";
+import type {
+  ClientHelperAnswer,
+  ClientHelperRequest,
+  ClientHelperWindowAnswer,
+} from "#shared/daemon/port-message.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 
+import type { ClientHelperAddon, ClientHelperDaemonClient } from "./addon.js";
 import { ConnectionShells, type FlowTelling } from "./connection-shells.js";
 import type {
   ClientHelperLinkState,
@@ -50,6 +48,8 @@ import type {
   MainToClientHelperMessage,
 } from "./messages.js";
 import { paramsRefusal, requestRefusal, type ClientHelperChannelKind } from "./method-allowlist.js";
+import { ShellInputs, type FollowedShell } from "./shell-inputs.js";
+import { wireErrorOf } from "./wire-error.js";
 import { isOpenedTwice, readWindowRequest } from "./window-request.js";
 
 const FLOW_CONTROL_METHOD = "terminal.flowControl.update";
@@ -59,54 +59,11 @@ const FLOW_CONTROL_TAKEN_JSON = JSON.stringify({
   accepted: true,
 } satisfies TerminalFlowControlUpdateResponse);
 
-/** What the helper uses of the daemon client the addon connects. */
-export type ClientHelperDaemonClient = Pick<
-  DaemonClient,
-  "call" | "cancelCall" | "subscribe" | "cancelStream" | "close"
->;
-
-/**
- * A connect's answer from the addon: the client and the daemon's handshake answer, or the error
- * and, when the failure says, why the service cannot start.
- */
-export interface ClientHelperConnectAnswer {
-  readonly client?: ClientHelperDaemonClient;
-  readonly initializeResponse?: ConnectionInitializeResponse;
-  readonly error?: JsonRpcError;
-  readonly cannotStart?: DaemonCannotStart;
-}
-
-/**
- * What the helper uses of the addon: its one connect, its wait for a daemon that is starting, which
- * hands each answer that the daemon is repairing to `onRepairing`, the client's ending, the read of
- * a process's identity, the status file's place, and the client's two bounds.
- */
-export interface ClientHelperAddon {
-  connect(
-    presentsToken: boolean,
-    onState: (state: string) => void,
-  ): Promise<ClientHelperConnectAnswer>;
-  waitForDaemon(
-    presentsToken: boolean,
-    onState: (state: string) => void,
-    onRepairing: (details: DaemonRepairingDetails) => void,
-  ): Promise<ClientHelperConnectAnswer>;
-  endDaemon(request: DaemonEndingRequest, presentsToken: boolean): Promise<DaemonEndingOutcome>;
-  /** Takes the identity as the JSON the addon reads. */
-  endDaemonProcess(processIdentityJson: string): Promise<DaemonEndingOutcome>;
-  /** The identity as JSON, or `null` when no process holds the id; throws the system's error. */
-  readProcessIdentity(processId: number): string | null;
-  /** Throws when this system has no run folder. */
-  daemonStatusFilePath(): string;
-  readonly HANDSHAKE_DEADLINE_MS: number;
-  readonly DAEMON_FLUSH_WAIT_MS: number;
-}
-
 /** A window's port as the helper serves it: Electron's `MessagePortMain`. */
 export interface ClientHelperWindowPort {
   on(event: "message", listener: (messageEvent: { data: unknown }) => void): unknown;
   on(event: "close", listener: () => void): unknown;
-  postMessage(message: ClientHelperAnswer): void;
+  postMessage(message: ClientHelperWindowAnswer): void;
   start(): void;
   close(): void;
 }
@@ -220,6 +177,7 @@ class ClientHelper {
   readonly #shells = new ConnectionShells<Channel>((update, telling) => {
     void this.#tellFlowControl(update, telling);
   });
+  readonly #shellInputs = new ShellInputs<Channel>();
 
   public constructor(parentPort: ClientHelperParentPort, addon: ClientHelperAddon) {
     this.#parentPort = parentPort;
@@ -325,6 +283,7 @@ class ClientHelper {
     }
     this.#isConnecting = true;
     this.#shells.forgetConnection();
+    this.#shellInputs.forgetClient();
     void this.#connect(presentsToken, waitsForStart);
   }
 
@@ -459,6 +418,9 @@ class ClientHelper {
     const channel = new Channel(windowId, (answer) => {
       port.postMessage(answer);
     });
+    this.#shellInputs.addWindow(channel, (answer) => {
+      port.postMessage(answer);
+    });
     port.on("message", ({ data }) => {
       const request = readWindowRequest(data);
       if (request === undefined || isOpenedTwice(channel, request)) {
@@ -469,6 +431,10 @@ class ClientHelper {
         });
         port.close();
         this.#closeChannel(channel);
+        return;
+      }
+      if (request.kind === "shell.keys" || request.kind === "shell.paste") {
+        this.#shellInputs.take(channel, request);
         return;
       }
       this.#receive(channel, request);
@@ -557,16 +523,7 @@ class ClientHelper {
       params = swap.params;
       replyAsk = swap.readsReply ? askId : undefined;
     }
-    // The params passed the method's check.
-    const releaseWrite =
-      method === "terminal.write"
-        ? await this.#shells.takeWriteRoom(params as TerminalWriteRequest)
-        : undefined;
-    try {
-      await this.#callOverLink(channel, request, held, params, replyAsk);
-    } finally {
-      releaseWrite?.();
-    }
+    await this.#callOverLink(channel, request, held, params, replyAsk);
   }
 
   /** Sends one checked call once the link settles; answers what it told the asker, if anything. */
@@ -729,6 +686,11 @@ class ClientHelper {
         link.client.cancelStream(opened.streamId);
         return;
       }
+      if (method === TERMINAL_OUTPUT_STREAM) {
+        // The params passed the method's check, which names the shell.
+        const shell = request.params as FollowedShell;
+        this.#shellInputs.follow(channel, streamId, shell, opened.acknowledgment.json, link.client);
+      }
       channel.post({
         kind: "stream.opened",
         streamId,
@@ -834,6 +796,7 @@ class ClientHelper {
       return;
     }
     channel.streams.delete(streamId);
+    this.#shellInputs.forget(channel, streamId);
     channel.post({ kind: "stream.ended", streamId, end });
   }
 
@@ -843,6 +806,7 @@ class ClientHelper {
       return;
     }
     channel.streams.delete(streamId);
+    this.#shellInputs.forget(channel, streamId);
     this.#cancelAddonStream(held);
   }
 
@@ -853,7 +817,7 @@ class ClientHelper {
 
   /**
    * A window's port closed: every call and stream it held is canceled, a shell it alone was behind
-   * on resumes, and nothing more is told.
+   * on resumes, its panes' shell inputs close, and nothing more is told.
    */
   #closeChannel(channel: Channel): void {
     if (channel.isClosed) {
@@ -861,6 +825,7 @@ class ClientHelper {
     }
     channel.isClosed = true;
     this.#shells.forgetAsker(channel);
+    this.#shellInputs.removeWindow(channel);
     for (const held of channel.calls.values()) {
       held.isCanceled = true;
       held.addon?.client.cancelCall(held.addon.callId);
@@ -889,10 +854,4 @@ class ClientHelper {
 /** The addon's bytes for one attachment, over the same memory. */
 function bufferOf(attachment: Uint8Array): Buffer {
   return Buffer.from(attachment.buffer, attachment.byteOffset, attachment.byteLength);
-}
-
-/** The addon's error, which is already in the wire's shape, kept to its code, message and data. */
-function wireErrorOf(error: unknown): JsonRpcError {
-  const { code, message, data } = error as JsonRpcError;
-  return data === undefined ? { code, message } : { code, message, data };
 }

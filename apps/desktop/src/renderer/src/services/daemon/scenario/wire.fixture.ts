@@ -5,7 +5,8 @@
 // the delivered log, as the session stream is, unless the scenario scripts them, and the
 // `session.read` record names the delivered log's positions and standing events. A scenario's
 // daemon always answers, so the status topic reads connected from its first delivery, with the
-// handshake a compatible service settles, naming the scenario's own device.
+// handshake a compatible service settles, naming the scenario's own device; its shells take what
+// is typed and answer nothing of it.
 
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
@@ -105,6 +106,12 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         onEnded,
       );
     },
+    // A scenario's shells play scripted output, so what is typed into them is taken and dropped.
+    openShellInput: () => ({
+      typeKeys: () => undefined,
+      pasteText: () => undefined,
+      close: () => undefined,
+    }),
     requestStart: async () => {
       // A scenario's daemon always answers, so there is no service to start.
     },

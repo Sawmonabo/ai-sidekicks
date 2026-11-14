@@ -31,7 +31,7 @@ use sidekicks_client::daemon_ending::{
     self, DaemonEnd, DaemonEndingError, DaemonEndingTerms, DaemonEndingVerb, end_unanswered_process,
 };
 use sidekicks_client::error::ClientError;
-use sidekicks_client::terminal_write::{ShellInput, ShellTarget};
+use sidekicks_client::terminal_write::{ShellInput, ShellTarget, WriteNotice};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawReply, RawRequest};
 use sidekicks_client::transport::subscription::Subscription;
 use sidekicks_client::untyped_call;
@@ -107,6 +107,14 @@ pub struct StreamEvent {
     /// Whether the stream ended; no event follows.
     pub is_end: bool,
     /// The error the stream ended for, in the wire's shape.
+    pub error: Option<Value>,
+}
+
+/// What a pane's input is told of one of its writes: refused, with the error in the wire's shape, or
+/// taken, with no error, for its first write and for the first after a refusal.
+#[napi(object)]
+pub struct ShellWriteNotice {
+    /// The error, when the write was refused.
     pub error: Option<Value>,
 }
 
@@ -386,16 +394,17 @@ impl DaemonClient {
         }
     }
 
-    /// Opens a pane's input to one shell; a write that fails goes to `on_failure` in the wire's
-    /// error shape. Fails when an id is malformed. It runs inside the addon's runtime, which every
-    /// write's answer is awaited on.
+    /// Opens a pane's input to one shell, on the one queue this connection holds for that shell,
+    /// which every pane's input to it shares; what the pane is told of its writes goes to
+    /// `on_notice` until the input is closed. Fails when an id is malformed. It runs inside the
+    /// addon's runtime, which every write's answer is awaited on.
     #[napi(catch_unwind, async_runtime)]
     pub fn open_shell_input(
         &self,
         session_id: String,
         terminal_id: String,
         output_subscription_id: String,
-        on_failure: ThreadsafeFunction<Value, (), Value, napi::Status, false>,
+        on_notice: ThreadsafeFunction<ShellWriteNotice, (), ShellWriteNotice, napi::Status, false>,
     ) -> napi::Result<ShellInputHandle> {
         let target = ShellTarget {
             session_id: SessionId::new(&session_id)
@@ -405,16 +414,25 @@ impl DaemonClient {
             output_subscription_id: SubscriptionId::new(&output_subscription_id)
                 .map_err(|error| napi::Error::from_reason(format!("subscription id: {error}")))?,
         };
-        let (input, mut failures) = ShellInput::new(self.client.clone(), target);
+        let (input, mut notices) = ShellInput::open(&self.client, target);
+        // Ends once the input is closed, which drops every sender of its notices.
         tokio::spawn(async move {
-            while let Some(failure) = failures.recv().await {
-                // A pane that no longer takes its failures is gone, and so is anyone to tell.
-                if on_failure.call_async(wire_error(&failure)).await.is_err() {
+            while let Some(notice) = notices.recv().await {
+                let notice = ShellWriteNotice {
+                    error: match notice {
+                        WriteNotice::Refused(failure) => Some(wire_error(&failure)),
+                        WriteNotice::Taken => None,
+                    },
+                };
+                // A pane that no longer takes its notices is gone, and so is anyone to tell.
+                if on_notice.call_async(notice).await.is_err() {
                     break;
                 }
             }
         });
-        Ok(ShellInputHandle { input })
+        Ok(ShellInputHandle {
+            input: Mutex::new(Some(input)),
+        })
     }
 
     /// Starts the reconnect schedule again once the connection is down.
@@ -440,8 +458,9 @@ impl DaemonClient {
 /// A pane's input to one shell.
 #[napi]
 pub struct ShellInputHandle {
-    /// The shell's input, shared with the pane's other handles.
-    input: ShellInput,
+    /// The pane's handle onto the shell's queue, which every pane's input to that shell over this
+    /// connection shares; taken out once by `close`.
+    input: Mutex<Option<ShellInput>>,
 }
 
 #[expect(
@@ -450,10 +469,30 @@ pub struct ShellInputHandle {
 )]
 #[napi]
 impl ShellInputHandle {
-    /// Types `keys` into the shell, in order with every earlier key.
+    /// Types `keys` into the shell, in order with every earlier key and paste of every pane;
+    /// nothing once closed.
     #[napi(catch_unwind)]
     pub fn type_keys(&self, keys: String) {
-        self.input.type_keys(&keys);
+        if let Some(input) = lock(&self.input).as_ref() {
+            input.type_keys(&keys);
+        }
+    }
+
+    /// Pastes `text` into the shell as one paste, in order with every earlier key and paste of
+    /// every pane; nothing once closed.
+    #[napi(catch_unwind)]
+    pub fn paste(&self, text: String) {
+        if let Some(input) = lock(&self.input).as_ref() {
+            input.paste(&text);
+        }
+    }
+
+    /// Closes the input: what it queued and has not sent is dropped, its writes sent still count
+    /// until answered, and `on_notice` hears nothing more.
+    #[napi(catch_unwind)]
+    pub fn close(&self) {
+        let input = lock(&self.input).take();
+        drop(input);
     }
 }
 
@@ -669,7 +708,8 @@ fn wire_reply(reply: RawReply) -> WireReply {
     }
 }
 
-/// The mutex's guard, a poisoned one included: the maps hold only cancel tokens.
+/// The mutex's guard, a poisoned one included: the maps hold only cancel tokens, and a shell's
+/// input is whole between calls.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

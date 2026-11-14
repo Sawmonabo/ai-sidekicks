@@ -8,7 +8,8 @@
 // subscriptions, which have no reply to bind and which `streams.ts` names. What only main sends is
 // not here: the daemon's stop and restart, which go through main's supervisor; the app's
 // diagnostics, which main redacts and rate-limits; the machine's settings, which main relays to
-// each window; and the presence heartbeat, which main sends for the app.
+// each window; the presence heartbeat, which main sends for the app; and a write to a shell, which
+// a window's pane types through the client's one queue for that shell.
 
 import {
   AGENT_METHOD_DESCRIPTORS,
@@ -158,7 +159,7 @@ type WindowMethodTables = AgentMethodDescriptors &
   SessionMethodDescriptors &
   SkillMethodDescriptors &
   TerminalControlMethodDescriptors &
-  TerminalMethodDescriptors &
+  Omit<TerminalMethodDescriptors, "terminal.write"> &
   TranscriptMethodDescriptors &
   WorkflowDefinitionMethodDescriptors &
   WorkflowKeptValueMethodDescriptors &
@@ -166,6 +167,10 @@ type WindowMethodTables = AgentMethodDescriptors &
   WorkflowRunRecordMethodDescriptors &
   WorkflowStepMethodDescriptors &
   WorkflowSubscriptionMethodDescriptors;
+
+// A window's writes to a shell go through the client's one queue for that shell, never as a call.
+const { "terminal.write": _shellWrite, ...WINDOW_TERMINAL_METHOD_DESCRIPTORS } =
+  TERMINAL_METHOD_DESCRIPTORS;
 
 /** What is read of any one method's generated descriptor without knowing which method it is. */
 export interface WindowMethodDescriptor {
@@ -252,7 +257,7 @@ export const WINDOW_METHOD_DESCRIPTORS: Readonly<Record<string, WindowMethodDesc
     ...SESSION_METHOD_DESCRIPTORS,
     ...SKILL_METHOD_DESCRIPTORS,
     ...TERMINAL_CONTROL_METHOD_DESCRIPTORS,
-    ...TERMINAL_METHOD_DESCRIPTORS,
+    ...WINDOW_TERMINAL_METHOD_DESCRIPTORS,
     ...TRANSCRIPT_METHOD_DESCRIPTORS,
     ...WORKFLOW_DEFINITION_METHOD_DESCRIPTORS,
     ...WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS,
