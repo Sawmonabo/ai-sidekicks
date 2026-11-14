@@ -101,7 +101,8 @@ export type MainToClientHelperMessage =
 /**
  * What the helper sends main: its facts once at start, answers to main's own requests and service
  * asks, the link's connect and state, the file-path asks for a window's call, a window port it
- * stopped serving, and a flow update of its own the daemon did not take.
+ * stopped serving, a flow update of its own the daemon did not take, refused writes no pane hears,
+ * and why it did not send a call, main's or a window's.
  */
 export type ClientHelperToMainMessage =
   | ClientHelperFacts
@@ -137,4 +138,6 @@ export type ClientHelperToMainMessage =
     }
   | { readonly kind: "window.portDropped"; readonly windowId: number; readonly reason: string }
   | { readonly kind: "flowControl.failed"; readonly message: string }
-  | { readonly kind: "shellWrite.failed"; readonly message: string };
+  | { readonly kind: "shellWrite.failed"; readonly message: string }
+  /** Why a call was not sent: its method, and each fault's place and rule, never a value. */
+  | { readonly kind: "call.unsendableReason"; readonly message: string };

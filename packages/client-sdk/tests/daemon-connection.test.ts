@@ -1,6 +1,6 @@
 // The built addon against the daemon's own program: a connect, a call, a subscribe, and a call
-// whose params break their method's contract. The daemon runs on a home of the test's own, so its
-// data and run folders are the test's and never the person's.
+// whose params break their method's contract, refused unsent. The daemon runs on a home of the
+// test's own, so its data and run folders are the test's and never the person's.
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -112,7 +112,8 @@ it.skipIf(process.platform === "win32")(
 
       const refused = await client.call(2, "daemon.status.read", "[]", []);
       expect(refused.reply).toBeUndefined();
-      expect(refused.error).toStrictEqual({
+      expect(refused.error).toBeUndefined();
+      expect(refused.unsentRefusal).toStrictEqual({
         code: -32602,
         message: "The params of daemon.status.read break its contract",
         data: {

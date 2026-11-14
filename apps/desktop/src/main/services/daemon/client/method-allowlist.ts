@@ -15,7 +15,6 @@ import {
   type DaemonLifecycleMethodTypes,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { REFUSAL_CODE_CATEGORIES, type RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 import {
@@ -94,27 +93,11 @@ export function requestRefusal(
     : undefined;
 }
 
-/** `request.paramsInvalid` for `method`'s params, naming each fault's place and rule. */
-export function paramsRefusal(method: string, issues: readonly Issue[]): JsonRpcError {
-  return refusal(
-    JsonRpcErrorCode.InvalidParams,
-    "request.paramsInvalid",
-    `The params of ${method} break its contract`,
-    { issues },
-  );
-}
-
 /** A refusal in the wire's error shape, under the category the contracts file `type` in. */
 function refusal(
   code: number,
-  type: Extract<RefusalCode, "request.methodNotAllowed" | "request.paramsInvalid">,
+  type: Extract<RefusalCode, "request.methodNotAllowed">,
   message: string,
-  fields?: Readonly<Record<string, unknown>>,
 ): JsonRpcError {
-  const category = REFUSAL_CODE_CATEGORIES[type];
-  return {
-    code,
-    message,
-    data: fields === undefined ? { type, category } : { type, category, fields: { ...fields } },
-  };
+  return { code, message, data: { type, category: REFUSAL_CODE_CATEGORIES[type] } };
 }

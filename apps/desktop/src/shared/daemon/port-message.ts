@@ -35,8 +35,9 @@ export type ClientHelperRequest =
 
 /**
  * What the helper answers on the channel a request came from. A call ends once, served, refused in
- * the wire's error shape or failed on the helper's side by its message. A stream that opened sends
- * the daemon's acknowledgment first, then each value, and its end once, unless the asker closed it.
+ * the wire's error shape, unsendable when the helper never sent it, or failed on the helper's side
+ * by its message. A stream that opened sends the daemon's acknowledgment first, then each value,
+ * and its end once, unless the asker closed it.
  */
 export type ClientHelperAnswer =
   | {
@@ -49,6 +50,11 @@ export type ClientHelperAnswer =
       readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
     }
   | { readonly kind: "call.refused"; readonly callId: number; readonly refusal: JsonRpcError }
+  /**
+   * The request was not sent: it broke its method's contract or carried a file token main would not
+   * swap. Why goes to main's log alone.
+   */
+  | { readonly kind: "call.unsendable"; readonly callId: number }
   | { readonly kind: "call.failed"; readonly callId: number; readonly message: string }
   | {
       readonly kind: "stream.opened";
@@ -93,8 +99,15 @@ export type ClientHelperShellInput =
       readonly writes: readonly UnsentShellWrite[];
     };
 
-/** What a window sends the helper: a request main makes too, or a pane's input to a shell. */
-export type ClientHelperWindowRequest = ClientHelperRequest | ClientHelperShellInput;
+/**
+ * What a window sends the helper: a request main makes too, a pane's input to a shell, or the close
+ * of a pane's input, after which the window sends it nothing more: what the helper holds of it is
+ * handed back, and then the window is told the input is closed.
+ */
+export type ClientHelperWindowRequest =
+  | ClientHelperRequest
+  | ClientHelperShellInput
+  | { readonly kind: "shell.close"; readonly outputSubscriptionId: SubscriptionId };
 
 /**
  * What the helper sends a window: an answer main gets too, or what a pane is told of its writes,

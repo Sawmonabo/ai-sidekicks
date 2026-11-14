@@ -65,13 +65,17 @@ pub struct WireReply {
     pub attachments: Vec<Buffer>,
 }
 
-/// A call's outcome: its reply, or its error in the wire's shape (`code`, `message`, `data`).
+/// A call's outcome: its reply, its error in the wire's shape (`code`, `message`, `data`), or the
+/// refusal of the client's own check, which sent nothing.
 #[napi(object)]
 pub struct CallOutcome {
     /// The reply, when the call succeeded.
     pub reply: Option<WireReply>,
-    /// The error, when it failed.
+    /// The error, when the call was sent and failed.
     pub error: Option<Value>,
+    /// Why the client's check of the request against its method's contract refused it, in the
+    /// wire's shape, when it did: nothing was sent.
+    pub unsent_refusal: Option<Value>,
 }
 
 /// A connect's outcome: the connection and the daemon's answer to its handshake, or its error in
@@ -315,8 +319,8 @@ fn connect_failed(error: &ClientError) -> ConnectOutcome {
 impl DaemonClient {
     /// Calls `method` with `params_json` and its attachments, after checking the params against the
     /// method's contract; `call_id` is the page's own, for `cancel_call`, which reaches the call as
-    /// soon as this returns. A refused check answers `request.paramsInvalid` without sending
-    /// anything.
+    /// soon as this returns. A refused check answers as the outcome's `unsent_refusal`, sending
+    /// nothing.
     #[napi(catch_unwind)]
     pub fn call(
         &self,
@@ -335,9 +339,10 @@ impl DaemonClient {
         let calls = Arc::clone(&self.calls);
         AsyncBlockBuilder::new(async move {
             let outcome = match answer {
-                Err(error) => CallOutcome {
+                Err(refusal) => CallOutcome {
                     reply: None,
-                    error: Some(error),
+                    error: None,
+                    unsent_refusal: Some(refusal),
                 },
                 Ok(answer) => {
                     let answer = answer.await;
@@ -346,10 +351,12 @@ impl DaemonClient {
                         Ok(reply) => CallOutcome {
                             reply: Some(wire_reply(reply)),
                             error: None,
+                            unsent_refusal: None,
                         },
                         Err(error) => CallOutcome {
                             reply: None,
                             error: Some(wire_error(&error)),
+                            unsent_refusal: None,
                         },
                     }
                 }
@@ -522,10 +529,11 @@ impl ShellInputHandle {
         Ok(())
     }
 
-    /// Closes the input for its output stream's end: what it queued is sent no more, and once
-    /// each write it sent is answered it hands back, oldest first, those the daemon refused
-    /// because the stream had ended, then what it had not sent; `on_notice` hears each answer
-    /// until then and nothing after. Nothing once closed.
+    /// Closes the input, for its output stream's end or its pane's close: what it queued is sent
+    /// no more, and once each write it sent is answered, as its shell's or its connection's end
+    /// also answers it, it hands back, oldest first, those the daemon refused because the stream
+    /// had ended, then what it had not sent; `on_notice` hears each answer until then and nothing
+    /// after. Nothing once closed.
     #[napi]
     pub async fn close(&self) -> Vec<UnsentShellWrite> {
         let input = lock(&self.input).take();

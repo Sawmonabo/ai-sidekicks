@@ -104,12 +104,15 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         onEnded,
       );
     },
-    // A scenario's shells play scripted output, so what is typed into them is taken and dropped.
-    openShellInput: () => ({
+    // A scenario's shells play scripted output, so what is typed into them is taken and dropped,
+    // and a closed input holds nothing to hand back.
+    openShellInput: (_outputSubscriptionId, onAnswer) => ({
       typeKeys: () => undefined,
       pasteText: () => undefined,
       resubmit: () => undefined,
-      close: () => undefined,
+      close: () => {
+        onAnswer({ kind: "closed" });
+      },
     }),
     requestStart: async () => {
       // A scenario's daemon always answers, so there is no service to start.

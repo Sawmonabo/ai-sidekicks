@@ -16,6 +16,14 @@ export const REQUEST_UNSENDABLE_MESSAGE =
   "This request could not be sent to the background service.";
 
 /**
+ * The app's own refusal of a request that was not sent, as the page's call rejects with it: an
+ * `Error` keeps its message across to the page, and the page reads it by the code beside it.
+ */
+export function requestUnsendable(): Error {
+  return Object.assign(new Error(REQUEST_UNSENDABLE_MESSAGE), { code: REQUEST_UNSENDABLE_CODE });
+}
+
+/**
  * A daemon subscription the renderer asks main to open. The preload names it, so values pushed
  * later find their handler and a later close names the same subscription.
  */

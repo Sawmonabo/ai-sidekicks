@@ -1,11 +1,13 @@
-// The reply chokepoint: a request the addon refused reads as unsendable, a rejection becomes a
-// refusal and never an exception, and a read whose owner has gone reads nothing from its reply.
+// The reply chokepoint: a request that never left reads as unsendable and the service's refusal of
+// its params as that refusal, a rejection becomes a refusal and never an exception, and a read
+// whose owner has gone reads nothing from its reply.
 // Every case drives the real `callDaemon` over the shipped fixture bridge. The helpers are
 // `reply.test-support.ts` beside this file and the shared `tests/helpers/fixture/bridge.ts`.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { RefusalCategory, RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
+import { requestUnsendable } from "#shared/daemon/forwarding.js";
 import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { isRefusal } from "#renderer/lib/refusal/contract.js";
 import type { PlatformBridge } from "../platform/bridge.js";
@@ -59,16 +61,10 @@ describe("callDaemon — a served reply", () => {
   });
 });
 
-describe("callDaemon — a request the addon refused before it left", () => {
-  it("reads as the app's own unsendable code, naming the method only to diagnostics", async () => {
+describe("callDaemon — a request that never left, and params the service refused", () => {
+  it("reads the first as unsendable and the second as the service's refusal", async () => {
     const { bridge } = bridgeAnswering(async () => {
-      throw Object.assign(new Error("The params of presence.read break its contract"), {
-        code: JsonRpcErrorCode.InvalidParams,
-        data: {
-          type: "request.paramsInvalid" satisfies RefusalCode,
-          category: "invalidArgument" satisfies RefusalCategory,
-        },
-      });
+      throw requestUnsendable();
     });
 
     let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
@@ -82,6 +78,19 @@ describe("callDaemon — a request the addon refused before it left", () => {
     expect(refusal.detail).not.toContain("presence.read");
     expect(diagnostics).toContain("presence.read");
     expect(isRefusal(refusal)).toBe(true);
+
+    const service = bridgeAnswering(async () => {
+      throw Object.assign(new Error("The params of presence.read break its contract"), {
+        code: JsonRpcErrorCode.InvalidParams,
+        data: {
+          type: "request.paramsInvalid" satisfies RefusalCode,
+          category: "invalidArgument" satisfies RefusalCategory,
+        },
+      });
+    });
+    const serviceRefusal = refusalOf(await callDaemon(service.bridge, "presence.read", {}));
+    expect(serviceRefusal.code).toBe("request.paramsInvalid");
+    expect(serviceRefusal.detail).toBe("The params of presence.read break its contract");
   });
 });
 

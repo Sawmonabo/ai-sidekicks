@@ -16,8 +16,7 @@ import {
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "#shared/bridge-channels.js";
 import {
-  REQUEST_UNSENDABLE_CODE,
-  REQUEST_UNSENDABLE_MESSAGE,
+  requestUnsendable,
   type DaemonCallOutcome,
   type DaemonSubscriptionEnd,
   type DaemonSubscriptionOpening,
@@ -142,10 +141,4 @@ export class DaemonSubscriptions {
 interface SubscriptionHandlers {
   readonly deliver: (value: unknown) => void;
   readonly onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined;
-}
-
-// The app's own refusal for a request main did not send: an `Error` keeps its message across to
-// the page, and the code beside it is what the page reads it by.
-function requestUnsendable(): Error {
-  return Object.assign(new Error(REQUEST_UNSENDABLE_MESSAGE), { code: REQUEST_UNSENDABLE_CODE });
 }

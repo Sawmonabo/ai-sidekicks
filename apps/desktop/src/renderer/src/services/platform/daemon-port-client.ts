@@ -5,8 +5,12 @@
 // what they held from the cursors they kept; only main's `daemon.status` topic, which rides IPC,
 // says whether the service can be reached. Bytes cross beside the JSON: each `Uint8Array` in the
 // params is sent as a `{"$bytes": n}` member and its bytes, and a reply's or a value's bytes come
-// back beside it. A pane's typing into a shell rides the same port, and what it is told of its
-// writes, the input handed back unsent among them, comes back by its output subscription.
+// back beside it. A request the helper did not send, one that broke its method's contract or
+// carried a file token main would not swap, fails with the app's own `request-unsendable` error.
+// A pane's typing into a shell rides the same port, and what it is told of its writes, the input
+// handed back unsent among them, comes back by its output subscription until its input is told
+// `closed`; a port that closes tells each input still open `closed` once the streams have ended,
+// since nothing more comes from that helper.
 
 import type {
   SubscribeAcknowledgmentResponse,
@@ -14,7 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { DAEMON_PORT_MESSAGE } from "#shared/bridge-channels.js";
-import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import { requestUnsendable, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type {
   ClientHelperWindowAnswer,
   ClientHelperWindowRequest,
@@ -76,8 +80,8 @@ export class DaemonPortClient {
 
   /**
    * Call `method`. Resolves with the reply, its bytes and the tokens main minted for its paths;
-   * rejects with the refusal in the wire's shape, or with an `Error` when the helper failed it or
-   * the port closed first.
+   * rejects with the refusal in the wire's shape, the app's `request-unsendable` error when the
+   * helper did not send it, or an `Error` when the helper failed it or the port closed first.
    */
   public call(method: string, params: unknown): Promise<ServedDaemonCall<unknown>> {
     const callId = this.#nextId++;
@@ -126,7 +130,8 @@ export class DaemonPortClient {
 
   /**
    * Type into the shell `outputSubscriptionId` follows, telling `onAnswer` what the helper says of
-   * the input's writes, and the input it hands back unsent, until the input is closed.
+   * the input's writes and the input it hands back unsent, until it tells `closed`: after the
+   * input's close, once the helper has handed back all it held.
    */
   public openShellInput(
     outputSubscriptionId: SubscriptionId,
@@ -144,8 +149,9 @@ export class DaemonPortClient {
         this.#send({ kind: "shell.resubmit", outputSubscriptionId, writes });
       },
       close: () => {
-        if (this.#shellAnswers.get(outputSubscriptionId) === onAnswer) {
-          this.#shellAnswers.delete(outputSubscriptionId);
+        // An input already told `closed`, as a closed port tells each, has nothing left to close.
+        if (this.#shellAnswers.has(outputSubscriptionId)) {
+          this.#send({ kind: "shell.close", outputSubscriptionId });
         }
       },
     };
@@ -198,6 +204,9 @@ export class DaemonPortClient {
         // The wire error itself, as the page reads a refusal by its code and data.
         this.#takeCall(answer.callId)?.reject(answer.refusal);
         return;
+      case "call.unsendable":
+        this.#takeCall(answer.callId)?.reject(requestUnsendable());
+        return;
       case "call.failed":
         this.#takeCall(answer.callId)?.reject(new Error(answer.message));
         return;
@@ -223,9 +232,14 @@ export class DaemonPortClient {
         stream?.onEnded?.(answer.end);
         return;
       }
-      case "shell.writeAnswered":
-        this.#shellAnswers.get(answer.outputSubscriptionId)?.(answer.answer);
+      case "shell.writeAnswered": {
+        const onAnswer = this.#shellAnswers.get(answer.outputSubscriptionId);
+        if (answer.answer.kind === "closed") {
+          this.#shellAnswers.delete(answer.outputSubscriptionId);
+        }
+        onAnswer?.(answer.answer);
         return;
+      }
     }
   }
 
@@ -235,7 +249,10 @@ export class DaemonPortClient {
     return pending;
   }
 
-  /** The port closed: what waited on it fails once, and a new port is asked for. */
+  /**
+   * The port closed: what waited on it fails once, each shell input is told `closed` after the
+   * streams' ends, which close the inputs bound to them, and a new port is asked for.
+   */
   #closed(port: DaemonPort): void {
     if (this.#port !== port) {
       return;
@@ -250,6 +267,11 @@ export class DaemonPortClient {
     }
     for (const stream of streams) {
       stream.onEnded?.({ reason: "failed", message: NOT_ANSWERING_MESSAGE });
+    }
+    const shellAnswers = [...this.#shellAnswers.values()];
+    this.#shellAnswers.clear();
+    for (const onAnswer of shellAnswers) {
+      onAnswer({ kind: "closed" });
     }
     this.#askForPort();
   }

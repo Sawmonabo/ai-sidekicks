@@ -1,10 +1,14 @@
 // A window's message to the client helper, read as a request before anything acts on it: the
-// window is another process, so its message is checked for a request's or a shell input's shape,
-// and a request that opens a call or stream under an id its asker holds open is told apart.
+// window is another process, so its message is checked for the shape of a request, a shell input
+// or a shell input's close, and a request that opens a call or stream under an id its asker holds
+// open is told apart.
 
 import type { ClientHelperWindowRequest } from "#shared/daemon/port-message.js";
 
-/** A window's message read as a request or a shell input, or `undefined` for anything else. */
+/**
+ * A window's message read as a request, a shell input or its close, or `undefined` for anything
+ * else.
+ */
 export function readWindowRequest(data: unknown): ClientHelperWindowRequest | undefined {
   if (data === null || typeof data !== "object") {
     return undefined;
@@ -29,6 +33,10 @@ export function readWindowRequest(data: unknown): ClientHelperWindowRequest | un
       return isShellInput(message, "text") ? (message as ClientHelperWindowRequest) : undefined;
     case "shell.resubmit":
       return isShellResubmit(message) ? (message as ClientHelperWindowRequest) : undefined;
+    case "shell.close":
+      return typeof message["outputSubscriptionId"] === "string"
+        ? (message as ClientHelperWindowRequest)
+        : undefined;
     default:
       return undefined;
   }

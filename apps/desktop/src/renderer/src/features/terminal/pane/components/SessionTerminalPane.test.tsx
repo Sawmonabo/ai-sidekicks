@@ -3,8 +3,8 @@
 // another device holds is asked first and forced on the answer, and a moved tab sends its order; an
 // exited shell reads its exit line and one that did not start reads its cause with `Try again`; the
 // holding pane tells the shell its grid's size; a paste goes into the shell's input as one paste;
-// and on a re-opened output stream what the ended one handed back goes first, then the keys typed
-// while it was opened again.
+// and on a re-opened output stream what the ended one handed back goes first, even when it comes
+// after the re-open, then the keys typed since the end.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -170,7 +170,7 @@ describe("the shell's input and size", () => {
     });
   });
 
-  it("sends what came back at a stream's end first on its new subscription, then keys typed meanwhile", async () => {
+  it("sends what came back after a re-open ahead of the keys typed since the end", async () => {
     const wire = new RecordedShellWire();
     const { container } = mountPane(wire);
     listShells(wire, [shellEntry("terminal-1")]);
@@ -181,10 +181,9 @@ describe("the shell's input and size", () => {
       expect(writtenKeys(wire)).toStrictEqual([["a", FIRST_SUBSCRIPTION_ID]]);
     });
 
-    // The helper hands back what the ended stream's input had not sent, then the stream ends; a
-    // stream that delivered is opened again after a wait once it ends.
+    // The stream's end is told at once, and a stream that delivered is opened again after a wait
+    // once it ends; its input's hand-back comes later.
     act(() => {
-      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "queued", writes: QUEUED_WRITES });
       const firstOpen = wire.newestOpenOf(TERMINAL_OUTPUT_STREAM);
       firstOpen.deliver(
         {
@@ -203,23 +202,29 @@ describe("the shell's input and size", () => {
       firstOpen.end({ reason: "failed", message: "the link went away" });
     });
     typeOneCharacter(mountElement);
-    // Keys the pane sent before it heard of the end come back after keys it has held since.
-    act(() => {
-      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "keys", data: "b" });
-    });
     await vi.waitFor(() => {
       expect(wire.opensOf(TERMINAL_OUTPUT_STREAM)).toHaveLength(2);
     });
-    expect(wire.shellInputs).toHaveLength(1);
-
     act(() => {
       wire.newestOpenOf(TERMINAL_OUTPUT_STREAM).opened(SECOND_SUBSCRIPTION_ID);
+    });
+    typeOneCharacter(mountElement);
+    // Nothing goes on the new subscription while the ended one's input may still hand back.
+    expect(wire.shellInputs).toHaveLength(1);
+
+    // What the client's queue had not sent, then keys the pane sent before it heard of the end,
+    // come back after the re-open; the input is told closed last.
+    act(() => {
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "queued", writes: QUEUED_WRITES });
+      wire.handBack(FIRST_SUBSCRIPTION_ID, { kind: "keys", data: "b" });
+      wire.tellClosed(FIRST_SUBSCRIPTION_ID);
     });
     await waitFor(() => {
       expect(wire.shellInputs).toStrictEqual([
         { outputSubscriptionId: FIRST_SUBSCRIPTION_ID, kind: "keys", data: "a" },
         { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "resubmit", writes: QUEUED_WRITES },
         { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "b" },
+        { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
         { outputSubscriptionId: SECOND_SUBSCRIPTION_ID, kind: "keys", data: "a" },
       ]);
     });

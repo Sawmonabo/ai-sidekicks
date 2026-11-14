@@ -1,24 +1,27 @@
 // The client helper: the desktop's one use of the daemon client's addon, run in its own utility
 // process. Main's requests come over the parentPort and each window's over the port main hands the
 // helper for it; each passes its channel's method allowlist before the addon, which checks its
-// params. A window's call to a method that carries file paths has its tokens swapped for their
-// paths by asking main, which keeps them, and main mints tokens for the paths a reply offers, and
-// for those a window's stream frame offers, the frame held back until they come so frames keep
-// their order. A window port that closes cancels every call and stream it left open. Main connects
-// the link and closes it; a request waits for the connect under way, and one made once the link is
-// closed fails. A connect main closed before it settled is dropped, its link closed unused. The
-// link's state, and a starting daemon's answers that it is repairing, go to main as the addon
-// reports them; the addon pings, times and retries the link itself, so the helper keeps no timer.
+// params. A call the addon's check or a refused file-path swap kept from leaving is answered as
+// unsendable, never as a reply, and why goes to main's log. A window's call to a method that
+// carries file paths has its tokens swapped for their paths by asking main, which keeps them, and
+// main mints tokens for the paths a reply offers, and for those a window's stream frame offers,
+// the frame held back until they come so frames keep their order. A window port that closes
+// cancels every call and stream it left open. Main connects the link and closes it; a request
+// waits for the connect under way, and one made once the link is closed fails. A connect main
+// closed before it settled is dropped, its link closed unused. The link's state, and a starting
+// daemon's answers that it is repairing, go to main as the addon reports them; the addon pings,
+// times and retries the link itself, so the helper keeps no timer.
 // A shell's flow state is counted over every window on the connection (`connection-shells.ts`), as
 // the daemon counts it per connection, and a window's typing goes into the addon's one queue for
-// its shell, which keeps every rule for its writes (`shell-inputs.ts`). Main alone asks the helper
-// to end the service and to read a process's identity, and hears the client's bounds and the
-// status file's place once, at start.
+// its shell, which keeps every rule for its writes (`shell-inputs.ts`); a stream's end is told at
+// once, never waiting on its pane's writes, whose hand-back follows. Main alone asks the helper
+// to end the service and to read a process's identity (`service-asks.ts`), and hears the client's
+// bounds and the status file's place once, at start.
 
 import type { StreamEvent, WireReply } from "@ai-sidekicks/client-sdk";
+import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
-import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import type {
   TerminalFlowControlUpdateRequest,
   TerminalFlowControlUpdateResponse,
@@ -43,12 +46,11 @@ import type { ClientHelperAddon, ClientHelperDaemonClient } from "./addon.js";
 import { ConnectionShells, type FlowTelling } from "./connection-shells.js";
 import type {
   ClientHelperLinkState,
-  ClientHelperServiceAnswer,
-  ClientHelperServiceAsk,
   ClientHelperToMainMessage,
   MainToClientHelperMessage,
 } from "./messages.js";
-import { paramsRefusal, requestRefusal, type ClientHelperChannelKind } from "./method-allowlist.js";
+import { requestRefusal, type ClientHelperChannelKind } from "./method-allowlist.js";
+import { answerServiceAsk } from "./service-asks.js";
 import { ShellInputs, type FollowedShell } from "./shell-inputs.js";
 import { wireErrorOf } from "./wire-error.js";
 import { isOpenedTwice, readWindowRequest } from "./window-request.js";
@@ -210,7 +212,9 @@ class ClientHelper {
       case "daemon.end":
       case "daemon.endProcess":
       case "process.identityRead":
-        void this.#answerServiceAsk(message);
+        void answerServiceAsk(this.#addon, message).then((answer) => {
+          this.#parentPort.postMessage(answer);
+        });
         return;
       case "filePaths.swapped":
       case "filePaths.swapRefused":
@@ -223,53 +227,6 @@ class ClientHelper {
       default:
         this.#receive(this.#mainChannel, message);
     }
-  }
-
-  /**
-   * Answers one of main's service asks through the addon, which runs the ending's whole sequence;
-   * an ask that threw is answered as failed, so main's ask settles.
-   */
-  async #answerServiceAsk(ask: ClientHelperServiceAsk): Promise<void> {
-    let answer: ClientHelperServiceAnswer;
-    try {
-      switch (ask.kind) {
-        case "daemon.end":
-          answer = {
-            kind: "daemon.ended",
-            askId: ask.askId,
-            outcome: await this.#addon.endDaemon(ask.request, ask.presentsToken),
-          };
-          break;
-        case "daemon.endProcess":
-          answer = {
-            kind: "daemon.ended",
-            askId: ask.askId,
-            outcome: await this.#addon.endDaemonProcess(JSON.stringify(ask.identity)),
-          };
-          break;
-        case "process.identityRead":
-          answer = this.#processIdentityAnswer(ask.askId, ask.processId);
-          break;
-      }
-    } catch (failure) {
-      answer = { kind: "service.askFailed", askId: ask.askId, error: describeFailure(failure) };
-    }
-    this.#parentPort.postMessage(answer);
-  }
-
-  #processIdentityAnswer(askId: number, processId: number): ClientHelperServiceAnswer {
-    let identity: string | null;
-    try {
-      identity = this.#addon.readProcessIdentity(processId);
-    } catch (failure) {
-      return { kind: "process.identityRefused", askId, error: describeFailure(failure) };
-    }
-    return {
-      kind: "process.identity",
-      askId,
-      // The addon writes the contract's own identity.
-      identity: identity === null ? undefined : (JSON.parse(identity) as ProcessIdentity),
-    };
   }
 
   /**
@@ -368,16 +325,17 @@ class ClientHelper {
     }
     let message: string;
     try {
-      const { error } = await link.client.call(
+      const { error, unsentRefusal } = await link.client.call(
         this.#takeAddonCallId(),
         FLOW_CONTROL_METHOD,
         JSON.stringify(update),
         [],
       );
-      if (error === undefined) {
+      const failure = error ?? unsentRefusal;
+      if (failure === undefined) {
         return;
       }
-      message = wireErrorOf(error).message;
+      message = wireErrorOf(failure).message;
     } catch (failure) {
       message = describeFailure(failure);
     }
@@ -449,6 +407,9 @@ class ClientHelper {
       case "shell.paste":
       case "shell.resubmit":
         return this.#shellInputs.take(channel, request);
+      case "shell.close":
+        this.#shellInputs.release(channel, request.outputSubscriptionId);
+        return undefined;
       default:
         this.#receive(channel, request);
         return undefined;
@@ -517,11 +478,8 @@ class ClientHelper {
         params,
       });
       if (swap.kind === "filePaths.swapRefused") {
-        this.#settleCall(channel, callId, {
-          kind: "call.refused",
-          callId,
-          refusal: paramsRefusal(method, swap.issues),
-        });
+        const reason = `The file paths of ${method} were refused${describeIssues(swap.issues)}`;
+        this.#settleCall(channel, callId, this.#unsendable(callId, reason));
         return;
       }
       params = swap.params;
@@ -567,11 +525,13 @@ class ClientHelper {
       if (held.isCanceled) {
         link.client.cancelCall(addonCallId);
       }
-      const { reply, error } = await outcome;
+      const { reply, error, unsentRefusal } = await outcome;
       answer =
-        reply === undefined
-          ? { kind: "call.refused", callId, refusal: wireErrorOf(error) }
-          : await this.#served(channel, callId, method, params, reply, replyAsk);
+        unsentRefusal !== undefined
+          ? this.#unsendable(callId, describeRefusal(wireErrorOf(unsentRefusal)))
+          : reply === undefined
+            ? { kind: "call.refused", callId, refusal: wireErrorOf(error) }
+            : await this.#served(channel, callId, method, params, reply, replyAsk);
     } catch (failure) {
       answer = {
         kind: "call.failed",
@@ -581,6 +541,12 @@ class ClientHelper {
     }
     this.#settleCall(channel, callId, answer);
     return answer;
+  }
+
+  /** A call that was not sent, `reason` going to main's log and never to the asker. */
+  #unsendable(callId: number, reason: string): ClientHelperAnswer {
+    this.#parentPort.postMessage({ kind: "call.unsendableReason", message: reason });
+    return { kind: "call.unsendable", callId };
   }
 
   #takeAddonCallId(): number {
@@ -790,8 +756,8 @@ class ClientHelper {
   }
 
   /**
-   * Tells the asker once how a stream it still holds ended, after what its pane's input handed
-   * back, so the pane sends that again on the stream it opens next.
+   * Tells the asker at once how a stream it still holds ended, and closes its pane's input, which
+   * hands back later what it held, for the pane to send again on the stream it opens next.
    */
   #endStream(
     channel: Channel,
@@ -803,17 +769,8 @@ class ClientHelper {
       return;
     }
     channel.streams.delete(streamId);
-    const tell = (): void => {
-      if (!channel.isClosed) {
-        channel.post({ kind: "stream.ended", streamId, end });
-      }
-    };
-    const handingBack = this.#shellInputs.forget(channel, streamId);
-    if (handingBack === undefined) {
-      tell();
-    } else {
-      void handingBack.then(tell);
-    }
+    channel.post({ kind: "stream.ended", streamId, end });
+    this.#shellInputs.forget(channel, streamId);
   }
 
   #closeStream(channel: Channel, streamId: number): void {
@@ -881,6 +838,18 @@ class ClientHelper {
     this.#parentPort.postMessage(ask);
     return answered.promise;
   }
+}
+
+/** A refusal as main's log reads it: its message and each fault's place and rule. */
+function describeRefusal(refusal: JsonRpcError): string {
+  const issues = refusal.data?.fields?.["issues"];
+  return `${refusal.message}${Array.isArray(issues) ? describeIssues(issues as Issue[]) : ""}`;
+}
+
+/** Each fault's place and rule, after a colon, or nothing when there are none. */
+function describeIssues(issues: readonly Issue[]): string {
+  const faults = issues.map((issue) => `${issue.path.join(".") || "(whole)"} ${issue.message}`);
+  return faults.length === 0 ? "" : `: ${faults.join("; ")}`;
 }
 
 /** The addon's bytes for one attachment, over the same memory. */

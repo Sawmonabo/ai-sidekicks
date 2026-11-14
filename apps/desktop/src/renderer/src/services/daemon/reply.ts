@@ -1,7 +1,7 @@
 // The one place a daemon reply enters the app. Every call goes through `callDaemon`, which reads
 // the reply as its method's generated result type: the window's types and the service's are
 // generated from one contract, and the client helper's addon checks each request's params against
-// that contract before it leaves.
+// that contract before it leaves; one it refuses never leaves and rejects as `request-unsendable`.
 //
 // A caller gets a `DaemonReply`, `served` or `refused`, and nothing is thrown on an ordinary path:
 // a rejected call and an unsendable request are a refusal that carries the code verbatim.
@@ -16,14 +16,13 @@
 // `call-rejected`.
 
 import type { Issue } from "@ai-sidekicks/contracts/jsonrpc/issue";
-import type { RefusalCode } from "@ai-sidekicks/contracts/jsonrpc/refusal";
 
 import type {
   DaemonParams,
   DaemonResult,
   RegisteredDaemonMethod,
 } from "#shared/daemon/method-bindings.js";
-import { REQUEST_UNSENDABLE_CODE, REQUEST_UNSENDABLE_MESSAGE } from "#shared/daemon/forwarding.js";
+import { REQUEST_UNSENDABLE_CODE } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import { readGuardedProperty } from "#renderer/lib/wire/errors.js";
@@ -47,7 +46,8 @@ const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
  * typed wire refusal keeps its own code verbatim.
  *
  *   • `request-unsendable`: the request breaks its method's contract, which the client helper's
- *     addon checks before it is sent; nothing was sent.
+ *     addon checks before it is sent, or carries a file token main refused to swap for its path;
+ *     nothing was sent. It arrives as its own rejection, never as a reply.
  *   • `reply-unreadable`: a served reply cannot be read as what it answers, such as a long body's
  *     parts that do not follow one another.
  *   • `call-rejected`: the call rejected with nothing carrying a machine-readable code.
@@ -158,16 +158,13 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       rejection,
       CALL_REJECTED_FALLBACK,
     );
-    // The addon's params check, which refuses a request before it leaves, answers in the wire's
-    // own shape; the page reads it as its own code, since nothing reached the daemon.
-    const isUnsendable = refusal.code === ("request.paramsInvalid" satisfies RefusalCode);
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
-      kind: isUnsendable ? REQUEST_UNSENDABLE_CODE : refusal.code,
+      kind: refusal.code,
       subject: method,
       issues: refusedIssuesOf(rejection),
     });
-    return isUnsendable ? unsendableRequest() : { status: "refused", refusal };
+    return { status: "refused", refusal };
   }
 
   if (isReadAbandoned(signal)) {
@@ -211,16 +208,4 @@ function refusedIssuesOf(rejection: unknown): readonly Issue[] {
 /** The abandoned-read refusal as `callDaemon`'s own answer. */
 function abandonedRead(): DaemonReply<never> {
   return { status: "refused", refusal: abandonedReadRefusal() };
-}
-
-/** The refusal of a request that was not sent, as `callDaemon`'s own answer. */
-function unsendableRequest(): DaemonReply<never> {
-  return {
-    status: "refused",
-    refusal: refuse(
-      DAEMON_REPLY_REFUSAL_ORIGIN,
-      REQUEST_UNSENDABLE_CODE satisfies DaemonReplyRefusalCode,
-      REQUEST_UNSENDABLE_MESSAGE,
-    ),
-  };
 }

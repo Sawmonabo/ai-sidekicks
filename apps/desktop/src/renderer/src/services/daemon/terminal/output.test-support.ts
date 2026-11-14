@@ -1,6 +1,7 @@
 // A fake daemon wire for the shell suites: it records each stream it opens, with the ends a case
 // drives, each call, answered from the case's table or with `null`, and each input typed, pasted
-// or sent again into a shell, answered with nothing unless a case hands input back unsent.
+// or sent again into a shell, answered with nothing unless a case hands input back unsent or
+// tells a closed input it is closed.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -63,9 +64,8 @@ export class RecordedShellWire {
         resubmit: (writes) => {
           this.shellInputs.push({ outputSubscriptionId, kind: "resubmit", writes });
         },
-        close: () => {
-          this.#shellAnswers.delete(outputSubscriptionId);
-        },
+        // A closed input hears what is handed back until a case tells it it is closed.
+        close: () => {},
       };
     };
     this.bridge = {
@@ -91,6 +91,13 @@ export class RecordedShellWire {
   /** Hand `input` back unsent to the open shell input bound to `outputSubscriptionId`. */
   public handBack(outputSubscriptionId: SubscriptionId, input: UnsentShellInput): void {
     this.#shellAnswers.get(outputSubscriptionId)?.({ kind: "unsent", input });
+  }
+
+  /** Tell the input bound to `outputSubscriptionId` it is closed, as the helper does last. */
+  public tellClosed(outputSubscriptionId: SubscriptionId): void {
+    const onAnswer = this.#shellAnswers.get(outputSubscriptionId);
+    this.#shellAnswers.delete(outputSubscriptionId);
+    onAnswer?.({ kind: "closed" });
   }
 
   /** The params of every call to one method, oldest first. */

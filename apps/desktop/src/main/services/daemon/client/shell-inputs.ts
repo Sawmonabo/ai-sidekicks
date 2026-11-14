@@ -1,11 +1,14 @@
 // Each window's typing into its shells. For every terminal output stream a window holds open, the
 // helper keeps a pane's handle onto the addon's one queue for that shell on the connection, which
 // keeps the shell's waiting writes, their order and every rule for them: opened at the pane's
-// first input, and closed when the stream ends or when the helper makes a new client. A closing
-// handle waits for each write it sent to be answered, then hands back to the window, in order,
-// the writes the daemon refused for the stream's end, what it had not sent and the input that
-// arrived meanwhile; the stream's end is told after them. Input naming a subscription the window
-// does not hold open goes back to it as it came, so the pane sends both on its next subscription.
+// first input, and closed when its stream ends, when the window closes the pane's input, or when
+// the helper makes a new client. A closing handle holds the input that arrives for it and waits
+// for each write it sent to be answered, which its shell's end or its connection's end also
+// brings; it then hands back to the window, in order, the writes the daemon refused for the
+// stream's end, what it had not sent and the input that arrived meanwhile. The stream's end never
+// waits for that. Input naming a subscription the window does not hold open goes back to it as it
+// came. Once the window has closed the pane's input, and after all it hands back, the window is
+// told the input is closed: the window sends it nothing after its close, so nothing comes later.
 // A stream the window closes, or holds as it goes, finishes its handle instead: everything it
 // queued leaves, and the stream is canceled only once each write is answered. A refusal no pane
 // is left to hear, and a handle that fails to close or finish, go to main's log.
@@ -127,17 +130,40 @@ export class ShellInputs<Window> {
     }
   }
 
-  /**
-   * The window's stream `streamId` ended: its pane's handle closes, handing back what it held.
-   * Answers once that is told, when the stream's end may be told after it, and never rejects;
-   * none when the stream had no pane.
-   */
-  public forget(window: Window, streamId: number): Promise<void> | undefined {
+  /** The window's stream `streamId` ended: its pane's handle closes, handing back what it held. */
+  public forget(window: Window, streamId: number): void {
     const served = this.#windows.get(window);
     const found = served === undefined ? undefined : paneOf(served, streamId);
-    return served === undefined || found === undefined
-      ? undefined
-      : this.#close(window, served, ...found);
+    if (served !== undefined && found !== undefined) {
+      void this.#close(window, served, ...found);
+    }
+  }
+
+  /**
+   * The window closed its pane's input bound to `outputSubscriptionId`: its handle closes, if it is
+   * not closing already, and once it has handed back what it held the window is told the input is
+   * closed; at once where the window holds no pane on that subscription.
+   */
+  public release(window: Window, outputSubscriptionId: SubscriptionId): void {
+    const served = this.#windows.get(window);
+    if (served === undefined) {
+      return;
+    }
+    const tellClosed = (): void => {
+      if (this.#windows.get(window) === served) {
+        served.tell({
+          kind: "shell.writeAnswered",
+          outputSubscriptionId,
+          answer: { kind: "closed" },
+        });
+      }
+    };
+    const pane = served.panes.get(outputSubscriptionId);
+    if (pane === undefined) {
+      tellClosed();
+    } else {
+      void this.#close(window, served, outputSubscriptionId, pane).then(tellClosed);
+    }
   }
 
   /**
@@ -178,7 +204,7 @@ export class ShellInputs<Window> {
   /**
    * Closes a pane's handle, once, and once each write it sent is answered tells its window, in
    * order, what the handle handed back and the input that arrived meanwhile; a window no longer
-   * served is told nothing.
+   * served is told nothing. Never rejects.
    */
   #close(
     window: Window,
@@ -225,7 +251,7 @@ interface PaneInput {
   readonly shell: FollowedShell;
   readonly client: ShellInputOpener;
   handle: ShellInputHandle | undefined;
-  /** Set once its stream ended or its client went, while its handle closes. */
+  /** Set once its stream ended, its input closed or its client went, while its handle closes. */
   closing: ClosingPane | undefined;
 }
 

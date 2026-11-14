@@ -15,7 +15,10 @@ import type { ConnectionInitializeResponse } from "@ai-sidekicks/contracts/jsonr
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import type { FilePathRefOwner } from "#main/bridge/file-path/refs.js";
-import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import {
+  REQUEST_UNSENDABLE_MESSAGE,
+  type DaemonSubscriptionEnd,
+} from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 
 import type { ClientHelperAnswer } from "#shared/daemon/port-message.js";
@@ -47,8 +50,8 @@ export type MainStreamValue<Method extends MainStreamMethod> = (MainMethodTypes[
 /**
  * What main's own code reaches the daemon through, each reply and value read as its method's
  * generated type. A call rejects with a {@link DaemonRefusal} for the daemon's or the helper's
- * refusal, and with an `Error` for any other failure. A stream's end is told once, unless main
- * closed it first.
+ * refusal, and with an `Error` for any other failure, a call the helper did not send among them,
+ * whose reason goes to main's log. A stream's end is told once, unless main closed it first.
  */
 export interface MainDaemonClient {
   call<Method extends keyof MainMethodTypes>(
@@ -397,6 +400,7 @@ export class ClientHelperProcess implements MainDaemonClient {
     switch (message.kind) {
       case "call.served":
       case "call.refused":
+      case "call.unsendable":
       case "call.failed": {
         const pending = this.#calls.get(message.callId);
         this.#calls.delete(message.callId);
@@ -467,6 +471,9 @@ export class ClientHelperProcess implements MainDaemonClient {
         return;
       case "shellWrite.failed":
         this.#options.logWarning(`The client helper's writes to a shell: ${message.message}`);
+        return;
+      case "call.unsendableReason":
+        this.#options.logWarning(`The client helper did not send a call: ${message.message}`);
         return;
     }
   }
@@ -551,6 +558,8 @@ function valueOf(answer: ClientHelperAnswer | undefined): unknown {
       throw new DaemonRefusal(answer.refusal);
     case "call.served":
       return JSON.parse(answer.json) as unknown;
+    case "call.unsendable":
+      throw new Error(REQUEST_UNSENDABLE_MESSAGE);
     default:
       throw new Error(answer.kind === "call.failed" ? answer.message : NOT_ANSWERING_MESSAGE);
   }

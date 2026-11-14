@@ -406,8 +406,9 @@ export interface ServedDaemonCall<Value> {
 /**
  * The daemon's own wire as the page holds it: its calls, its subscriptions, each opened with the
  * request its method registers, and a pane's typing into a shell. A call the daemon or the client
- * helper refuses rejects with the wire error itself (`{code, message, data}`), and any other
- * failed call, one cut off by a helper that exited among them, with an `Error`.
+ * helper refuses rejects with the wire error itself (`{code, message, data}`), one the helper did
+ * not send with the app's `request-unsendable` error, and any other failed call, one cut off by a
+ * helper that exited among them, with an `Error`.
  */
 export interface DaemonWire {
   call<M extends RegisteredDaemonMethod>(
@@ -438,7 +439,7 @@ export interface DaemonWire {
    * Type into one shell through the client helper, whose client keeps one queue for the shell that
    * every pane's input shares, each input bound to `outputSubscriptionId`, the typing pane's own
    * open output subscription. `onAnswer` hears what the pane is told of its writes, and the input
-   * handed back once that subscription ends, until the input is closed.
+   * handed back once that subscription ends or the input is closed, until it hears `closed`.
    */
   openShellInput(
     outputSubscriptionId: SubscriptionId,
@@ -453,7 +454,8 @@ export interface DaemonWire {
 
 /**
  * A pane's typing into one shell, in order; `resubmit` sends again, ahead of what is typed after,
- * the writes an earlier input of the pane handed back. `close` stops its answers.
+ * the writes an earlier input of the pane handed back. `close` ends the input: nothing more is
+ * sent through it, what the helper holds of it comes back unsent, and then `closed` is told.
  */
 export interface ShellInput {
   typeKeys(data: string): void;
@@ -464,13 +466,16 @@ export interface ShellInput {
 
 /**
  * What a pane is told of its writes to a shell: one refused, in the wire's error shape; one taken,
- * for its first write and for the first after a refusal; or input handed back unsent because the
- * output subscription it was bound to ended, for the pane to send on its next one.
+ * for its first write and for the first after a refusal; input handed back unsent because the
+ * output subscription it was bound to ended or the input closed, for the pane to send on its next
+ * one; or, last, that the closed input hands back nothing more, told once its writes are answered,
+ * its shell has ended or its connection has.
  */
 export type ShellWriteAnswer =
   | { readonly kind: "refused"; readonly refusal: JsonRpcError }
   | { readonly kind: "taken" }
-  | { readonly kind: "unsent"; readonly input: UnsentShellInput };
+  | { readonly kind: "unsent"; readonly input: UnsentShellInput }
+  | { readonly kind: "closed" };
 
 /**
  * A pane's input that has not reached its shell: keys or a paste as typed, or the writes the

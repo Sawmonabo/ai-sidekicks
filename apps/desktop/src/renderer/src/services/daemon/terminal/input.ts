@@ -1,7 +1,8 @@
 // One pane's typing into a shell, bound to the pane's open output subscription. The client helper's
 // client keeps one queue for the shell that every pane's input shares, with every rule for its
-// writes; the pane hears only its own writes refused, a refusal cleared once one is taken, and the
-// input handed back unsent once the subscription ends, for the pane to send on its next one.
+// writes; the pane hears only its own writes refused, a refusal cleared once one is taken, the
+// input handed back unsent once the subscription ends or the input closes, for the pane to send on
+// its next one, and, once a closed input has handed back all it held, that it is closed.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -15,8 +16,10 @@ import { CALL_REJECTED_FALLBACK, DAEMON_REPLY_REFUSAL_ORIGIN } from "../reply.js
 export interface ShellInputListener {
   /** Each of the pane's writes refused, and `undefined` once a write is taken. */
   readonly onRefusal: (refusal: Refusal | undefined) => void;
-  /** Input handed back unsent because the subscription it was bound to ended. */
+  /** Input handed back unsent: its subscription ended, or the input closed. */
   readonly onUnsent: (input: UnsentShellInput) => void;
+  /** The closed input hands back nothing more. */
+  readonly onClosed: () => void;
 }
 
 /** Open a pane's input to the shell its output subscription `outputSubscriptionId` follows. */
@@ -41,6 +44,9 @@ export function openShellInput(
         return;
       case "taken":
         listener.onRefusal(undefined);
+        return;
+      case "closed":
+        listener.onClosed();
         return;
     }
   });
