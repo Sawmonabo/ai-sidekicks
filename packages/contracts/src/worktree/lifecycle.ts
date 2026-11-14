@@ -29,6 +29,7 @@ import {
 } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/id.js";
 
 /** Brand of a worktree row id (`worktrees.id`), a daemon-minted UUID. */
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
@@ -290,13 +291,28 @@ export const WorktreeRetireIncompleteDetailsSchema: z.ZodType<WorktreeRetireInco
   .strict();
 
 /**
+ * The run live in a folder another act would take from under it: an agent's run, named by its
+ * agent, or a workflow run, by `kind`.
+ */
+export type RunningHolder =
+  | { kind: "agent"; agentId: AgentId }
+  | { kind: "workflowRun"; runId: WorkflowRunId };
+/**
+ * Wire schema for {@link RunningHolder}.
+ */
+export const RunningHolderSchema: z.ZodType<RunningHolder> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("agent"), agentId: AgentIdSchema }).strict(),
+  z.object({ kind: z.literal("workflowRun"), runId: WorkflowRunIdSchema }).strict(),
+]);
+
+/**
  * The details a `worktree.create_failed` refusal with reason `carry_checkout_running` carries: the
- * session whose run is live in the checkout the work would be carried from, and that run's agent.
+ * session whose run is live in the checkout the work would be carried from, and that run.
  */
 export interface WorktreeCarryCheckoutRunningDetails {
   reason: "carry_checkout_running";
   runningSessionId: SessionId;
-  runningAgentId: AgentId;
+  runningHolder: RunningHolder;
 }
 /**
  * Wire schema for {@link WorktreeCarryCheckoutRunningDetails}.
@@ -306,7 +322,7 @@ export const WorktreeCarryCheckoutRunningDetailsSchema: z.ZodType<WorktreeCarryC
     .object({
       reason: z.literal("carry_checkout_running"),
       runningSessionId: SessionIdSchema,
-      runningAgentId: AgentIdSchema,
+      runningHolder: RunningHolderSchema,
     })
     .strict();
 

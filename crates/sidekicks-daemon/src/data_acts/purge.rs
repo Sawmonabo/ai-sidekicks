@@ -12,8 +12,12 @@
 //!   leg of the session ends, so no provider runs a turn on what is deleted, then the provider's
 //!   copy of each conversation, each managed workspace folder the session is the last chat to
 //!   hold (a folder another chat holds stays), the session's own storage folder with its runs'
-//!   capture folders, and the project rules the session wrote into its project's files. A failure
-//!   there leaves the mark and every row, so purging the session again finishes it.
+//!   capture folders, held while they go so a sweep pass, a pack or a fold of one waits and then
+//!   finds it gone, the copies a restore made of the clones it kept on other volumes, its own
+//!   folders on other volumes whose volume is mounted (each with its user folder once that is
+//!   empty; a folder whose volume is absent is owed instead, in the rows' write), and the project
+//!   rules the session wrote into its project's files. A failure there leaves the mark and every
+//!   row, so purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
 //!   plans and the hand-off that made it among them, releases each managed folder it holds (its
 //!   own hold, or the mount with every row on it for the last holder), and appends its
@@ -58,8 +62,10 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_mcp::client::McpClient;
+use sidekicks_platforms::remove_tree_awaited;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::{
     SessionDeletePurge, SessionDeletePurgeError, SessionDeletion,
@@ -67,6 +73,10 @@ use sidekicks_recovery::damaged_history::{
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::changes::{SessionChangeError, SessionChanges};
+use sidekicks_session::checkpoints::store::shadows::VolumeFolder;
+use sidekicks_session::checkpoints::volume_folders::{
+    VolumeFolderRemoval, remove_volume_folder, restored_clones_folder,
+};
 use sidekicks_session::conversations::purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::questions::service::QuestionsService;
@@ -96,10 +106,11 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use sidekicks_workspace::repo::mount::service::held_folders::HeldManagedFolder;
 
 use crate::data_acts::purge::rows::{
     FOLDER_GUARDS_START_INDEX, HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller,
-    PurgeReadError, PurgeTargets, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements,
+    PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements,
     read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
     session_deletion_statements,
 };
@@ -154,6 +165,13 @@ pub(crate) enum SessionPurgeError {
     /// The session's own storage folder could not be removed.
     #[error("the session's storage folder could not be removed")]
     StorageFolder(#[source] io::Error),
+    /// The session's capture folders could not be listed to hold them.
+    #[error("the session's capture folders could not be listed to hold them")]
+    CaptureFolders(#[source] io::Error),
+    /// A session's folder on another volume, or the restored copies of its clones, could not be
+    /// removed, or its volume read.
+    #[error("a session's folder on another volume could not be removed")]
+    VolumeFolder(#[source] io::Error),
     /// The project rules the session made could not be taken out of the providers' files.
     #[error(transparent)]
     ProjectRules(#[from] ApprovalRuleError),
@@ -212,7 +230,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) managed_workspaces: Arc<ManagedWorkspaceService>,
     /// The service's data folder, which holds each session's own storage folder.
     pub(crate) data_folder: PathBuf,
-    /// The capture folders' packing, which forgets what it kept of a purged session's folders.
+    /// The capture folders' packing, which holds a purged session's capture folders while they go
+    /// and then forgets what it kept of them.
     pub(crate) packing: Arc<CapturePacking>,
     /// Takes a session's project rules out of the providers' files and hands the rest out again.
     pub(crate) project_rules: Arc<ApprovalRules>,
@@ -346,17 +365,39 @@ impl SessionPurge {
                     .await?;
             }
         }
+        let storage_folder = session_storage_folder(&deps.data_folder, &session_id);
+        // Held through the removal, so a pass, a pack or a fold queued on a capture folder finds
+        // it gone once the hold drops.
+        let capture_hold = deps
+            .packing
+            .hold_owner_folders(&storage_folder)
+            .await
+            .map_err(SessionPurgeError::CaptureFolders)?;
         remove_session_storage_folder(&deps.data_folder, session_id)
             .await
             .map_err(SessionPurgeError::StorageFolder)?;
-        deps.packing
-            .forget_owner(&session_storage_folder(&deps.data_folder, &session_id));
+        deps.packing.forget_owner(&storage_folder);
+        drop(capture_hold);
+        remove_tree_awaited(&restored_clones_folder(&deps.data_folder, &session_id))
+            .await
+            .map_err(SessionPurgeError::VolumeFolder)?;
+        let owed_folders = remove_volume_folders(targets.volume_folders, meter)
+            .await
+            .map_err(SessionPurgeError::VolumeFolder)?;
         let withdrawn = deps
             .project_rules
             .withdraw_project_rules(session_id)
             .await?;
 
-        let linked_session_ids = self.delete_rows(session_id, &targets, operation_id).await?;
+        let linked_session_ids = self
+            .delete_rows(
+                session_id,
+                &targets.workflow_run_ids,
+                &targets.held_folders,
+                &owed_folders,
+                operation_id,
+            )
+            .await?;
         deps.recovery.mark_session_deleted(&session_id);
         // A name left behind only makes a later start read it and settle nothing.
         if let Err(error) = deps.stop_intent.drop_named(&session_id).await {
@@ -426,12 +467,15 @@ impl SessionPurge {
         }
     }
 
-    // The one write that deletes every row naming the session with its receipt, under the
-    // session's append lock; answers the sessions it was linked to.
+    // The one write that deletes every row naming the session with its receipt, releases each of
+    // `held_folders` and owes each of `owed_folders`, under the session's append lock; answers the
+    // sessions it was linked to.
     async fn delete_rows(
         &self,
         session_id: SessionId,
-        targets: &PurgeTargets,
+        workflow_run_ids: &[WorkflowRunId],
+        held_folders: &[HeldManagedFolder],
+        owed_folders: &[VolumeFolder],
         operation_id: &FreeFormText<EVENT_FIELD_MAX_LEN>,
     ) -> Result<Vec<SessionId>, SessionPurgeError> {
         let deps = &self.deps;
@@ -460,9 +504,10 @@ impl SessionPurge {
             let statements = session_deletion_statements(
                 session_id,
                 range.map(|(_first, last)| last),
-                &targets.workflow_run_ids,
+                workflow_run_ids,
                 &gone_worktree_ids,
-                &targets.held_folders,
+                held_folders,
+                owed_folders,
             );
             #[cfg(test)]
             self.rows_write_pause.pass().await;
@@ -494,7 +539,7 @@ impl SessionPurge {
                 }
             };
             let folder_guards =
-                FOLDER_GUARDS_START_INDEX..FOLDER_GUARDS_START_INDEX + targets.held_folders.len();
+                FOLDER_GUARDS_START_INDEX..FOLDER_GUARDS_START_INDEX + held_folders.len();
             match refused_at {
                 MARKED_GUARD_INDEX => return Err(SessionPurgeError::MarkLost),
                 UPPER_BOUND_GUARD_INDEX if !has_read_again => has_read_again = true,
@@ -581,4 +626,25 @@ fn stored_sequence(sequence: i64) -> SafeInt<0> {
         .ok()
         .and_then(SafeInt::new)
         .expect("a stored sequence is a safe integer")
+}
+
+// Removes each of `folders` whose volume is mounted, in one task charged to `meter`, and answers
+// those whose volume is absent; fails at the first folder whose removal or volume read fails.
+async fn remove_volume_folders(
+    folders: Vec<VolumeFolder>,
+    meter: &ProcessorMeter,
+) -> io::Result<Vec<VolumeFolder>> {
+    meter
+        .run_blocking(move || -> io::Result<Vec<VolumeFolder>> {
+            let mut absent = Vec::new();
+            for folder in folders {
+                match remove_volume_folder(&folder)? {
+                    VolumeFolderRemoval::Removed => {}
+                    VolumeFolderRemoval::VolumeAbsent => absent.push(folder),
+                }
+            }
+            Ok(absent)
+        })
+        .await
+        .map_err(io::Error::other)?
 }

@@ -16,7 +16,16 @@ use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
 use crate::driver::claude::delivery::file_tool_writes::is_failed_notebook_edit;
 use crate::driver::unified_diff::{count_unified_diff, mark_every_line};
-use crate::record_readers::{read_count, read_non_empty_string};
+use crate::record_readers::{filter_non_empty, read_count, read_non_empty_string};
+
+/// The file a file-changing call's input names: its `file_path`, else its `notebook_path`, each
+/// only when it has at least one character.
+pub(crate) fn select_claude_edit_path<'path>(
+    file_path: Option<&'path str>,
+    notebook_path: Option<&'path str>,
+) -> Option<&'path str> {
+    filter_non_empty(file_path).or_else(|| filter_non_empty(notebook_path))
+}
 
 /// The patch one file-changing call's result carries, read in this order: `gitDiff`, a created
 /// file's `content`, a notebook cell's sources, then `structuredPatch`, which reads `Absent` when

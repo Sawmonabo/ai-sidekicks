@@ -225,8 +225,8 @@ pub struct DataEraseSignedInAccount {
     pub cause: DataEraseSignOutFailure,
 }
 
-/// The erase's answer, sent once every account's sign-out has ended and before the work stops;
-/// the rest of the erase follows it.
+/// The erase's answer, sent once every account's sign-out has ended and the sessions' folders on
+/// other volumes were removed, and before the work stops; the rest of the erase follows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -237,6 +237,11 @@ pub struct DaemonDataEraseResponse {
     /// read at all, and a row naming no valid account or provider id was left signed in while the
     /// rest were signed out.
     pub is_account_list_unread: bool,
+    /// Each session's own folder on another volume that stays once the data folder is gone, its
+    /// volume not connected or its removal refused; empty when every one went.
+    pub volume_folders_left: Vec<FilesystemPath>,
+    /// Whether the sessions' folders on other volumes could not be read, so none was removed.
+    pub is_volume_folder_list_unread: bool,
 }
 
 methods! {

@@ -23,7 +23,6 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use notify::{RecommendedWatcher, Watcher};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
@@ -34,7 +33,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
-use sidekicks_contracts::worktree::lifecycle::{NewWorktreeSuggestion, WorktreeId, WorktreeState};
+use sidekicks_contracts::worktree::lifecycle::{
+    NewWorktreeSuggestion, RunningHolder, WorktreeId, WorktreeState,
+};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -80,14 +81,14 @@ static MARK_FAILED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A run of another session live in a folder: the session, the agent the run is for, and the
-/// folder as recorded.
+/// A run of another session live in a folder: the session, the run, an agent's or a workflow's,
+/// and the folder as recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveRunFolder {
     /// The session the run belongs to.
     pub session_id: SessionId,
-    /// The agent the run is for.
-    pub agent_id: AgentId,
+    /// The run.
+    pub holder: RunningHolder,
     /// The folder the run is live in, as its row records it.
     pub folder: PathBuf,
 }
@@ -101,8 +102,9 @@ pub struct LiveRunFolderReadError(#[source] pub Box<dyn Error + Send + Sync>);
 /// work from under one: a run whose execution context is unreleased, and a run still queued or
 /// starting, at the checkout its session's workspace is in.
 pub trait LiveRunFolderReader: Send + Sync {
-    /// Every live run of a session other than `session_id`, with its folder and its agent, read
-    /// together. Fails when the read fails or a run's agent cannot be read.
+    /// Every live run of a session other than `session_id`, with its folder and, for an agent's
+    /// run, its agent, read together. Fails when the read fails or an agent run's agent cannot be
+    /// read.
     fn read_other_sessions_live_runs<'a>(
         &'a self,
         session_id: &'a SessionId,
@@ -419,7 +421,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
 
     // Stashing takes the checkout's uncommitted work from under any run working there, so a carry
     // is refused while another session's run is live in that checkout, inside it or around it,
-    // naming that run's session and agent.
+    // naming that run's session and the run.
     async fn refuse_carry_while_another_runs(
         &self,
         folder: &Path,
@@ -442,7 +444,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
             {
                 return Err(refused(WorktreeCreateFailureReason::CarryCheckoutRunning {
                     running_session_id: live_run.session_id,
-                    running_agent_id: live_run.agent_id,
+                    running_holder: live_run.holder,
                 }));
             }
         }

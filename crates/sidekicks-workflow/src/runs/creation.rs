@@ -3,15 +3,12 @@
 //! execution context are stored together or not at all.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
@@ -21,39 +18,11 @@ use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, Workf
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
 };
-use sidekicks_contracts::worktree::lifecycle::{BranchContextId, WorktreeId};
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 
 use crate::runs::step_rows::insert_pending_step;
-
-/// The execution context of a run that works in a project's repository: the checkout the engine
-/// prepared for it and that repository's git common folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes them with the run's started event"
-    )
-)]
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct WorkflowRunExecutionContext {
-    /// The workspace the run works in.
-    pub(crate) workspace_id: WorkspaceId,
-    /// How that workspace uses its mount.
-    pub(crate) execution_mode: ExecutionMode,
-    /// Where the run works.
-    pub(crate) execution_root: PathBuf,
-    /// The top level of the working tree the run works in, so a snapshot captures the whole tree.
-    pub(crate) checkout_root: PathBuf,
-    /// `git rev-parse --git-common-dir`, absolute, read when the context was prepared.
-    pub(crate) git_common_dir: PathBuf,
-    /// The worktree of a provisioned worktree's run; `None` for a bound root's.
-    pub(crate) worktree_id: Option<WorktreeId>,
-    /// The workspace's branch context.
-    pub(crate) branch_context_id: BranchContextId,
-}
 
 /// Everything a new run's row is written from; the run reads `new` until the engine admits it.
 #[cfg_attr(
@@ -63,7 +32,7 @@ pub(crate) struct WorkflowRunExecutionContext {
         reason = "the run engine's start, which writes them with the run's started event"
     )
 )]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct WorkflowRunCreation {
     /// The run.
     pub(crate) workflow_run_id: WorkflowRunId,
@@ -79,8 +48,10 @@ pub(crate) struct WorkflowRunCreation {
     pub(crate) started_by: WorkflowStartedBy,
     /// Its place in its chain.
     pub(crate) chain: WorkflowRunChainPlace,
-    /// Present only for a run that works in a project's repository.
-    pub(crate) execution_context: Option<WorkflowRunExecutionContext>,
+    /// The guarded write of the run's execution context row, present only for a run that works in
+    /// a project's repository; refused, changing nothing, when its workspace's state changed since
+    /// it was bound.
+    pub(crate) execution_context: Option<WriteStatement>,
     /// The workflow's provider as the run started; `None` when the workflow names none.
     pub(crate) provider: Option<ProviderId>,
     /// When the request, fire or call that started it did so, in the stored form.
@@ -155,21 +126,30 @@ const COUNT_CHAIN_RUN_SQL: &str = "UPDATE workflow_runs SET chain_run_count = ch
   WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL
     AND (@ask_after IS NULL OR chain_kept_going = 1 OR chain_run_count < @ask_after)";
 
-const INSERT_EXECUTION_CONTEXT_SQL: &str = "INSERT INTO run_execution_contexts (
-    run_id, session_id, workspace_id, execution_mode, execution_root, checkout_root,
-    git_common_dir, worktree_id, branch_context_id, created_at
-  ) VALUES (
-    @run_id, @session_id, @workspace_id, @execution_mode, @execution_root, @checkout_root,
-    @git_common_dir, @worktree_id, @branch_context_id, @started_at
-  )";
+/// Where the run's write holds its execution context's row, right after its chain's statements: a
+/// refusal at this statement is a workspace that left `ready`, a mount detached or a checkout
+/// removed since the binding read them.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run engine's start, which reads why its write was refused"
+    )
+)]
+pub(crate) fn execution_context_statement_index(chain: &WorkflowRunChainPlace) -> usize {
+    match chain {
+        WorkflowRunChainPlace::Starts {} => 1,
+        WorkflowRunChainPlace::Joins { .. } => CHAIN_COUNT_STATEMENT_INDEX + 1,
+    }
+}
 
 /// The statements that store a new run: its row, pinned to its version and its session; for a run
 /// that joins a chain, a check at [`CHAIN_ROOT_CHECK_STATEMENT_INDEX`] that refuses the write when
 /// the chain's first run is not a stored first run, then its count on that row at
 /// [`CHAIN_COUNT_STATEMENT_INDEX`], which refuses it once the chain has started `chain_ask_after`
 /// runs and the person has not answered Keep going, `None` never; its execution context's row
-/// where it has one; and, last, its trigger step's `pending` row on its trigger input, at the run's
-/// start. A first run's own row counts itself.
+/// where it has one, at [`execution_context_statement_index`]; and, last, its trigger step's
+/// `pending` row on its trigger input, at the run's start. A first run's own row counts itself.
 #[cfg_attr(
     not(test),
     expect(
@@ -250,35 +230,7 @@ pub(crate) fn workflow_run_creation_statements(
         });
     }
     if let Some(context) = &creation.execution_context {
-        statements.push(WriteStatement {
-            sql: Cow::Borrowed(INSERT_EXECUTION_CONTEXT_SQL),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@run_id", run_id.as_str()),
-                text_binding("@session_id", session_id.as_str()),
-                text_binding("@workspace_id", context.workspace_id.text().as_str()),
-                text_binding(
-                    "@execution_mode",
-                    <&'static str>::from(context.execution_mode),
-                ),
-                text_binding("@execution_root", &context.execution_root.to_string_lossy()),
-                text_binding("@checkout_root", &context.checkout_root.to_string_lossy()),
-                text_binding("@git_common_dir", &context.git_common_dir.to_string_lossy()),
-                nullable_text_binding(
-                    "@worktree_id",
-                    context
-                        .worktree_id
-                        .map(|worktree_id| worktree_id.text())
-                        .as_ref()
-                        .map(UuidText::as_str),
-                ),
-                text_binding(
-                    "@branch_context_id",
-                    context.branch_context_id.text().as_str(),
-                ),
-                text_binding("@started_at", started_at),
-            ]),
-            expected_row_count: None,
-        });
+        statements.push(context.clone());
     }
     statements.push(insert_pending_step(
         &trigger_step_key(creation.workflow_run_id, &creation.trigger),

@@ -64,8 +64,8 @@ pub(super) struct WrappedStart<'start> {
     pub(super) channel_folder: &'start Path,
     /// The variables that reach the channel.
     pub(super) channel_environment: &'start [(String, String)],
-    /// The executor's id for the command's process, unique on the executor, which the wrapper
-    /// pairs its row by.
+    /// The relay's id for the command's process, unique on the executor, which the wrapper pairs
+    /// its row by.
     pub(super) executor_process_id: &'start str,
 }
 
@@ -139,22 +139,27 @@ pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart
     params.insert("env".to_owned(), Value::Object(environment));
 }
 
-/// Codex's own id for a process the executor names `executor_process_id`, which Codex writes
-/// as that id, a dash and a fresh UUID.
-pub(super) fn terminal_process_id(executor_process_id: &str) -> &str {
-    executor_process_id
+/// Codex's own id for a process it started under `own_process_id`, which Codex writes as that
+/// id, a dash and a fresh UUID.
+pub(super) fn terminal_process_id(own_process_id: &str) -> &str {
+    own_process_id
         .split_once('-')
-        .map_or(executor_process_id, |(terminal, _fresh)| terminal)
+        .map_or(own_process_id, |(terminal, _fresh)| terminal)
 }
 
 impl CodexExecRelay {
-    /// Passes the start in `line` on to `executor`, rewritten as this module says, keeping the
-    /// command under its call so the person's acts reach it until its start is refused or its
-    /// process ends; a start that cannot be read passes as it came.
+    /// Passes the start in `line`, under the relay's own id for its process, on to `executor`,
+    /// rewritten as this module says, keeping the command under its call so the person's acts
+    /// reach it until its start is refused or its process ends; `own_process_id` is the id its
+    /// connection gave the process, and `is_minted` whether this start minted its relay id, so a
+    /// refusal of a start that reused a live process's id leaves that process's exit watched. A
+    /// start that cannot be read passes as it came.
     pub(super) async fn forward_process_start(
         self: Arc<Self>,
         executor: Arc<CodexExecutor>,
         line: String,
+        own_process_id: String,
+        is_minted: bool,
     ) {
         let Ok(mut message) = serde_json::from_str::<Map<String, Value>>(&line) else {
             forward(&executor, line).await;
@@ -167,7 +172,7 @@ impl CodexExecRelay {
             forward(&executor, line).await;
             return;
         };
-        let started = self.relayed_start(&read);
+        let started = self.relayed_start(&read, &own_process_id);
         if let Some(Value::Object(params)) = message.get_mut("params") {
             let is_wrapped = match &started {
                 Some((command, false)) if RUNS_COMMAND_WRAPPER => {
@@ -195,7 +200,9 @@ impl CodexExecRelay {
         drop(self);
         if answered.await.unwrap_or(false) {
             // A refused start runs nothing, so nothing of it is kept.
-            executor.forget_exit(&process_id);
+            if is_minted {
+                executor.forget_exit(&process_id);
+            }
             if let Some(relay) = relay.upgrade() {
                 relay.forget_command(&call);
             }
@@ -214,7 +221,11 @@ impl CodexExecRelay {
 
     // The command a start a session's call made runs, and whether it is a side question's copy's;
     // `None` for a start no call of a session's conversation made.
-    fn relayed_start(&self, read: &StartRead) -> Option<(RelayedCommand, bool)> {
+    fn relayed_start(
+        &self,
+        read: &StartRead,
+        own_process_id: &str,
+    ) -> Option<(RelayedCommand, bool)> {
         let metadata = read.metadata.as_ref()?;
         metadata.tool_call_id.as_ref()?;
         let thread_id = metadata.thread_id.clone()?;
@@ -224,7 +235,7 @@ impl CodexExecRelay {
                 session_id: thread.session_id,
                 thread_id,
                 executor_process_id: read.process_id.clone(),
-                terminal_process_id: terminal_process_id(&read.process_id).to_owned(),
+                terminal_process_id: terminal_process_id(own_process_id).to_owned(),
                 accepts_input: read.tty || read.pipe_stdin,
                 service_start: self.current_service_start(),
             },

@@ -163,7 +163,7 @@ impl TableShared {
             .spawn(
                 start.request,
                 move |answers| listening.listen(answers),
-                record.mark_filter(&mark_nonce.nonce),
+                record.marks.mark_filter(&mark_nonce.nonce),
             )
             .await;
         match spawned {

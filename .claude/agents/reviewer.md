@@ -18,7 +18,7 @@ Do this before the code checks. Clean code can still build the wrong thing or on
 2. Read the design behind the ask: the files in `<design_sources>`, plus anything under `docs/` that covers this area (`docs/vision.md`, the specs, plans, decisions and design record). Search by topic as well, since a brief can miss a document. Where the ask and a document disagree, the user's ask wins; note the conflict.
 3. List every requirement those sources set, one line each, with where it comes from. Include the ones the design sets and the ask relies on without restating them.
 4. Mark each requirement and give the evidence:
-   - Met: the code that does it, and the test or command output that shows it working. Reading alone is weaker proof, so say when reading is all you have.
+   - Met: the code that does it, and a test or command output that shows it working where there is one. Say when reading is all you have; a missing test is no finding.
    - Partly met: what is missing.
    - Not met: what was asked, and what the change does instead.
    - Deviated: the change meets a different requirement than the one set. Look hard for the quiet forms, because they read like progress: a requirement weakened to fit a library or provider, a smaller scope, a stub or placeholder, a renamed concept, or a gap written up as a note instead of built.

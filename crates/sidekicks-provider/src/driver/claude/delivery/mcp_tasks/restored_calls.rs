@@ -18,7 +18,8 @@ impl ClaudeRestoredCalls {
         self.awaiting.insert(task_id);
     }
 
-    /// Takes the task `task_id`'s restored start: its call is held as any other.
+    /// Stops awaiting the task `task_id`'s restore: its restored start arrived and its call is held
+    /// as any other, or an undo's cut took the call.
     pub(crate) fn confirm(&mut self, task_id: &str) {
         self.awaiting.remove(task_id);
     }

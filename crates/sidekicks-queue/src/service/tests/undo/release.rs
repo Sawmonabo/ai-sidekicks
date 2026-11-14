@@ -1,8 +1,9 @@
 //! The undo's release: a send during the undo waits on every route and follows the edited message,
 //! the edit reserved as the opening of the run that reads its opening later whatever the order
 //! says meanwhile, a run that ends first never records it admitted, back-to-back undos open the run
-//! once with the newer edit first, a start or continue already under way waits out the undo, a
-//! hold dropped unreleased still lets the session go, and a retry under its key keeps its own.
+//! once with the newer edit first, a resume pressed during the undo runs once at the release, a
+//! start or continue already under way waits out the undo, a hold dropped unreleased still lets
+//! the session go, and a retry under its key keeps its own.
 
 use std::sync::Arc;
 
@@ -10,8 +11,10 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemReorderRequest, QueueItemId};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::session::restore::SessionRestoreResend;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -21,6 +24,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::engine::undo::RollbackCompanions;
+use sidekicks_session::run::read::safe_run_version;
 use tokio::time::{sleep, timeout};
 
 use super::super::{DriverCalls, HELD_WATCH, WAIT, client_key, fixture, recording_driver};
@@ -32,6 +36,8 @@ fn resend_of(text: &str) -> SessionRestoreResend {
     SessionRestoreResend {
         content: FreeFormText::new(text.to_owned()).expect("a test message"),
         attachments: None,
+        skills: None,
+        output_speed_for_turn: None,
     }
 }
 
@@ -484,6 +490,98 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         scene.calls.resumes(),
         [(run_id, vec![second_edit, held_send, first_edit])]
     );
+}
+
+/// What waits for the paused lead run a person resumes during an undo.
+#[derive(Clone, Copy, Debug)]
+enum PressedWith {
+    /// A send made to the lead during the undo, which is released with an edit.
+    SendAndEdit,
+    /// Nothing: no send is made, and the undo is released with no edit.
+    Nothing,
+}
+
+// The person's `Resume` of the paused lead while an undo holds the session answers `paused` at
+// once and reaches no driver; the cut moves the run's version, and at the release the run is
+// resumed once at the version read then: with the edit first and the held send after it, or, with
+// nothing waiting, with no message. Killed by the queue's read answering an empty list under the
+// hold (the press resumes the run during the undo, and the release then steers instead), by the
+// release dropping the runs whose resume the hold held back (the press alone is never resumed),
+// and by resuming an owed run at the version the press read (refused stale after the cut, so no
+// resume reaches the driver).
+#[rstest]
+#[case::with_a_send_and_an_edit(PressedWith::SendAndEdit)]
+#[case::alone(PressedWith::Nothing)]
+#[tokio::test]
+async fn a_resume_pressed_during_an_undo_runs_once_at_the_release_with_the_edit_first(
+    #[case] pressed_with: PressedWith,
+) {
+    let scene = scene(applied_in_place()).await;
+    let fixture = &scene.fixture;
+    let run_id = scene.run_id;
+    fixture.set_run_state(run_id, "paused");
+    let pressed_version = fixture.run_version(run_id);
+    let key = client_key();
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, key.clone())
+        .await;
+    let held_send = match pressed_with {
+        PressedWith::SendAndEdit => Some(
+            timeout(WAIT, fixture.send())
+                .await
+                .expect("a send during the undo answers")
+                .expect("a send during the undo is taken"),
+        ),
+        PressedWith::Nothing => None,
+    };
+
+    let pressed = timeout(
+        WAIT,
+        fixture.queue.pauses.resume(
+            &AgentRunResumeRequest {
+                target_run_id: run_id,
+                expected_run_version: safe_run_version(pressed_version),
+            },
+            &fixture.queue.delivery,
+        ),
+    )
+    .await
+    .expect("the press answers at once")
+    .expect("the press is taken");
+    fixture
+        .queue
+        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
+        .await
+        .expect("the cut applies");
+    let resumes_while_held = scene.calls.resumes();
+    let released_version = fixture.run_version(run_id);
+    let resend = held_send.map(|_| resend_of("Look closer"));
+    fixture
+        .queue
+        .release_undo_hold(hold, resend, device())
+        .await
+        .expect("the release lets the session go");
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the release's resume settles");
+
+    assert_eq!(pressed.response.new_state, RunState::Paused);
+    assert_eq!(
+        pressed.response.run_version,
+        safe_run_version(pressed_version)
+    );
+    assert!(resumes_while_held.is_empty(), "{resumes_while_held:?}");
+    assert_ne!(
+        released_version, pressed_version,
+        "the cut moves the run's version"
+    );
+    let carried = match held_send {
+        Some(held_send) => vec![fixture.resent(&key).id, held_send],
+        None => Vec::new(),
+    };
+    assert_eq!(scene.calls.resumes(), [(run_id, carried)]);
+    assert_eq!(fixture.run_state(run_id), "running");
 }
 
 /// What was under way when the undo held the session.

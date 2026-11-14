@@ -11,6 +11,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 use sidekicks_store::machine::registry::MachineRegistryReadError;
+use sidekicks_workspace::run_setup_gates::RunSetupGateError;
 use sidekicks_workspace::working_folder::{ProjectEnvironmentReadError, WorkingFolderReadError};
 
 use crate::definitions::kept_values::WorkflowKeptValueError;
@@ -21,9 +22,10 @@ use crate::engine::ports::PortError;
 /// Why a start did not end in an outcome; nothing of the run was written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkflowRunStartError {
-    /// The start was refused: `workflow.run.startDenied`, `workflow.run.inputRequired`,
-    /// `workflow.run.repositoryRequired`, `workflow.run.providerRequired`,
-    /// `workflow.run.nodeKindUnavailable` or `workflow.run.handleUndeclared`.
+    /// The start was refused: `workflow.run.startDenied`, `workflow.run.projectOnProjectSession`,
+    /// `workflow.run.inputRequired`, `workflow.run.repositoryRequired`,
+    /// `workflow.run.providerRequired`, `workflow.run.nodeKindUnavailable` or
+    /// `workflow.run.handleUndeclared`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The version did not read; `workflow.version.notFound` when no saved version has its id.
@@ -55,6 +57,16 @@ pub(crate) enum WorkflowRunStartError {
     /// The values the workflow keeps did not read.
     #[error(transparent)]
     KeptValues(#[from] WorkflowKeptValueError),
+    /// A project session's run could not be bound to the session's working folder: refused
+    /// `workspace.executionRoot.unresolved` wrapping why, a session holding no live workspace and
+    /// the write of its context included, or a failure in the daemon, such as a session that never
+    /// held a workspace.
+    #[error(transparent)]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
+    Binding(RunSetupGateError),
     /// The run's own folder could not be made.
     #[error("the run's own folder could not be made")]
     #[cfg_attr(
@@ -131,12 +143,13 @@ pub(crate) enum WorkflowRunStartError {
 }
 
 impl From<WorkflowRunStartError> for HandlerError {
-    /// A start's refusals, a version that is not saved and a session this daemon does not hold
-    /// answer their refusals; any other failure is a fault in the daemon.
+    /// A start's refusals, a version that is not saved, a session this daemon does not hold and a
+    /// binding's refusal answer their refusals; any other failure is a fault in the daemon.
     fn from(error: WorkflowRunStartError) -> Self {
         match error {
             WorkflowRunStartError::Refused(refusal)
-            | WorkflowRunStartError::Session(WorkingFolderReadError::Refused(refusal)) => {
+            | WorkflowRunStartError::Session(WorkingFolderReadError::Refused(refusal))
+            | WorkflowRunStartError::Binding(RunSetupGateError::Refused(refusal)) => {
                 Self::Refused(refusal)
             }
             WorkflowRunStartError::Version(error) => error.into(),
@@ -148,6 +161,7 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::Pool(_)
             | WorkflowRunStartError::Scope(_)
             | WorkflowRunStartError::ProjectEnvironment(_)
+            | WorkflowRunStartError::Binding(RunSetupGateError::Failed(_))
             | WorkflowRunStartError::Folder(_)
             | WorkflowRunStartError::InputJson(_)
             | WorkflowRunStartError::Payload(_)

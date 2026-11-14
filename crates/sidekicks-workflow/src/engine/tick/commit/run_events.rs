@@ -29,7 +29,7 @@ use crate::engine::tick::run_status::{
     GoingRunStatus, RunStatusChange, going_run_status, person_wait_after, run_status_change,
 };
 use crate::runs::gate_resolution::{WorkflowGateAnswer, gate_resolved_payload};
-use crate::runs::record::end_run_row;
+use crate::runs::record::end_run_statements;
 use crate::runs::step_rows;
 
 // Only a going or parked run's status moves here; an ended run's row is never written again.
@@ -198,7 +198,7 @@ impl RunTurnCommit {
             self.push(&at, posted);
         }
         self.statements
-            .push(end_run_row(self.run_id, status, &at, error.as_ref()));
+            .extend(end_run_statements(self.run_id, status, &at, error.as_ref()));
         (status, ending_event)
     }
 

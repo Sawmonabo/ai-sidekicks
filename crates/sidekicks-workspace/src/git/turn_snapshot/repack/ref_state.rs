@@ -23,15 +23,21 @@ impl RefState {
     /// Whether any entry was modified or changed within the coarsest time precision of `read_at`,
     /// or after it, so a write right after the read could keep the facts it had.
     pub(super) fn has_entry_near(&self, read_at: SystemTime) -> bool {
-        let Some(read_at) = nanoseconds_since_epoch(read_at) else {
-            return true;
-        };
-        let window = i128::try_from(COARSEST_TIME_PRECISION.as_nanos()).unwrap_or(i128::MAX);
-        let earliest_safe = read_at.saturating_sub(window);
-        self.entries
-            .values()
-            .any(|facts| facts.modified >= earliest_safe || facts.changed >= earliest_safe)
+        has_entry_near(&self.entries, read_at)
     }
+}
+
+/// Whether any of `entries` was modified or changed within the coarsest time precision of
+/// `read_at`, or after it, so a write right after the read could keep the facts it had.
+pub(super) fn has_entry_near(entries: &BTreeMap<PathBuf, FileFacts>, read_at: SystemTime) -> bool {
+    let Some(read_at) = nanoseconds_since_epoch(read_at) else {
+        return true;
+    };
+    let window = i128::try_from(COARSEST_TIME_PRECISION.as_nanos()).unwrap_or(i128::MAX);
+    let earliest_safe = read_at.saturating_sub(window);
+    entries
+        .values()
+        .any(|facts| facts.modified >= earliest_safe || facts.changed >= earliest_safe)
 }
 
 /// The ref state of the repository whose common git folder is `common`: its `HEAD`,
@@ -65,8 +71,12 @@ fn read_ref_files(git_folder: &Path, entries: &mut BTreeMap<PathBuf, FileFacts>)
     Ok(())
 }
 
-// Adds `path`'s facts to `entries`, answering whether it exists.
-fn read_entry(path: &Path, entries: &mut BTreeMap<PathBuf, FileFacts>) -> io::Result<bool> {
+/// Adds `path`'s facts to `entries`, answering whether it exists. Fails as the stat does, a
+/// missing path aside.
+pub(super) fn read_entry(
+    path: &Path,
+    entries: &mut BTreeMap<PathBuf, FileFacts>,
+) -> io::Result<bool> {
     match file_facts(path) {
         Ok(facts) => {
             entries.insert(path.to_path_buf(), facts);
@@ -77,8 +87,9 @@ fn read_entry(path: &Path, entries: &mut BTreeMap<PathBuf, FileFacts>) -> io::Re
     }
 }
 
-// The folders directly in `folder`, never through a link; none when `folder` does not exist.
-fn child_folders(folder: &Path) -> io::Result<Vec<PathBuf>> {
+/// The folders directly in `folder`, never through a link; none when `folder` does not exist.
+/// Fails as the listing does.
+pub(super) fn child_folders(folder: &Path) -> io::Result<Vec<PathBuf>> {
     let listing = match fs::read_dir(folder) {
         Ok(listing) => listing,
         Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),

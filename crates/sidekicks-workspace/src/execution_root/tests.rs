@@ -163,7 +163,7 @@ async fn work_under_one_preparation_hold_never_waits_on_that_hold() {
         let hold = fixture.service.hold_preparation(workspace_id).await;
         let prepared = fixture
             .service
-            .prepare_for_run_held(&hold, test_run_id(), None)
+            .prepare_for_run_held(&hold, Some(test_run_id()), None)
             .await
             .expect("the run's prepare binds the stored folder");
         let moved = fixture

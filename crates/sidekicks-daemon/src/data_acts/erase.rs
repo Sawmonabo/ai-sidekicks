@@ -1,17 +1,19 @@
 //! `Erase all data`: the keychain is checked first, so a locked or unusable one refuses the erase
 //! with nothing changed; then every sign-in under way ends, every account home the erase deletes
 //! signs out through its provider's own sign-out, listed, removed and unfinished ones alike, while
-//! the services still serve, and the erase answers naming each account left signed in. Then, in
-//! order, every run and shell stops as Runtime's `Stop` stops them, every provider service ends,
-//! every credential-store item the app made is deleted, everything that holds a file in the data
-//! folder closes, the data folder goes with the account homes in it, and the process ends so its
-//! caller starts it again, empty. The default `backups/` folder stays, since a backup taken
-//! earlier keeps its copy, and no project folder is touched. An item the store refuses to delete
-//! leaves the data folder whole, so the erase can run again. An account that does not sign out
-//! stops nothing. One erase runs at a time: a second sent while it runs is refused and starts
-//! nothing. The program's `data erase` mode, run with the service stopped, shares the bound on
-//! each account's sign-out, the end of each provider's recorded services and the last steps, the
-//! secrets' delete and then the data folder's.
+//! the services still serve, every session's own folder on another volume is removed, its user
+//! folder with it once empty, and the erase answers naming each account left signed in and each
+//! such folder left, since no row names it once the data folder is gone. Then, in order, every run
+//! and shell stops as Runtime's `Stop` stops them, every provider service ends, every
+//! credential-store item the app made is deleted, everything that holds a file in the data folder
+//! closes, the data folder goes with the account homes in it, and the process ends so its caller
+//! starts it again, empty. The default `backups/` folder stays, since a backup taken earlier keeps
+//! its copy, and no project folder is touched. An item the store refuses to delete leaves the data
+//! folder whole, so the erase can run again. An account that does not sign out stops nothing. One
+//! erase runs at a time: a second sent while it runs is refused and starts nothing. The program's
+//! `data erase` mode, run with the service stopped, shares the bound on each account's sign-out,
+//! the end of each provider's recorded services, the removal of the folders on other volumes and
+//! the last steps, the secrets' delete and then the data folder's.
 
 use std::error::Error;
 use std::fs;
@@ -25,14 +27,20 @@ use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
 };
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_provider::account::credential_home::{HomeSignOutError, HomesSignOut};
 use sidekicks_provider::account::homes::AccountHomesReadError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStop};
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_session::checkpoints::store::shadows::{every_volume_folder, owed_folders};
+use sidekicks_session::checkpoints::volume_folders::{VolumeFolderRemoval, remove_volume_folder};
 use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::credential_store::items::SecretItems;
+use sidekicks_store::database::connection::setup::open_database_reader;
+use sidekicks_store::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
 use tokio::sync::oneshot;
+use tokio::task::JoinError;
 
 use crate::daemon::process::DAEMON_STOP_DRAIN_BOUND;
 
@@ -45,6 +53,9 @@ pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync
 /// with why and whether a row could not be named; fails when the homes cannot be read.
 pub(crate) type AccountsSignOut =
     Arc<dyn Fn() -> BoxFuture<'static, Result<HomesSignOut, AccountHomesReadError>> + Send + Sync>;
+
+// The two statements the read of the sessions' folders on other volumes prepares.
+const VOLUME_FOLDERS_STATEMENTS: usize = 2;
 
 /// What the erase acts on.
 pub(crate) struct DataEraseDeps {
@@ -127,6 +138,26 @@ pub(crate) struct DataFolderEntryLeft {
     pub(crate) source: io::Error,
 }
 
+/// Why the sessions' folders on other volumes were not read, so none was removed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum VolumeFoldersReadError {
+    /// The database could not be opened or its folders read.
+    #[error("the sessions' folders on other volumes could not be read")]
+    Read(#[source] Box<dyn Error + Send + Sync>),
+    /// The read ended before it answered.
+    #[error("the sessions' folders on other volumes were not read")]
+    Ended(#[source] JoinError),
+}
+
+/// A session's own folder on another volume that the erase left.
+#[derive(Debug)]
+pub(crate) struct VolumeFolderLeft {
+    /// The folder.
+    pub(crate) folder: FilesystemPath,
+    /// Why its removal failed; `None` when its volume is not connected.
+    pub(crate) removal_failure: Option<io::Error>,
+}
+
 /// The erase of everything the service keeps.
 pub(crate) struct DataErase {
     deps: DataEraseDeps,
@@ -142,15 +173,16 @@ impl DataErase {
         }
     }
 
-    /// Checks that every credential-store item the erase must delete can be, then starts the
-    /// erase, which signs every account out and answers naming each account left signed in, so
-    /// the reply is written while the erase stops the work; a locked store raises its unlock
-    /// prompt while the person is at the screen. Fails with [`DataEraseRefusal::Running`] while
-    /// an erase runs, and with [`DataEraseRefusal::Keychain`] when the store is locked or cannot
-    /// be used; this call then starts nothing. Fails with [`DataEraseFailure::Ended`] when the
-    /// erase ends before it answers, and lets the next erase start, which finishes the job; the
-    /// sign-ins the erase ended stay ended until the service restarts. An erase once started runs
-    /// to its end even when its caller stops waiting for the answer.
+    /// Checks that every credential-store item the erase must delete can be, then starts the erase,
+    /// which signs every account out, removes the sessions' folders on other volumes and answers
+    /// naming each account left signed in and each folder left, so the reply is written while the
+    /// erase stops the work; a locked store raises its unlock prompt while the person is at the
+    /// screen. Fails with [`DataEraseRefusal::Running`] while an erase runs, and with
+    /// [`DataEraseRefusal::Keychain`] when the store is locked or cannot be used; this call then
+    /// starts nothing. Fails with [`DataEraseFailure::Ended`] when the erase ends before it
+    /// answers, and lets the next erase start, which finishes the job; the sign-ins the erase ended
+    /// stay ended until the service restarts. An erase once started runs to its end even when its
+    /// caller stops waiting for the answer.
     pub(crate) async fn begin(
         self: &Arc<Self>,
     ) -> Result<DaemonDataEraseResponse, DataEraseFailure> {
@@ -170,24 +202,51 @@ impl DataErase {
         let erase = Arc::clone(self);
         tokio::spawn(async move { erase.erase(answer).await });
         // The erase answers before it stops anything, so one that ended without answering
-        // erased nothing and the next may run.
+        // erased at most some folders on other volumes, and the next may run.
         answered.await.map_err(|_ended| {
             self.is_running.store(false, Ordering::Release);
             DataEraseFailure::Ended
         })
     }
 
-    // Ends every sign-in under way, signs every account out and answers `answer` with the accounts
-    // left signed in, then erases everything and ends the process. Never fails: a sign-in that
-    // does not settle, an account that does not sign out, a provider service that does not end
+    // Ends every sign-in under way, signs every account out, removes the sessions' folders on
+    // other volumes and answers `answer` with the accounts and folders left, then erases
+    // everything and ends the process. Never fails: a sign-in that does not settle, an account
+    // that does not sign out, a folder that is not removed, a provider service that does not end
     // and a data-folder entry that cannot be deleted are told in the service log, and a store that
     // refuses an item keeps the data folder whole.
     async fn erase(&self, answer: oneshot::Sender<DaemonDataEraseResponse>) {
         if !(self.deps.end_sign_ins)().await {
             tracing::warn!("a sign-in under way did not settle before the erase");
         }
-        let signed_out = self.sign_out_accounts().await;
-        if answer.send(signed_out).is_err() {
+        let mut response = self.sign_out_accounts().await;
+        match remove_every_volume_folder(&self.deps.data_folder).await {
+            Ok(left) => {
+                response.volume_folders_left = left
+                    .into_iter()
+                    .map(|left| {
+                        if let Some(failure) = &left.removal_failure {
+                            tracing::warn!(
+                                folder = left.folder.as_str(),
+                                error = failure as &(dyn Error + 'static),
+                                "a session's folder on another volume was not removed before the \
+                                 erase"
+                            );
+                        }
+                        left.folder
+                    })
+                    .collect();
+            }
+            Err(failure) => {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "the sessions' folders on other volumes could not be read to remove them \
+                     before the erase"
+                );
+                response.is_volume_folder_list_unread = true;
+            }
+        }
+        if answer.send(response).is_err() {
             tracing::info!("the erase's caller left before its answer; the erase goes on");
         }
         (self.deps.stop_work)().await;
@@ -251,6 +310,8 @@ impl DataErase {
                     })
                     .collect(),
                 is_account_list_unread: signed_out.has_unnamed_home,
+                volume_folders_left: Vec::new(),
+                is_volume_folder_list_unread: false,
             },
             Err(failure) => {
                 tracing::warn!(
@@ -260,6 +321,8 @@ impl DataErase {
                 DaemonDataEraseResponse {
                     signed_in_accounts: Vec::new(),
                     is_account_list_unread: true,
+                    volume_folders_left: Vec::new(),
+                    is_volume_folder_list_unread: false,
                 }
             }
         }
@@ -288,6 +351,49 @@ pub(crate) async fn stop_every_recorded_service(
         }
     }
     failures
+}
+
+/// Removes every session's own folder on another volume that the database in `data_folder` names,
+/// the folders its purges owe among them, each with its user folder once empty, and answers each
+/// folder left: on a volume that is not connected, or whose removal failed, every other folder
+/// still tried. Reads nothing when the daemon never made its database. Fails when the folders
+/// cannot be read, removing none.
+pub(crate) async fn remove_every_volume_folder(
+    data_folder: &Path,
+) -> Result<Vec<VolumeFolderLeft>, VolumeFoldersReadError> {
+    let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    let folders = tokio::task::spawn_blocking(
+        move || -> Result<Vec<VolumeFolderLeft>, Box<dyn Error + Send + Sync>> {
+            if !database_path.try_exists()? {
+                return Ok(Vec::new());
+            }
+            let connection = open_database_reader(&database_path, VOLUME_FOLDERS_STATEMENTS)?;
+            let mut folders: Vec<_> = every_volume_folder(&connection)?
+                .into_iter()
+                .map(|(_session_id, folder)| folder)
+                .collect();
+            folders.extend(owed_folders(&connection)?);
+            drop(connection);
+            Ok(folders
+                .into_iter()
+                .filter_map(|folder| {
+                    let removal_failure = match remove_volume_folder(&folder) {
+                        Ok(VolumeFolderRemoval::Removed) => return None,
+                        Ok(VolumeFolderRemoval::VolumeAbsent) => None,
+                        Err(failure) => Some(failure),
+                    };
+                    Some(VolumeFolderLeft {
+                        folder: folder.folder,
+                        removal_failure,
+                    })
+                })
+                .collect())
+        },
+    );
+    folders
+        .await
+        .map_err(VolumeFoldersReadError::Ended)?
+        .map_err(VolumeFoldersReadError::Read)
 }
 
 /// The erase's last steps: deletes every credential-store item the app made, runs

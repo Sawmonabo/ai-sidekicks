@@ -19,7 +19,7 @@ use sidekicks_std::random_hex::random_hex;
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{ObjectFormat, UnrecognizedObjectFormat};
-use crate::git::turn_snapshot::capture_steps::joined;
+use crate::git::turn_snapshot::capture_steps::{INDEX_LOCK_SUFFIX, joined};
 
 /// The folder under an owner's folder that holds its capture folders.
 pub const CAPTURES_SEGMENT: &str = "captures";
@@ -28,7 +28,7 @@ pub const CAPTURES_SEGMENT: &str = "captures";
 pub(crate) const OBJECTS_SEGMENT: &str = "objects";
 
 /// The folder in a capture folder that holds the indexes captures stage into.
-const INDEXES_SEGMENT: &str = "indexes";
+pub(crate) const INDEXES_SEGMENT: &str = "indexes";
 
 /// The variable naming the object folder a git call writes into.
 const OBJECT_FOLDER_VARIABLE: &str = "GIT_OBJECT_DIRECTORY";
@@ -36,8 +36,20 @@ const OBJECT_FOLDER_VARIABLE: &str = "GIT_OBJECT_DIRECTORY";
 /// The variable listing the object folders a git call also reads.
 const ALTERNATE_OBJECT_FOLDERS_VARIABLE: &str = "GIT_ALTERNATE_OBJECT_DIRECTORIES";
 
+/// The hex digits of a capture folder's name, the sha256 of its repository's real path.
+const CAPTURE_FOLDER_NAME_LENGTH: usize = 64;
+
 /// The random bytes in the name of a capture folder still being made, so two makers never meet.
 const PARTIAL_NAME_BYTES: usize = 8;
+
+/// The extension that ends the name of a capture folder still being made.
+const PARTIAL_EXTENSION: &str = "partial";
+
+/// The name prefix of a capture's scratch index.
+const SCRATCH_INDEX_PREFIX: &str = "scratch-";
+
+/// The extension of a capture's scratch index.
+const SCRATCH_INDEX_EXTENSION: &str = "index";
 
 const SETUP_OPERATION: &str = "making the capture folder";
 
@@ -143,8 +155,16 @@ impl CaptureFolder {
         self.folder.join(INDEXES_SEGMENT)
     }
 
-    /// The variables of a write that must see the repository's history: its objects go to this
-    /// folder's object folder and the repository's is attached.
+    /// The scratch index named for `name` in the indexes folder, which one capture stages into and
+    /// removes when it ends.
+    pub(crate) fn scratch_index(&self, name: &str) -> PathBuf {
+        self.indexes_folder().join(format!(
+            "{SCRATCH_INDEX_PREFIX}{name}.{SCRATCH_INDEX_EXTENSION}"
+        ))
+    }
+
+    /// The variables of a call in this folder that must see the repository's history, a write or a
+    /// read: its objects go to this folder's object folder and the repository's is attached.
     pub(crate) fn write_environment(&self) -> [(&'static str, &OsStr); 2] {
         [
             (OBJECT_FOLDER_VARIABLE, self.objects.as_os_str()),
@@ -170,7 +190,7 @@ impl CaptureFolder {
         name: &str,
     ) -> Result<(), CaptureFolderError> {
         let suffix = random_hex(PARTIAL_NAME_BYTES).map_err(CaptureFolderError::PartialName)?;
-        let partial = captures.join(format!("{name}.{suffix}.partial"));
+        let partial = captures.join(format!("{name}.{suffix}.{PARTIAL_EXTENSION}"));
         let (parent, made) = (captures.to_path_buf(), partial.clone());
         joined(
             tokio::task::spawn_blocking(move || {
@@ -208,8 +228,12 @@ impl CaptureFolder {
         ))))
     }
 
-    // `partial` as a bare repository in the object format of the repository at `repository`, with
-    // automatic gc and maintenance off, so nothing packs or prunes the captures but the daemon.
+    // `partial` as a bare repository in the object format of the repository at `repository` and the
+    // files ref format, with automatic gc and maintenance off, so nothing packs or prunes the
+    // captures but the daemon.
+    // Pruning is off too: since git 2.54 a maintenance run's geometric strategy reads no `gc.auto`
+    // and its cruft repack expires unreachable objects after two weeks, and a capture with no ref
+    // is unreachable.
     async fn set_up(
         &self,
         git: &GitRunner,
@@ -232,9 +256,16 @@ impl CaptureFolder {
             "--template=".into(),
             format!("--object-format={}", format.name()).into(),
             partial.into(),
-        ]);
+        ])
+        // A ref write in a reftable folder deletes tables outside the packing lock; the variable
+        // outranks the person's settings, and a git before 2.44 knows only the files format.
+        .with_environment("GIT_DEFAULT_REF_FORMAT", "files");
         git.run(place, init).await?;
-        for [key, value] in [["gc.auto", "0"], ["maintenance.auto", "false"]] {
+        for [key, value] in [
+            ["gc.auto", "0"],
+            ["maintenance.auto", "false"],
+            ["gc.pruneExpire", "never"],
+        ] {
             let setting = GitCall::read([
                 git_folder_argument(partial),
                 "config".into(),
@@ -245,6 +276,48 @@ impl CaptureFolder {
         }
         Ok(())
     }
+}
+
+/// Whether `folder` is a capture folder by its path: its name is 64 lowercase hex digits and its
+/// parent is an owner's captures folder, so a copy, a large file's folder and a folder still being
+/// made are not.
+pub fn is_capture_folder(folder: &Path) -> bool {
+    let is_captures_parent = folder
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|parent| parent == CAPTURES_SEGMENT);
+    let is_capture_name = folder
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            name.len() == CAPTURE_FOLDER_NAME_LENGTH
+                && name
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    is_captures_parent && is_capture_name
+}
+
+/// Whether `name`, an entry of an owner's captures folder, names a capture folder still being made:
+/// `<name>.<suffix>.partial`. A name that is not UTF-8 is none.
+pub(crate) fn is_partial_capture_folder_name(name: &OsStr) -> bool {
+    name.to_str()
+        .and_then(|name| name.strip_suffix(PARTIAL_EXTENSION))
+        .and_then(|stem| stem.strip_suffix('.'))
+        .is_some_and(|stem| !stem.is_empty())
+}
+
+/// Whether `name`, an entry of a capture folder's indexes folder, names a scratch index or git's
+/// lock file beside one. A name that is not UTF-8 is none.
+pub(crate) fn is_scratch_index_file_name(name: &OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let index_name = name.strip_suffix(INDEX_LOCK_SUFFIX).unwrap_or(name);
+    index_name
+        .strip_prefix(SCRATCH_INDEX_PREFIX)
+        .and_then(|rest| rest.strip_suffix(SCRATCH_INDEX_EXTENSION))
+        .is_some_and(|rest| rest.ends_with('.'))
 }
 
 /// The sha256 of `folder`'s real path as lowercase hex, so every spelling of one folder gives one

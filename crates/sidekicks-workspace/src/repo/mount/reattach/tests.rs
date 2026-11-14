@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -11,14 +10,14 @@ use sidekicks_contracts::repo::folders::{
     RepoMountReattachConflictDetails, RepoMountReattachResponse, RepoMountRequest,
 };
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId};
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use sidekicks_ipc::registry::HandlerError;
 
 use super::{
-    RepoMountReattachError, RepoMountReattachService, RepoMountReattachServiceDeps, RunAgentLookup,
-    RunAgentLookupError,
+    RepoMountReattachError, RepoMountReattachService, RepoMountReattachServiceDeps,
+    RunningHolderLookup, RunningHolderLookupError,
 };
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::execution_root::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
@@ -34,16 +33,22 @@ const UNLISTED_TREE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e92";
 const RUNNING_AGENT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e93";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e94";
 
-/// Answers every run's agent as [`RUNNING_AGENT_ID`].
+/// Answers every run as an agent's run for [`RUNNING_AGENT_ID`].
 struct FixedRunAgent;
 
-impl RunAgentLookup for FixedRunAgent {
-    fn read_run_agent<'a>(
+impl RunningHolderLookup for FixedRunAgent {
+    fn read_running_holder<'a>(
         &'a self,
         _session_id: &'a SessionId,
-        _run_id: &'a RunId,
-    ) -> BoxFuture<'a, Result<AgentId, RunAgentLookupError>> {
-        async { Ok(AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID")) }.boxed()
+        _run_id: &'a str,
+    ) -> BoxFuture<'a, Result<RunningHolder, RunningHolderLookupError>> {
+        async { Ok(running_holder()) }.boxed()
+    }
+}
+
+fn running_holder() -> RunningHolder {
+    RunningHolder::Agent {
+        agent_id: AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID"),
     }
 }
 
@@ -76,36 +81,10 @@ impl ReattachFixture {
                     &roots.log.service,
                 ))),
                 resolver: RepoRootResolver::new(test_git_runner()),
-                agents: Arc::new(FixedRunAgent),
+                holders: Arc::new(FixedRunAgent),
             },
         ));
         Self { roots, service }
-    }
-
-    /// Puts a new repository in the mount's folder, its git folder kept beside it, so the mount
-    /// reads `identityMismatch`, and answers that git folder. One made in place at the same path
-    /// would hold the anchor's own common folder and read as the same repository.
-    async fn replace_repository(&self) -> PathBuf {
-        std::fs::remove_dir_all(&self.roots.repository).expect("the old repository goes");
-        let parent = self
-            .roots
-            .repository
-            .parent()
-            .expect("the repository sits in the scratch folder");
-        let repository = make_test_repository(&self.roots.git, parent, "app").await;
-        let common_folder = parent.join("app-replacement.git");
-        git_in(
-            &self.roots.git,
-            &repository,
-            &[
-                "init",
-                "--quiet",
-                "--separate-git-dir",
-                &common_folder.to_string_lossy(),
-            ],
-        )
-        .await;
-        common_folder
     }
 
     async fn reattach(
@@ -243,7 +222,7 @@ async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest()
         .await
         .expect("the workspace roots at the repository");
     let unlisted = fixture.roots.add_tree("old-tree").await;
-    let common_folder = fixture.replace_repository().await;
+    let common_folder = fixture.roots.replace_repository().await;
     let listed = fixture.roots.add_tree("new-tree").await;
     for (id, branch, folder) in [
         (LISTED_TREE_ID, "new-tree", &listed),
@@ -323,7 +302,7 @@ async fn a_run_that_starts_after_the_checks_refuses_the_write_naming_its_agent()
     // would commit under the run that started after its read.
     let fixture = ReattachFixture::new().await;
     let workspace_id: WorkspaceId = fixture.roots.bind().await;
-    fixture.replace_repository().await;
+    fixture.roots.replace_repository().await;
     let before = fixture.written();
     let paused = fixture.service.write_pause.arm();
     let reattach = tokio::spawn({
@@ -371,7 +350,7 @@ async fn a_run_that_starts_after_the_checks_refuses_the_write_naming_its_agent()
         refused.detail,
         Some(Box::new(refusal_fields(RepoMountReattachConflictDetails {
             running_session_id: SessionId::new(SESSION_ID).expect("the id is a UUID"),
-            running_agent_id: AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID"),
+            running_holder: running_holder(),
         })))
     );
     assert_eq!(fixture.written(), before);

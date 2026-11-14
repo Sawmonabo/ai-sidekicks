@@ -1,14 +1,16 @@
 //! A run's turns: each start numbered its run's newest start plus one inside its write, the
-//! checkpoint before the message that opened it written in that same write, each end written once,
-//! riding the run change it ends with or on its own, and the steps of a turn counted against its
-//! step bound.
+//! checkpoint before the message that opened it, or before the start itself where no new message
+//! of the person's opened it, written in that same write, each steer landed with
+//! its own checkpoint, each end written once, riding the run change it ends with or on its own, and
+//! the steps of a turn counted against its step bound.
 
 pub(crate) mod guards;
+pub(crate) mod steers;
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
-use rusqlite::{OptionalExtension as _, named_params};
+use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -19,9 +21,10 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::SnapshotId;
 use sidekicks_contracts::transcript::turn_attribution::{
-    EpochPosition, standing_after_turn_started,
+    EpochPosition, standing_after_message_taken,
 };
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -34,7 +37,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use sidekicks_store::events::session::read::session_read_bound;
 
-use crate::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
+use crate::checkpoints::store::insert_turn_start_checkpoint_statement;
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::LimitStop;
@@ -79,7 +82,7 @@ static SELECT_NEXT_TURN_NUMBER_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The `user.message.sent` a queue item's message was recorded as, by the correlation id the
 // recorder writes, read through the correlation index.
-static SELECT_OPENING_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
+static SELECT_SENT_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence FROM session_events
   WHERE correlation_id = @correlation_id
@@ -159,11 +162,13 @@ impl<Written> WriteWithResend<Written> {
     }
 }
 
-// What a turn start reads before each attempt: the number it takes and, for a turn a recorded
-// message opened, that message's place in the log and where the run stands at the log's end.
+// What a turn start reads before each attempt: the number it takes, where the run stands at the
+// log's end, and the place in the log of the message its opening queue item sent, `None` for a
+// turn no sent message opened; the write decides whether that prompt is new.
 struct TurnStartReading {
     turn_number: SafeInt<1>,
-    opening: Option<(SafeInt<0>, EpochPosition)>,
+    standing: EpochPosition,
+    opening_sequence: Option<SafeInt<0>>,
 }
 
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
@@ -228,11 +233,13 @@ impl RunEngine {
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
     /// against it, whatever the provider. `provider_turn_id` is the provider's own id of the turn,
     /// recorded on its start, where the provider reports one. `opening` is the queue item whose
-    /// message opened the turn: where that message is recorded, the start's own write keeps the
-    /// checkpoint before it, at the turn the start moves the run to, and a message already kept
-    /// keeps its first. A start that meets an undo's rollback write in progress on the run's
-    /// session waits for that write to end and then opens on the run as the rollback left it; one
-    /// that passed that check before the write began opens unheld. Fails with
+    /// message opened the turn. The start's own write keeps the checkpoint an undo of the turn
+    /// goes back to, at the turn the start moves the run to: before that message where it is
+    /// recorded and no checkpoint holds it yet, else before the start itself, so a turn the
+    /// provider or the daemon began and a turn a message already kept opens again each keep one
+    /// of their own. A start that meets an undo's rollback write in progress on the run's session
+    /// waits for that write to end and then opens on the run as the rollback left it; one that
+    /// passed that check before the write began opens unheld. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     pub(crate) async fn start_turn(
         &self,
@@ -269,21 +276,22 @@ impl RunEngine {
                 run_at_version_statement(&run_id, run.version),
                 no_turn_start_from_statement(&run_id, turn_number),
             ];
+            let started_payload =
+                serde_json::to_value(&payload).expect("a turn start's payload serializes");
+            let started_payload = started_payload
+                .as_object()
+                .expect("a turn start's payload serializes as a JSON object");
+            let turn = standing_after_message_taken(reading.standing, started_payload);
             // After both guards, so a refusal's index still names the guard that refused.
-            if let Some((message_sequence, standing)) = reading.opening {
-                let started_payload =
-                    serde_json::to_value(&payload).expect("a turn start's payload serializes");
-                let started_payload = started_payload
-                    .as_object()
-                    .expect("a turn start's payload serializes as a JSON object");
-                transactional_prelude.push(insert_checkpoint_statement(&Checkpoint {
-                    checkpoint_id: checkpoint_id.clone(),
-                    session_id: run.session_id,
-                    message_sequence,
-                    run_id,
-                    turn: standing_after_turn_started(standing, started_payload),
-                }));
-            }
+            transactional_prelude.push(insert_turn_start_checkpoint_statement(
+                &checkpoint_id,
+                run.session_id,
+                run_id,
+                turn_number,
+                turn,
+                opening,
+                reading.opening_sequence,
+            ));
             let draft = SessionEventDraft::of_session(
                 run.session_id,
                 &SessionEvent::AgentTurnStarted(payload),
@@ -700,34 +708,17 @@ impl RunEngine {
                     .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
                         safe_int_column(row, 0)
                     })?;
-                let Some(opening) = opening else {
-                    return Ok::<_, RunEngineError>(TurnStartReading {
-                        turn_number,
-                        opening: None,
-                    });
-                };
-                let message_sequence = reader
-                    .prepare_cached(&SELECT_OPENING_MESSAGE_SQL)?
-                    .query_row(
-                        named_params! {
-                            "@correlation_id": opening.to_string(),
-                            "@session_id": session_id.text().as_str(),
-                        },
-                        |row| safe_int_column(row, 0),
-                    )
-                    .optional()?;
-                let Some(message_sequence) = message_sequence else {
-                    return Ok(TurnStartReading {
-                        turn_number,
-                        opening: None,
-                    });
-                };
                 let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
                 let standing = RunTurnReads::new(reader, &*read_damaged_from_sequence)
                     .read_standing_before(&session_id, &run_id, log_end)?;
-                Ok(TurnStartReading {
+                let opening_sequence = match opening {
+                    Some(opening) => read_sent_message(reader, &session_id, opening)?,
+                    None => None,
+                };
+                Ok::<_, RunEngineError>(TurnStartReading {
                     turn_number,
-                    opening: Some((message_sequence, standing)),
+                    standing,
+                    opening_sequence,
                 })
             })
             .await
@@ -778,6 +769,25 @@ pub(super) fn set_step_limit_reached(
     {
         count.is_reached = is_reached;
     }
+}
+
+// The sequence of the `user.message.sent` that queue item `item`'s message was recorded as in
+// `session_id`'s log, `None` for an item recorded as no message.
+fn read_sent_message(
+    reader: &Connection,
+    session_id: &SessionId,
+    item: QueueItemId,
+) -> rusqlite::Result<Option<SafeInt<0>>> {
+    reader
+        .prepare_cached(&SELECT_SENT_MESSAGE_SQL)?
+        .query_row(
+            named_params! {
+                "@correlation_id": item.to_string(),
+                "@session_id": session_id.text().as_str(),
+            },
+            |row| safe_int_column(row, 0),
+        )
+        .optional()
 }
 
 // How `turn_number` ends: interrupted with `held_limit`, the higher-ranked limit of the engine's

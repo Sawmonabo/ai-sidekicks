@@ -1,9 +1,10 @@
 //! The turn-end capture: at each committed turn end of a run bound to a checkout, the checkout is
-//! recorded as a turn snapshot in the session's capture folder, under the run's epoch and the
-//! turn's ordinal in it, both read from the log, so a capture after a restart or a rollback lands
-//! where the log says the turn stands. A follower of every session's events spawns each end's
-//! capture off the writer's pump; the stop waits for every capture under way and cuts none short.
-//! A run with no execution context, as a chat's own folder runs, captures nothing.
+//! recorded as a turn snapshot in the session's capture folder, under the run's epoch and the run
+//! position the turn's opening message took in it, both read from the log, so a capture after a
+//! restart or a rollback lands where the log says the turn stands. A follower of every session's
+//! events spawns each end's capture off the writer's pump; the stop waits for every capture under
+//! way and cuts none short. A run with no execution context, as a chat's own folder runs, captures
+//! nothing.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -12,7 +13,6 @@ use std::sync::{Arc, LazyLock};
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::EventCategory;
-use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{
@@ -23,32 +23,25 @@ use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::optional_text_column;
 use sidekicks_store::events::session::followers::{
     CommittedEvent, FollowerAttachment, SessionEventFollowers,
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_workspace::git::turn_snapshot::capture::CheckoutCaptureInput;
+use sidekicks_workspace::git::turn_snapshot::refs::RunSnapshotPoint;
 use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotCaptureInput, TurnSnapshotService,
 };
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
+use crate::run::checkout::{RunCheckout, read_run_checkout};
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements a turn end's capture prepares on a pooled connection: the run's checkout and
-/// place, the sequence of the turn's own start, and the run's rollbacks and turn starts its
-/// standing is read from.
+/// place, the sequence of the turn's own start, and the run's rollbacks and its turn starts and
+/// steers its standing is read from.
 pub const TURN_CAPTURE_STATEMENT_CAPACITY: usize = 4;
-
-// The run's checkout and the place of the repository it was mounted from, by its execution
-// context; a chat's own folder writes no context.
-const SELECT_RUN_CHECKOUT_SQL: &str = "SELECT context.execution_root, context.checkout_root,
-       mount.place
-  FROM run_execution_contexts AS context
-  JOIN workspaces AS workspace ON workspace.id = context.workspace_id
-  JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
- WHERE context.run_id = @run_id";
 
 // The sequence of the run's start of the turn, spelled as the unique index on turn starts spells
 // its predicate.
@@ -90,11 +83,9 @@ struct TurnEnding {
 }
 
 // What a turn end's capture reads: where the run works, the place git runs for, and the epoch and
-// turn the ended turn started at.
+// run position the ended turn started at.
 struct TurnCheckout {
-    execution_root: PathBuf,
-    checkout_root: PathBuf,
-    place: Option<Place>,
+    checkout: RunCheckout,
     turn: EpochPosition,
 }
 
@@ -200,16 +191,20 @@ impl TurnCapture {
             }
         };
         let input = TurnSnapshotCaptureInput {
-            owner_folder: session_storage_folder(&self.data_folder, &ending.session_id),
-            execution_root: checkout.execution_root,
-            checkout_root: checkout.checkout_root,
-            run_id: ending.run_id,
-            epoch: checkout.turn.epoch.0.get(),
-            turn_ordinal: checkout.turn.position.0.get(),
-            turn_ended_at: ending.ended_at,
+            checkout: CheckoutCaptureInput {
+                owner_folder: session_storage_folder(&self.data_folder, &ending.session_id),
+                execution_root: checkout.checkout.execution_root,
+                checkout_root: checkout.checkout.checkout_root,
+                captured_at: ending.ended_at,
+            },
+            point: RunSnapshotPoint::Turn {
+                run_id: ending.run_id,
+                epoch: checkout.turn.epoch.0.get(),
+                ordinal: checkout.turn.position.0.get(),
+            },
         };
         self.snapshots
-            .capture_turn_snapshot(checkout.place.as_ref(), &input)
+            .capture_turn_snapshot(checkout.checkout.place.as_ref(), &input)
             .await;
     }
 }
@@ -240,21 +235,10 @@ fn read_turn_checkout(
     read_damaged_from_sequence: &DamagedFromSequenceReader,
     ending: TurnEnding,
 ) -> Result<Option<TurnCheckout>, TurnCheckoutReadError> {
-    let run_id = ending.run_id.text();
-    let checkout = reader
-        .prepare_cached(SELECT_RUN_CHECKOUT_SQL)?
-        .query_row(named_params! { "@run_id": run_id.as_str() }, |row| {
-            Ok((
-                PathBuf::from(row.get::<_, String>(0)?),
-                PathBuf::from(row.get::<_, String>(1)?),
-                // The column holds the place's wire JSON.
-                optional_text_column(row, 2, |text| serde_json::from_str::<Place>(&text))?,
-            ))
-        })
-        .optional()?;
-    let Some((execution_root, checkout_root, place)) = checkout else {
+    let Some(checkout) = read_run_checkout(reader, ending.run_id)? else {
         return Ok(None);
     };
+    let run_id = ending.run_id.text();
     let turn_start: i64 = reader
         .prepare_cached(&SELECT_TURN_START_SQL)?
         .query_row(
@@ -271,12 +255,7 @@ fn read_turn_checkout(
         &ending.run_id,
         turn_start + 1,
     )?;
-    Ok(Some(TurnCheckout {
-        execution_root,
-        checkout_root,
-        place,
-        turn,
-    }))
+    Ok(Some(TurnCheckout { checkout, turn }))
 }
 
 #[cfg(test)]

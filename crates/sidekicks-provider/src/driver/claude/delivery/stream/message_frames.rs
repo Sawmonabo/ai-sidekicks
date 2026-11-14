@@ -148,7 +148,7 @@ impl ClaudeDeliveryStream {
         if frame.is_taken_echo()
             && let Some(uuid) = frame.uuid()
         {
-            self.report_taken(session, uuid);
+            self.report_taken(session, uuid).await;
         }
         // The goal check's own frames carry no row and are never the person's message; an echo of
         // a message the daemon sent is no frame of Claude Code's own.

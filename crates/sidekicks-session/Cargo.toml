@@ -85,6 +85,10 @@ sidekicks-search = { workspace = true, features = ["index", "test-support"] }
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and session rows the session's tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The workflow tables (`schema::schema_parts`) and the workflow version and run rows
+# (`test_rows::insert_workflow_version`, `test_rows::insert_run`) the checkpoint sweep's tests
+# build on.
+sidekicks-workflow = { workspace = true, features = ["test-support"] }
 # The workspace rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
 # The web address's signatures checked the Standard Webhooks way.

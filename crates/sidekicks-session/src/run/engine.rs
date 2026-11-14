@@ -105,8 +105,8 @@ use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 /// its setup, a restart's re-arm of a live run (its newest open turn with its steps, and the
 /// session's step bound), a provider subagent's node by its provider's id, the run a provider's
 /// helper was dispatched beneath, a turn start's reads of the message that opened it and of
-/// where its run stands (the run's rollbacks and turn starts), and a late row's reads of the tool
-/// call it closes, of its run's superseded turns and of its binding.
+/// where its run stands (the run's rollbacks, and its turn starts and steers), and a late row's
+/// reads of the tool call it closes, of its run's superseded turns and of its binding.
 pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 34 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.

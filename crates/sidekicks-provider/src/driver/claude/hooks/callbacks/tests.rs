@@ -45,6 +45,9 @@ use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};
 
+mod command_windows;
+mod edit_copies;
+
 // Routes one pre-tool callback of `hook` for `tool_name`, called by the helper `agent_id` or the
 // lead, its input naming the recipient `to` when given; the call's id is the request's.
 fn route_hook_call(
@@ -63,6 +66,18 @@ fn route_hook_call(
     if let Some(to) = to {
         input["tool_input"] = json!({ "to": to, "message": "go on" });
     }
+    route_hook_input(hook, pauses, helpers, &input, request_id)
+}
+
+// Routes one callback of `hook` whose whole input is `input`; the callback names no tool call of
+// its own.
+fn route_hook_input(
+    hook: RegisteredHook,
+    pauses: &Mutex<ClaudeRunPauses>,
+    helpers: &Mutex<ClaudeHelperLimit>,
+    input: &Value,
+    request_id: &str,
+) -> ClaudeRequestRoute {
     let event = ClaudeInboundRequestEvent::Request(ClaudeInboundRequest {
         request_id: request_id.to_owned(),
         body: ClaudeInboundRequestBody::HookCallback(ClaudeHookCallback {

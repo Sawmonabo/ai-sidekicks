@@ -28,8 +28,10 @@ use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::agent_tree_lookup::AgentTreeLookup;
+use crate::port::bun_program::BunProgram;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
+use crate::port::edit_checkpoint::EditCheckpoint;
 use crate::port::file_tool_write::FileToolWritePort;
 use crate::port::held_tool_calls::HeldToolCallReads;
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -226,6 +228,10 @@ pub struct DriverPorts {
     /// unregistered a wrapper is answered `Go` at once and its command is captured by nobody, as
     /// the readings ports drop theirs.
     pub command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    /// The copy kept before each edit an agent's file tool makes; while it is unregistered an
+    /// edit is answered at once and nothing is copied, as the command capture port drops its
+    /// windows.
+    pub edit_checkpoint: Arc<PortRegistration<Arc<dyn EditCheckpoint>>>,
     /// The turn readings each run's working line reads; a reading made before it is registered is
     /// dropped.
     pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
@@ -288,6 +294,9 @@ pub struct DriverPorts {
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
     /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
     pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
+    /// The daemon's copy of bun, which a step that runs under bun asks its path from; a step that
+    /// asks before it is registered refuses.
+    pub bun_program: Arc<PortRegistration<Arc<dyn BunProgram>>>,
     /// The raw-message bucket, which each driver's reader hands every message the provider sends;
     /// a message read before it is registered is not recorded.
     pub raw_provider_messages: Arc<PortRegistration<Arc<dyn RawProviderMessages>>>,
@@ -329,6 +338,7 @@ impl DriverPorts {
             request_held: Arc::new(PortRegistration::new("request held")),
             command_output: Arc::new(PortRegistration::new("command output")),
             command_capture: Arc::new(PortRegistration::new("command capture")),
+            edit_checkpoint: Arc::new(PortRegistration::new("edit checkpoint")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
             session_message_readings: Arc::new(PortRegistration::new("session message readings")),
@@ -354,6 +364,7 @@ impl DriverPorts {
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
             agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
+            bun_program: Arc::new(PortRegistration::new("bun program")),
             raw_provider_messages: Arc::new(PortRegistration::new("raw provider messages")),
             tool_traces: Arc::new(PortRegistration::new("tool traces")),
             file_tool_writes: Arc::new(PortRegistration::new("file tool writes")),

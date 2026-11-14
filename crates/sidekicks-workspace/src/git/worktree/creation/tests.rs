@@ -4,12 +4,13 @@ use std::sync::{Arc, Mutex};
 use notify::NullWatcher;
 use rstest::rstest;
 use rusqlite::params;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::worktree::lifecycle::RunningHolder;
 use sidekicks_contracts::worktree::setup::{WorktreeSetupStage, WorktreeSetupStatus};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -307,7 +308,8 @@ async fn a_failed_add_keeps_a_branch_the_person_already_had() {
 }
 
 // Kills dropping the check under the checkout lock, and leaving the tree it made: the run starts
-// while git makes the tree, so only the second read sees it.
+// while git makes the tree, so only the second read sees it. The run is a workflow's, which the
+// refusal names as one.
 #[tokio::test]
 async fn a_carry_while_another_session_runs_in_the_checkout_is_refused_and_leaves_nothing() {
     let fixture = CreationFixture::new().await;
@@ -315,13 +317,14 @@ async fn a_carry_while_another_session_runs_in_the_checkout_is_refused_and_leave
         .await
         .expect("the uncommitted work is written");
     let running_session_id = test_session_id();
-    let running_agent_id =
-        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted id is an agent id");
+    let running_holder = RunningHolder::WorkflowRun {
+        run_id: WorkflowRunId::try_from(mint_uuid_v7()).expect("a minted id is a run id"),
+    };
     lock(&fixture.live_runs.answers).extend([
         Vec::new(),
         vec![LiveRunFolder {
             session_id: running_session_id,
-            agent_id: running_agent_id,
+            holder: running_holder,
             folder: fixture.repository.join("nested"),
         }],
     ]);
@@ -338,7 +341,7 @@ async fn a_carry_while_another_session_runs_in_the_checkout_is_refused_and_leave
         reason:
             WorktreeCreateFailureReason::CarryCheckoutRunning {
                 running_session_id: refused_session,
-                running_agent_id: refused_agent,
+                running_holder: refused_holder,
             },
         ..
     }) = &failure
@@ -346,7 +349,7 @@ async fn a_carry_while_another_session_runs_in_the_checkout_is_refused_and_leave
         panic!("expected carryCheckoutRunning, got {failure:?}");
     };
     assert_eq!(*refused_session, running_session_id);
-    assert_eq!(*refused_agent, running_agent_id);
+    assert_eq!(*refused_holder, running_holder);
     assert!(
         !fixture.folder_of("carried").exists(),
         "the tree's folder is left"

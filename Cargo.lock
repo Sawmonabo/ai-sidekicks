@@ -8668,6 +8668,7 @@ name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
+ "axum",
  "base16ct 1.0.0",
  "blake3",
  "bytes",
@@ -8745,6 +8746,7 @@ dependencies = [
  "walkdir",
  "web-push-native",
  "x-wing",
+ "zip",
 ]
 
 [[package]]
@@ -8957,6 +8959,7 @@ dependencies = [
  "starlark",
  "strum 0.28.0",
  "subtle",
+ "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -8987,6 +8990,7 @@ dependencies = [
  "sidekicks-approval",
  "sidekicks-contracts",
  "sidekicks-ipc",
+ "sidekicks-platforms",
  "sidekicks-provider",
  "sidekicks-session",
  "sidekicks-std",
@@ -9092,6 +9096,7 @@ dependencies = [
  "sidekicks-search",
  "sidekicks-std",
  "sidekicks-store",
+ "sidekicks-workflow",
  "sidekicks-workspace",
  "standardwebhooks",
  "strum 0.28.0",
@@ -9259,6 +9264,7 @@ name = "sidekicks-workspace"
 version = "0.0.0"
 dependencies = [
  "base16ct 1.0.0",
+ "bytes",
  "futures",
  "getrandom 0.4.3",
  "icu_collator",
@@ -10541,9 +10547,9 @@ checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "typed-path"
-version = "0.12.3"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typeid"
@@ -11713,16 +11719,19 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.2"
+version = "9.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e2fc56a6707efb066c40aead2409ebb1224e6dde24a074e9fbc78ced500507b"
+checksum = "3cec733c9820347a592f6375c3c0089b479ba0a0b1cbf3dd1958b02959b7c033"
 dependencies = [
  "crc32fast",
  "flate2",
+ "getrandom 0.4.3",
  "indexmap 2.14.2",
+ "libc",
  "memchr",
  "nix 0.31.3",
  "typed-path",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

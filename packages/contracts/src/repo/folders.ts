@@ -8,7 +8,6 @@
 // which would close an eager module cycle.
 import { z } from "zod";
 
-import { AgentIdSchema, type AgentId } from "../agent/definition.js";
 import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import { PROJECT_NAME_MAX_LEN, ProjectIdSchema, type ProjectId } from "../project.js";
 import {
@@ -25,7 +24,12 @@ import {
 } from "./mount.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
+import {
+  RunningHolderSchema,
+  WorktreeIdSchema,
+  type RunningHolder,
+  type WorktreeId,
+} from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -284,7 +288,7 @@ export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachReq
  *
  * `forgottenProjectId` names the project this call forgot, and is null when the mount was already
  * detached. The call is refused with `repo.detach_conflict`, whose `runningSessionId` names the
- * session running there, while an agent runs anywhere in the project.
+ * session running there, while a run, an agent's or a workflow's, is live anywhere in the project.
  */
 export interface RepoDetachResponse {
   repoMountId: RepoMountId;
@@ -398,19 +402,19 @@ export const RepoReattachRefusedDetailsSchema: z.ZodType<RepoReattachRefusedDeta
   .strict();
 
 /**
- * The refusal `repo.mountReattach` answers while an agent runs anywhere in the project. Nothing is
- * written.
+ * The refusal `repo.mountReattach` answers while a run, an agent's or a workflow's, is live
+ * anywhere in the project. Nothing is written.
  */
 export const REPO_REATTACH_CONFLICT_CODE = "repo.reattach_conflict" as const;
 
-/** The details a `repo.reattach_conflict` refusal carries: the running agent and its session. */
+/** The details a `repo.reattach_conflict` refusal carries: the live run and its session. */
 export interface RepoReattachConflictDetails {
   runningSessionId: SessionId;
-  runningAgentId: AgentId;
+  runningHolder: RunningHolder;
 }
 /**
  * Wire schema for {@link RepoReattachConflictDetails}.
  */
 export const RepoReattachConflictDetailsSchema: z.ZodType<RepoReattachConflictDetails> = z
-  .object({ runningSessionId: SessionIdSchema, runningAgentId: AgentIdSchema })
+  .object({ runningSessionId: SessionIdSchema, runningHolder: RunningHolderSchema })
   .strict();
