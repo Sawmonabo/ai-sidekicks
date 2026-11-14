@@ -429,7 +429,7 @@ async fn a_purge_removes_a_sessions_other_volume_folders_and_owes_an_absent_one(
     );
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the session is removed, got {outcome:?}"
     );
     assert!(!mounted.exists(), "the mounted volume's folder goes");
@@ -698,7 +698,7 @@ async fn a_purge_waits_for_a_hold_on_its_capture_folders() {
     let outcome = only_outcome(purge.await);
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the session is removed, got {outcome:?}"
     );
     assert!(!capture_folder.exists(), "the capture folder goes");
