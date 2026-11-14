@@ -21,7 +21,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, insert_held_managed_mount};
@@ -107,11 +106,7 @@ async fn purge_one(fixture: &PurgeFixture, session_id: SessionId) -> SessionPurg
     only_outcome(
         fixture
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::Retention,
-                &ProcessorMeter::default(),
-            )
+            .purge(&[session_id], PurgeCaller::Retention)
             .await,
     )
 }
@@ -137,7 +132,7 @@ async fn a_shared_folder_goes_only_with_its_last_holders_purge(#[case] is_planni
     let outcome = purge_one(&fixture, first).await;
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the first holder is removed, got {outcome:?}"
     );
     assert!(
@@ -153,7 +148,7 @@ async fn a_shared_folder_goes_only_with_its_last_holders_purge(#[case] is_planni
     let outcome = purge_one(&fixture, last).await;
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the last holder is removed, got {outcome:?}"
     );
     assert!(
@@ -196,12 +191,12 @@ async fn two_holders_purged_together_leave_the_folder_to_the_one_refused() {
 
     let refused = match (&planning_outcome, &fresh_outcome) {
         (
-            SessionPurgeOutcome::Removed { .. },
+            SessionPurgeOutcome::Removed,
             SessionPurgeOutcome::Refused(SessionPurgeError::FolderHoldersMoved),
         ) => shared.fresh,
         (
             SessionPurgeOutcome::Refused(SessionPurgeError::FolderHoldersMoved),
-            SessionPurgeOutcome::Removed { .. },
+            SessionPurgeOutcome::Removed,
         ) => shared.planning,
         outcomes => panic!("one holder is removed and the other refused, got {outcomes:?}"),
     };
@@ -218,7 +213,7 @@ async fn two_holders_purged_together_leave_the_folder_to_the_one_refused() {
     let outcome = purge_one(&fixture, refused).await;
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the refused holder finishes as the last one, got {outcome:?}"
     );
     assert!(
@@ -240,7 +235,7 @@ async fn a_hold_taken_after_the_last_holders_files_stage_refuses_its_write() {
     let shared = shared_folder(&fixture);
     let first = purge_one(&fixture, shared.fresh).await;
     assert!(
-        matches!(first, SessionPurgeOutcome::Removed { .. }),
+        matches!(first, SessionPurgeOutcome::Removed),
         "the fresh chat is removed first, got {first:?}"
     );
     let before_lock = fixture.purge.rows_lock_pause.arm();
@@ -398,7 +393,7 @@ async fn a_shared_folders_versions_stay_with_a_holder_and_go_with_the_last() {
     let outcome = purge_one(&fixture, shared.planning).await;
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the planning chat is removed, got {outcome:?}"
     );
     assert_eq!(listed_count(&reads, shared.fresh).await, [2]);
@@ -411,7 +406,7 @@ async fn a_shared_folders_versions_stay_with_a_holder_and_go_with_the_last() {
     let outcome = purge_one(&fixture, shared.fresh).await;
 
     assert!(
-        matches!(outcome, SessionPurgeOutcome::Removed { .. }),
+        matches!(outcome, SessionPurgeOutcome::Removed),
         "the fresh chat is removed, got {outcome:?}"
     );
     let versions_on_mount: i64 = reader

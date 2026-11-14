@@ -611,8 +611,9 @@ fn stored_sequence(sequence: i64) -> SafeInt<0> {
         .expect("a stored sequence is a safe integer")
 }
 
-// Removes each of `folders` whose volume is mounted, in one task charged to `meter`, and answers
-// those whose volume is absent; fails at the first folder whose removal or volume read fails.
+// Removes each of `folders` whose volume is mounted, in one task charged to the calling run, and
+// answers those whose volume is absent; fails at the first folder whose removal or volume read
+// fails.
 async fn remove_volume_folders(folders: Vec<VolumeFolder>) -> io::Result<Vec<VolumeFolder>> {
     run_blocking(move || -> io::Result<Vec<VolumeFolder>> {
         let mut absent = Vec::new();
