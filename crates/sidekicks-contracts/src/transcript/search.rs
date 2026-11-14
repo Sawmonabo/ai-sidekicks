@@ -142,9 +142,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "`transcript.search`: one session's own search over every row it holds, loaded on screen \
           or not.",
     definitions: &[
-        Definition::read::<TranscriptSearchRequest>().checked(),
+        Definition::read::<TranscriptSearchRequest>(),
         Definition::read::<TranscriptSearchHit>(),
-        Definition::read::<TranscriptSearchResponse>().checked(),
+        Definition::read::<TranscriptSearchResponse>(),
     ],
     constants: &[],
     method_tables: &[],

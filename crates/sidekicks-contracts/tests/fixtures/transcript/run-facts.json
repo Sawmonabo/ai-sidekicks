@@ -113,13 +113,13 @@
     "isEnded": false
   },
   {
-    "note": "only the creation names the account, and a malformed one is not taken",
+    "note": "only the creation names the account, and a creation that names none leaves it unset",
     "beats": [
       {
         "type": "agent.run.queued",
         "sequence": 1,
         "actor": null,
-        "payload": { "admittedProviderAccountId": "" }
+        "payload": {}
       },
       {
         "type": "agent.run.running",

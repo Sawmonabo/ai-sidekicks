@@ -101,8 +101,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The service's lifecycle verbs: stop, restart, the flush at quit and the ping on a quiet \
           link.",
     definitions: &[
-        Definition::read::<DaemonLifecycleAccepted>().checked(),
-        Definition::read::<DaemonFlushResponse>().checked(),
+        Definition::read::<DaemonLifecycleAccepted>(),
+        Definition::read::<DaemonFlushResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_LIFECYCLE_METHOD_DESCRIPTORS],

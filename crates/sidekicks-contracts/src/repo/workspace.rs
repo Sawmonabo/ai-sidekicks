@@ -114,11 +114,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "repo/workspace",
     doc: "Binding a session's workspace to a mount, and listing a session's workspaces.",
     definitions: &[
-        Definition::read::<WorkspaceBindRequest>().checked(),
+        Definition::read::<WorkspaceBindRequest>(),
         Definition::read::<WorkspaceBindResponse>(),
         Definition::read::<WorkspaceListRequest>(),
         Definition::read::<WorkspaceListEntry>(),
-        Definition::read::<WorkspaceListResponse>().checked(),
+        Definition::read::<WorkspaceListResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

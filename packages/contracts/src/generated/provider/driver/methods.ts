@@ -3,18 +3,7 @@
 
 // The driver methods a client calls (`provider.model.list`, `provider.mode.list`, `provider.command.list`, `agent.run.context.compact`), their requests and replies, grouped by provider.
 
-import type { SchemaCheck } from "../../../schema-check.js";
 import type { AgentId } from "../../agent/definition.js";
-import { validateProviderCommandListResponse } from "../../checks/provider/driver/commands.js";
-import { validateAgentRunContextCompactResponse } from "../../checks/provider/driver/compaction.js";
-import {
-  validateAgentRunContextCompactRequest,
-  validateProviderCommandListRequest,
-  validateProviderModeListRequest,
-  validateProviderModeListResponse,
-  validateProviderModelListRequest,
-  validateProviderModelListResponse,
-} from "../../checks/provider/driver/methods.js";
 import type { RunId } from "../../run/id.js";
 import type { SessionId } from "../../session/id.js";
 import type { ProviderId } from "../id.js";
@@ -259,47 +248,46 @@ export interface ProviderCommandListRequest {
   agentId: AgentId;
 }
 
-export {
-  validateAgentRunContextCompactRequest,
-  validateProviderCommandListRequest,
-  validateProviderModeListRequest,
-  validateProviderModeListResponse,
-  validateProviderModeReport,
-  validateProviderModelListRequest,
-  validateProviderModelListResponse,
-  validateProviderModelReport,
-  validateProviderReadFailure,
-} from "../../checks/provider/driver/methods.js";
-
-/** The methods of {@link PROVIDER_DRIVER_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PROVIDER_DRIVER_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ProviderDriverMethodDescriptors {
   readonly "provider.model.list": {
     readonly method: "provider.model.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderModelListRequest>;
-    readonly responseCheck: SchemaCheck<ProviderModelListResponse>;
   };
   readonly "provider.mode.list": {
     readonly method: "provider.mode.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderModeListRequest>;
-    readonly responseCheck: SchemaCheck<ProviderModeListResponse>;
   };
   readonly "agent.run.context.compact": {
     readonly method: "agent.run.context.compact";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentRunContextCompactRequest>;
-    readonly responseCheck: SchemaCheck<AgentRunContextCompactResponse>;
   };
   readonly "provider.command.list": {
     readonly method: "provider.command.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderCommandListRequest>;
-    readonly responseCheck: SchemaCheck<ProviderCommandListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PROVIDER_DRIVER_METHOD_DESCRIPTORS}. */
+export interface ProviderDriverMethodTypes {
+  readonly "provider.model.list": {
+    readonly params: ProviderModelListRequest;
+    readonly result: ProviderModelListResponse;
+  };
+  readonly "provider.mode.list": {
+    readonly params: ProviderModeListRequest;
+    readonly result: ProviderModeListResponse;
+  };
+  readonly "agent.run.context.compact": {
+    readonly params: AgentRunContextCompactRequest;
+    readonly result: AgentRunContextCompactResponse;
+  };
+  readonly "provider.command.list": {
+    readonly params: ProviderCommandListRequest;
+    readonly result: ProviderCommandListResponse;
   };
 }
 /** The driver methods a client calls: their names, how each answers, and their shapes. */
@@ -309,28 +297,20 @@ export const PROVIDER_DRIVER_METHOD_DESCRIPTORS: ProviderDriverMethodDescriptors
       method: "provider.model.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderModelListRequest,
-      responseCheck: validateProviderModelListResponse,
     }),
     "provider.mode.list": /* @__PURE__ */ Object.freeze({
       method: "provider.mode.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderModeListRequest,
-      responseCheck: validateProviderModeListResponse,
     }),
     "agent.run.context.compact": /* @__PURE__ */ Object.freeze({
       method: "agent.run.context.compact",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateAgentRunContextCompactRequest,
-      responseCheck: validateAgentRunContextCompactResponse,
     }),
     "provider.command.list": /* @__PURE__ */ Object.freeze({
       method: "provider.command.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderCommandListRequest,
-      responseCheck: validateProviderCommandListResponse,
     }),
   });

@@ -81,8 +81,4 @@ export interface ArtifactPublicationPayload {
   [k: string]: unknown | undefined;
 }
 
-export {
-  validateArtifactPublicationPayload,
-  validateArtifactPublishRequest,
-  validateArtifactPublishResponse,
-} from "../checks/artifacts/publication.js";
+export { validateArtifactPublicationPayload } from "../checks/artifacts/publication.js";

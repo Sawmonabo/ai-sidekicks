@@ -3,24 +3,6 @@
 
 // Plugins: each provider's catalog, what one plugin carries, installing and removing it, the installed list, marketplaces, and a plugin's apps per provider account.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validatePluginAppListRequest,
-  validatePluginAppListResponse,
-  validatePluginCatalogListRequest,
-  validatePluginCatalogListResponse,
-  validatePluginInstallRequest,
-  validatePluginInstallResponse,
-  validatePluginInstalledListRequest,
-  validatePluginInstalledListResponse,
-  validatePluginMarketplaceAddRequest,
-  validatePluginMarketplaceAddResponse,
-  validatePluginMarketplaceRemoveRequest,
-  validatePluginMarketplaceRemoveResponse,
-  validatePluginReadResponse,
-  validatePluginRef,
-  validatePluginUninstallResponse,
-} from "./checks/plugin.js";
 import type { ProviderAccountId } from "./provider/account/record.js";
 import type { ProviderId } from "./provider/id.js";
 
@@ -406,89 +388,79 @@ export interface PluginAppListResponse {
   apps: PluginApp[];
 }
 
-export {
-  validatePluginApp,
-  validatePluginAppAccountLink,
-  validatePluginAppListRequest,
-  validatePluginAppListResponse,
-  validatePluginCarriedCounts,
-  validatePluginCarriedItems,
-  validatePluginCatalogEntry,
-  validatePluginCatalogListRequest,
-  validatePluginCatalogListResponse,
-  validatePluginInstallRequest,
-  validatePluginInstallResponse,
-  validatePluginInstalledListRequest,
-  validatePluginInstalledListResponse,
-  validatePluginItem,
-  validatePluginMarketplaceAddRequest,
-  validatePluginMarketplaceAddResponse,
-  validatePluginMarketplaceRemoveRequest,
-  validatePluginMarketplaceRemoveResponse,
-  validatePluginReadResponse,
-  validatePluginRef,
-  validatePluginSource,
-  validatePluginSummary,
-  validatePluginUninstallResponse,
-} from "./checks/plugin.js";
-
-/** The methods of {@link PLUGIN_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PLUGIN_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PluginMethodDescriptors {
   readonly "plugin.catalog.list": {
     readonly method: "plugin.catalog.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PluginCatalogListRequest>;
-    readonly responseCheck: SchemaCheck<PluginCatalogListResponse>;
   };
   readonly "plugin.read": {
     readonly method: "plugin.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PluginRef>;
-    readonly responseCheck: SchemaCheck<PluginReadResponse>;
   };
   readonly "plugin.install": {
     readonly method: "plugin.install";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PluginInstallRequest>;
-    readonly responseCheck: SchemaCheck<PluginInstallResponse>;
   };
   readonly "plugin.uninstall": {
     readonly method: "plugin.uninstall";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PluginRef>;
-    readonly responseCheck: SchemaCheck<PluginUninstallResponse>;
   };
   readonly "plugin.installed.list": {
     readonly method: "plugin.installed.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PluginInstalledListRequest>;
-    readonly responseCheck: SchemaCheck<PluginInstalledListResponse>;
   };
   readonly "plugin.marketplace.add": {
     readonly method: "plugin.marketplace.add";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PluginMarketplaceAddRequest>;
-    readonly responseCheck: SchemaCheck<PluginMarketplaceAddResponse>;
   };
   readonly "plugin.marketplace.remove": {
     readonly method: "plugin.marketplace.remove";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PluginMarketplaceRemoveRequest>;
-    readonly responseCheck: SchemaCheck<PluginMarketplaceRemoveResponse>;
   };
   readonly "plugin.app.list": {
     readonly method: "plugin.app.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PluginAppListRequest>;
-    readonly responseCheck: SchemaCheck<PluginAppListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PLUGIN_METHOD_DESCRIPTORS}. */
+export interface PluginMethodTypes {
+  readonly "plugin.catalog.list": {
+    readonly params: PluginCatalogListRequest;
+    readonly result: PluginCatalogListResponse;
+  };
+  readonly "plugin.read": { readonly params: PluginRef; readonly result: PluginReadResponse };
+  readonly "plugin.install": {
+    readonly params: PluginInstallRequest;
+    readonly result: PluginInstallResponse;
+  };
+  readonly "plugin.uninstall": {
+    readonly params: PluginRef;
+    readonly result: PluginUninstallResponse;
+  };
+  readonly "plugin.installed.list": {
+    readonly params: PluginInstalledListRequest;
+    readonly result: PluginInstalledListResponse;
+  };
+  readonly "plugin.marketplace.add": {
+    readonly params: PluginMarketplaceAddRequest;
+    readonly result: PluginMarketplaceAddResponse;
+  };
+  readonly "plugin.marketplace.remove": {
+    readonly params: PluginMarketplaceRemoveRequest;
+    readonly result: PluginMarketplaceRemoveResponse;
+  };
+  readonly "plugin.app.list": {
+    readonly params: PluginAppListRequest;
+    readonly result: PluginAppListResponse;
   };
 }
 /** The `plugin.*` methods. */
@@ -497,56 +469,40 @@ export const PLUGIN_METHOD_DESCRIPTORS: PluginMethodDescriptors = /* @__PURE__ *
     method: "plugin.catalog.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validatePluginCatalogListRequest,
-    responseCheck: validatePluginCatalogListResponse,
   }),
   "plugin.read": /* @__PURE__ */ Object.freeze({
     method: "plugin.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validatePluginRef,
-    responseCheck: validatePluginReadResponse,
   }),
   "plugin.install": /* @__PURE__ */ Object.freeze({
     method: "plugin.install",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePluginInstallRequest,
-    responseCheck: validatePluginInstallResponse,
   }),
   "plugin.uninstall": /* @__PURE__ */ Object.freeze({
     method: "plugin.uninstall",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePluginRef,
-    responseCheck: validatePluginUninstallResponse,
   }),
   "plugin.installed.list": /* @__PURE__ */ Object.freeze({
     method: "plugin.installed.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validatePluginInstalledListRequest,
-    responseCheck: validatePluginInstalledListResponse,
   }),
   "plugin.marketplace.add": /* @__PURE__ */ Object.freeze({
     method: "plugin.marketplace.add",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePluginMarketplaceAddRequest,
-    responseCheck: validatePluginMarketplaceAddResponse,
   }),
   "plugin.marketplace.remove": /* @__PURE__ */ Object.freeze({
     method: "plugin.marketplace.remove",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePluginMarketplaceRemoveRequest,
-    responseCheck: validatePluginMarketplaceRemoveResponse,
   }),
   "plugin.app.list": /* @__PURE__ */ Object.freeze({
     method: "plugin.app.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validatePluginAppListRequest,
-    responseCheck: validatePluginAppListResponse,
   }),
 });

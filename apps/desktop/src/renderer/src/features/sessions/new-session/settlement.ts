@@ -1,8 +1,6 @@
-// What a new-session send settles as: the closed vocabularies and the settlements a caller
-// cannot compose for itself. `send.ts` owns the order of the calls; this module
-// owns the words the result comes back in, and issues no call. Settlements with more than one
-// producer are built here so two views never tell a person opposite things about one state,
-// and the codes a person pastes into an issue have one home.
+// What a new-session send settles as: the closed vocabularies and the result's shape. `send.ts`
+// owns the order of the calls; this module owns the words the result comes back in, and issues no
+// call, so the codes a person pastes into an issue have one home.
 
 import { refuse, type NarrowedRefusal } from "#renderer/lib/refusal/contract.js";
 
@@ -14,8 +12,6 @@ import { refuse, type NarrowedRefusal } from "#renderer/lib/refusal/contract.js"
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
   "session-create-failed",
-  // A separate code from `session-create-failed`: one says press again, this one says do not.
-  "session-create-unreadable",
   "first-turn-missing",
   "first-turn-failed",
 ] as const;
@@ -28,18 +24,8 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
  *   • `partial`: the session exists and a later leg did not; the draft stays, and a second
  *     press resumes at the first call not yet made.
  *   • `refused`: nothing was created, so pressing Send again is right.
- *   • `created-unreadable`: `session.create` answered with a reply this build cannot read, so
- *     it cannot say whether a session was created. `refused` would invite a second session
- *     and `partial` would claim an id nothing holds. A retry carries the same idempotency key
- *     but returns the same unreadable reply, so the only act left is to go and look. Terminal
- *     for the draft that reached it.
  */
-export const NEW_SESSION_SEND_OUTCOMES = [
-  "sent",
-  "partial",
-  "refused",
-  "created-unreadable",
-] as const;
+export const NEW_SESSION_SEND_OUTCOMES = ["sent", "partial", "refused"] as const;
 
 /** One settled send outcome, derived from the tuple. */
 export type NewSessionSendOutcome = (typeof NEW_SESSION_SEND_OUTCOMES)[number];
@@ -72,10 +58,7 @@ export const RUN_QUEUE_CREATE_METHOD = "agent.queueItem.create";
  */
 export interface NewSessionSendResult {
   readonly outcome: NewSessionSendOutcome;
-  /**
-   * Present once `session.create` answered readably, whatever happened after. Absent on
-   * `created-unreadable`, where a session may exist that this app cannot name.
-   */
+  /** Present once `session.create` answered, whatever happened after. */
   readonly sessionId: string | undefined;
   readonly completedCalls: readonly string[];
   readonly refusal: NewSessionDraftRefusal | undefined;
@@ -86,31 +69,4 @@ export interface NewSessionSendResult {
    * or a press answered from what a previous one landed.
    */
   readonly sentRevision: number | undefined;
-}
-
-/**
- * The settlement for a create this app cannot answer for. One home, because the send that
- * first read the unreadable reply and the draft answering every later press both reach it,
- * and the instruction must stay "do not send again". The sentence names the ambiguity and
- * offers the safe act: the sessions list re-reads the directory, where a created session
- * appears under its own name. `sentRevision` is the caller's because the send read a draft and
- * the draft's memory read nothing.
- */
-export function refuseAmbiguousCreate(sentRevision: number | undefined): NewSessionSendResult {
-  return {
-    outcome: "created-unreadable",
-    sessionId: undefined,
-    sentRevision,
-    // Nothing is claimed as landed: "Already sent: session.create" would assert what this
-    // module has no evidence for.
-    completedCalls: [],
-    refusal: refuseNewSessionDraft(
-      "session-create-unreadable",
-      "The background service answered, but this build could not read " +
-        "the reply — so a session may have been created and this window " +
-        "cannot name it. Nothing else was sent. Check the sessions list " +
-        "rather than sending again: a second send would make a second " +
-        "session.",
-    ),
-  };
 }

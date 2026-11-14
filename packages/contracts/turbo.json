@@ -24,8 +24,10 @@
     "lint": {
       "dependsOn": ["build"]
     },
+    // The generated folder's test runs the contracts' emit through Cargo, as the build does.
     "test": {
-      "dependsOn": ["^build", "build"]
+      "dependsOn": ["^build", "build"],
+      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
     }
   }
 }

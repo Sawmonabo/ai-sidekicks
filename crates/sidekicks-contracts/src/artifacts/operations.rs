@@ -333,14 +333,14 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Listing a session's artifacts and reading one of them, and the refusal codes the \
           artifact calls answer with.",
     definitions: &[
-        Definition::read::<ArtifactListRequest>().checked(),
+        Definition::read::<ArtifactListRequest>(),
         Definition::read::<ArtifactListEntry>(),
-        Definition::read::<ArtifactListResponse>().checked(),
+        Definition::read::<ArtifactListResponse>(),
         Definition::read::<ArtifactPayloadSelection>(),
         Definition::read::<ArtifactReadRequest>().checked(),
         Definition::read::<ArtifactPictureSize>(),
         Definition::read::<ArtifactPdfPreview>(),
-        Definition::read::<ArtifactReadResponse>().checked(),
+        Definition::read::<ArtifactReadResponse>(),
         Definition::read::<ArtifactRefusalCode>(),
         Definition::read::<IngestStreamInvalidReason>(),
         Definition::read::<ArtifactTooLargeReason>(),

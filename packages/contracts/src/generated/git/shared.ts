@@ -21,9 +21,4 @@ export type ChangeRequestNumber = number;
  */
 export type HostingAddress = string;
 
-export {
-  validateChangeRequestNumber,
-  validateGitShortObjectId,
-  validateHostHandle,
-  validateHostingAddress,
-} from "../checks/git/shared.js";
+export { validateChangeRequestNumber, validateHostingAddress } from "../checks/git/shared.js";

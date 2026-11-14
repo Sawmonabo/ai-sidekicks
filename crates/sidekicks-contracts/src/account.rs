@@ -68,7 +68,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           the control plane keeps for the person.",
     definitions: &[
         Definition::read::<AccountRecord>(),
-        Definition::read::<AccountExportResponse>().checked(),
+        Definition::read::<AccountExportResponse>(),
     ],
     constants: &[],
     method_tables: &[&ACCOUNT_METHOD_DESCRIPTORS],

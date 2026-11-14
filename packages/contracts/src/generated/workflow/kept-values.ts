@@ -3,11 +3,6 @@
 
 // A workflow's kept values: what `Keep for later runs` holds for the workflow's later runs, and clearing them, with its method table.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateWorkflowKeptValueClearRequest,
-  validateWorkflowKeptValueClearResponse,
-} from "../checks/workflow/kept-values.js";
 import type { WorkflowDefinitionId } from "./definition/document.js";
 
 /**
@@ -34,19 +29,19 @@ export interface WorkflowKeptValueClearResponse {
   clearedCount: number;
 }
 
-export {
-  validateWorkflowKeptValueClearRequest,
-  validateWorkflowKeptValueClearResponse,
-} from "../checks/workflow/kept-values.js";
-
-/** The methods of {@link WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowKeptValueMethodDescriptors {
   readonly "workflow.keptValue.clear": {
     readonly method: "workflow.keptValue.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowKeptValueClearRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowKeptValueClearResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS}. */
+export interface WorkflowKeptValueMethodTypes {
+  readonly "workflow.keptValue.clear": {
+    readonly params: WorkflowKeptValueClearRequest;
+    readonly result: WorkflowKeptValueClearResponse;
   };
 }
 /** The `workflow.keptValue.clear` method's table. */
@@ -56,7 +51,5 @@ export const WORKFLOW_KEPT_VALUE_METHOD_DESCRIPTORS: WorkflowKeptValueMethodDesc
       method: "workflow.keptValue.clear",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowKeptValueClearRequest,
-      responseCheck: validateWorkflowKeptValueClearResponse,
     }),
   });

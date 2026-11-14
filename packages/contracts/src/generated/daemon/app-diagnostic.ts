@@ -3,9 +3,6 @@
 
 // What the desktop app records about itself, which its main process hands the service to write in its diagnostic log.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateAppDiagnosticRecord } from "../checks/daemon/app-diagnostic.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 
@@ -178,22 +175,19 @@ export interface AppErrorSource {
   column: number;
 }
 
-export {
-  validateAppDiagnosticHeldBackCause,
-  validateAppDiagnosticRecord,
-  validateAppDiagnosticRole,
-  validateAppDiagnosticSeverity,
-  validateAppErrorSource,
-} from "../checks/daemon/app-diagnostic.js";
-
-/** The methods of {@link DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonAppDiagnosticMethodDescriptors {
   readonly "daemon.appDiagnostic.record": {
     readonly method: "daemon.appDiagnostic.record";
     readonly procedureType: "mutation";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AppDiagnosticRecord>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS}. */
+export interface DaemonAppDiagnosticMethodTypes {
+  readonly "daemon.appDiagnostic.record": {
+    readonly params: AppDiagnosticRecord;
+    readonly result: EmptyPayload;
   };
 }
 /** The method main writes an app diagnostic with. */
@@ -203,7 +197,5 @@ export const DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS: DaemonAppDiagnosticMethod
       method: "daemon.appDiagnostic.record",
       procedureType: "mutation",
       mutating: false,
-      requestCheck: validateAppDiagnosticRecord,
-      responseCheck: validateEmptyPayload,
     }),
   });

@@ -264,7 +264,6 @@ export {
   validateWorkflowItem,
   validateWorkflowPairedItem,
   validateWorkflowPairedItems,
-  validateWorkflowPinnedItem,
   validateWorkflowStepAgentResolutionError,
   validateWorkflowStepAgentResolutionRefusedDetails,
   validateWorkflowStepCodedError,

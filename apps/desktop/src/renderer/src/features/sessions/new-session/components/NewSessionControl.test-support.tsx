@@ -11,7 +11,6 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 // The bridge and the reply from the draft suites' module, so one reply has one spelling.
 import {
   CREATE_REPLY,
-  CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
   bridgeFor,
   type QueuedFirstTurn,
@@ -65,7 +64,6 @@ export function renderControlOn(
   bridge: PlatformBridge,
   options: {
     readonly onSessionCreated?: (sessionId: string) => void;
-    readonly onSessionDirectoryRecheck?: () => void;
     readonly queueFirstTurn?: FirstTurnQueueCall;
   } = {},
 ): HTMLElement {
@@ -76,7 +74,6 @@ export function renderControlOn(
         queueFirstTurn={options.queueFirstTurn ?? REJECTING_FIRST_TURN}
         lead={NEW_SESSION_LEAD}
         onSessionCreated={options.onSessionCreated ?? (() => undefined)}
-        onSessionDirectoryRecheck={options.onSessionDirectoryRecheck ?? (() => undefined)}
       />
     </LiveAnnouncerProvider>,
   );
@@ -86,18 +83,6 @@ export function renderControlOn(
 /** Render the control against a bridge that scripts (or not) the create. */
 export function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElement {
   return renderControlOn(bridgeFor(options));
-}
-
-/**
- * A bridge whose `session.create` fulfills with a reply the registered schema refuses. Short
- * of `state`, so `callDaemon` answers `reply-unreadable`: the daemon answered and only this
- * build's reading failed, which leaves a session that may exist with no name this window holds.
- */
-export function bridgeAnsweringCreateUnreadably(): PlatformBridge {
-  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => ({
-    sessionId: CREATED_SESSION_ID,
-  }));
-  return bridge;
 }
 
 /**

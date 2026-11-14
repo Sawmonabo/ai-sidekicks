@@ -10,7 +10,6 @@
 
 import {
   APP_DIAGNOSTIC_TEXT_BOUNDS,
-  DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS,
   type AppDiagnosticHeldBackCause,
   type AppDiagnosticRecord,
 } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
@@ -139,31 +138,29 @@ export class AppDiagnosticRelay {
       }
       return;
     }
-    client
-      .call(DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS["daemon.appDiagnostic.record"], record)
-      .then(
-        () => {
-          this.#isRefusalLogged = false;
-          if (this.#refusedCount > 0) {
-            const count = this.#refusedCount;
-            this.#refusedCount = 0;
-            this.#send(this.#heldBack(count, "serviceRefused"));
-          }
-        },
-        (failure: unknown) => {
-          this.#refusedCount += recordCountOf(record);
-          if (!this.#isRefusalLogged) {
-            this.#isRefusalLogged = true;
-            this.#options.log.write({
-              level: "warning",
-              source: LOG_SOURCE,
-              message:
-                "The background service did not take an app diagnostic, so the ones it does not " +
-                `take are counted until it does: ${describeFailure(failure)}`,
-            });
-          }
-        },
-      );
+    client.call("daemon.appDiagnostic.record", record).then(
+      () => {
+        this.#isRefusalLogged = false;
+        if (this.#refusedCount > 0) {
+          const count = this.#refusedCount;
+          this.#refusedCount = 0;
+          this.#send(this.#heldBack(count, "serviceRefused"));
+        }
+      },
+      (failure: unknown) => {
+        this.#refusedCount += recordCountOf(record);
+        if (!this.#isRefusalLogged) {
+          this.#isRefusalLogged = true;
+          this.#options.log.write({
+            level: "warning",
+            source: LOG_SOURCE,
+            message:
+              "The background service did not take an app diagnostic, so the ones it does not " +
+              `take are counted until it does: ${describeFailure(failure)}`,
+          });
+        }
+      },
+    );
   }
 
   #sendWaiting(): void {

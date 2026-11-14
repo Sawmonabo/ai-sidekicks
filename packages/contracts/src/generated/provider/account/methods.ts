@@ -3,40 +3,6 @@
 
 // The `provider.account.*` methods not in the sign-in module (update, delete, current update, probe, memory import, usage list) and the namespace's method table.
 
-import type { SchemaCheck } from "../../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../../checks/method-descriptor.js";
-import {
-  validateProviderAccountCurrentUpdateRequest,
-  validateProviderAccountCurrentUpdateResponse,
-  validateProviderAccountDeleteRequest,
-  validateProviderAccountDeleteResponse,
-  validateProviderAccountMemoryImportRequest,
-  validateProviderAccountProbeRequest,
-  validateProviderAccountProbeResponse,
-  validateProviderAccountUpdateRequest,
-  validateProviderAccountUpdateResponse,
-  validateProviderAccountUsageListRequest,
-  validateProviderAccountUsageListResponse,
-} from "../../checks/provider/account/methods.js";
-import {
-  validateProviderAccountListRequest,
-  validateProviderAccountListResponse,
-  validateProviderAccountMemoryImportOutcome,
-  validateProviderAccountNotification,
-} from "../../checks/provider/account/record.js";
-import {
-  validateProviderAccountCredentialHomeResetRequest,
-  validateProviderAccountCredentialHomeResetResponse,
-  validateProviderAccountRegisterRequest,
-  validateProviderAccountRegisterResponse,
-  validateProviderAccountSignInAttemptCancelRequest,
-  validateProviderAccountSignInAttemptCancelResponse,
-  validateProviderAccountSignInCodeSubmitRequest,
-  validateProviderAccountSignInCodeSubmitResponse,
-  validateProviderAccountSignInRequest,
-  validateProviderAccountSignInResponse,
-} from "../../checks/provider/account/sign-in.js";
 import type { WireDate, WireInstant } from "../../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../../jsonrpc/streaming.js";
 import type { KeychainRefusalCause } from "../../keychain.js";
@@ -394,121 +360,128 @@ export interface ProviderAccountUsageListResponse {
   rows: ProviderAccountUsageRow[];
 }
 
-export {
-  validateProviderAccountCredentialDestroyRefusedDetails,
-  validateProviderAccountCurrentUpdateRequest,
-  validateProviderAccountCurrentUpdateResponse,
-  validateProviderAccountDeleteRequest,
-  validateProviderAccountDeleteResponse,
-  validateProviderAccountInUseDetails,
-  validateProviderAccountMemoryImportRequest,
-  validateProviderAccountMovingSession,
-  validateProviderAccountNotAuthenticatedDetails,
-  validateProviderAccountProbeRequest,
-  validateProviderAccountProbeResponse,
-  validateProviderAccountUpdateRequest,
-  validateProviderAccountUpdateResponse,
-  validateProviderAccountUsageGrouping,
-  validateProviderAccountUsageListRequest,
-  validateProviderAccountUsageListResponse,
-  validateProviderAccountUsageRow,
-  validateProviderAccountUsageScope,
-  validateProviderWakeHelperState,
-} from "../../checks/provider/account/methods.js";
-
-/** The methods of {@link PROVIDER_ACCOUNT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PROVIDER_ACCOUNT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ProviderAccountMethodDescriptors {
   readonly "provider.account.list": {
     readonly method: "provider.account.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderAccountListRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountListResponse>;
   };
   readonly "provider.account.subscribe": {
     readonly method: "provider.account.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ProviderAccountNotification>;
   };
   readonly "provider.account.register": {
     readonly method: "provider.account.register";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountRegisterRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountRegisterResponse>;
   };
   readonly "provider.account.update": {
     readonly method: "provider.account.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountUpdateRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountUpdateResponse>;
   };
   readonly "provider.account.delete": {
     readonly method: "provider.account.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountDeleteRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountDeleteResponse>;
   };
   readonly "provider.account.current.update": {
     readonly method: "provider.account.current.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountCurrentUpdateRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountCurrentUpdateResponse>;
   };
   readonly "provider.account.probe": {
     readonly method: "provider.account.probe";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountProbeRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountProbeResponse>;
   };
   readonly "provider.account.credentialHome.reset": {
     readonly method: "provider.account.credentialHome.reset";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountCredentialHomeResetRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountCredentialHomeResetResponse>;
   };
   readonly "provider.account.signIn": {
     readonly method: "provider.account.signIn";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountSignInRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountSignInResponse>;
   };
   readonly "provider.account.signInCode.submit": {
     readonly method: "provider.account.signInCode.submit";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountSignInCodeSubmitRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountSignInCodeSubmitResponse>;
   };
   readonly "provider.account.signInAttempt.cancel": {
     readonly method: "provider.account.signInAttempt.cancel";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountSignInAttemptCancelRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountSignInAttemptCancelResponse>;
   };
   readonly "provider.account.memory.import": {
     readonly method: "provider.account.memory.import";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderAccountMemoryImportRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountMemoryImportOutcome>;
   };
   readonly "provider.account.usage.list": {
     readonly method: "provider.account.usage.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderAccountUsageListRequest>;
-    readonly responseCheck: SchemaCheck<ProviderAccountUsageListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PROVIDER_ACCOUNT_METHOD_DESCRIPTORS}. */
+export interface ProviderAccountMethodTypes {
+  readonly "provider.account.list": {
+    readonly params: ProviderAccountListRequest;
+    readonly result: ProviderAccountListResponse;
+  };
+  readonly "provider.account.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ProviderAccountNotification;
+  };
+  readonly "provider.account.register": {
+    readonly params: ProviderAccountRegisterRequest;
+    readonly result: ProviderAccountRegisterResponse;
+  };
+  readonly "provider.account.update": {
+    readonly params: ProviderAccountUpdateRequest;
+    readonly result: ProviderAccountUpdateResponse;
+  };
+  readonly "provider.account.delete": {
+    readonly params: ProviderAccountDeleteRequest;
+    readonly result: ProviderAccountDeleteResponse;
+  };
+  readonly "provider.account.current.update": {
+    readonly params: ProviderAccountCurrentUpdateRequest;
+    readonly result: ProviderAccountCurrentUpdateResponse;
+  };
+  readonly "provider.account.probe": {
+    readonly params: ProviderAccountProbeRequest;
+    readonly result: ProviderAccountProbeResponse;
+  };
+  readonly "provider.account.credentialHome.reset": {
+    readonly params: ProviderAccountCredentialHomeResetRequest;
+    readonly result: ProviderAccountCredentialHomeResetResponse;
+  };
+  readonly "provider.account.signIn": {
+    readonly params: ProviderAccountSignInRequest;
+    readonly result: ProviderAccountSignInResponse;
+  };
+  readonly "provider.account.signInCode.submit": {
+    readonly params: ProviderAccountSignInCodeSubmitRequest;
+    readonly result: ProviderAccountSignInCodeSubmitResponse;
+  };
+  readonly "provider.account.signInAttempt.cancel": {
+    readonly params: ProviderAccountSignInAttemptCancelRequest;
+    readonly result: ProviderAccountSignInAttemptCancelResponse;
+  };
+  readonly "provider.account.memory.import": {
+    readonly params: ProviderAccountMemoryImportRequest;
+    readonly result: ProviderAccountMemoryImportOutcome;
+  };
+  readonly "provider.account.usage.list": {
+    readonly params: ProviderAccountUsageListRequest;
+    readonly result: ProviderAccountUsageListResponse;
   };
 }
 /** Every `provider.account.*` method: its name, how it answers, and its shapes. */
@@ -518,92 +491,65 @@ export const PROVIDER_ACCOUNT_METHOD_DESCRIPTORS: ProviderAccountMethodDescripto
       method: "provider.account.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderAccountListRequest,
-      responseCheck: validateProviderAccountListResponse,
     }),
     "provider.account.subscribe": /* @__PURE__ */ Object.freeze({
       method: "provider.account.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateProviderAccountNotification,
     }),
     "provider.account.register": /* @__PURE__ */ Object.freeze({
       method: "provider.account.register",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountRegisterRequest,
-      responseCheck: validateProviderAccountRegisterResponse,
     }),
     "provider.account.update": /* @__PURE__ */ Object.freeze({
       method: "provider.account.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountUpdateRequest,
-      responseCheck: validateProviderAccountUpdateResponse,
     }),
     "provider.account.delete": /* @__PURE__ */ Object.freeze({
       method: "provider.account.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountDeleteRequest,
-      responseCheck: validateProviderAccountDeleteResponse,
     }),
     "provider.account.current.update": /* @__PURE__ */ Object.freeze({
       method: "provider.account.current.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountCurrentUpdateRequest,
-      responseCheck: validateProviderAccountCurrentUpdateResponse,
     }),
     "provider.account.probe": /* @__PURE__ */ Object.freeze({
       method: "provider.account.probe",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountProbeRequest,
-      responseCheck: validateProviderAccountProbeResponse,
     }),
     "provider.account.credentialHome.reset": /* @__PURE__ */ Object.freeze({
       method: "provider.account.credentialHome.reset",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountCredentialHomeResetRequest,
-      responseCheck: validateProviderAccountCredentialHomeResetResponse,
     }),
     "provider.account.signIn": /* @__PURE__ */ Object.freeze({
       method: "provider.account.signIn",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountSignInRequest,
-      responseCheck: validateProviderAccountSignInResponse,
     }),
     "provider.account.signInCode.submit": /* @__PURE__ */ Object.freeze({
       method: "provider.account.signInCode.submit",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountSignInCodeSubmitRequest,
-      responseCheck: validateProviderAccountSignInCodeSubmitResponse,
     }),
     "provider.account.signInAttempt.cancel": /* @__PURE__ */ Object.freeze({
       method: "provider.account.signInAttempt.cancel",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountSignInAttemptCancelRequest,
-      responseCheck: validateProviderAccountSignInAttemptCancelResponse,
     }),
     "provider.account.memory.import": /* @__PURE__ */ Object.freeze({
       method: "provider.account.memory.import",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderAccountMemoryImportRequest,
-      responseCheck: validateProviderAccountMemoryImportOutcome,
     }),
     "provider.account.usage.list": /* @__PURE__ */ Object.freeze({
       method: "provider.account.usage.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderAccountUsageListRequest,
-      responseCheck: validateProviderAccountUsageListResponse,
     }),
   });

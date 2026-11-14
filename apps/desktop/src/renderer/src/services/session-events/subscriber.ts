@@ -195,9 +195,8 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * What of the stream this console could not read: one per delivered frame refused whole, and
-   * one per event in a readable frame whose type the census pairs with another category. It is
-   * counted, not reported on the tripwire, which detects console invariants; a payload shape is a
+   * What of the stream this console could not read: one per event whose type the census pairs
+   * with another category. It is counted, not reported on the tripwire, which detects console invariants; a payload shape is a
    * wire fact, and a tripwire would report every event type the console has not learned yet as a
    * console defect.
    */
@@ -280,7 +279,6 @@ export class SessionEventSubscriber {
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>
-        // The bridge's type is a claim about another process; `readSessionStreamFrame` checks it.
         this.#bridge.daemon.subscribe(
           SESSION_EVENT_STREAM,
           afterCursor === undefined
@@ -476,10 +474,6 @@ export class SessionEventSubscriber {
     fileRefs: Readonly<Record<string, FilePathRef>> | undefined,
   ): void {
     const frame = readSessionStreamFrame(delivered, attachments, fileRefs);
-    if (frame === undefined) {
-      this.#unreadableDeliveryCount += 1;
-      return;
-    }
     if (frame.isBehind) {
       if (this.#registry.has(sessionId)) {
         this.#snapshotPastHead(sessionId, binding);

@@ -17,10 +17,9 @@
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // `.size-limit.ts` and the reader it imports name what they import by its real `.ts` path,
-    // because Node loads them directly and maps no `.js` specifier to a `.ts` source, and the
-    // Vitest config's modules under `vitest/` name the package modules they import the same way; a
-    // program that pulls them in needs this option. Legal here because this config is `noEmit`.
+    // The Vitest config's modules under `vitest/` and the build-output reader under `tests/budget/`
+    // name what they import by its real `.ts` path, as a module a bundler loads may; a program
+    // that pulls them in needs this option. Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true
   },
   // `files` rather than `include`, deliberately: `exclude` filters `include`, and this path sits
@@ -32,8 +31,7 @@
   "files": ["src/renderer/src/vite-env.d.ts"],
   // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, any test
   // beside an executable under `scripts/`, the smoke and GC launches directly under `tests/`, the
-  // bundle tier, the budget registry's own test and the launch profile's; the size-limit config;
-  // and the Vitest config, the modules it composes under `vitest/` and the root `vitest.shared.ts`
+  // bundle tier, the budget registry's own test and the launch profile's; and the Vitest config, the modules it composes under `vitest/` and the root `vitest.shared.ts`
   // it imports. The other folders under `tests/` hold DOM or Electron-driving code and are
   // typechecked by `tsconfig.browser-test.json`, `tsconfig.electron-test.json` and the renderer's
   // `tsconfig.test.json`. Any other helper under `tests/helpers/` is typechecked here when a test
@@ -45,7 +43,6 @@
     "tests/budget/**/*",
     "tests/helpers/budget/**/*",
     "tests/helpers/launch/profile.test.ts",
-    ".size-limit.ts",
     "vitest.config.ts",
     "vitest/**/*"
   ],

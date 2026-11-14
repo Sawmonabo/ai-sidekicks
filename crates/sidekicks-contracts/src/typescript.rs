@@ -33,8 +33,7 @@ pub enum SchemaContract {
     Sent,
 }
 
-/// One type a module owns: its name, its schema and whether TypeScript gets a check for it beyond
-/// the checks every method type gets.
+/// One type a module owns: its name, its schema and whether TypeScript gets a check for it.
 #[derive(Clone, Copy, Debug)]
 pub struct Definition {
     /// The type's schema name, which is its TypeScript name.

@@ -126,8 +126,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The manifest the daemon keeps for every artifact in a session, and the closed set of \
           its kinds.",
     definitions: &[
-        Definition::read::<ArtifactType>().checked(),
-        Definition::read::<ArtifactManifest>().checked(),
+        Definition::read::<ArtifactType>(),
+        Definition::read::<ArtifactManifest>(),
     ],
     constants: &[],
     method_tables: &[],

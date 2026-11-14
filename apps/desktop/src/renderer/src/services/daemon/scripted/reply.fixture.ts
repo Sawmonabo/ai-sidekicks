@@ -7,14 +7,6 @@
 // a later computed read may reflect, and the notices it pushes. The detail sentence travels on the
 // settlement because the diagnosis and remedy are properties of what the engine did.
 
-import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/event";
-import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
-import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
-import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
-import { PROVIDER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/settings";
-import { REPO_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/repo/methods";
-import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
-
 import { daemonMethodBindingFor } from "#shared/daemon/method-bindings.js";
 import { parseInstant } from "#renderer/lib/instant.js";
 import type {
@@ -24,40 +16,6 @@ import type {
 } from "../scenario/reply.fixture.js";
 import type { DeliveredNotice, ScenarioEngine } from "../engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "../refusal.fixture.js";
-import type { MachineNoticeStreamName } from "../session/event/streams.js";
-import {
-  MCP_NOTICE_STREAM,
-  PROVIDER_ACCOUNT_NOTICE_STREAM,
-  PROJECT_LIST_STREAM,
-  PROVIDER_NOTICE_STREAM,
-  SESSION_LIST_STREAM,
-  WORKFLOW_NOTICE_STREAM,
-} from "#shared/daemon/streams.js";
-
-/** The check each machine stream registers for what it pushes, from its contract descriptor. */
-const MACHINE_NOTICE_EMISSION_CHECKS: Readonly<
-  Record<MachineNoticeStreamName, SchemaCheck<unknown>>
-> = Object.freeze({
-  [MCP_NOTICE_STREAM]: MCP_EVENT_METHOD_DESCRIPTORS[MCP_NOTICE_STREAM].emissionCheck,
-  [PROVIDER_ACCOUNT_NOTICE_STREAM]:
-    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionCheck,
-  [PROVIDER_NOTICE_STREAM]: PROVIDER_METHOD_DESCRIPTORS[PROVIDER_NOTICE_STREAM].emissionCheck,
-  [WORKFLOW_NOTICE_STREAM]:
-    WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionCheck,
-  [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].emissionCheck,
-  [PROJECT_LIST_STREAM]: REPO_METHOD_DESCRIPTORS[PROJECT_LIST_STREAM].emissionCheck,
-});
-
-/**
- * The check each machine stream's opening frame registers: its first emission, except
- * `session.list`, whose list as it stands is its acknowledgment.
- */
-const MACHINE_NOTICE_OPENING_CHECKS: Readonly<
-  Record<MachineNoticeStreamName, SchemaCheck<unknown>>
-> = Object.freeze({
-  ...MACHINE_NOTICE_EMISSION_CHECKS,
-  [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].responseCheck,
-});
 
 /**
  * What happened when the fixture went looking for one call's canned reply: a value, nothing
@@ -81,8 +39,7 @@ export type ScriptedReplySettlement =
  *
  * A scripted daemon refusal travels back as a value and the caller throws it, keeping the wire's
  * `{code, message}` envelope unwrapped. It rejects when a resolved answer pushes a notice past the
- * backlog cap, or one due at once that is off its stream's contract. A scripted
- * latency is spent by parking the reply, never by advancing the clock here, or the loading state
+ * backlog cap. A scripted latency is spent by parking the reply, never by advancing the clock here, or the loading state
  * would not be observable and beats inside the delay would be delivered as a side effect of a read.
  */
 export async function settleScriptedReply(
@@ -173,42 +130,6 @@ export async function resolveScriptedReply(
 }
 
 /**
- * Hold one resolved scripted reply to the shape the corpus registers for its method.
- *
- * Reads the reply check the generated method tables bind to the method in `method-bindings.ts`,
- * so an impossible reply fails in the scenario's own tests. It asserts and does not substitute:
- * the original value travels on, so a scenario cannot lean on a coercion or default a live daemon
- * lacks. A method the registry does not bind passes through.
- */
-export function assertScriptedReplyOnContract(method: string, value: unknown): unknown {
-  const binding = daemonMethodBindingFor(method);
-  if (binding === undefined) {
-    return value;
-  }
-  const { responseCheck } = binding;
-  if (!responseCheck(value)) {
-    throw new FixtureBridgeError(
-      method,
-      "reply-off-contract",
-      "the scenario scripts a reply this build does not register for that method. Script " +
-        "the registered shape rather than teaching a view a frame the daemon cannot send.",
-    );
-  }
-  return value;
-}
-
-/**
- * Hold the frame a machine stream opens with to its registered opening shape, naming the stream
- * when it is off contract. The original payload travels on.
- */
-export function assertOpeningOnContract(
-  stream: MachineNoticeStreamName,
-  payload: unknown,
-): unknown {
-  return assertOnContract(MACHINE_NOTICE_OPENING_CHECKS, stream, stream, payload);
-}
-
-/**
  * Read the stamps one call's requests carry. The screens send UTC stamps, so any other spelling is
  * a fixture fault, refused off contract.
  */
@@ -226,43 +147,7 @@ export function requestStampReaderFor(call: string): RequestStampReader {
   };
 }
 
-/**
- * Hold one machine notice to its stream's registered emission shape, naming `source` (the call
- * that pushed it) when it is off contract. It asserts and does not substitute: the original
- * payload travels on.
- */
-function assertNoticeOnContract(
-  source: string,
-  stream: MachineNoticeStreamName,
-  payload: unknown,
-): unknown {
-  return assertOnContract(MACHINE_NOTICE_EMISSION_CHECKS, source, stream, payload);
-}
-
-function assertOnContract(
-  checks: Readonly<Record<MachineNoticeStreamName, SchemaCheck<unknown>>>,
-  source: string,
-  stream: MachineNoticeStreamName,
-  payload: unknown,
-): unknown {
-  const check = checks[stream];
-  if (!check(payload)) {
-    throw new FixtureBridgeError(
-      source,
-      "reply-off-contract",
-      `the scenario pushes a ${stream} notice this build does ` +
-        `not register for that stream. Script the registered shape ` +
-        `rather than teaching a view a frame the daemon cannot send.`,
-    );
-  }
-  return payload;
-}
-
-/**
- * Schedule one notice a resolved answer pushes. Its payload is composed when it comes due and
- * held to its stream's registered emission shape then, so a drifted notice fails whoever moved
- * the clock rather than reaching a subscriber that would read it as nothing.
- */
+/** Schedule one notice a resolved answer pushes, its payload composed when it comes due. */
 function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: ScenarioNotice): void {
   const composeAtDelivery = (): DeliveredNotice | undefined => {
     const payload = notice.payloadAtDelivery(
@@ -272,7 +157,7 @@ function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: Scenar
     if (payload === undefined) {
       return undefined;
     }
-    return { stream: notice.stream, payload: assertNoticeOnContract(call, notice.stream, payload) };
+    return { stream: notice.stream, payload };
   };
   if (!engine.scheduleNotice(notice.afterMs, composeAtDelivery)) {
     throw new FixtureBridgeError(

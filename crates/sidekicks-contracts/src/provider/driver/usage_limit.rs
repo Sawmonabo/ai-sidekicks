@@ -89,8 +89,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The usage-limit signal and the spent-retries signal a driver hands over with a turn's \
           end, which a failed run's cause carries.",
     definitions: &[
-        Definition::read::<ProviderUsageLimitCause>().checked(),
-        Definition::read::<ProviderUsageLimitResetBoundary>().checked(),
+        Definition::read::<ProviderUsageLimitCause>(),
+        Definition::read::<ProviderUsageLimitResetBoundary>(),
         Definition::read::<ProviderUsageLimitSignal>(),
         Definition::read::<ProviderSpentRetriesSignal>(),
     ],

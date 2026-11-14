@@ -584,19 +584,10 @@ export interface TranscriptChildRunExpandRequest {
 }
 
 export {
-  validateReasoningEntry,
   validateRunStateEventType,
   validateTranscriptBodyReadRequest,
   validateTranscriptBodyReadResponse,
-  validateTranscriptChildRunExpandRequest,
-  validateTranscriptChildRunExpandResponse,
-  validateTranscriptPatchCursor,
-  validateTranscriptPatchFile,
-  validateTranscriptPatchListRequest,
-  validateTranscriptPatchListResponse,
   validateTranscriptReadRequest,
   validateTranscriptReadResponse,
-  validateTranscriptReasoningReadRequest,
-  validateTranscriptReasoningReadResponse,
   validateTranscriptRunFacts,
 } from "../checks/transcript/operations.js";

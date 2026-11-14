@@ -124,8 +124,4 @@ export interface ProviderMode {
   name: string;
 }
 
-export {
-  validateExecutionPosture,
-  validateProviderMode,
-  validateProviderModel,
-} from "../../checks/provider/driver/capabilities.js";
+export { validateExecutionPosture } from "../../checks/provider/driver/capabilities.js";

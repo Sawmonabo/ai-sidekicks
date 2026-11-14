@@ -173,11 +173,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           trigger node that started it, the run's place in its chain, and the person, device, \
           message or parent run that started it.",
     definitions: &[
-        Definition::read::<WorkflowRunMode>().checked(),
-        Definition::read::<WorkflowTriggerKind>().checked(),
-        Definition::read::<WorkflowRunTrigger>().checked(),
-        Definition::read::<WorkflowRunChainPlace>().checked(),
-        Definition::read::<WorkflowStartedBy>().checked(),
+        Definition::read::<WorkflowRunMode>(),
+        Definition::read::<WorkflowTriggerKind>(),
+        Definition::read::<WorkflowRunTrigger>(),
+        Definition::read::<WorkflowRunChainPlace>(),
+        Definition::read::<WorkflowStartedBy>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

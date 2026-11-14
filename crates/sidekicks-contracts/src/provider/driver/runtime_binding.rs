@@ -14,7 +14,7 @@ branded_text! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/driver/runtime-binding",
     doc: "The id of a runtime binding, one live session's leg on its provider.",
-    definitions: &[Definition::read::<RuntimeBindingId>().checked()],
+    definitions: &[Definition::read::<RuntimeBindingId>()],
     constants: &[],
     method_tables: &[],
 };

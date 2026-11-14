@@ -121,8 +121,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           notices of an edit to a binding and of a status change, and the `mcp.subscribe` method \
           that carries them.",
     definitions: &[
-        Definition::read::<McpGovernanceEvent>().checked(),
-        Definition::read::<McpSubscribeEmission>().checked(),
+        Definition::read::<McpGovernanceEvent>(),
+        Definition::read::<McpSubscribeEmission>(),
     ],
     constants: &[],
     method_tables: &[&MCP_EVENT_METHOD_DESCRIPTORS],

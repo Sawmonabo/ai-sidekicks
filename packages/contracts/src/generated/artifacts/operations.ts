@@ -241,12 +241,6 @@ export interface ArtifactPdfPreview {
 }
 
 export {
-  validateArtifactListEntry,
-  validateArtifactListRequest,
-  validateArtifactListResponse,
   validateArtifactPayloadSelection,
-  validateArtifactPdfPreview,
-  validateArtifactPictureSize,
   validateArtifactReadRequest,
-  validateArtifactReadResponse,
 } from "../checks/artifacts/operations.js";

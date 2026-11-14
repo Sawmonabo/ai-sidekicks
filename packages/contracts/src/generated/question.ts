@@ -3,11 +3,6 @@
 
 // A question record and the one call that answers it.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateQuestionResolveRequest,
-  validateQuestionResolveResponse,
-} from "./checks/question.js";
 import type { RunId } from "./run/id.js";
 import type { SessionId } from "./session/id.js";
 
@@ -304,7 +299,6 @@ export interface QuestionResolveResponse {
 }
 
 export {
-  validateQuestionAnswer,
   validateQuestionAskedPayload,
   validateQuestionAskedState,
   validateQuestionCanceledPayload,
@@ -314,19 +308,21 @@ export {
   validateQuestionOpenedPayload,
   validateQuestionOption,
   validateQuestionPrompt,
-  validateQuestionResolveRequest,
-  validateQuestionResolveResponse,
-  validateQuestionResolveState,
 } from "./checks/question.js";
 
-/** The methods of {@link QUESTION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link QUESTION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface QuestionMethodDescriptors {
   readonly "question.resolve": {
     readonly method: "question.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<QuestionResolveRequest>;
-    readonly responseCheck: SchemaCheck<QuestionResolveResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link QUESTION_METHOD_DESCRIPTORS}. */
+export interface QuestionMethodTypes {
+  readonly "question.resolve": {
+    readonly params: QuestionResolveRequest;
+    readonly result: QuestionResolveResponse;
   };
 }
 /** The `question.*` methods a client calls. */
@@ -336,8 +332,6 @@ export const QUESTION_METHOD_DESCRIPTORS: QuestionMethodDescriptors = /* @__PURE
       method: "question.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateQuestionResolveRequest,
-      responseCheck: validateQuestionResolveResponse,
     }),
   },
 );

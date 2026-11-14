@@ -10,7 +10,6 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
-import type { UnreadableDeliveryReading } from "#renderer/lib/reads/unreadable-deliveries.js";
 import type { WireReadState } from "#renderer/lib/reads/wire-state.js";
 import type { ProviderSignInCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
@@ -23,7 +22,7 @@ import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold
 export const NO_READINESS: readonly ProviderReadiness[] = Object.freeze([]);
 
 /** What the account plane answered, and why it did not where it did not. */
-export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireReadState {
+export interface ProviderAccountReadout extends WireReadState {
   /**
    * Every account the registry lists, `accountId` to its label.
    *
@@ -71,8 +70,6 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
 
 /** What the tail contributes to a readout, beside the fold it has been applied to. */
 export interface ProviderAccountDeliveryReading {
-  /** What the tail could not read. */
-  readonly unreadable: UnreadableDeliveryReading;
   /** The newest brokered sign-in the tail reported finished. */
   readonly newestSignInCompletion: ProviderSignInCompletion | undefined;
 }
@@ -97,8 +94,8 @@ export interface ProviderAccountReadoutParts {
 /**
  * Compose one readout.
  *
- * The two spreads go first so a member either carries cannot be overwritten by the folds
- * below; neither declares one.
+ * The read state's spread goes first so a member it carries cannot be overwritten by the folds
+ * below; it declares none.
  *
  * @consumedBy the Providers settings page's quota readout
  */
@@ -107,7 +104,6 @@ export function composeProviderAccountReadout(
 ): ProviderAccountReadout {
   const { fold, deliveries, readState, readiness } = parts;
   return {
-    ...deliveries.unreadable,
     ...readState,
     accountLabels: fold.accountLabels(),
     accounts: fold.accounts(),

@@ -65,7 +65,7 @@ A change that raises a figure past its budget fails. The daemon's own figures an
 - **One read, many surfaces.** The daemon already owns the file. Coloring beside the read means three surfaces and any number of devices share one result.
 - **The theme is the renderer's; the grammar is not.** Sending token kinds instead of colors makes a theme switch a style change with no recomputation and no flash.
 - **Other devices get color for free.** Another device that reaches the session through Remote Control paints spans it is handed and ships no grammar files.
-- **The renderer bundle shrinks.** Grammars and the coloring engine leave the renderer, which has a written bundle budget.
+- **The renderer bundle shrinks.** Grammars and the coloring engine leave the renderer, so a window starts without them.
 
 ### Antithesis — The Strongest Case Against [T2]
 

@@ -46,8 +46,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "agent/tree",
     doc: "The session's agent tree: how the daemon's index names each agent in a session.",
     definitions: &[
-        Definition::read::<ChildHandle>().checked(),
-        Definition::read::<AgentTreeMember>().checked(),
+        Definition::read::<ChildHandle>(),
+        Definition::read::<AgentTreeMember>(),
     ],
     constants: &[],
     method_tables: &[],

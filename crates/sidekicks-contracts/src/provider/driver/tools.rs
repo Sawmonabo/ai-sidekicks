@@ -84,7 +84,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           class, and the callback tools the daemon serves the model.",
     definitions: &[
         Definition::read::<IdempotencyClass>(),
-        Definition::read::<ProviderToolMetadata>().checked(),
+        Definition::read::<ProviderToolMetadata>(),
         Definition::read::<SessionCallbackTool>(),
     ],
     constants: TS_CONSTANTS,

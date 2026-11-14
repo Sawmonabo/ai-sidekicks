@@ -11,7 +11,7 @@ import type {
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SchemaCheck } from "@ai-sidekicks/contracts/schema-check";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
+import { checkFaultPaths } from "#renderer/services/daemon/wire/fault-path.js";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";

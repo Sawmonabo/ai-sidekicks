@@ -94,9 +94,3 @@ export interface TranscriptSearchHit {
    */
   matchRanges: [SearchMatchRange, ...SearchMatchRange[]];
 }
-
-export {
-  validateTranscriptSearchHit,
-  validateTranscriptSearchRequest,
-  validateTranscriptSearchResponse,
-} from "../checks/transcript/search.js";

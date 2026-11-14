@@ -542,12 +542,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The transcript row every transcript read returns, discriminated on the closed `kind`, \
           and the run stamp of an event delivered without its row.",
     definitions: &[
-        Definition::read::<SupersededMarker>().checked(),
+        Definition::read::<SupersededMarker>(),
         Definition::read::<TranscriptOmittedPatch>(),
         Definition::read::<BlockCutFailure>(),
         Definition::read::<TranscriptRowContent>().checked(),
         Definition::read::<TranscriptReadRow>().checked(),
-        Definition::read::<TranscriptRunStamp>().checked(),
+        Definition::read::<TranscriptRunStamp>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

@@ -3,14 +3,6 @@
 
 // The machine-wide service settings on Settings › Runtime, and the two package caches whose size limit is one of them.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateDaemonConfig,
-  validateDaemonConfigUpdateRequest,
-  validateDaemonPackageCacheClearRequest,
-  validateDaemonPackageCacheReading,
-} from "../checks/daemon/config.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { Port, WireInstant } from "../internal/wire-scalars.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { TokensPerRun, UsdMicros } from "../session/cost.js";
@@ -153,46 +145,43 @@ export interface DaemonPackageCacheClearRequest {
   cache: PackageCacheClearTarget;
 }
 
-export {
-  validateDaemonConfig,
-  validateDaemonConfigUpdateRequest,
-  validateDaemonPackageCacheClearRequest,
-  validateDaemonPackageCacheReading,
-  validatePackageCacheClearTarget,
-  validatePackageCacheReading,
-  validateRunTimeLimitMinutes,
-  validateWorkflowChainAskAfterRuns,
-} from "../checks/daemon/config.js";
-
-/** The methods of {@link DAEMON_CONFIG_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_CONFIG_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonConfigMethodDescriptors {
   readonly "daemon.config.read": {
     readonly method: "daemon.config.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonConfig>;
   };
   readonly "daemon.config.update": {
     readonly method: "daemon.config.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonConfigUpdateRequest>;
-    readonly responseCheck: SchemaCheck<DaemonConfig>;
   };
   readonly "daemon.packageCache.list": {
     readonly method: "daemon.packageCache.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonPackageCacheReading>;
   };
   readonly "daemon.packageCache.clear": {
     readonly method: "daemon.packageCache.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DaemonPackageCacheClearRequest>;
-    readonly responseCheck: SchemaCheck<DaemonPackageCacheReading>;
+  };
+}
+/** The params, result and emission types of each method of {@link DAEMON_CONFIG_METHOD_DESCRIPTORS}. */
+export interface DaemonConfigMethodTypes {
+  readonly "daemon.config.read": { readonly params: EmptyPayload; readonly result: DaemonConfig };
+  readonly "daemon.config.update": {
+    readonly params: DaemonConfigUpdateRequest;
+    readonly result: DaemonConfig;
+  };
+  readonly "daemon.packageCache.list": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonPackageCacheReading;
+  };
+  readonly "daemon.packageCache.clear": {
+    readonly params: DaemonPackageCacheClearRequest;
+    readonly result: DaemonPackageCacheReading;
   };
 }
 /** The config and package-cache methods. */
@@ -202,28 +191,20 @@ export const DAEMON_CONFIG_METHOD_DESCRIPTORS: DaemonConfigMethodDescriptors =
       method: "daemon.config.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonConfig,
     }),
     "daemon.config.update": /* @__PURE__ */ Object.freeze({
       method: "daemon.config.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonConfigUpdateRequest,
-      responseCheck: validateDaemonConfig,
     }),
     "daemon.packageCache.list": /* @__PURE__ */ Object.freeze({
       method: "daemon.packageCache.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonPackageCacheReading,
     }),
     "daemon.packageCache.clear": /* @__PURE__ */ Object.freeze({
       method: "daemon.packageCache.clear",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDaemonPackageCacheClearRequest,
-      responseCheck: validateDaemonPackageCacheReading,
     }),
   });

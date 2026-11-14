@@ -39,7 +39,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           nothing, and the `null` reply of an act that reads nothing back.",
     definitions: &[
         Definition::read::<EmptyPayload>().checked(),
-        Definition::read::<NullPayload>().checked(),
+        Definition::read::<NullPayload>(),
     ],
     constants: &[],
     method_tables: &[],

@@ -11,10 +11,8 @@
 // the service's status file included, is published on main's `DaemonLink`.
 
 import type { DaemonEnded, DaemonEndingOutcome } from "@ai-sidekicks/client-sdk";
-import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   DAEMON_REPAIRING_CODE,
-  validateDaemonRepairingDetails,
   type DaemonRepairingDetails,
   type DaemonRepairProgress,
 } from "@ai-sidekicks/contracts/daemon/recovery";
@@ -22,7 +20,6 @@ import type {
   DaemonCannotStart,
   ServiceStatusFile,
 } from "@ai-sidekicks/contracts/daemon/service-status";
-import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
   CONNECTION_UNAVAILABLE_CODE,
   type JsonRpcError,
@@ -406,10 +403,7 @@ export class DaemonSupervisor implements ClientHelperListener {
    */
   async #linkedIdentity(started: StartedService | undefined): Promise<ProcessIdentity | undefined> {
     try {
-      const { processIdentity } = await this.#helper.call(
-        DAEMON_STATUS_METHOD_DESCRIPTORS["daemon.status.read"],
-        {},
-      );
+      const { processIdentity } = await this.#helper.call("daemon.status.read", {});
       return processIdentity;
     } catch (failure) {
       this.#log.write({
@@ -423,21 +417,10 @@ export class DaemonSupervisor implements ClientHelperListener {
     }
   }
 
-  /**
-   * The count a repairing answer carries, read from its fields. Fields the app cannot read are
-   * logged, and the repair is reported without a count.
-   */
+  /** The count a repairing answer carries in its fields, as its contract types them. */
   #repairProgressOf(refusal: JsonRpcError): DaemonRepairProgress | undefined {
-    const fields: unknown = refusal.data?.fields ?? {};
-    if (!validateDaemonRepairingDetails(fields)) {
-      this.#log.write({
-        level: "warning",
-        source: LOG_SOURCE,
-        message: "The background service's repair count could not be read.",
-      });
-      return undefined;
-    }
-    return fields.progress;
+    const fields: unknown = refusal.data?.fields;
+    return (fields as DaemonRepairingDetails | undefined)?.progress;
   }
 
   #linkLost(cause: string): void {
@@ -706,7 +689,7 @@ async function settleWithin<T>(
  */
 async function flushService(helper: DaemonSupervisorOptions["helper"]): Promise<void> {
   try {
-    await helper.call(DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"], {});
+    await helper.call("daemon.flush", {});
   } catch (failure) {
     if (!(failure instanceof DaemonRefusal)) {
       throw failure;

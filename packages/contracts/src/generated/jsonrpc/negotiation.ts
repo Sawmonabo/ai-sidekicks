@@ -137,10 +137,3 @@ export interface ConnectionInitializeResponse {
    */
   daemonSupportedProtocols?: ProtocolVersion[];
 }
-
-export {
-  validateConnectionInitializeRequest,
-  validateConnectionInitializeResponse,
-  validateNegotiationIncompatibleReason,
-  validateProtocolVersion,
-} from "../checks/jsonrpc/negotiation.js";

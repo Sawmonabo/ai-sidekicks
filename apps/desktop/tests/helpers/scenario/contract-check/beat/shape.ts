@@ -5,9 +5,8 @@
 // - `SESSION_EVENT_CATEGORY_BY_TYPE`, the census. A `kind` that is not a key is a type no daemon
 //   emits. This catches an invented name: `agent.run.started` reads like a real event and is not
 //   one (`agent.run.starting` is).
-// - `validateEventEnvelope`, the version-tolerant carrier the app's decode boundary reads each
-//   delivery with (`services/daemon/session/event/payload.ts`). A beat that fails here would be
-//   counted as an unreadable delivery and dropped.
+// - `validateEventEnvelope`, the version-tolerant carrier every delivered event takes. A beat
+//   that fails here is a record no daemon sends, which the app would read as typed regardless.
 // - `validateSessionEvent`, the strict layer, which registers a payload for every type in the
 //   census. This catches an invented member: `session.created` carrying `{title}` names a real
 //   type with a payload the check refuses.
@@ -43,8 +42,8 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   const envelope = composeScenarioEventEnvelope(beat.event);
   if (!validateEventEnvelope(envelope)) {
     return (
-      "the canonical envelope refuses this beat, so the app's decode boundary " +
-      `would count it unreadable and drop it: ${describeCheckFaults(validateEventEnvelope)}.`
+      "the canonical envelope refuses this beat, so no daemon would send it: " +
+      `${describeCheckFaults(validateEventEnvelope)}.`
     );
   }
   if (validateSessionEvent({ type: envelope.type, payload: envelope.payload })) {

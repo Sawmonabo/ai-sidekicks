@@ -28,9 +28,8 @@ export interface WireRetryHint {
 }
 
 /**
- * The remedy a refusal named for one account, as two strings the wire sent: never checked against
- * the remedy vocabulary here. A `services/` reader parses it against the refusing method's own
- * details schema before a view acts on it.
+ * The remedy a refusal named for one account, as two strings the wire sent. A `services/` reader
+ * takes it as the refusing method's own remedy type before a view acts on it.
  */
 export interface WireRefusalRemedy {
   readonly kind: string;

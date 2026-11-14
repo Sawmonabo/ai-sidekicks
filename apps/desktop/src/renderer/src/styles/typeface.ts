@@ -13,8 +13,7 @@
 //     its split the moment it is drawn. The package stylesheets are not installed themselves: they
 //     name the family `IBM Plex … Var` and list `local()` sources.
 //   - One variable file per family, style and split: a variable file serves every weight the
-//     stylesheets ask for as a real instance. What a Latin-1 page loads is bounded by the
-//     initial-fonts budget in `.size-limit.ts`.
+//     stylesheets ask for as a real instance.
 //   - Both styles, because a family declaring only its upright face renders italics as a
 //     synthesized oblique. A browser fetches the italic files only when a run matches them.
 //   - No `local()` in any `src`: it would hand rendering to whatever Plex the host has.

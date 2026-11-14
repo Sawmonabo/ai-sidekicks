@@ -3,22 +3,8 @@
 
 // The composer's daemon-held store for one session: the unsent draft with what rides with its words, the staged files, covering part of a staged picture, and the refusals staging can answer with.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { AttachmentReferenceList } from "../artifacts/attachment-reference.js";
 import type { ArtifactId } from "../artifacts/id.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import {
-  validateHeldSessionDraft,
-  validateSessionAttachmentAddRequest,
-  validateSessionAttachmentAddResponse,
-  validateSessionAttachmentCoverRequest,
-  validateSessionAttachmentCoverResponse,
-  validateSessionAttachmentRemoveRequest,
-  validateSessionAttachmentRemoveResponse,
-  validateSessionDraftSubscribeRequest,
-  validateSessionDraftUpdateRequest,
-  validateSessionDraftUpdateResponse,
-} from "../checks/session/draft.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { WorkspaceId } from "../repo/mount.js";
@@ -380,64 +366,56 @@ export interface SessionAttachmentCoverResponse {
   attachment: SessionAttachmentSummary;
 }
 
-export {
-  validateHeldSessionDraft,
-  validateSessionAttachmentAddRequest,
-  validateSessionAttachmentAddResponse,
-  validateSessionAttachmentCoverBox,
-  validateSessionAttachmentCoverRequest,
-  validateSessionAttachmentCoverResponse,
-  validateSessionAttachmentItem,
-  validateSessionAttachmentLimitReason,
-  validateSessionAttachmentRefusal,
-  validateSessionAttachmentRefusalCause,
-  validateSessionAttachmentRemoveRequest,
-  validateSessionAttachmentRemoveResponse,
-  validateSessionAttachmentSummary,
-  validateSessionDraft,
-  validateSessionDraftExtras,
-  validateSessionDraftSubscribeRequest,
-  validateSessionDraftUpdateRequest,
-  validateSessionDraftUpdateResponse,
-} from "../checks/session/draft.js";
-
-/** The methods of {@link SESSION_DRAFT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_DRAFT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionDraftMethodDescriptors {
   readonly "session.draft.update": {
     readonly method: "session.draft.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionDraftUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionDraftUpdateResponse>;
   };
   readonly "session.draft.subscribe": {
     readonly method: "session.draft.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionDraftSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<HeldSessionDraft>;
   };
   readonly "session.attachment.add": {
     readonly method: "session.attachment.add";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAttachmentAddRequest>;
-    readonly responseCheck: SchemaCheck<SessionAttachmentAddResponse>;
   };
   readonly "session.attachment.remove": {
     readonly method: "session.attachment.remove";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAttachmentRemoveRequest>;
-    readonly responseCheck: SchemaCheck<SessionAttachmentRemoveResponse>;
   };
   readonly "session.attachment.cover": {
     readonly method: "session.attachment.cover";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAttachmentCoverRequest>;
-    readonly responseCheck: SchemaCheck<SessionAttachmentCoverResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_DRAFT_METHOD_DESCRIPTORS}. */
+export interface SessionDraftMethodTypes {
+  readonly "session.draft.update": {
+    readonly params: SessionDraftUpdateRequest;
+    readonly result: SessionDraftUpdateResponse;
+  };
+  readonly "session.draft.subscribe": {
+    readonly params: SessionDraftSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: HeldSessionDraft;
+  };
+  readonly "session.attachment.add": {
+    readonly params: SessionAttachmentAddRequest;
+    readonly result: SessionAttachmentAddResponse;
+  };
+  readonly "session.attachment.remove": {
+    readonly params: SessionAttachmentRemoveRequest;
+    readonly result: SessionAttachmentRemoveResponse;
+  };
+  readonly "session.attachment.cover": {
+    readonly params: SessionAttachmentCoverRequest;
+    readonly result: SessionAttachmentCoverResponse;
   };
 }
 /** The composer store's methods, each with its types. */
@@ -447,36 +425,25 @@ export const SESSION_DRAFT_METHOD_DESCRIPTORS: SessionDraftMethodDescriptors =
       method: "session.draft.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionDraftUpdateRequest,
-      responseCheck: validateSessionDraftUpdateResponse,
     }),
     "session.draft.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.draft.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionDraftSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateHeldSessionDraft,
     }),
     "session.attachment.add": /* @__PURE__ */ Object.freeze({
       method: "session.attachment.add",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAttachmentAddRequest,
-      responseCheck: validateSessionAttachmentAddResponse,
     }),
     "session.attachment.remove": /* @__PURE__ */ Object.freeze({
       method: "session.attachment.remove",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAttachmentRemoveRequest,
-      responseCheck: validateSessionAttachmentRemoveResponse,
     }),
     "session.attachment.cover": /* @__PURE__ */ Object.freeze({
       method: "session.attachment.cover",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAttachmentCoverRequest,
-      responseCheck: validateSessionAttachmentCoverResponse,
     }),
   });

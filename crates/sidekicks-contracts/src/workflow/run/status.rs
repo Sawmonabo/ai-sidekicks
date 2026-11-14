@@ -131,7 +131,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The statuses every workflow run method and event shares: the run's, each step's, and \
           what a waiting step waits on.",
     definitions: &[
-        Definition::read::<WorkflowRunStatus>().checked(),
+        Definition::read::<WorkflowRunStatus>(),
         Definition::read::<WorkflowStepStatus>(),
         Definition::read::<WorkflowWaitCause>(),
     ],

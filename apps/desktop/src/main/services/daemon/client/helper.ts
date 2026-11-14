@@ -1,7 +1,7 @@
 // The client helper: the desktop's one use of the daemon client's addon, run in its own utility
 // process. Main's requests come over the parentPort and each window's over the port main hands the
-// helper for it; each passes its channel's method allowlist and the method's params check before
-// the addon. A window's call to a method that carries file paths has its tokens swapped for their
+// helper for it; each passes its channel's method allowlist before the addon, which checks its
+// params. A window's call to a method that carries file paths has its tokens swapped for their
 // paths by asking main, which keeps them, and main mints tokens for the paths a reply offers, and
 // for those a window's stream frame offers, the frame held back until they come so frames keep
 // their order. A window port that closes cancels every call and stream it left open. Main connects
@@ -467,13 +467,7 @@ class ClientHelper {
     request: Extract<ClientHelperRequest, { readonly kind: "call" }>,
   ): Promise<void> {
     const { callId, method } = request;
-    const refusal = requestRefusal(
-      channel.kind,
-      method,
-      request.params,
-      request.attachments,
-      false,
-    );
+    const refusal = requestRefusal(channel.kind, method, false);
     if (refusal !== undefined) {
       channel.post({ kind: "call.refused", callId, refusal });
       return;
@@ -482,7 +476,7 @@ class ClientHelper {
     channel.calls.set(callId, held);
     let params = request.params;
     if (method === FLOW_CONTROL_METHOD) {
-      // The params passed the method's check.
+      // A window's request is its contract's type; a refused update puts back what it declared.
       const update = params as TerminalFlowControlUpdateRequest;
       const telling = this.#shells.declareFlow(channel, update);
       if (telling === undefined) {
@@ -526,7 +520,7 @@ class ClientHelper {
     await this.#callOverLink(channel, request, held, params, replyAsk);
   }
 
-  /** Sends one checked call once the link settles; answers what it told the asker, if anything. */
+  /** Sends one call once the link settles; answers what it told the asker, if anything. */
   async #callOverLink(
     channel: Channel,
     request: Extract<ClientHelperRequest, { readonly kind: "call" }>,
@@ -635,7 +629,7 @@ class ClientHelper {
     request: Extract<ClientHelperRequest, { readonly kind: "stream.open" }>,
   ): Promise<void> {
     const { streamId, method } = request;
-    const refusal = requestRefusal(channel.kind, method, request.params, request.attachments, true);
+    const refusal = requestRefusal(channel.kind, method, true);
     if (refusal !== undefined) {
       channel.post({ kind: "stream.ended", streamId, end: { reason: "refused", refusal } });
       return;
@@ -687,7 +681,7 @@ class ClientHelper {
         return;
       }
       if (method === TERMINAL_OUTPUT_STREAM) {
-        // The params passed the method's check, which names the shell.
+        // The addon opened the stream on params its contract admits, which name the shell.
         const shell = request.params as FollowedShell;
         this.#shellInputs.follow(channel, streamId, shell, opened.acknowledgment.json, link.client);
       }

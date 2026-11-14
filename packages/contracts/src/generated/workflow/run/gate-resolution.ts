@@ -122,8 +122,4 @@ export type WorkflowGateResolution =
       nodeId?: never;
     };
 
-export {
-  validateWorkflowGateApprovalCategory,
-  validateWorkflowGateResolution,
-  validateWorkflowGateResolutionId,
-} from "../../checks/workflow/run/gate-resolution.js";
+export { validateWorkflowGateResolutionId } from "../../checks/workflow/run/gate-resolution.js";

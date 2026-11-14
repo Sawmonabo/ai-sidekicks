@@ -2,19 +2,16 @@
 // and which provider each agent is bound to. `session.created` carries the lead,
 // `agent.run.queued` an agent started from a saved definition, and `agent.providerBinding.changed`
 // an agent's switch to another binding. The store keeps all three among its standing events,
-// whatever rows its window holds. Each is read through its generated check because the payload is
-// `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
+// whatever rows its window holds. Each payload is read as its event type's contract states it.
 
-import {
-  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-  validateAgentProviderBindingChangedPayload,
-} from "@ai-sidekicks/contracts/agent/provider-binding";
+import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
-import { validateAgentRunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
-import { validateSessionCreatedPayload } from "@ai-sidekicks/contracts/session/events";
 
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  payloadOf,
+  type ProjectedSessionEvent,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 import { SESSION_CREATED_EVENT_KIND } from "#renderer/store/session/standing-events.js";
 
@@ -63,32 +60,24 @@ interface BroughtInAgent {
 
 /** The agent this row brings into its own session, or `undefined` where it brings none. */
 function agentBroughtInBy(entry: ProjectedSessionEvent): BroughtInAgent | undefined {
-  const payload = entry.payload;
-  if (entry.kind === SESSION_CREATED_EVENT_KIND) {
-    return validateSessionCreatedPayload(payload) && payload.sessionId === entry.sessionId
-      ? payload.mainAgent
-      : undefined;
+  const created = payloadOf(entry, SESSION_CREATED_EVENT_KIND);
+  if (created !== undefined) {
+    return created.sessionId === entry.sessionId ? created.mainAgent : undefined;
   }
-  if (entry.kind === RUN_QUEUED_EVENT_KIND) {
-    // Only a run started from a saved definition brings an agent in; any other names one already
-    // in the session.
-    return validateAgentRunQueuedPayload(payload) && payload.sessionId === entry.sessionId
-      ? payload.resolvedAgent
-      : undefined;
-  }
-  return undefined;
+  // Only a run started from a saved definition brings an agent in; any other names one already in
+  // the session.
+  const queued = payloadOf(entry, RUN_QUEUED_EVENT_KIND);
+  return queued !== undefined && queued.sessionId === entry.sessionId
+    ? queued.resolvedAgent
+    : undefined;
 }
 
 /** The agent this row switched in its own session and the provider it moved to, or `undefined`. */
 function bindingSwitchIn(
   entry: ProjectedSessionEvent,
 ): { readonly agentId: string; readonly providerName: ProviderId } | undefined {
-  if (entry.kind !== AGENT_PROVIDER_BINDING_CHANGED_EVENT) {
-    return undefined;
-  }
-  const payload = entry.payload;
-  return validateAgentProviderBindingChangedPayload(payload) &&
-    payload.sessionId === entry.sessionId
-    ? { agentId: payload.agentId, providerName: payload.to.providerName }
+  const switched = payloadOf(entry, AGENT_PROVIDER_BINDING_CHANGED_EVENT);
+  return switched !== undefined && switched.sessionId === entry.sessionId
+    ? { agentId: switched.agentId, providerName: switched.to.providerName }
     : undefined;
 }

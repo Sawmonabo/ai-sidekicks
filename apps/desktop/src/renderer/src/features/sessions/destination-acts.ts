@@ -17,8 +17,6 @@ export interface SessionDestinationActs {
   readonly openAttentionItem: (item: SessionAttentionItem) => void;
   /** What a session started here settles into, for both ways of starting one. */
   readonly settleStartedSession: (sessionId: string) => void;
-  /** Declares the daemon's directory stale, so this destination's list re-reads it. */
-  readonly recheckSessionDirectory: () => void;
 }
 
 /**
@@ -46,8 +44,5 @@ export function sessionDestinationActs(
         sessionId,
       });
     },
-    // After a create whose reply could not be read, the session may exist under an id nothing
-    // in this window holds; the directory read is what would name it.
-    recheckSessionDirectory: recheckDirectory,
   };
 }

@@ -128,12 +128,3 @@ export interface RemovedWorktreeRequest {
    */
   removedWorktreeId: RemovedWorktreeId;
 }
-
-export {
-  validateRemovedWorktree,
-  validateRemovedWorktreeRequest,
-  validateWorktreeRemovedListRequest,
-  validateWorktreeRemovedListResponse,
-  validateWorktreeRestoreRefusal,
-  validateWorktreeRestoreResponse,
-} from "../checks/worktree/removed.js";

@@ -125,12 +125,3 @@ export interface ArtifactIngestCompleteResponse {
    */
   derivedSizeBytes: number;
 }
-
-export {
-  validateArtifactIngestCompleteRequest,
-  validateArtifactIngestCompleteResponse,
-  validateArtifactIngestStartRequest,
-  validateArtifactIngestStartResponse,
-  validateArtifactIngestWriteRequest,
-  validateArtifactIngestWriteResponse,
-} from "../checks/artifacts/ingest.js";

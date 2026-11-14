@@ -61,5 +61,3 @@ export interface ArtifactManifest {
   createdAt: WireInstant;
   [k: string]: unknown | undefined;
 }
-
-export { validateArtifactManifest, validateArtifactType } from "../checks/artifacts/manifest.js";

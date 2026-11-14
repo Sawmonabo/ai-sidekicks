@@ -18,9 +18,10 @@ import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { signalWords } from "#renderer/lib/signal-words.js";
 import { formatWholeDuration, formatWireString } from "#renderer/lib/wire/figures.js";
-import { readRepoMountHealthChangedPayload } from "#renderer/services/daemon/payload/repo-mount-health-changed.js";
-import { readSessionNoticePostedPayload } from "#renderer/services/daemon/payload/session-notice-posted.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import {
+  payloadOf,
+  type ProjectedSessionEvent,
+} from "#renderer/store/session/entities/vocabulary.js";
 import {
   MOUNT_HEALTH_EVENT_KIND,
   SESSION_NOTICE_EVENT_KIND,
@@ -85,22 +86,20 @@ export function foldSessionNoticeBanners(
   const raised: { readonly banner: SessionNoticeBanner; readonly sequence: number }[] = [];
   for (const event of standingEvents) {
     let banner: SessionNoticeBanner | undefined;
-    if (event.kind === MOUNT_HEALTH_EVENT_KIND) {
-      const changed = readRepoMountHealthChangedPayload(event.payload);
-      if (changed !== undefined) {
-        const { repoMountId } = changed;
-        keepNewest(newestHealthSequenceByMount, repoMountId, event.sequence);
-        if (changed.health.status === "healthy") {
-          keepNewest(newestHealthySequenceByMount, repoMountId, event.sequence);
-        }
-        banner = folderLostBannerOf(event, changed);
+    const changed = payloadOf(event, MOUNT_HEALTH_EVENT_KIND);
+    const notice = payloadOf(event, SESSION_NOTICE_EVENT_KIND);
+    if (changed !== undefined) {
+      const { repoMountId } = changed;
+      keepNewest(newestHealthSequenceByMount, repoMountId, event.sequence);
+      if (changed.health.status === "healthy") {
+        keepNewest(newestHealthySequenceByMount, repoMountId, event.sequence);
       }
-    } else if (event.kind === SESSION_NOTICE_EVENT_KIND) {
-      const notice = readSessionNoticePostedPayload(event.payload);
-      if (notice?.kind === "providerRestarted") {
+      banner = folderLostBannerOf(event, changed);
+    } else if (notice !== undefined) {
+      if (notice.kind === "providerRestarted") {
         keepNewest(restartedAtByProvider, notice.provider, event.sequence);
       }
-      banner = notice === undefined ? undefined : noticeBannerOf(event, notice);
+      banner = noticeBannerOf(event, notice);
     }
     if (banner !== undefined) {
       raised.push({ banner, sequence: event.sequence });

@@ -416,9 +416,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           every run the filters match.",
     definitions: &[
         Definition::read::<WorkflowRunListCursor>(),
-        Definition::read::<WorkflowRunListRequest>().checked(),
-        Definition::read::<WorkflowRunSummary>().checked(),
-        Definition::read::<WorkflowRunListResponse>().checked(),
+        Definition::read::<WorkflowRunListRequest>(),
+        Definition::read::<WorkflowRunSummary>(),
+        Definition::read::<WorkflowRunListResponse>(),
     ],
     constants: &[],
     method_tables: &[],

@@ -6,12 +6,12 @@
 import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
+  type AgentProviderBindingChangeFailedPayload,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ProviderId } from "@ai-sidekicks/contracts/provider/id";
 import { TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE } from "@ai-sidekicks/contracts/transcript/row";
 
-import { readProviderBindingChangeFailedPayload } from "#renderer/services/daemon/payload/provider-binding-change-failed.js";
 import type { ProjectedTranscriptRow } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
@@ -35,14 +35,8 @@ export type ProviderNameOf = (providerId: ProviderId) => string;
 /** What one system message kind reads, and how it is drawn. */
 export interface SystemMessageBinding {
   readonly kind: SystemMessageKind;
-  /**
-   * The act's name the one-line row reads for `row`: the app's words, never the wire's.
-   * `undefined` where the row's payload is off contract and names nothing to word.
-   */
-  readonly labelOf: (
-    row: ProjectedTranscriptRow,
-    providerNameOf: ProviderNameOf,
-  ) => string | undefined;
+  /** The act's name the one-line row reads for `row`: the app's words, never the wire's. */
+  readonly labelOf: (row: ProjectedTranscriptRow, providerNameOf: ProviderNameOf) => string;
   /** The wire event types that produce this system message, verbatim. */
   readonly wireTypes: readonly SessionEventType[];
   /** Whether the system message is drawn as a caution; only the failed switch is. */
@@ -82,14 +76,8 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
 
 // The switch it tried, by the provider it was moving to: `Switch to Codex failed`. A switch that
 // names no provider stays on the one it had.
-function failedSwitchLabel(
-  row: ProjectedTranscriptRow,
-  providerNameOf: ProviderNameOf,
-): string | undefined {
-  const failed = readProviderBindingChangeFailedPayload(row.payload);
-  if (failed === undefined) {
-    return undefined;
-  }
+function failedSwitchLabel(row: ProjectedTranscriptRow, providerNameOf: ProviderNameOf): string {
+  const failed = row.payload as AgentProviderBindingChangeFailedPayload;
   const provider = failed.attempted.providerName ?? failed.from.providerName;
   return `Switch to ${providerNameOf(provider)} failed`;
 }

@@ -7,7 +7,7 @@
 // A run's own events are the ones whose payload names it as `runId`. An intervention names the run
 // it targets as `targetRunId` and is not the run's own, and neither is a person's message steering
 // it: neither names who acts for the run.
-import { validateProviderAccountId } from "../generated/provider/account/record.js";
+import type { ProviderAccountId } from "../generated/provider/account/record.js";
 import { RUN_INITIAL_STATE, RUN_TERMINAL_STATES, type RunState } from "../generated/run/state.js";
 import { START_OF_LOG_POSITION } from "../generated/session/id.js";
 import {
@@ -144,10 +144,10 @@ export function isTranscriptRunEnded(facts: TranscriptRunFactsFold): boolean {
   );
 }
 
-/** The account a run's creation names, when it names a well-formed one. */
+/** The account a run's creation names, if it names one. */
 function admittedProviderAccountIdOf(
   payload: Readonly<Record<string, unknown>> | undefined,
 ): TranscriptRunFacts["admittedProviderAccountId"] {
-  const value = payload?.[ADMITTED_PROVIDER_ACCOUNT_MEMBER];
-  return validateProviderAccountId(value) ? value : undefined;
+  // The payload is its event's contract type, held as an open record.
+  return payload?.[ADMITTED_PROVIDER_ACCOUNT_MEMBER] as ProviderAccountId | undefined;
 }

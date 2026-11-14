@@ -3,9 +3,7 @@
 
 // The plan record and the one call that answers it.
 
-import type { SchemaCheck } from "../schema-check.js";
 import type { ArtifactId } from "./artifacts/id.js";
-import { validatePlanResolveRequest, validatePlanResolveResponse } from "./checks/plan.js";
 import type { ProviderId } from "./provider/id.js";
 import type { RunId } from "./run/id.js";
 import type { PermissionLevel } from "./session/controls/methods.js";
@@ -286,7 +284,6 @@ export interface PlanFreshSession {
 
 export {
   validatePlanAcceptedPayload,
-  validatePlanFreshSession,
   validatePlanHandOffFailedPayload,
   validatePlanHandOffStep,
   validatePlanHandedOffPayload,
@@ -295,19 +292,21 @@ export {
   validatePlanId,
   validatePlanKeptPayload,
   validatePlanProposedPayload,
-  validatePlanResolveRequest,
-  validatePlanResolveResponse,
-  validatePlanState,
 } from "./checks/plan.js";
 
-/** The methods of {@link PLAN_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PLAN_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PlanMethodDescriptors {
   readonly "plan.resolve": {
     readonly method: "plan.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PlanResolveRequest>;
-    readonly responseCheck: SchemaCheck<PlanResolveResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PLAN_METHOD_DESCRIPTORS}. */
+export interface PlanMethodTypes {
+  readonly "plan.resolve": {
+    readonly params: PlanResolveRequest;
+    readonly result: PlanResolveResponse;
   };
 }
 /** The `plan.*` methods a client calls. */
@@ -316,7 +315,5 @@ export const PLAN_METHOD_DESCRIPTORS: PlanMethodDescriptors = /* @__PURE__ */ Ob
     method: "plan.resolve",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePlanResolveRequest,
-    responseCheck: validatePlanResolveResponse,
   }),
 });

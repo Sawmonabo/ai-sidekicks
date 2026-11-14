@@ -13,7 +13,7 @@ branded_uuid_id! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "artifacts/id",
     doc: "The id of one artifact manifest, the element type of every attachment list.",
-    definitions: &[Definition::read::<ArtifactId>().checked()],
+    definitions: &[Definition::read::<ArtifactId>()],
     constants: &[],
     method_tables: &[],
 };

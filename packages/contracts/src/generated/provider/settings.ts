@@ -3,21 +3,6 @@
 
 // The provider settings methods: each provider's section on this machine, its driver's fixed facts, shared rows and declared rows, apart from its accounts, installs and imports.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateProviderListResponse,
-  validateProviderPlaceRequest,
-  validateProviderProtectedPathListResponse,
-  validateProviderRequest,
-  validateProviderSettingsResponse,
-  validateProviderStandingRuleListResponse,
-  validateProviderStandingRuleRevokeRequest,
-  validateProviderStandingRuleRevokeResponse,
-  validateProviderTerminalPluginUpdateRequest,
-  validateProviderUpdateRequest,
-} from "../checks/provider/settings.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { ProviderMcpDeclaration } from "../mcp/server.js";
@@ -590,87 +575,83 @@ export interface ProviderStandingRuleRevokeResponse {
   outcome: "revoked" | "alreadyAbsent";
 }
 
-export {
-  validateProviderAutoCompactBound,
-  validateProviderBuiltInTool,
-  validateProviderInstallation,
-  validateProviderListResponse,
-  validateProviderPlaceReading,
-  validateProviderPlaceRequest,
-  validateProviderPlanWord,
-  validateProviderProtectedPath,
-  validateProviderProtectedPathListResponse,
-  validateProviderRequest,
-  validateProviderSection,
-  validateProviderSettingsResponse,
-  validateProviderStandingRule,
-  validateProviderStandingRuleId,
-  validateProviderStandingRuleListResponse,
-  validateProviderStandingRuleRevokeRequest,
-  validateProviderStandingRuleRevokeResponse,
-  validateProviderStandingRuleScope,
-  validateProviderTerminalPluginUpdateRequest,
-  validateProviderUpdateRequest,
-} from "../checks/provider/settings.js";
-
-/** The methods of {@link PROVIDER_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PROVIDER_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ProviderMethodDescriptors {
   readonly "provider.list": {
     readonly method: "provider.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<ProviderListResponse>;
   };
   readonly "provider.subscribe": {
     readonly method: "provider.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ProviderSettingsResponse>;
   };
   readonly "provider.update": {
     readonly method: "provider.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderUpdateRequest>;
-    readonly responseCheck: SchemaCheck<ProviderSettingsResponse>;
   };
   readonly "provider.probe": {
     readonly method: "provider.probe";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderPlaceRequest>;
-    readonly responseCheck: SchemaCheck<ProviderSettingsResponse>;
   };
   readonly "provider.terminalPlugin.update": {
     readonly method: "provider.terminalPlugin.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderTerminalPluginUpdateRequest>;
-    readonly responseCheck: SchemaCheck<ProviderSettingsResponse>;
   };
   readonly "provider.protectedPath.list": {
     readonly method: "provider.protectedPath.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderRequest>;
-    readonly responseCheck: SchemaCheck<ProviderProtectedPathListResponse>;
   };
   readonly "provider.standingRule.list": {
     readonly method: "provider.standingRule.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ProviderRequest>;
-    readonly responseCheck: SchemaCheck<ProviderStandingRuleListResponse>;
   };
   readonly "provider.standingRule.revoke": {
     readonly method: "provider.standingRule.revoke";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ProviderStandingRuleRevokeRequest>;
-    readonly responseCheck: SchemaCheck<ProviderStandingRuleRevokeResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link PROVIDER_METHOD_DESCRIPTORS}. */
+export interface ProviderMethodTypes {
+  readonly "provider.list": {
+    readonly params: EmptyPayload;
+    readonly result: ProviderListResponse;
+  };
+  readonly "provider.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ProviderSettingsResponse;
+  };
+  readonly "provider.update": {
+    readonly params: ProviderUpdateRequest;
+    readonly result: ProviderSettingsResponse;
+  };
+  readonly "provider.probe": {
+    readonly params: ProviderPlaceRequest;
+    readonly result: ProviderSettingsResponse;
+  };
+  readonly "provider.terminalPlugin.update": {
+    readonly params: ProviderTerminalPluginUpdateRequest;
+    readonly result: ProviderSettingsResponse;
+  };
+  readonly "provider.protectedPath.list": {
+    readonly params: ProviderRequest;
+    readonly result: ProviderProtectedPathListResponse;
+  };
+  readonly "provider.standingRule.list": {
+    readonly params: ProviderRequest;
+    readonly result: ProviderStandingRuleListResponse;
+  };
+  readonly "provider.standingRule.revoke": {
+    readonly params: ProviderStandingRuleRevokeRequest;
+    readonly result: ProviderStandingRuleRevokeResponse;
   };
 }
 /** Every provider settings method: its name, how it answers, and its shapes. */
@@ -680,58 +661,41 @@ export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = /* @__PURE
       method: "provider.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateProviderListResponse,
     }),
     "provider.subscribe": /* @__PURE__ */ Object.freeze({
       method: "provider.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateProviderSettingsResponse,
     }),
     "provider.update": /* @__PURE__ */ Object.freeze({
       method: "provider.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderUpdateRequest,
-      responseCheck: validateProviderSettingsResponse,
     }),
     "provider.probe": /* @__PURE__ */ Object.freeze({
       method: "provider.probe",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderPlaceRequest,
-      responseCheck: validateProviderSettingsResponse,
     }),
     "provider.terminalPlugin.update": /* @__PURE__ */ Object.freeze({
       method: "provider.terminalPlugin.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderTerminalPluginUpdateRequest,
-      responseCheck: validateProviderSettingsResponse,
     }),
     "provider.protectedPath.list": /* @__PURE__ */ Object.freeze({
       method: "provider.protectedPath.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderRequest,
-      responseCheck: validateProviderProtectedPathListResponse,
     }),
     "provider.standingRule.list": /* @__PURE__ */ Object.freeze({
       method: "provider.standingRule.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateProviderRequest,
-      responseCheck: validateProviderStandingRuleListResponse,
     }),
     "provider.standingRule.revoke": /* @__PURE__ */ Object.freeze({
       method: "provider.standingRule.revoke",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateProviderStandingRuleRevokeRequest,
-      responseCheck: validateProviderStandingRuleRevokeResponse,
     }),
   },
 );

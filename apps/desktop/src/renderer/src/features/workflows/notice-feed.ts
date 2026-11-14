@@ -134,9 +134,8 @@ export class WorkflowNoticeFeed {
       this.#settle({ kind: "failed", refusal: frame.refusal });
       return;
     }
-    // A frame that could not be read, or a stream opened again after a gap: any run may have
-    // moved unheard, so every read reads again.
-    if (frame.kind === "unreadable" || frame.kind === "reopened") {
+    // A stream opened again after a gap: any run may have moved unheard, so every read reads again.
+    if (frame.kind === "reopened") {
       this.#runSignals.emit({ scope: "all" });
       return;
     }

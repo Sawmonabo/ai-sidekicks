@@ -11,5 +11,3 @@ export const KEYCHAIN_REFUSAL_CAUSES = ["locked", "unavailable"] as const;
  * all (`unavailable`). A secret that cannot be sealed is refused and stored nowhere else.
  */
 export type KeychainRefusalCause = "locked" | "unavailable";
-
-export { validateKeychainRefusalCause } from "./checks/keychain.js";

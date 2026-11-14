@@ -65,5 +65,3 @@ export type WorkflowStepStatus =
  * a spent provider account. Only the account wait needs nobody.
  */
 export type WorkflowWaitCause = "approval" | "form" | "reply" | "account" | "chain";
-
-export { validateWorkflowRunStatus } from "../../checks/workflow/run/status.js";

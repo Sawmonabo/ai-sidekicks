@@ -5,17 +5,6 @@
 //
 // Each issue leg records a single-use challenge and hands back the transaction id its verify leg quotes; a sign-in's verify reply carries a freshly issued token pair bound to the caller's DPoP key.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateWebAuthnAuthenticationOptionsIssueRequest,
-  validateWebAuthnAuthenticationOptionsIssueResponse,
-  validateWebAuthnAuthenticationVerifyRequest,
-  validateWebAuthnAuthenticationVerifyResponse,
-  validateWebAuthnRegistrationOptionsIssueResponse,
-  validateWebAuthnRegistrationVerifyRequest,
-  validateWebAuthnRegistrationVerifyResponse,
-} from "../checks/webauthn/ceremony.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { UserId } from "../session/id.js";
 import type { CoseAlgorithm, PasskeyPublicKey, TrustStatementHash } from "../trust-statement.js";
@@ -627,63 +616,46 @@ export interface WebAuthnAuthenticationVerifyResponse {
   refreshToken: RefreshToken;
 }
 
-export {
-  validateAaguid,
-  validateAccessToken,
-  validateAssertionResponse,
-  validateAttestationResponse,
-  validateAuthenticationOptions,
-  validateAuthenticationResponse,
-  validateAuthenticatorAttachment,
-  validateAuthenticatorSelection,
-  validateCredentialDescriptor,
-  validateCredentialParameter,
-  validatePublicKeyCredentialHint,
-  validateRefreshToken,
-  validateRegistrationExtensions,
-  validateRegistrationOptions,
-  validateRegistrationResponse,
-  validateRelyingPartyEntity,
-  validateUserEntity,
-  validateWebAuthnAuthenticationOptionsIssueRequest,
-  validateWebAuthnAuthenticationOptionsIssueResponse,
-  validateWebAuthnAuthenticationVerifyRequest,
-  validateWebAuthnAuthenticationVerifyResponse,
-  validateWebAuthnRegistrationOptionsIssueResponse,
-  validateWebAuthnRegistrationVerifyRequest,
-  validateWebAuthnRegistrationVerifyResponse,
-  validateWebAuthnTransactionId,
-} from "../checks/webauthn/ceremony.js";
-
-/** The methods of {@link WEBAUTHN_CEREMONY_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WEBAUTHN_CEREMONY_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WebauthnCeremonyMethodDescriptors {
   readonly "webauthn.registrationOptions.issue": {
     readonly method: "webauthn.registrationOptions.issue";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<WebAuthnRegistrationOptionsIssueResponse>;
   };
   readonly "webauthn.registration.verify": {
     readonly method: "webauthn.registration.verify";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WebAuthnRegistrationVerifyRequest>;
-    readonly responseCheck: SchemaCheck<WebAuthnRegistrationVerifyResponse>;
   };
   readonly "webauthn.authenticationOptions.issue": {
     readonly method: "webauthn.authenticationOptions.issue";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WebAuthnAuthenticationOptionsIssueRequest>;
-    readonly responseCheck: SchemaCheck<WebAuthnAuthenticationOptionsIssueResponse>;
   };
   readonly "webauthn.authentication.verify": {
     readonly method: "webauthn.authentication.verify";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WebAuthnAuthenticationVerifyRequest>;
-    readonly responseCheck: SchemaCheck<WebAuthnAuthenticationVerifyResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WEBAUTHN_CEREMONY_METHOD_DESCRIPTORS}. */
+export interface WebauthnCeremonyMethodTypes {
+  readonly "webauthn.registrationOptions.issue": {
+    readonly params: EmptyPayload;
+    readonly result: WebAuthnRegistrationOptionsIssueResponse;
+  };
+  readonly "webauthn.registration.verify": {
+    readonly params: WebAuthnRegistrationVerifyRequest;
+    readonly result: WebAuthnRegistrationVerifyResponse;
+  };
+  readonly "webauthn.authenticationOptions.issue": {
+    readonly params: WebAuthnAuthenticationOptionsIssueRequest;
+    readonly result: WebAuthnAuthenticationOptionsIssueResponse;
+  };
+  readonly "webauthn.authentication.verify": {
+    readonly params: WebAuthnAuthenticationVerifyRequest;
+    readonly result: WebAuthnAuthenticationVerifyResponse;
   };
 }
 /** The passkey ceremonies the control plane serves, each one POST at `/<method>`. */
@@ -693,28 +665,20 @@ export const WEBAUTHN_CEREMONY_METHOD_DESCRIPTORS: WebauthnCeremonyMethodDescrip
       method: "webauthn.registrationOptions.issue",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateWebAuthnRegistrationOptionsIssueResponse,
     }),
     "webauthn.registration.verify": /* @__PURE__ */ Object.freeze({
       method: "webauthn.registration.verify",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWebAuthnRegistrationVerifyRequest,
-      responseCheck: validateWebAuthnRegistrationVerifyResponse,
     }),
     "webauthn.authenticationOptions.issue": /* @__PURE__ */ Object.freeze({
       method: "webauthn.authenticationOptions.issue",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWebAuthnAuthenticationOptionsIssueRequest,
-      responseCheck: validateWebAuthnAuthenticationOptionsIssueResponse,
     }),
     "webauthn.authentication.verify": /* @__PURE__ */ Object.freeze({
       method: "webauthn.authentication.verify",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWebAuthnAuthenticationVerifyRequest,
-      responseCheck: validateWebAuthnAuthenticationVerifyResponse,
     }),
   });

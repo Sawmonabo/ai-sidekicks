@@ -3,55 +3,6 @@
 
 // The `workflow.*` methods over definitions: create, read, list, update, delete, export and import, and the one method table for every definition method.
 
-import type { SchemaCheck } from "../../../schema-check.js";
-import { validateEmptyPayload } from "../../checks/method-descriptor.js";
-import {
-  validateWorkflowBackgroundBrowserUpdateRequest,
-  validateWorkflowBackgroundBrowserUpdateResponse,
-  validateWorkflowDefinitionSettingResponse,
-  validateWorkflowDraftReadRequest,
-  validateWorkflowDraftReadResponse,
-  validateWorkflowDraftUpdateRequest,
-  validateWorkflowDraftUpdateResponse,
-  validateWorkflowEnabledUpdateRequest,
-  validateWorkflowEnabledUpdateResponse,
-  validateWorkflowExpressionPreviewRequest,
-  validateWorkflowExpressionPreviewResponse,
-  validateWorkflowLayoutUpdateRequest,
-  validateWorkflowPermissionLevelUpdateRequest,
-  validateWorkflowPermissionLevelUpdateResponse,
-  validateWorkflowPinDataUpdateRequest,
-  validateWorkflowPinDataUpdateResponse,
-  validateWorkflowProviderUpdateRequest,
-  validateWorkflowProviderUpdateResponse,
-  validateWorkflowTagsUpdateRequest,
-  validateWorkflowWebhookListenerReadResponse,
-  validateWorkflowWebhookTokenRotateRequest,
-  validateWorkflowWebhookTokenRotateResponse,
-} from "../../checks/workflow/definition/builder.js";
-import {
-  validateWorkflowDefinitionCreateRequest,
-  validateWorkflowDefinitionCreateResponse,
-  validateWorkflowDefinitionDeleteRequest,
-  validateWorkflowDefinitionDeleteResponse,
-  validateWorkflowDefinitionExportRequest,
-  validateWorkflowDefinitionExportResponse,
-  validateWorkflowDefinitionImportRequest,
-  validateWorkflowDefinitionListRequest,
-  validateWorkflowDefinitionListResponse,
-  validateWorkflowDefinitionReadRequest,
-  validateWorkflowDefinitionReadResponse,
-  validateWorkflowDefinitionUpdateRequest,
-  validateWorkflowDefinitionUpdateResponse,
-} from "../../checks/workflow/definition/methods.js";
-import {
-  validateWorkflowVersionDiffReadRequest,
-  validateWorkflowVersionDiffReadResponse,
-  validateWorkflowVersionListRequest,
-  validateWorkflowVersionListResponse,
-  validateWorkflowVersionReadRequest,
-  validateWorkflowVersionReadResponse,
-} from "../../checks/workflow/definition/versions.js";
 import type { WireInstant } from "../../internal/wire-scalars.js";
 import type { EmptyPayload } from "../../method-descriptor.js";
 import type { ProviderId } from "../../provider/id.js";
@@ -614,187 +565,208 @@ export interface WorkflowDefinitionImportRequest {
   filePath: string;
 }
 
-export {
-  validateWorkflowCreateOrigin,
-  validateWorkflowDefinitionCreateRequest,
-  validateWorkflowDefinitionCreateResponse,
-  validateWorkflowDefinitionDeleteRequest,
-  validateWorkflowDefinitionDeleteResponse,
-  validateWorkflowDefinitionExportRequest,
-  validateWorkflowDefinitionExportResponse,
-  validateWorkflowDefinitionImportRequest,
-  validateWorkflowDefinitionLastRun,
-  validateWorkflowDefinitionListCursor,
-  validateWorkflowDefinitionListRequest,
-  validateWorkflowDefinitionListResponse,
-  validateWorkflowDefinitionReadRequest,
-  validateWorkflowDefinitionReadResponse,
-  validateWorkflowDefinitionReadWithWebhookToken,
-  validateWorkflowDefinitionReadWithoutWebhookToken,
-  validateWorkflowDefinitionSchedule,
-  validateWorkflowDefinitionSummary,
-  validateWorkflowDefinitionUpdateRequest,
-  validateWorkflowDefinitionUpdateResponse,
-  validateWorkflowSkippedFire,
-  validateWorkflowWebhookFireOutcome,
-  validateWorkflowWebhookLastFire,
-} from "../../checks/workflow/definition/methods.js";
-
-/** The methods of {@link WORKFLOW_DEFINITION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_DEFINITION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowDefinitionMethodDescriptors {
   readonly "workflow.definition.create": {
     readonly method: "workflow.definition.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionCreateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionCreateResponse>;
   };
   readonly "workflow.definition.read": {
     readonly method: "workflow.definition.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionReadResponse>;
   };
   readonly "workflow.definition.list": {
     readonly method: "workflow.definition.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionListRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionListResponse>;
   };
   readonly "workflow.version.read": {
     readonly method: "workflow.version.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowVersionReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowVersionReadResponse>;
   };
   readonly "workflow.version.list": {
     readonly method: "workflow.version.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowVersionListRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowVersionListResponse>;
   };
   readonly "workflow.definition.update": {
     readonly method: "workflow.definition.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionUpdateResponse>;
   };
   readonly "workflow.definition.delete": {
     readonly method: "workflow.definition.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionDeleteRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionDeleteResponse>;
   };
   readonly "workflow.definition.export": {
     readonly method: "workflow.definition.export";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionExportRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionExportResponse>;
   };
   readonly "workflow.definition.import": {
     readonly method: "workflow.definition.import";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDefinitionImportRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionCreateResponse>;
   };
   readonly "workflow.enabled.update": {
     readonly method: "workflow.enabled.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowEnabledUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowEnabledUpdateResponse>;
   };
   readonly "workflow.layout.update": {
     readonly method: "workflow.layout.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowLayoutUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionSettingResponse>;
   };
   readonly "workflow.tags.update": {
     readonly method: "workflow.tags.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowTagsUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDefinitionSettingResponse>;
   };
   readonly "workflow.permissionLevel.update": {
     readonly method: "workflow.permissionLevel.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowPermissionLevelUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowPermissionLevelUpdateResponse>;
   };
   readonly "workflow.backgroundBrowser.update": {
     readonly method: "workflow.backgroundBrowser.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowBackgroundBrowserUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowBackgroundBrowserUpdateResponse>;
   };
   readonly "workflow.provider.update": {
     readonly method: "workflow.provider.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowProviderUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowProviderUpdateResponse>;
   };
   readonly "workflow.pinData.update": {
     readonly method: "workflow.pinData.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowPinDataUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowPinDataUpdateResponse>;
   };
   readonly "workflow.draft.update": {
     readonly method: "workflow.draft.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowDraftUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDraftUpdateResponse>;
   };
   readonly "workflow.draft.read": {
     readonly method: "workflow.draft.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowDraftReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowDraftReadResponse>;
   };
   readonly "workflow.expression.preview": {
     readonly method: "workflow.expression.preview";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowExpressionPreviewRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowExpressionPreviewResponse>;
   };
   readonly "workflow.version.diff.read": {
     readonly method: "workflow.version.diff.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowVersionDiffReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowVersionDiffReadResponse>;
   };
   readonly "workflow.webhookToken.rotate": {
     readonly method: "workflow.webhookToken.rotate";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowWebhookTokenRotateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowWebhookTokenRotateResponse>;
   };
   readonly "workflow.webhookListener.read": {
     readonly method: "workflow.webhookListener.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<WorkflowWebhookListenerReadResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_DEFINITION_METHOD_DESCRIPTORS}. */
+export interface WorkflowDefinitionMethodTypes {
+  readonly "workflow.definition.create": {
+    readonly params: WorkflowDefinitionCreateRequest;
+    readonly result: WorkflowDefinitionCreateResponse;
+  };
+  readonly "workflow.definition.read": {
+    readonly params: WorkflowDefinitionReadRequest;
+    readonly result: WorkflowDefinitionReadResponse;
+  };
+  readonly "workflow.definition.list": {
+    readonly params: WorkflowDefinitionListRequest;
+    readonly result: WorkflowDefinitionListResponse;
+  };
+  readonly "workflow.version.read": {
+    readonly params: WorkflowVersionReadRequest;
+    readonly result: WorkflowVersionReadResponse;
+  };
+  readonly "workflow.version.list": {
+    readonly params: WorkflowVersionListRequest;
+    readonly result: WorkflowVersionListResponse;
+  };
+  readonly "workflow.definition.update": {
+    readonly params: WorkflowDefinitionUpdateRequest;
+    readonly result: WorkflowDefinitionUpdateResponse;
+  };
+  readonly "workflow.definition.delete": {
+    readonly params: WorkflowDefinitionDeleteRequest;
+    readonly result: WorkflowDefinitionDeleteResponse;
+  };
+  readonly "workflow.definition.export": {
+    readonly params: WorkflowDefinitionExportRequest;
+    readonly result: WorkflowDefinitionExportResponse;
+  };
+  readonly "workflow.definition.import": {
+    readonly params: WorkflowDefinitionImportRequest;
+    readonly result: WorkflowDefinitionCreateResponse;
+  };
+  readonly "workflow.enabled.update": {
+    readonly params: WorkflowEnabledUpdateRequest;
+    readonly result: WorkflowEnabledUpdateResponse;
+  };
+  readonly "workflow.layout.update": {
+    readonly params: WorkflowLayoutUpdateRequest;
+    readonly result: WorkflowDefinitionSettingResponse;
+  };
+  readonly "workflow.tags.update": {
+    readonly params: WorkflowTagsUpdateRequest;
+    readonly result: WorkflowDefinitionSettingResponse;
+  };
+  readonly "workflow.permissionLevel.update": {
+    readonly params: WorkflowPermissionLevelUpdateRequest;
+    readonly result: WorkflowPermissionLevelUpdateResponse;
+  };
+  readonly "workflow.backgroundBrowser.update": {
+    readonly params: WorkflowBackgroundBrowserUpdateRequest;
+    readonly result: WorkflowBackgroundBrowserUpdateResponse;
+  };
+  readonly "workflow.provider.update": {
+    readonly params: WorkflowProviderUpdateRequest;
+    readonly result: WorkflowProviderUpdateResponse;
+  };
+  readonly "workflow.pinData.update": {
+    readonly params: WorkflowPinDataUpdateRequest;
+    readonly result: WorkflowPinDataUpdateResponse;
+  };
+  readonly "workflow.draft.update": {
+    readonly params: WorkflowDraftUpdateRequest;
+    readonly result: WorkflowDraftUpdateResponse;
+  };
+  readonly "workflow.draft.read": {
+    readonly params: WorkflowDraftReadRequest;
+    readonly result: WorkflowDraftReadResponse;
+  };
+  readonly "workflow.expression.preview": {
+    readonly params: WorkflowExpressionPreviewRequest;
+    readonly result: WorkflowExpressionPreviewResponse;
+  };
+  readonly "workflow.version.diff.read": {
+    readonly params: WorkflowVersionDiffReadRequest;
+    readonly result: WorkflowVersionDiffReadResponse;
+  };
+  readonly "workflow.webhookToken.rotate": {
+    readonly params: WorkflowWebhookTokenRotateRequest;
+    readonly result: WorkflowWebhookTokenRotateResponse;
+  };
+  readonly "workflow.webhookListener.read": {
+    readonly params: EmptyPayload;
+    readonly result: WorkflowWebhookListenerReadResponse;
   };
 }
 /**
@@ -808,154 +780,110 @@ export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDes
       method: "workflow.definition.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDefinitionCreateRequest,
-      responseCheck: validateWorkflowDefinitionCreateResponse,
     }),
     "workflow.definition.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowDefinitionReadRequest,
-      responseCheck: validateWorkflowDefinitionReadResponse,
     }),
     "workflow.definition.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowDefinitionListRequest,
-      responseCheck: validateWorkflowDefinitionListResponse,
     }),
     "workflow.version.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.version.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowVersionReadRequest,
-      responseCheck: validateWorkflowVersionReadResponse,
     }),
     "workflow.version.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.version.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowVersionListRequest,
-      responseCheck: validateWorkflowVersionListResponse,
     }),
     "workflow.definition.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDefinitionUpdateRequest,
-      responseCheck: validateWorkflowDefinitionUpdateResponse,
     }),
     "workflow.definition.delete": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDefinitionDeleteRequest,
-      responseCheck: validateWorkflowDefinitionDeleteResponse,
     }),
     "workflow.definition.export": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.export",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDefinitionExportRequest,
-      responseCheck: validateWorkflowDefinitionExportResponse,
     }),
     "workflow.definition.import": /* @__PURE__ */ Object.freeze({
       method: "workflow.definition.import",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDefinitionImportRequest,
-      responseCheck: validateWorkflowDefinitionCreateResponse,
     }),
     "workflow.enabled.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.enabled.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowEnabledUpdateRequest,
-      responseCheck: validateWorkflowEnabledUpdateResponse,
     }),
     "workflow.layout.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.layout.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowLayoutUpdateRequest,
-      responseCheck: validateWorkflowDefinitionSettingResponse,
     }),
     "workflow.tags.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.tags.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowTagsUpdateRequest,
-      responseCheck: validateWorkflowDefinitionSettingResponse,
     }),
     "workflow.permissionLevel.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.permissionLevel.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowPermissionLevelUpdateRequest,
-      responseCheck: validateWorkflowPermissionLevelUpdateResponse,
     }),
     "workflow.backgroundBrowser.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.backgroundBrowser.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowBackgroundBrowserUpdateRequest,
-      responseCheck: validateWorkflowBackgroundBrowserUpdateResponse,
     }),
     "workflow.provider.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.provider.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowProviderUpdateRequest,
-      responseCheck: validateWorkflowProviderUpdateResponse,
     }),
     "workflow.pinData.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.pinData.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowPinDataUpdateRequest,
-      responseCheck: validateWorkflowPinDataUpdateResponse,
     }),
     "workflow.draft.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.draft.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowDraftUpdateRequest,
-      responseCheck: validateWorkflowDraftUpdateResponse,
     }),
     "workflow.draft.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.draft.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowDraftReadRequest,
-      responseCheck: validateWorkflowDraftReadResponse,
     }),
     "workflow.expression.preview": /* @__PURE__ */ Object.freeze({
       method: "workflow.expression.preview",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowExpressionPreviewRequest,
-      responseCheck: validateWorkflowExpressionPreviewResponse,
     }),
     "workflow.version.diff.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.version.diff.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowVersionDiffReadRequest,
-      responseCheck: validateWorkflowVersionDiffReadResponse,
     }),
     "workflow.webhookToken.rotate": /* @__PURE__ */ Object.freeze({
       method: "workflow.webhookToken.rotate",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowWebhookTokenRotateRequest,
-      responseCheck: validateWorkflowWebhookTokenRotateResponse,
     }),
     "workflow.webhookListener.read": /* @__PURE__ */ Object.freeze({
       method: "workflow.webhookListener.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateWorkflowWebhookListenerReadResponse,
     }),
   });

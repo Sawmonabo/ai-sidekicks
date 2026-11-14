@@ -11,7 +11,7 @@ export function ServedProviderSections(props: { readonly children: ReactNode }):
   return (
     <ProviderSectionsContext.Provider
       value={{
-        state: { status: "served", sections: providerSectionsFixture(), droppedCount: 0 },
+        state: { status: "served", sections: providerSectionsFixture() },
         readAgain: () => () => undefined,
       }}
     >

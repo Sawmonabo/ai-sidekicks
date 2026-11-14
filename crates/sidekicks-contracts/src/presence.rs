@@ -95,7 +95,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<PresenceHeartbeatSendRequest>().checked(),
         Definition::read::<ConnectedDevice>(),
-        Definition::read::<MachinePresence>().checked(),
+        Definition::read::<MachinePresence>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&PRESENCE_METHOD_DESCRIPTORS],

@@ -1,15 +1,12 @@
 // The service's skill list, read off `skill.list` and kept current by `skill.subscribe`, whose
 // every message is the whole list again. The stream opens before the list is read, so no change
-// falls between the two. Every delivery is checked with the contract's generated check; an
-// unreadable delivery, a refused read and a stream the daemon refuses are handed on as the list
+// falls between the two. A refused read and a stream the daemon refuses are handed on as the list
 // being lost, so no surface offers a skill from a list that may be wrong. A stream that opens again
 // reads the list again, since the gap may have hidden a change.
 
-import { validateSkillListResponse } from "@ai-sidekicks/contracts/skill";
+import type { SkillListResponse } from "@ai-sidekicks/contracts/skill";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { SKILL_LIST_STREAM } from "#shared/daemon/streams.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { SkillListFeed, SkillListFrame } from "#renderer/store/skills/list.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
@@ -99,16 +96,6 @@ class SkillListFollower {
     // A list the stream delivers is at least as new as one a read still in flight would answer.
     this.#listRead?.abort();
     this.#listRead = undefined;
-    if (validateSkillListResponse(payload)) {
-      this.#onFrame({ kind: "list", skills: payload.skills });
-      return;
-    }
-    recordRefusedMemberPaths({
-      source: "services/daemon",
-      kind: "notice-unreadable",
-      subject: SKILL_LIST_STREAM,
-      issues: checkFaultPaths(validateSkillListResponse, payload),
-    });
-    this.#onFrame({ kind: "lost" });
+    this.#onFrame({ kind: "list", skills: (payload as SkillListResponse).skills });
   }
 }

@@ -76,17 +76,6 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <button type="button" className="meridian-new-session__discard" onClick={composition.close}>
           Discard
         </button>
-        {/* Replaces Send once the create's reply could not be read: the directory read names
-            a session that was made, and a second send would make another. */}
-        {composition.isAmbiguousCreate ? (
-          <button
-            type="button"
-            className="meridian-new-session__recheck"
-            onClick={composition.recheckDirectory}
-          >
-            Check the sessions list
-          </button>
-        ) : null}
         {/* Disabled yet focusable, so the keyboard reaches the reason it is held. */}
         <HoverLabel text={composition.sendHeldReason} textRole="description">
           <Button

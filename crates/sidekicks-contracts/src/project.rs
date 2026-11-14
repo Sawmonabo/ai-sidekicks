@@ -236,7 +236,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A project: the durable record beside a mount that the person names, with its setup \
           steps, its own environment rows and its own branch pattern.",
     definitions: &[
-        Definition::read::<ProjectId>().checked(),
+        Definition::read::<ProjectId>(),
         Definition::read::<ProjectState>(),
         Definition::read::<ProjectSetup>(),
         Definition::read::<ProjectSessionTally>(),

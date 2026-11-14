@@ -3,39 +3,7 @@
 
 // The Preview pane's wire: the pages a session owns and the verbs that move them, the dev servers the daemon discovers, the marks sent to the provider, and the live picture for another device with the input, menu acts, chosen files and saves that answer it.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { ArtifactId } from "../artifacts/id.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validatePreviewDevServerListFrame,
-  validatePreviewDevServerSubscribeRequest,
-  validatePreviewMarkSendRequest,
-  validatePreviewMarkSendResponse,
-  validatePreviewMenuEditResponse,
-  validatePreviewPageActivateResponse,
-  validatePreviewPageCloseResponse,
-  validatePreviewPageListFrame,
-  validatePreviewPageNavigateRequest,
-  validatePreviewPageNavigateResponse,
-  validatePreviewPageOpenRequest,
-  validatePreviewPageOpenResponse,
-  validatePreviewPageReorderRequest,
-  validatePreviewPageReorderResponse,
-  validatePreviewPageRequest,
-  validatePreviewPageSubscribeRequest,
-  validatePreviewPageZoomUpdateRequest,
-  validatePreviewPageZoomUpdateResponse,
-  validatePreviewScreencastAcknowledgeRequest,
-  validatePreviewScreencastEditRequest,
-  validatePreviewScreencastElement,
-  validatePreviewScreencastFileChooseRequest,
-  validatePreviewScreencastFileChooseResponse,
-  validatePreviewScreencastInputSendRequest,
-  validatePreviewScreencastInputSendResponse,
-  validatePreviewScreencastSaveAcknowledgeRequest,
-  validatePreviewScreencastSubscribeRequest,
-} from "../checks/preview/methods.js";
 import type { HexColor } from "../color.js";
 import type { Port } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
@@ -1133,173 +1101,148 @@ export interface PreviewScreencastSaveAcknowledgeRequest {
   saveId: PreviewSaveId;
 }
 
-export {
-  validatePreviewAddressRefusedDetails,
-  validatePreviewAddressRefusedReason,
-  validatePreviewChosenFile,
-  validatePreviewDevServer,
-  validatePreviewDevServerListFrame,
-  validatePreviewDevServerSubscribeRequest,
-  validatePreviewDeviceInput,
-  validatePreviewElementRef,
-  validatePreviewFavicon,
-  validatePreviewFileChooserMode,
-  validatePreviewInputMessageId,
-  validatePreviewKeyAction,
-  validatePreviewMark,
-  validatePreviewMarkElement,
-  validatePreviewMarkSendRequest,
-  validatePreviewMarkSendResponse,
-  validatePreviewMenuEdit,
-  validatePreviewMenuEditResponse,
-  validatePreviewMouseAction,
-  validatePreviewMouseButton,
-  validatePreviewNavigationTarget,
-  validatePreviewPage,
-  validatePreviewPageActivateResponse,
-  validatePreviewPageCloseResponse,
-  validatePreviewPageId,
-  validatePreviewPageListFrame,
-  validatePreviewPageLoadState,
-  validatePreviewPageNavigateRequest,
-  validatePreviewPageNavigateResponse,
-  validatePreviewPageOpenRequest,
-  validatePreviewPageOpenResponse,
-  validatePreviewPageReorderRequest,
-  validatePreviewPageReorderResponse,
-  validatePreviewPageRequest,
-  validatePreviewPageSubscribeRequest,
-  validatePreviewPageTarget,
-  validatePreviewPageZoomUpdateRequest,
-  validatePreviewPageZoomUpdateResponse,
-  validatePreviewPoint,
-  validatePreviewRect,
-  validatePreviewSaveId,
-  validatePreviewScreencastAcknowledgeRequest,
-  validatePreviewScreencastAcknowledgmentToken,
-  validatePreviewScreencastEditRequest,
-  validatePreviewScreencastElement,
-  validatePreviewScreencastFileChooseRequest,
-  validatePreviewScreencastFileChooseResponse,
-  validatePreviewScreencastFrameMetadata,
-  validatePreviewScreencastInputSendRequest,
-  validatePreviewScreencastInputSendResponse,
-  validatePreviewScreencastSaveAcknowledgeRequest,
-  validatePreviewScreencastSubscribeRequest,
-  validatePreviewTouchAction,
-  validatePreviewTouchPoint,
-  validatePreviewUnparsedAddress,
-} from "../checks/preview/methods.js";
-
-/** The methods of {@link PREVIEW_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PREVIEW_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PreviewMethodDescriptors {
   readonly "preview.page.subscribe": {
     readonly method: "preview.page.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PreviewPageSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<PreviewPageListFrame>;
   };
   readonly "preview.page.open": {
     readonly method: "preview.page.open";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageOpenRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageOpenResponse>;
   };
   readonly "preview.page.close": {
     readonly method: "preview.page.close";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageCloseResponse>;
   };
   readonly "preview.page.activate": {
     readonly method: "preview.page.activate";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageActivateResponse>;
   };
   readonly "preview.page.reorder": {
     readonly method: "preview.page.reorder";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageReorderRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageReorderResponse>;
   };
   readonly "preview.page.navigate": {
     readonly method: "preview.page.navigate";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageNavigateRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageNavigateResponse>;
   };
   readonly "preview.page.zoom.update": {
     readonly method: "preview.page.zoom.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewPageZoomUpdateRequest>;
-    readonly responseCheck: SchemaCheck<PreviewPageZoomUpdateResponse>;
   };
   readonly "preview.devServer.subscribe": {
     readonly method: "preview.devServer.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PreviewDevServerSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<PreviewDevServerListFrame>;
   };
   readonly "preview.mark.send": {
     readonly method: "preview.mark.send";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewMarkSendRequest>;
-    readonly responseCheck: SchemaCheck<PreviewMarkSendResponse>;
   };
   readonly "preview.screencast.subscribe": {
     readonly method: "preview.screencast.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<PreviewScreencastSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<PreviewScreencastElement>;
   };
   readonly "preview.screencast.acknowledge": {
     readonly method: "preview.screencast.acknowledge";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewScreencastAcknowledgeRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "preview.screencast.input.send": {
     readonly method: "preview.screencast.input.send";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewScreencastInputSendRequest>;
-    readonly responseCheck: SchemaCheck<PreviewScreencastInputSendResponse>;
   };
   readonly "preview.screencast.edit": {
     readonly method: "preview.screencast.edit";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewScreencastEditRequest>;
-    readonly responseCheck: SchemaCheck<PreviewMenuEditResponse>;
   };
   readonly "preview.screencast.file.choose": {
     readonly method: "preview.screencast.file.choose";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewScreencastFileChooseRequest>;
-    readonly responseCheck: SchemaCheck<PreviewScreencastFileChooseResponse>;
   };
   readonly "preview.screencast.save.acknowledge": {
     readonly method: "preview.screencast.save.acknowledge";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<PreviewScreencastSaveAcknowledgeRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link PREVIEW_METHOD_DESCRIPTORS}. */
+export interface PreviewMethodTypes {
+  readonly "preview.page.subscribe": {
+    readonly params: PreviewPageSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: PreviewPageListFrame;
+  };
+  readonly "preview.page.open": {
+    readonly params: PreviewPageOpenRequest;
+    readonly result: PreviewPageOpenResponse;
+  };
+  readonly "preview.page.close": {
+    readonly params: PreviewPageRequest;
+    readonly result: PreviewPageCloseResponse;
+  };
+  readonly "preview.page.activate": {
+    readonly params: PreviewPageRequest;
+    readonly result: PreviewPageActivateResponse;
+  };
+  readonly "preview.page.reorder": {
+    readonly params: PreviewPageReorderRequest;
+    readonly result: PreviewPageReorderResponse;
+  };
+  readonly "preview.page.navigate": {
+    readonly params: PreviewPageNavigateRequest;
+    readonly result: PreviewPageNavigateResponse;
+  };
+  readonly "preview.page.zoom.update": {
+    readonly params: PreviewPageZoomUpdateRequest;
+    readonly result: PreviewPageZoomUpdateResponse;
+  };
+  readonly "preview.devServer.subscribe": {
+    readonly params: PreviewDevServerSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: PreviewDevServerListFrame;
+  };
+  readonly "preview.mark.send": {
+    readonly params: PreviewMarkSendRequest;
+    readonly result: PreviewMarkSendResponse;
+  };
+  readonly "preview.screencast.subscribe": {
+    readonly params: PreviewScreencastSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: PreviewScreencastElement;
+  };
+  readonly "preview.screencast.acknowledge": {
+    readonly params: PreviewScreencastAcknowledgeRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "preview.screencast.input.send": {
+    readonly params: PreviewScreencastInputSendRequest;
+    readonly result: PreviewScreencastInputSendResponse;
+  };
+  readonly "preview.screencast.edit": {
+    readonly params: PreviewScreencastEditRequest;
+    readonly result: PreviewMenuEditResponse;
+  };
+  readonly "preview.screencast.file.choose": {
+    readonly params: PreviewScreencastFileChooseRequest;
+    readonly result: PreviewScreencastFileChooseResponse;
+  };
+  readonly "preview.screencast.save.acknowledge": {
+    readonly params: PreviewScreencastSaveAcknowledgeRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The `preview.*` page, dev-server, marks and live-picture methods the daemon answers. */
@@ -1308,108 +1251,75 @@ export const PREVIEW_METHOD_DESCRIPTORS: PreviewMethodDescriptors = /* @__PURE__
     method: "preview.page.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validatePreviewPageSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validatePreviewPageListFrame,
   }),
   "preview.page.open": /* @__PURE__ */ Object.freeze({
     method: "preview.page.open",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageOpenRequest,
-    responseCheck: validatePreviewPageOpenResponse,
   }),
   "preview.page.close": /* @__PURE__ */ Object.freeze({
     method: "preview.page.close",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageRequest,
-    responseCheck: validatePreviewPageCloseResponse,
   }),
   "preview.page.activate": /* @__PURE__ */ Object.freeze({
     method: "preview.page.activate",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageRequest,
-    responseCheck: validatePreviewPageActivateResponse,
   }),
   "preview.page.reorder": /* @__PURE__ */ Object.freeze({
     method: "preview.page.reorder",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageReorderRequest,
-    responseCheck: validatePreviewPageReorderResponse,
   }),
   "preview.page.navigate": /* @__PURE__ */ Object.freeze({
     method: "preview.page.navigate",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageNavigateRequest,
-    responseCheck: validatePreviewPageNavigateResponse,
   }),
   "preview.page.zoom.update": /* @__PURE__ */ Object.freeze({
     method: "preview.page.zoom.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewPageZoomUpdateRequest,
-    responseCheck: validatePreviewPageZoomUpdateResponse,
   }),
   "preview.devServer.subscribe": /* @__PURE__ */ Object.freeze({
     method: "preview.devServer.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validatePreviewDevServerSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validatePreviewDevServerListFrame,
   }),
   "preview.mark.send": /* @__PURE__ */ Object.freeze({
     method: "preview.mark.send",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewMarkSendRequest,
-    responseCheck: validatePreviewMarkSendResponse,
   }),
   "preview.screencast.subscribe": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validatePreviewScreencastSubscribeRequest,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validatePreviewScreencastElement,
   }),
   "preview.screencast.acknowledge": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.acknowledge",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewScreencastAcknowledgeRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "preview.screencast.input.send": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.input.send",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewScreencastInputSendRequest,
-    responseCheck: validatePreviewScreencastInputSendResponse,
   }),
   "preview.screencast.edit": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.edit",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewScreencastEditRequest,
-    responseCheck: validatePreviewMenuEditResponse,
   }),
   "preview.screencast.file.choose": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.file.choose",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewScreencastFileChooseRequest,
-    responseCheck: validatePreviewScreencastFileChooseResponse,
   }),
   "preview.screencast.save.acknowledge": /* @__PURE__ */ Object.freeze({
     method: "preview.screencast.save.acknowledge",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validatePreviewScreencastSaveAcknowledgeRequest,
-    responseCheck: validateEmptyPayload,
   }),
 });

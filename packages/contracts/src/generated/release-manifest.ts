@@ -54,4 +54,4 @@ export interface ReleaseManifest {
   };
 }
 
-export { validateReleaseVersion, validateSha256Hex } from "./checks/release-manifest.js";
+export { validateSha256Hex } from "./checks/release-manifest.js";

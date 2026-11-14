@@ -17,7 +17,7 @@ ts_constants! {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "color",
     doc: "A color as the wire carries it: sRGB written `#rrggbb`, either case.",
-    definitions: &[Definition::read::<HexColor>().checked()],
+    definitions: &[Definition::read::<HexColor>()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };

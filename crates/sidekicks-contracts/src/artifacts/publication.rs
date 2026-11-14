@@ -109,9 +109,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Publishing an artifact from a payload the caller holds whole, and the event payload \
           that announces an artifact was published.",
     definitions: &[
-        Definition::read::<ArtifactPublishRequest>().checked(),
-        Definition::read::<ArtifactPublishResponse>().checked(),
-        Definition::read::<ArtifactPublicationPayload>().checked(),
+        Definition::read::<ArtifactPublishRequest>(),
+        Definition::read::<ArtifactPublishResponse>(),
+        Definition::read::<ArtifactPublicationPayload>(),
     ],
     constants: &[],
     method_tables: &[],

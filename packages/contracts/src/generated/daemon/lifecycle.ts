@@ -3,12 +3,6 @@
 
 // The service's lifecycle verbs: stop, restart, the flush at quit and the ping on a quiet link.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateDaemonFlushResponse,
-  validateDaemonLifecycleAccepted,
-} from "../checks/daemon/lifecycle.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 
 /**
@@ -44,41 +38,41 @@ export interface DaemonFlushResponse {
   flushed: true;
 }
 
-export {
-  validateDaemonFlushResponse,
-  validateDaemonLifecycleAccepted,
-} from "../checks/daemon/lifecycle.js";
-
-/** The methods of {@link DAEMON_LIFECYCLE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_LIFECYCLE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonLifecycleMethodDescriptors {
   readonly "daemon.stop": {
     readonly method: "daemon.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonLifecycleAccepted>;
   };
   readonly "daemon.restart": {
     readonly method: "daemon.restart";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonLifecycleAccepted>;
   };
   readonly "daemon.flush": {
     readonly method: "daemon.flush";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonFlushResponse>;
   };
   readonly "daemon.ping": {
     readonly method: "daemon.ping";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
+}
+/** The params, result and emission types of each method of {@link DAEMON_LIFECYCLE_METHOD_DESCRIPTORS}. */
+export interface DaemonLifecycleMethodTypes {
+  readonly "daemon.stop": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonLifecycleAccepted;
+  };
+  readonly "daemon.restart": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonLifecycleAccepted;
+  };
+  readonly "daemon.flush": { readonly params: EmptyPayload; readonly result: DaemonFlushResponse };
+  readonly "daemon.ping": { readonly params: EmptyPayload; readonly result: EmptyPayload };
 }
 /**
  * The lifecycle verbs. Every verb takes an empty request; none is ever refused, so the
@@ -90,28 +84,20 @@ export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescripto
       method: "daemon.stop",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonLifecycleAccepted,
     }),
     "daemon.restart": /* @__PURE__ */ Object.freeze({
       method: "daemon.restart",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonLifecycleAccepted,
     }),
     "daemon.flush": /* @__PURE__ */ Object.freeze({
       method: "daemon.flush",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonFlushResponse,
     }),
     "daemon.ping": /* @__PURE__ */ Object.freeze({
       method: "daemon.ping",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateEmptyPayload,
     }),
   });

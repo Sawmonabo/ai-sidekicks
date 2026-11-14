@@ -343,7 +343,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           table, which also carries the definition verbs.",
     definitions: &[
         Definition::read::<AgentSubscribeRequest>(),
-        Definition::read::<AgentSubscribeEntry>().checked(),
+        Definition::read::<AgentSubscribeEntry>(),
         Definition::read::<AgentSubscribeResponse>(),
         Definition::read::<AgentConfigUpdateRequest>(),
         Definition::read::<AgentConfigUpdateResponse>(),

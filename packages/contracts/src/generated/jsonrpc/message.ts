@@ -145,13 +145,3 @@ export interface ProtocolVersionInvalidDetails {
    */
   observedType?: ObservedType;
 }
-
-export {
-  validateJsonRpcError,
-  validateJsonRpcErrorData,
-  validateJsonRpcErrorResponse,
-  validateJsonRpcId,
-  validateJsonRpcNotification,
-  validateJsonRpcResponse,
-  validateJsonRpcServerMessage,
-} from "../checks/jsonrpc/message.js";

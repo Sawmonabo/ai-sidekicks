@@ -3,7 +3,6 @@
 // open, so a change made from another device holds here at once. With no editor chosen, or with the
 // chosen one no longer on this machine, the open lands in the system default rather than failing.
 
-import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
 import * as z from "zod/mini";
 
 import type { MainDaemonClient } from "../../../services/daemon/client/process.js";
@@ -43,10 +42,7 @@ export async function readChosenEditorId(link: {
   if (client === undefined) {
     throw new Error("The background service is not connected, so the chosen editor is unknown.");
   }
-  const reading = await client.call(
-    MACHINE_SETTINGS_METHOD_DESCRIPTORS["machine.settings.read"],
-    {},
-  );
+  const reading = await client.call("machine.settings.read", {});
   return reading.settings.editorId;
 }
 

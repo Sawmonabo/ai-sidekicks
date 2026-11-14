@@ -47,11 +47,13 @@ import {
   RENDERER_DEV_SERVER_PORT,
   WEBASSEMBLY_WORKER_DEV_CONTENT_SECURITY_POLICY,
 } from "./src/main/services/renderer/scheme.js";
-import { FONT_EXTENSIONS } from "./tests/budget/built-renderer-tree.ts";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 import { overlayScrollbarBundlePlugin } from "./vitest/overlay-scrollbar-bundle.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
+
+/** A font file by its extension: a face the renderer's sheets reference. */
+const FONT_EXTENSIONS = /\.(?:woff2?|ttf|otf)$/iu;
 
 /** The scenario catalog: scenario definitions and the scripted data they play. */
 const FIXTURE_CATALOG_DIRECTORY: string = fileURLToPath(new URL("./fixtures/", import.meta.url))
@@ -367,8 +369,8 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
       },
       // The renderer's fixture gate, beside the smoke gate above and for the same reason: a
       // build-time literal, not a runtime flag. A runtime environment variable would ship every
-      // scenario, the engine and the manifest to users, charge them the bytes on every
-      // bundle-budget run, and leave a switch that flips the app into fixture data in production.
+      // scenario, the engine and the manifest to users, charge them the bytes at every start, and
+      // leave a switch that flips the app into fixture data in production.
       // As a literal, Rollup folds `if (false)` and drops the whole subtree, which
       // `tests/budget/release-absence.test.ts` asserts by reading the release build's source maps:
       // no module `isFixtureOnlyModule` names may appear in them.
@@ -389,20 +391,10 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, 
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "oxc"`; electron-vite overrides it to `false` for every target on the reasoning that a
         // desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
-        // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not
-        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Vite's worker bundles
-        // read this value too, and minify only for `"oxc"`. Source maps stay `hidden` above, so a
+        // text, bytes the app would load and parse at every start for nothing. Vite's worker
+        // bundles read this value too, and minify only for `"oxc"`. Source maps stay `hidden` above, so a
         // stack trace is still resolvable by anyone holding the map.
         minify: "oxc",
-        // `.vite/manifest.json`: the chunk graph Rollup already computed, written out on request.
-        // It carries `isEntry`, the static `imports` of every chunk, its `dynamicImports`, `css`
-        // and `assets`, which is the initial-versus-lazy split the bundle budgets bound (lazy
-        // chunks excluded). `readInitialGraphOrFailLoudly` in `tests/budget/built-renderer-tree.ts`
-        // reads it to hand size-limit the initial graph, instead of re-deriving the graph from
-        // emitted text: the bundler that made the split is the authority on it. The manifest is
-        // build metadata, not a shipped asset (nothing links it, and the protocol handler serves
-        // only what `index.html` reaches), so no budget counts it.
-        manifest: true,
         rollupOptions: {
           input: {
             index: "src/renderer/index.html",

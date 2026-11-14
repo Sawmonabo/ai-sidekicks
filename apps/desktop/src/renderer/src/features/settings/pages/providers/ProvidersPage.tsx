@@ -21,15 +21,11 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import {
-  useProviderSections,
-  useProviderSectionsReading,
-} from "#renderer/store/providers/hooks/useProviderSections.js";
+import { useProviderSections } from "#renderer/store/providers/hooks/useProviderSections.js";
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "./account-readout.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
 import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
 import { AccountRow } from "./components/Account/AccountRow.js";
@@ -136,7 +132,6 @@ export function ProvidersPage(props: {
   );
 
   const providerSections = useProviderSections();
-  const providerSectionsReading = useProviderSectionsReading();
   if (registry.phase === "reading") {
     return (
       <LoadingNotice clock={clock} placement="block" title={ACCOUNT_LIST_READ_WORDS.reading} />
@@ -153,7 +148,6 @@ export function ProvidersPage(props: {
 
   return (
     <>
-      <PartialRead states={[providerSectionsReading]} subject="providers" />
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__section-head">Readiness</h3>
         <ul className="meridian-settings-page__list">

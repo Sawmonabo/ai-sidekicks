@@ -3,20 +3,7 @@
 
 // The approval contract: answering an agent's ask, the pending asks, the remembered rules, allowing a reviewer's block once, and the `approval.*` event payloads.
 
-import type { SchemaCheck } from "../schema-check.js";
 import type { AgentId } from "./agent/definition.js";
-import {
-  validateApprovalDenialOverrideRequest,
-  validateApprovalDenialOverrideResponse,
-  validateApprovalListRequest,
-  validateApprovalListResponse,
-  validateApprovalResolveRequest,
-  validateApprovalResolveResponse,
-  validateApprovalRuleListRequest,
-  validateApprovalRuleListResponse,
-  validateApprovalRuleRevokeRequest,
-  validateApprovalRuleRevokeResponse,
-} from "./checks/approval.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { MachineId } from "./machine/id.js";
 import type { ToolCallId } from "./provider/tool-call.js";
@@ -952,25 +939,15 @@ export {
   validateApprovalCategory,
   validateApprovalDecision,
   validateApprovalDenialOverriddenPayload,
-  validateApprovalDenialOverrideRequest,
-  validateApprovalDenialOverrideResponse,
   validateApprovalHolder,
-  validateApprovalListRequest,
-  validateApprovalListResponse,
   validateApprovalProjectionRow,
   validateApprovalRequestId,
   validateApprovalRequestedPayload,
   validateApprovalResolveRequest,
-  validateApprovalResolveResponse,
   validateApprovalResolvedPayload,
   validateApprovalReviewerDeniedPayload,
-  validateApprovalRuleListRequest,
-  validateApprovalRuleListResponse,
   validateApprovalRuleRememberedPayload,
-  validateApprovalRuleRevokeRequest,
-  validateApprovalRuleRevokeResponse,
   validateApprovalRuleRevokedPayload,
-  validateApprovalState,
   validateInvalidationTrigger,
   validateRememberedRule,
   validateRememberedRuleId,
@@ -980,42 +957,55 @@ export {
   validateReviewerDenialId,
 } from "./checks/approval.js";
 
-/** The methods of {@link APPROVAL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link APPROVAL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ApprovalMethodDescriptors {
   readonly "approval.resolve": {
     readonly method: "approval.resolve";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ApprovalResolveRequest>;
-    readonly responseCheck: SchemaCheck<ApprovalResolveResponse>;
   };
   readonly "approval.list": {
     readonly method: "approval.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ApprovalListRequest>;
-    readonly responseCheck: SchemaCheck<ApprovalListResponse>;
   };
   readonly "approval.rule.list": {
     readonly method: "approval.rule.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<ApprovalRuleListRequest>;
-    readonly responseCheck: SchemaCheck<ApprovalRuleListResponse>;
   };
   readonly "approval.rule.revoke": {
     readonly method: "approval.rule.revoke";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ApprovalRuleRevokeRequest>;
-    readonly responseCheck: SchemaCheck<ApprovalRuleRevokeResponse>;
   };
   readonly "approval.denial.override": {
     readonly method: "approval.denial.override";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ApprovalDenialOverrideRequest>;
-    readonly responseCheck: SchemaCheck<ApprovalDenialOverrideResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link APPROVAL_METHOD_DESCRIPTORS}. */
+export interface ApprovalMethodTypes {
+  readonly "approval.resolve": {
+    readonly params: ApprovalResolveRequest;
+    readonly result: ApprovalResolveResponse;
+  };
+  readonly "approval.list": {
+    readonly params: ApprovalListRequest;
+    readonly result: ApprovalListResponse;
+  };
+  readonly "approval.rule.list": {
+    readonly params: ApprovalRuleListRequest;
+    readonly result: ApprovalRuleListResponse;
+  };
+  readonly "approval.rule.revoke": {
+    readonly params: ApprovalRuleRevokeRequest;
+    readonly result: ApprovalRuleRevokeResponse;
+  };
+  readonly "approval.denial.override": {
+    readonly params: ApprovalDenialOverrideRequest;
+    readonly result: ApprovalDenialOverrideResponse;
   };
 }
 /** The `approval.*` methods a client calls. */
@@ -1025,36 +1015,26 @@ export const APPROVAL_METHOD_DESCRIPTORS: ApprovalMethodDescriptors = /* @__PURE
       method: "approval.resolve",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateApprovalResolveRequest,
-      responseCheck: validateApprovalResolveResponse,
     }),
     "approval.list": /* @__PURE__ */ Object.freeze({
       method: "approval.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateApprovalListRequest,
-      responseCheck: validateApprovalListResponse,
     }),
     "approval.rule.list": /* @__PURE__ */ Object.freeze({
       method: "approval.rule.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateApprovalRuleListRequest,
-      responseCheck: validateApprovalRuleListResponse,
     }),
     "approval.rule.revoke": /* @__PURE__ */ Object.freeze({
       method: "approval.rule.revoke",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateApprovalRuleRevokeRequest,
-      responseCheck: validateApprovalRuleRevokeResponse,
     }),
     "approval.denial.override": /* @__PURE__ */ Object.freeze({
       method: "approval.denial.override",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateApprovalDenialOverrideRequest,
-      responseCheck: validateApprovalDenialOverrideResponse,
     }),
   },
 );

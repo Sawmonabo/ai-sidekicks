@@ -20,7 +20,7 @@ import { PendingItemCalls, type QueueItemCall } from "./pending-calls.js";
 import { QueueOrder } from "./order.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import { readQueueItemCreateRequest } from "#renderer/services/daemon/wire/requests.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { type WireReadPhase, type WireReadState } from "#renderer/lib/reads/wire-state.js";
 
@@ -207,18 +207,15 @@ export class SessionQueueReading implements ReadTriggerTarget {
   // the first did. Only a message carries words to send again.
   async #retry(queueItemId: string): Promise<void> {
     const item = this.#items.find((held) => held.id === queueItemId);
-    const request =
-      item?.kind !== "message"
-        ? undefined
-        : readQueueItemCreateRequest({
-            sessionId: this.#sessionId,
-            clientIdempotencyKey: item.id,
-            content: item.content,
-            replacesQueueItemId: item.id,
-          });
-    if (request === undefined) {
+    if (item?.kind !== "message") {
       throw new Error(`Queue item ${queueItemId} could not be sent again from this queue`);
     }
+    const request: AgentQueueItemCreateRequest = {
+      sessionId: heldIdAsWireId(this.#sessionId),
+      clientIdempotencyKey: item.id,
+      content: item.content,
+      replacesQueueItemId: item.id,
+    };
     await this.#calls.retry(request);
   }
 

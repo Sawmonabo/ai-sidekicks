@@ -152,9 +152,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           starting new runs, run, step and schedule changes, and a definition changed or removed, \
           with its method table.",
     definitions: &[
-        Definition::read::<WorkflowSubscribeRequest>().checked(),
+        Definition::read::<WorkflowSubscribeRequest>(),
         Definition::read::<WorkflowScheduleChange>(),
-        Definition::read::<WorkflowSubscribeNotification>().checked(),
+        Definition::read::<WorkflowSubscribeNotification>(),
     ],
     constants: &[],
     method_tables: &[&WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS],

@@ -25,7 +25,7 @@ import type {
   Unsubscribe,
 } from "#shared/preload-api.js";
 import type { ScenarioEngine } from "../engine.fixture.js";
-import { assertScriptedReplyOnContract, resolveScriptedReply } from "../scripted/reply.fixture.js";
+import { resolveScriptedReply } from "../scripted/reply.fixture.js";
 import { subscribeToScenario } from "./subscriptions.fixture.js";
 import {
   readScenarioTranscript,
@@ -65,8 +65,7 @@ const FIXTURE_SERVICE_STATE: MainProcessState = {
 export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire {
   return {
     // The scenario's untyped reply is cast to `DaemonResult<M>` here, the one place the fixture
-    // claims a type. The check holds each registered method to its response schema; a method
-    // the app does not call passes unchecked.
+    // claims a type.
     call: async <MethodName extends RegisteredDaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
@@ -77,10 +76,9 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
           ? logDerivedRead(scenarioEngine, params)
           : await resolveScriptedReply(scenarioEngine, method, params);
       return {
-        value: assertScriptedReplyOnContract(
-          method,
-          method === SESSION_RECORD_READ ? withDeliveredLog(scenarioEngine, reply) : reply,
-        ) as DaemonResult<MethodName>,
+        value: (method === SESSION_RECORD_READ
+          ? withDeliveredLog(scenarioEngine, reply)
+          : reply) as DaemonResult<MethodName>,
       };
     },
     subscribe: <Topic extends DaemonWireTopic>(

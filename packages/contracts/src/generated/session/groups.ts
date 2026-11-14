@@ -3,15 +3,6 @@
 
 // A project's session groups as the person places sessions in them.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateSessionGroupCreateRequest,
-  validateSessionGroupCreateResponse,
-  validateSessionGroupMoveRequest,
-  validateSessionGroupRenameRequest,
-  validateSessionGroupUngroupRequest,
-} from "../checks/session/groups.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { SessionId } from "./id.js";
 
@@ -80,44 +71,46 @@ export interface SessionGroupUngroupRequest {
   groupId: SessionGroupId;
 }
 
-export {
-  validateSessionGroupCreateRequest,
-  validateSessionGroupCreateResponse,
-  validateSessionGroupId,
-  validateSessionGroupMoveRequest,
-  validateSessionGroupRenameRequest,
-  validateSessionGroupUngroupRequest,
-} from "../checks/session/groups.js";
-
-/** The methods of {@link SESSION_GROUP_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_GROUP_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionGroupMethodDescriptors {
   readonly "session.group.create": {
     readonly method: "session.group.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGroupCreateRequest>;
-    readonly responseCheck: SchemaCheck<SessionGroupCreateResponse>;
   };
   readonly "session.group.move": {
     readonly method: "session.group.move";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGroupMoveRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.group.rename": {
     readonly method: "session.group.rename";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGroupRenameRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.group.ungroup": {
     readonly method: "session.group.ungroup";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGroupUngroupRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_GROUP_METHOD_DESCRIPTORS}. */
+export interface SessionGroupMethodTypes {
+  readonly "session.group.create": {
+    readonly params: SessionGroupCreateRequest;
+    readonly result: SessionGroupCreateResponse;
+  };
+  readonly "session.group.move": {
+    readonly params: SessionGroupMoveRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.group.rename": {
+    readonly params: SessionGroupRenameRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.group.ungroup": {
+    readonly params: SessionGroupUngroupRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The session group methods' wire contract: name, procedure type and types. */
@@ -127,28 +120,20 @@ export const SESSION_GROUP_METHOD_DESCRIPTORS: SessionGroupMethodDescriptors =
       method: "session.group.create",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGroupCreateRequest,
-      responseCheck: validateSessionGroupCreateResponse,
     }),
     "session.group.move": /* @__PURE__ */ Object.freeze({
       method: "session.group.move",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGroupMoveRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "session.group.rename": /* @__PURE__ */ Object.freeze({
       method: "session.group.rename",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGroupRenameRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "session.group.ungroup": /* @__PURE__ */ Object.freeze({
       method: "session.group.ungroup",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGroupUngroupRequest,
-      responseCheck: validateEmptyPayload,
     }),
   });

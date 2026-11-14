@@ -1,17 +1,13 @@
 // The service's provider list, read off `provider.list` and kept current by `provider.subscribe`,
 // whose every message is one provider's whole section. The stream opens before the list is read,
 // so no change falls between the two; a section the stream delivers before the list moves nothing,
-// since the list sent after it holds it. Every delivery is checked with the contract's generated
-// check. An unreadable section is refused alone and handed on as such, its fault going to the
-// window's diagnostic capture, and the rest of the list stands; a refused or unreadable list and a stream the daemon
-// refuses are handed on as the list being lost. A stream that opens again reads the list again,
+// since the list sent after it holds it. A refused list and a stream the daemon refuses are handed
+// on as the list being lost. A stream that opens again reads the list again,
 // since the gap may have hidden a change.
 
-import { validateProviderSettingsResponse } from "@ai-sidekicks/contracts/provider/settings";
+import type { ProviderSettingsResponse } from "@ai-sidekicks/contracts/provider/settings";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { PROVIDER_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type {
   ProviderSectionsFeed,
   ProviderSectionsFrame,
@@ -107,16 +103,6 @@ class ProviderSectionsFollower {
   }
 
   #takeSection(payload: unknown): void {
-    if (validateProviderSettingsResponse(payload)) {
-      this.#onFrame({ kind: "section", section: payload.settings });
-      return;
-    }
-    recordRefusedMemberPaths({
-      source: "services/daemon",
-      kind: "notice-unreadable",
-      subject: PROVIDER_NOTICE_STREAM,
-      issues: checkFaultPaths(validateProviderSettingsResponse, payload),
-    });
-    this.#onFrame({ kind: "unreadableSection" });
+    this.#onFrame({ kind: "section", section: (payload as ProviderSettingsResponse).settings });
   }
 }

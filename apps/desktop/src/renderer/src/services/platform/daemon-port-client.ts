@@ -5,12 +5,12 @@
 // what they held from the cursors they kept; only main's `daemon.status` topic, which rides IPC,
 // says whether the service can be reached. Bytes cross beside the JSON: each `Uint8Array` in the
 // params is sent as a `{"$bytes": n}` member and its bytes, and a reply's or a value's bytes come
-// back beside it for its check to read. A pane's typing into a shell rides the same port, and what
+// back beside it. A pane's typing into a shell rides the same port, and what
 // it is told of its writes comes back by its output subscription.
 
-import {
-  type SubscriptionId,
-  validateSubscribeAcknowledgmentResponse,
+import type {
+  SubscribeAcknowledgmentResponse,
+  SubscriptionId,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { DAEMON_PORT_MESSAGE } from "#shared/bridge-channels.js";
@@ -200,12 +200,12 @@ export class DaemonPortClient {
         return;
       case "stream.opened": {
         // A subscribe answered with more than its id, as a list's carries the list, opens with it.
-        const acknowledgment = JSON.parse(answer.json) as unknown;
+        const acknowledgment = JSON.parse(answer.json) as SubscribeAcknowledgmentResponse;
         const stream = this.#streams.get(answer.streamId);
-        if (validateSubscribeAcknowledgmentResponse(acknowledgment)) {
-          stream?.onOpened?.(acknowledgment.subscriptionId);
-        } else if (carriesMoreThanId(acknowledgment)) {
+        if (carriesMoreThanId(acknowledgment)) {
           stream?.deliver(acknowledgment, answer.attachments);
+        } else {
+          stream?.onOpened?.(acknowledgment.subscriptionId);
         }
         return;
       }
@@ -256,7 +256,7 @@ export class DaemonPortClient {
 export function createDaemonPortWire(preload: DaemonPreload, page: DaemonPortWindow): DaemonWire {
   const client = new DaemonPortClient(preload, page);
   return {
-    // The reply's type is the method's, which the caller's check confirms.
+    // The reply's type is the method's: the window's types and the service's share one contract.
     call: ((method: string, params: unknown) =>
       client.call(method, params)) as unknown as DaemonWire["call"],
     subscribe: (event, params, handler, onEnded, onOpened) =>
@@ -290,10 +290,6 @@ interface OpenStream {
 }
 
 /** Whether a subscribe's acknowledgment carries more than the subscription's id. */
-function carriesMoreThanId(acknowledgment: unknown): boolean {
-  return (
-    typeof acknowledgment === "object" &&
-    acknowledgment !== null &&
-    Object.keys(acknowledgment).some((key) => key !== "subscriptionId")
-  );
+function carriesMoreThanId(acknowledgment: SubscribeAcknowledgmentResponse): boolean {
+  return Object.keys(acknowledgment).some((key) => key !== "subscriptionId");
 }

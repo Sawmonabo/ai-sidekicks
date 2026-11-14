@@ -3,29 +3,6 @@
 
 // A session's live agents as a client reads and moves them, and the live agents' method table, which also carries the definition verbs.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateAgentDefinitionCreateRequest,
-  validateAgentDefinitionCreateResponse,
-  validateAgentDefinitionDeleteRequest,
-  validateAgentDefinitionDeleteResponse,
-  validateAgentDefinitionExportRequest,
-  validateAgentDefinitionExportResponse,
-  validateAgentDefinitionImportRequest,
-  validateAgentDefinitionImportResponse,
-  validateAgentDefinitionListResponse,
-  validateAgentDefinitionUpdateRequest,
-  validateAgentDefinitionUpdateResponse,
-} from "../checks/agent/definition.js";
-import {
-  validateAgentConfigUpdateRequest,
-  validateAgentConfigUpdateResponse,
-  validateAgentSubscribeEntry,
-  validateAgentSubscribeRequest,
-  validateAgentSubscribeResponse,
-} from "../checks/agent/methods.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse, SubscriptionId } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -187,80 +164,95 @@ export interface AgentConfigUpdateResponse {
   switch: AgentBindingSwitchDisposition;
 }
 
-export {
-  validateAgentConfigUpdateRequest,
-  validateAgentConfigUpdateResponse,
-  validateAgentSubscribeEntry,
-  validateAgentSubscribeRequest,
-  validateAgentSubscribeResponse,
-} from "../checks/agent/methods.js";
+export { validateAgentSubscribeEntry } from "../checks/agent/methods.js";
 
-/** The methods of {@link AGENT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link AGENT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface AgentMethodDescriptors {
   readonly "agent.subscribe": {
     readonly method: "agent.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<AgentSubscribeResponse>;
-    readonly emissionCheck: SchemaCheck<AgentSubscribeEntry>;
   };
   readonly "agent.config.update": {
     readonly method: "agent.config.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentConfigUpdateRequest>;
-    readonly responseCheck: SchemaCheck<AgentConfigUpdateResponse>;
   };
   readonly "agent.definition.list": {
     readonly method: "agent.definition.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionListResponse>;
   };
   readonly "agent.definition.subscribe": {
     readonly method: "agent.definition.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<AgentDefinitionListResponse>;
   };
   readonly "agent.definition.create": {
     readonly method: "agent.definition.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentDefinitionCreateRequest>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionCreateResponse>;
   };
   readonly "agent.definition.update": {
     readonly method: "agent.definition.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentDefinitionUpdateRequest>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionUpdateResponse>;
   };
   readonly "agent.definition.delete": {
     readonly method: "agent.definition.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentDefinitionDeleteRequest>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionDeleteResponse>;
   };
   readonly "agent.definition.export": {
     readonly method: "agent.definition.export";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentDefinitionExportRequest>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionExportResponse>;
   };
   readonly "agent.definition.import": {
     readonly method: "agent.definition.import";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<AgentDefinitionImportRequest>;
-    readonly responseCheck: SchemaCheck<AgentDefinitionImportResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link AGENT_METHOD_DESCRIPTORS}. */
+export interface AgentMethodTypes {
+  readonly "agent.subscribe": {
+    readonly params: AgentSubscribeRequest;
+    readonly result: AgentSubscribeResponse;
+    readonly emission: AgentSubscribeEntry;
+  };
+  readonly "agent.config.update": {
+    readonly params: AgentConfigUpdateRequest;
+    readonly result: AgentConfigUpdateResponse;
+  };
+  readonly "agent.definition.list": {
+    readonly params: EmptyPayload;
+    readonly result: AgentDefinitionListResponse;
+  };
+  readonly "agent.definition.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: AgentDefinitionListResponse;
+  };
+  readonly "agent.definition.create": {
+    readonly params: AgentDefinitionCreateRequest;
+    readonly result: AgentDefinitionCreateResponse;
+  };
+  readonly "agent.definition.update": {
+    readonly params: AgentDefinitionUpdateRequest;
+    readonly result: AgentDefinitionUpdateResponse;
+  };
+  readonly "agent.definition.delete": {
+    readonly params: AgentDefinitionDeleteRequest;
+    readonly result: AgentDefinitionDeleteResponse;
+  };
+  readonly "agent.definition.export": {
+    readonly params: AgentDefinitionExportRequest;
+    readonly result: AgentDefinitionExportResponse;
+  };
+  readonly "agent.definition.import": {
+    readonly params: AgentDefinitionImportRequest;
+    readonly result: AgentDefinitionImportResponse;
   };
 }
 /**
@@ -272,65 +264,45 @@ export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = /* @__PURE__ */ 
     method: "agent.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateAgentSubscribeRequest,
-    responseCheck: validateAgentSubscribeResponse,
-    emissionCheck: validateAgentSubscribeEntry,
   }),
   "agent.config.update": /* @__PURE__ */ Object.freeze({
     method: "agent.config.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentConfigUpdateRequest,
-    responseCheck: validateAgentConfigUpdateResponse,
   }),
   "agent.definition.list": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateAgentDefinitionListResponse,
   }),
   "agent.definition.subscribe": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateAgentDefinitionListResponse,
   }),
   "agent.definition.create": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.create",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentDefinitionCreateRequest,
-    responseCheck: validateAgentDefinitionCreateResponse,
   }),
   "agent.definition.update": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentDefinitionUpdateRequest,
-    responseCheck: validateAgentDefinitionUpdateResponse,
   }),
   "agent.definition.delete": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.delete",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentDefinitionDeleteRequest,
-    responseCheck: validateAgentDefinitionDeleteResponse,
   }),
   "agent.definition.export": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.export",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentDefinitionExportRequest,
-    responseCheck: validateAgentDefinitionExportResponse,
   }),
   "agent.definition.import": /* @__PURE__ */ Object.freeze({
     method: "agent.definition.import",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateAgentDefinitionImportRequest,
-    responseCheck: validateAgentDefinitionImportResponse,
   }),
 });

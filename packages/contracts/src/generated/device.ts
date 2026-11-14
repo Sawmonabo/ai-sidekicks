@@ -3,28 +3,6 @@
 
 // The device requests: list, link, rename, revoke, forget, push address, notification switches, and the desktop's control-plane calls through the background service.
 
-import type { SchemaCheck } from "../schema-check.js";
-import {
-  validateControlPlaneCallRequest,
-  validateControlPlaneCallResponse,
-  validateDeviceForgetRequest,
-  validateDeviceLinkCancelRequest,
-  validateDeviceLinkConfirmRequest,
-  validateDeviceLinkRedeemRequest,
-  validateDeviceLinkRedeemResponse,
-  validateDeviceLinkStartResponse,
-  validateDeviceListEvent,
-  validateDeviceListSnapshot,
-  validateDeviceNotificationSettingsUpdateRequest,
-  validateDevicePushAddressUpdateRequest,
-  validateDeviceRenameRequest,
-  validateDeviceRevokeRequest,
-  validateDeviceStatementApplyRequest,
-  validateDeviceStatementListRequest,
-  validateDeviceStatementListResponse,
-  validateDeviceTrustedListResponse,
-} from "./checks/device.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { MachineId } from "./machine/id.js";
 import type { NotificationKindSwitches } from "./machine/settings.js";
@@ -529,108 +507,92 @@ export interface DeviceNotificationSettingsUpdateRequest {
   webPushKeys?: WebPushKeys;
 }
 
-export {
-  validateControlPlaneCallProcedure,
-  validateControlPlaneCallRequest,
-  validateControlPlaneCallResponse,
-  validateDeviceEntry,
-  validateDeviceForgetRequest,
-  validateDeviceLinkCancelRequest,
-  validateDeviceLinkConfirmRequest,
-  validateDeviceLinkRedeemRequest,
-  validateDeviceLinkRedeemResponse,
-  validateDeviceLinkStartResponse,
-  validateDeviceListEvent,
-  validateDeviceListRowEvent,
-  validateDeviceListSnapshot,
-  validateDeviceNotificationSettingsUpdateRequest,
-  validateDevicePushAddressUpdateRequest,
-  validateDeviceRenameRequest,
-  validateDeviceRevokeRequest,
-  validateDeviceStatementApplyRequest,
-  validateDeviceStatementEvent,
-  validateDeviceStatementListRequest,
-  validateDeviceStatementListResponse,
-  validateDeviceTrustedListResponse,
-  validateMachineEntry,
-  validatePasskeyEntry,
-  validateTrustedDevice,
-  validateTrustedMachineKey,
-  validateWebPushKeys,
-} from "./checks/device.js";
-
-/** The methods of {@link DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DeviceControlPlaneMethodDescriptors {
   readonly "device.subscribe": {
     readonly method: "device.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DeviceListSnapshot>;
-    readonly emissionCheck: SchemaCheck<DeviceListEvent>;
   };
   readonly "device.link.start": {
     readonly method: "device.link.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DeviceLinkStartResponse>;
   };
   readonly "device.link.redeem": {
     readonly method: "device.link.redeem";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceLinkRedeemRequest>;
-    readonly responseCheck: SchemaCheck<DeviceLinkRedeemResponse>;
   };
   readonly "device.link.confirm": {
     readonly method: "device.link.confirm";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceLinkConfirmRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.link.cancel": {
     readonly method: "device.link.cancel";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceLinkCancelRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.rename": {
     readonly method: "device.rename";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceRenameRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.revoke": {
     readonly method: "device.revoke";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceRevokeRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.forget": {
     readonly method: "device.forget";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceForgetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.statement.list": {
     readonly method: "device.statement.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<DeviceStatementListRequest>;
-    readonly responseCheck: SchemaCheck<DeviceStatementListResponse>;
   };
   readonly "device.pushAddress.update": {
     readonly method: "device.pushAddress.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DevicePushAddressUpdateRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS}. */
+export interface DeviceControlPlaneMethodTypes {
+  readonly "device.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: DeviceListSnapshot;
+    readonly emission: DeviceListEvent;
+  };
+  readonly "device.link.start": {
+    readonly params: EmptyPayload;
+    readonly result: DeviceLinkStartResponse;
+  };
+  readonly "device.link.redeem": {
+    readonly params: DeviceLinkRedeemRequest;
+    readonly result: DeviceLinkRedeemResponse;
+  };
+  readonly "device.link.confirm": {
+    readonly params: DeviceLinkConfirmRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "device.link.cancel": {
+    readonly params: DeviceLinkCancelRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "device.rename": { readonly params: DeviceRenameRequest; readonly result: EmptyPayload };
+  readonly "device.revoke": { readonly params: DeviceRevokeRequest; readonly result: EmptyPayload };
+  readonly "device.forget": { readonly params: DeviceForgetRequest; readonly result: EmptyPayload };
+  readonly "device.statement.list": {
+    readonly params: DeviceStatementListRequest;
+    readonly result: DeviceStatementListResponse;
+  };
+  readonly "device.pushAddress.update": {
+    readonly params: DevicePushAddressUpdateRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The device procedures the control plane serves. */
@@ -640,97 +602,85 @@ export const DEVICE_CONTROL_PLANE_METHOD_DESCRIPTORS: DeviceControlPlaneMethodDe
       method: "device.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDeviceListSnapshot,
-      emissionCheck: validateDeviceListEvent,
     }),
     "device.link.start": /* @__PURE__ */ Object.freeze({
       method: "device.link.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDeviceLinkStartResponse,
     }),
     "device.link.redeem": /* @__PURE__ */ Object.freeze({
       method: "device.link.redeem",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceLinkRedeemRequest,
-      responseCheck: validateDeviceLinkRedeemResponse,
     }),
     "device.link.confirm": /* @__PURE__ */ Object.freeze({
       method: "device.link.confirm",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceLinkConfirmRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "device.link.cancel": /* @__PURE__ */ Object.freeze({
       method: "device.link.cancel",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceLinkCancelRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "device.rename": /* @__PURE__ */ Object.freeze({
       method: "device.rename",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceRenameRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "device.revoke": /* @__PURE__ */ Object.freeze({
       method: "device.revoke",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceRevokeRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "device.forget": /* @__PURE__ */ Object.freeze({
       method: "device.forget",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDeviceForgetRequest,
-      responseCheck: validateEmptyPayload,
     }),
     "device.statement.list": /* @__PURE__ */ Object.freeze({
       method: "device.statement.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateDeviceStatementListRequest,
-      responseCheck: validateDeviceStatementListResponse,
     }),
     "device.pushAddress.update": /* @__PURE__ */ Object.freeze({
       method: "device.pushAddress.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateDevicePushAddressUpdateRequest,
-      responseCheck: validateEmptyPayload,
     }),
   });
 
-/** The methods of {@link DEVICE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DEVICE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DeviceMethodDescriptors {
   readonly "device.statement.apply": {
     readonly method: "device.statement.apply";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceStatementApplyRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "device.trusted.list": {
     readonly method: "device.trusted.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DeviceTrustedListResponse>;
   };
   readonly "device.notificationSettings.update": {
     readonly method: "device.notificationSettings.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DeviceNotificationSettingsUpdateRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link DEVICE_METHOD_DESCRIPTORS}. */
+export interface DeviceMethodTypes {
+  readonly "device.statement.apply": {
+    readonly params: DeviceStatementApplyRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "device.trusted.list": {
+    readonly params: EmptyPayload;
+    readonly result: DeviceTrustedListResponse;
+  };
+  readonly "device.notificationSettings.update": {
+    readonly params: DeviceNotificationSettingsUpdateRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The device methods a machine's service answers over the channel. */
@@ -739,33 +689,32 @@ export const DEVICE_METHOD_DESCRIPTORS: DeviceMethodDescriptors = /* @__PURE__ *
     method: "device.statement.apply",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateDeviceStatementApplyRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "device.trusted.list": /* @__PURE__ */ Object.freeze({
     method: "device.trusted.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateDeviceTrustedListResponse,
   }),
   "device.notificationSettings.update": /* @__PURE__ */ Object.freeze({
     method: "device.notificationSettings.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateDeviceNotificationSettingsUpdateRequest,
-    responseCheck: validateEmptyPayload,
   }),
 });
 
-/** The methods of {@link CONTROL_PLANE_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link CONTROL_PLANE_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ControlPlaneMethodDescriptors {
   readonly "controlPlane.call": {
     readonly method: "controlPlane.call";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<ControlPlaneCallRequest>;
-    readonly responseCheck: SchemaCheck<ControlPlaneCallResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link CONTROL_PLANE_METHOD_DESCRIPTORS}. */
+export interface ControlPlaneMethodTypes {
+  readonly "controlPlane.call": {
+    readonly params: ControlPlaneCallRequest;
+    readonly result: ControlPlaneCallResponse;
   };
 }
 /** The one method the service answers for the window's control-plane calls. */
@@ -775,7 +724,5 @@ export const CONTROL_PLANE_METHOD_DESCRIPTORS: ControlPlaneMethodDescriptors =
       method: "controlPlane.call",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateControlPlaneCallRequest,
-      responseCheck: validateControlPlaneCallResponse,
     }),
   });

@@ -2,7 +2,6 @@
 
 .meridian-new-session__open,
 .meridian-new-session__discard,
-.meridian-new-session__recheck,
 .meridian-new-session__send {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
@@ -13,7 +12,7 @@
   cursor: default;
 }
 
-/* Dimmed, not refused: disabled while the draft is empty or a create answered unreadably.
+/* Dimmed, not refused: disabled while the draft is empty or being sent.
    Left in place so the row does not reflow when the first message is typed. */
 .meridian-new-session__send:is(:disabled, [aria-disabled="true"]) {
   color: var(--meridian-text-muted);

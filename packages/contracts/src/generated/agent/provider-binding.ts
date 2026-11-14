@@ -299,7 +299,6 @@ export {
   validateAgentBindingContinuity,
   validateAgentBindingSwitchAccountState,
   validateAgentBindingSwitchBoundary,
-  validateAgentBindingSwitchDisposition,
   validateAgentBindingSwitchFailureReason,
   validateAgentBindingSwitchPending,
   validateAgentBindingSwitchTarget,

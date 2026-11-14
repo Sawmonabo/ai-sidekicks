@@ -37,7 +37,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A passkey's removal: the signed-in account revokes one of its own passkeys, so it can \
           no longer sign in. A passkey of another account, or one already gone, is answered as \
           removed.",
-    definitions: &[Definition::read::<WebAuthnCredentialRevokeRequest>().checked()],
+    definitions: &[Definition::read::<WebAuthnCredentialRevokeRequest>()],
     constants: &[],
     method_tables: &[&WEBAUTHN_CREDENTIAL_METHOD_DESCRIPTORS],
 };

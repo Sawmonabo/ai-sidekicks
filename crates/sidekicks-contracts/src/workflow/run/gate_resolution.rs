@@ -153,9 +153,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The record of one answer to a run's gate: an approval step's question or its chain's \
           question, appended and never rewritten, numbered per run.",
     definitions: &[
-        Definition::read::<WorkflowGateResolutionId>().checked(),
+        Definition::read::<WorkflowGateResolutionId>(),
         Definition::read::<WorkflowGateApprovalCategory>(),
-        Definition::read::<WorkflowGateResolution>().checked(),
+        Definition::read::<WorkflowGateResolution>(),
     ],
     constants: &[],
     method_tables: &[],

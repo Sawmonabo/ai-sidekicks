@@ -29,5 +29,3 @@ export type AgentRunContextCompactResponse =
        */
       reason: "bindingLost" | "providerError" | "notCompacted";
     };
-
-export { validateAgentRunContextCompactResponse } from "../../checks/provider/driver/compaction.js";

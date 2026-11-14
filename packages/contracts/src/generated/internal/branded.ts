@@ -7,5 +7,3 @@
  * A UUID in the RFC 9562 text form, either case, the Nil and Max UUIDs among them.
  */
 export type UuidTextForm = string;
-
-export { validateUuidTextForm } from "../checks/internal/branded.js";

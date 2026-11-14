@@ -3,30 +3,7 @@
 
 // Workflow run records: the run's own record, reading one run with its steps, and the method table of every method that reads, lists and keeps run records.
 
-import type { SchemaCheck } from "../../../schema-check.js";
 import type { ApprovalDecision } from "../../approval.js";
-import { validateEmptyPayload } from "../../checks/method-descriptor.js";
-import { validateWorkflowRunAttentionListResponse } from "../../checks/workflow/run/attention.js";
-import {
-  validateWorkflowRunListRequest,
-  validateWorkflowRunListResponse,
-} from "../../checks/workflow/run/list.js";
-import {
-  validateWorkflowNewRunHoldState,
-  validateWorkflowNewRunHoldUpdateRequest,
-} from "../../checks/workflow/run/new-run-hold.js";
-import {
-  validateWorkflowRunReadRequest,
-  validateWorkflowRunReadResponse,
-} from "../../checks/workflow/run/records.js";
-import {
-  validateWorkflowRunDeleteRequest,
-  validateWorkflowRunDeleteResponse,
-  validateWorkflowRunKeepSet,
-  validateWorkflowRunPurgePreviewResponse,
-  validateWorkflowRunPurgeRequest,
-  validateWorkflowRunPurgeResponse,
-} from "../../checks/workflow/run/retention.js";
 import type { WireInstant } from "../../internal/wire-scalars.js";
 import type { EmptyPayload } from "../../method-descriptor.js";
 import type { SessionId } from "../../session/id.js";
@@ -1144,68 +1121,86 @@ export {
   validateWorkflowChainRoot,
   validateWorkflowEdgeItemCount,
   validateWorkflowLiveStep,
-  validateWorkflowRunReadRequest,
   validateWorkflowRunReadResponse,
   validateWorkflowRunReview,
 } from "../../checks/workflow/run/records.js";
 
-/** The methods of {@link WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowRunRecordMethodDescriptors {
   readonly "workflow.run.read": {
     readonly method: "workflow.run.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowRunReadRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunReadResponse>;
   };
   readonly "workflow.run.list": {
     readonly method: "workflow.run.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowRunListRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunListResponse>;
   };
   readonly "workflow.run.delete": {
     readonly method: "workflow.run.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunDeleteRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunDeleteResponse>;
   };
   readonly "workflow.run.purge.preview": {
     readonly method: "workflow.run.purge.preview";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<WorkflowRunPurgeRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunPurgePreviewResponse>;
   };
   readonly "workflow.run.purge": {
     readonly method: "workflow.run.purge";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunPurgeRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunPurgeResponse>;
   };
   readonly "workflow.run.keep.update": {
     readonly method: "workflow.run.keep.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunKeepSet>;
-    readonly responseCheck: SchemaCheck<WorkflowRunKeepSet>;
   };
   readonly "workflow.run.attention.list": {
     readonly method: "workflow.run.attention.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<WorkflowRunAttentionListResponse>;
   };
   readonly "workflow.newRunHold.update": {
     readonly method: "workflow.newRunHold.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowNewRunHoldUpdateRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowNewRunHoldState>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS}. */
+export interface WorkflowRunRecordMethodTypes {
+  readonly "workflow.run.read": {
+    readonly params: WorkflowRunReadRequest;
+    readonly result: WorkflowRunReadResponse;
+  };
+  readonly "workflow.run.list": {
+    readonly params: WorkflowRunListRequest;
+    readonly result: WorkflowRunListResponse;
+  };
+  readonly "workflow.run.delete": {
+    readonly params: WorkflowRunDeleteRequest;
+    readonly result: WorkflowRunDeleteResponse;
+  };
+  readonly "workflow.run.purge.preview": {
+    readonly params: WorkflowRunPurgeRequest;
+    readonly result: WorkflowRunPurgePreviewResponse;
+  };
+  readonly "workflow.run.purge": {
+    readonly params: WorkflowRunPurgeRequest;
+    readonly result: WorkflowRunPurgeResponse;
+  };
+  readonly "workflow.run.keep.update": {
+    readonly params: WorkflowRunKeepSet;
+    readonly result: WorkflowRunKeepSet;
+  };
+  readonly "workflow.run.attention.list": {
+    readonly params: EmptyPayload;
+    readonly result: WorkflowRunAttentionListResponse;
+  };
+  readonly "workflow.newRunHold.update": {
+    readonly params: WorkflowNewRunHoldUpdateRequest;
+    readonly result: WorkflowNewRunHoldState;
   };
 }
 /**
@@ -1218,56 +1213,40 @@ export const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS: WorkflowRunRecordMethodDesc
       method: "workflow.run.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowRunReadRequest,
-      responseCheck: validateWorkflowRunReadResponse,
     }),
     "workflow.run.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowRunListRequest,
-      responseCheck: validateWorkflowRunListResponse,
     }),
     "workflow.run.delete": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.delete",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunDeleteRequest,
-      responseCheck: validateWorkflowRunDeleteResponse,
     }),
     "workflow.run.purge.preview": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.purge.preview",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateWorkflowRunPurgeRequest,
-      responseCheck: validateWorkflowRunPurgePreviewResponse,
     }),
     "workflow.run.purge": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.purge",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunPurgeRequest,
-      responseCheck: validateWorkflowRunPurgeResponse,
     }),
     "workflow.run.keep.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.keep.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunKeepSet,
-      responseCheck: validateWorkflowRunKeepSet,
     }),
     "workflow.run.attention.list": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.attention.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateWorkflowRunAttentionListResponse,
     }),
     "workflow.newRunHold.update": /* @__PURE__ */ Object.freeze({
       method: "workflow.newRunHold.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowNewRunHoldUpdateRequest,
-      responseCheck: validateWorkflowNewRunHoldState,
     }),
   });

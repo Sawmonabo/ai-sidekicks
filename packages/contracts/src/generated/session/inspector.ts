@@ -3,16 +3,6 @@
 
 // The reads behind a session's inspector sections, and the `Auto memory` switch. Every figure and list is the provider's own report for this session.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateSessionAddressedRequest } from "../checks/session/controls/methods.js";
-import {
-  validateSessionAutoMemoryUpdateRequest,
-  validateSessionAutoMemoryUpdateResponse,
-  validateSessionContextReading,
-  validateSessionHookListResponse,
-  validateSessionMemoryReadResponse,
-} from "../checks/session/inspector.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { ProviderId } from "../provider/id.js";
 import type { SessionAddressedRequest } from "./controls/methods.js";
@@ -765,60 +755,54 @@ export interface ProviderHookPolicy {
 }
 
 export {
-  validateProviderHookError,
-  validateProviderHookPolicy,
-  validateProviderHookSettingsError,
-  validateProviderHookSource,
   validateSessionAutoMemory,
-  validateSessionAutoMemoryAppliesAt,
-  validateSessionAutoMemoryUpdateRequest,
-  validateSessionAutoMemoryUpdateResponse,
-  validateSessionCompactionBound,
-  validateSessionContextBreakdown,
-  validateSessionContextCategory,
-  validateSessionContextCategoryKind,
-  validateSessionContextPart,
-  validateSessionContextReading,
-  validateSessionContextUsage,
-  validateSessionHookListResponse,
   validateSessionMemoryEntry,
   validateSessionMemoryEntryKind,
   validateSessionMemoryHomeScope,
   validateSessionMemoryReadResponse,
-  validateSessionProviderEventHook,
-  validateSessionProviderHook,
 } from "../checks/session/inspector.js";
 
-/** The methods of {@link SESSION_INSPECTOR_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_INSPECTOR_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionInspectorMethodDescriptors {
   readonly "session.context.subscribe": {
     readonly method: "session.context.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SessionContextReading>;
   };
   readonly "session.memory.read": {
     readonly method: "session.memory.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SessionMemoryReadResponse>;
   };
   readonly "session.autoMemory.update": {
     readonly method: "session.autoMemory.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionAutoMemoryUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionAutoMemoryUpdateResponse>;
   };
   readonly "session.hook.list": {
     readonly method: "session.hook.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionAddressedRequest>;
-    readonly responseCheck: SchemaCheck<SessionHookListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_INSPECTOR_METHOD_DESCRIPTORS}. */
+export interface SessionInspectorMethodTypes {
+  readonly "session.context.subscribe": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SessionContextReading;
+  };
+  readonly "session.memory.read": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SessionMemoryReadResponse;
+  };
+  readonly "session.autoMemory.update": {
+    readonly params: SessionAutoMemoryUpdateRequest;
+    readonly result: SessionAutoMemoryUpdateResponse;
+  };
+  readonly "session.hook.list": {
+    readonly params: SessionAddressedRequest;
+    readonly result: SessionHookListResponse;
   };
 }
 /** The inspector methods' wire contract: name, procedure type and types. */
@@ -828,29 +812,20 @@ export const SESSION_INSPECTOR_METHOD_DESCRIPTORS: SessionInspectorMethodDescrip
       method: "session.context.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateSessionContextReading,
     }),
     "session.memory.read": /* @__PURE__ */ Object.freeze({
       method: "session.memory.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSessionMemoryReadResponse,
     }),
     "session.autoMemory.update": /* @__PURE__ */ Object.freeze({
       method: "session.autoMemory.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionAutoMemoryUpdateRequest,
-      responseCheck: validateSessionAutoMemoryUpdateResponse,
     }),
     "session.hook.list": /* @__PURE__ */ Object.freeze({
       method: "session.hook.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionAddressedRequest,
-      responseCheck: validateSessionHookListResponse,
     }),
   });

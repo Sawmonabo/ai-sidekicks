@@ -3,9 +3,6 @@
 
 // The push contract: a machine hands the control plane one sealed notice for one of the person's devices, sealed to the device's own push key.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
-import { validateDevicePushSendRequest } from "./checks/push.js";
 import type { WireInstant } from "./internal/wire-scalars.js";
 import type { EmptyPayload } from "./method-descriptor.js";
 import type { DeviceId } from "./trust-statement.js";
@@ -53,20 +50,19 @@ export interface DevicePushSendRequest {
   expiresAt: WireInstant;
 }
 
-export {
-  validateDevicePushSendRequest,
-  validatePushCollapseId,
-  validatePushUrgency,
-} from "./checks/push.js";
-
-/** The methods of {@link PUSH_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link PUSH_METHOD_DESCRIPTORS}, each with its kind. */
 export interface PushMethodDescriptors {
   readonly "device.push.send": {
     readonly method: "device.push.send";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<DevicePushSendRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link PUSH_METHOD_DESCRIPTORS}. */
+export interface PushMethodTypes {
+  readonly "device.push.send": {
+    readonly params: DevicePushSendRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The push procedure the control plane serves. */
@@ -75,7 +71,5 @@ export const PUSH_METHOD_DESCRIPTORS: PushMethodDescriptors = /* @__PURE__ */ Ob
     method: "device.push.send",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateDevicePushSendRequest,
-    responseCheck: validateEmptyPayload,
   }),
 });

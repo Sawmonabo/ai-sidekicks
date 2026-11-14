@@ -131,12 +131,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The three calls that stream a caller's file into a session's artifacts: open a stream, \
           send its bytes in numbered chunks, and complete it.",
     definitions: &[
-        Definition::read::<ArtifactIngestStartRequest>().checked(),
-        Definition::read::<ArtifactIngestStartResponse>().checked(),
-        Definition::read::<ArtifactIngestWriteRequest>().checked(),
-        Definition::read::<ArtifactIngestWriteResponse>().checked(),
-        Definition::read::<ArtifactIngestCompleteRequest>().checked(),
-        Definition::read::<ArtifactIngestCompleteResponse>().checked(),
+        Definition::read::<ArtifactIngestStartRequest>(),
+        Definition::read::<ArtifactIngestStartResponse>(),
+        Definition::read::<ArtifactIngestWriteRequest>(),
+        Definition::read::<ArtifactIngestWriteResponse>(),
+        Definition::read::<ArtifactIngestCompleteRequest>(),
+        Definition::read::<ArtifactIngestCompleteResponse>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

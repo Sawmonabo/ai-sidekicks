@@ -3,12 +3,6 @@
 
 // `daemon.status.read`: the service's own facts in one reply, and `daemon.crashReport.list`: the crash reports this machine keeps.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import {
-  validateDaemonCrashReportListResponse,
-  validateDaemonStatusReadResponse,
-} from "../checks/daemon/status.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { DistroName } from "../place.js";
@@ -373,43 +367,28 @@ export interface DaemonCrashReportListResponse {
   reports: CrashReport[];
 }
 
-export {
-  validateCrashModuleFileName,
-  validateCrashPanic,
-  validateCrashReport,
-  validateCrashStackFrame,
-  validateDaemonCrashReportListResponse,
-  validateDaemonMachineKey,
-  validateDaemonMachineKeyCause,
-  validateDaemonMachineKeyState,
-  validateDaemonMemoryReading,
-  validateDaemonProcessState,
-  validateDaemonProcessorReading,
-  validateDaemonRelayDevice,
-  validateDaemonRelayStatus,
-  validateDaemonSecretsFile,
-  validateDaemonSecretsFileUnopened,
-  validateDaemonSecretsPlainReason,
-  validateDaemonStatusReadResponse,
-  validateDaemonWslDistribution,
-  validateDaemonWslDistributionStatus,
-} from "../checks/daemon/status.js";
-
-/** The methods of {@link DAEMON_STATUS_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link DAEMON_STATUS_METHOD_DESCRIPTORS}, each with its kind. */
 export interface DaemonStatusMethodDescriptors {
   readonly "daemon.status.read": {
     readonly method: "daemon.status.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonStatusReadResponse>;
   };
   readonly "daemon.crashReport.list": {
     readonly method: "daemon.crashReport.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<DaemonCrashReportListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link DAEMON_STATUS_METHOD_DESCRIPTORS}. */
+export interface DaemonStatusMethodTypes {
+  readonly "daemon.status.read": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonStatusReadResponse;
+  };
+  readonly "daemon.crashReport.list": {
+    readonly params: EmptyPayload;
+    readonly result: DaemonCrashReportListResponse;
   };
 }
 /** The status read and the crash list. */
@@ -419,14 +398,10 @@ export const DAEMON_STATUS_METHOD_DESCRIPTORS: DaemonStatusMethodDescriptors =
       method: "daemon.status.read",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonStatusReadResponse,
     }),
     "daemon.crashReport.list": /* @__PURE__ */ Object.freeze({
       method: "daemon.crashReport.list",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateEmptyPayload,
-      responseCheck: validateDaemonCrashReportListResponse,
     }),
   });

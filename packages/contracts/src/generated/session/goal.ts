@@ -3,14 +3,7 @@
 
 // A goal inside a session: the condition one agent works toward, the two methods that set and clear it, and the two events that record each change.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { AgentId } from "../agent/definition.js";
-import { validateSessionAcknowledgment } from "../checks/session/controls/methods.js";
-import {
-  validateSessionGoalClearRequest,
-  validateSessionGoalUpdateRequest,
-  validateSessionGoalUpdateResponse,
-} from "../checks/session/goal.js";
 import type { SessionAcknowledgment } from "./controls/methods.js";
 import type { SessionId } from "./id.js";
 
@@ -124,29 +117,33 @@ export interface SessionGoalClearedPayload {
 
 export {
   validateSessionGoal,
-  validateSessionGoalClearRequest,
   validateSessionGoalClearedPayload,
   validateSessionGoalStatus,
-  validateSessionGoalUpdateRequest,
-  validateSessionGoalUpdateResponse,
   validateSessionGoalUpdatedPayload,
 } from "../checks/session/goal.js";
 
-/** The methods of {@link SESSION_GOAL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_GOAL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionGoalMethodDescriptors {
   readonly "session.goal.update": {
     readonly method: "session.goal.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGoalUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SessionGoalUpdateResponse>;
   };
   readonly "session.goal.clear": {
     readonly method: "session.goal.clear";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionGoalClearRequest>;
-    readonly responseCheck: SchemaCheck<SessionAcknowledgment>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_GOAL_METHOD_DESCRIPTORS}. */
+export interface SessionGoalMethodTypes {
+  readonly "session.goal.update": {
+    readonly params: SessionGoalUpdateRequest;
+    readonly result: SessionGoalUpdateResponse;
+  };
+  readonly "session.goal.clear": {
+    readonly params: SessionGoalClearRequest;
+    readonly result: SessionAcknowledgment;
   };
 }
 /** The goal methods' wire contract: name, procedure type and types. */
@@ -156,14 +153,10 @@ export const SESSION_GOAL_METHOD_DESCRIPTORS: SessionGoalMethodDescriptors =
       method: "session.goal.update",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGoalUpdateRequest,
-      responseCheck: validateSessionGoalUpdateResponse,
     }),
     "session.goal.clear": /* @__PURE__ */ Object.freeze({
       method: "session.goal.clear",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionGoalClearRequest,
-      responseCheck: validateSessionAcknowledgment,
     }),
   });

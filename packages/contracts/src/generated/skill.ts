@@ -3,27 +3,7 @@
 
 // Skills: every skill folder, file reads and saves, call forms, availability per provider, the scan a widening runs, and their refusals.
 
-import type { SchemaCheck } from "../schema-check.js";
 import type { AgentDefinitionOrigin, AgentDefinitionScope } from "./agent/definition.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "./checks/method-descriptor.js";
-import {
-  validateSkillAvailabilityUpdateRequest,
-  validateSkillAvailabilityUpdateResponse,
-  validateSkillCallFormReadRequest,
-  validateSkillCallFormReadResponse,
-  validateSkillCreateRequest,
-  validateSkillEntryResponse,
-  validateSkillFileReadRequest,
-  validateSkillFileReadResponse,
-  validateSkillListResponse,
-  validateSkillRecordDiscardRequest,
-  validateSkillRecordDiscardResponse,
-  validateSkillRecordReattachRequest,
-  validateSkillScanRequest,
-  validateSkillScanResponse,
-  validateSkillUpdateRequest,
-} from "./checks/skill.js";
 import type { NonBlankText } from "./internal/wire-scalars.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { EmptyPayload } from "./method-descriptor.js";
@@ -592,107 +572,95 @@ export interface SkillNameTakenDetails {
   place?: WslPlace;
 }
 
-export {
-  validateSkillAvailabilityUpdateRequest,
-  validateSkillAvailabilityUpdateResponse,
-  validateSkillCallFormCollision,
-  validateSkillCallFormReadRequest,
-  validateSkillCallFormReadResponse,
-  validateSkillCreateRequest,
-  validateSkillEntryResponse,
-  validateSkillFile,
-  validateSkillFileChange,
-  validateSkillFileReadRequest,
-  validateSkillFileReadResponse,
-  validateSkillId,
-  validateSkillListEntry,
-  validateSkillListResponse,
-  validateSkillPathRefusedDetails,
-  validateSkillPathRefusedReason,
-  validateSkillProviderAvailability,
-  validateSkillProviderCallForm,
-  validateSkillRecordDiscardRequest,
-  validateSkillRecordDiscardResponse,
-  validateSkillRecordReattachRequest,
-  validateSkillScanFinding,
-  validateSkillScanRequest,
-  validateSkillScanResponse,
-  validateSkillScanTool,
-  validateSkillUpdateRequest,
-} from "./checks/skill.js";
-
-/** The methods of {@link SKILL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SKILL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SkillMethodDescriptors {
   readonly "skill.list": {
     readonly method: "skill.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SkillListResponse>;
   };
   readonly "skill.subscribe": {
     readonly method: "skill.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<EmptyPayload>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<SkillListResponse>;
   };
   readonly "skill.file.read": {
     readonly method: "skill.file.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SkillFileReadRequest>;
-    readonly responseCheck: SchemaCheck<SkillFileReadResponse>;
   };
   readonly "skill.create": {
     readonly method: "skill.create";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SkillCreateRequest>;
-    readonly responseCheck: SchemaCheck<SkillEntryResponse>;
   };
   readonly "skill.update": {
     readonly method: "skill.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SkillUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SkillEntryResponse>;
   };
   readonly "skill.callForm.read": {
     readonly method: "skill.callForm.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SkillCallFormReadRequest>;
-    readonly responseCheck: SchemaCheck<SkillCallFormReadResponse>;
   };
   readonly "skill.availability.update": {
     readonly method: "skill.availability.update";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SkillAvailabilityUpdateRequest>;
-    readonly responseCheck: SchemaCheck<SkillAvailabilityUpdateResponse>;
   };
   readonly "skill.scan": {
     readonly method: "skill.scan";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SkillScanRequest>;
-    readonly responseCheck: SchemaCheck<SkillScanResponse>;
   };
   readonly "skill.record.reattach": {
     readonly method: "skill.record.reattach";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SkillRecordReattachRequest>;
-    readonly responseCheck: SchemaCheck<SkillEntryResponse>;
   };
   readonly "skill.record.discard": {
     readonly method: "skill.record.discard";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SkillRecordDiscardRequest>;
-    readonly responseCheck: SchemaCheck<SkillRecordDiscardResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SKILL_METHOD_DESCRIPTORS}. */
+export interface SkillMethodTypes {
+  readonly "skill.list": { readonly params: EmptyPayload; readonly result: SkillListResponse };
+  readonly "skill.subscribe": {
+    readonly params: EmptyPayload;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: SkillListResponse;
+  };
+  readonly "skill.file.read": {
+    readonly params: SkillFileReadRequest;
+    readonly result: SkillFileReadResponse;
+  };
+  readonly "skill.create": {
+    readonly params: SkillCreateRequest;
+    readonly result: SkillEntryResponse;
+  };
+  readonly "skill.update": {
+    readonly params: SkillUpdateRequest;
+    readonly result: SkillEntryResponse;
+  };
+  readonly "skill.callForm.read": {
+    readonly params: SkillCallFormReadRequest;
+    readonly result: SkillCallFormReadResponse;
+  };
+  readonly "skill.availability.update": {
+    readonly params: SkillAvailabilityUpdateRequest;
+    readonly result: SkillAvailabilityUpdateResponse;
+  };
+  readonly "skill.scan": { readonly params: SkillScanRequest; readonly result: SkillScanResponse };
+  readonly "skill.record.reattach": {
+    readonly params: SkillRecordReattachRequest;
+    readonly result: SkillEntryResponse;
+  };
+  readonly "skill.record.discard": {
+    readonly params: SkillRecordDiscardRequest;
+    readonly result: SkillRecordDiscardResponse;
   };
 }
 /**
@@ -704,71 +672,50 @@ export const SKILL_METHOD_DESCRIPTORS: SkillMethodDescriptors = /* @__PURE__ */ 
     method: "skill.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSkillListResponse,
   }),
   "skill.subscribe": /* @__PURE__ */ Object.freeze({
     method: "skill.subscribe",
     procedureType: "subscription",
     mutating: false,
-    requestCheck: validateEmptyPayload,
-    responseCheck: validateSubscribeAcknowledgmentResponse,
-    emissionCheck: validateSkillListResponse,
   }),
   "skill.file.read": /* @__PURE__ */ Object.freeze({
     method: "skill.file.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSkillFileReadRequest,
-    responseCheck: validateSkillFileReadResponse,
   }),
   "skill.create": /* @__PURE__ */ Object.freeze({
     method: "skill.create",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSkillCreateRequest,
-    responseCheck: validateSkillEntryResponse,
   }),
   "skill.update": /* @__PURE__ */ Object.freeze({
     method: "skill.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSkillUpdateRequest,
-    responseCheck: validateSkillEntryResponse,
   }),
   "skill.callForm.read": /* @__PURE__ */ Object.freeze({
     method: "skill.callForm.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSkillCallFormReadRequest,
-    responseCheck: validateSkillCallFormReadResponse,
   }),
   "skill.availability.update": /* @__PURE__ */ Object.freeze({
     method: "skill.availability.update",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSkillAvailabilityUpdateRequest,
-    responseCheck: validateSkillAvailabilityUpdateResponse,
   }),
   "skill.scan": /* @__PURE__ */ Object.freeze({
     method: "skill.scan",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSkillScanRequest,
-    responseCheck: validateSkillScanResponse,
   }),
   "skill.record.reattach": /* @__PURE__ */ Object.freeze({
     method: "skill.record.reattach",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSkillRecordReattachRequest,
-    responseCheck: validateSkillEntryResponse,
   }),
   "skill.record.discard": /* @__PURE__ */ Object.freeze({
     method: "skill.record.discard",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSkillRecordDiscardRequest,
-    responseCheck: validateSkillRecordDiscardResponse,
   }),
 });

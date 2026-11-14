@@ -1,23 +1,19 @@
 // A session's unsent draft as the daemon holds it, followed through `session.draft.subscribe`,
 // which delivers the draft held now and again after each change: a save from any device, or a
-// message a Stop put back. Every delivery is checked with the contract's generated check. A draft
-// that names staged files comes with what the daemon found for each, read off `session.read`'s
+// message a Stop put back. A draft that names staged files comes with what the daemon found for each, read off `session.read`'s
 // staged set, since the draft names a file only by its artifact; a draft naming only files the
 // last read answered for, as the echo of this window's own save does, reuses its answer, a file it
-// did not find included, so an id the staged set never holds is not read again. An unreadable
-// delivery, a refused read and a stream the daemon refuses are handed on as the draft being lost.
+// did not find included, so an id the staged set never holds is not read again. A refused read
+// and a stream the daemon refuses are handed on as the draft being lost.
 
-import {
-  type HeldSessionDraft,
-  type SessionAttachmentSummary,
-  validateHeldSessionDraft,
+import type {
+  HeldSessionDraft,
+  SessionAttachmentSummary,
 } from "@ai-sidekicks/contracts/session/draft";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { checkFaultPaths } from "#shared/daemon/fault-path.js";
 import { SESSION_DRAFT_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
 import { callDaemon } from "./reply.js";
@@ -79,7 +75,7 @@ class SessionDraftFollower {
           onEnded,
         ),
       onFrame: (payload) => {
-        this.#takeDraft(payload);
+        this.#takeDraft(payload as HeldSessionDraft);
       },
       onReopenRefusal: (refusal) => {
         if (refusal !== undefined) {
@@ -94,19 +90,9 @@ class SessionDraftFollower {
     };
   }
 
-  #takeDraft(payload: unknown): void {
+  #takeDraft(payload: HeldSessionDraft): void {
     this.#filesRead?.abort();
     this.#filesRead = undefined;
-    if (!validateHeldSessionDraft(payload)) {
-      recordRefusedMemberPaths({
-        source: "services/daemon",
-        kind: "notice-unreadable",
-        subject: SESSION_DRAFT_STREAM,
-        issues: checkFaultPaths(validateHeldSessionDraft, payload),
-      });
-      this.#onFrame({ kind: "lost" });
-      return;
-    }
     const named = payload.draft.extras.attachments ?? [];
     if (named.every((artifactId) => this.#answered.has(artifactId))) {
       this.#onFrame({ kind: "held", held: payload, files: this.#filesNamed(named) });

@@ -4,8 +4,9 @@
 // `read*` functions, which return the value or `undefined`. They mint no refusal: whether an
 // unreadable id is a refusal, a dropped row or a skipped chip is the caller's decision.
 //
-// Where a held id meets a request, `heldIdAsWireId` widens it instead: `callDaemon` checks the
-// whole request with the check that owns the brand, so a malformed id is refused there.
+// Where a held id meets a request, `heldIdAsWireId` widens it instead: the client helper's addon
+// checks the whole request against its contract before it leaves, so a malformed id is refused
+// there.
 
 import { validateRunId, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { validateRunState, type RunState } from "@ai-sidekicks/contracts/run/state";
@@ -66,9 +67,8 @@ export function isLiveRunState(state: RunState): boolean {
 
 // Widens an app-held id string to the branded id a registered request declares. Held ids are
 // plain strings (route params, scenario data, rendered rows), so a caller widens where a held id
-// meets a request. `callDaemon` checks the whole request with the generated check that owns the
-// brand, so a malformed id is refused as `request-unsendable`; a cast anywhere else would carry no
-// such check. Branding a row's id for a callback is deliberately not served, because nothing
+// meets a request. The addon checks the whole request against the contract that owns the brand
+// before it leaves, so a malformed id is refused as `request-unsendable`. Branding a row's id for a callback is deliberately not served, because nothing
 // checks it.
 
 /**

@@ -3,24 +3,7 @@
 
 // The session read and subscribe shapes, the frame a session's stream sends, the verbs called on one session, the two searches and the read of a conversion's skipped files.
 
-import type { SchemaCheck } from "../../schema-check.js";
 import type { AgentId } from "../agent/definition.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateSessionConversionSkippedFileListRequest,
-  validateSessionConversionSkippedFileListResponse,
-} from "../checks/session/convert.js";
-import {
-  validateSessionFileSearchRequest,
-  validateSessionFileSearchResponse,
-  validateSessionReadRequest,
-  validateSessionReadResponse,
-  validateSessionRenameRequest,
-  validateSessionRenameResponse,
-  validateSessionSearchRequest,
-  validateSessionSearchResponse,
-  validateSessionTargetRequest,
-} from "../checks/session/methods.js";
 import type { EventEnvelope } from "../event/envelope.js";
 import type { WireInstant } from "../internal/wire-scalars.js";
 import type { EmptyPayload } from "../method-descriptor.js";
@@ -561,140 +544,147 @@ export interface SessionFileSearchResponse {
 }
 
 export {
-  validateSearchMatchRange,
-  validateSessionAddress,
-  validateSessionEventSubscribeRequest,
-  validateSessionFileSearchEntry,
-  validateSessionFileSearchEntryKind,
-  validateSessionFileSearchRequest,
-  validateSessionFileSearchResponse,
-  validateSessionLiveRun,
-  validateSessionReadRequest,
-  validateSessionReadResponse,
-  validateSessionRecord,
-  validateSessionRenameRequest,
-  validateSessionRenameResponse,
-  validateSessionSearchCursor,
-  validateSessionSearchGroup,
-  validateSessionSearchHit,
-  validateSessionSearchRequest,
-  validateSessionSearchResponse,
   validateSessionShape,
-  validateSessionStandingEvent,
   validateSessionState,
   validateSessionStreamChange,
   validateSessionStreamEndedRow,
   validateSessionStreamFrame,
   validateSessionStreamPiece,
-  validateSessionTargetRequest,
 } from "../checks/session/methods.js";
 
-/** The methods of {@link SESSION_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionMethodDescriptors {
   readonly "session.read": {
     readonly method: "session.read";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionReadRequest>;
-    readonly responseCheck: SchemaCheck<SessionReadResponse>;
   };
   readonly "session.rename": {
     readonly method: "session.rename";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionRenameRequest>;
-    readonly responseCheck: SchemaCheck<SessionRenameResponse>;
   };
   readonly "session.archive": {
     readonly method: "session.archive";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.reactivate": {
     readonly method: "session.reactivate";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.close": {
     readonly method: "session.close";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.pin": {
     readonly method: "session.pin";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.unpin": {
     readonly method: "session.unpin";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.mute": {
     readonly method: "session.mute";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.unmute": {
     readonly method: "session.unmute";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.restart": {
     readonly method: "session.restart";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.recovery.continue": {
     readonly method: "session.recovery.continue";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.recovery.delete": {
     readonly method: "session.recovery.delete";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionTargetRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
   };
   readonly "session.search": {
     readonly method: "session.search";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionSearchRequest>;
-    readonly responseCheck: SchemaCheck<SessionSearchResponse>;
   };
   readonly "session.file.search": {
     readonly method: "session.file.search";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionFileSearchRequest>;
-    readonly responseCheck: SchemaCheck<SessionFileSearchResponse>;
   };
   readonly "session.conversion.skippedFile.list": {
     readonly method: "session.conversion.skippedFile.list";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionConversionSkippedFileListRequest>;
-    readonly responseCheck: SchemaCheck<SessionConversionSkippedFileListResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_METHOD_DESCRIPTORS}. */
+export interface SessionMethodTypes {
+  readonly "session.read": {
+    readonly params: SessionReadRequest;
+    readonly result: SessionReadResponse;
+  };
+  readonly "session.rename": {
+    readonly params: SessionRenameRequest;
+    readonly result: SessionRenameResponse;
+  };
+  readonly "session.archive": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.reactivate": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.close": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.pin": { readonly params: SessionTargetRequest; readonly result: EmptyPayload };
+  readonly "session.unpin": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.mute": { readonly params: SessionTargetRequest; readonly result: EmptyPayload };
+  readonly "session.unmute": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.restart": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.recovery.continue": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.recovery.delete": {
+    readonly params: SessionTargetRequest;
+    readonly result: EmptyPayload;
+  };
+  readonly "session.search": {
+    readonly params: SessionSearchRequest;
+    readonly result: SessionSearchResponse;
+  };
+  readonly "session.file.search": {
+    readonly params: SessionFileSearchRequest;
+    readonly result: SessionFileSearchResponse;
+  };
+  readonly "session.conversion.skippedFile.list": {
+    readonly params: SessionConversionSkippedFileListRequest;
+    readonly result: SessionConversionSkippedFileListResponse;
   };
 }
 /** The `session.*` methods on one session, its searches and its conversion's skipped files. */
@@ -703,105 +693,75 @@ export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = /* @__PURE__
     method: "session.read",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSessionReadRequest,
-    responseCheck: validateSessionReadResponse,
   }),
   "session.rename": /* @__PURE__ */ Object.freeze({
     method: "session.rename",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionRenameRequest,
-    responseCheck: validateSessionRenameResponse,
   }),
   "session.archive": /* @__PURE__ */ Object.freeze({
     method: "session.archive",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.reactivate": /* @__PURE__ */ Object.freeze({
     method: "session.reactivate",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.close": /* @__PURE__ */ Object.freeze({
     method: "session.close",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.pin": /* @__PURE__ */ Object.freeze({
     method: "session.pin",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.unpin": /* @__PURE__ */ Object.freeze({
     method: "session.unpin",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.mute": /* @__PURE__ */ Object.freeze({
     method: "session.mute",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.unmute": /* @__PURE__ */ Object.freeze({
     method: "session.unmute",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.restart": /* @__PURE__ */ Object.freeze({
     method: "session.restart",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.recovery.continue": /* @__PURE__ */ Object.freeze({
     method: "session.recovery.continue",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.recovery.delete": /* @__PURE__ */ Object.freeze({
     method: "session.recovery.delete",
     procedureType: "mutation",
     mutating: true,
-    requestCheck: validateSessionTargetRequest,
-    responseCheck: validateEmptyPayload,
   }),
   "session.search": /* @__PURE__ */ Object.freeze({
     method: "session.search",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSessionSearchRequest,
-    responseCheck: validateSessionSearchResponse,
   }),
   "session.file.search": /* @__PURE__ */ Object.freeze({
     method: "session.file.search",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSessionFileSearchRequest,
-    responseCheck: validateSessionFileSearchResponse,
   }),
   "session.conversion.skippedFile.list": /* @__PURE__ */ Object.freeze({
     method: "session.conversion.skippedFile.list",
     procedureType: "query",
     mutating: false,
-    requestCheck: validateSessionConversionSkippedFileListRequest,
-    responseCheck: validateSessionConversionSkippedFileListResponse,
   }),
 });

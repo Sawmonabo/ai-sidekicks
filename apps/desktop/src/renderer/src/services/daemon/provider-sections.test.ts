@@ -1,6 +1,5 @@
 // The provider store fills from the service's provider list and follows its section stream: each
-// message replaces the one provider it names, and an unreadable one is refused alone, leaving the
-// rest of the list as it stood.
+// message replaces the one provider it names, leaving the rest of the list as it stood.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -51,10 +50,6 @@ describe("the provider store", () => {
     expect(served()).toStrictEqual(["Claude Code", "Codex"]);
 
     deliver({ settings: providerSection("codex", "Codex CLI") });
-    expect(served()).toStrictEqual(["Claude Code", "Codex CLI"]);
-
-    deliver({ settings: { provider: "codex" } });
-    expect(store.state.status).toBe("served");
     expect(served()).toStrictEqual(["Claude Code", "Codex CLI"]);
     release();
   });

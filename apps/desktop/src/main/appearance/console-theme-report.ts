@@ -4,8 +4,6 @@
 // comes back is a new daemon connection and is told again. A report that fails is logged, and the
 // next change or link sends again.
 
-import { TERMINAL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/terminal";
-
 import type { ColorScheme } from "#shared/color-scheme.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { AppearanceTheme } from "#shared/theme/registry.js";
@@ -66,7 +64,7 @@ export class ConsoleThemeReport {
     const sent: SentReport = { theme, scheme };
     this.#sent = sent;
     client
-      .call(TERMINAL_METHOD_DESCRIPTORS["terminal.appearance.report"], {
+      .call("terminal.appearance.report", {
         source: "consoleTheme",
         colors: composeTerminalColors(theme, scheme),
       })

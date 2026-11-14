@@ -1,13 +1,12 @@
 // The bridge's `machineSettings` members main answers: the read, the write and the feed, each over
-// main's own channel to the client helper, which checks the request against the settings contract
-// before it reaches the service, the file's one writer, and main checks the reply.
-
-import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine/settings";
+// main's own channel to the client helper, whose addon checks the request against the settings
+// contract before it reaches the service, the file's one writer.
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import type { DaemonCallOutcome } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
-import { DaemonRefusal, type MainCallMethod } from "../services/daemon/client/process.js";
+import { DaemonRefusal } from "../services/daemon/client/process.js";
+import type { MainMethodTypes } from "../services/daemon/client/method-allowlist.js";
 import { NOT_CONNECTED_MESSAGE, type DaemonLink } from "../services/daemon/link/status.js";
 import type { MainTopicOpener } from "./daemon.js";
 import { pageSafeMessage } from "./page-safe-message.js";
@@ -28,14 +27,9 @@ export function machineSettingsAnswers(
   link: Pick<DaemonLink, "client">,
 ): Readonly<Record<MachineSettingsChannel, MachineSettingsAnswer>> {
   return {
-    [BRIDGE_CHANNELS.readMachineSettings]: () =>
-      callOver(link, MACHINE_SETTINGS_METHOD_DESCRIPTORS["machine.settings.read"], {}),
+    [BRIDGE_CHANNELS.readMachineSettings]: () => callOver(link, "machine.settings.read", {}),
     [BRIDGE_CHANNELS.writeMachineSettings]: async (_event, change) => {
-      const outcome = await callOver(
-        link,
-        MACHINE_SETTINGS_METHOD_DESCRIPTORS["machine.settings.update"],
-        { change },
-      );
+      const outcome = await callOver(link, "machine.settings.update", { change });
       return outcome.outcome === "served"
         ? { outcome: "served", value: outcome.value.settings }
         : outcome;
@@ -43,32 +37,27 @@ export function machineSettingsAnswers(
   };
 }
 
-/** The settings' feed for main's topics; a page opens it with nothing, or it is refused. */
+/** The settings' feed for main's topics; a page opens it with nothing, or the addon refuses it. */
 export function machineSettingsFeed(link: Pick<DaemonLink, "client">): MainTopicOpener {
-  const feed = MACHINE_SETTINGS_METHOD_DESCRIPTORS["machine.settings.subscribe"];
-  const isFeedRequest = feed.requestCheck;
   return (params, deliver, onEnded) => {
-    if (!isFeedRequest(params)) {
-      return { outcome: "unsendable" };
-    }
     const client = link.client;
     if (client === undefined) {
       return { outcome: "failed", message: NOT_CONNECTED_MESSAGE };
     }
     return {
       outcome: "opened",
-      close: client.subscribe(feed, params, deliver, onEnded),
+      close: client.subscribe("machine.settings.subscribe", params, deliver, onEnded),
     };
   };
 }
 
 /** One call over the link, answered as the page reads it: served, refused, or failed. */
-async function callOver<Response>(
+async function callOver<Method extends keyof MainMethodTypes>(
   link: Pick<DaemonLink, "client">,
-  method: MainCallMethod<Response>,
+  method: Method,
   params: unknown,
 ): Promise<
-  | { readonly outcome: "served"; readonly value: Response }
+  | { readonly outcome: "served"; readonly value: MainMethodTypes[Method]["result"] }
   | Exclude<DaemonCallOutcome, { readonly outcome: "served" }>
 > {
   const client = link.client;

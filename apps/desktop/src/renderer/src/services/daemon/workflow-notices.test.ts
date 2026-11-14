@@ -19,6 +19,9 @@ interface StreamOpen {
 
 const LINK_FAILED: DaemonSubscriptionEnd = { reason: "failed", message: "the link went away" };
 
+/** A notice the stream delivers before it ends. */
+const START_HOLD = { kind: "newRunHold", held: false, waitingStartCount: 0 };
+
 describe("the workflow stream", () => {
   it("opens again after it ends, at once or once the transport is back, until released", () => {
     const opens: StreamOpen[] = [];
@@ -34,10 +37,10 @@ describe("the workflow stream", () => {
     expect(opens).toHaveLength(1);
 
     // Ended after it delivered: opened again at once, and the reader told it missed the gap.
-    opens[0]?.deliver({ kind: "not a notice" });
+    opens[0]?.deliver(START_HOLD);
     opens[0]?.end(LINK_FAILED);
     expect(opens).toHaveLength(2);
-    expect(frames).toStrictEqual(["unreadable", "reopened"]);
+    expect(frames).toStrictEqual(["notice", "reopened"]);
 
     // Ended before it delivered: not asked again until the transport comes back.
     opens[1]?.end(LINK_FAILED);
@@ -45,11 +48,11 @@ describe("the workflow stream", () => {
     bridge.transportReconnect.observe("unreachable");
     bridge.transportReconnect.observe("reachable");
     expect(opens).toHaveLength(3);
-    expect(frames).toStrictEqual(["unreadable", "reopened", "reopened"]);
+    expect(frames).toStrictEqual(["notice", "reopened", "reopened"]);
 
     // Released: an end heard afterwards opens nothing.
     release();
-    opens[2]?.deliver({ kind: "not a notice" });
+    opens[2]?.deliver(START_HOLD);
     opens[2]?.end(LINK_FAILED);
     expect(opens).toHaveLength(3);
   });
@@ -64,7 +67,7 @@ describe("the workflow stream", () => {
         throw new Error("the daemon declined the stream");
       }
       ends.push((end) => onEnded?.(end));
-      handler({ kind: "not a notice" });
+      handler(START_HOLD);
       return () => undefined;
     });
     const frames: WorkflowNoticeFrame[] = [];
@@ -85,7 +88,7 @@ describe("the workflow stream", () => {
     clock.advance(REOPEN_WAITS_MS[1]!);
     expect(frames.map((frame) => frame.kind)).toStrictEqual([
       "reopenRefused",
-      "unreadable",
+      "notice",
       "reopened",
     ]);
     release();

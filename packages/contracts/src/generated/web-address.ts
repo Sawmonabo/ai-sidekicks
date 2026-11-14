@@ -17,5 +17,3 @@ export const WEB_ADDRESS_FAULTS = ["scheme"] as const;
  * `http:` nor `https:`.
  */
 export type WebAddressFault = "scheme";
-
-export { validateWebAddressFault } from "./checks/web-address.js";

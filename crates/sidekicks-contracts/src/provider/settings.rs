@@ -654,12 +654,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           fixed facts, shared rows and declared rows, apart from its accounts, installs and \
           imports.",
     definitions: &[
-        Definition::read::<ProviderInstallation>().checked(),
-        Definition::read::<ProviderPlaceReading>().checked(),
-        Definition::read::<ProviderAutoCompactBound>().checked(),
+        Definition::read::<ProviderInstallation>(),
+        Definition::read::<ProviderPlaceReading>(),
+        Definition::read::<ProviderAutoCompactBound>(),
         Definition::read::<ProviderPlanWord>(),
         Definition::read::<ProviderBuiltInTool>(),
-        Definition::read::<ProviderSection>().checked(),
+        Definition::read::<ProviderSection>(),
         Definition::read::<ProviderSettingsResponse>(),
         Definition::read::<ProviderRequest>(),
         Definition::read::<ProviderPlaceRequest>(),

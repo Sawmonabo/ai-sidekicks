@@ -566,8 +566,3 @@ export type KnownRefusalCategory =
  * text of one a newer build sends, so a newer daemon's refusal is still read as a refusal.
  */
 export type RefusalCategory = KnownRefusalCategory | string;
-
-export {
-  validateKnownRefusalCategory,
-  validateRefusalCategory,
-} from "../checks/jsonrpc/refusal.js";

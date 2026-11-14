@@ -3,12 +3,6 @@
 
 // The status line under a running tool call: the provider's own words for its progress, live and keyed per call, never stored.
 
-import type { SchemaCheck } from "../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "./checks/jsonrpc/streaming.js";
-import {
-  validateAgentToolCallStatusSubscribeRequest,
-  validateToolCallStatusUpdate,
-} from "./checks/tool-call-status.js";
 import type { SubscribeAcknowledgmentResponse } from "./jsonrpc/streaming.js";
 import type { ToolCallId } from "./provider/tool-call.js";
 import type { SessionId } from "./session/id.js";
@@ -44,20 +38,20 @@ export interface ToolCallStatusUpdate {
   status: string | null;
 }
 
-export {
-  validateAgentToolCallStatusSubscribeRequest,
-  validateToolCallStatusUpdate,
-} from "./checks/tool-call-status.js";
-
-/** The methods of {@link TOOL_CALL_STATUS_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link TOOL_CALL_STATUS_METHOD_DESCRIPTORS}, each with its kind. */
 export interface ToolCallStatusMethodDescriptors {
   readonly "agent.toolCall.status.subscribe": {
     readonly method: "agent.toolCall.status.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<AgentToolCallStatusSubscribeRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ToolCallStatusUpdate>;
+  };
+}
+/** The params, result and emission types of each method of {@link TOOL_CALL_STATUS_METHOD_DESCRIPTORS}. */
+export interface ToolCallStatusMethodTypes {
+  readonly "agent.toolCall.status.subscribe": {
+    readonly params: AgentToolCallStatusSubscribeRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ToolCallStatusUpdate;
   };
 }
 /** The status lines of a session's running tool calls. */
@@ -67,8 +61,5 @@ export const TOOL_CALL_STATUS_METHOD_DESCRIPTORS: ToolCallStatusMethodDescriptor
       method: "agent.toolCall.status.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateAgentToolCallStatusSubscribeRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateToolCallStatusUpdate,
     }),
   });

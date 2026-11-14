@@ -159,10 +159,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "A session's spend: the committed figure and each agent's share of it, and the cost \
           receipt the inspector reads by provider and account, all in whole micro-dollars.",
     definitions: &[
-        Definition::read::<UsdMicros>().checked(),
-        Definition::read::<TokensPerRun>().checked(),
-        Definition::read::<AgentSpend>().checked(),
-        Definition::read::<SessionBudgetState>().checked(),
+        Definition::read::<UsdMicros>(),
+        Definition::read::<TokensPerRun>(),
+        Definition::read::<AgentSpend>(),
+        Definition::read::<SessionBudgetState>(),
         Definition::read::<SessionBudgetReadRequest>(),
         Definition::read::<SessionCostReceiptReadRequest>(),
         Definition::read::<SessionCostReceiptAccountRow>(),

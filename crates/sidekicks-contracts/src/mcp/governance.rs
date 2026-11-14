@@ -383,12 +383,12 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           codes, a write conflict's reason, the binding store's cause and a config file \
           refusal's details.",
     definitions: &[
-        Definition::read::<McpServerStatusChangedNotice>().checked(),
+        Definition::read::<McpServerStatusChangedNotice>(),
         Definition::read::<McpServerSignInOutcome>(),
         Definition::read::<McpServerConfigWriteConflictReason>(),
         Definition::read::<McpReceiptKeyCause>(),
         Definition::read::<McpBindingStoreUnavailableCause>(),
-        Definition::read::<McpServerSignInCompletedPayload>().checked(),
+        Definition::read::<McpServerSignInCompletedPayload>(),
         Definition::read::<McpServerConfigFileInvalidDetails>(),
     ],
     constants: TS_CONSTANTS,

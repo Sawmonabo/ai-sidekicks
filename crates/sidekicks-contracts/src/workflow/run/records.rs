@@ -639,13 +639,13 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "Workflow run records: the run's own record, reading one run with its steps, and the \
           method table of every method that reads, lists and keeps run records.",
     definitions: &[
-        Definition::read::<WorkflowLiveStep>().checked(),
-        Definition::read::<WorkflowChainRoot>().checked(),
-        Definition::read::<WorkflowChainQuestion>().checked(),
+        Definition::read::<WorkflowLiveStep>(),
+        Definition::read::<WorkflowChainRoot>(),
+        Definition::read::<WorkflowChainQuestion>(),
         Definition::read::<WorkflowEdgeItemCount>(),
         Definition::read::<WorkflowRunReview>(),
         Definition::read::<WorkflowRun>(),
-        Definition::read::<WorkflowRunReadRequest>().checked(),
+        Definition::read::<WorkflowRunReadRequest>(),
         Definition::read::<WorkflowRunReadResponse>().checked(),
     ],
     constants: TS_CONSTANTS,

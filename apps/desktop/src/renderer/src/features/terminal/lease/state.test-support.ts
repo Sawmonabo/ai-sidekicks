@@ -1,8 +1,5 @@
-// The two devices, the shell, the run and its command, and the two event builders every lease
-// suite shares. One home, so the suites do not spell the same identities differently, and the
-// malformed-shape cases are only meaningful against a builder whose default is well formed. The
-// structured builder is expressed over the raw one, so there is one answer to what an event's
-// id, session and instant look like.
+// The two devices, the shell, the run and its command, and the transition builder every lease
+// suite shares, so the suites do not spell the same identities differently.
 
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -33,32 +30,7 @@ export const RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0199" as RunId;
 /** The run's command that holds the shell; a run's hold names both. */
 export const COMMAND_ID = "command-1" as CommandId;
 
-/**
- * A `terminal.control.changed` carrying exactly the payload a case hands it. The reader's suites
- * decide the member set, including an absent payload.
- */
-export function leaseEventWithPayload(
-  sequence: number,
-  payload: Record<string, unknown> | undefined,
-  actorId: string | undefined = OTHER_DEVICE_ID,
-): ProjectedSessionEvent {
-  return {
-    // The app's one admitted-event builder, plus the actor a lease move is attributed to,
-    // which it does not take.
-    ...eventOfKind(
-      TERMINAL_LEASE_SCENARIO.sessionId,
-      TERMINAL_CONTROL_CHANGED_EVENT,
-      sequence,
-      payload,
-    ),
-    ...(actorId === undefined ? {} : { actorId }),
-  };
-}
-
-/**
- * A well-formed transition from the members a caller means to vary. The default makes the
- * malformed cases mean something: a caller changes one member of an event the reader accepts.
- */
+/** A `terminal.control.changed` from the members a caller means to vary, attributed to its holder. */
 export function transitionEvent(
   sequence: number,
   reason: string,
@@ -66,9 +38,8 @@ export function transitionEvent(
   previousHolderDeviceId: string | null = null,
   options: TransitionEventOptions = {},
 ): ProjectedSessionEvent {
-  return leaseEventWithPayload(
-    sequence,
-    {
+  return {
+    ...eventOfKind(TERMINAL_LEASE_SCENARIO.sessionId, TERMINAL_CONTROL_CHANGED_EVENT, sequence, {
       sessionId: TERMINAL_LEASE_SCENARIO.sessionId,
       terminalId: options.terminalId ?? SHELL_ID,
       holderDeviceId,
@@ -79,12 +50,13 @@ export function transitionEvent(
       previousHolderDeviceId,
       reason,
       leaseVersion: options.leaseVersion ?? sequence,
-    },
-    holderDeviceId ?? undefined,
-  );
+    }),
+    // The actor a lease move is attributed to, which the app's event builder does not take.
+    actorId: holderDeviceId ?? OTHER_DEVICE_ID,
+  };
 }
 
-/** What a well-formed transition may vary beyond its reason and holders. */
+/** What a transition may vary beyond its reason and holders. */
 interface TransitionEventOptions {
   readonly terminalId?: TerminalId;
   readonly holderRunId?: RunId;

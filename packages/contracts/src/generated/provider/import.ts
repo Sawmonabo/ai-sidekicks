@@ -3,16 +3,6 @@
 
 // Importing a provider's own conversations into the sessions list.
 
-import type { SchemaCheck } from "../../schema-check.js";
-import { validateSubscribeAcknowledgmentResponse } from "../checks/jsonrpc/streaming.js";
-import { validateEmptyPayload } from "../checks/method-descriptor.js";
-import {
-  validateProviderImportProgress,
-  validateSessionImportPreviewResponse,
-  validateSessionImportRequest,
-  validateSessionImportStartResponse,
-  validateSessionImportStopRequest,
-} from "../checks/provider/import.js";
 import type { SubscribeAcknowledgmentResponse } from "../jsonrpc/streaming.js";
 import type { EmptyPayload } from "../method-descriptor.js";
 import type { PlacedPath, WslPlace } from "../place.js";
@@ -191,47 +181,47 @@ export interface SessionImportStopRequest {
   importId: ProviderImportId;
 }
 
-export {
-  validateProviderImportFailure,
-  validateProviderImportId,
-  validateProviderImportOutcome,
-  validateProviderImportProgress,
-  validateSessionImportPreviewResponse,
-  validateSessionImportRequest,
-  validateSessionImportStartResponse,
-  validateSessionImportStopRequest,
-} from "../checks/provider/import.js";
-
-/** The methods of {@link SESSION_IMPORT_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link SESSION_IMPORT_METHOD_DESCRIPTORS}, each with its kind. */
 export interface SessionImportMethodDescriptors {
   readonly "session.import.preview": {
     readonly method: "session.import.preview";
     readonly procedureType: "query";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionImportRequest>;
-    readonly responseCheck: SchemaCheck<SessionImportPreviewResponse>;
   };
   readonly "session.import.start": {
     readonly method: "session.import.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionImportRequest>;
-    readonly responseCheck: SchemaCheck<SessionImportStartResponse>;
   };
   readonly "session.import.subscribe": {
     readonly method: "session.import.subscribe";
     readonly procedureType: "subscription";
     readonly mutating: false;
-    readonly requestCheck: SchemaCheck<SessionImportRequest>;
-    readonly responseCheck: SchemaCheck<SubscribeAcknowledgmentResponse>;
-    readonly emissionCheck: SchemaCheck<ProviderImportProgress>;
   };
   readonly "session.import.stop": {
     readonly method: "session.import.stop";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<SessionImportStopRequest>;
-    readonly responseCheck: SchemaCheck<EmptyPayload>;
+  };
+}
+/** The params, result and emission types of each method of {@link SESSION_IMPORT_METHOD_DESCRIPTORS}. */
+export interface SessionImportMethodTypes {
+  readonly "session.import.preview": {
+    readonly params: SessionImportRequest;
+    readonly result: SessionImportPreviewResponse;
+  };
+  readonly "session.import.start": {
+    readonly params: SessionImportRequest;
+    readonly result: SessionImportStartResponse;
+  };
+  readonly "session.import.subscribe": {
+    readonly params: SessionImportRequest;
+    readonly result: SubscribeAcknowledgmentResponse;
+    readonly emission: ProviderImportProgress;
+  };
+  readonly "session.import.stop": {
+    readonly params: SessionImportStopRequest;
+    readonly result: EmptyPayload;
   };
 }
 /** The four import methods: their names, how each answers, and their shapes. */
@@ -241,29 +231,20 @@ export const SESSION_IMPORT_METHOD_DESCRIPTORS: SessionImportMethodDescriptors =
       method: "session.import.preview",
       procedureType: "query",
       mutating: false,
-      requestCheck: validateSessionImportRequest,
-      responseCheck: validateSessionImportPreviewResponse,
     }),
     "session.import.start": /* @__PURE__ */ Object.freeze({
       method: "session.import.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionImportRequest,
-      responseCheck: validateSessionImportStartResponse,
     }),
     "session.import.subscribe": /* @__PURE__ */ Object.freeze({
       method: "session.import.subscribe",
       procedureType: "subscription",
       mutating: false,
-      requestCheck: validateSessionImportRequest,
-      responseCheck: validateSubscribeAcknowledgmentResponse,
-      emissionCheck: validateProviderImportProgress,
     }),
     "session.import.stop": /* @__PURE__ */ Object.freeze({
       method: "session.import.stop",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateSessionImportStopRequest,
-      responseCheck: validateEmptyPayload,
     }),
   });

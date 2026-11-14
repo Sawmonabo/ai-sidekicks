@@ -312,8 +312,8 @@ macro_rules! named_scalar {
 
 pub(crate) use named_scalar;
 
-/// A checked definition for a scalar every member inlines: `name` with the scalar's own schema and
-/// `doc` as its description, so TypeScript gets the scalar's check without a type alias per member.
+/// A definition for a scalar every member inlines: `name` with the scalar's own schema and `doc` as
+/// its description, so TypeScript names the scalar once without a type alias per member.
 macro_rules! inline_scalar_definition {
     ($type:ty, $name:literal, $doc:literal) => {
         $crate::typescript::Definition {
@@ -324,7 +324,7 @@ macro_rules! inline_scalar_definition {
                 schema
             },
             contract: $crate::typescript::SchemaContract::Read,
-            is_checked: true,
+            is_checked: false,
         }
     };
 }
@@ -339,7 +339,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           count, the text the daemon composes, text that is not blank, a port and the placeholder \
           a byte member is written as.",
     definitions: &[
-        Definition::read::<instant::WireInstant>().checked(),
+        Definition::read::<instant::WireInstant>(),
         Definition::read::<date::WireDate>(),
         inline_scalar_definition!(
             integer::SafeInt<0>,

@@ -1,7 +1,7 @@
 // The machine's settings from the page's bridge, through main and the client helper, to the
 // service and back: the read, the write answered with the file as written, a refusal the settings
-// page reads, a change off its contract refused by the helper with nothing sent, and the feed,
-// whose readings main checks against the settings contract.
+// page reads, a change off its contract refused by the helper's addon with nothing sent, and the
+// feed's readings.
 
 import { setImmediate } from "node:timers/promises";
 
@@ -69,7 +69,7 @@ describe("the machine's settings through main", () => {
     await expect(bridge.machineSettings.write({ editorId: "sublime-text" })).rejects.toEqual(
       REFUSAL,
     );
-    // A change off its contract is refused at the helper, before the service.
+    // A change off its contract is refused by the helper's addon, before the service.
     await expect(bridge.machineSettings.write({ editorId: 7 } as never)).rejects.toMatchObject({
       data: { type: "request.paramsInvalid" },
     });
@@ -80,29 +80,24 @@ describe("the machine's settings through main", () => {
     ]);
   });
 
-  it("delivers the feed's readings and ends it on one the contract refuses", async () => {
+  it("delivers the feed's readings", async () => {
     const reading = { settings: MACHINE_SETTINGS_DEFAULTS };
     const daemon = scriptedDaemon(() => ({ result: { subscriptionId: "feed" } }));
     const bridge = await bridgeOver(daemon);
     const readings: unknown[] = [];
-    const ends: unknown[] = [];
 
     bridge.machineSettings.subscribe(
       (delivered) => readings.push(delivered),
-      (end) => ends.push(end),
+      () => undefined,
     );
     await vi.waitFor(() => {
       expect(daemon.requests).toEqual([{ method: "machine.settings.subscribe", params: {} }]);
     });
     await setImmediate();
     daemon.notify("machine.settings.subscribe", reading);
-    daemon.notify("machine.settings.subscribe", {
-      settings: { ...MACHINE_SETTINGS_DEFAULTS, editorId: 7 },
-    });
 
     await vi.waitFor(() => {
-      expect(ends).toMatchObject([{ reason: "failed" }]);
+      expect(readings).toEqual([reading]);
     });
-    expect(readings).toEqual([reading]);
   });
 });

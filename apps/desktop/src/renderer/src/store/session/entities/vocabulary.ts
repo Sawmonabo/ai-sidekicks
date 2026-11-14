@@ -7,6 +7,7 @@
 //     cannot heal.
 //   - Projections never persist. `persistence/` holds UI state only, and every entity here is
 //     re-derived from the daemon on reconnect.
+import type { SessionEvent } from "@ai-sidekicks/contracts/event/session";
 import type {
   TranscriptReadRow,
   TranscriptRowContent,
@@ -152,6 +153,12 @@ export type EntityProjector = (event: ProjectedSessionEvent) => readonly EntityM
 /** The projector registry: event kind to the projector that claims it. */
 export type EntityProjectorTable = Readonly<Record<string, EntityProjector>>;
 
+/** The payload the contracts give an event of `Type`. */
+export type SessionEventPayload<Type extends SessionEvent["type"]> = Extract<
+  SessionEvent,
+  { readonly type: Type }
+>["payload"];
+
 /** An empty partition set, one map per kind. */
 export function emptyPartitions(): Record<EntityKind, Readonly<Record<string, StoredEntity>>> {
   const partitions = {} as Record<EntityKind, Readonly<Record<string, StoredEntity>>>;
@@ -159,6 +166,18 @@ export function emptyPartitions(): Record<EntityKind, Readonly<Record<string, St
     partitions[kind] = {};
   }
   return partitions;
+}
+
+/**
+ * `event`'s payload as the contracts type an event of `type`, or `undefined` for an event of
+ * another type. The service checks every event it stores, so the payload is its type's own.
+ */
+export function payloadOf<Type extends SessionEvent["type"]>(
+  event: ProjectedSessionEvent,
+  type: Type,
+): SessionEventPayload<Type> | undefined {
+  // The store holds every payload as an open record; its type is known only from `kind`.
+  return event.kind === type ? (event.payload as unknown as SessionEventPayload<Type>) : undefined;
 }
 
 /** The wire's `available` arm, which carries a body's text as a string. */

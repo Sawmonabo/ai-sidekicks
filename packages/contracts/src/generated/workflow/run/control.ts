@@ -3,22 +3,6 @@
 
 // The acts on a workflow run: starting one, canceling and resuming it, retrying from a step, running one node from the builder and posting a finished run's results into a session, with their refusals and their method table.
 
-import type { SchemaCheck } from "../../../schema-check.js";
-import {
-  validateWorkflowNodeExecuteRequest,
-  validateWorkflowNodeExecuteResponse,
-  validateWorkflowResultsPostRequest,
-  validateWorkflowResultsPostResponse,
-  validateWorkflowRunCancelRequest,
-  validateWorkflowRunCancelResponse,
-  validateWorkflowRunRerunRequest,
-  validateWorkflowRunResumeRequest,
-  validateWorkflowRunResumeResponse,
-  validateWorkflowRunRetryRequest,
-  validateWorkflowRunRetryResponse,
-  validateWorkflowRunStartRequest,
-  validateWorkflowRunStartResponse,
-} from "../../checks/workflow/run/control.js";
 import type { ProjectId } from "../../project.js";
 import type { SessionId } from "../../session/id.js";
 import type { WorkflowNodeId, WorkflowVersionId } from "../definition/document.js";
@@ -515,87 +499,75 @@ export interface WorkflowRunIdempotencyConflictDetails {
   workflowRunId: WorkflowRunId;
 }
 
-export {
-  validateWorkflowCancelReason,
-  validateWorkflowCodePackagesNotLockedDetails,
-  validateWorkflowNodeExecuteRequest,
-  validateWorkflowNodeExecuteResponse,
-  validateWorkflowNodeExecuteScope,
-  validateWorkflowRequestableRunMode,
-  validateWorkflowResultsPostRequest,
-  validateWorkflowResultsPostResponse,
-  validateWorkflowRunCancelRequest,
-  validateWorkflowRunCancelResponse,
-  validateWorkflowRunHandleUndeclaredDetails,
-  validateWorkflowRunIdempotencyConflictDetails,
-  validateWorkflowRunInputRequiredDetails,
-  validateWorkflowRunNodeKindUnavailableDetails,
-  validateWorkflowRunProviderRequiredDetails,
-  validateWorkflowRunRepositoryRequiredDetails,
-  validateWorkflowRunRerunRequest,
-  validateWorkflowRunResumeRequest,
-  validateWorkflowRunResumeResponse,
-  validateWorkflowRunResumeStatus,
-  validateWorkflowRunResumeVersionRepin,
-  validateWorkflowRunRetryRequest,
-  validateWorkflowRunRetryResponse,
-  validateWorkflowRunStartRequest,
-  validateWorkflowRunStartResponse,
-  validateWorkflowRunStartStatus,
-  validateWorkflowRunStillRunningDetails,
-  validateWorkflowRunStillRunningReason,
-} from "../../checks/workflow/run/control.js";
+export { validateWorkflowCancelReason } from "../../checks/workflow/run/control.js";
 
-/** The methods of {@link WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS}, each with its checks. */
+/** The methods of {@link WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS}, each with its kind. */
 export interface WorkflowRunControlMethodDescriptors {
   readonly "workflow.run.start": {
     readonly method: "workflow.run.start";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunStartRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunStartResponse>;
   };
   readonly "workflow.run.cancel": {
     readonly method: "workflow.run.cancel";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunCancelRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunCancelResponse>;
   };
   readonly "workflow.run.resume": {
     readonly method: "workflow.run.resume";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunResumeRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunResumeResponse>;
   };
   readonly "workflow.run.retry": {
     readonly method: "workflow.run.retry";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunRetryRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunRetryResponse>;
   };
   readonly "workflow.run.rerun": {
     readonly method: "workflow.run.rerun";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowRunRerunRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowRunStartResponse>;
   };
   readonly "workflow.node.execute": {
     readonly method: "workflow.node.execute";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowNodeExecuteRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowNodeExecuteResponse>;
   };
   readonly "workflow.results.post": {
     readonly method: "workflow.results.post";
     readonly procedureType: "mutation";
     readonly mutating: true;
-    readonly requestCheck: SchemaCheck<WorkflowResultsPostRequest>;
-    readonly responseCheck: SchemaCheck<WorkflowResultsPostResponse>;
+  };
+}
+/** The params, result and emission types of each method of {@link WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS}. */
+export interface WorkflowRunControlMethodTypes {
+  readonly "workflow.run.start": {
+    readonly params: WorkflowRunStartRequest;
+    readonly result: WorkflowRunStartResponse;
+  };
+  readonly "workflow.run.cancel": {
+    readonly params: WorkflowRunCancelRequest;
+    readonly result: WorkflowRunCancelResponse;
+  };
+  readonly "workflow.run.resume": {
+    readonly params: WorkflowRunResumeRequest;
+    readonly result: WorkflowRunResumeResponse;
+  };
+  readonly "workflow.run.retry": {
+    readonly params: WorkflowRunRetryRequest;
+    readonly result: WorkflowRunRetryResponse;
+  };
+  readonly "workflow.run.rerun": {
+    readonly params: WorkflowRunRerunRequest;
+    readonly result: WorkflowRunStartResponse;
+  };
+  readonly "workflow.node.execute": {
+    readonly params: WorkflowNodeExecuteRequest;
+    readonly result: WorkflowNodeExecuteResponse;
+  };
+  readonly "workflow.results.post": {
+    readonly params: WorkflowResultsPostRequest;
+    readonly result: WorkflowResultsPostResponse;
   };
 }
 /** The `workflow.*` methods that act on a run. */
@@ -605,49 +577,35 @@ export const WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS: WorkflowRunControlMethodDe
       method: "workflow.run.start",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunStartRequest,
-      responseCheck: validateWorkflowRunStartResponse,
     }),
     "workflow.run.cancel": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.cancel",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunCancelRequest,
-      responseCheck: validateWorkflowRunCancelResponse,
     }),
     "workflow.run.resume": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.resume",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunResumeRequest,
-      responseCheck: validateWorkflowRunResumeResponse,
     }),
     "workflow.run.retry": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.retry",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunRetryRequest,
-      responseCheck: validateWorkflowRunRetryResponse,
     }),
     "workflow.run.rerun": /* @__PURE__ */ Object.freeze({
       method: "workflow.run.rerun",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowRunRerunRequest,
-      responseCheck: validateWorkflowRunStartResponse,
     }),
     "workflow.node.execute": /* @__PURE__ */ Object.freeze({
       method: "workflow.node.execute",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowNodeExecuteRequest,
-      responseCheck: validateWorkflowNodeExecuteResponse,
     }),
     "workflow.results.post": /* @__PURE__ */ Object.freeze({
       method: "workflow.results.post",
       procedureType: "mutation",
       mutating: true,
-      requestCheck: validateWorkflowResultsPostRequest,
-      responseCheck: validateWorkflowResultsPostResponse,
     }),
   });

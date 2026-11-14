@@ -224,7 +224,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );
@@ -237,7 +236,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );
@@ -262,7 +260,6 @@ describe("the composed new-session draft — the transport it would send through
           queueFirstTurn={REJECTING_FIRST_TURN}
           lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
         />
       </LiveAnnouncerProvider>,
     );

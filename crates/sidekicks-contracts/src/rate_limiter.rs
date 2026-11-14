@@ -59,7 +59,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The relay's sign-in-route limit as a device reads it: the body of a 429 refusal, and the \
           code a sign-in route refuses with when the relay cannot tell which address a request \
           came from.",
-    definitions: &[Definition::read::<RateLimitResponse>().checked()],
+    definitions: &[Definition::read::<RateLimitResponse>()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };

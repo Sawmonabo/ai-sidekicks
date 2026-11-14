@@ -460,7 +460,6 @@ export {
   validateApprovalReviewerFlaggedPayload,
   validateModerationReviewSignal,
   validateProviderWarningSource,
-  validateRunSafetyBufferingUpdatedPayload,
   validateSessionNoticePostedPayload,
   validateSessionSideQuestionAnsweredPayload,
   validateSessionSpendLimitReachedPayload,

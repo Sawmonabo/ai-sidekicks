@@ -230,7 +230,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AppDiagnosticSeverity>(),
         Definition::read::<AppDiagnosticHeldBackCause>(),
         Definition::read::<AppErrorSource>(),
-        Definition::read::<AppDiagnosticRecord>().checked(),
+        Definition::read::<AppDiagnosticRecord>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_APP_DIAGNOSTIC_METHOD_DESCRIPTORS],

@@ -41,9 +41,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "git/shared",
     doc: "The scalars the git modules share.",
     definitions: &[
-        Definition::read::<GitShortObjectId>().checked(),
+        Definition::read::<GitShortObjectId>(),
         Definition::read::<HostHandle>(),
-        Definition::read::<ChangeRequestNumber>().checked(),
+        Definition::read::<ChangeRequestNumber>(),
         Definition::read::<HostingAddress>().checked(),
     ],
     constants: &[],

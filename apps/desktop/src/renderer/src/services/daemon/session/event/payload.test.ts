@@ -1,6 +1,4 @@
-// The decode boundary reads the wire's envelope and refuses the app's own projection shape.
-// Both halves matter: a boundary that read the projection's names refused every canonical envelope
-// while the fixture handed it the projection and every assertion agreed. The envelopes here are
+// The decode boundary reads the wire's envelope into the app's event. The envelopes here are
 // written member by member, not composed by `event/envelope.fixture.ts`, so the test checks the
 // boundary against the contract rather than against the fixture's own composer.
 
@@ -14,7 +12,7 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 
 import { readSessionStreamFrame, type SessionStreamFrameReading } from "./payload.js";
 
-/** A session id the branded check accepts. */
+/** A session id as the daemon mints one. */
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
 /** The daemon's opaque row id for the event under test. */
@@ -63,10 +61,7 @@ function categoryOtherThan(ownCategory: EventCategory): EventCategory {
   return foreign;
 }
 
-/**
- * One canonical envelope, spelled as `packages/contracts` declares it. `overrides` is untyped so a
- * case can set a member to a value the contract forbids.
- */
+/** One canonical envelope, spelled as `packages/contracts` declares it, with a case's overrides. */
 function registeredEnvelope(
   overrides: Readonly<Record<string, unknown>> = {},
 ): Readonly<Record<string, unknown>> {
@@ -89,13 +84,13 @@ function frameCarrying(envelope: unknown): Readonly<Record<string, unknown>> {
 }
 
 /** The frame carrying one envelope, read. */
-function readFrameOf(envelope: unknown): SessionStreamFrameReading | undefined {
+function readFrameOf(envelope: unknown): SessionStreamFrameReading {
   return readSessionStreamFrame(frameCarrying(envelope), [], undefined);
 }
 
 /** The one event a frame carrying this envelope yields, or `undefined`. */
 function readOneEvent(envelope: unknown): ProjectedSessionEvent | undefined {
-  return readFrameOf(envelope)?.events[0];
+  return readFrameOf(envelope).events[0];
 }
 
 describe("readSessionStreamFrame — the registered envelope", () => {
@@ -133,18 +128,18 @@ describe("readSessionStreamFrame — the registered envelope", () => {
 
 describe("readSessionStreamFrame — the census pairing of type and category", () => {
   it("refuses a census-known type carrying a category the registry does not pair it with", () => {
-    // The case the envelope check cannot make: it admits any registered category beside any type.
-    // Without this check the run partition would be mutated off a pairing the registry refuses.
+    // The envelope's type admits any registered category beside any type. Without this check the
+    // run partition would be mutated off a pairing the registry refuses.
     const reading = readFrameOf(
       registeredEnvelope({ category: categoryOtherThan(REGISTERED_CATEGORY) }),
     );
 
     // The refusal is the event's; the frame's other changes are not lost with it.
-    expect(reading?.events).toStrictEqual([]);
-    expect(reading?.unreadableEventCount).toBe(1);
+    expect(reading.events).toStrictEqual([]);
+    expect(reading.unreadableEventCount).toBe(1);
     // A stream opened again resumes past the refused change too, so the daemon never sends it
     // twice.
-    expect(reading?.resumeCursor).toBe(CHANGE_CURSOR);
+    expect(reading.resumeCursor).toBe(CHANGE_CURSOR);
   });
 
   it("admits a type the census does not register, whatever category it names", () => {
@@ -195,27 +190,9 @@ describe("readSessionStreamFrame — the files a frame's events name", () => {
       [otherPath]: "ref-other" as FilePathRef,
     });
 
-    expect(reading?.events.map((event) => event.fileRefs)).toStrictEqual([
+    expect(reading.events.map((event) => event.fileRefs)).toStrictEqual([
       { [settingsPath]: settingsRef },
       undefined,
     ]);
-  });
-});
-
-describe("readSessionStreamFrame — what it refuses", () => {
-  it("refuses the app's own projection shape", () => {
-    // The app's own field names, with no `category` or `version`, which a boundary still
-    // reading the projection would admit.
-    const reading = readFrameOf({
-      id: EVENT_ID,
-      sessionId: SESSION_ID,
-      sequence: 7,
-      kind: "agent.run.running",
-      occurredAt: OCCURRED_AT,
-      actorId: USER_ID,
-      payload: {},
-    });
-
-    expect(reading).toBeUndefined();
   });
 });
