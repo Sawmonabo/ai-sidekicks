@@ -123,6 +123,8 @@ pub(crate) struct ExecutionRootStart<'start> {
     pub(crate) reads: Arc<DatabaseReadPool>,
     /// The daemon's one writer.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The daemon's one event log, which a change to a session's pending move appends to.
+    pub(crate) event_log: Arc<EventLogService>,
     /// The daemon's git.
     pub(crate) git: GitRunner,
     /// The repository services, whose event seams and worktree service these take.
@@ -164,6 +166,7 @@ pub(crate) fn build_execution_root_services(
     let ExecutionRootStart {
         reads,
         writer,
+        event_log,
         git,
         repo,
         creator,
@@ -206,7 +209,7 @@ pub(crate) fn build_execution_root_services(
     ));
     let session_working_folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
         reads: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
+        event_log,
         execution_roots: Arc::clone(&execution_roots),
         worktree_events: Arc::clone(&repo.worktree_events),
     }));

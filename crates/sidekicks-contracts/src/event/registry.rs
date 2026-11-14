@@ -154,8 +154,8 @@ session_event_types! {
     ]
     /// The event types of the `sessionLifecycle` category: session (including the side
     /// question, the undo record, the pin and mute marks and a chat's conversion), agent, repo,
-    /// workspace and worktree (including the branch change and the sweep to the repository root),
-    /// terminal and cloud task.
+    /// workspace and worktree (including the branch change, the sweep to the repository root and
+    /// the working-folder move that waits for a run's end), terminal and cloud task.
     SESSION_LIFECYCLE_EVENT_TYPES = SessionLifecycle [
         SessionCreated = "session.created",
         SessionActivated = "session.activated",
@@ -193,6 +193,7 @@ session_event_types! {
         RepoMountHealthChanged = "repoMount.health.changed",
         SessionBranchChanged = "session.branch.changed",
         SessionSweptToCheckout = "session.sweptToCheckout",
+        SessionPendingWorkingFolderChanged = "session.pendingWorkingFolder.changed",
         TerminalControlChanged = "terminal.control.changed",
         CloudTaskUpdated = "cloud.task.updated",
     ]

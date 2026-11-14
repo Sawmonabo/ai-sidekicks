@@ -114,8 +114,10 @@ interface NewWorktreeSuggestion {
 // not a state transition: it records that this session's working folder is now the repository root
 // because the worktree it was attached to was removed. `worktreeId` names the REMOVED tree, and
 // `pendingMoveCleared` is present only where the same removal cleared a pending working-folder move
-// that pointed at it — the presence-discriminator idiom, absent rather than `false`. One event is
-// appended per session the removal moved, so each moved session's own flow row survives a reload.
+// that pointed at it — the presence-discriminator idiom, absent rather than `false` — and the same
+// write appends that session's `session.pendingWorkingFolder.changed` with no move waiting. One
+// event is appended per session the removal moved, so each moved session's own flow row survives a
+// reload.
 interface SessionSweptToCheckoutPayload {
   sessionId: SessionId;
   repoMountId: RepoMountId;

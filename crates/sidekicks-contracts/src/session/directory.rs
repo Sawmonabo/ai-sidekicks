@@ -25,7 +25,8 @@ use crate::session::event_cursor::EventCursor;
 use crate::session::groups::SessionGroupId;
 use crate::session::id::SessionId;
 use crate::session::methods::{
-    SessionEventSubscribeRequest, SessionShape, SessionState, SessionStreamFrame,
+    SessionEventSubscribeRequest, SessionPendingWorkingFolder, SessionShape, SessionState,
+    SessionStreamFrame,
 };
 use crate::session::name::SESSION_NAME_MAX_LEN;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -501,6 +502,20 @@ pub struct SessionWorkingFolderUpdateResponse {
     pub path: FilesystemPath,
 }
 
+/// The `session.pendingWorkingFolder.changed` payload: the move that waits for the session's run
+/// to end, as `session.read`'s `pendingWorkingFolder` reads it after the change, so every window
+/// of the session follows one value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionPendingWorkingFolderChangedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The move that waits now, or `null` when none does.
+    #[serde(deserialize_with = "crate::wire::nullable")]
+    #[schemars(with = "crate::wire::NullableSchema<SessionPendingWorkingFolder>")]
+    pub pending_working_folder: Option<SessionPendingWorkingFolder>,
+}
+
 /// The terminal pane's held read. The daemon answers once its sessions list or any session's agent
 /// list moves past `afterRevision`, or after 10 s with nothing changed.
 #[derive(
@@ -695,6 +710,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionWorkingFolderUpdateRequest>().checked(),
         Definition::read::<SessionWorkingFolderDisposition>(),
         Definition::read::<SessionWorkingFolderUpdateResponse>().checked(),
+        Definition::read::<SessionPendingWorkingFolderChangedPayload>().checked(),
         Definition::read::<SessionOverviewReadRequest>().checked(),
         Definition::read::<SessionOverviewAgent>(),
         Definition::read::<SessionOverviewSession>(),

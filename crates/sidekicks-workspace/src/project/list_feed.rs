@@ -488,6 +488,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::RepoMountHealthChanged
         | SessionEventType::SessionBranchChanged
         | SessionEventType::SessionSweptToCheckout
+        | SessionEventType::SessionPendingWorkingFolderChanged
         | SessionEventType::TerminalControlChanged
         | SessionEventType::CloudTaskUpdated
         | SessionEventType::ApprovalRequested

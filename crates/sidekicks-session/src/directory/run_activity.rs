@@ -138,6 +138,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::RepoMountHealthChanged
         | SessionEventType::SessionBranchChanged
         | SessionEventType::SessionSweptToCheckout
+        | SessionEventType::SessionPendingWorkingFolderChanged
         | SessionEventType::TerminalControlChanged
         | SessionEventType::CloudTaskUpdated
         | SessionEventType::ApprovalRequested

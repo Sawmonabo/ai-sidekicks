@@ -726,6 +726,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.sideQuestion.ask {sessionId, question}` → `{sideQuestionId}` | `/btw`: a side question on a throwaway copy | [Spec-011](../../specs/011-transcript-and-reasoning.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.27 |
 | `session.snapshot.list` | List snapshots in the inspector | [Spec-013](../../specs/013-persistence-and-recovery.md) | [Plan-012](../../plans/012-persistence-and-recovery.md) T12.6 |
 | event `session.sweptToCheckout` | The per-session sweep: removing a worktree moves its sessions back to the project's checkout | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-session-event-taxonomy-and-audit-log.md) T1.2 |
+| event `session.pendingWorkingFolder.changed` | The working-folder move a session holds for its run's end, each time it changes, as `session.read`'s `pendingWorkingFolder` reads it: the worktree chip's `<current> → <target> when this run ends` and the switcher row's `switching when this run ends` on every window | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) |
 
 ### `skill.*`
 

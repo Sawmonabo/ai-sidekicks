@@ -79,7 +79,7 @@ impl Fixture {
         let roots = ExecutionRootFixture::with(schema_parts(), test_git_runner()).await;
         let folders = Arc::new(SessionWorkingFolders::new(SessionWorkingFoldersDeps {
             reads: Arc::clone(&roots.reads),
-            writer: Arc::clone(&roots.log.writer),
+            event_log: Arc::clone(&roots.log.service),
             execution_roots: Arc::clone(&roots.service),
             worktree_events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&roots.log.service))),
         }));
@@ -227,6 +227,24 @@ impl Fixture {
             .expect("the test reads a row")
     }
 
+    // Each `session.pendingWorkingFolder.changed` the session's log holds, by the folder it names.
+    fn pending_changes_of(&self, session_id: &str) -> Vec<Option<String>> {
+        let mut statement = self
+            .roots
+            .rows
+            .prepare(
+                "SELECT json_extract(payload, '$.pendingWorkingFolder.path') FROM session_events \
+                 WHERE session_id = ?1 AND type = 'session.pendingWorkingFolder.changed' \
+                 ORDER BY sequence",
+            )
+            .expect("the changes are read");
+        statement
+            .query_map([session_id], |row| row.get(0))
+            .expect("the changes are read")
+            .collect::<rusqlite::Result<Vec<Option<String>>>>()
+            .expect("the changes are read")
+    }
+
     // Each `session.sweptToCheckout` the session's log holds, by whether it cleared a pending move.
     fn sweeps_of(&self, session_id: &str) -> Vec<bool> {
         let mut statement = self
@@ -261,7 +279,8 @@ fn path_text(folder: &Path) -> String {
 #[tokio::test]
 async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     // Catches a move made at once while a run is live: the workspace would leave the repository
-    // while the run still works there.
+    // while the run still works there. Catches a change to the held move that no event carries, or
+    // one carried twice: a window other than the asking one would draw a move that is not held.
     let fixture = Fixture::new().await;
     let workspace_id = fixture.ready_at_repository().await;
     let feature = fixture.roots.add_tree("feature").await;
@@ -299,7 +318,15 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
         None,
         "the current folder clears the held move"
     );
+    assert_eq!(
+        fixture.set(&fixture.roots.repository).await,
+        SessionWorkingFolderDisposition::Applied
+    );
 
+    assert_eq!(
+        fixture.set(&feature).await,
+        SessionWorkingFolderDisposition::Pending
+    );
     assert_eq!(
         fixture.set(&feature).await,
         SessionWorkingFolderDisposition::Pending
@@ -309,6 +336,17 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     assert_eq!(moved.state, "ready");
     assert_eq!(moved.bound_root, Some(path_text(&feature)));
     assert_eq!(fixture.pending(SESSION_ID), None);
+    assert_eq!(
+        fixture.pending_changes_of(SESSION_ID),
+        vec![
+            Some(path_text(&feature)),
+            Some(path_text(&other)),
+            None,
+            Some(path_text(&feature)),
+            None,
+        ],
+        "each change to the held move is emitted once, with the move held after it"
+    );
 }
 
 /// A live workflow run holds no move: the session moves at once, and the run's context keeps the

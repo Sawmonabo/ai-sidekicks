@@ -80,6 +80,7 @@ use crate::session::controls::events::{
     SessionSideQuestionAnsweredPayload, SessionSpendLimitReachedPayload,
 };
 use crate::session::convert::SessionConvertedPayload;
+use crate::session::directory::SessionPendingWorkingFolderChangedPayload;
 use crate::session::events::{
     SessionAdvisorChangedPayload, SessionCreatedPayload, SessionLifecycleChangePayload,
     SessionMarkChangePayload, SessionOutputStyleChangedPayload,
@@ -459,6 +460,10 @@ session_events! {
     SessionBranchChanged(SessionBranchChangedPayload) = "session.branch.changed",
     /// Emitted when a worktree removal moves a session back to the repository root.
     SessionSweptToCheckout(SessionSweptToCheckoutPayload) = "session.sweptToCheckout",
+    /// Emitted with the working-folder move that waits for the session's run to end each time it
+    /// is left, replaced, canceled, applied, dropped or cleared by a worktree removal.
+    SessionPendingWorkingFolderChanged(SessionPendingWorkingFolderChangedPayload) =
+        "session.pendingWorkingFolder.changed",
     /// Emitted when an agent's provider binding is switched.
     AgentProviderBindingChanged(#[garde(dive)] AgentProviderBindingChangedPayload) =
         "agent.providerBinding.changed",

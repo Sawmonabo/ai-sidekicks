@@ -360,6 +360,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::WorktreeRetired
         | SessionEventType::RepoMountHealthChanged
         | SessionEventType::SessionSweptToCheckout
+        | SessionEventType::SessionPendingWorkingFolderChanged
         | SessionEventType::TerminalControlChanged
         | SessionEventType::CloudTaskUpdated
         | SessionEventType::ApprovalRequested

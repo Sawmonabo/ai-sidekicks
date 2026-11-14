@@ -537,6 +537,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::SessionUnmuted(_)
         | SessionEvent::SessionBranchChanged(_)
         | SessionEvent::SessionSweptToCheckout(_)
+        | SessionEvent::SessionPendingWorkingFolderChanged(_)
         | SessionEvent::AgentProviderBindingChanged(_)
         | SessionEvent::AgentProviderBindingChangeFailed(_)
         | SessionEvent::ApprovalRequested(_)

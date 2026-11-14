@@ -224,7 +224,8 @@ interface SessionRecord {
   // The session's own tags, ordered ignoring case: the chips on the inspector's Identity `Tags` line.
   tags: string[];
   // The working-folder move a run boundary will apply, the folder it moves to, or null when none is
-  // pending (`session.workingFolder.update` below).
+  // pending (`session.workingFolder.update` below); each change to it appends
+  // `session.pendingWorkingFolder.changed`, which carries the new value.
   pendingWorkingFolder: { path: string } | null;
   // The daemon-held composer store below: the whole unsent draft (empty when there is none) with its
   // revision, and the whole staged set, so every device opens the same half-written message. The
@@ -365,10 +366,22 @@ interface SessionWorkingFolderUpdateResponse {
   // `applied` — the session moved now, either because it was idle or because the request
   // re-targeted the current directory and thereby cleared a pending move. `pending` — a run was
   // live and the intent is recorded for the boundary. `dropped` — the session moved to another
-  // workspace before the move was made, so it was dropped. The first two arms are what the
-  // composer strip reads to draw either the new tree or `<current> → <target> when this run ends`.
+  // workspace before the move was made, so it was dropped. It answers the asking window alone;
+  // every window draws the pending move from `pendingWorkingFolder` and the event below.
   disposition: "applied" | "pending" | "dropped";
   path: string;
+}
+
+// session.pendingWorkingFolder.changed payload. Appended in the same write as every change to the
+// session's pending move: a request that leaves it pending or replaces it, the re-target that
+// cancels it, the run boundary that applies or drops it, and a worktree removal that clears it
+// (beside that session's `session.sweptToCheckout`). A request that changes nothing appends
+// nothing. It carries the value `session.read` returns after the change, so the composer strip's
+// `<current> → <target> when this run ends` and the switcher row's `switching when this run ends`
+// follow one value on every window and device.
+interface SessionPendingWorkingFolderChangedPayload {
+  sessionId: SessionId;
+  pendingWorkingFolder: { path: string } | null; // null when no move waits
 }
 
 // The daemon-held, SESSION-SCOPED composer store: the draft, its staged files, and the held review

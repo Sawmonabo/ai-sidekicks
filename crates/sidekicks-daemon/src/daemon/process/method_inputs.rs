@@ -387,6 +387,7 @@ pub(crate) async fn register_method_inputs(
     let roots = build_execution_root_services(ExecutionRootStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
+        event_log: Arc::clone(&database.event_log),
         git: git.clone(),
         repo,
         creator: Arc::clone(&worktree_creator),
