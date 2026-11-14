@@ -20,7 +20,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{
     QuestionAnswer, QuestionAnswerInvalidReason, QuestionAskedPayload, QuestionId, QuestionPrompt,
-    QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState,
+    QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState, read_typed_number,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, UserMessageSentPayload};
@@ -422,7 +422,8 @@ fn check_answers(
 
 // Why `prompt` cannot take `answer`, if it cannot: a secret question takes only a secret or a
 // skip, and only it takes a secret; picked labels must be offered, one unless several are; typed
-// text fits any question but a form field whose options are its only values.
+// text fits any question but a form field whose options are its only values, and on a number
+// question it must spell a number.
 fn refused_answer(
     prompt: &QuestionPrompt,
     answer: &QuestionAnswer,
@@ -448,8 +449,12 @@ fn refused_answer(
                 None
             }
         }
-        QuestionAnswer::Typed { .. } => (!prompt.options.is_empty() && prompt.required.is_some())
-            .then_some(QuestionAnswerInvalidReason::TextOnChoice),
+        QuestionAnswer::Typed { .. } if !prompt.options.is_empty() && prompt.required.is_some() => {
+            Some(QuestionAnswerInvalidReason::TextOnChoice)
+        }
+        QuestionAnswer::Typed { text } => (prompt.kind.is_numeric()
+            && read_typed_number(text.as_str()).is_none())
+        .then_some(QuestionAnswerInvalidReason::NotANumber),
     }
 }
 
@@ -480,4 +485,40 @@ fn question_waiting_for_run(question_id: QuestionId) -> DomainError {
         RefusalCode::QuestionWaitingForRun,
     )
     .with_detail(json!({ "questionId": question_id }))
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+    use sidekicks_contracts::question::{
+        QuestionAnswer, QuestionAnswerInvalidReason, QuestionPrompt,
+    };
+
+    use super::refused_answer;
+
+    // A number question with no range refuses typed text that is not a number and takes one, by
+    // its kind alone, since a wrong answer would reach the provider as a value it did not ask
+    // for. Killed by reading a number question from its bounds, or by dropping the number check.
+    #[rstest]
+    #[case::words("ten", Some(QuestionAnswerInvalidReason::NotANumber))]
+    #[case::a_number("10", None)]
+    fn a_number_question_with_no_range_takes_only_a_number(
+        #[case] typed: &str,
+        #[case] refused: Option<QuestionAnswerInvalidReason>,
+    ) {
+        let prompt: QuestionPrompt = serde_json::from_value(json!({
+            "text": "How many retries?",
+            "kind": "number",
+            "options": [],
+            "severalAnswers": false,
+            "secret": false,
+        }))
+        .expect("a number question reads");
+        let answer: QuestionAnswer =
+            serde_json::from_value(json!({ "kind": "typed", "text": typed }))
+                .expect("typed text reads");
+
+        assert_eq!(refused_answer(&prompt, &answer), refused);
+    }
 }

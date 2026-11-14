@@ -281,6 +281,7 @@ impl Fixture {
 pub(super) fn choice_page() -> Value {
     json!({
         "text": "Which one?",
+        "kind": "choice",
         "options": [{ "label": "Alpha" }, { "label": "Beta" }],
         "severalAnswers": false,
         "secret": false,

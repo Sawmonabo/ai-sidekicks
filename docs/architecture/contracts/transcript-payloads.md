@@ -571,6 +571,13 @@ interface QuestionAskedPayload {
     // The question itself, and the agent's own heading shown as the summary line only where it sent
     // one.
     text: string;
+    // The kind of answer the question takes, as its provider sent it, never guessed from the other
+    // members: a pick among the options (with typed text beside them), typed text, a number, a
+    // whole number or a yes-or-no. Claude Code's question carries its own `kind`; a Codex question
+    // is a choice where it lists options and text where it lists none; a tool server's form field
+    // takes its kind from its schema type, `integer` and `flag` only there. Typed text for a
+    // `number` or `integer` question that is not a number is refused `notANumber`.
+    kind: "choice" | "text" | "number" | "integer" | "flag";
     heading?: string;
     // The question's own helper line, drawn faint under its text, where it sent one.
     description?: string;
@@ -592,7 +599,8 @@ interface QuestionAskedPayload {
     secret: boolean;
     // `required` comes only from a tool server's form; `default`, `minimum` and `maximum`
     // come from a tool server's form or a Claude Code number question. Each is present only
-    // where its source sets it.
+    // where its source sets it, and `minimum`, `maximum`, `step` and `unit` only on a `number` or
+    // `integer` question.
     // Whether the form must have this field answered.
     required?: boolean;
     // The answer the field starts from: the label of the option it preselects (several labels on a

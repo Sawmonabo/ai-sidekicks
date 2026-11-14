@@ -21,7 +21,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
-use crate::wire::text::{FreeFormText, NonEmptyText};
+use crate::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
 
 branded_uuid_id! {
     /// The daemon-minted id of one question record.
@@ -52,6 +52,43 @@ pub struct QuestionOption {
     pub preview: Option<String>,
 }
 
+/// The kind of answer a question takes, as its provider sent it: a pick among its options, typed
+/// text, a number, a whole number or a yes-or-no. Only a tool server's form field is a whole
+/// number or a yes-or-no, where its schema types the field so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionKind {
+    /// A pick among the question's options, or typed text beside them.
+    Choice,
+    /// Typed text.
+    Text,
+    /// A number.
+    Number,
+    /// A whole number.
+    Integer,
+    /// Yes or no.
+    Flag,
+}
+
+impl QuestionKind {
+    /// Whether the question takes a number, and so may carry a range, a step and a unit.
+    pub fn is_numeric(self) -> bool {
+        match self {
+            Self::Number | Self::Integer => true,
+            Self::Choice | Self::Text | Self::Flag => false,
+        }
+    }
+}
+
+/// The finite decimal number typed `text` spells around its whitespace, or `None` for blank text,
+/// any other text, and an infinity or `NaN`: what a number question takes as typed text.
+pub fn read_typed_number(text: &str) -> Option<f64> {
+    text.trim_matches(is_ecmascript_whitespace)
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
+}
+
 /// The answer a form field starts from, as the form declared it: the label of the option it
 /// preselects (several labels on a field of several picks), or a typed field's value in its own
 /// type.
@@ -69,17 +106,36 @@ pub enum QuestionDefault {
 }
 
 /// One question of the record, one page of the card. A secret question takes a masked answer and
-/// has no option rows; a numeric field's smallest number is at most its largest; a question with
-/// option rows starts from its own options, which the schema states as `defaultAmongOptions`.
+/// has no option rows; only a number question carries a range, a step or a unit, and its smallest
+/// number is at most its largest; a question with option rows starts from its own options, which
+/// the schema states as `defaultAmongOptions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(extend(
-    "if" = {
-        "type": "object",
-        "properties": { "secret": { "const": true } },
-        "required": ["secret"],
-    },
-    "then" = { "type": "object", "properties": { "options": { "type": "array", "maxItems": 0 } } },
+    "allOf" = [
+        {
+            "if": {
+                "type": "object",
+                "properties": { "secret": { "const": true } },
+                "required": ["secret"],
+            },
+            "then": {
+                "type": "object",
+                "properties": { "options": { "type": "array", "maxItems": 0 } },
+            },
+        },
+        {
+            "if": {
+                "type": "object",
+                "properties": { "kind": { "enum": ["choice", "text", "flag"] } },
+                "required": ["kind"],
+            },
+            "then": {
+                "type": "object",
+                "properties": { "minimum": false, "maximum": false, "step": false, "unit": false },
+            },
+        },
+    ],
     "defaultAmongOptions" = true,
 ))]
 pub struct QuestionPrompt {
@@ -93,6 +149,8 @@ pub struct QuestionPrompt {
     pub header: Option<NonEmptyText>,
     /// The question.
     pub text: NonEmptyText,
+    /// The kind of answer the question takes.
+    pub kind: QuestionKind,
     /// The summary line, where the agent sent one.
     #[serde(
         default,
@@ -175,8 +233,9 @@ pub struct QuestionPrompt {
 }
 
 /// Each rule a prompt keeps, reported at the member that breaks it: option rows on a secret
-/// question at `options`, a largest number below the smallest at `maximum`, and a default that is
-/// not one of the prompt's own options at `default`.
+/// question at `options`, a range, step or unit on a question that takes no number at that member,
+/// a largest number below the smallest at `maximum`, and a default that is not one of the
+/// prompt's own options at `default`.
 impl garde::Validate for QuestionPrompt {
     type Context = ();
 
@@ -191,6 +250,24 @@ impl garde::Validate for QuestionPrompt {
                 parent().join("options"),
                 garde::Error::new("a secret question draws a masked field and no option rows"),
             );
+        }
+        if !self.kind.is_numeric() {
+            let numeric_members = [
+                ("minimum", self.minimum.is_some()),
+                ("maximum", self.maximum.is_some()),
+                ("step", self.step.is_some()),
+                ("unit", self.unit.is_some()),
+            ];
+            for (member, is_set) in numeric_members {
+                if is_set {
+                    report.append(
+                        parent().join(member),
+                        garde::Error::new(
+                            "only a number question carries a range, a step or a unit",
+                        ),
+                    );
+                }
+            }
         }
         if let (Some(minimum), Some(maximum)) = (self.minimum, self.maximum)
             && minimum > maximum
@@ -427,7 +504,8 @@ pub struct QuestionResolveResponse {
 
 /// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
 /// question, a label the question does not offer, several labels for a question that takes one,
-/// or typed text for a question that takes only its options.
+/// typed text for a question that takes only its options, or typed text that is not a number for
+/// a number question.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionAnswerInvalidReason {
@@ -440,6 +518,8 @@ pub enum QuestionAnswerInvalidReason {
     SeveralOnSingle,
     /// Typed text for a question that takes only its options.
     TextOnChoice,
+    /// Typed text that is not a number for a question that takes a number.
+    NotANumber,
 }
 
 methods! {
@@ -468,6 +548,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<QuestionId>().checked(),
         Definition::read::<QuestionOption>(),
+        Definition::read::<QuestionKind>(),
         Definition::read::<QuestionDefault>(),
         Definition::read::<QuestionPrompt>(),
         Definition::read::<QuestionAskedState>(),

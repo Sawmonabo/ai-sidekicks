@@ -80,7 +80,13 @@ fn form_field_page() -> Value {
 
 /// A question page asking for a secret.
 fn secret_page() -> Value {
-    json!({ "text": "The token?", "options": [], "severalAnswers": false, "secret": true })
+    json!({
+        "text": "The token?",
+        "kind": "text",
+        "options": [],
+        "severalAnswers": false,
+        "secret": true,
+    })
 }
 
 /// The refusal code and detail `failure` carries; panics when the answer failed rather than being

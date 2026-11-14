@@ -1,20 +1,20 @@
 //! A tool server's elicitation form as the questions card asks it: each field the form names is one
-//! question, in the order the form's schema lists its fields, carrying whether the form requires
-//! it, the answer it starts from and a number field's bounds; the answers go back keyed by field,
-//! each as the type the field declares.
+//! question, in the order the form's schema lists its fields, carrying the kind of answer its type
+//! takes, whether the form requires it, the answer it starts from and a number field's bounds; the
+//! answers go back keyed by field, each as the type the field declares.
 
 pub(crate) mod option_sets;
 
 use std::iter;
 use std::slice;
-use std::str::FromStr;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionDefault, QuestionOption, QuestionPrompt,
+    QuestionAnswer, QuestionDefault, QuestionKind, QuestionOption, QuestionPrompt,
+    read_typed_number,
 };
 use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::driver::question_answers::read_question_answer_texts;
 use crate::mcp::elicitation_form::option_sets::{
@@ -36,8 +36,8 @@ struct ElicitationField<'params> {
 }
 
 /// The questions one `elicitation/create` asks: one per field of a `form` with fields, else its
-/// message alone. Every field carries `header`, the asking server's name, and the message;
-/// `params` is untrusted tool-server output.
+/// message alone, which takes typed text. Every field carries `header`, the asking server's name,
+/// and the message; `params` is untrusted tool-server output.
 pub fn read_elicitation_questions(
     params: &Value,
     header: Option<NonEmptyText>,
@@ -51,6 +51,7 @@ pub fn read_elicitation_questions(
             .map(|message| QuestionPrompt {
                 header,
                 text: message,
+                kind: QuestionKind::Text,
                 heading: None,
                 description: None,
                 options: Vec::new(),
@@ -73,7 +74,12 @@ pub fn read_elicitation_questions(
             let option_set =
                 read_elicitation_field_option_set(field.property, field.takes_several_answers);
             let default = read_starting_answer(&field, &option_set);
-            let (minimum, maximum) = read_number_range(field.members);
+            let kind = read_field_kind(field.members, &option_set);
+            let (minimum, maximum) = if kind.is_numeric() {
+                read_number_range(field.members)
+            } else {
+                (None, None)
+            };
             let options = match option_set {
                 ElicitationOptionSetReading::Read { options } => options
                     .iter()
@@ -101,6 +107,7 @@ pub fn read_elicitation_questions(
             QuestionPrompt {
                 header: header.clone(),
                 text: field.text,
+                kind,
                 heading: message.clone(),
                 description: None,
                 options,
@@ -246,6 +253,23 @@ fn read_starting_answer(
     }
 }
 
+// The kind of answer a field takes: a pick where its options could be shown, else what its schema
+// type names, text for a string, a dropped option set or no type.
+fn read_field_kind(
+    members: &Map<String, Value>,
+    option_set: &ElicitationOptionSetReading,
+) -> QuestionKind {
+    if matches!(option_set, ElicitationOptionSetReading::Read { .. }) {
+        return QuestionKind::Choice;
+    }
+    match members.get("type").and_then(Value::as_str) {
+        Some("number") => QuestionKind::Number,
+        Some("integer") => QuestionKind::Integer,
+        Some("boolean") => QuestionKind::Flag,
+        Some(_) | None => QuestionKind::Text,
+    }
+}
+
 // The label of the option whose value is `value`, or `None` when no option has it.
 fn read_option_label(options: &[ElicitationOption], value: &Value) -> Option<NonEmptyText> {
     options
@@ -267,10 +291,6 @@ fn read_number_range(members: &Map<String, Value>) -> (Option<Number>, Option<Nu
 
 // A number field's bound, where the form sets one.
 fn read_number_bound(members: &Map<String, Value>, bound: &str) -> Option<Number> {
-    let field_type = members.get("type").and_then(Value::as_str);
-    if !matches!(field_type, Some("number" | "integer")) {
-        return None;
-    }
     members.get(bound)?.as_f64().and_then(Number::new)
 }
 
@@ -279,7 +299,7 @@ fn read_number_bound(members: &Map<String, Value>, bound: &str) -> Option<Number
 fn read_typed_answer(members: &Map<String, Value>, text: &str) -> Value {
     match members.get("type").and_then(Value::as_str) {
         Some("number" | "integer") => {
-            read_finite_number(text).map_or_else(|| Value::from(text), write_number)
+            read_typed_number(text).map_or_else(|| Value::from(text), write_number)
         }
         Some("boolean") => match text {
             "true" => Value::Bool(true),
@@ -288,14 +308,6 @@ fn read_typed_answer(members: &Map<String, Value>, text: &str) -> Value {
         },
         Some(_) | None => Value::from(text),
     }
-}
-
-// The finite decimal number `text` spells around its whitespace, or `None` for blank text, other
-// text, and an infinity or `NaN`.
-fn read_finite_number(text: &str) -> Option<f64> {
-    f64::from_str(text.trim_matches(is_ecmascript_whitespace))
-        .ok()
-        .filter(|number| number.is_finite())
 }
 
 // A finite number as the answer's JSON: a whole one within `i64` is written as an integer literal,

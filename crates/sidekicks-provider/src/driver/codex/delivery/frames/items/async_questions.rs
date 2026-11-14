@@ -4,7 +4,7 @@
 //! running; the person's next message answers it.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
+use sidekicks_contracts::question::{QuestionKind, QuestionOption, QuestionPrompt};
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -53,8 +53,8 @@ impl CodexFrameDelivery {
     }
 }
 
-// The questions of an async reply, each a title and its option labels, in their order; one with
-// no title is left out.
+// The questions of an async reply, each a title and its option labels, in their order, a choice
+// where it lists options and typed text where it lists none; one with no title is left out.
 fn read_async_questions(item: &Map<String, Value>) -> Vec<QuestionPrompt> {
     item.get("questions")
         .and_then(Value::as_array)
@@ -66,9 +66,13 @@ fn read_async_questions(item: &Map<String, Value>) -> Vec<QuestionPrompt> {
                 .get("title")
                 .and_then(Value::as_str)
                 .and_then(|title| NonEmptyText::new(title.to_owned()))?;
-            let options = question
-                .get("options")
-                .and_then(Value::as_array)
+            let listed_options = question.get("options").and_then(Value::as_array);
+            let kind = if listed_options.is_some_and(|options| !options.is_empty()) {
+                QuestionKind::Choice
+            } else {
+                QuestionKind::Text
+            };
+            let options = listed_options
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
@@ -82,6 +86,7 @@ fn read_async_questions(item: &Map<String, Value>) -> Vec<QuestionPrompt> {
             Some(QuestionPrompt {
                 header: None,
                 text,
+                kind,
                 heading: None,
                 description: None,
                 options,

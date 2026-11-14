@@ -2,7 +2,7 @@
 //! `item/tool/requestUserInput` questions, or a tool server's elicitation form.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
+use sidekicks_contracts::question::{QuestionKind, QuestionOption, QuestionPrompt};
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::driver::codex::server_requests::CodexRoutedMethod;
@@ -18,8 +18,8 @@ pub(crate) struct CodexUserInputQuestion<'params> {
 }
 
 /// The questions the ask of `method` asks, from its untrusted `params`, in their order; a
-/// user-input question with no id or no question text is skipped, and a secret question has no
-/// option rows.
+/// user-input question with no id or no question text is skipped, a secret question has no
+/// option rows, and one that lists options is a choice where one with none takes typed text.
 pub(crate) fn read_codex_question_prompts(
     method: CodexRoutedMethod,
     params: &Value,
@@ -59,6 +59,15 @@ pub(crate) fn read_codex_user_input_questions(
 fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPrompt> {
     let text = read_text(question, "question")?;
     let secret = question.get("isSecret").and_then(Value::as_bool) == Some(true);
+    let lists_options = question
+        .get("options")
+        .and_then(Value::as_array)
+        .is_some_and(|options| !options.is_empty());
+    let kind = if lists_options {
+        QuestionKind::Choice
+    } else {
+        QuestionKind::Text
+    };
     let options = if secret {
         Vec::new()
     } else {
@@ -80,6 +89,7 @@ fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPro
     Some(QuestionPrompt {
         header: read_text(question, "header"),
         text,
+        kind,
         heading: None,
         description: None,
         options,

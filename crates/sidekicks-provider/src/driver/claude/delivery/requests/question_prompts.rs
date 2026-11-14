@@ -4,7 +4,9 @@
 //! starting value and unit.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::{QuestionDefault, QuestionOption, QuestionPrompt};
+use sidekicks_contracts::question::{
+    QuestionDefault, QuestionKind, QuestionOption, QuestionPrompt,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::number::Number;
 
@@ -14,13 +16,6 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::record_readers::{read_non_empty_string, read_non_empty_text};
-
-// How a question is answered, as its `kind` names it; absent, a choice.
-enum QuestionKind {
-    Choice,
-    Text,
-    Number,
-}
 
 /// The question tool's questions in `session_id`'s ask as the questions card asks them; a
 /// malformed one is left out, and one of a kind the driver does not read is asked as a choice
@@ -38,9 +33,11 @@ pub(super) fn read_question_prompts(
         .filter_map(Value::as_object)
         .filter_map(|question| {
             let text = read_non_empty_text(question, "question")?;
+            let read_kind = read_question_kind(session_id, question);
             let mut prompt = QuestionPrompt {
                 header: read_non_empty_text(question, "header"),
                 text,
+                kind: read_kind.unwrap_or(QuestionKind::Choice),
                 heading: heading.clone(),
                 description: None,
                 options: read_question_options(question),
@@ -54,12 +51,12 @@ pub(super) fn read_question_prompts(
                 unit: None,
                 placeholder: None,
             };
-            let Some(kind) = read_question_kind(session_id, question) else {
+            let Some(kind) = read_kind else {
                 return Some(prompt);
             };
             prompt.description = read_non_empty_text(question, "description");
             match kind {
-                QuestionKind::Choice => {}
+                QuestionKind::Choice | QuestionKind::Integer | QuestionKind::Flag => {}
                 QuestionKind::Text => {
                     prompt.placeholder = read_non_empty_text(question, "placeholder");
                 }
@@ -96,7 +93,7 @@ fn read_question_options(question: &Map<String, Value>) -> Vec<QuestionOption> {
         .collect()
 }
 
-// A question's kind; `None` for one the driver does not read, which is logged.
+// A question's kind, absent a choice; `None` for one the driver does not read, which is logged.
 fn read_question_kind(
     session_id: SessionId,
     question: &Map<String, Value>,
