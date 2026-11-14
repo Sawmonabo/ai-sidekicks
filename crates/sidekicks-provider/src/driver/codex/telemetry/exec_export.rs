@@ -10,7 +10,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::home::CodexHomeKind;
 use crate::driver::codex::service::registry::compose_home_exec_switches;
 use crate::driver::codex::service::telemetry_switches::{
-    compose_command_telemetry_switches, compose_daemon_export_environment,
+    BATCH_INTERVAL_VARIABLE, compose_command_telemetry_switches, compose_daemon_export_environment,
     compose_daemon_export_overrides,
 };
 use crate::driver::codex::telemetry::completed_response::CodexCompletedResponse;
@@ -21,9 +21,6 @@ use crate::pricing::receiver::bearers::TelemetryBearer;
 /// How often an exec's exporter sends its batch: short, since a failed exit skips the flush and
 /// loses what the last batch held.
 const CODEX_EXEC_EXPORT_INTERVAL: Duration = Duration::from_millis(100);
-
-/// The variable the SDK reads its log batch interval from, in milliseconds.
-const BATCH_INTERVAL_VARIABLE: &str = "OTEL_BLRP_SCHEDULE_DELAY";
 
 /// Every command the exec runs starts with none of the exec's environment, so none sees its token.
 const SHELL_ENVIRONMENT_OFF: &str = "shell_environment_policy.inherit=\"none\"";

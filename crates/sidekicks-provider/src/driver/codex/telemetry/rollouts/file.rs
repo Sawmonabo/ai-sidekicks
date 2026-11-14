@@ -3,10 +3,11 @@
 //! of the `turn_context` carrying the record's turn and the tier of the file's own last settings
 //! snapshot before it, a spawned helper's at its root thread's tier; running totals and
 //! `token_count` lines are never read. A turn that settled with no record names the file as one
-//! that cannot be read until the file yields a record. Every record of the file's own thread is
-//! offered to the export's responses first, in or out of the priced window, so a response an export
-//! carried is passed over by its own line. Only the payloads of the four kinds read are parsed, and
-//! only a usage record that does not read is counted as refused.
+//! that cannot be read until the file yields a record, and the turn the file shows live is kept
+//! with its start. Every record of the file's own thread is offered to the export's responses
+//! first, stamped before the reading's start or not, so a response an export carried is passed
+//! over by its own line. Only the payloads of the kinds read are parsed, and only a usage record
+//! that does not read is counted as refused.
 
 use std::collections::VecDeque;
 
@@ -72,25 +73,9 @@ pub(crate) struct CodexRolloutRequest {
     pub(crate) at_ms: u64,
 }
 
-/// The stretch of time whose records are priced: stamped at or after `since_ms` and, once the
-/// export arrives again, at or before `until_ms`.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CodexPricedWindow {
-    /// Just past the launch's last export before it stopped, else its start, in Unix milliseconds.
-    pub(crate) since_ms: u64,
-    /// The last stamp priced once the first export after the stop arrived, in Unix milliseconds.
-    pub(crate) until_ms: Option<u64>,
-}
-
-impl CodexPricedWindow {
-    fn covers(self, at_ms: u64) -> bool {
-        at_ms >= self.since_ms && self.until_ms.is_none_or(|until_ms| at_ms <= until_ms)
-    }
-}
-
 /// What one rollout file's lines told so far: its thread, its turns' models, its own settings
-/// snapshot's tier, the turns that wrote a record, the responses read, and whether a settled turn
-/// left no record since the last one.
+/// snapshot's tier, the turns that wrote a record, the responses read, whether a settled turn
+/// left no record since the last one, and the turn live as its last line was read.
 #[derive(Debug, Default)]
 pub(crate) struct CodexRolloutFile {
     thread: Option<CodexRolloutThread>,
@@ -100,6 +85,8 @@ pub(crate) struct CodexRolloutFile {
     recorded_turns: VecDeque<String>,
     read_responses: VecDeque<String>,
     is_unreadable: bool,
+    // The turn begun last and not ended, with its start's stamp where its line carries one.
+    live_turn: Option<(String, Option<u64>)>,
 }
 
 // The members of a rollout line the reader reads: when it was written, its kind and what it
@@ -151,7 +138,7 @@ struct RecordUsage {
     total: u64,
 }
 
-// The members of the events the reader reads: a settings snapshot and a turn's end.
+// The members of the events the reader reads: a settings snapshot, a turn's start and its end.
 #[derive(Deserialize)]
 struct EventPayload {
     #[serde(rename = "type")]
@@ -173,19 +160,28 @@ impl CodexRolloutFile {
         self.thread.as_ref()
     }
 
-    /// Whether a turn that settled in the priced window left no record since the file's last one.
+    /// Whether a turn that settled since the reading's start left no record since the file's last
+    /// one.
     pub(crate) fn is_unreadable(&self) -> bool {
         self.is_unreadable
     }
 
+    /// Whether a turn the file shows begun at or before `at_ms`, in Unix milliseconds, has not
+    /// ended yet; one whose start carries no stamp counts as begun.
+    pub(crate) fn has_turn_live_from(&self, at_ms: u64) -> bool {
+        self.live_turn.as_ref().is_some_and(|(_turn, started_ms)| {
+            started_ms.is_none_or(|started_ms| started_ms <= at_ms)
+        })
+    }
+
     /// Reads one line of the file, answering the request it states where it is a record of the
     /// file's own thread not read before, that `is_exported` does not take as a response an export
-    /// carried (asked with its thread, counts and stamp), stamped within `window`. A record that
-    /// cannot be read, or whose turn no `turn_context` names, is refused and logged.
+    /// carried (asked with its thread, counts and stamp), stamped at or after `since_ms`. A record
+    /// that cannot be read, or whose turn no `turn_context` names, is refused and logged.
     pub(crate) fn read_line(
         &mut self,
         line: &[u8],
-        window: CodexPricedWindow,
+        since_ms: u64,
         is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
     ) -> Option<CodexRolloutRequest> {
         // A line cut short as Codex writes it is read whole by the next pass.
@@ -209,10 +205,10 @@ impl CodexRolloutFile {
                 }
                 None
             }
-            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, window, is_exported),
+            TOKEN_USAGE_RECORD_KIND => self.read_record(&payload, at_ms, since_ms, is_exported),
             "event_msg" => {
                 if let Some(event) = read_payload::<EventPayload>(&payload) {
-                    self.read_event(event, at_ms, window);
+                    self.read_event(event, at_ms, since_ms);
                 }
                 None
             }
@@ -221,12 +217,12 @@ impl CodexRolloutFile {
     }
 
     // A record's request, where it is the file's own thread's, read once, no exported response's
-    // and within `window`.
+    // and stamped at or after `since_ms`.
     fn read_record(
         &mut self,
         payload: &RawValue,
         at_ms: Option<u64>,
-        window: CodexPricedWindow,
+        since_ms: u64,
         is_exported: &mut dyn FnMut(&str, &UsageAxisCounts, u64) -> bool,
     ) -> Option<CodexRolloutRequest> {
         let thread = self.thread.as_ref()?;
@@ -287,7 +283,7 @@ impl CodexRolloutFile {
             );
             return None;
         }
-        if !window.covers(at_ms) {
+        if at_ms < since_ms {
             return None;
         }
         let Some(model) = self
@@ -321,9 +317,10 @@ impl CodexRolloutFile {
         })
     }
 
-    // Takes the file's own settings snapshot's tier, and marks the file unreadable at a turn that
-    // settled within `window` with no record, once the file's own snapshot was seen.
-    fn read_event(&mut self, event: EventPayload, at_ms: Option<u64>, window: CodexPricedWindow) {
+    // Takes the file's own settings snapshot's tier and its live turn, and marks the file
+    // unreadable at a turn that settled from `since_ms` on with no record, once the file's own
+    // snapshot was seen.
+    fn read_event(&mut self, event: EventPayload, at_ms: Option<u64>, since_ms: u64) {
         let (Some(thread), Some(kind)) = (&self.thread, event.kind.as_deref()) else {
             return;
         };
@@ -336,11 +333,33 @@ impl CodexRolloutFile {
                     self.is_own_settings_seen = true;
                 }
             }
-            // Codex writes a turn's end under its older name and reads either.
-            "task_complete" | "turn_complete" => {
-                let is_in_window = at_ms.is_some_and(|at_ms| window.covers(at_ms));
+            // Codex writes a turn's start and end under their older names and reads either.
+            "task_started" | "turn_started" => {
                 if let Some(turn_id) = event.turn_id
-                    && is_in_window
+                    && self
+                        .live_turn
+                        .as_ref()
+                        .is_none_or(|(live, _started_ms)| *live != turn_id)
+                {
+                    self.live_turn = Some((turn_id, at_ms));
+                }
+            }
+            "turn_aborted" => {
+                let is_live_ended = self.live_turn.as_ref().is_some_and(|(live, _started_ms)| {
+                    event.turn_id.as_ref().is_none_or(|turn_id| turn_id == live)
+                });
+                if is_live_ended {
+                    self.live_turn = None;
+                }
+            }
+            "task_complete" | "turn_complete" => {
+                if self.live_turn.as_ref().map(|(live, _started_ms)| live) == event.turn_id.as_ref()
+                {
+                    self.live_turn = None;
+                }
+                let is_since_start = at_ms.is_some_and(|at_ms| at_ms >= since_ms);
+                if let Some(turn_id) = event.turn_id
+                    && is_since_start
                     && self.is_own_settings_seen
                     && event.error.is_none()
                     && !self.recorded_turns.contains(&turn_id)

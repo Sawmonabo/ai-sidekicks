@@ -1,8 +1,9 @@
 //! A session's completed responses from Codex's log export: each counted once on its session, the
 //! stream's twin passed over by its counts, a reviewer fork's joined to its review window or live
 //! turn, a request turn's settle arming one export check, and the session's rollout file read for
-//! what no export carried while the export is stopped, each pass on from the last, a last one as
-//! the export returns up to its bound, and none an export carried.
+//! what no export carried while the export is stopped, each pass on from the last and on past the
+//! export's return, each line held until an export later than it or the wait for one decides it,
+//! and none an export carried.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +18,7 @@ use tokio::sync::watch;
 
 use super::usage::{GatedUsage, answer_region_read, token_usage_frame};
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
-use crate::bounded_poll::poll_until;
+use crate::bounded_poll::{poll_each_until, poll_until};
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::side_questions::test_copies::{
@@ -31,7 +32,7 @@ use crate::driver::codex::telemetry::completed_response::tests::{
 };
 use crate::driver::codex::telemetry::exports::tests::{export_checks, export_tagged, refused};
 use crate::driver::codex::telemetry::exports::{
-    CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
+    CODEX_EXPORT_ARRIVAL_BOUND, CODEX_EXPORT_INTERVAL, CodexExportTag, CodexExports,
 };
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::session_control::AskSideQuestionParams;
@@ -175,6 +176,24 @@ impl ExportingSession {
         // The paused clock moves only once every task is idle, so each decision due by then ran.
         tokio::time::sleep(PAST_TWO_INTERVALS).await;
         read()
+    }
+
+    // The rows recorded once `rows` are, settled as [`Self::settled_rows`] settles them, polled a
+    // held rollout line's whole wait at a time, so the paused clock reaches its deadline.
+    async fn held_rows(&self, rows: usize) -> Vec<(Option<u64>, Option<u64>)> {
+        let recorded = || lock(&self.usage.metered).len();
+        poll_each_until(CODEX_EXPORT_ARRIVAL_BOUND, recorded, |count| *count >= rows).await;
+        self.settled_rows(rows).await
+    }
+
+    // Appends `lines` to the rollout file at `path`.
+    fn append_rollout(path: &Path, lines: &[String]) {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("the rollout file opens");
+        std::io::Write::write_all(&mut file, (lines.join("\n") + "\n").as_bytes())
+            .expect("the lines are written");
     }
 
     // Writes `lines` as the rollout file of the session's thread in today's day folder, by UTC,
@@ -560,8 +579,9 @@ const SECOND_TURN: &str = "turn-2";
 
 // Once a request turn settles with no export, the session's own rollout file is read: the
 // response its stream stated is passed over and the warm-up the stream never stated is counted
-// once. Killed by passing over a streamed thread's file (one row), by counting the stream's twin
-// again (three rows), and by no read as the status turns stopped (one row).
+// once, as no export can still arrive with it. Killed by passing over a streamed thread's file
+// (one row), by counting the stream's twin again (three rows), by no read as the status turns
+// stopped and by a held line no wait decides (one row each).
 #[tokio::test]
 async fn a_streamed_thread_s_rollout_counts_what_no_export_carried_once() {
     let mut session = ExportingSession::start(&[TEST_TURN]).await;
@@ -574,7 +594,7 @@ async fn a_streamed_thread_s_rollout_counts_what_no_export_carried_once() {
     session.answer_helper_listing().await;
 
     assert_eq!(
-        session.settled_rows(2).await,
+        session.held_rows(2).await,
         [(Some(1_000), Some(500)), (Some(2), Some(0))]
     );
 }
@@ -593,21 +613,18 @@ async fn a_second_turn_s_pass_reads_the_file_on_from_where_the_first_stopped() {
     session.complete_turn();
     session.answer_helper_listing().await;
     assert_eq!(
-        session.settled_rows(2).await,
+        session.held_rows(2).await,
         [(Some(1_000), Some(500)), (Some(2), Some(0))]
     );
 
-    let second_turn = [
-        turn_context(at_ms, SECOND_TURN),
-        rollout_record(at_ms, SECOND_TURN, "response-second", 3_000, 700),
-        rollout_record(at_ms, SECOND_TURN, "response-second-warm-up", 3, 0),
-    ];
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&rollout)
-        .expect("the rollout file opens");
-    std::io::Write::write_all(&mut file, (second_turn.join("\n") + "\n").as_bytes())
-        .expect("the second turn's lines are written");
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            turn_context(at_ms, SECOND_TURN),
+            rollout_record(at_ms, SECOND_TURN, "response-second", 3_000, 700),
+            rollout_record(at_ms, SECOND_TURN, "response-second-warm-up", 3, 0),
+        ],
+    );
     let script = &session.live.scripted.script;
     script.send(&turn_started(SECOND_TURN));
     let mut reading = token_usage_frame(
@@ -621,7 +638,7 @@ async fn a_second_turn_s_pass_reads_the_file_on_from_where_the_first_stopped() {
     session.answer_helper_listing().await;
 
     assert_eq!(
-        session.settled_rows(4).await,
+        session.held_rows(4).await,
         [
             (Some(1_000), Some(500)),
             (Some(2), Some(0)),
@@ -631,50 +648,38 @@ async fn a_second_turn_s_pass_reads_the_file_on_from_where_the_first_stopped() {
     );
 }
 
-// A pass still waiting on Codex as the export returns prices nothing stamped past that export's
-// bound: the warm-up stamped before it is counted, the export's own response once, and the record
-// stamped after it is left to the exports. Killed by the export's bound read once as the pass
-// begins (the late record counted, four rows).
+// A response whose export comes late, after the pass read its line, counts once: its line is
+// held, then passed over by the late export, whose later record decides the warm-up held beside
+// it, counted once from the file. Killed by pricing a line at its read with no hold (the late
+// response counted twice, five rows).
 #[tokio::test]
-async fn a_pass_prices_nothing_stamped_from_an_export_that_returned_while_it_ran() {
+async fn a_late_export_s_response_read_first_from_the_file_counts_once() {
     let mut session = ExportingSession::start(&[TEST_TURN]).await;
     let at_ms = read_unix_time_ms();
-    let returned_at_ms = at_ms + 1_000;
     let mut lines = first_turn_rollout(at_ms);
-    lines.push(rollout_record(
-        returned_at_ms + 1_000,
-        TEST_TURN,
-        "response-late",
-        9,
-        3,
-    ));
+    lines.push(rollout_record(at_ms, TEST_TURN, "response-late", 7, 1));
     session.write_rollout(&lines);
     session.state(&counts(1_000, 500));
     answer_region_read(&mut session.live.scripted).await;
     session.complete_turn();
-
-    let listing = session.live.scripted.next_request("thread/list").await;
-    session
-        .export_records(vec![stamped_record(
-            TEST_THREAD,
-            &counts(7, 1),
-            returned_at_ms,
-        )])
-        .await;
-    session
-        .live
-        .scripted
-        .script
-        .answer(&listing, &json!({"data": [], "nextCursor": null}));
-    // The last pass as the status turns arriving.
     session.answer_helper_listing().await;
+    assert_eq!(session.settled_rows(1).await, [(Some(1_000), Some(500))]);
 
-    let mut rows = session.settled_rows(3).await;
+    // Logged before its line was written; the later record is of a response no line states yet.
+    session
+        .export_records(vec![
+            stamped_record(TEST_THREAD, &counts(7, 1), at_ms - 5),
+            stamped_record(TEST_THREAD, &counts(4, 4), at_ms + 10),
+        ])
+        .await;
+
+    let mut rows = session.settled_rows(4).await;
     rows.sort_unstable();
     assert_eq!(
         rows,
         [
             (Some(2), Some(0)),
+            (Some(4), Some(4)),
             (Some(7), Some(1)),
             (Some(1_000), Some(500)),
         ]
@@ -733,7 +738,7 @@ async fn a_pass_after_an_export_passes_over_the_responses_that_export_carried() 
     // The second turn's check finds no export two intervals on, and the pass begins.
     session.answer_helper_listing().await;
 
-    let mut rows = session.settled_rows(4).await;
+    let mut rows = session.held_rows(4).await;
     rows.sort_unstable();
     assert_eq!(
         rows,
@@ -746,14 +751,23 @@ async fn a_pass_after_an_export_passes_over_the_responses_that_export_carried() 
     );
 }
 
-// As the export returns, a last pass prices a response whose export was lost though Codex stamped
-// its line after the returned export's oldest record, and passes over the returned export's own:
-// the lost response counts once, and so does each exported one. Killed by a bound at the returned
-// export's oldest stamp (the lost response counted nowhere, four rows), by no last pass as the
-// status turns arriving (no listing answered), and by the returned export's records priced from
-// the file too (six rows).
+// A turn event of `kind` on `turn_id` in a rollout file, stamped at `at_ms`.
+fn turn_event(at_ms: u64, kind: &str, turn_id: &str) -> String {
+    rollout_line(
+        at_ms,
+        "event_msg",
+        &json!({"type": kind, "turn_id": turn_id}),
+    )
+}
+
+// After the export returns, the session's file is read on at each export until the turn live at
+// the returning export's newest record ends: a response whose export was lost, its line written
+// after the last pass, counts once from the file at the first export later than it, and each
+// exported response counts once. Killed by letting the file go as the export returns (the lost
+// response counted nowhere, four rows) and by the returned export's response priced from the file
+// too (six rows).
 #[tokio::test]
-async fn the_pass_as_an_export_returns_counts_a_lost_response_stamped_past_its_oldest_record() {
+async fn a_lost_response_written_after_the_export_returns_counts_once_from_the_file() {
     let mut session = ExportingSession::start(&[TEST_TURN]).await;
     let at_ms = read_unix_time_ms();
     let rollout = session.write_rollout(&first_turn_rollout(at_ms));
@@ -761,30 +775,40 @@ async fn the_pass_as_an_export_returns_counts_a_lost_response_stamped_past_its_o
     answer_region_read(&mut session.live.scripted).await;
     session.complete_turn();
     session.answer_helper_listing().await;
-    assert_eq!(
-        session.settled_rows(2).await,
-        [(Some(1_000), Some(500)), (Some(2), Some(0))]
-    );
+    assert_eq!(session.settled_rows(1).await, [(Some(1_000), Some(500))]);
 
     let returned_at_ms = at_ms + 1_000;
-    let returned_turn = [
-        rollout_record(returned_at_ms + 2, TEST_TURN, "response-lost", 9, 3),
-        rollout_record(returned_at_ms + 5, TEST_TURN, "response-returned", 7, 1),
-        rollout_record(returned_at_ms + 55, TEST_TURN, "response-after", 5, 5),
-    ];
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&rollout)
-        .expect("the rollout file opens");
-    std::io::Write::write_all(&mut file, (returned_turn.join("\n") + "\n").as_bytes())
-        .expect("the returned turn's lines are written");
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            turn_context(returned_at_ms, SECOND_TURN),
+            turn_event(returned_at_ms, "task_started", SECOND_TURN),
+            rollout_record(returned_at_ms + 5, SECOND_TURN, "response-returned", 7, 1),
+        ],
+    );
     session
-        .export_records(vec![
-            stamped_record(TEST_THREAD, &counts(7, 1), returned_at_ms),
-            stamped_record(TEST_THREAD, &counts(5, 5), returned_at_ms + 50),
-        ])
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(7, 1),
+            returned_at_ms,
+        )])
         .await;
-    session.answer_helper_listing().await;
+    assert_eq!(session.settled_rows(3).await.len(), 3);
+
+    ExportingSession::append_rollout(
+        &rollout,
+        &[
+            rollout_record(returned_at_ms + 60, SECOND_TURN, "response-lost", 9, 3),
+            turn_event(returned_at_ms + 70, "task_complete", SECOND_TURN),
+        ],
+    );
+    session
+        .export_records(vec![stamped_record(
+            TEST_THREAD,
+            &counts(4, 4),
+            returned_at_ms + 100,
+        )])
+        .await;
 
     let mut rows = session.settled_rows(5).await;
     rows.sort_unstable();
@@ -792,7 +816,7 @@ async fn the_pass_as_an_export_returns_counts_a_lost_response_stamped_past_its_o
         rows,
         [
             (Some(2), Some(0)),
-            (Some(5), Some(5)),
+            (Some(4), Some(4)),
             (Some(7), Some(1)),
             (Some(9), Some(3)),
             (Some(1_000), Some(500)),

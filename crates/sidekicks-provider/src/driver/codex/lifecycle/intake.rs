@@ -7,9 +7,10 @@
 //! fork let go, each turn's readings and the session's context reading published, and the spend it
 //! metered recorded in metering order. Each settled step publishes the session's context reading
 //! again with no usage when its model or window changed. The driver's own calls on the record take
-//! their place among the frames too. Each completed response the export states is passed over where
-//! the stream stated it, else held until its turn settles and two export intervals pass, then passed
-//! over or priced; a session let go decides every one it holds.
+//! their place among the frames too. Each completed response the export states is passed over
+//! where the stream stated it, else held until its turn settles and two export intervals pass, then
+//! passed over or priced; a session let go, or whose task ends, first takes the rollout lines its
+//! service's launches hold for it, then decides every one it holds.
 //!
 //! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
 //! database writer stalls, this session's frames, asks and calls wait behind it, as every other
@@ -155,6 +156,7 @@ impl CodexSessionIntake {
         self.settle();
         drain_codex_session_inbound(receiver, &mut self).await;
         // Every sender is gone with the record still held, so nothing settles a held turn now.
+        self.take_held_rollouts().await;
         let held = self.held.take_all();
         self.decide_held_responses(held).await;
     }
@@ -507,6 +509,7 @@ impl CodexSessionIntake {
     // service it was attached to and its view.
     async fn let_go(&mut self, exit: CodexRecordExit) {
         // Decided while the record still files them, since no held turn settles past here.
+        self.take_held_rollouts().await;
         let held = self.held.take_all();
         self.decide_held_responses(held).await;
         let Some(record) = self.record.take() else {

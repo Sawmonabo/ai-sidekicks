@@ -20,7 +20,9 @@ use crate::driver::codex::telemetry::exports::{
     CODEX_EXPORT_HAND_OFF_DEPTH, CodexExecResponses, CodexExports, CodexLaunchLookup, CodexTagKind,
 };
 use crate::driver::codex::telemetry::placement::refuse_unplaced;
-use crate::driver::codex::telemetry::rollouts::fallback::CodexExportedIdentity;
+use crate::driver::codex::telemetry::rollouts::hold::{
+    CodexExportedIdentity, price_rollout_requests,
+};
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::pricing::receiver::records::{RecordRefusal, read_count};
 use crate::pricing::receiver::{TelemetryExport, TelemetryExportReader};
@@ -105,13 +107,16 @@ impl CodexExports {
                 export_number: read.export_number,
             });
         }
-        // Every record's stamp bounds what the launch's rollout fallback prices, set under the
+        // Every record's stamp decides what the launch's rollout fallback holds, set under the
         // status's lock with the stop it ends, so the fallback reads the stop and its end together.
         let newest_record_ms = read_newest_record_ms(resource_logs);
+        let mut priced = Vec::new();
         tracker.export_arrived(|stops| {
-            read.rollouts
+            priced = read
+                .rollouts
                 .export_read(stops, identities, newest_record_ms, arrived_at_ms);
         });
+        price_rollout_requests(Some(&*service), priced);
         self.offer(CodexExportItem::Retry {
             service: read.service,
             launch: read.placement,

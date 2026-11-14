@@ -109,6 +109,26 @@ impl CodexSessionIntake {
         usage
     }
 
+    /// Holds as the session's own, while its record still files them, the rollout requests its
+    /// launches held for it that no exported response matches, since no export after its let-go
+    /// is filed on it.
+    pub(super) async fn take_held_rollouts(&mut self) {
+        let Some(record) = &self.record else {
+            return;
+        };
+        let exported: Vec<CodexExportedResponse> = record
+            .service
+            .dependencies()
+            .exports
+            .take_session_rollouts(self.session_id)
+            .into_iter()
+            .filter_map(|held| held.into_exported(&record.service))
+            .collect();
+        for exported in exported {
+            self.hold_exported_response(exported).await;
+        }
+    }
+
     /// Takes `exported`, a completed response the drain pushed onto the session: passed over
     /// where the stream stated it, else held on its turn; one the bound pushes out is decided now.
     pub(super) async fn hold_exported_response(&mut self, exported: CodexExportedResponse) {

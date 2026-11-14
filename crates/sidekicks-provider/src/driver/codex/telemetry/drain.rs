@@ -31,8 +31,9 @@ use crate::driver::codex::telemetry::placement::{
     CodexLaunchPlacement, bucket_off_stream, place_bucket, refuse_response, take_kept_buckets,
 };
 use crate::driver::codex::telemetry::rollouts::fallback::{
-    CodexLaunchRollouts, CodexRolloutFallback,
+    CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback,
 };
+use crate::driver::codex::telemetry::rollouts::hold::price_rollout_requests;
 
 // Why a response whose placement the daemon's stop abandoned was refused.
 const STOPPED: &str = "the daemon stopped before its thread could be placed";
@@ -267,20 +268,20 @@ impl CodexExportDrain {
     }
 }
 
-// What wakes a launch's task: its next work, or its export status turning, `false` once its
-// tracker is gone.
+// What wakes a launch's task: its next work, or its rollout fallback falling due.
 enum CodexLaunchEvent {
     Work(Option<CodexLaunchWork>),
-    Status(bool),
+    FallbackDue(CodexFallbackDue),
 }
 
 // Runs one launch's work in order until its queue ends or the daemon stops; each piece is raced
 // against the stop, and whatever the stop abandons, and what is left in the queue, is refused,
 // naming its thread. Work whose service or launch is gone is refused. From the launch's first
 // read of its rollout files on, the task also owns its rollout fallback, which reads each stop
-// the export status counts: once as it is found, at each settled request turn, and a last time
-// once an export ended it. A turn of the status is taken before queued work, so no queued read
-// runs past an export's return.
+// the export status counts: once as it is found, at each settled request turn and at each export
+// read until its files are let go; it decides each held request as it falls due, and every one
+// still held once the launch's export status is gone, for which a queue ended first waits. A
+// pass due is taken before queued work, so no queued read runs past an export's read.
 async fn run_launch_work(
     service: Weak<CodexService>,
     launch: Weak<Mutex<CodexLaunchPlacement>>,
@@ -288,48 +289,77 @@ async fn run_launch_work(
     stop: CancellationToken,
 ) {
     let mut fallback: Option<CodexRolloutFallback> = None;
+    let mut is_queue_ended = false;
     loop {
-        let status_turned = async {
+        let fallback_due = async {
             match fallback.as_mut() {
-                Some(fallback) => fallback.status_turned().await,
+                Some(fallback) => fallback.wait_until_due().await,
                 None => std::future::pending().await,
+            }
+        };
+        let next_work = async {
+            if is_queue_ended {
+                std::future::pending().await
+            } else {
+                work.recv().await
             }
         };
         let event = tokio::select! {
             biased;
             () = stop.cancelled() => break,
-            turn = status_turned => CodexLaunchEvent::Status(turn),
-            next = work.recv() => CodexLaunchEvent::Work(next),
+            due = fallback_due => CodexLaunchEvent::FallbackDue(due),
+            next = next_work => CodexLaunchEvent::Work(next),
         };
         let next = match event {
             CodexLaunchEvent::Work(next) => next,
-            CodexLaunchEvent::Status(is_live) => {
-                if !is_live {
-                    fallback = None;
-                    continue;
-                }
-                let (Some(service), Some(fallback)) = (service.upgrade(), fallback.as_mut()) else {
+            CodexLaunchEvent::FallbackDue(due) => {
+                let Some(live_fallback) = fallback.as_mut() else {
                     continue;
                 };
-                let mut is_stopping = false;
-                while fallback.next_pass() {
-                    tokio::select! {
-                        biased;
-                        () = stop.cancelled() => {
-                            is_stopping = true;
+                let live_service = service.upgrade();
+                match due {
+                    CodexFallbackDue::LaunchEnded => {
+                        price_rollout_requests(live_service.as_deref(), live_fallback.decide_all());
+                        fallback = None;
+                        if is_queue_ended {
+                            return;
+                        }
+                    }
+                    CodexFallbackDue::Held => {
+                        price_rollout_requests(live_service.as_deref(), live_fallback.decide_due());
+                    }
+                    CodexFallbackDue::Pass => {
+                        let Some(live_service) = live_service else {
+                            // Nothing is left to read with; the passes due are taken unread, so
+                            // they do not wake the task again.
+                            while live_fallback.next_pass() {}
+                            continue;
+                        };
+                        let mut is_stopping = false;
+                        while live_fallback.next_pass() {
+                            tokio::select! {
+                                biased;
+                                () = stop.cancelled() => {
+                                    is_stopping = true;
+                                    break;
+                                }
+                                () = live_fallback.pass(&live_service) => {}
+                            }
+                        }
+                        if is_stopping {
                             break;
                         }
-                        () = fallback.pass(&service) => {}
                     }
-                }
-                if is_stopping {
-                    break;
                 }
                 continue;
             }
         };
         let Some(next) = next else {
-            return;
+            if fallback.is_none() {
+                return;
+            }
+            is_queue_ended = true;
+            continue;
         };
         let Some((service, launch)) = service.upgrade().zip(launch.upgrade()) else {
             next.refuse("the launch that sent it has ended");

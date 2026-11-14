@@ -1,7 +1,7 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{CodexPricedWindow, CodexRolloutFile, CodexRolloutRequest, CodexRolloutTier};
+use super::{CodexRolloutFile, CodexRolloutRequest, CodexRolloutTier};
 use crate::driver::codex::pricing::tests::{PLAN, price};
 use crate::pricing::rule::RequestPricing;
 
@@ -10,11 +10,8 @@ const CHILD: &str = "child-thread";
 const PARENT_TURN: &str = "parent-turn";
 const CHILD_TURN: &str = "child-turn";
 
-// Every record a test writes is priced: the window opens at the epoch and never closes.
-const WHOLE_WINDOW: CodexPricedWindow = CodexPricedWindow {
-    since_ms: 0,
-    until_ms: None,
-};
+// Every record a test writes is priced: the reading starts at the epoch.
+const FROM_THE_EPOCH: u64 = 0;
 
 fn line(at: &str, kind: &str, payload: Value) -> String {
     let mut line = json!({"timestamp": at, "type": kind});
@@ -185,7 +182,7 @@ fn a_child_rollout_prices_its_own_records_once(
     let mut file = CodexRolloutFile::default();
     let requests: Vec<CodexRolloutRequest> = child_rollout(is_spawned, own_tier, between, stamps)
         .iter()
-        .filter_map(|line| file.read_line(line.as_bytes(), WHOLE_WINDOW, &mut |_, _, _| false))
+        .filter_map(|line| file.read_line(line.as_bytes(), FROM_THE_EPOCH, &mut |_, _, _| false))
         .collect();
 
     let priced: Vec<&str> = requests
@@ -229,7 +226,37 @@ fn a_turn_settled_with_no_record_names_the_file_until_a_record_clears_it() {
     ];
     let mut file = CodexRolloutFile::default();
     for (index, (line, is_unreadable)) in steps.iter().enumerate() {
-        file.read_line(line.as_bytes(), WHOLE_WINDOW, &mut |_, _, _| false);
+        file.read_line(line.as_bytes(), FROM_THE_EPOCH, &mut |_, _, _| false);
         assert_eq!(file.is_unreadable(), *is_unreadable, "after line {index}");
     }
+}
+
+// Of two equal responses on one thread, one exported, the exported one's record stamped before
+// the reading's start still takes the one exported match, so the unexported one after the start is
+// priced. Killed by a record offered to the exports only from the start on (the later one takes
+// the match and is counted nowhere).
+#[test]
+fn a_record_before_the_reading_s_start_takes_its_own_exported_match() {
+    let (before, after) = ("2026-11-09T10:00:01.000Z", "2026-11-09T10:00:20.000Z");
+    let lines = [
+        session_meta(before, CHILD, false),
+        turn_context(before, CHILD_TURN, "gpt-6.1-sol"),
+        record(before, CHILD, CHILD_TURN, "response-exported", 10, 1),
+        record(after, CHILD, CHILD_TURN, "response-unexported", 10, 1),
+    ];
+    let mut exported_matches = 1;
+    let mut file = CodexRolloutFile::default();
+    let priced: Vec<String> = lines
+        .iter()
+        .filter_map(|line| {
+            file.read_line(line.as_bytes(), unix_ms(after), &mut |_, _, _| {
+                let is_match = exported_matches > 0;
+                exported_matches -= u32::from(is_match);
+                is_match
+            })
+        })
+        .map(|request| request.response_id)
+        .collect();
+
+    assert_eq!(priced, ["response-unexported"]);
 }

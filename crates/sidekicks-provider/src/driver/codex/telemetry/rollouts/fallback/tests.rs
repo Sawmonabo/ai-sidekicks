@@ -8,7 +8,7 @@ use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use super::{CodexLaunchRollouts, CodexRolloutFallback};
+use super::{CodexFallbackDue, CodexLaunchRollouts, CodexRolloutFallback};
 use crate::pricing::export_status::ExportStatusTracker;
 
 /// The launch's export interval in these tests.
@@ -56,13 +56,14 @@ fn export_without_responses(tracker: &ExportStatusTracker, rollouts: &CodexLaunc
     });
 }
 
-// The stretch the fallback reads, as a pass's window takes it: its start and its end, if set.
-fn read_stretch(fallback: &CodexRolloutFallback) -> Option<(u64, Option<u64>)> {
+// The stop the fallback reads, as a pass takes it: its start, and the newest record of the export
+// that ended it, if one has.
+fn read_stop(fallback: &CodexRolloutFallback) -> Option<(u64, Option<u64>)> {
     let reading = fallback.reading.as_ref()?;
-    let until_ms = lock(&fallback.rollouts.times)
+    let ended_ms = lock(&fallback.rollouts.times)
         .ended(reading.stop)
-        .map(|ended| ended.until_ms);
-    Some((reading.since_ms, until_ms))
+        .map(|ended| ended.newest_record_ms);
+    Some((reading.since_ms, ended_ms))
 }
 
 // The files the fallback names as unreadable change the published status but make no pass due:
@@ -77,50 +78,55 @@ async fn a_published_file_list_is_no_turn_of_the_export_status() {
         .turn_settled(true, Instant::now())
         .expect("the scheduler runs");
 
-    assert!(fallback.status_turned().await);
+    assert!(matches!(
+        fallback.wait_until_due().await,
+        CodexFallbackDue::Pass
+    ));
     assert!(fallback.next_pass());
     assert!(fallback.is_reading());
 }
 
 // An export that arrives after the fallback saw the stop and before it began reading still ends
-// the stretch it reads, at the newest stamp any record of the export carries, though the export
-// holds no completed response. Killed by an end recorded only while the fallback already reads
-// (no end: every line to now priced, then the next exports price them again), and by an end
-// taken from the completed responses only (the export's arrival less one).
+// the stop it reads, at the newest stamp any record of the export carries, though the export holds
+// no completed response, and the pass that begins the stop covers that export. Killed by an end
+// recorded only while the fallback already reads (no end: the files followed until the next stop
+// ends), by an end taken from the completed responses only (the export's arrival less one), and by
+// a second pass for an export the first already covers.
 #[tokio::test(start_paused = true)]
-async fn an_export_between_the_stop_s_read_and_its_reading_ends_the_stretch() {
+async fn an_export_between_the_stop_s_read_and_its_reading_ends_the_stop() {
     let (tracker, rollouts, mut fallback) = launch();
     stop(&tracker).await;
-    assert!(fallback.status_turned().await);
+    assert!(matches!(
+        fallback.wait_until_due().await,
+        CodexFallbackDue::Pass
+    ));
 
     export_without_responses(&tracker, &rollouts);
 
     assert!(fallback.next_pass());
     assert_eq!(
-        read_stretch(&fallback),
+        read_stop(&fallback),
         Some((REGISTERED_AT_MS, Some(RETURNED_NEWEST_MS)))
     );
     assert!(!fallback.next_pass());
-    assert!(!fallback.is_reading());
 }
 
-// A stop an export ends before the fallback looks is still read, once, over the stretch from the
-// launch's last export to the returning export's newest record. Killed by a fallback that reads
-// the status's current value instead of its count of stops (it sees arriving against arriving and
-// never wakes, so the stretch is counted nowhere).
+// A stop an export ends before the fallback looks is still read, once, from the launch's last
+// export on, ended at the returning export's newest record. Killed by a fallback that reads the
+// status's current value instead of its count of stops (it sees arriving against arriving and
+// never wakes, so the stop is read nowhere).
 #[tokio::test(start_paused = true)]
 async fn a_stop_the_export_ends_before_the_fallback_looks_is_read_once() {
     let (tracker, rollouts, mut fallback) = launch();
     stop(&tracker).await;
     export_without_responses(&tracker, &rollouts);
 
-    let is_due = tokio::time::timeout(INTERVAL, fallback.status_turned()).await;
-    assert_eq!(is_due.ok(), Some(true));
+    let due = tokio::time::timeout(INTERVAL, fallback.wait_until_due()).await;
+    assert!(matches!(due, Ok(CodexFallbackDue::Pass)));
     assert!(fallback.next_pass());
     assert_eq!(
-        read_stretch(&fallback),
+        read_stop(&fallback),
         Some((REGISTERED_AT_MS, Some(RETURNED_NEWEST_MS)))
     );
     assert!(!fallback.next_pass());
-    assert!(!fallback.is_reading());
 }

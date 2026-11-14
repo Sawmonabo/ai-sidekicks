@@ -16,6 +16,17 @@ pub(crate) async fn poll_until<Reading: Debug>(
     read: impl Fn() -> Reading,
     is_reached: impl Fn(&Reading) -> bool,
 ) -> Reading {
+    poll_each_until(POLL_INTERVAL, read, is_reached).await
+}
+
+/// Reads `read` every `interval`, which on a paused clock moves it on by that much at each reading,
+/// until `is_reached` holds of its reading, and answers that reading. Panics with the last reading
+/// once 10 s of real time pass without it holding.
+pub(crate) async fn poll_each_until<Reading: Debug>(
+    interval: Duration,
+    read: impl Fn() -> Reading,
+    is_reached: impl Fn(&Reading) -> bool,
+) -> Reading {
     let deadline = Instant::now() + POLL_BOUND;
     loop {
         let reading = read();
@@ -26,6 +37,6 @@ pub(crate) async fn poll_until<Reading: Debug>(
             Instant::now() < deadline,
             "the awaited reading did not hold within {POLL_BOUND:?}; the last one was {reading:#?}"
         );
-        tokio::time::sleep(POLL_INTERVAL).await;
+        tokio::time::sleep(interval).await;
     }
 }

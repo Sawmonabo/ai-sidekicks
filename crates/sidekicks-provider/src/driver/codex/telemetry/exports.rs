@@ -28,6 +28,7 @@ use crate::driver::codex::telemetry::drain::{CodexExportDrain, CodexExportItem};
 use crate::driver::codex::telemetry::placement::join::CodexReviewWindow;
 use crate::driver::codex::telemetry::placement::{CodexLaunchPlacement, refuse_unplaced};
 use crate::driver::codex::telemetry::rollouts::fallback::CodexLaunchRollouts;
+use crate::driver::codex::telemetry::rollouts::hold::CodexHeldRolloutRequest;
 use crate::pricing::export_status::{ExportStatus, ExportStatusTracker};
 use crate::pricing::receiver::bearers::TelemetryHolderId;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -35,9 +36,30 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 #[cfg(test)]
 pub(crate) mod tests;
 
-/// Codex's log batch interval: the SDK's default `OTEL_BLRP_SCHEDULE_DELAY`, which the launch's
-/// withhold keeps the person's own value from changing.
+/// Codex's log batch interval, `OTEL_BLRP_SCHEDULE_DELAY`, which each service launch sets to the
+/// SDK's default in place of the person's own value.
 pub(crate) const CODEX_EXPORT_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How long Codex's exporter waits for the daemon to answer one batch before it drops it,
+/// `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, which each service launch sets to the SDK's default.
+pub(crate) const CODEX_EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How many records Codex's log queue holds before it drops a new one, `OTEL_BLRP_MAX_QUEUE_SIZE`,
+/// which each service launch sets to the SDK's default.
+pub(crate) const CODEX_EXPORT_QUEUE_RECORDS: u32 = 2_048;
+
+/// How many records one of Codex's batches carries at most, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE`,
+/// which each service launch sets to the SDK's default.
+pub(crate) const CODEX_EXPORT_BATCH_RECORDS: u32 = 512;
+
+/// The longest a record Codex logs can take to reach the daemon, 51 s: the SDK's one batch thread
+/// sends one batch at a time and never retries one, so a record waits one interval for its batch,
+/// then for the batch in flight and each batch a full queue holds, its own last, each for the
+/// whole timeout.
+pub(crate) const CODEX_EXPORT_ARRIVAL_BOUND: Duration = CODEX_EXPORT_INTERVAL.saturating_add(
+    CODEX_EXPORT_TIMEOUT
+        .saturating_mul(1 + CODEX_EXPORT_QUEUE_RECORDS.div_ceil(CODEX_EXPORT_BATCH_RECORDS)),
+);
 
 /// The resource attribute a service launch's tag is carried under.
 const SERVICE_TAG_KEY: &str = "sidekicks.codex.service";
@@ -383,6 +405,25 @@ impl CodexExports {
         if made_request && is_stopped {
             self.offer(read_rollouts);
         }
+    }
+
+    /// Decides now every rollout request a live launch holds for `session_id`, which lets go of
+    /// its record, so no export after it can be filed on it; answers those to price on it.
+    pub(crate) fn take_session_rollouts(
+        &self,
+        session_id: SessionId,
+    ) -> Vec<CodexHeldRolloutRequest> {
+        let rollouts: Vec<CodexLaunchRollouts> = self.with_live(|launches| {
+            launches
+                .by_number
+                .values()
+                .map(|launch| launch.rollouts.clone())
+                .collect()
+        });
+        rollouts
+            .iter()
+            .flat_map(|rollouts| rollouts.decide_session(session_id))
+            .collect()
     }
 
     /// Whether `service_id`'s service has an exporting launch, whose responses the session's
