@@ -482,8 +482,10 @@ export type UnsentShellInput =
   | { readonly kind: "queued"; readonly writes: readonly UnsentShellWrite[] };
 
 /**
- * One write the client's queue handed back: typed keys, or one part of a paste with its place in
- * the paste, which goes again whole.
+ * One write the client's queue handed back: typed keys, or text of a paste with its place in the
+ * paste, which goes again as part of that paste. The page's copy of the client addon's type of the
+ * same name: shared code imports only the contracts package, and the addon's type is not one of
+ * its contracts, so the client helper checks each write the page sends back against this shape.
  */
 export interface UnsentShellWrite {
   readonly data: string;

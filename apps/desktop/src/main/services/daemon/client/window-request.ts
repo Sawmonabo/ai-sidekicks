@@ -80,6 +80,8 @@ function isShellResubmit(message: Record<string, unknown>): boolean {
   );
 }
 
+// A handed-back write returns from the page, so its shape is checked against the page's copy of
+// the addon's type before the addon takes it.
 function isUnsentShellWrite(write: unknown): boolean {
   if (write === null || typeof write !== "object") {
     return false;

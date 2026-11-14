@@ -1,9 +1,9 @@
 //! The desktop's Node-API addon, loaded in its client helper: one connection to the daemon, one
 //! generic call and one generic subscribe that check a request against its method's contract
-//! before it is sent, a pane's typing into a shell, the link's state as it changes, and the wait for
-//! a daemon that is starting; and, for main, the client's one ending of the daemon's process, the
-//! bounds a start waits within, a started process's identity and where the service's status file
-//! is.
+//! before it is sent, a pane's typing into a shell, the link's state as it changes, and the wait
+//! for a daemon that is starting; and, for main, the client's one ending of the daemon's process,
+//! the bounds a start waits within, a started process's identity and where the service's status
+//! file is.
 //! Every failure reaches JavaScript in the wire's own error shape, so the page branches on
 //! `data.type` whether the daemon or this addon refused.
 
@@ -111,30 +111,30 @@ pub struct StreamEvent {
     pub error: Option<Value>,
 }
 
-/// What a pane's input is told of one of its writes: refused, with the error in the wire's shape, or
-/// taken, with no error, for its first write and for the first after a refusal.
+/// What a pane's input is told of one of its writes: refused, with the error in the wire's shape,
+/// or taken, with no error, for its first write and for the first after a refusal.
 #[napi(object)]
 pub struct ShellWriteNotice {
     /// The error, when the write was refused.
     pub error: Option<Value>,
 }
 
-/// A write a pane's input queued and had not sent, handed back at its close to go again on the
-/// pane's next input: typed keys, or one part of a paste, which goes whole with its paste's place.
+/// A write a pane's input handed back at its close, to go again on the pane's next input: typed
+/// keys, or text of a paste, which goes with its paste's id as part of that one paste.
 #[napi(object)]
 pub struct UnsentShellWrite {
-    /// The keys, or the part's text.
+    /// The keys, or the paste's text.
     pub data: String,
-    /// Where the part sits in its paste; none for keys.
+    /// The paste the text belongs to; none for keys.
     pub paste: Option<UnsentPastePart>,
 }
 
-/// Where a handed-back part sits in its paste.
+/// The paste handed-back text belongs to.
 #[napi(object)]
 pub struct UnsentPastePart {
-    /// The paste's id, minted where it was cut into parts.
+    /// The paste's id, minted where it was pasted.
     pub paste_id: String,
-    /// Whether this is the paste's last part.
+    /// Whether the text runs to the paste's end.
     pub is_last_part: bool,
 }
 
@@ -503,7 +503,7 @@ impl ShellInputHandle {
     #[napi(catch_unwind)]
     pub fn paste(&self, text: String) {
         if let Some(input) = lock(&self.input).as_ref() {
-            input.paste(&text);
+            input.paste(text);
         }
     }
 
@@ -522,14 +522,22 @@ impl ShellInputHandle {
         Ok(())
     }
 
-    /// Closes the input and hands back what it queued and has not sent, oldest first; its writes
-    /// sent still count until answered, and `on_notice` hears nothing more. Nothing once closed.
-    #[napi(catch_unwind)]
-    pub fn close(&self) -> Vec<UnsentShellWrite> {
+    /// Closes the input for its output stream's end: what it queued is sent no more, and once
+    /// each write it sent is answered it hands back, oldest first, those the daemon refused
+    /// because the stream had ended, then what it had not sent; `on_notice` hears each answer
+    /// until then and nothing after. Nothing once closed.
+    #[napi]
+    pub async fn close(&self) -> Vec<UnsentShellWrite> {
         let input = lock(&self.input).take();
-        input.map_or_else(Vec::new, |input| {
-            input.close().into_iter().map(unsent_shell_write).collect()
-        })
+        match input {
+            Some(input) => input
+                .close()
+                .await
+                .into_iter()
+                .map(unsent_shell_write)
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     /// Ends the input and lets everything it queued leave, in order and each paste whole; answers

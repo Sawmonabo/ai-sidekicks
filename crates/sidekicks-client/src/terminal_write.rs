@@ -4,18 +4,20 @@
 //! another pane's, and every pane's writes leave in the order they were typed. An interrupt, quit
 //! or suspend key goes at once, with every write queued before it, while fewer than
 //! `TERMINAL_WRITES_WAITING_LIMIT` wait, so order holds and the daemon decides whether the key is
-//! a signal. A paste goes in parts of at most the byte cap, each whole and never joined with keys.
-//! What the daemon answers a write is told to the pane that typed it. A pane's handle closed hands
-//! back what it queued and had not sent, for the pane to send again on its next handle; a handle
-//! finished sends it all, and is done once each write it sent is answered.
+//! a signal. A paste waits as its one text and goes in parts of at most the byte cap, each cut as
+//! the one before leaves, whole and never joined with keys. What the daemon answers a write is
+//! told to the pane that typed it. A pane's handle closed hands back, once each write it sent is
+//! answered, those the daemon refused because the pane's subscription had ended and then what it
+//! had not sent, for the pane to send again on its next handle; a handle finished sends it all,
+//! and is done once each write it sent is answered.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::future::Future;
 use std::mem;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{
@@ -57,9 +59,9 @@ pub enum WriteNotice {
 
 /// One pane's input to one shell, typed into from any thread: a handle onto the queue its client
 /// holds for that shell, which every other pane's handle to the shell over that client shares.
-/// [`ShellInput::close`] hands back what it queued and has not sent and ends its notices, while
-/// the writes it sent count until they are answered; [`ShellInput::finish`], or dropping it, lets
-/// everything it queued leave in order.
+/// [`ShellInput::close`] stops what it queued and hands it back with what its subscription's end
+/// kept from the daemon; [`ShellInput::finish`], or dropping it, lets everything it queued leave
+/// in order.
 pub struct ShellInput {
     queue: Arc<ShellQueue>,
     pane: Arc<Pane>,
@@ -84,7 +86,7 @@ struct ShellQueue {
     /// The runtime each write's answer is awaited on.
     runtime: Handle,
     state: Mutex<QueueState>,
-    /// Changes after each answer is counted, for a finishing pane to look again.
+    /// Changes after each answer is counted, for a closing or finishing pane to look again.
     answered: watch::Sender<()>,
 }
 
@@ -99,25 +101,40 @@ struct QueueState {
     sent_count: u64,
 }
 
-/// One write waiting to be sent, and the pane that typed it.
+/// What waits to be sent, and the pane that typed it.
 struct QueuedWrite {
     pane: Arc<Pane>,
-    write: PaneWrite,
+    text: QueuedText,
 }
 
-/// What a pane queued and has not sent: a run of typed keys, or one part of a paste as it was cut,
-/// which goes again whole with its paste's id.
+/// A run of typed keys, or a paste's text held once, its next part cut from `sent` as the one
+/// before leaves.
+enum QueuedText {
+    Keys(String),
+    Paste {
+        text: String,
+        /// Where the parts sent so far end, a character boundary.
+        sent: usize,
+        paste_id: ClientUuid,
+        /// Whether `text` runs to the paste's end.
+        is_end: bool,
+    },
+}
+
+/// A pane's write, as it is sent and as a closed handle hands it back: a run of typed keys, or
+/// paste text with its paste's id, which goes again as part of that one paste.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaneWrite {
     /// Typed keys, joined with the pane's keys beside them.
     Keys(String),
-    /// One part of a paste.
+    /// Text of one paste: a part as it was sent, at most `TERMINAL_WRITE_MAX_BYTES`, or the
+    /// rest of the paste not yet sent, of any length, cut into parts again as it goes.
     PastePart {
-        /// The part's text, at most `TERMINAL_WRITE_MAX_BYTES`.
+        /// The text.
         data: String,
-        /// The paste the part belongs to.
+        /// The paste the text belongs to.
         paste_id: ClientUuid,
-        /// Whether this is the paste's last part.
+        /// Whether the text runs to the paste's end.
         is_last_part: bool,
     },
 }
@@ -125,10 +142,20 @@ pub enum PaneWrite {
 /// One pane's handle as its queued writes and the answers to its sent ones reach it.
 struct Pane {
     output_subscription_id: SubscriptionId,
-    /// The pane's writes sent and not yet answered, changed only under its queue's lock.
-    unanswered: AtomicUsize,
     notices: mpsc::Sender<WriteNotice>,
     answers: Mutex<PaneAnswers>,
+    /// Taken after its queue's lock wherever both are held.
+    sent: Mutex<PaneSent>,
+}
+
+/// A pane's writes sent and not yet answered, and those the daemon refused because the pane's
+/// subscription had ended, each by its number.
+#[derive(Default)]
+struct PaneSent {
+    unanswered: BTreeMap<u64, PaneWrite>,
+    refused: BTreeMap<u64, PaneWrite>,
+    /// Whether the handle was finished, so no close will hand back what is refused.
+    is_finished: bool,
 }
 
 /// Where the answers told to a pane stand.
@@ -157,12 +184,12 @@ impl ShellInput {
             .queue_for(client, (target.session_id, target.terminal_id));
         let pane = Arc::new(Pane {
             output_subscription_id: target.output_subscription_id,
-            unanswered: AtomicUsize::new(0),
             notices,
             answers: Mutex::new(PaneAnswers {
                 newest: 0,
                 awaits_taken: true,
             }),
+            sent: Mutex::default(),
         });
         (Self { queue, pane }, receiver)
     }
@@ -174,57 +201,75 @@ impl ShellInput {
             return;
         }
         let mut state = self.queue.lock();
-        self.push(&mut state, PaneWrite::Keys(keys.to_owned()));
+        self.push(&mut state, QueuedText::Keys(keys.to_owned()));
         self.queue.send_what_fits(&mut state);
     }
 
-    /// Pastes `text` as one paste: parts of at most `TERMINAL_WRITE_MAX_BYTES`, cut at character
-    /// boundaries, all naming one paste id minted here, each sent whole and in order with every
-    /// write before and after it.
-    pub fn paste(&self, text: &str) {
+    /// Pastes `text` as one paste under one paste id minted here, in order with every write
+    /// before and after it: held as this one text, and sent in parts of at most
+    /// `TERMINAL_WRITE_MAX_BYTES` cut at character boundaries as the window has room.
+    pub fn paste(&self, text: String) {
         if text.is_empty() {
             return;
         }
-        let paste_id = mint_paste_id();
         let mut state = self.queue.lock();
-        let mut rest = text;
-        while !rest.is_empty() {
-            let (part, later) = rest.split_at(rest.floor_char_boundary(TERMINAL_WRITE_MAX_BYTES));
-            self.push(
-                &mut state,
-                PaneWrite::PastePart {
-                    data: part.to_owned(),
-                    paste_id: paste_id.clone(),
-                    is_last_part: later.is_empty(),
-                },
-            );
-            rest = later;
-        }
+        self.push(
+            &mut state,
+            QueuedText::Paste {
+                text,
+                sent: 0,
+                paste_id: mint_paste_id(),
+                is_end: true,
+            },
+        );
         self.queue.send_what_fits(&mut state);
     }
 
     /// Queues what another handle of the pane handed back at its close, ahead of anything typed
-    /// into this one after, each write as it was: keys join this pane's keys before them, and a
-    /// paste's part goes whole with its paste's id.
+    /// into this one after, each write as it was: keys join this pane's keys before them, and
+    /// paste text goes with its paste's id, so the daemon continues that paste.
     pub fn resubmit(&self, unsent: Vec<PaneWrite>) {
         let mut state = self.queue.lock();
         for write in unsent {
-            self.push(&mut state, write);
+            self.push(&mut state, QueuedText::from(write));
         }
         self.queue.send_what_fits(&mut state);
     }
 
-    /// Closes the handle: hands back what it queued and has not sent, oldest first, none of it
-    /// sent in part, and ends its notices.
-    pub fn close(self) -> Vec<PaneWrite> {
-        self.take_unsent()
+    /// Closes the handle for its subscription's end: what it queued is sent no more, and once
+    /// each write it sent is answered the returned future hands back, oldest first, the writes
+    /// the daemon refused because the subscription had ended, then what it had not sent, each
+    /// paste's text with its paste's id. A write the daemon took is never handed back. Its notices
+    /// end with it.
+    pub fn close(self) -> impl Future<Output = Vec<PaneWrite>> + Send + 'static {
+        let Self { queue, pane } = self;
+        let unsent = queue.take_unsent(&pane);
+        async move {
+            let mut answered = queue.answered.subscribe();
+            loop {
+                {
+                    let mut sent = lock(&pane.sent);
+                    if sent.unanswered.is_empty() {
+                        let mut handed_back: Vec<PaneWrite> =
+                            mem::take(&mut sent.refused).into_values().collect();
+                        handed_back.extend(unsent);
+                        return handed_back;
+                    }
+                }
+                answered
+                    .changed()
+                    .await
+                    .expect("the queue held here keeps its sender");
+            }
+        }
     }
 
-    /// Ends the handle and lets everything it queued leave, in order and each paste's parts whole,
-    /// on the pane's output subscription, which the caller keeps open until the returned future
-    /// ends: once every write of the pane is answered, as a shell or connection gone answers each.
+    /// Ends the handle and lets everything it queued leave, in order and each paste whole, on the
+    /// pane's output subscription, which the caller keeps open until the returned future ends:
+    /// once every write of the pane is answered, as a shell or connection gone answers each.
     pub fn finish(self) -> impl Future<Output = ()> + Send + 'static {
         let Self { queue, pane } = self;
+        lock(&pane.sent).is_finished = true;
         let mut answered = queue.answered.subscribe();
         async move {
             while queue.holds_writes_of(&pane) {
@@ -236,9 +281,9 @@ impl ShellInput {
         }
     }
 
-    /// Queues `write` behind everything queued, keys joining this pane's last run of keys.
-    fn push(&self, state: &mut QueueState, write: PaneWrite) {
-        if let PaneWrite::Keys(keys) = &write
+    /// Queues `text` behind everything queued, keys joining this pane's last run of keys.
+    fn push(&self, state: &mut QueueState, text: QueuedText) {
+        if let QueuedText::Keys(keys) = &text
             && let Some(typed) = state
                 .queued
                 .back_mut()
@@ -249,18 +294,8 @@ impl ShellInput {
         }
         state.queued.push_back(QueuedWrite {
             pane: Arc::clone(&self.pane),
-            write,
+            text,
         });
-    }
-
-    /// Takes this pane's writes out of the queue, oldest first, leaving every other pane's.
-    fn take_unsent(&self) -> Vec<PaneWrite> {
-        let mut state = self.queue.lock();
-        let (unsent, others): (VecDeque<_>, VecDeque<_>) = mem::take(&mut state.queued)
-            .into_iter()
-            .partition(|queued| Arc::ptr_eq(&queued.pane, &self.pane));
-        state.queued = others;
-        unsent.into_iter().map(|queued| queued.write).collect()
     }
 }
 
@@ -286,8 +321,8 @@ impl ShellQueues {
 impl ShellQueue {
     /// Sends queued writes in order while the window has room: through the last run of keys
     /// carrying a signal key while fewer than the daemon's limit wait, the rest while fewer than
-    /// the client's own figure wait. A run of keys goes in writes of at most
-    /// `TERMINAL_WRITE_MAX_BYTES`, cut at a character boundary; a paste's part goes as it was cut.
+    /// the client's own figure wait. Each write is cut off the front of what waits: keys and a
+    /// paste's next part at most `TERMINAL_WRITE_MAX_BYTES`, at a character boundary.
     fn send_what_fits(self: &Arc<Self>, state: &mut QueueState) {
         loop {
             let urgent = state
@@ -302,42 +337,29 @@ impl ShellQueue {
             if state.waiting >= room {
                 return;
             }
-            let Some(mut next) = state.queued.pop_front() else {
+            let Some(next) = state.queued.front_mut() else {
                 return;
             };
-            if let PaneWrite::Keys(typed) = &mut next.write {
-                // Every signal key is one byte, so the byte after the last ends the urgent keys.
-                let end = if urgent == Some(0) {
-                    typed
-                        .rfind(SIGNAL_KEYS)
-                        .map_or(typed.len(), |index| index + 1)
-                } else {
-                    typed.len()
-                };
-                let cut = typed.floor_char_boundary(end.min(TERMINAL_WRITE_MAX_BYTES));
-                if cut < typed.len() {
-                    let rest = typed.split_off(cut);
-                    state.queued.push_front(QueuedWrite {
-                        pane: Arc::clone(&next.pane),
-                        write: PaneWrite::Keys(rest),
-                    });
-                }
+            let pane = Arc::clone(&next.pane);
+            let (write, is_done) = next.text.cut_next(urgent == Some(0));
+            if is_done {
+                state.queued.pop_front();
             }
             state.waiting += 1;
             state.sent_count += 1;
-            next.pane.unanswered.fetch_add(1, Ordering::Relaxed);
-            self.send(next, state.sent_count);
+            self.send(&pane, write, state.sent_count);
         }
     }
 
-    /// Sends one write now, so writes leave in the order they were cut, and awaits its answer on
-    /// its own task; the answer is told to the pane that typed it while that pane's handle is
-    /// open.
-    fn send(self: &Arc<Self>, next: QueuedWrite, sequence: u64) {
+    /// Sends one write now, so writes leave in the order they were cut, keeps it with its pane
+    /// until answered, and awaits its answer on its own task; the answer is told to the pane that
+    /// typed it, but a refusal for the pane's ended subscription, which keeps the write for the
+    /// close to hand back.
+    fn send(self: &Arc<Self>, pane: &Arc<Pane>, write: PaneWrite, sequence: u64) {
         let session_id = self.key.0;
         let terminal_id = self.key.1.clone();
-        let output_subscription_id = next.pane.output_subscription_id;
-        let request = match next.write {
+        let output_subscription_id = pane.output_subscription_id;
+        let request = match write {
             PaneWrite::Keys(data) => TerminalWriteRequest::Keys {
                 session_id,
                 terminal_id,
@@ -357,32 +379,71 @@ impl ShellQueue {
                 is_last_part,
             },
         };
+        // The call writes its request at once, so the text moves back to wait for the answer.
         let answer = self.client.call::<TerminalWrite>(&request);
+        let sent = match request {
+            TerminalWriteRequest::Keys { data, .. } => PaneWrite::Keys(data),
+            TerminalWriteRequest::Paste {
+                data,
+                paste_id,
+                is_last_part,
+                ..
+            } => PaneWrite::PastePart {
+                data,
+                paste_id,
+                is_last_part,
+            },
+        };
+        lock(&pane.sent).unanswered.insert(sequence, sent);
         let queue = Arc::clone(self);
-        let pane = Arc::downgrade(&next.pane);
+        let pane = Arc::downgrade(pane);
         self.runtime.spawn(async move {
             let failure = answer.await.err();
             let pane = pane.upgrade();
-            {
+            let is_kept = {
                 let mut state = queue.lock();
                 state.waiting -= 1;
-                if let Some(pane) = &pane {
-                    pane.unanswered.fetch_sub(1, Ordering::Relaxed);
-                }
+                let is_kept = pane
+                    .as_ref()
+                    .is_some_and(|pane| pane.note_answer(sequence, failure.as_ref()));
                 queue.send_what_fits(&mut state);
-            }
+                is_kept
+            };
             queue.answered.send_replace(());
-            // A pane whose handle was closed has no one left to tell.
-            if let Some(pane) = pane {
-                pane.tell(sequence, failure);
+            if is_kept {
+                return;
+            }
+            match pane {
+                Some(pane) => pane.tell(sequence, failure),
+                None => {
+                    if let Some(failure) = failure {
+                        tracing::warn!(
+                            error = &failure as &(dyn Error + 'static),
+                            "A write to a shell was refused after its pane's handle was dropped"
+                        );
+                    }
+                }
             }
         });
+    }
+
+    /// Takes `pane`'s writes out of the queue, oldest first, leaving every other pane's.
+    fn take_unsent(&self, pane: &Arc<Pane>) -> Vec<PaneWrite> {
+        let mut state = self.lock();
+        let (unsent, others): (VecDeque<_>, VecDeque<_>) = mem::take(&mut state.queued)
+            .into_iter()
+            .partition(|queued| Arc::ptr_eq(&queued.pane, pane));
+        state.queued = others;
+        unsent
+            .into_iter()
+            .map(|queued| queued.text.into_unsent())
+            .collect()
     }
 
     /// Whether a write of `pane` is queued or waits for its answer.
     fn holds_writes_of(&self, pane: &Arc<Pane>) -> bool {
         let state = self.lock();
-        pane.unanswered.load(Ordering::Relaxed) > 0
+        !lock(&pane.sent).unanswered.is_empty()
             || state
                 .queued
                 .iter()
@@ -410,20 +471,120 @@ impl Drop for ShellQueue {
 impl QueuedWrite {
     /// The keys of a run `pane` typed, which its next keys join.
     fn keys_of(&mut self, pane: &Arc<Pane>) -> Option<&mut String> {
-        match &mut self.write {
-            PaneWrite::Keys(typed) if Arc::ptr_eq(&self.pane, pane) => Some(typed),
-            PaneWrite::Keys(_) | PaneWrite::PastePart { .. } => None,
+        match &mut self.text {
+            QueuedText::Keys(typed) if Arc::ptr_eq(&self.pane, pane) => Some(typed),
+            QueuedText::Keys(_) | QueuedText::Paste { .. } => None,
         }
     }
 
     /// Whether this is a run of keys holding an interrupt, quit or suspend key; a paste's text is
     /// never sent as a signal.
     fn carries_signal_key(&self) -> bool {
-        matches!(&self.write, PaneWrite::Keys(typed) if typed.contains(SIGNAL_KEYS))
+        matches!(&self.text, QueuedText::Keys(typed) if typed.contains(SIGNAL_KEYS))
+    }
+}
+
+impl QueuedText {
+    /// Cuts the next write off the front, at most the byte cap at a character boundary: keys up
+    /// to and through their last signal key when `is_urgent`, otherwise as many as fit, or a
+    /// paste's next part. Answers the write and whether nothing is left.
+    fn cut_next(&mut self, is_urgent: bool) -> (PaneWrite, bool) {
+        match self {
+            Self::Keys(typed) => {
+                // Every signal key is one byte, so the byte after the last ends the urgent keys.
+                let end = if is_urgent {
+                    typed
+                        .rfind(SIGNAL_KEYS)
+                        .map_or(typed.len(), |index| index + 1)
+                } else {
+                    typed.len()
+                };
+                let cut = typed.floor_char_boundary(end.min(TERMINAL_WRITE_MAX_BYTES));
+                let rest = typed.split_off(cut);
+                let is_done = rest.is_empty();
+                (PaneWrite::Keys(mem::replace(typed, rest)), is_done)
+            }
+            Self::Paste {
+                text,
+                sent,
+                paste_id,
+                is_end,
+            } => {
+                let from = *sent;
+                *sent = text.floor_char_boundary(from + TERMINAL_WRITE_MAX_BYTES);
+                let is_done = *sent == text.len();
+                let part = PaneWrite::PastePart {
+                    data: text[from..*sent].to_owned(),
+                    paste_id: paste_id.clone(),
+                    is_last_part: *is_end && is_done,
+                };
+                (part, is_done)
+            }
+        }
+    }
+
+    /// What was not sent, as a closed handle hands it back.
+    fn into_unsent(self) -> PaneWrite {
+        match self {
+            Self::Keys(typed) => PaneWrite::Keys(typed),
+            Self::Paste {
+                mut text,
+                sent,
+                paste_id,
+                is_end,
+            } => PaneWrite::PastePart {
+                data: if sent == 0 {
+                    text
+                } else {
+                    text.split_off(sent)
+                },
+                paste_id,
+                is_last_part: is_end,
+            },
+        }
+    }
+}
+
+impl From<PaneWrite> for QueuedText {
+    fn from(write: PaneWrite) -> Self {
+        match write {
+            PaneWrite::Keys(typed) => Self::Keys(typed),
+            PaneWrite::PastePart {
+                data,
+                paste_id,
+                is_last_part,
+            } => Self::Paste {
+                text: data,
+                sent: 0,
+                paste_id,
+                is_end: is_last_part,
+            },
+        }
     }
 }
 
 impl Pane {
+    /// Notes the answer to the sent write numbered `sequence`, and answers whether the write is
+    /// kept for the close to hand back, untold: a refusal because its subscription had ended,
+    /// unless the handle was finished and no close will.
+    fn note_answer(&self, sequence: u64, failure: Option<&ClientError>) -> bool {
+        let mut sent = lock(&self.sent);
+        let write = sent
+            .unanswered
+            .remove(&sequence)
+            .expect("each sent write is answered once");
+        let is_kept = !sent.is_finished
+            && matches!(
+                failure,
+                Some(ClientError::Remote(refusal))
+                    if refusal.is_refusal(RefusalCode::TerminalOutputSubscriptionNotFound)
+            );
+        if is_kept {
+            sent.refused.insert(sequence, write);
+        }
+        is_kept
+    }
+
     /// Tells the pane of the answer to its write numbered `sequence`: each refusal, and a take it
     /// awaits. An answer older than one already read changes nothing, since the newer one stands.
     fn tell(&self, sequence: u64, failure: Option<ClientError>) {

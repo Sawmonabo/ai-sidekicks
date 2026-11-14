@@ -178,7 +178,9 @@ class ClientHelper {
   readonly #shells = new ConnectionShells<Channel>((update, telling) => {
     void this.#tellFlowControl(update, telling);
   });
-  readonly #shellInputs = new ShellInputs<Channel>();
+  readonly #shellInputs = new ShellInputs<Channel>((message) => {
+    this.#parentPort.postMessage({ kind: "shellWrite.failed", message });
+  });
 
   public constructor(parentPort: ClientHelperParentPort, addon: ClientHelperAddon) {
     this.#parentPort = parentPort;
@@ -787,7 +789,10 @@ class ClientHelper {
     }
   }
 
-  /** Tells the asker once how a stream it still holds ended. */
+  /**
+   * Tells the asker once how a stream it still holds ended, after what its pane's input handed
+   * back, so the pane sends that again on the stream it opens next.
+   */
   #endStream(
     channel: Channel,
     streamId: number,
@@ -798,8 +803,17 @@ class ClientHelper {
       return;
     }
     channel.streams.delete(streamId);
-    this.#shellInputs.forget(channel, streamId);
-    channel.post({ kind: "stream.ended", streamId, end });
+    const tell = (): void => {
+      if (!channel.isClosed) {
+        channel.post({ kind: "stream.ended", streamId, end });
+      }
+    };
+    const handingBack = this.#shellInputs.forget(channel, streamId);
+    if (handingBack === undefined) {
+      tell();
+    } else {
+      void handingBack.then(tell);
+    }
   }
 
   #closeStream(channel: Channel, streamId: number): void {
@@ -813,7 +827,8 @@ class ClientHelper {
 
   /**
    * Cancels a stream the window let go of once its pane's queued writes have left, since a write
-   * names the stream's subscription and a paste open through it closes as it ends.
+   * names the stream's subscription; the pane's finish never rejects, logging its failure, so the
+   * stream is canceled either way.
    */
   #cancelOnceFinished(channel: Channel, streamId: number, held: HeldStream): void {
     const finishing = this.#shellInputs.finish(channel, streamId);

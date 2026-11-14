@@ -136,4 +136,5 @@ export type ClientHelperToMainMessage =
       readonly value: unknown;
     }
   | { readonly kind: "window.portDropped"; readonly windowId: number; readonly reason: string }
-  | { readonly kind: "flowControl.failed"; readonly message: string };
+  | { readonly kind: "flowControl.failed"; readonly message: string }
+  | { readonly kind: "shellWrite.failed"; readonly message: string };

@@ -135,19 +135,19 @@ impl ShellInput {
         }
     }
 
-    /// Closes the paste the pane `output_subscription_id` left open, once that pane has ended, so
-    /// the program is never left inside it.
-    pub(crate) fn close_paste_of(&self, output_subscription_id: SubscriptionId) {
-        let mut pastes = self.lock_pastes();
-        let closing = pastes.close_for(output_subscription_id);
-        self.queue_unawaited(closing, "a paste its pane left unfinished");
+    /// Leaves open the paste the pane `output_subscription_id` had open when that subscription
+    /// ended, so the parts the pane sends again on its next subscription continue it. Typed keys,
+    /// another paste or the shell's end close it first.
+    pub(crate) fn leave_paste_of(&self, output_subscription_id: SubscriptionId) {
+        self.lock_pastes().leave(output_subscription_id);
     }
 
     /// Closes the open paste whichever pane it came through, as the shell changes holder, so the
-    /// new holder's keys never land inside it.
+    /// new holder's keys never land inside it; a paste left open across its stream's end stays,
+    /// since its own pane's next part takes the shell again and any other write closes it first.
     pub(crate) fn close_open_paste(&self) {
         let mut pastes = self.lock_pastes();
-        let closing = pastes.close_all();
+        let closing = pastes.close_unless_left();
         self.queue_unawaited(closing, "a paste open as its holder changed");
     }
 
@@ -179,28 +179,36 @@ impl ShellInput {
         });
     }
 
-    /// Puts one admitted write on the terminal's input, a paste part with the close of a paste it
-    /// displaces and the answers that waited for an end mark, under the pastes' lock so no answer
-    /// lands between them; answers the take of the write's own bytes.
+    /// Puts one admitted write on the terminal's input after the close of a paste it ends (keys
+    /// end any, a part another) and the answers that waited for that end mark, under the pastes'
+    /// lock so no answer lands between them; answers the take of the write's own bytes.
     fn hand_over(
         &self,
         input: ShellWriteInput,
     ) -> BoxFuture<'static, Result<(), TerminalWriteError>> {
-        match input {
-            ShellWriteInput::Keys(text) => (self.hooks.queue_write)(Bytes::from(text)),
-            ShellWriteInput::Paste(part) => {
-                let is_bracketed = (self.hooks.is_bracketed_paste_requested)();
-                let mut pastes = self.lock_pastes();
-                let mut taken = None;
-                for input in pastes.encode_part(part, is_bracketed) {
-                    taken = Some((self.hooks.queue_write)(input.bytes));
-                    for answer in input.held_answers {
-                        (self.hooks.queue_answer)(answer);
-                    }
-                }
-                taken.expect("a part always puts its own bytes last")
+        // Read from the screen before the pastes' lock, which the screen's answers take under its.
+        let is_bracketed = matches!(input, ShellWriteInput::Paste(_))
+            && (self.hooks.is_bracketed_paste_requested)();
+        let mut pastes = self.lock_pastes();
+        let inputs = match input {
+            ShellWriteInput::Keys(text) => {
+                let mut inputs: Vec<PasteInput> = pastes.close_all().into_iter().collect();
+                inputs.push(PasteInput {
+                    bytes: Bytes::from(text),
+                    held_answers: Vec::new(),
+                });
+                inputs
+            }
+            ShellWriteInput::Paste(part) => pastes.encode_part(part, is_bracketed),
+        };
+        let mut taken = None;
+        for input in inputs {
+            taken = Some((self.hooks.queue_write)(input.bytes));
+            for answer in input.held_answers {
+                (self.hooks.queue_answer)(answer);
             }
         }
+        taken.expect("a write always puts its own bytes last")
     }
 
     /// Counts one more write of the connection `transport_id` as waiting, refusing it once

@@ -1,9 +1,11 @@
 //! A shell's pastes on their way in, each sent in parts. Whether a paste is marked as pasted is
 //! fixed at its first part, by whether the program in the shell asked for bracketed paste then. A
 //! shell has at most one paste open, which belongs to the pane output subscription its newest part
-//! came through: a paste another part starts closes the open one first, so two panes' pastes never
-//! interleave and the program is never left inside a paste. An answer to the program that comes
-//! while a marked paste is open waits for its end mark, so it never lands inside the pasted text.
+//! came through: a paste another part starts closes the open one first, and so do typed keys, so
+//! nothing else is written inside a paste. A paste whose subscription ends before its last part is
+//! left open, and its next part, sent again through the pane's next subscription, continues it, so
+//! the program reads one paste. An answer to the program that comes while a marked paste is open
+//! waits for its end mark, so it never lands inside the pasted text.
 
 use std::mem;
 
@@ -182,6 +184,8 @@ fn pending_end_marks_length(pasted: &[u8]) -> usize {
 struct OpenPaste {
     paste_id: ClientUuid,
     owner: SubscriptionId,
+    /// Whether the owner's subscription ended before the paste's last part came.
+    is_left: bool,
     paste: ShellPaste,
 }
 
@@ -216,26 +220,20 @@ impl ShellPastes {
             self.open = Some(OpenPaste {
                 paste_id: part.paste_id,
                 owner: part.output_subscription_id,
+                is_left: false,
                 paste,
             });
         }
         inputs
     }
 
-    /// What closes the paste open through the pane `output_subscription_id`, which closes; none
-    /// when that pane has none open.
-    pub(crate) fn close_for(
-        &mut self,
-        output_subscription_id: SubscriptionId,
-    ) -> Option<PasteInput> {
-        if self
-            .open
-            .as_ref()
-            .is_some_and(|open| open.owner == output_subscription_id)
+    /// Leaves open the paste open through the pane `output_subscription_id`, whose subscription
+    /// ended, for the pane's next subscription to continue.
+    pub(crate) fn leave(&mut self, output_subscription_id: SubscriptionId) {
+        if let Some(open) = &mut self.open
+            && open.owner == output_subscription_id
         {
-            self.close_all()
-        } else {
-            None
+            open.is_left = true;
         }
     }
 
@@ -243,6 +241,15 @@ impl ShellPastes {
     /// has no marks.
     pub(crate) fn close_all(&mut self) -> Option<PasteInput> {
         self.open.take().and_then(|open| open.paste.close())
+    }
+
+    /// What closes the open paste unless it was left open for its pane's next subscription; none
+    /// when that one is kept, none is open, or it has no marks.
+    pub(crate) fn close_unless_left(&mut self) -> Option<PasteInput> {
+        if self.open.as_ref().is_some_and(|open| open.is_left) {
+            return None;
+        }
+        self.close_all()
     }
 
     /// Holds an answer to the program until the open paste's end mark when that paste is marked

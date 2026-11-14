@@ -465,6 +465,9 @@ export class ClientHelperProcess implements MainDaemonClient {
           `The client helper's flow update for a shell was not taken: ${message.message}`,
         );
         return;
+      case "shellWrite.failed":
+        this.#options.logWarning(`The client helper's writes to a shell: ${message.message}`);
+        return;
     }
   }
 

@@ -499,6 +499,8 @@ impl ShellOutputSource for ShellRecord {
             let change = self.lock_flow_control().remove_watcher(transport_id);
             self.apply_read_change(change);
         }
+        // Before the release, whose change of holder closes every paste not left open.
+        self.input.leave_paste_of(subscription_id);
         let lease = Arc::clone(&self.lease);
         let terminal_id = self.terminal_id.clone();
         self.deps.runtime.spawn(async move {
@@ -510,7 +512,6 @@ impl ShellOutputSource for ShellRecord {
                 );
             }
         });
-        self.input.close_paste_of(subscription_id);
     }
 }
 
@@ -521,7 +522,8 @@ fn lock_screen(screen: &ShellScreen) -> MutexGuard<'_, TerminalScreen<ShellScree
 }
 
 // Each change of holder forgets the last holder's pane appearance and closes a paste the shell
-// had open, then is appended, and the session's list is sent again either way.
+// had open, but one left open across its stream's end, then is appended, and the session's list is
+// sent again either way.
 fn broadcast_change(record: Weak<ShellRecord>, append: LeaseBroadcast) -> LeaseBroadcast {
     Arc::new(move |change| {
         let record = record.upgrade();
