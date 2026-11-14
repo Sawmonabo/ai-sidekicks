@@ -39,6 +39,7 @@ use crate::oauth::dpop_proof::tests::{decode_part, proof_thumbprint};
 use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
 use crate::sign_in::sign_out::revocation::tests::signed_in;
+use crate::sign_in::test_service::NoOwnerClientSecrets;
 
 /// How the fake token endpoint answers a renewal.
 #[derive(Clone, Copy)]
@@ -231,6 +232,7 @@ async fn authorizer_for(
         &OAuthHttpPools::new().expect("the pools build"),
         &address,
         metadata,
+        Arc::new(NoOwnerClientSecrets),
         CancellationToken::new(),
     )
     .await

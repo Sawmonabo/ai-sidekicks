@@ -7,7 +7,7 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_provider::captured_logs::CapturedLogs;
-use sidekicks_provider::driver::contract::sign_in::McpSignInCallback;
+use sidekicks_provider::driver::contract::sign_in::{McpSignInCallback, RedirectAddress};
 use sidekicks_std::mutex_lock::lock;
 
 use super::{
@@ -268,7 +268,8 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
     let callback = if has_provider_callback {
         let port = free_port().await;
         let form = |path: &str| {
-            Url::parse(&format!("http://127.0.0.1:{port}{path}")).expect("a callback address")
+            RedirectAddress::parse(&format!("http://127.0.0.1:{port}{path}"))
+                .expect("a callback address")
         };
         Some(McpSignInCallback {
             with_issuer: form("/callback"),
@@ -298,7 +299,7 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
         } else {
             callback.without_issuer
         };
-        assert_eq!(redirect_uri, sent);
+        assert_eq!(&redirect_uri, sent.url());
     } else {
         let segments: Vec<&str> = redirect_uri
             .path_segments()
@@ -310,24 +311,26 @@ async fn a_client_id_alone_signs_in_as_that_client_with_no_registration(
     assert!(is_listening(receiver_port(&browser_url)).await);
 }
 
-/// An entry naming only its owner's callback is listened for at that callback's port and path,
-/// and the daemon's own client is registered with it. Killed by the service's own loopback
-/// address used in its place, and by the registration skipped.
+/// An entry naming only its owner's callback is listened for at that callback's port and path, the
+/// daemon's own client is registered with it, and it is sent byte for byte as the entry writes it,
+/// so a server that matches redirects exactly finds the one it registered. Killed by the service's
+/// own loopback address used in its place, by the registration skipped, and by the callback sent
+/// as its parsed address serializes, which adds a `/` to one written with no path.
 #[tokio::test]
-async fn a_callback_alone_is_listened_on_and_registered() {
+async fn a_callback_alone_is_listened_on_registered_and_sent_as_written() {
     let server = serve_authorization_server(FakeServerAnswers::default()).await;
     let harness = harness().await;
     let port = free_port().await;
-    let callback_url =
-        Url::parse(&format!("http://127.0.0.1:{port}/owner/return")).expect("a callback address");
+    let written = format!("http://127.0.0.1:{port}");
+    let callback = RedirectAddress::parse(&written).expect("a callback address");
     let target = entry_target(
         &server.base,
         Some(OwnerIssuedClient {
             client_id: None,
             client_secret: None,
             callback: Some(McpSignInCallback {
-                with_issuer: callback_url.clone(),
-                without_issuer: callback_url.clone(),
+                with_issuer: callback.clone(),
+                without_issuer: callback,
             }),
         }),
         None,
@@ -335,10 +338,7 @@ async fn a_callback_alone_is_listened_on_and_registered() {
 
     let browser_url = launch_to_browser(&harness, &target).await;
 
-    assert_eq!(
-        parameters(&browser_url, "redirect_uri"),
-        [callback_url.as_str()]
-    );
+    assert_eq!(parameters(&browser_url, "redirect_uri"), [written]);
     assert_eq!(parameters(&browser_url, "client_id"), ["registered-client"]);
     assert!(is_listening(port).await);
 }
@@ -389,8 +389,8 @@ async fn a_page_that_is_no_web_address_keeps_no_attempt() {
     .await;
     let harness = harness().await;
     let port = free_port().await;
-    let callback_url =
-        Url::parse(&format!("http://127.0.0.1:{port}/owner/return")).expect("a callback address");
+    let callback_url = RedirectAddress::parse(&format!("http://127.0.0.1:{port}/owner/return"))
+        .expect("a callback address");
     let target = entry_target(
         &server.base,
         Some(OwnerIssuedClient {

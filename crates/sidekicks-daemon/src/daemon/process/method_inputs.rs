@@ -804,7 +804,6 @@ pub(crate) async fn register_method_inputs(
                 statuses: mcp.status,
                 client: Arc::clone(&mcp_client),
                 spawner: resource_copy_spawner,
-                sign_ins: Arc::clone(&mcp_sign_ins.custody),
                 followers: Arc::clone(&database.followers),
             },
             session_goals: Arc::new(SessionGoals {

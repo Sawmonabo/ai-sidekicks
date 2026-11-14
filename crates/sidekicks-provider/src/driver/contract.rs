@@ -42,7 +42,7 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading, McpSignInCallback, ProviderSignInTakeover,
+    McpServerAddressRead, McpServerAddressReading, McpSignInEntryReading, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -793,13 +793,16 @@ pub trait ProviderDriver: Send + Sync {
         request: McpServerAddressRead,
     ) -> BoxFuture<'_, Result<Option<SecretString>, DriverError>>;
 
-    /// The redirect the provider's own client sends at a sign-in to `request`'s server, read from
-    /// its entry and the provider's settings where the provider's rule sets one an owner may have
-    /// registered; `None` where the entry's declared callback is the whole of it, or where the
-    /// provider listens on a free port at a path it registers itself. Fails as
-    /// [`ProviderDriver::read_mcp_owner_client_secret`]'s entry read fails.
-    fn read_mcp_sign_in_callback(
+    /// What a sign-in to `request`'s server reads from its entry, each config the reads share read
+    /// once: the whole address, as [`ProviderDriver::read_mcp_server_addresses`] reads it; the
+    /// redirect the provider's own client sends, where the provider's rule sets one an owner may
+    /// have registered, `None` where the entry's declared callback is the whole of it or the
+    /// provider listens on a free port at a path it registers itself; and, where
+    /// `is_owner_client_secret_read`, the secret as [`ProviderDriver::read_mcp_owner_client_secret`]
+    /// reads it. Fails as those reads fail, the address's `NoPersonServerEntry` included.
+    fn read_mcp_sign_in_entry(
         &self,
         request: McpServerAddressRead,
-    ) -> BoxFuture<'_, Result<Option<McpSignInCallback>, DriverError>>;
+        is_owner_client_secret_read: bool,
+    ) -> BoxFuture<'_, Result<McpSignInEntryReading, DriverError>>;
 }

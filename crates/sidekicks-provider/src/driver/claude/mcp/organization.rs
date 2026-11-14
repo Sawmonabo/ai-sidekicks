@@ -31,6 +31,9 @@ use crate::driver::mcp_server::address::{
 /// servers it is given or, on a workstation, is handed servers with `--mcp-config`.
 const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 
+/// The managed setting holding the organization's server entries by name.
+pub(crate) const MANAGED_MCP_SERVERS_SETTING: &str = "managedMcpServers";
+
 /// Whether Claude Code can read an administrator's MCP file in `managed_settings_folder`, the
 /// folder it reads its managed settings from; `false` where the system has none. Only the file's
 /// presence is checked, never its contents: a parse that disagreed with Claude Code's own would
@@ -235,7 +238,7 @@ fn read_managed_server_entries(
     effective_settings: Option<&Value>,
 ) -> impl Iterator<Item = (&String, &Value, ClaudeManagedServerEntry)> {
     effective_settings
-        .and_then(|settings| settings.get("managedMcpServers"))
+        .and_then(|settings| settings.get(MANAGED_MCP_SERVERS_SETTING))
         .and_then(Value::as_object)
         .into_iter()
         .flatten()

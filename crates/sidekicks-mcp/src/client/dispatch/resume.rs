@@ -140,7 +140,9 @@ pub(super) async fn follow_across_reconnects(
 ) -> CallRace {
     loop {
         let closed = Arc::clone(&lock(following));
-        if !matches!(end, Ok(McpToolCallEnd::ConnectionClosed)) || !closed.endpoint.is_address() {
+        if !matches!(end, Ok(McpToolCallEnd::ConnectionClosed))
+            || !closed.task_endpoint().is_address()
+        {
             return CallRace::Ended(end);
         }
         let replacement = match wait_for_replacement(
@@ -190,7 +192,7 @@ async fn wait_for_replacement(
         standing,
         Some(closed),
         task_watch.contact.answered_at(),
-        &closed.endpoint,
+        closed.task_endpoint(),
         contact,
         cancellation,
     )

@@ -124,7 +124,7 @@ async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
 
     let connection = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         HashMap::new(),
         authorizer,
         None,
@@ -202,7 +202,7 @@ async fn a_cut_before_any_event_id_leaves_the_standalone_stream_resuming() {
 
     let connection = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         HashMap::new(),
         Arc::new(NoAuthorization),
         None,
@@ -371,7 +371,7 @@ async fn a_refused_request_is_sent_once_more_at_most(
 
     let opened = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         HashMap::new(),
         Arc::clone(&authorizer) as Arc<dyn McpRequestAuthorizer>,
         None,
@@ -447,7 +447,7 @@ async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
 
     let opened = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         HashMap::new(),
         Arc::new(NoAuthorization),
         None,
@@ -532,7 +532,7 @@ async fn a_429_or_5xx_answer_fails_the_start_with_its_typed_status(
 
     let opened = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         HashMap::new(),
         Arc::new(NoAuthorization),
         None,
@@ -626,7 +626,7 @@ async fn a_server_entry_setting_a_header_the_transport_sets_is_refused(#[case] n
 
     let opened = McpServerConnection::connect_http(
         &address,
-        &test_digest(&address),
+        Some(&test_digest(&address)),
         headers,
         Arc::new(NoAuthorization),
         None,

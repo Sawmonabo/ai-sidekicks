@@ -5,13 +5,14 @@
 use std::error::Error;
 use std::time::{Duration, UNIX_EPOCH};
 
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
 use super::ClaudeSignInError;
 use crate::driver::claude::account::credentials::{
-    ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file,
+    ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file, read_secret,
 };
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::sign_in::{BEARER_TOKEN_TYPE, ProviderSignInTakeover};
@@ -91,8 +92,8 @@ pub(crate) struct ClaudeSavedSignIn {
     scope: Option<String>,
     #[serde(default)]
     client_id: Option<String>,
-    #[serde(default)]
-    client_secret: Option<String>,
+    #[serde(default, deserialize_with = "read_secret")]
+    client_secret: Option<SecretString>,
     #[serde(default)]
     issuer: Option<String>,
     #[serde(default)]
@@ -157,7 +158,9 @@ pub(super) fn read_claude_saved_sign_in(
                 .unwrap_or_default(),
             token_type: BEARER_TOKEN_TYPE.to_owned(),
             client_id: sign_in.client_id.unwrap_or_default(),
-            client_secret: sign_in.client_secret.filter(|secret| !secret.is_empty()),
+            client_secret: sign_in
+                .client_secret
+                .filter(|secret| !secret.expose_secret().is_empty()),
             issuer: sign_in.issuer.or_else(|| {
                 sign_in
                     .discovery_state

@@ -1,9 +1,11 @@
 //! The keychain custody of each MCP server's sign-in: one item per server, filed under the
 //! server's keyed digest, never its address, holding the server's address as its binding declared
 //! it, rmcp's stored credentials, access token included, for a `DPoP` sign-in the proof key's
-//! scalar, for a confidential client its secret, and the authorization server metadata address
-//! the sign-in read in place of discovery, written whole by one verified write, so a token is never
-//! kept beside another sign-in's key, secret or metadata address.
+//! scalar, for a confidential client the server issued its secret, for a client the server's
+//! owner issued the binding its secret is read through again at each renewal and revocation, never
+//! the secret itself, and the authorization server metadata address the sign-in read in place of
+//! discovery, written whole by one verified write, so a token is never kept beside another
+//! sign-in's key, secret or metadata address.
 //!
 //! A server's item is read from the keychain at most once per daemon life: every later read, from
 //! any store over the same custody, is served from memory, so a request to the server costs no
@@ -34,6 +36,7 @@ use rmcp::transport::auth::{
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretBox, SecretString};
 use serde::{Deserialize, Serialize};
+use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
@@ -66,14 +69,19 @@ pub(crate) struct HeldSignIn {
         with = "dpop_key_text"
     )]
     pub(crate) dpop_key: Option<Arc<DpopKeyScalar>>,
-    /// The secret of the confidential client the tokens were issued to, which every renewal
-    /// sends; `None` for a public client.
+    /// The secret the server issued the confidential client the tokens were issued to, which
+    /// every renewal sends; `None` for a public client and for a client its owner issued.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         with = "client_secret_text"
     )]
     pub(crate) client_secret: Option<SecretString>,
+    /// The binding whose entry names the client the server's owner issued, where the tokens were
+    /// issued to that client: its secret is read again through the binding's provider at each
+    /// renewal and revocation, so a rotated secret is sent and none is kept here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) owner_client_binding: Option<McpServerBindingRef>,
     /// The address of the authorization server's metadata the sign-in read in place of
     /// discovery, which its revocation reads again; `None` where the sign-in discovered it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,6 +97,7 @@ impl fmt::Debug for HeldSignIn {
             .field("credentials", &self.credentials)
             .field("dpop_key", &self.dpop_key)
             .field("client_secret", &self.client_secret)
+            .field("owner_client_binding", &self.owner_client_binding)
             .field(
                 "has_authorization_server_metadata_url",
                 &self.authorization_server_metadata_url.is_some(),
@@ -192,8 +201,10 @@ enum SecretsOnSave {
         server_address: McpServerAddress,
         // Its proof key, or none for a bearer sign-in.
         dpop_key: Option<Arc<DpopKeyScalar>>,
-        // The secret the server issued its client, or none for a public client.
+        // The secret the server issued its client, or none for a public client and an owner's.
         client_secret: Option<SecretString>,
+        // The binding naming the owner's client the attempt signs in as, or none for any other.
+        owner_client_binding: Option<McpServerBindingRef>,
         // The metadata address the attempt read in place of discovery, or none where it
         // discovered.
         authorization_server_metadata_url: Option<String>,
@@ -327,6 +338,7 @@ impl SignInCustody {
                 server_address: address.clone(),
                 dpop_key,
                 client_secret,
+                owner_client_binding: None,
                 authorization_server_metadata_url: None,
             },
         )
@@ -484,6 +496,29 @@ impl McpCredentialStore {
         self
     }
 
+    /// This store, recording beside the sign-in an attempt's save keeps that its client is the
+    /// one the server's owner issued, which `binding`'s entry names, where one is given: the
+    /// secret is then read again through the binding's provider at each renewal and revocation,
+    /// so the attempt's copy of it is not kept. A held sign-in's store is left as it is.
+    pub(crate) fn signing_in_as_owner_client(
+        mut self,
+        binding: Option<&McpServerBindingRef>,
+    ) -> Self {
+        if let (
+            SecretsOnSave::Attempt {
+                client_secret,
+                owner_client_binding,
+                ..
+            },
+            Some(binding),
+        ) = (&mut self.secrets_on_save, binding)
+        {
+            *client_secret = None;
+            *owner_client_binding = Some(binding.clone());
+        }
+        self
+    }
+
     /// The server's held sign-in, or `None` when none is kept; the keychain is asked only the
     /// first time in this daemon life. Fails with [`SignInCustodyError`] when the keychain refuses
     /// or its item does not read as a sign-in.
@@ -557,76 +592,88 @@ impl CredentialStore for McpCredentialStore {
     // attempt began, and a kept save marks the server signed in, all under the custody's lock.
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
         let mut state = self.server.held.lock().await;
-        let (server_address, dpop_key, client_secret, authorization_server_metadata_url) =
-            match &self.secrets_on_save {
-                SecretsOnSave::Held { renewal } => {
-                    let held = self
-                        .read_through(&mut state)
-                        .await
-                        .map_err(|error| store_error(&error))?;
-                    let began_from = lock(renewal).began_from.clone();
-                    let Some(held) = held.filter(|held| {
-                        began_from
-                            .as_ref()
-                            .is_some_and(|began_from| Arc::ptr_eq(began_from, held))
-                    }) else {
-                        let (
-                            server_address,
-                            dpop_key,
-                            client_secret,
-                            authorization_server_metadata_url,
-                        ) = began_from.map_or(
-                            (self.address.clone(), None, None, None),
-                            |began_from| {
-                                (
-                                    began_from.server_address.clone(),
-                                    began_from.dpop_key.clone(),
-                                    began_from.client_secret.clone(),
-                                    began_from.authorization_server_metadata_url.clone(),
-                                )
-                            },
-                        );
-                        *lock(&self.server.refused_renewal) = Some(Arc::new(HeldSignIn {
-                            server_address,
-                            credentials,
-                            dpop_key,
-                            client_secret,
-                            authorization_server_metadata_url,
-                        }));
-                        return Err(AuthError::CredentialStoreError(
-                            RenewedSignInGone.to_string(),
-                        ));
-                    };
-                    (
-                        held.server_address.clone(),
-                        held.dpop_key.clone(),
-                        held.client_secret.clone(),
-                        held.authorization_server_metadata_url.clone(),
-                    )
+        let (
+            server_address,
+            dpop_key,
+            client_secret,
+            owner_client_binding,
+            authorization_server_metadata_url,
+        ) = match &self.secrets_on_save {
+            SecretsOnSave::Held { renewal } => {
+                let held = self
+                    .read_through(&mut state)
+                    .await
+                    .map_err(|error| store_error(&error))?;
+                let began_from = lock(renewal).began_from.clone();
+                let Some(held) = held.filter(|held| {
+                    began_from
+                        .as_ref()
+                        .is_some_and(|began_from| Arc::ptr_eq(began_from, held))
+                }) else {
+                    let (
+                        server_address,
+                        dpop_key,
+                        client_secret,
+                        owner_client_binding,
+                        authorization_server_metadata_url,
+                    ) = began_from.map_or(
+                        (self.address.clone(), None, None, None, None),
+                        |began_from| {
+                            (
+                                began_from.server_address.clone(),
+                                began_from.dpop_key.clone(),
+                                began_from.client_secret.clone(),
+                                began_from.owner_client_binding.clone(),
+                                began_from.authorization_server_metadata_url.clone(),
+                            )
+                        },
+                    );
+                    *lock(&self.server.refused_renewal) = Some(Arc::new(HeldSignIn {
+                        server_address,
+                        credentials,
+                        dpop_key,
+                        client_secret,
+                        owner_client_binding,
+                        authorization_server_metadata_url,
+                    }));
+                    return Err(AuthError::CredentialStoreError(
+                        RenewedSignInGone.to_string(),
+                    ));
+                };
+                (
+                    held.server_address.clone(),
+                    held.dpop_key.clone(),
+                    held.client_secret.clone(),
+                    held.owner_client_binding.clone(),
+                    held.authorization_server_metadata_url.clone(),
+                )
+            }
+            SecretsOnSave::Attempt {
+                since,
+                server_address,
+                dpop_key,
+                client_secret,
+                owner_client_binding,
+                authorization_server_metadata_url,
+            } => {
+                if self.server.sign_outs.load(Ordering::Acquire) != since.0 {
+                    return Err(AuthError::CredentialStoreError(SignedOutSince.to_string()));
                 }
-                SecretsOnSave::Attempt {
-                    since,
-                    server_address,
-                    dpop_key,
-                    client_secret,
-                    authorization_server_metadata_url,
-                } => {
-                    if self.server.sign_outs.load(Ordering::Acquire) != since.0 {
-                        return Err(AuthError::CredentialStoreError(SignedOutSince.to_string()));
-                    }
-                    (
-                        server_address.clone(),
-                        dpop_key.clone(),
-                        client_secret.clone(),
-                        authorization_server_metadata_url.clone(),
-                    )
-                }
-            };
+                (
+                    server_address.clone(),
+                    dpop_key.clone(),
+                    client_secret.clone(),
+                    owner_client_binding.clone(),
+                    authorization_server_metadata_url.clone(),
+                )
+            }
+        };
         let sign_in = HeldSignIn {
             server_address,
             credentials,
             dpop_key,
             client_secret,
+            owner_client_binding,
             authorization_server_metadata_url,
         };
         let item =

@@ -185,6 +185,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use axum::http::StatusCode;
+    use futures::future::ready;
     use rstest::rstest;
     use serde::de::DeserializeOwned;
     use serde_json::json;
@@ -210,7 +211,7 @@ mod tests {
     use crate::mutation::receipts::tests::idempotency_key;
     use crate::mutation::service::{McpMutationService, McpMutationSources};
     use crate::sign_in::server::tests::{
-        TestSources, answer_address_read, answer_no_callback_read, docs_binding, driver_declaring,
+        TestSources, answer_address_read, docs_binding, driver_declaring, entry_reading,
         program_declaration, remote_declaration, test_sources,
     };
     use crate::sign_in::service::SignInService;
@@ -264,14 +265,20 @@ mod tests {
         }
     }
 
-    /// A driver declaring the docs binding at `server`'s address, which it reads once.
+    /// A driver declaring the docs binding at `server`'s address, which it reads at most once: from
+    /// the entry at a sign-in, at the address at a sign-out.
     fn driver_reaching(server: &FakeAuthorizationServer) -> Arc<dyn ProviderDriver> {
         let mut driver = driver_declaring(vec![remote_declaration(&docs_binding(), &server.base)]);
-        answer_address_read(
-            &mut driver,
-            Ok(McpServerAddressReading::Declared(address(server))),
-        );
-        answer_no_callback_read(&mut driver);
+        let declared = address(server);
+        let entry = entry_reading(McpServerAddressReading::Declared(declared.clone()));
+        driver
+            .expect_read_mcp_sign_in_entry()
+            .return_once(move |_request, _is_owner_client_secret_read| Box::pin(ready(Ok(entry))));
+        driver
+            .expect_read_mcp_server_addresses()
+            .return_once(move |_requests| {
+                Box::pin(ready(vec![Ok(McpServerAddressReading::Declared(declared))]))
+            });
         Arc::new(driver)
     }
 

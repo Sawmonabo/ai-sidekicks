@@ -19,6 +19,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use reqwest::Url;
+use sidekicks_provider::driver::contract::sign_in::RedirectAddress;
 use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
 use tokio::net::{TcpListener, TcpStream};
@@ -179,21 +180,21 @@ pub trait RedirectCallbackOwner: Send + Sync {
 /// before the request's `state` exists.
 pub struct RedirectListener {
     listener: TcpListener,
-    redirect_url: Url,
+    redirect_address: RedirectAddress,
 }
 
 impl RedirectListener {
-    /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
-    /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
-    /// host, port and path, a loopback name binding `127.0.0.1`, and one that names no port takes
-    /// a free one, which the redirect then carries (RFC 8252 §7.3). Fails with `NotHttp` or
-    /// `NotLoopback` for an owner address the receiver must not bind, `UnusablePath` for a path it
-    /// cannot route, and `Bind` when the system refuses.
+    /// Binds the listener. With no owner-issued `callback` it takes a free port on `127.0.0.1`, or
+    /// on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the host, port and
+    /// path, a loopback name binding `127.0.0.1`, and is sent as its text writes it, except that
+    /// one naming no port takes a free one, which the redirect then carries (RFC 8252 §7.3). Fails
+    /// with `NotHttp` or `NotLoopback` for an owner address the receiver must not bind,
+    /// `UnusablePath` for a path it cannot route, and `Bind` when the system refuses.
     pub async fn bind(
-        callback_url: Option<&Url>,
+        callback: Option<&RedirectAddress>,
         path: CallbackPath<'_>,
     ) -> Result<Self, RedirectReceiverError> {
-        let (listener, mut redirect_url) = match callback_url {
+        let (listener, mut redirect_address) = match callback {
             None => {
                 let listener = bind_free_loopback_port()
                     .await
@@ -201,9 +202,10 @@ impl RedirectListener {
                 let address = listener.local_addr().map_err(RedirectReceiverError::Bind)?;
                 let redirect_url = Url::parse(&format!("http://{address}{SHARED_CALLBACK_PATH}"))
                     .expect("a loopback socket address and a fixed path form an http address");
-                (listener, redirect_url)
+                (listener, RedirectAddress::from_url(redirect_url))
             }
-            Some(callback_url) => {
+            Some(callback) => {
+                let callback_url = callback.url();
                 let address = owner_issued_address(callback_url)?;
                 if !is_routable_callback_path(callback_url.path()) {
                     return Err(RedirectReceiverError::UnusablePath {
@@ -213,32 +215,37 @@ impl RedirectListener {
                 let listener = TcpListener::bind(address)
                     .await
                     .map_err(RedirectReceiverError::Bind)?;
-                let mut redirect_url = callback_url.clone();
-                if redirect_url.port().is_none() && address.port() == 0 {
+                let redirect_address = if callback_url.port().is_none() && address.port() == 0 {
                     let port = listener
                         .local_addr()
                         .map_err(RedirectReceiverError::Bind)?
                         .port();
+                    let mut redirect_url = callback_url.clone();
                     redirect_url
                         .set_port(Some(port))
                         .expect("an http address takes a port");
-                }
-                (listener, redirect_url)
+                    RedirectAddress::from_url(redirect_url)
+                } else {
+                    callback.clone()
+                };
+                (listener, redirect_address)
             }
         };
         if let Some(segment) = path.segment() {
+            let mut redirect_url = redirect_address.url().clone();
             let base = redirect_url.path().trim_end_matches('/').to_owned();
             redirect_url.set_path(&format!("{base}/{segment}"));
+            redirect_address = RedirectAddress::from_url(redirect_url);
         }
         Ok(Self {
             listener,
-            redirect_url,
+            redirect_address,
         })
     }
 
     /// The address the authorization request names as its `redirect_uri`, port included.
-    pub fn redirect_url(&self) -> &Url {
-        &self.redirect_url
+    pub fn redirect_address(&self) -> &RedirectAddress {
+        &self.redirect_address
     }
 
     /// Starts serving: each callback whose `Host` is this address and whose `state` equals
@@ -250,15 +257,16 @@ impl RedirectListener {
         owner: Arc<dyn RedirectCallbackOwner>,
     ) -> RedirectReceiver {
         let (answered, answered_watch) = watch::channel(false);
+        let redirect_url = self.redirect_address.url();
         let state = Arc::new(ReceiverState {
-            authority: authority(&self.redirect_url),
-            redirect_url: self.redirect_url.clone(),
+            authority: authority(redirect_url),
+            redirect_url: redirect_url.clone(),
             expected_state: Mutex::new(expected_state),
             owner,
             answered,
         });
         let router = Router::new()
-            .route(self.redirect_url.path(), get(receive_callback))
+            .route(redirect_url.path(), get(receive_callback))
             .route(SIGNED_IN_PATH, get(|| async { Html(SIGNED_IN_PAGE) }))
             .route(
                 SIGN_IN_FAILED_PATH,
@@ -600,7 +608,7 @@ mod tests {
         let listener = RedirectListener::bind(None, CallbackPath::Shared)
             .await
             .expect("a loopback listener");
-        let redirect_url = listener.redirect_url().clone();
+        let redirect_url = listener.redirect_address().url().clone();
         let owner_handle: Arc<dyn RedirectCallbackOwner> = Arc::<ScriptedOwner>::clone(&owner);
         let receiver = listener.receive(STATE.to_owned(), owner_handle);
         (receiver, owner, redirect_url)

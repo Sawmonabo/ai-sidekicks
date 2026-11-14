@@ -121,7 +121,7 @@ impl McpStandingConnection {
     ) -> Result<Arc<McpServerConnection>, McpConnectionAbsence> {
         let live = self.live.borrow();
         let connection = live.as_ref().ok_or(McpConnectionAbsence::NotConfigured)?;
-        if connection.endpoint != *endpoint {
+        if connection.endpoint.as_ref() != Some(endpoint) {
             return Err(McpConnectionAbsence::Reconfigured);
         }
         Ok(Arc::clone(connection))
@@ -148,7 +148,7 @@ impl McpStandingConnection {
             }
             let absence = match live.borrow_and_update().as_ref() {
                 None => Some(McpConnectionAbsence::NotConfigured),
-                Some(connection) if connection.endpoint != *endpoint => {
+                Some(connection) if connection.endpoint.as_ref() != Some(endpoint) => {
                     Some(McpConnectionAbsence::Reconfigured)
                 }
                 Some(connection) if after.is_some_and(|after| Arc::ptr_eq(connection, after)) => {

@@ -5,7 +5,7 @@ use futures::FutureExt as _;
 use reqwest::header::{AUTHORIZATION, HeaderValue};
 use reqwest::{Method, Url};
 use rstest::rstest;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -104,7 +104,7 @@ fn scripted_driver(
                     scopes: vec!["docs.read".to_owned()],
                     token_type: BEARER_TOKEN_TYPE.to_owned(),
                     client_id: PROVIDER_CLIENT_ID.to_owned(),
-                    client_secret: Some(PROVIDER_CLIENT_SECRET.to_owned()),
+                    client_secret: Some(SecretString::from(PROVIDER_CLIENT_SECRET)),
                     issuer: Some(issuer),
                 })
             }

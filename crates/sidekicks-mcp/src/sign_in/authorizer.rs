@@ -13,7 +13,11 @@
 //! - Before a read or renewal of a sign-in it has not renewed as yet, the authorizer sets its
 //!   manager to renew as the client that sign-in names, its secret included, and to sign with the
 //!   sign-in's proof key for a `DPoP` sign-in, since a sign-in kept since the authorizer was made
-//!   may hold another client or key; a request that finds the server needs a sign-in while another
+//!   may hold another client or key. A sign-in made as the client the server's owner issued keeps
+//!   no secret: just before a renewal is sent, and only then, the secret is read again where the
+//!   binding's provider keeps it, so a rotated one is sent, and the manager forgets it once the
+//!   renewal ends. Such a sign-in is renewed a minute before it runs out, ahead of rmcp's own
+//!   margin, so rmcp never renews it with no secret set; a request that finds the server needs a sign-in while another
 //!   sign-in was kept since its read is tried once more as that sign-in. It renews against the
 //!   server's metadata, through the server's filtered OAuth client. A
 //!   sign-in another authorization server issued is forgotten when the authorizer is made, its
@@ -35,6 +39,7 @@
 )]
 
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::future::BoxFuture;
 use oauth2::TokenResponse as _;
@@ -43,8 +48,9 @@ use reqwest::{Method, Url};
 use rmcp::transport::auth::{
     AuthError, AuthorizationManager, AuthorizationMetadata, OAuthClientConfig, OAuthHttpClient,
 };
-use secrecy::ExposeSecret as _;
+use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_PROOF_HEADER_NAME};
+use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
@@ -60,6 +66,7 @@ use crate::sign_in::credential_store::{
     DpopKeyScalar, HeldSignIn, McpCredentialStore, SignInCustody, SignInCustodyError,
 };
 use crate::sign_in::oauth_http_client::{OAuthHttpPools, ServerOAuthHttpClient};
+use crate::sign_in::server::OwnerClientSecretReads;
 use crate::sign_in::sign_out::revocation::revoke_on_task;
 
 /// The `error` a server's challenge names for a token it no longer takes (RFC 6750 §3.1).
@@ -71,6 +78,10 @@ const INVALID_DPOP_PROOF: &str = "invalid_dpop_proof";
 /// How the OAuth library under rmcp writes an authorization server's error answer, before its
 /// `error` code; rmcp hands a failed renewal on only as this text.
 const SERVER_ERROR_ANSWER_PREFIX: &str = "Server returned error response: ";
+
+/// How long before its token runs out a sign-in made as an owner's client is renewed: longer than
+/// the margin rmcp renews within on its own, so rmcp never renews it with no secret set.
+const OWNER_CLIENT_RENEWAL_MARGIN: Duration = Duration::from_mins(1);
 
 /// Why a request to a signed-in MCP server could not be authorized. The route reads
 /// [`SignInAuthorizationError::SignInRequired`] from a failed call's source chain.
@@ -107,6 +118,10 @@ pub(crate) enum SignInAuthorizationError {
     /// The server's metadata names an authorization or token endpoint that is not a web address.
     #[error("the MCP server's authorization metadata names an endpoint that is not a web address")]
     Metadata(#[source] AuthError),
+    /// The secret of the client the server's owner issued could not be read again for a renewal.
+    /// The sign-in is kept.
+    #[error("the secret of the MCP server owner's client could not be read for its renewal")]
+    OwnerClientSecret(#[source] sidekicks_ipc::registry::HandlerError),
 }
 
 /// The authorizer of one server's requests under the sign-in the daemon holds for it.
@@ -133,6 +148,9 @@ pub(crate) struct SignInAuthorizer {
     /// The server's metadata the authorizer was made with, which a refused renewal's revocation
     /// reads its endpoint from.
     metadata: AuthorizationMetadata,
+    /// Reads an owner's client secret again for each renewal and revocation of a sign-in made as
+    /// that client.
+    owner_client_secrets: Arc<dyn OwnerClientSecretReads>,
 }
 
 /// rmcp's manager and the sign-in it was last set to renew as, held weakly so a sign-in forgotten
@@ -148,7 +166,8 @@ impl SignInAuthorizer {
     /// The authorizer of the server at `address` under the sign-in `custody` holds for it,
     /// renewing against the server's `metadata` as the client the held sign-in names, its secret
     /// included, through a client of `pools` that signs with the held proof key, under the
-    /// server's renewal hold `custody` keeps; `stop` ends the revocation of a refused renewal's
+    /// server's renewal hold `custody` keeps, an owner's client secret read again through
+    /// `owner_client_secrets` for each renewal; `stop` ends the revocation of a refused renewal's
     /// refresh token. Fails with
     /// [`SignInAuthorizationError::SignInRequired`], the server marked signed out, when no
     /// sign-in is held, or the held one was issued by another authorization server than
@@ -158,6 +177,7 @@ impl SignInAuthorizer {
         pools: &OAuthHttpPools,
         address: &McpServerAddress,
         metadata: AuthorizationMetadata,
+        owner_client_secrets: Arc<dyn OwnerClientSecretReads>,
         stop: CancellationToken,
     ) -> Result<Self, SignInAuthorizationError> {
         let digest = custody
@@ -206,6 +226,7 @@ impl SignInAuthorizer {
             digest,
             dpop_key: Mutex::new(None),
             metadata,
+            owner_client_secrets,
         })
     }
 }
@@ -236,15 +257,26 @@ impl SignInAuthorizer {
     }
 
     // The access token of `found`, the sign-in held, renewed first when it runs out as the client
-    // `found` names, and the sign-in held after.
+    // `found` names, and the sign-in held after. A sign-in made as an owner's client is renewed
+    // here, its secret read again, before rmcp would renew it.
     async fn token_of(
         &self,
         found: Option<&Arc<HeldSignIn>>,
     ) -> Result<(String, Arc<HeldSignIn>), SignInAuthorizationError> {
         let found = found.ok_or(SignInAuthorizationError::SignInRequired)?;
-        let manager = self.renewing_as(found).await?;
-        let access_token = retry_refused_proof(|| manager.get_access_token()).await;
-        drop(manager);
+        let access_token = match &found.owner_client_binding {
+            Some(binding) if is_owner_client_renewal_due(found) => {
+                let manager = self.renewing_as(found, Some(binding)).await?;
+                let renewed = retry_refused_proof(|| manager.refresh_token()).await;
+                drop(manager);
+                self.forget_owner_client_secret(found).await?;
+                renewed.map(|tokens| tokens.access_token().secret().clone())
+            }
+            Some(_) | None => {
+                let manager = self.renewing_as(found, None).await?;
+                retry_refused_proof(|| manager.get_access_token()).await
+            }
+        };
         self.revoke_refused_renewal();
         let access_token = access_token?;
         let held = self
@@ -303,28 +335,67 @@ impl SignInAuthorizer {
     // The manager, set under the server's renewal hold to renew as the client `held` names, its
     // secret included, and to sign its renewals with the proof key `held` keeps, or none for a
     // bearer sign-in, unless it was last set from `held` itself: a sign-in kept since the
-    // authorizer was made may hold another client or key.
+    // authorizer was made may hold another client or key. For a renewal about to be sent as the
+    // client the server's owner issued, `owner_client` names the binding whose provider's secret
+    // is read now and set, which `forget_owner_client_secret` clears once the renewal ends.
     async fn renewing_as(
         &self,
         held: &Arc<HeldSignIn>,
+        owner_client: Option<&McpServerBindingRef>,
     ) -> Result<MappedMutexGuard<'_, AuthorizationManager>, SignInAuthorizationError> {
+        let owner_secret = match owner_client {
+            Some(binding) => self
+                .owner_client_secrets
+                .read_owner_client_secret(binding)
+                .await
+                .map_err(SignInAuthorizationError::OwnerClientSecret)?,
+            None => None,
+        };
         let mut renewing = self.manager.lock().await;
-        if !std::ptr::eq(renewing.configured_for.as_ptr(), Arc::as_ptr(held)) {
-            // rmcp configures a client only with a redirect address, and a renewal sends none, so
-            // the server's address stands in, as rmcp's own `configure_client_id` does.
-            let mut client =
-                OAuthClientConfig::new(held.credentials.client_id.clone(), self.address.as_str());
-            if let Some(client_secret) = &held.client_secret {
-                client = client.with_client_secret(client_secret.expose_secret());
-            }
-            renewing
-                .manager
-                .configure_client(client)
-                .map_err(SignInAuthorizationError::Metadata)?;
-            self.http_client.set_dpop_key(held.dpop_key.clone());
-            renewing.configured_for = Arc::downgrade(held);
+        if owner_client.is_some()
+            || !std::ptr::eq(renewing.configured_for.as_ptr(), Arc::as_ptr(held))
+        {
+            self.configure_client(
+                &mut renewing,
+                held,
+                owner_secret.as_ref().or(held.client_secret.as_ref()),
+            )?;
         }
         Ok(MutexGuard::map(renewing, |renewing| &mut renewing.manager))
+    }
+
+    // Sets `renewing`'s manager to renew as the client `held` names, with `client_secret` where
+    // one is given, and its OAuth client to sign with `held`'s proof key.
+    fn configure_client(
+        &self,
+        renewing: &mut RenewingManager,
+        held: &Arc<HeldSignIn>,
+        client_secret: Option<&SecretString>,
+    ) -> Result<(), SignInAuthorizationError> {
+        // rmcp configures a client only with a redirect address, and a renewal sends none, so the
+        // server's address stands in, as rmcp's own `configure_client_id` does.
+        let mut client =
+            OAuthClientConfig::new(held.credentials.client_id.clone(), self.address.as_str());
+        if let Some(client_secret) = client_secret {
+            client = client.with_client_secret(client_secret.expose_secret());
+        }
+        renewing
+            .manager
+            .configure_client(client)
+            .map_err(SignInAuthorizationError::Metadata)?;
+        self.http_client.set_dpop_key(held.dpop_key.clone());
+        renewing.configured_for = Arc::downgrade(held);
+        Ok(())
+    }
+
+    // Sets the manager back to `held`'s client with no secret, so an owner's secret read for a
+    // renewal is held no longer than that renewal.
+    async fn forget_owner_client_secret(
+        &self,
+        held: &Arc<HeldSignIn>,
+    ) -> Result<(), SignInAuthorizationError> {
+        let mut renewing = self.manager.lock().await;
+        self.configure_client(&mut renewing, held, None)
     }
 
     // Revokes the refresh token a renewal whose save was refused received, a sign-out or a new
@@ -337,6 +408,7 @@ impl SignInAuthorizer {
                 self.address.clone(),
                 refused,
                 Some(self.metadata.clone()),
+                Arc::clone(&self.owner_client_secrets),
                 self.stop.clone(),
             );
         }
@@ -390,9 +462,13 @@ impl SignInAuthorizer {
         if !is_held_token_refused {
             return Ok(true);
         }
-        let manager = self.renewing_as(&held).await?;
+        let owner_client = held.owner_client_binding.as_ref();
+        let manager = self.renewing_as(&held, owner_client).await?;
         let renewed = retry_refused_proof(|| manager.refresh_token()).await;
         drop(manager);
+        if owner_client.is_some() {
+            self.forget_owner_client_secret(&held).await?;
+        }
         self.revoke_refused_renewal();
         match renewed {
             Ok(_) => Ok(true),
@@ -470,6 +546,28 @@ fn is_refused_proof(error: &AuthError) -> bool {
     text.strip_prefix(SERVER_ERROR_ANSWER_PREFIX)
         .and_then(|answer| answer.split([':', ' ']).next())
         == Some(INVALID_DPOP_PROOF)
+}
+
+// Whether the token of `held`, a sign-in made as an owner's client, runs out within
+// `OWNER_CLIENT_RENEWAL_MARGIN`, read as rmcp reads it: from the lifetime the server named and the
+// time the token was received; a token with neither is never renewed ahead of a refusal.
+fn is_owner_client_renewal_due(held: &HeldSignIn) -> bool {
+    let (Some(lifetime), Some(received_at)) = (
+        held.credentials
+            .token_response
+            .as_ref()
+            .and_then(oauth2::TokenResponse::expires_in),
+        held.credentials.token_received_at,
+    ) else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since_epoch| since_epoch.as_secs());
+    let remaining = lifetime
+        .as_secs()
+        .saturating_sub(now.saturating_sub(received_at));
+    remaining < OWNER_CLIENT_RENEWAL_MARGIN.as_secs()
 }
 
 // Whether `left` and `right` name one authorization server: equal once a slash ending either is

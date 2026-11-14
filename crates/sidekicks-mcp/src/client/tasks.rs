@@ -158,7 +158,7 @@ pub(crate) async fn observe_mcp_task_acceptance(
         mcp_task_id: mcp_task_id.to_owned(),
         mcp_task_generation,
         server_name: connection.scope.server_name.clone(),
-        endpoint: connection.endpoint.clone(),
+        endpoint: connection.task_endpoint().clone(),
     })
     .await;
 }

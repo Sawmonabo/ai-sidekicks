@@ -18,10 +18,9 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::client::McpClient;
-use sidekicks_mcp::sign_in::credential_store::SignInCustody;
 use sidekicks_mcp::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use sidekicks_mcp::status::open_test_tracker;
-use sidekicks_platforms::{CredentialStore, Spawner};
+use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::mcp_server::resources::McpResourceSource;
@@ -35,15 +34,12 @@ use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::{open_store, resumable_binding_input};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_store::credential_store::service::KeychainService;
-use sidekicks_store::credential_store::test_keychain::test_keychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{
     TestDatabase, insert_lead, test_run_id, test_session_id,
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
-use tempfile::TempDir;
 
 use super::{
     McpServerMethods, SessionMcpSwitches, follow_session_servers, list_resources,
@@ -55,12 +51,10 @@ use crate::ipc::handlers::driver::{DRIVER_METHODS_STATEMENT_CAPACITY, DriverMeth
 
 // A session on the first provider over the driver `driver` builds on the session's binding
 // store, whose stored leg holds its `tracker` server on and whose one live leg reads it as
-// `reading`; the producer is kept, since dropping it retires the leg, and so are the sign-ins'
-// test keychain's folder and store.
+// `reading`; the producer is kept, since dropping it retires the leg.
 struct Fixture {
     _database: TestDatabase,
     _leg: McpServerStatusProducer,
-    _sign_ins_keychain: (TempDir, CredentialStore),
     methods: Arc<McpServerMethods>,
     session_id: SessionId,
     server_name: McpServerName,
@@ -122,8 +116,6 @@ async fn session_reading(
         None,
         None,
     ));
-    let (sign_ins_folder, sign_ins_store, sign_ins_keychain) =
-        test_keychain(KeychainService::McpSignIns);
     let methods = Arc::new(McpServerMethods {
         sources: Arc::new(DriverMethodSources {
             pool: Arc::new(DatabaseReadPool::new(
@@ -143,13 +135,11 @@ async fn session_reading(
             .expect("the client builds"),
         ),
         spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
-        sign_ins: SignInCustody::new(sign_ins_keychain),
         followers: Arc::new(SessionEventFollowers::default()),
     });
     Fixture {
         _database: database,
         _leg: leg,
-        _sign_ins_keychain: (sign_ins_folder, sign_ins_store),
         methods,
         session_id,
         server_name,

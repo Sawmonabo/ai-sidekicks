@@ -285,6 +285,7 @@ async fn sign_in_with_servers(
         server_address: address(),
         every_project_rows: Vec::new(),
         project_rows: Vec::new(),
+        owner_client_secret: None,
         lifetime: Duration::from_secs(30),
         authorization_url,
         browser_return: ProviderSignInReturn::OwnListener,

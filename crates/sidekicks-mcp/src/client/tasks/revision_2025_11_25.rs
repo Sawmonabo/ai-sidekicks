@@ -149,7 +149,7 @@ pub(super) async fn follow_task(
         poll_once(connection, mcp_task_id, &watch, &held, &bound, answered)
     })
     .await;
-    watch.end(&end, &connection.endpoint).await;
+    watch.end(&end, connection.task_endpoint()).await;
     end
 }
 

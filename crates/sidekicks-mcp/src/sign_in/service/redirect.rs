@@ -1,9 +1,9 @@
 //! Where a sign-in's browser comes back: the callback form chosen for the server and the receiver
-//! bound at it. A provider's own callback is sent whole, in the form its rule gives for whether
-//! the server returns `iss`; the daemon's own loopback address takes the server's id unless it
-//! does.
+//! bound at it. A provider's own callback is sent whole, as its text writes it, in the form its
+//! rule gives for whether the server returns `iss`; the daemon's own loopback address takes the
+//! server's id unless it does.
 
-use reqwest::Url;
+use sidekicks_provider::driver::contract::sign_in::RedirectAddress;
 
 use crate::oauth::redirect_receiver::{CallbackPath, RedirectListener, RedirectReceiverError};
 use crate::sign_in::address_digest::ServerAddressDigest;
@@ -13,7 +13,7 @@ use crate::sign_in::service::OwnerIssuedClient;
 /// daemon's own loopback address at the path the server's `iss` support picks.
 #[derive(Clone, Copy)]
 pub(super) struct SignInRedirect<'a> {
-    owner_callback: Option<&'a Url>,
+    owner_callback: Option<&'a RedirectAddress>,
     callback_path: CallbackPath<'a>,
 }
 
@@ -51,10 +51,10 @@ impl<'a> SignInRedirect<'a> {
     /// the listener.
     pub(super) async fn bind(
         self,
-    ) -> Result<(Option<RedirectListener>, Url), RedirectReceiverError> {
+    ) -> Result<(Option<RedirectListener>, RedirectAddress), RedirectReceiverError> {
         match RedirectListener::bind(self.owner_callback, self.callback_path).await {
             Ok(listener) => {
-                let redirect_address = listener.redirect_url().clone();
+                let redirect_address = listener.redirect_address().clone();
                 Ok((Some(listener), redirect_address))
             }
             Err(error @ RedirectReceiverError::Bind(_)) => Err(error),

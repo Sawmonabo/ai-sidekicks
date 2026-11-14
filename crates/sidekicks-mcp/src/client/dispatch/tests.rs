@@ -83,7 +83,7 @@ impl Fixture {
     ) -> (McpServerConnection, TestServer) {
         let start = address_digest.map_or_else(
             || McpConnectionStart::stdio(None, None),
-            |digest| McpConnectionStart::http(None, digest),
+            |digest| McpConnectionStart::http(None, Some(digest)),
         );
         let (opened, server) = start_test_server(
             self.client

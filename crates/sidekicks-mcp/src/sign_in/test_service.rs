@@ -12,8 +12,11 @@ use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use reqwest::Url;
 use rusqlite::params;
+use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
@@ -21,6 +24,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
@@ -43,6 +47,7 @@ use crate::sign_in::authorizer::SignInAuthorizer;
 use crate::sign_in::credential_store::SignInCustody;
 use crate::sign_in::oauth_http_client::OAuthHttpPools;
 use crate::sign_in::registration::RELAY_ADDRESS;
+use crate::sign_in::server::OwnerClientSecretReads;
 use crate::sign_in::service::{
     AddressedServer, ProviderAccounts, SignInServer, SignInService, SignInTarget,
     read_named_metadata,
@@ -64,6 +69,18 @@ pub(crate) struct Harness {
     /// The name the sign-ins are filed under in the platform store.
     pub(crate) sign_in_service_name: String,
     _data_folder: TempDir,
+}
+
+/// An owner's client secret read that finds none, for a test whose sign-ins hold no owner's client.
+pub(crate) struct NoOwnerClientSecrets;
+
+impl OwnerClientSecretReads for NoOwnerClientSecrets {
+    fn read_owner_client_secret<'read>(
+        &'read self,
+        _binding: &'read McpServerBindingRef,
+    ) -> BoxFuture<'read, Result<Option<SecretString>, HandlerError>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 /// A fresh [`Harness`] whose registry holds no provider.
@@ -88,6 +105,7 @@ pub(crate) async fn harness_with(drivers: Vec<Arc<dyn ProviderDriver>>) -> Harne
         SignInCustody::new(Arc::clone(&keychain)),
         Arc::clone(&admitted_clients),
         Arc::new(registry_of_first_providers(drivers)),
+        Arc::new(NoOwnerClientSecrets),
         OAuthHttpPools::new().expect("the pools build"),
         &RELAY_ADDRESS,
         Arc::new(SessionEventAppender::new(
@@ -147,6 +165,7 @@ impl Harness {
             &self.service.pools,
             &address,
             metadata,
+            Arc::clone(&self.service.owner_client_secrets),
             self.service.revocations.token().clone(),
         )
         .await

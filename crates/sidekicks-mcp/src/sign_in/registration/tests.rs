@@ -11,6 +11,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_provider::driver::contract::sign_in::RedirectAddress;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -363,7 +364,7 @@ async fn each_registration_row_ends_in_its_arm(
     .await
     .expect("a manager");
     let resolution = manager.resolve_metadata().await.expect("discovery answers");
-    let redirect_address = Url::parse(row.redirect_address).expect("a URL");
+    let redirect_address = RedirectAddress::parse(row.redirect_address).expect("a URL");
     let request = ClientRequest {
         server_digest: &server_digest,
         redirect_address: &redirect_address,

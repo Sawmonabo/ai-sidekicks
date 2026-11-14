@@ -6,7 +6,8 @@
 //! global or listener address with the id where the server returns no `iss`, and a client the
 //! sign-in registers itself takes the id only then. The listener binds the entry's
 //! `callback_port`, else the global `mcp_oauth_callback_port`, else a free port, which goes into a
-//! redirect on `127.0.0.1` that names none.
+//! redirect on `127.0.0.1` that names none. A callback Codex sends as written keeps its text byte
+//! for byte; one it fills or extends goes out as the address serializes.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -16,7 +17,7 @@ use sha2::{Digest as _, Sha256};
 use url::Url;
 
 use crate::driver::codex::mcp::config::server_entry::{OAUTH_MEMBER, URL_MEMBER};
-use crate::driver::contract::sign_in::McpSignInCallback;
+use crate::driver::contract::sign_in::{McpSignInCallback, RedirectAddress};
 
 /// The setting naming the fixed port Codex's sign-in listener binds where a server names none.
 const CALLBACK_PORT_SETTING: &str = "mcp_oauth_callback_port";
@@ -109,23 +110,31 @@ pub(crate) fn resolve_codex_sign_in_callback(
     {
         return None;
     }
+    let global_callback = || {
+        settings
+            .url
+            .as_deref()
+            .map(RedirectAddress::parse)
+            .transpose()
+            .ok()
+    };
     let configured = match (&members.callback_url, is_owner_client) {
-        (Some(callback_url), _) => Some(Url::parse(callback_url).ok()?),
-        (None, false) => settings.url.as_deref().map(Url::parse).transpose().ok()?,
+        (Some(callback_url), _) => Some(RedirectAddress::parse(callback_url).ok()?),
+        (None, false) => global_callback()?,
         (None, true) => {
             let base = Url::parse(settings.url.as_deref().unwrap_or(LISTENER_CALLBACK)).ok()?;
-            Some(append_callback_id(base, &callback_id))
+            Some(append_callback_id(&base, &callback_id))
         }
     };
-    let form = |is_issuer_returned: bool| -> Option<Url> {
+    let form = |is_issuer_returned: bool| -> Option<RedirectAddress> {
         // A registered client's callback without the id gives way only where no `iss` returns.
         let is_fallback = is_owner_client
             && !is_issuer_returned
             && configured
                 .as_ref()
-                .is_some_and(|callback| last_segment(callback) != Some(callback_id.as_str()));
+                .is_some_and(|callback| last_segment(callback.url()) != Some(callback_id.as_str()));
         let callback = if is_fallback {
-            settings.url.as_deref().map(Url::parse).transpose().ok()?
+            global_callback()?
         } else {
             configured.clone()
         };
@@ -137,7 +146,7 @@ pub(crate) fn resolve_codex_sign_in_callback(
             !is_issuer_returned
         };
         Some(if is_id_appended {
-            append_callback_id(redirect, &callback_id)
+            append_callback_id(redirect.url(), &callback_id)
         } else {
             redirect
         })
@@ -160,36 +169,40 @@ fn callback_id(server_url: &str) -> Option<String> {
 }
 
 // The address Codex's listener answers on for `callback`: the listener's own where none is named,
-// and a named one on `127.0.0.1` with no port given the fixed port where there is one; a free
-// port goes into either once the listener binds.
-fn listener_redirect(callback: Option<Url>, port: Option<u16>) -> Url {
-    let mut redirect = callback.unwrap_or_else(|| {
-        Url::parse(LISTENER_CALLBACK).expect("the listener's callback is an address")
+// and a named one on `127.0.0.1` with no port given the fixed port where there is one, which
+// Codex sends as the address serializes; a free port goes into either once the listener binds.
+fn listener_redirect(callback: Option<RedirectAddress>, port: Option<u16>) -> RedirectAddress {
+    let callback = callback.unwrap_or_else(|| {
+        RedirectAddress::parse(LISTENER_CALLBACK).expect("the listener's callback is an address")
     });
-    if redirect.scheme() == "http"
-        && redirect.host_str() == Some("127.0.0.1")
-        && redirect.port().is_none()
+    let address = callback.url();
+    if address.scheme() == "http"
+        && address.host_str() == Some("127.0.0.1")
+        && address.port().is_none()
     {
+        let mut redirect = address.clone();
         redirect
             .set_port(port)
             .expect("an http address takes a port");
+        return RedirectAddress::from_url(redirect);
     }
-    redirect
+    callback
 }
 
-// `redirect` with `callback_id` as its last path segment, kept as it is where it already ends so.
-fn append_callback_id(mut redirect: Url, callback_id: &str) -> Url {
-    if last_segment(&redirect) == Some(callback_id) {
-        return redirect;
+// `redirect` with `callback_id` as its last path segment, kept as it is where it already ends so,
+// sent as the address serializes, as Codex sends it.
+fn append_callback_id(redirect: &Url, callback_id: &str) -> RedirectAddress {
+    let mut redirect = redirect.clone();
+    if last_segment(&redirect) != Some(callback_id) {
+        let path = redirect.path();
+        let path = if path.ends_with('/') {
+            format!("{path}{callback_id}")
+        } else {
+            format!("{path}/{callback_id}")
+        };
+        redirect.set_path(&path);
     }
-    let path = redirect.path();
-    let path = if path.ends_with('/') {
-        format!("{path}{callback_id}")
-    } else {
-        format!("{path}/{callback_id}")
-    };
-    redirect.set_path(&path);
-    redirect
+    RedirectAddress::from_url(redirect)
 }
 
 fn last_segment(address: &Url) -> Option<&str> {

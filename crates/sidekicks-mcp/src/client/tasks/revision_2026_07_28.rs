@@ -170,7 +170,7 @@ pub(super) async fn follow_task(
         poll_once(connection, standing, mcp_task_id, &watch)
     })
     .await;
-    watch.end(&end, &connection.endpoint).await;
+    watch.end(&end, connection.task_endpoint()).await;
     end
 }
 
@@ -321,7 +321,7 @@ async fn answer_input_request(
     };
     let answer = Arc::new(V2TaskAnswer {
         standing: standing.clone(),
-        endpoint: connection.endpoint.clone(),
+        endpoint: connection.task_endpoint().clone(),
         mcp_task_id: mcp_task_id.to_owned(),
         key: key.to_owned(),
         params: params.clone(),

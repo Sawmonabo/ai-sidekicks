@@ -127,14 +127,11 @@ pub(crate) struct McpSignInStart<'start> {
     pub(crate) appender: &'start Arc<SessionEventAppender>,
 }
 
-/// The sign-ins to MCP servers: the service the stop closes, their keychain custody, the sign-outs
-/// a removal owes, which the start settles, the binding edits' service and the commands the
-/// methods forward to.
+/// The sign-ins to MCP servers: the service the stop closes, the sign-outs a removal owes, which
+/// the start settles, the binding edits' service and the commands the methods forward to.
 pub(crate) struct McpSignIns {
     /// The service, which holds each open attempt.
     pub(crate) service: Arc<SignInService>,
-    /// The keychain custody of the sign-ins, whose address key names a server in every row.
-    pub(crate) custody: Arc<SignInCustody>,
     /// The sign-outs the bindings' removals owe.
     pub(crate) owed_sign_outs: Arc<OwedSignOuts>,
     /// The binding edits' service, each removal owing its server's sign-out.
@@ -154,15 +151,6 @@ pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, r
         Arc::clone(start.reads),
         Arc::clone(start.writer),
     ));
-    let service = SignInService::new(
-        Arc::clone(&custody),
-        admitted_clients,
-        Arc::clone(start.providers),
-        OAuthHttpPools::new()?,
-        &RELAY_ADDRESS,
-        Arc::clone(start.appender),
-    );
-    service.start_signed_in_seed();
     let target_reads = || {
         SignInTargetReads::new(
             Arc::clone(start.inventory),
@@ -172,6 +160,16 @@ pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, r
             Arc::clone(start.projects),
         )
     };
+    let service = SignInService::new(
+        custody,
+        admitted_clients,
+        Arc::clone(start.providers),
+        Arc::new(target_reads()),
+        OAuthHttpPools::new()?,
+        &RELAY_ADDRESS,
+        Arc::clone(start.appender),
+    );
+    service.start_signed_in_seed();
     let owed_sign_outs = OwedSignOuts::new(
         Arc::clone(&service),
         target_reads(),
@@ -198,7 +196,6 @@ pub(crate) fn build_sign_ins(start: &McpSignInStart<'_>) -> Result<McpSignIns, r
             Arc::clone(&owed_sign_outs),
         )),
         service,
-        custody,
         owed_sign_outs,
         mutations,
     })

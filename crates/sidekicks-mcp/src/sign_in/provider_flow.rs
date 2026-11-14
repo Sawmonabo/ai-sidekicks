@@ -35,7 +35,6 @@ use rmcp::transport::auth::{
     CredentialStore as _, OAuthClientConfig, OAuthTokenResponse, StoredCredentials,
     VendorExtraTokenFields,
 };
-use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -136,6 +135,8 @@ struct RunningFlow {
     address: McpServerAddress,
     digest: ServerAddressDigest,
     provider: ProviderId,
+    // The `client_id` the server's owner issued, where the entry names one.
+    owner_client_id: Option<String>,
     flow_id: u64,
     stop: CancellationToken,
     // The server's sign-outs when the flow began; a later one keeps the flow's sign-in out.
@@ -211,7 +212,7 @@ impl SignInService {
                         }
                     }
                 };
-                let redirect_url = bound.redirect_url().clone();
+                let redirect_url = bound.redirect_address().url().clone();
                 listener = Some(bound);
                 let (browser_return, returned) = oneshot::channel();
                 (
@@ -232,6 +233,10 @@ impl SignInService {
                 server_address: server.address.clone(),
                 every_project_rows: target.every_project_rows.clone(),
                 project_rows: target.project_rows.clone(),
+                owner_client_secret: server
+                    .owner_client
+                    .as_ref()
+                    .and_then(|owner| owner.client_secret.clone()),
                 lifetime: ATTEMPT_LIFETIME,
                 authorization_url,
                 browser_return: request_return,
@@ -261,6 +266,10 @@ impl SignInService {
                     address: server.address.clone(),
                     digest: digest.clone(),
                     provider,
+                    owner_client_id: server
+                        .owner_client
+                        .as_ref()
+                        .and_then(|owner| owner.client_id.clone()),
                     flow_id,
                     stop,
                     since,
@@ -467,8 +476,9 @@ impl SignInService {
         }
     }
 
-    // Keeps `takeover` as the server's sign-in under its custody lock, its client's secret beside
-    // the credentials, which marks the server signed in unless it was signed out since the flow
+    // Keeps `takeover` as the server's sign-in under its custody lock, the secret the server
+    // issued its client beside the credentials, or, for the client the server's owner issued, the
+    // binding its secret is read through again, which marks the server signed in unless it was signed out since the flow
     // began, and records the provider as the client the server admits, kept or not, since the
     // flow completed at the server; the record also clears the mark that the daemon's own client
     // did not finish. Answers why the sign-in was not kept.
@@ -477,7 +487,7 @@ impl SignInService {
         running: &RunningFlow,
         takeover: ProviderSignInTakeover,
     ) -> Option<SignInFailureReason> {
-        let client_secret = takeover.client_secret.clone().map(SecretString::from);
+        let is_owner_client = running.owner_client_id.as_deref() == Some(&takeover.client_id);
         let saved = self
             .custody
             .attempt_credential_store(
@@ -485,8 +495,9 @@ impl SignInService {
                 &running.address,
                 running.since,
                 None,
-                client_secret,
+                takeover.client_secret.clone(),
             )
+            .signing_in_as_owner_client(is_owner_client.then_some(&running.binding))
             .save(stored_credentials(takeover, SystemTime::now()))
             .await;
         if let Err(error) = self

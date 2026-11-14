@@ -369,8 +369,8 @@ pub(crate) struct ClaudeStoredClientConfig {
     pub(crate) client_secret: Option<SecretString>,
 }
 
-// A text member read straight into a secret.
-fn read_secret<'de, D: Deserializer<'de>>(
+/// A text member read straight into a secret, for the `deserialize_with` of an optional member.
+pub(crate) fn read_secret<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<SecretString>, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.map(SecretString::from))
@@ -604,10 +604,10 @@ fn read_handed_token_scopes(environment: &[(String, String)]) -> Vec<String> {
     }
 }
 
-// The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
-// where named, the default home where it is named empty, else the config home, in NFC. `None`
-// where no home is known at all.
-fn claude_credential_folder(environment: &[(String, String)]) -> Option<PathBuf> {
+/// The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
+/// where named, the default home where it is named empty, else the config home, in NFC. `None`
+/// where no home is known at all.
+pub(crate) fn claude_credential_folder(environment: &[(String, String)]) -> Option<PathBuf> {
     let rules = PathRules::NATIVE;
     let folder = match rules.environment_value(environment, SECURE_STORAGE_FOLDER_VARIABLE) {
         Some("") => default_claude_home(environment)?,

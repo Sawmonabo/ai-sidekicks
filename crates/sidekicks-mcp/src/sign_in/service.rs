@@ -69,6 +69,7 @@ use crate::sign_in::redemption::{AttemptRedemption, ExpectedIssuer};
 use crate::sign_in::registration::{
     ClientRequest, RelayAddress, SignInClient, choose_client, classify_pushed_authorization_refusal,
 };
+use crate::sign_in::server::OwnerClientSecretReads;
 use crate::sign_in::service::redirect::SignInRedirect;
 
 /// How long an attempt waits for the browser's return before it ends.
@@ -173,7 +174,7 @@ pub(crate) struct OwnerIssuedClient {
     /// The `client_id` the owner issued; `None` takes the client the sign-in's order finds.
     pub(crate) client_id: Option<String>,
     /// The secret issued with `client_id`, as the provider's driver read it for this sign-in; held
-    /// only in memory, and in the keychain with the sign-in it gets.
+    /// only in memory for the attempt, and read again at each renewal and revocation.
     pub(crate) client_secret: Option<SecretString>,
     /// The callback the provider's own client sends, in the form for a server that returns `iss`
     /// and the one for a server that does not, each taken whole; `None` listens on the daemon's
@@ -193,6 +194,8 @@ pub struct SignInService {
     pub(super) admitted_clients: Arc<AdmittedClientStore>,
     /// The providers' drivers, whose own clients sign in where the daemon's cannot.
     pub(super) providers: Arc<ProviderRegistry>,
+    /// Reads an owner's client secret again for a revocation, where its provider keeps it.
+    pub(super) owner_client_secrets: Arc<dyn OwnerClientSecretReads>,
     /// The filtered pools every OAuth call goes through.
     pub(super) pools: OAuthHttpPools,
     relay: &'static PortRegistration<RelayAddress>,
@@ -267,12 +270,14 @@ pub(super) struct SignInServiceClosed;
 impl SignInService {
     /// The service over `custody`, `admitted_clients` and the OAuth `pools`, offering the relay's
     /// client metadata document when `relay` holds the relay's address, signing in through the
-    /// own clients of `providers`' drivers where the server does not admit the daemon's, and
+    /// own clients of `providers`' drivers where the server does not admit the daemon's, reading
+    /// an owner's client secret again for a revocation through `owner_client_secrets`, and
     /// appending each settled sign-in's completion event through `events`.
     pub fn new(
         custody: Arc<SignInCustody>,
         admitted_clients: Arc<AdmittedClientStore>,
         providers: Arc<ProviderRegistry>,
+        owner_client_secrets: Arc<dyn OwnerClientSecretReads>,
         pools: OAuthHttpPools,
         relay: &'static PortRegistration<RelayAddress>,
         events: Arc<SessionEventAppender>,
@@ -281,6 +286,7 @@ impl SignInService {
             custody,
             admitted_clients,
             providers,
+            owner_client_secrets,
             pools,
             relay,
             attempts: Mutex::new(Attempts::default()),
@@ -500,6 +506,8 @@ impl SignInService {
             is_dpop.then(|| Arc::new(SecretBox::new(Box::new(DpopKey::generate().to_scalar()))));
         http_client.set_dpop_key(dpop_key.clone());
         let client_secret = own_client.client_secret.map(SecretString::from);
+        // The owner's client is the one signed in as wherever the entry names its id.
+        let owner_client_binding = owner_client_id.is_some().then_some(&target.binding);
         manager.set_credential_store(
             self.custody
                 .attempt_credential_store(
@@ -509,7 +517,8 @@ impl SignInService {
                     dpop_key,
                     client_secret.clone(),
                 )
-                .recording_metadata_address(metadata_address.as_ref()),
+                .recording_metadata_address(metadata_address.as_ref())
+                .signing_in_as_owner_client(owner_client_binding),
         );
         let page = match open_authorization_page(
             &manager,

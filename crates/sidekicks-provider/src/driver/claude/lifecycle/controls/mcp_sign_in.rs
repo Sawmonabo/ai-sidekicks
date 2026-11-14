@@ -21,7 +21,7 @@ use crate::driver::claude::mcp::sign_in::{
 use crate::driver::claude::spawn::environment::ClaudeProcessHome;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading, ProviderSignInTakeover,
+    McpServerAddressRead, McpServerAddressReading, McpSignInEntryReading, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
 
@@ -84,6 +84,45 @@ impl ClaudeDriver {
         .await
     }
 
+    /// Reads what a sign-in to `request`'s server reads from its entry, the administrator's MCP file
+    /// and the person's files read once, in the environment its address is read with: the whole
+    /// address as [`Self::read_mcp_server_addresses`] reads it; no callback, since Claude Code's
+    /// declaration names its whole callback; and, where `is_owner_client_secret_read`, the secret
+    /// as [`Self::read_mcp_owner_client_secret`] reads it. Fails as either read fails.
+    pub(crate) async fn read_mcp_sign_in_entry(
+        &self,
+        request: McpServerAddressRead,
+        is_owner_client_secret_read: bool,
+    ) -> Result<McpSignInEntryReading, DriverError> {
+        let environment = self
+            .sources
+            .environment_without_home(&request.every_project_rows, &request.project_rows)?;
+        let sources = self.sign_in_sources().await;
+        let address = read_claude_server_addresses(&sources, vec![request.clone()], |_request| {
+            Ok(environment.clone())
+        })
+        .await
+        .pop()
+        .expect("one reading per request")?;
+        let owner_client_secret = if is_owner_client_secret_read {
+            read_claude_owner_client_secret(
+                &sources,
+                &self.credentials,
+                &self.sources.spawner,
+                &request,
+                &environment,
+            )
+            .await?
+        } else {
+            None
+        };
+        Ok(McpSignInEntryReading {
+            address,
+            callback: None,
+            owner_client_secret,
+        })
+    }
+
     /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left, each
     /// item's account read from the folder's record. Fails as the folders' removal fails.
     pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
@@ -94,16 +133,20 @@ impl ClaudeDriver {
     }
 
     // Where an MCP sign-in reads its server's entry and saved sign-in, the administrator's MCP file
-    // read from the system's managed settings folder.
+    // and settings files read from the system's managed settings folder.
     async fn sign_in_sources(&self) -> ClaudeMcpSignInSources<'_> {
-        let managed_mcp_servers =
-            read_managed_mcp_servers(DESCRIPTOR.managed_settings_folder().as_deref()).await;
-        self.sign_in_sources_for(managed_mcp_servers).await
+        let folder = DESCRIPTOR.managed_settings_folder();
+        let managed_mcp_servers = read_managed_mcp_servers(folder.as_deref()).await;
+        ClaudeMcpSignInSources {
+            administrator_settings_folder: folder,
+            ..self.sign_in_sources_for(managed_mcp_servers).await
+        }
     }
 
     /// Where an MCP sign-in reads its server's entry and saved sign-in: the person's files as the
     /// base environment places them, the plugin home, and `managed_mcp_servers`, the servers of
-    /// the administrator's MCP file, `None` where none is deployed.
+    /// the administrator's MCP file, `None` where none is deployed, with no managed settings
+    /// folder.
     pub(crate) async fn sign_in_sources_for(
         &self,
         managed_mcp_servers: Option<Map<String, Value>>,
@@ -116,6 +159,7 @@ impl ClaudeDriver {
             .await,
             plugin_home: plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id()),
             managed_mcp_servers,
+            administrator_settings_folder: None,
             data_folder: &self.sources.data_folder,
             account_servers: &self.account_servers,
             credentials: &self.credentials,

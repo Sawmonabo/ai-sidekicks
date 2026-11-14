@@ -11,7 +11,10 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use reqwest::Url;
+use secrecy::SecretString;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::{McpServerAddress, McpServerConfigView};
@@ -21,7 +24,7 @@ use sidekicks_platforms::DistributionPath;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
-    McpServerAddressRead, McpServerAddressReading, McpSignInCallback,
+    McpServerAddressRead, McpServerAddressReading, McpSignInCallback, RedirectAddress,
 };
 use sidekicks_provider::driver::mcp_server::read::McpServerSignInSettings;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -46,6 +49,46 @@ pub struct SignInTargetReads {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     machine_settings: Arc<dyn MachineSettingsReader>,
     projects: Arc<ProjectRecords>,
+}
+
+/// Reads again the secret of the client a server's owner issued, where the provider of the binding
+/// whose entry names it keeps it, for a renewal or a revocation of a sign-in made as that client,
+/// so a rotated secret is sent and none is kept beyond the call.
+pub trait OwnerClientSecretReads: Send + Sync {
+    /// The secret `binding`'s entry gives its owner's client now; `None` where it gives none.
+    /// Fails as the binding's provider, its environment rows, the accounts or the driver's read
+    /// fail, an entry that is gone among them.
+    fn read_owner_client_secret<'read>(
+        &'read self,
+        binding: &'read McpServerBindingRef,
+    ) -> BoxFuture<'read, Result<Option<SecretString>, HandlerError>>;
+}
+
+impl OwnerClientSecretReads for SignInTargetReads {
+    fn read_owner_client_secret<'read>(
+        &'read self,
+        binding: &'read McpServerBindingRef,
+    ) -> BoxFuture<'read, Result<Option<SecretString>, HandlerError>> {
+        async move {
+            let driver = self.providers.lookup(binding.provider())?;
+            let provider_accounts = self.read_provider_accounts().await?;
+            let (every_project_rows, project_rows) = EnvironmentRowReads::read(self)
+                .await?
+                .rows_of(&self.projects, binding)
+                .await?;
+            driver
+                .read_mcp_owner_client_secret(McpServerAddressRead {
+                    binding: binding.clone(),
+                    provider_account_id: provider_accounts.get(binding.provider()).cloned(),
+                    root_folder: root_folder_of(binding),
+                    every_project_rows,
+                    project_rows,
+                })
+                .await
+                .map_err(HandlerError::from)
+        }
+        .boxed()
+    }
 }
 
 /// A sign-in's target as read: the target, the scopes its entry asks for and the account each
@@ -78,8 +121,9 @@ impl SignInTargetReads {
         }
     }
 
-    /// The target of a sign-in to `binding`, the callback the provider's own client sends and the
-    /// secret of a client its owner issued read through the provider's driver. Refuses
+    /// The target of a sign-in to `binding`, its whole address, the callback the provider's own
+    /// client sends and the secret of a client its owner issued read through the provider's driver
+    /// in one read of the server's entry. Refuses
     /// `mcp.server.signInUnsupported` for a connector, whose sign-in is its account's own, for a
     /// server whose declared address does not read, for an owner's callback that is no address
     /// and for a metadata address that is no `https:` address (`unusableMetadata`), and
@@ -142,23 +186,37 @@ impl SignInTargetReads {
                 let Ok(driver) = self.providers.lookup(provider) else {
                     return Err(not_found());
                 };
-                let AddressRead {
-                    reading,
-                    every_project_rows,
-                    project_rows,
-                } = self
-                    .read_address(driver.as_ref(), binding, &provider_accounts)
+                let (every_project_rows, project_rows) = EnvironmentRowReads::read(self)
+                    .await?
+                    .rows_of(&self.projects, binding)
                     .await?;
-                let address: McpServerAddress = match reading {
-                    Ok(McpServerAddressReading::Declared(address)) => address,
-                    Ok(McpServerAddressReading::Unreadable) => {
-                        return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
-                    }
+                let settings = declaration.sign_in_settings;
+                // Only a client its owner named has a secret its driver reads.
+                let is_owner_client_secret_read = settings
+                    .as_ref()
+                    .is_some_and(|settings| settings.client_id.is_some());
+                let entry_read = McpServerAddressRead {
+                    binding: binding.clone(),
+                    provider_account_id: provider_accounts.get(provider).cloned(),
+                    root_folder: root_folder.clone(),
+                    every_project_rows: every_project_rows.clone(),
+                    project_rows: project_rows.clone(),
+                };
+                let entry = match driver
+                    .read_mcp_sign_in_entry(entry_read, is_owner_client_secret_read)
+                    .await
+                {
+                    Ok(entry) => entry,
                     // The inventory listed the binding and its entry left before this read.
                     Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
                     Err(error) => return Err(HandlerError::from(error)),
                 };
-                let settings = declaration.sign_in_settings;
+                let address: McpServerAddress = match entry.address {
+                    McpServerAddressReading::Declared(address) => address,
+                    McpServerAddressReading::Unreadable => {
+                        return Err(unsupported(SignInUnsupportedReason::AddressUnreadable));
+                    }
+                };
                 let authorization_server_metadata = match settings
                     .as_ref()
                     .and_then(|settings| settings.authorization_server_metadata_url.as_deref())
@@ -175,36 +233,14 @@ impl SignInTargetReads {
                 let asks_offline_access_where_listed = settings
                     .as_ref()
                     .is_some_and(|settings| settings.asks_offline_access_where_listed);
-                let address_read = McpServerAddressRead {
-                    binding: binding.clone(),
-                    provider_account_id: provider_accounts.get(provider).cloned(),
-                    root_folder: root_folder.clone(),
-                    every_project_rows: every_project_rows.clone(),
-                    project_rows: project_rows.clone(),
-                };
-                let provider_callback =
-                    match driver.read_mcp_sign_in_callback(address_read.clone()).await {
-                        Ok(callback) => callback,
-                        Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
-                        Err(error) => return Err(HandlerError::from(error)),
-                    };
-                let mut owner_client = match owner_client_of(settings, provider_callback) {
+                let mut owner_client = match owner_client_of(settings, entry.callback) {
                     Ok(owner_client) => owner_client,
                     Err(OwnerCallbackUnparsed) => {
                         return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
                     }
                 };
-                // Only a client its owner named has a secret its driver reads.
-                if let Some(owner) = owner_client
-                    .as_mut()
-                    .filter(|owner| owner.client_id.is_some())
-                {
-                    owner.client_secret =
-                        match driver.read_mcp_owner_client_secret(address_read).await {
-                            Ok(secret) => secret,
-                            Err(DriverError::NoPersonServerEntry(_)) => return Err(not_found()),
-                            Err(error) => return Err(HandlerError::from(error)),
-                        };
+                if let Some(owner) = owner_client.as_mut() {
+                    owner.client_secret = entry.owner_client_secret;
                 }
                 (
                     SignInServer::Address(Box::new(AddressedServer::new(
@@ -277,7 +313,6 @@ impl SignInTargetReads {
                 match self
                     .read_address(driver.as_ref(), binding, &provider_accounts)
                     .await?
-                    .reading
                 {
                     Ok(McpServerAddressReading::Declared(address)) => Ok(Some(address)),
                     Ok(McpServerAddressReading::Unreadable) => Ok(None),
@@ -298,10 +333,10 @@ impl SignInTargetReads {
     ) -> Result<Option<McpServerAddress>, HandlerError> {
         let driver = self.providers.lookup(binding.provider())?;
         let provider_accounts = self.read_provider_accounts().await?;
-        let read = self
+        let reading = self
             .read_address(driver.as_ref(), binding, &provider_accounts)
             .await?;
-        match read.reading {
+        match reading {
             Ok(McpServerAddressReading::Declared(address)) => Ok(Some(address)),
             Ok(McpServerAddressReading::Unreadable) | Err(DriverError::NoPersonServerEntry(_)) => {
                 Ok(None)
@@ -387,34 +422,28 @@ impl SignInTargetReads {
     }
 
     // Reads `binding`'s whole address through `driver`, its provider's, with that provider's
-    // account in `provider_accounts`, the binding's root folder and its own environment rows,
-    // which it answers beside the reading.
+    // account in `provider_accounts`, the binding's root folder and its own environment rows.
     async fn read_address(
         &self,
         driver: &dyn ProviderDriver,
         binding: &McpServerBindingRef,
         provider_accounts: &ProviderAccounts,
-    ) -> Result<AddressRead, HandlerError> {
+    ) -> Result<Result<McpServerAddressReading, DriverError>, HandlerError> {
         let (every_project_rows, project_rows) = EnvironmentRowReads::read(self)
             .await?
             .rows_of(&self.projects, binding)
             .await?;
-        let reading = driver
+        Ok(driver
             .read_mcp_server_addresses(vec![McpServerAddressRead {
                 binding: binding.clone(),
                 provider_account_id: provider_accounts.get(binding.provider()).cloned(),
                 root_folder: root_folder_of(binding),
-                every_project_rows: every_project_rows.clone(),
-                project_rows: project_rows.clone(),
+                every_project_rows,
+                project_rows,
             }])
             .await
             .pop()
-            .expect("a driver answers one reading per read");
-        Ok(AddressRead {
-            reading,
-            every_project_rows,
-            project_rows,
-        })
+            .expect("a driver answers one reading per read"))
     }
 
     // Each registered provider's current account; a provider with none is left out.
@@ -438,16 +467,6 @@ impl SignInTargetReads {
         }
         Ok(provider_accounts)
     }
-}
-
-/// A binding's address as its driver read it, with the environment rows the read filled it from.
-struct AddressRead {
-    /// The driver's reading.
-    reading: Result<McpServerAddressReading, DriverError>,
-    /// The machine's `Every project` rows.
-    every_project_rows: Vec<EnvironmentRow>,
-    /// The binding's project's own rows.
-    project_rows: Vec<EnvironmentRow>,
 }
 
 /// What the bindings' environment rows are read from, read once for any number of bindings: the
@@ -545,7 +564,7 @@ fn owner_client_of(
     let callback = match provider_callback {
         Some(callback) => Some(callback),
         None => callback_url
-            .map(|callback_url| Url::parse(&callback_url))
+            .map(|callback_url| RedirectAddress::parse(&callback_url))
             .transpose()
             .map_err(|_error| OwnerCallbackUnparsed)?
             .map(|callback_url| McpSignInCallback {

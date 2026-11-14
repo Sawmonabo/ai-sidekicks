@@ -120,13 +120,13 @@ pub(crate) struct McpConnectionScope {
 }
 
 /// How a connection starts: the deadline its start is held to, its tool calls' idle window, the
-/// stdio server's process it holds, if any, and the server's endpoint.
+/// stdio server's process it holds, if any, and the server's endpoint, where it names one.
 pub(super) struct McpConnectionStart {
     startup_timeout: Duration,
     startup_deadline: Instant,
     tool_call_idle_timeout: Duration,
     process: Option<StdioProcess>,
-    endpoint: McpServerEndpoint,
+    endpoint: Option<McpServerEndpoint>,
 }
 
 impl McpConnectionStart {
@@ -136,18 +136,22 @@ impl McpConnectionStart {
             startup_timeout,
             crate::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
             process,
-            McpServerEndpoint::stdio(),
+            Some(McpServerEndpoint::stdio()),
         )
     }
 
-    /// A start at the address whose keyed digest is `digest`, from now, within `startup_timeout`
-    /// or the default.
-    pub(super) fn http(startup_timeout: Option<Duration>, digest: &ServerAddressDigest) -> Self {
+    /// A start at an address, from now, within `startup_timeout` or the default, whose endpoint
+    /// is the address's keyed digest `digest`, where given; a connection given none makes no
+    /// task-augmented call.
+    pub(super) fn http(
+        startup_timeout: Option<Duration>,
+        digest: Option<&ServerAddressDigest>,
+    ) -> Self {
         Self::new(
             startup_timeout,
             crate::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
             None,
-            McpServerEndpoint::at_address(digest),
+            digest.map(McpServerEndpoint::at_address),
         )
     }
 
@@ -155,7 +159,7 @@ impl McpConnectionStart {
         startup_timeout: Option<Duration>,
         tool_call_idle_timeout: Duration,
         process: Option<StdioProcess>,
-        endpoint: McpServerEndpoint,
+        endpoint: Option<McpServerEndpoint>,
     ) -> Self {
         let startup_timeout = startup_timeout.unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         Self {
@@ -176,8 +180,9 @@ impl McpConnectionStart {
 /// One open connection to a tool server.
 pub(crate) struct McpServerConnection {
     pub(super) scope: McpConnectionScope,
-    /// Which server this is, stamped on each task it accepts.
-    pub(super) endpoint: McpServerEndpoint,
+    /// Which server this is, stamped on each task it accepts; `None` for a connection at an
+    /// address that makes no task-augmented call.
+    pub(super) endpoint: Option<McpServerEndpoint>,
     pub(super) service: RunningService<RoleClient, McpClientHandler>,
     pub(super) requests: ServerRequests,
     /// The Tasks protocol the server speaks, `None` when it offers no tasks.
@@ -199,6 +204,14 @@ pub(crate) struct McpServerConnection {
 }
 
 impl McpServerConnection {
+    /// The endpoint stamped on each task this connection accepts. Only a connection that names
+    /// one makes a task-augmented call.
+    pub(super) fn task_endpoint(&self) -> &McpServerEndpoint {
+        self.endpoint
+            .as_ref()
+            .expect("a connection that makes a task-augmented call names its endpoint")
+    }
+
     /// Opens a connection over `transport`, whose replies already feed `raw`, as `start` says.
     /// Fails when the server does not complete its start within its start-up timeout or its first
     /// tools read; a stdio server's process is then ended and its exit carried by the error.

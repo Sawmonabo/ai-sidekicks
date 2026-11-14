@@ -12,7 +12,9 @@ use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, Mcp
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::CurrentProviderAccount;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::contract::sign_in::{McpServerAddressReading, NoPersonServerEntry};
+use sidekicks_provider::driver::contract::sign_in::{
+    McpServerAddressReading, McpSignInEntryReading, NoPersonServerEntry,
+};
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
     McpServerDeclaration, McpServerPolicy, McpServerSignInSettings, McpServerToolDefaults,
@@ -199,11 +201,24 @@ pub(crate) fn answer_address_read(
         .return_once(move |_requests| Box::pin(ready(vec![answer])));
 }
 
-/// Has `driver` answer every callback read with none, so the entry's declared callback stands.
-pub(crate) fn answer_no_callback_read(driver: &mut MockProviderDriver) {
-    driver
-        .expect_read_mcp_sign_in_callback()
-        .returning(|_request| Box::pin(ready(Ok(None))));
+/// Has `driver` answer one sign-in's entry read with `answer` as its address, no callback of the
+/// provider's own, so the entry's declared callback stands, and no secret.
+pub(crate) fn answer_entry_read(
+    driver: &mut MockProviderDriver,
+    answer: Result<McpServerAddressReading, DriverError>,
+) {
+    driver.expect_read_mcp_sign_in_entry().times(1).return_once(
+        move |_request, _is_owner_client_secret_read| Box::pin(ready(answer.map(entry_reading))),
+    );
+}
+
+/// A sign-in's entry reading at `address`, with no callback of the provider's own and no secret.
+pub(crate) fn entry_reading(address: McpServerAddressReading) -> McpSignInEntryReading {
+    McpSignInEntryReading {
+        address,
+        callback: None,
+        owner_client_secret: None,
+    }
 }
 
 fn declared(address: &str) -> McpServerAddressReading {
@@ -219,8 +234,7 @@ async fn a_remote_binding_is_read_at_the_address_its_entry_declares() {
         &binding,
         "https://docs.example.test/",
     )]);
-    answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
-    answer_no_callback_read(&mut driver);
+    answer_entry_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
     let sources = test_sources(vec![Arc::new(driver)]).await;
 
     let read = sources
@@ -261,11 +275,7 @@ async fn the_sign_in_settings_of_an_entry_reach_its_target(
         asks_offline_access_where_listed: true,
     });
     let mut driver = driver_declaring(vec![declaration]);
-    answer_address_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
-    answer_no_callback_read(&mut driver);
-    driver
-        .expect_read_mcp_owner_client_secret()
-        .return_once(|_request| Box::pin(ready(Ok(None))));
+    answer_entry_read(&mut driver, Ok(declared(DECLARED_ADDRESS)));
     let sources = test_sources(vec![Arc::new(driver)]).await;
 
     let read = sources.target_reads().read(&binding).await;
@@ -382,9 +392,9 @@ async fn a_binding_no_sign_in_reaches_is_refused(
         ),
     };
     match address_answer {
-        Some(answer) => answer_address_read(&mut driver, answer),
+        Some(answer) => answer_entry_read(&mut driver, answer),
         None => {
-            driver.expect_read_mcp_server_addresses().times(0);
+            driver.expect_read_mcp_sign_in_entry().times(0);
         }
     }
     let sources = test_sources(vec![Arc::new(driver)]).await;
@@ -424,14 +434,12 @@ async fn a_target_read_carries_its_bindings_environment_rows(
     )]);
     let asked = Arc::new(Mutex::new(None));
     let asked_by_driver = Arc::clone(&asked);
-    driver
-        .expect_read_mcp_server_addresses()
-        .times(1)
-        .return_once(move |mut requests| {
-            *asked_by_driver.lock().expect("never poisoned") = requests.pop();
-            Box::pin(ready(vec![Ok(declared(DECLARED_ADDRESS))]))
-        });
-    answer_no_callback_read(&mut driver);
+    driver.expect_read_mcp_sign_in_entry().times(1).return_once(
+        move |request, _is_owner_client_secret_read| {
+            *asked_by_driver.lock().expect("never poisoned") = Some(request);
+            Box::pin(ready(Ok(entry_reading(declared(DECLARED_ADDRESS)))))
+        },
+    );
     let sources = test_sources(vec![Arc::new(driver)]).await;
     let connection = sources.database.reader();
     for row in project_and_mount_rows(PROJECT_ID, None) {

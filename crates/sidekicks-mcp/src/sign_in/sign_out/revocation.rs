@@ -19,6 +19,9 @@
 //!   still revokes; a sign-in that recorded none discovers it, and a recorded address that does
 //!   not read revokes nothing, since the sign-in is already forgotten and no other address is
 //!   known to name its authorization server.
+//! - A sign-in made as the client the server's owner issued keeps no secret: the revocation reads
+//!   it again where the binding's provider keeps it, before the call's bound starts, so a
+//!   revocation after the entry's removal, which leaves no secret to read, is logged unsent.
 
 use std::sync::Arc;
 
@@ -28,8 +31,10 @@ use reqwest::{Method, StatusCode, Url};
 use rmcp::transport::auth::{
     AuthError, AuthorizationManager, AuthorizationMetadata, OAuthHttpClient,
 };
+use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::credential_store::KeychainRefusal;
 use tokio_util::sync::CancellationToken;
 
@@ -42,6 +47,7 @@ use crate::sign_in::credential_store::HeldSignIn;
 use crate::sign_in::oauth_http_client::{
     CALL_TIMEOUT, OAuthCall, OAuthCallError, ServerOAuthHttpClient,
 };
+use crate::sign_in::server::OwnerClientSecretReads;
 use crate::sign_in::service::{NamedMetadataError, SignInService, read_named_metadata};
 
 /// The metadata field (RFC 8414 §2) naming the authorization server's revocation endpoint.
@@ -74,6 +80,9 @@ enum RevocationError {
     /// The revocation did not finish within the OAuth call bound.
     #[error("the MCP server's revocation did not finish in time")]
     TimedOut,
+    /// The secret of the client the server's owner issued could not be read again.
+    #[error("the secret of the MCP server owner's client could not be read for its revocation")]
+    OwnerClientSecret(#[source] HandlerError),
 }
 
 impl SignInService {
@@ -116,6 +125,7 @@ impl SignInService {
                 address,
                 held,
                 None,
+                Arc::clone(&self.owner_client_secrets),
                 self.revocations.token().clone(),
             );
         }
@@ -126,25 +136,38 @@ impl SignInService {
 /// Revokes `held`'s refresh token at `address`'s authorization server through `client`, on a task
 /// `stop` ends, logging a revocation that fails or runs past the OAuth call bound. The server's
 /// `metadata` is the caller's where it has it; with `None` the task reads it at the address `held`
-/// recorded, or discovers it where `held` recorded none.
+/// recorded, or discovers it where `held` recorded none. A sign-in made as an owner's client has
+/// its secret read again through `owner_client_secrets` first.
 pub(crate) fn revoke_on_task(
     client: Arc<ServerOAuthHttpClient>,
     address: McpServerAddress,
     held: Arc<HeldSignIn>,
     metadata: Option<AuthorizationMetadata>,
+    owner_client_secrets: Arc<dyn OwnerClientSecretReads>,
     stop: CancellationToken,
 ) {
     tokio::spawn(async move {
+        let revocation = async {
+            let owner_secret = match &held.owner_client_binding {
+                Some(binding) => owner_client_secrets
+                    .read_owner_client_secret(binding)
+                    .await
+                    .map_err(RevocationError::OwnerClientSecret)?,
+                None => None,
+            };
+            let client_secret = owner_secret.as_ref().or(held.client_secret.as_ref());
+            tokio::time::timeout(
+                CALL_TIMEOUT,
+                revoke(client, &address, &held, client_secret, metadata),
+            )
+            .await
+            .map_err(|_elapsed| RevocationError::TimedOut)?
+        };
         tokio::select! {
             () = stop.cancelled() => {}
-            revoked = tokio::time::timeout(
-                CALL_TIMEOUT,
-                revoke(client, &address, &held, metadata),
-            ) => {
-                let failure = match revoked {
-                    Ok(Ok(())) => return,
-                    Ok(Err(failure)) => failure,
-                    Err(_elapsed) => RevocationError::TimedOut,
+            revoked = revocation => {
+                let Err(failure) = revoked else {
+                    return;
                 };
                 tracing::warn!(
                     error = &failure as &(dyn std::error::Error + 'static),
@@ -157,13 +180,14 @@ pub(crate) fn revoke_on_task(
 
 // Posts `held`'s refresh token to the revocation endpoint the server's metadata publishes, through
 // `client`, signed with the sign-in's proof key when it holds one and authenticated with its
-// client's secret when it holds one; no refresh token or no published endpoint sends nothing. The
+// client's secret, `client_secret`, where one is given; no refresh token or no published endpoint sends nothing. The
 // metadata is `metadata` where given, else read at `held`'s recorded address, else discovered at
 // `address`.
 async fn revoke(
     client: Arc<ServerOAuthHttpClient>,
     address: &McpServerAddress,
     held: &HeldSignIn,
+    client_secret: Option<&SecretString>,
     metadata: Option<AuthorizationMetadata>,
 ) -> Result<(), RevocationError> {
     let Some(refresh_token) = held
@@ -215,7 +239,7 @@ async fn revoke(
         CONTENT_TYPE,
         HeaderValue::from_static("application/x-www-form-urlencoded"),
     );
-    if let Some(client_secret) = &held.client_secret {
+    if let Some(client_secret) = client_secret {
         ClientSecretAuthentication {
             client_id: &held.credentials.client_id,
             client_secret,

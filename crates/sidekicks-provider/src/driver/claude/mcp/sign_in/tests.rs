@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use rstest::rstest;
+use secrecy::ExposeSecret;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -134,6 +135,7 @@ fn request(
         server_address: address(),
         every_project_rows: Vec::new(),
         project_rows: Vec::new(),
+        owner_client_secret: None,
         lifetime: Duration::from_secs(30),
         authorization_url,
         browser_return: ProviderSignInReturn::ThroughDaemonReceiver {
@@ -207,7 +209,13 @@ fn a_saved_sign_in_matches_by_name_and_address_and_its_expiry_reads_in_milliseco
     );
     assert_eq!(takeover.scopes, ["read", "write"]);
     assert_eq!(takeover.client_id, "client-one");
-    assert_eq!(takeover.client_secret.as_deref(), Some("secret-one"));
+    assert_eq!(
+        takeover
+            .client_secret
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("secret-one")
+    );
     assert_eq!(
         takeover.issuer.as_deref(),
         Some("https://auth.example.test")
@@ -295,7 +303,13 @@ async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
     let signed_in = signed_in.expect("the keychain's sign-in reads back");
 
     assert_eq!(signed_in.access_token, "access-one");
-    assert_eq!(signed_in.client_secret.as_deref(), Some("secret-one"));
+    assert_eq!(
+        signed_in
+            .client_secret
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("secret-one")
+    );
     let [start] = scripted
         .starts
         .take_sign_in_starts()

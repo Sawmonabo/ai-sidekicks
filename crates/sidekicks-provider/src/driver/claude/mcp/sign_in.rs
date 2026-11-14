@@ -17,7 +17,9 @@
 //! closed and the folder removed whatever the outcome, a dropped sign-in's included. The folder
 //! records the keychain account the item is filed under before the process starts, so a later
 //! start removes the item of a folder a stopped daemon left. The person's own folders are only
-//! read: for the entry, and for the secret of a client its owner issued.
+//! read: for the entry, and for the secret of a client its owner issued, which the folder's
+//! credentials file holds for the process before it starts, as the person's own credentials hold
+//! it for their Claude Code.
 
 pub(crate) mod address;
 pub(crate) mod owner_client_secret;
@@ -42,6 +44,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 use url::Url;
 
+use self::owner_client_secret::write_claude_owner_client_secret;
 use self::saved_credentials::{complete_client, holds_sign_in_for, read_saved_sign_in};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
@@ -216,6 +219,9 @@ pub(crate) struct ClaudeMcpSignInSources<'sources> {
     /// The servers of the administrator's MCP file Claude Code reads, `None` where none is
     /// deployed.
     pub(crate) managed_mcp_servers: Option<Map<String, Value>>,
+    /// The system's managed settings folder, whose files are the administrator's own on this
+    /// computer; `None` where the system has none.
+    pub(crate) administrator_settings_folder: Option<PathBuf>,
     /// The daemon's data folder.
     pub(crate) data_folder: &'sources Path,
     /// Each account's read of its organization's servers.
@@ -319,6 +325,11 @@ pub(crate) async fn sign_in_with_claude_client(
         )
         .await
         .map_err(|error| ClaudeSignInError::FolderUnmade(Box::new(error)))?;
+        if let Some(client_secret) = &request.owner_client_secret {
+            write_claude_owner_client_secret(&name, &entry, &environment, client_secret)
+                .await
+                .map_err(ClaudeSignInError::FolderUnmade)?;
+        }
         let mut keychain_item = KeychainItemRemoval {
             credentials: sources.credentials.clone(),
             environment: environment.clone(),

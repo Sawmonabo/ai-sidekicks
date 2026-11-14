@@ -7,6 +7,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use secrecy::SecretString;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -18,7 +19,7 @@ use url::Url;
 pub const BEARER_TOKEN_TYPE: &str = "Bearer";
 
 /// What the daemon asks a driver to sign in to through its provider's own client. Its `Debug`
-/// prints no server address and no environment row.
+/// prints no server address, no environment row and no secret.
 pub struct ProviderSignInTakeoverRequest {
     /// The account whose provider runs the flow.
     pub provider_account_id: ProviderAccountId,
@@ -37,6 +38,10 @@ pub struct ProviderSignInTakeoverRequest {
     /// The binding's project's own rows, which fill a variable in the entry's address over an
     /// `Every project` row of the same name; none for a binding with no project.
     pub project_rows: Vec<EnvironmentRow>,
+    /// The secret of the client the server's owner issued, as the driver's own read answered it,
+    /// for a provider whose own client reads it only where the driver puts it; `None` where the
+    /// entry names no such client or no secret is kept for it.
+    pub owner_client_secret: Option<SecretString>,
     /// How long the flow waits for the person in the browser before it ends unfinished.
     pub lifetime: Duration,
     /// Takes the authorization address the person's browser opens, sent once.
@@ -92,7 +97,7 @@ pub struct ProviderSignInTakeover {
     /// The client id the provider registered or used.
     pub client_id: String,
     /// The secret of a confidential client the provider registered, where it kept one.
-    pub client_secret: Option<String>,
+    pub client_secret: Option<SecretString>,
     /// The authorization server that issued the tokens, where the provider kept it.
     pub issuer: Option<String>,
 }
@@ -180,6 +185,31 @@ impl fmt::Debug for McpServerAddressReading {
     }
 }
 
+/// What a sign-in to one server reads from its entry in one read of the provider's config. Its
+/// `Debug` names no address and no secret.
+pub struct McpSignInEntryReading {
+    /// The whole address the entry declares.
+    pub address: McpServerAddressReading,
+    /// The redirect the provider's own client sends, where the provider's rule sets one.
+    pub callback: Option<McpSignInCallback>,
+    /// The secret of the client the server's owner issued, where it was asked for and is kept.
+    pub owner_client_secret: Option<SecretString>,
+}
+
+impl fmt::Debug for McpSignInEntryReading {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("McpSignInEntryReading")
+            .field("address", &self.address)
+            .field("callback", &self.callback)
+            .field(
+                "has_owner_client_secret",
+                &self.owner_client_secret.is_some(),
+            )
+            .finish()
+    }
+}
+
 /// The redirect a provider's own client sends at a sign-in to one server, in the two forms its
 /// rule picks between by whether the authorization server says it returns `iss` (RFC 9207), so
 /// an owner who registered the provider's redirect finds the daemon's identical. A form on a
@@ -188,7 +218,43 @@ impl fmt::Debug for McpServerAddressReading {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct McpSignInCallback {
     /// The redirect sent where the server returns `iss`.
-    pub with_issuer: Url,
+    pub with_issuer: RedirectAddress,
     /// The redirect sent where it does not.
-    pub without_issuer: Url,
+    pub without_issuer: RedirectAddress,
+}
+
+/// A redirect address as a sign-in sends it: its text byte for byte, which a server that matches
+/// redirects exactly compares, beside the address it parses to, where the receiver listens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedirectAddress {
+    text: String,
+    url: Url,
+}
+
+impl RedirectAddress {
+    /// The redirect `text` writes, sent as written. Fails where `text` is no address.
+    pub fn parse(text: &str) -> Result<Self, url::ParseError> {
+        Ok(Self {
+            url: Url::parse(text)?,
+            text: text.to_owned(),
+        })
+    }
+
+    /// The redirect `url` names, sent as it serializes.
+    pub fn from_url(url: Url) -> Self {
+        Self {
+            text: url.as_str().to_owned(),
+            url,
+        }
+    }
+
+    /// The text sent.
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    /// The address the text parses to.
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
 }

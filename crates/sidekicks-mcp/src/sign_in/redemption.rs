@@ -537,11 +537,11 @@ mod tests {
     }
 
     /// A client its owner issued with a secret signs in with that secret: the code's exchange
-    /// sends it beside the owner's id, and the keychain keeps it with the sign-in for each
-    /// renewal, while no event, no row or file of the database and no log line carries it.
-    /// Killed by the owner's secret left off the client the exchange goes through (no
-    /// `client_secret` in the token form, none kept), and by any event, row or log line that
-    /// writes it.
+    /// sends it beside the owner's id, and the keychain keeps not it but the binding its secret
+    /// is read through again for each renewal, while no event, no row or file of the database
+    /// and no log line carries it. Killed by the owner's secret left off the client the exchange
+    /// goes through (no `client_secret` in the token form), by the secret kept with the sign-in
+    /// or its binding not kept, and by any event, row or log line that writes it.
     #[tokio::test]
     async fn an_owners_client_secret_reaches_the_token_endpoint_and_no_row_or_log() {
         const OWNER_CLIENT_SECRET: &str = "test-owner-client-secret";
@@ -596,10 +596,11 @@ mod tests {
             .await
             .expect("the keychain answers")
             .expect("the sign-in is kept");
-        assert_eq!(
-            held.client_secret.as_ref().map(ExposeSecret::expose_secret),
-            Some(OWNER_CLIENT_SECRET)
+        assert!(
+            held.client_secret.is_none(),
+            "the owner's secret is not kept"
         );
+        assert_eq!(held.owner_client_binding.as_ref(), Some(&target.binding));
         let completions = Value::from(harness.completions()).to_string();
         assert!(completions.contains("success"), "{completions}");
         assert!(!completions.contains(OWNER_CLIENT_SECRET), "{completions}");

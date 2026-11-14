@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -45,7 +45,7 @@ use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::login_notices::{LoginNotice, LoginNotices};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, McpServerAddressRead, McpServerAddressReading, McpSignInCallback,
+    BEARER_TOKEN_TYPE, McpServerAddressRead, McpServerAddressReading, McpSignInEntryReading,
     NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
@@ -180,9 +180,6 @@ pub(crate) async fn sign_in_with_codex_client(
                 binding: request.binding.clone(),
             })
         })?;
-    // Codex keeps no client secret in its saved sign-in, so the one its entry configures is kept.
-    let configured_client_secret =
-        read_owner_client_secret(&entry).map(|secret| secret.expose_secret().to_owned());
     let callback_settings = entries
         .read_callback_settings(request.root_folder.as_deref())
         .await?;
@@ -200,12 +197,7 @@ pub(crate) async fn sign_in_with_codex_client(
     let signed_in = run_login(&service, &name, request.lifetime, request.authorization_url).await;
     service.stop().await;
     let read = match signed_in {
-        Ok(()) => read_saved_sign_in(folder.path(), &name, &request.server_address)
-            .await
-            .map(|takeover| ProviderSignInTakeover {
-                client_secret: configured_client_secret,
-                ..takeover
-            }),
+        Ok(()) => read_saved_sign_in(folder.path(), &name, &request.server_address).await,
         Err(error) => Err(error),
     };
     match (read, folder.remove().await) {
@@ -239,23 +231,29 @@ pub(crate) async fn read_codex_server_addresses(
         let entry = entries
             .read(&request.binding, request.root_folder.as_deref())
             .await;
-        readings.push(entry.and_then(|entry| {
-            let Some(url) = entry
-                .as_ref()
-                .and_then(|entry| entry.get(URL_MEMBER))
-                .and_then(Value::as_str)
-            else {
-                return Err(DriverError::from(NoPersonServerEntry {
-                    binding: request.binding.clone(),
-                }));
-            };
-            Ok(McpServerAddress::new(url).map_or(
-                McpServerAddressReading::Unreadable,
-                McpServerAddressReading::Declared,
-            ))
-        }));
+        readings.push(entry.and_then(|entry| read_entry_address(entry.as_ref(), &request.binding)));
     }
     readings
+}
+
+// The whole address `entry`, `binding`'s, declares in its `url`. Fails with `NoPersonServerEntry`
+// where there is no entry or it names no `url`.
+fn read_entry_address(
+    entry: Option<&Map<String, Value>>,
+    binding: &McpServerBindingRef,
+) -> Result<McpServerAddressReading, DriverError> {
+    let Some(url) = entry
+        .and_then(|entry| entry.get(URL_MEMBER))
+        .and_then(Value::as_str)
+    else {
+        return Err(DriverError::from(NoPersonServerEntry {
+            binding: binding.clone(),
+        }));
+    };
+    Ok(McpServerAddress::new(url).map_or(
+        McpServerAddressReading::Unreadable,
+        McpServerAddressReading::Declared,
+    ))
 }
 
 /// The secret the client of `request`'s server entry holds, read as Codex reads it for a sign-in:
@@ -278,29 +276,37 @@ pub(crate) async fn read_codex_owner_client_secret(
     Ok(read_owner_client_secret(&entry))
 }
 
-/// The redirect Codex's own client sends at a sign-in to `request`'s server, from the entry its
-/// config or the plugin's file declares and the global callback settings its config at the
-/// binding's root, else at `home_folder`, sets; `None` where Codex listens on a free port at a
-/// path it registers itself. Fails with [`DriverError::NoPersonServerEntry`] for a connector and
-/// an entry that is gone, and as a config read fails.
-pub(crate) async fn read_codex_sign_in_callback(
+/// What a sign-in to `request`'s server reads from the entry Codex's config or the plugin's file
+/// declares, Codex's config read once at the binding's root, else at `home_folder`: the entry's
+/// whole address, the redirect Codex's own client sends with the global callback settings that
+/// config sets, `None` where Codex listens on a free port at a path it registers itself, and,
+/// where `is_owner_client_secret_read`, the secret the entry's client holds. Fails with
+/// [`DriverError::NoPersonServerEntry`] for a connector and an entry that is gone or names no
+/// `url`, and as a config read fails.
+pub(crate) async fn read_codex_sign_in_entry(
     registry: &CodexServiceRegistry,
     home_folder: &Path,
     request: McpServerAddressRead,
-) -> Result<Option<McpSignInCallback>, DriverError> {
+    is_owner_client_secret_read: bool,
+) -> Result<McpSignInEntryReading, DriverError> {
     let mut entries = CodexServerEntryReader::new(registry, home_folder);
     let entry = entries
         .read(&request.binding, request.root_folder.as_deref())
-        .await?
-        .ok_or_else(|| {
-            DriverError::from(NoPersonServerEntry {
-                binding: request.binding.clone(),
-            })
-        })?;
+        .await?;
+    let address = read_entry_address(entry.as_ref(), &request.binding)?;
+    let entry = entry.expect("an entry whose address read is present");
     let settings = entries
         .read_callback_settings(request.root_folder.as_deref())
         .await?;
-    Ok(resolve_codex_sign_in_callback(&entry, settings))
+    Ok(McpSignInEntryReading {
+        address,
+        callback: resolve_codex_sign_in_callback(&entry, settings),
+        owner_client_secret: if is_owner_client_secret_read {
+            read_owner_client_secret(&entry)
+        } else {
+            None
+        },
+    })
 }
 
 // Reads server entries for one sign-in or one batch of address reads, Codex's config read once at

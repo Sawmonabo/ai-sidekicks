@@ -21,6 +21,7 @@ use reqwest::StatusCode;
 use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata, OAuthClientConfig};
 use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_provider::driver::contract::sign_in::RedirectAddress;
 use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
 
@@ -71,8 +72,8 @@ impl RelayAddress {
 pub(crate) struct ClientRequest<'a> {
     /// The digest the server's sign-in and admitted client are kept under.
     pub(crate) server_digest: &'a ServerAddressDigest,
-    /// The redirect address registered and listened on.
-    pub(crate) redirect_address: &'a Url,
+    /// The redirect address registered and listened on, whose text is sent.
+    pub(crate) redirect_address: &'a RedirectAddress,
     /// The `client_id` the server's owner issued, when the entry names one.
     pub(crate) owner_client_id: Option<&'a str>,
     /// The secret issued with `owner_client_id`, which the token exchange and each renewal send.
@@ -181,7 +182,7 @@ pub(crate) async fn choose_client(
             reason: SignInUnsupportedReason::NoSignInRoute,
         };
     }
-    if !is_loopback_address(request.redirect_address) {
+    if !is_loopback_address(request.redirect_address.url()) {
         return provider_flow();
     }
     // A server that does not list `S256` may ignore the challenge, so the daemon's own client never
@@ -198,9 +199,9 @@ pub(crate) async fn choose_client(
         };
     }
     let has_registration_endpoint = metadata.registration_endpoint.is_some();
-    let document_client_id = relay
-        .port()
-        .and_then(|relay| client_document_address(&metadata, relay, request.redirect_address));
+    let document_client_id = relay.port().and_then(|relay| {
+        client_document_address(&metadata, relay, request.redirect_address.url())
+    });
     manager.set_metadata(metadata);
     if let Some(client_id) = request.owner_client_id {
         let mut config = own_client_config(client_id, request);
